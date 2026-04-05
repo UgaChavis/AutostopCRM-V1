@@ -1,0 +1,4909 @@
+{
+  "schema_version": 5,
+  "columns": [
+    {
+      "id": "priemka",
+      "label": "ПРИЁМКА",
+      "position": 0
+    },
+    {
+      "id": "diagnostics",
+      "label": "ДИАГНОСТИКА",
+      "position": 1
+    },
+    {
+      "id": "electrics",
+      "label": "ЭЛЕКТРИКИ",
+      "position": 2
+    },
+    {
+      "id": "mechanics",
+      "label": "СЛЕСАРЯ",
+      "position": 3
+    },
+    {
+      "id": "body",
+      "label": "КУЗОВ",
+      "position": 4
+    },
+    {
+      "id": "machining",
+      "label": "ТОКАРКА",
+      "position": 5
+    },
+    {
+      "id": "parts",
+      "label": "ЗАПЧАСТИ",
+      "position": 6
+    },
+    {
+      "id": "approval",
+      "label": "СОГЛАСОВАНИЕ",
+      "position": 7
+    },
+    {
+      "id": "delivery",
+      "label": "ВЫДАЧА",
+      "position": 8
+    },
+    {
+      "id": "column_1",
+      "label": "MCP TEST COLUMN",
+      "position": 9
+    },
+    {
+      "id": "column_2",
+      "label": "Машины в ремонте",
+      "position": 10
+    }
+  ],
+  "cards": [
+    {
+      "id": "demo_kia_idle",
+      "vehicle": "KIA RIO",
+      "title": "ПЛАВАЕТ ХОЛОСТОЙ ХОД",
+      "description": "После ночной стоянки мотор держит обороты нестабильно, потом проваливается при включении кондиционера. Клиент уже менял свечи и чистил дроссель в другом сервисе, но улучшения почти не было. Нужно поднять короткую историю по последним работам, проверить подсос воздуха, адаптацию дросселя и реальное давление во впуске.",
+      "column": "priemka",
+      "archived": true,
+      "created_at": "2026-03-27T02:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:58:46.714752+00:00",
+      "deadline_timestamp": "2026-03-28T20:12:33.937175+00:00",
+      "deadline_total_seconds": 129600,
+      "tags": [
+        "ДИАГН",
+        "ПОВТОР"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_camry_start",
+      "vehicle": "CAMRY 70",
+      "title": "НЕТ ЗАПУСКА",
+      "description": "После двух суток простоя стартер крутит вяло и с провалом по напряжению. Прикуривание помогает не всегда, по словам клиента ошибка появляется нерегулярно. Нужно проверить силовую массу, падение на плюсовом проводе, втягивающее и состояние аккумулятора под нагрузкой.",
+      "column": "priemka",
+      "archived": true,
+      "created_at": "2026-03-26T13:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:54:19.372602+00:00",
+      "deadline_timestamp": "2026-03-31T02:52:45.804459+00:00",
+      "deadline_total_seconds": 259200,
+      "tags": [
+        "ЭЛЕКТРИКА",
+        "СРОЧНО"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_rav4_drain",
+      "vehicle": "RAV4",
+      "title": "УТЕЧКА ТОКА ПОСЛЕ СТОЯНКИ",
+      "description": "За двое суток стоянки полностью садится аккумулятор, при этом со слов клиента свет и мультимедиа выключены. Есть нештатная сигнализация и видеорегистратор через скрытый блок питания. Нужно провести замер покоя, поочерёдно снять потребители и подтвердить источник паразитной утечки.",
+      "column": "diagnostics",
+      "archived": true,
+      "created_at": "2026-03-26T21:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:57:57.708203+00:00",
+      "deadline_timestamp": "2026-03-31T02:52:41.898411+00:00",
+      "deadline_total_seconds": 259200,
+      "tags": [
+        "ЖДЁМ",
+        "ЭЛЕКТРИКА"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_sprinter_abs",
+      "vehicle": "SPRINTER",
+      "title": "СБОЙ ABS И ESP",
+      "description": "На приборной панели одновременно загораются ABS и ESP, ошибка возвращается после сброса почти сразу. Автомобиль коммерческий, клиент просит дать ответ по срокам уже сегодня. Нужна проверка датчиков, проводки и состояния ступицы с особым вниманием к заднему левому колесу.",
+      "column": "priemka",
+      "archived": true,
+      "created_at": "2026-03-26T19:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:44:59.938090+00:00",
+      "deadline_timestamp": "2026-03-29T05:52:49.531472+00:00",
+      "deadline_total_seconds": 97200,
+      "tags": [
+        "СРОЧНО",
+        "КОММЕРЧЕСКИЙ"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_solaris_headlight",
+      "vehicle": "SOLARIS",
+      "title": "НЕ ГОРИТ БЛИЖНИЙ СВЕТ",
+      "description": "Левая фара не включается даже после замены лампы. Клиент несколько раз менял лампы сам и подозревает блок предохранителей, но симптомы плавающие. Нужно проверить питание, массу фары, разъём и управляющую цепь реле.",
+      "column": "machining",
+      "archived": true,
+      "created_at": "2026-03-27T06:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:54:38.800411+00:00",
+      "deadline_timestamp": "2026-03-31T02:53:05.504820+00:00",
+      "deadline_total_seconds": 259200,
+      "tags": [
+        "ЭЛЕКТРИКА",
+        "БЫСТРО"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_focus_vibration",
+      "vehicle": "FOCUS 3",
+      "title": "БИЕНИЕ ПРИ ТОРМОЖЕНИИ",
+      "description": "При торможении со скорости 90-100 км/ч руль начинает бить, а педаль отдаёт в ногу. Клиент недавно менял диски и колодки, но пробег после ремонта небольшой. Нужно проверить плоскость ступицы, биение диска и состояние направляющих суппорта.",
+      "column": "mechanics",
+      "archived": true,
+      "created_at": "2026-03-27T02:42:33.937175+00:00",
+      "updated_at": "2026-04-01T18:57:45.527248+00:00",
+      "deadline_timestamp": "2026-04-01T05:18:02.412261+00:00",
+      "deadline_total_seconds": 345600,
+      "tags": [
+        "ТЕСТ-ДРАЙВ",
+        "ПОДВЕСКА"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_largus_hub",
+      "vehicle": "LARGUS",
+      "title": "ШУМ ПЕРЕДНЕЙ СТУПИЦЫ",
+      "description": "При движении после 60 км/ч появляется нарастающий гул справа, особенно на дуге влево. Клиент просит сделать за один визит, если подшипник подтвердится. Нужно зафиксировать люфт, проверить состояние посадки и подготовить замену.",
+      "column": "body",
+      "archived": true,
+      "created_at": "2026-03-27T02:00:33.937175+00:00",
+      "updated_at": "2026-04-01T18:47:10.252736+00:00",
+      "deadline_timestamp": "2026-03-30T06:13:42.120852+00:00",
+      "deadline_total_seconds": 93600,
+      "tags": [
+        "ПОДВЕСКА",
+        "ЖДЁМ"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_duster_pump",
+      "vehicle": "DUSTER",
+      "title": "ТЕЧЬ ПОМПЫ И АНТИФРИЗ",
+      "description": "По корпусу помпы заметны свежие подтёки, уровень антифриза падает, на горячую слышен лёгкий посвист. Клиент согласен на замену, но просит сообщить по списку сопутствующих деталей заранее. Нужно проверить привод, состояние ремня и собрать комплект расходников.",
+      "column": "machining",
+      "archived": true,
+      "created_at": "2026-03-27T01:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:54:53.096234+00:00",
+      "deadline_timestamp": "2026-03-29T07:18:09.210596+00:00",
+      "deadline_total_seconds": 93600,
+      "tags": [
+        "ОХЛАЖДЕНИЕ",
+        "ЗАКАЗАТЬ"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_rapid_body",
+      "vehicle": "RA",
+      "title": "ПРАВОЕ КРЫЛО И БАМПЕР",
+      "description": "После парковочного удара замято правое переднее крыло, бампер ушёл с клипс, есть скол по кромке фары. Клиент просит минимальный срок и аккуратный подбор по цвету без лишней перекраски элементов. Нужно оценить разбор, геометрию креплений и список расходников по кузову.",
+      "column": "body",
+      "archived": true,
+      "created_at": "2026-03-26T20:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:46:50.624986+00:00",
+      "deadline_timestamp": "2026-03-30T07:13:44.418707+00:00",
+      "deadline_total_seconds": 97200,
+      "tags": [
+        "КУЗОВ",
+        "СОГЛАСОВАТЬ"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_hilux_door",
+      "vehicle": "HILUX",
+      "title": "ПЕТЛЯ ЗАДНЕЙ ДВЕРИ И ПРОВИС",
+      "description": "Задняя правая дверь просела, закрывается только с доводом, петля уже имеет следы предыдущего ремонта. Клиент использует автомобиль в хозяйстве и просит усилить узел, а не только отрегулировать. Нужно решить, хватит ли сварки и токарной втулки или целесообразна полная замена петли.",
+      "column": "body",
+      "archived": true,
+      "created_at": "2026-03-26T17:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:46:17.277095+00:00",
+      "deadline_timestamp": "2026-03-30T10:13:54.280855+00:00",
+      "deadline_total_seconds": 108000,
+      "tags": [
+        "КУЗОВ",
+        "ТОКАРКА"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_gazelle_weld",
+      "vehicle": "ГАЗЕЛЬ NEXT",
+      "title": "КРОНШТЕЙН ГЛУШИТЕЛЯ",
+      "description": "На коммерческой машине оторван кронштейн задней части выхлопа, кузов дребезжит на кочках. Нужна оперативная сварка и простая усилительная пластина без долгого простоя. После ремонта важно проверить, не тянет ли трубу и не бьёт ли в раму.",
+      "column": "body",
+      "archived": true,
+      "created_at": "2026-03-27T06:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:45:50.861524+00:00",
+      "deadline_timestamp": "2026-03-30T06:14:02.884496+00:00",
+      "deadline_total_seconds": 93600,
+      "tags": [
+        "КОММЕРЧЕСКИЙ",
+        "БЫСТРО"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_octavia_timing",
+      "vehicle": "OCTAVIA",
+      "title": "ЗАКАЗ КОМПЛЕКТА ГРМ",
+      "description": "После согласования клиент подтвердил замену ГРМ комплектом. Нужно заказать ремень, ролики, помпу и убедиться, что поставщик привезёт детали в первой половине дня. Работу планируют ставить на завтра без второго разбора.",
+      "column": "parts",
+      "archived": true,
+      "created_at": "2026-03-27T04:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:58:10.781610+00:00",
+      "deadline_timestamp": "2026-03-28T02:12:33.937175+00:00",
+      "deadline_total_seconds": 108000,
+      "tags": [
+        "ЗАКАЗ",
+        "СОГЛАСОВАНО"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_crafter_relay",
+      "vehicle": "CRAFTER",
+      "title": "ОЖИДАНИЕ РЕЛЕ СТАРТЕРА",
+      "description": "Реле стартера всё ещё не приехало, а машина нужна на линию утром. Поставщик несколько раз переносил отгрузку, поэтому нужен плотный контроль и запасной вариант с аналогом. Карточка должна постоянно напоминать о созвоне и альтернативном канале поставки.",
+      "column": "parts",
+      "archived": true,
+      "created_at": "2026-03-26T17:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:51:04.074161+00:00",
+      "deadline_timestamp": "2026-03-29T09:03:42.701921+00:00",
+      "deadline_total_seconds": 97200,
+      "tags": [
+        "ЖДЁМ",
+        "ПОСТАВЩИК"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_patriot_cross",
+      "vehicle": "PATRIOT",
+      "title": "КРЕСТОВИНА КАРДАНА",
+      "description": "На разгоне идёт вибрация и металлический щелчок при трогании. Есть подозрение на переднюю крестовину, но клиент просит одновременно проверить подвесной. Нужно снять кардан, оценить люфты и понять, идём ли в замену узла целиком или точечно.",
+      "column": "mechanics",
+      "archived": true,
+      "created_at": "2026-03-27T00:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:48:29.169920+00:00",
+      "deadline_timestamp": "2026-03-29T08:26:04.804814+00:00",
+      "deadline_total_seconds": 97200,
+      "tags": [
+        "ТРАНСМИССИЯ",
+        "ДИАГН"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_bmw_oil",
+      "vehicle": "BMW X5",
+      "title": "ТЕЧЬ МАСЛА ПО КОРПУСУ ФИЛЬТРА",
+      "description": "По корпусу фильтра и теплообменнику идёт запотевание, масло уходит понемногу, но стабильно. Клиент хочет понять полный состав работ до начала разбора и не хочет повторного визита через неделю. Нужно подготовить перечень прокладок, оценить время и согласовать цену заранее.",
+      "column": "priemka",
+      "archived": true,
+      "created_at": "2026-03-26T23:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:42:21.817636+00:00",
+      "deadline_timestamp": "2026-03-31T04:14:15.458815+00:00",
+      "deadline_total_seconds": 172800,
+      "tags": [
+        "СОГЛАСОВАТЬ",
+        "МАСЛО"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_granta_clutch",
+      "vehicle": "GRANTA",
+      "title": "СЦЕПЛЕНИЕ БЕРЁТ В САМОМ ВЕРХУ",
+      "description": "Педаль работает, но схватывание почти в конце хода, на подъёме машина пахнет сцеплением. Клиенту важно понимать, можно ли дотянуть до конца недели или лучше делать сразу. Нужно дать аргументированное решение и предложить варианты по комплекту.",
+      "column": "approval",
+      "archived": true,
+      "created_at": "2026-03-27T02:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:47:40.232193+00:00",
+      "deadline_timestamp": "2026-03-30T06:13:39.087998+00:00",
+      "deadline_total_seconds": 93600,
+      "tags": [
+        "СОГЛАСОВАТЬ",
+        "ТРАНСМИССИЯ"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_xtrail_chain",
+      "vehicle": "X-TRAIL",
+      "title": "ЦЕПЬ ГРМ ШУМИТ НА ХОЛОДНУЮ",
+      "description": "На утреннем запуске цепь шумит 2-3 секунды, потом звук исчезает полностью. Клиенту уже озвучивали возможную замену, но он хочет второе мнение и понятную аргументацию по рискам. Нужно подготовить фото, описание симптомов и пакет на согласование.",
+      "column": "priemka",
+      "archived": true,
+      "created_at": "2026-03-26T21:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:44:38.043262+00:00",
+      "deadline_timestamp": "2026-03-30T06:14:28.485831+00:00",
+      "deadline_total_seconds": 93600,
+      "tags": [
+        "СОГЛАСОВАТЬ",
+        "ДВИГАТЕЛЬ"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_vesta_service",
+      "vehicle": "VESTA",
+      "title": "ТО-90 И КОЛОДКИ",
+      "description": "Работы завершены, автомобиль вымыт, осталось оформить выдачу и подтвердить время приезда клиента. Нужно только контрольное касание и закрытие документов без повторных согласований.",
+      "column": "priemka",
+      "archived": true,
+      "created_at": "2026-03-27T00:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:44:06.292241+00:00",
+      "deadline_timestamp": "2026-04-01T04:14:20.774620+00:00",
+      "deadline_total_seconds": 259200,
+      "tags": [
+        "ГОТОВО",
+        "КЛИЕНТ"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_outlander_throttle",
+      "vehicle": "OUTLANDER",
+      "title": "ПРОМЫВКА ДРОССЕЛЯ И АДАПТАЦИЯ",
+      "description": "Работа закончена, адаптация выполнена, мотор ровный. Нужно только контрольное подтверждение по времени приезда клиента и закрытие кассы.",
+      "column": "priemka",
+      "archived": true,
+      "created_at": "2026-03-27T09:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:44:26.641471+00:00",
+      "deadline_timestamp": "2026-04-01T04:14:24.036183+00:00",
+      "deadline_total_seconds": 259200,
+      "tags": [
+        "ГОТОВО",
+        "ЗВОНОК"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_polo_rack",
+      "vehicle": "POLO",
+      "title": "СТУК РУЛЕВОЙ РЕЙКИ",
+      "description": "На мелкой гребёнке появляется сухой стук, особенно на холодную. Нужно исключить наконечники и стойки, а затем уже идти в вывод по рейке, чтобы не перегреть клиента лишними работами. Карточка хороша как пример аккуратной поэтапной диагностики.",
+      "column": "priemka",
+      "archived": true,
+      "created_at": "2026-03-27T01:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:53:50.881263+00:00",
+      "deadline_timestamp": "2026-03-29T08:53:16.875733+00:00",
+      "deadline_total_seconds": 108000,
+      "tags": [
+        "ДИАГН",
+        "ПОДВЕСКА"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_ceed_hood",
+      "vehicle": "CEED",
+      "title": "ЗАМЕНА ТРОСА КАПОТА",
+      "description": "Капот открывается с усилием, трос идёт тяжело и уже надломлен у ручки. Нужно быстро поменять без лишнего простоя, потому что машина нужна клиенту в тот же день. Деталь простая, но важна аккуратность по клипсам и направляющим.",
+      "column": "priemka",
+      "archived": true,
+      "created_at": "2026-03-27T04:42:33.937175+00:00",
+      "updated_at": "2026-04-01T18:43:43.244733+00:00",
+      "deadline_timestamp": "2026-04-01T04:14:18.076623+00:00",
+      "deadline_total_seconds": 259200,
+      "tags": [
+        "СРОЧНО",
+        "ЖДЁМ"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_accent_window",
+      "vehicle": "ACCENT",
+      "title": "СТЕКЛОПОДЪЁМНИК ВОДИТЕЛЯ",
+      "description": "Стекло опускается рывками и иногда клинит в верхнем положении. Клиенту важно сделать без риска уронить стекло в дверь, потому что машина нужна в поездку. Нужно решить, хватит ли ремонта механизма или готовить замену мотор-редуктора.",
+      "column": "body",
+      "archived": true,
+      "created_at": "2026-03-27T03:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:57:29.911689+00:00",
+      "deadline_timestamp": "2026-03-29T07:18:05.878741+00:00",
+      "deadline_total_seconds": 93600,
+      "tags": [
+        "ЭЛЕКТРИКА",
+        "СОГЛАСОВАТЬ"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_tucson_subframe",
+      "vehicle": "TUCSON",
+      "title": "САЙЛЕНТБЛОК ПОДРАМНИКА",
+      "description": "На старте и при торможении кузов даёт короткий толчок, визуально подрамник уже смещается. Работа объёмная, поэтому важно заранее согласовать крепёж, геометрию и окно на подъёмнике. Нужно собрать комплект и дать клиенту честный план по срокам.",
+      "column": "priemka",
+      "archived": true,
+      "created_at": "2026-03-26T22:12:33.937175+00:00",
+      "updated_at": "2026-04-01T18:42:01.184020+00:00",
+      "deadline_timestamp": "2026-04-01T04:14:12.195211+00:00",
+      "deadline_total_seconds": 259200,
+      "tags": [
+        "СОГЛАСОВАТЬ",
+        "ПОДВЕСКА"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_tiguan_heater",
+      "vehicle": "TIGUAN",
+      "title": "ПРОВЕРКА ПЕЧКИ",
+      "description": "Диагностика выполнена, но клиент отложил ремонт до следующей недели и попросил сохранить результаты осмотра. Карточка остаётся в архиве как недавний отказ с понятной историей рекомендаций.",
+      "column": "diagnostics",
+      "archived": true,
+      "created_at": "2026-03-26T11:12:33.937175+00:00",
+      "updated_at": "2026-03-26T20:12:33.937175+00:00",
+      "deadline_timestamp": "2026-03-27T15:12:33.937175+00:00",
+      "deadline_total_seconds": 43200,
+      "tags": [
+        "АРХИВ",
+        "ОТКАЗ"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "demo_logan_exhaust",
+      "vehicle": "LOGAN",
+      "title": "ЗАМЕНА ГЛУШИТЕЛЯ",
+      "description": "Работа полностью завершена и оплачена. Карточка оставлена в архиве как свежий выполненный заказ для быстрой сверки по стоимости и срокам.",
+      "column": "delivery",
+      "archived": true,
+      "created_at": "2026-03-26T09:12:33.937175+00:00",
+      "updated_at": "2026-03-26T21:12:33.937175+00:00",
+      "deadline_timestamp": "2026-03-27T15:12:33.937175+00:00",
+      "deadline_total_seconds": 36000,
+      "tags": [
+        "АРХИВ",
+        "ГОТОВО"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "5d59f3f8-064b-4547-8b2b-35ca52d07192",
+      "vehicle": "апмиры ь",
+      "title": "аыпольыа",
+      "description": "вфапольв",
+      "column": "parts",
+      "archived": true,
+      "created_at": "2026-03-28T05:39:27.613915+00:00",
+      "updated_at": "2026-03-28T05:39:29.964009+00:00",
+      "deadline_timestamp": "2026-03-29T05:39:27.613915+00:00",
+      "deadline_total_seconds": 86400,
+      "tags": [],
+      "attachments": []
+    },
+    {
+      "id": "beb5def3-9069-4cba-9469-4441dca99ff7",
+      "vehicle": "TEST CAR UPDATED",
+      "title": "[MCP TEST] Обновление карточки",
+      "description": "Карточка обновлена через update_card в полном прогоне",
+      "column": "priemka",
+      "archived": true,
+      "created_at": "2026-04-01T17:41:50.912722+00:00",
+      "updated_at": "2026-04-01T18:45:35.735177+00:00",
+      "deadline_timestamp": "2026-04-01T21:18:44.954351+00:00",
+      "deadline_total_seconds": 21600,
+      "tags": [
+        "TEST",
+        "MCP",
+        "UPDATED"
+      ],
+      "attachments": []
+    },
+    {
+      "id": "accb1a78-eae9-44e9-8ff0-bb79aa132263",
+      "vehicle": "Suzuki Swift У521ВС124",
+      "title": "Пинки на D на прогретом моторе + замок багажника",
+      "description": "На полностью прогретом автомобиле при остановке на светофоре появляется заметный толчок при включенном режиме D. В движении и на холодную этот симптом не проявляется. Дополнительно не работает замок багажника: прежние попытки ремонта результата не дали, поэтому логично рассматривать замену узла, при необходимости — на исправный б/у вариант.",
+      "column": "priemka",
+      "archived": false,
+      "created_at": "2026-04-01T19:02:04.299450+00:00",
+      "updated_at": "2026-04-01T19:02:04.299450+00:00",
+      "deadline_timestamp": "2026-04-04T19:02:04.299450+00:00",
+      "deadline_total_seconds": 259200,
+      "tags": [
+        "АКПП",
+        "БАГАЖНИК",
+        "ПРОВЕРИТЬ",
+        "ЗАМЕНА"
+      ],
+      "attachments": []
+    }
+  ],
+  "stickies": [],
+  "events": [
+    {
+      "id": "demo_logan_exhaust_event_1",
+      "timestamp": "2026-03-26T09:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Заказ оформлен по записи на утро.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_logan_exhaust"
+    },
+    {
+      "id": "demo_tiguan_heater_event_1",
+      "timestamp": "2026-03-26T11:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Заявка заведена после жалобы на слабый обогрев салона.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_tiguan_heater"
+    },
+    {
+      "id": "demo_camry_start_event_1",
+      "timestamp": "2026-03-26T13:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Карточка заведена по жалобе на тяжёлый запуск после ночной стоянки.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_camry_start"
+    },
+    {
+      "id": "demo_camry_start_event_2",
+      "timestamp": "2026-03-26T15:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "Автомобиль принят на пост диагностики для замера падения напряжения.",
+      "details": {
+        "before_column": "ПРИЁМКА",
+        "after_column": "ДИАГНОСТИКА"
+      },
+      "card_id": "demo_camry_start"
+    },
+    {
+      "id": "demo_hilux_door_event_1",
+      "timestamp": "2026-03-26T17:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Карточка оформлена по жалобе на провис двери и тяжёлое закрывание.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_hilux_door"
+    },
+    {
+      "id": "demo_crafter_relay_event_1",
+      "timestamp": "2026-03-26T17:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Открыта карточка под заказ детали на коммерческий автомобиль.",
+      "details": {
+        "column": "ЗАПЧАСТИ"
+      },
+      "card_id": "demo_crafter_relay"
+    },
+    {
+      "id": "demo_tiguan_heater_event_2",
+      "timestamp": "2026-03-26T18:12:33.937175+00:00",
+      "actor_name": "ДИАГНОСТ",
+      "source": "ui",
+      "action": "diagnostic_note",
+      "message": "Рекомендуется замена радиатора печки, промывка не даст долгого эффекта.",
+      "details": {
+        "estimate": "после согласования"
+      },
+      "card_id": "demo_tiguan_heater"
+    },
+    {
+      "id": "demo_sprinter_abs_event_1",
+      "timestamp": "2026-03-26T19:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Карточка заведена по срочному корпоративному заказу с обещанием ответа в день обращения.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_sprinter_abs"
+    },
+    {
+      "id": "demo_logan_exhaust_event_2",
+      "timestamp": "2026-03-26T19:12:33.937175+00:00",
+      "actor_name": "СЛЕСАРЬ",
+      "source": "ui",
+      "action": "repair_finished",
+      "message": "Глушитель заменён, подвесы обновлены, посторонних касаний нет.",
+      "details": {
+        "result": "готово"
+      },
+      "card_id": "demo_logan_exhaust"
+    },
+    {
+      "id": "demo_sprinter_abs_event_2",
+      "timestamp": "2026-03-26T20:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "Автомобиль поставлен к электрикам на первичную проверку датчиков колес.",
+      "details": {
+        "before_column": "ПРИЁМКА",
+        "after_column": "ЭЛЕКТРИКИ"
+      },
+      "card_id": "demo_sprinter_abs"
+    },
+    {
+      "id": "demo_rapid_body_event_1",
+      "timestamp": "2026-03-26T20:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Карточка заведена после осмотра страхового повреждения.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_rapid_body"
+    },
+    {
+      "id": "demo_tiguan_heater_event_3",
+      "timestamp": "2026-03-26T20:12:33.937175+00:00",
+      "actor_name": "АДМИН",
+      "source": "ui",
+      "action": "card_archived",
+      "message": "Клиент попросил вернуться к вопросу позже, карточка убрана в архив.",
+      "details": {
+        "column": "ДИАГНОСТИКА"
+      },
+      "card_id": "demo_tiguan_heater"
+    },
+    {
+      "id": "demo_rav4_drain_event_1",
+      "timestamp": "2026-03-26T21:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Повторный заезд по жалобе на постоянный разряд АКБ.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_rav4_drain"
+    },
+    {
+      "id": "demo_hilux_door_event_2",
+      "timestamp": "2026-03-26T21:12:33.937175+00:00",
+      "actor_name": "КУЗОВЩИК",
+      "source": "ui",
+      "action": "diagnostic_note",
+      "message": "Подтверждён износ втулки, нижняя петля уже подваривалась раньше.",
+      "details": {
+        "wear": "сильный",
+        "next_step": "передать в токарку"
+      },
+      "card_id": "demo_hilux_door"
+    },
+    {
+      "id": "demo_xtrail_chain_event_1",
+      "timestamp": "2026-03-26T21:12:33.937175+00:00",
+      "actor_name": "ДИАГНОСТ",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Карточка открыта после холодного запуска и аудиофиксации шума.",
+      "details": {
+        "column": "СОГЛАСОВАНИЕ"
+      },
+      "card_id": "demo_xtrail_chain"
+    },
+    {
+      "id": "demo_logan_exhaust_event_3",
+      "timestamp": "2026-03-26T21:12:33.937175+00:00",
+      "actor_name": "АДМИН",
+      "source": "ui",
+      "action": "card_archived",
+      "message": "Карточка перенесена в архив после оплаты и выдачи автомобиля.",
+      "details": {
+        "column": "ВЫДАЧА"
+      },
+      "card_id": "demo_logan_exhaust"
+    },
+    {
+      "id": "demo_rapid_body_event_2",
+      "timestamp": "2026-03-26T22:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "Автомобиль поставлен на кузовной пост для уточнения скрытых повреждений.",
+      "details": {
+        "before_column": "ПРИЁМКА",
+        "after_column": "КУЗОВ"
+      },
+      "card_id": "demo_rapid_body"
+    },
+    {
+      "id": "demo_tucson_subframe_event_1",
+      "timestamp": "2026-03-26T22:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Карточка создана после осмотра подрамника и подтверждения смещения опоры.",
+      "details": {
+        "column": "СОГЛАСОВАНИЕ"
+      },
+      "card_id": "demo_tucson_subframe"
+    },
+    {
+      "id": "demo_rav4_drain_event_2",
+      "timestamp": "2026-03-26T22:42:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "Машина направлена к электрикам на длительный контроль потребления.",
+      "details": {
+        "before_column": "ПРИЁМКА",
+        "after_column": "ЭЛЕКТРИКИ"
+      },
+      "card_id": "demo_rav4_drain"
+    },
+    {
+      "id": "demo_bmw_oil_event_1",
+      "timestamp": "2026-03-26T23:12:33.937175+00:00",
+      "actor_name": "ДИАГНОСТ",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Карточка заведена после осмотра течи сверху по мотору.",
+      "details": {
+        "column": "СОГЛАСОВАНИЕ"
+      },
+      "card_id": "demo_bmw_oil"
+    },
+    {
+      "id": "demo_patriot_cross_event_1",
+      "timestamp": "2026-03-27T00:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Жалоба принята после короткого выезда и подтверждения щелчка.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_patriot_cross"
+    },
+    {
+      "id": "demo_vesta_service_event_1",
+      "timestamp": "2026-03-27T00:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Карточка ТО создана по утренней записи.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_vesta_service"
+    },
+    {
+      "id": "demo_duster_pump_event_1",
+      "timestamp": "2026-03-27T01:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Автомобиль принят с явной утечкой по контуру охлаждения.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_duster_pump"
+    },
+    {
+      "id": "demo_polo_rack_event_1",
+      "timestamp": "2026-03-27T01:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Карточка открыта по жалобе на сухой стук спереди на неровностях.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_polo_rack"
+    },
+    {
+      "id": "demo_largus_hub_event_1",
+      "timestamp": "2026-03-27T02:00:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Заказ оформлен после короткого тестового выезда с мастером.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_largus_hub"
+    },
+    {
+      "id": "demo_kia_idle_event_1",
+      "timestamp": "2026-03-27T02:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Карточка оформлена после утреннего приёма и жалобы на плавающие обороты.",
+      "details": {
+        "column": "ПРИЁМКА",
+        "client_note": "плавает после прогрева"
+      },
+      "card_id": "demo_kia_idle"
+    },
+    {
+      "id": "demo_granta_clutch_event_1",
+      "timestamp": "2026-03-27T02:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Карточка создана после первичной проверки хода педали и выезда.",
+      "details": {
+        "column": "СОГЛАСОВАНИЕ"
+      },
+      "card_id": "demo_granta_clutch"
+    },
+    {
+      "id": "demo_duster_pump_event_2",
+      "timestamp": "2026-03-27T02:24:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "Передано слесарям после осмотра и подтверждения следов антифриза.",
+      "details": {
+        "before_column": "ПРИЁМКА",
+        "after_column": "СЛЕСАРЯ"
+      },
+      "card_id": "demo_duster_pump"
+    },
+    {
+      "id": "demo_focus_vibration_event_1",
+      "timestamp": "2026-03-27T02:42:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Жалоба подтверждена в коротком тест-драйве с клиентом.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_focus_vibration"
+    },
+    {
+      "id": "demo_crafter_relay_event_2",
+      "timestamp": "2026-03-27T03:12:33.937175+00:00",
+      "actor_name": "СКЛАД",
+      "source": "ui",
+      "action": "supplier_contact",
+      "message": "Поставщик пообещал отгрузку до обеда, но не прислал трек.",
+      "details": {
+        "vendor": "Транзит-Партс"
+      },
+      "card_id": "demo_crafter_relay"
+    },
+    {
+      "id": "demo_patriot_cross_event_2",
+      "timestamp": "2026-03-27T03:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "Автомобиль направлен к слесарям на проверку карданной передачи.",
+      "details": {
+        "before_column": "ПРИЁМКА",
+        "after_column": "СЛЕСАРЯ"
+      },
+      "card_id": "demo_patriot_cross"
+    },
+    {
+      "id": "demo_accent_window_event_1",
+      "timestamp": "2026-03-27T03:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Карточка заведена после жалобы на рывки стекла и хруст в двери.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_accent_window"
+    },
+    {
+      "id": "demo_sprinter_abs_event_3",
+      "timestamp": "2026-03-27T04:12:33.937175+00:00",
+      "actor_name": "ЭЛЕКТРИК",
+      "source": "ui",
+      "action": "diagnostic_note",
+      "message": "Ошибки по заднему левому колесу подтверждены, сигнал с датчика нестабильный на прокрутке.",
+      "details": {
+        "scanner": "ABS RR-L",
+        "recommendation": "проверить ступицу"
+      },
+      "card_id": "demo_sprinter_abs"
+    },
+    {
+      "id": "demo_octavia_timing_event_1",
+      "timestamp": "2026-03-27T04:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Карточка создана после окончательного согласования работ с клиентом.",
+      "details": {
+        "column": "ЗАПЧАСТИ"
+      },
+      "card_id": "demo_octavia_timing"
+    },
+    {
+      "id": "demo_focus_vibration_event_2",
+      "timestamp": "2026-03-27T04:24:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "Автомобиль поставлен к слесарям на контроль тормозного контура и ступиц.",
+      "details": {
+        "before_column": "ПРИЁМКА",
+        "after_column": "СЛЕСАРЯ"
+      },
+      "card_id": "demo_focus_vibration"
+    },
+    {
+      "id": "demo_ceed_hood_event_1",
+      "timestamp": "2026-03-27T04:42:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Карточка оформлена как быстрый заказ по жалобе на тугой капот.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_ceed_hood"
+    },
+    {
+      "id": "demo_kia_idle_event_2",
+      "timestamp": "2026-03-27T05:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "inspection_planned",
+      "message": "Назначена расширенная диагностика по впуску и обучению заслонки.",
+      "details": {
+        "slot": "после 15:00",
+        "priority": "обычная"
+      },
+      "card_id": "demo_kia_idle"
+    },
+    {
+      "id": "demo_largus_hub_event_2",
+      "timestamp": "2026-03-27T05:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "Передано слесарям для подъёма и проверки люфта ступицы.",
+      "details": {
+        "before_column": "ПРИЁМКА",
+        "after_column": "СЛЕСАРЯ"
+      },
+      "card_id": "demo_largus_hub"
+    },
+    {
+      "id": "demo_polo_rack_event_2",
+      "timestamp": "2026-03-27T05:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "Автомобиль переставлен в диагностику на проверку подвески и рулевого.",
+      "details": {
+        "before_column": "ПРИЁМКА",
+        "after_column": "ДИАГНОСТИКА"
+      },
+      "card_id": "demo_polo_rack"
+    },
+    {
+      "id": "demo_octavia_timing_event_2",
+      "timestamp": "2026-03-27T05:42:33.937175+00:00",
+      "actor_name": "СКЛАД",
+      "source": "ui",
+      "action": "parts_requested",
+      "message": "Сформирован запрос поставщику по VIN и каталожному списку.",
+      "details": {
+        "vendor": "Регион-Сервис",
+        "position_count": "4"
+      },
+      "card_id": "demo_octavia_timing"
+    },
+    {
+      "id": "demo_solaris_headlight_event_1",
+      "timestamp": "2026-03-27T06:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Мелкий заказ принят без предварительной записи.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_solaris_headlight"
+    },
+    {
+      "id": "demo_gazelle_weld_event_1",
+      "timestamp": "2026-03-27T06:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Коммерческий автомобиль принят как быстрый внеочередной заказ.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_gazelle_weld"
+    },
+    {
+      "id": "demo_xtrail_chain_event_2",
+      "timestamp": "2026-03-27T06:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "diagnostic_note",
+      "message": "По косвенным признакам растянута цепь, натяжитель срабатывает с задержкой.",
+      "details": {
+        "evidence": "шум на холодную, метки под вопросом"
+      },
+      "card_id": "demo_xtrail_chain"
+    },
+    {
+      "id": "demo_accent_window_event_2",
+      "timestamp": "2026-03-27T06:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "Передано электрикам для разборки двери и оценки механизма.",
+      "details": {
+        "before_column": "ПРИЁМКА",
+        "after_column": "ЭЛЕКТРИКИ"
+      },
+      "card_id": "demo_accent_window"
+    },
+    {
+      "id": "demo_tucson_subframe_event_2",
+      "timestamp": "2026-03-27T06:12:33.937175+00:00",
+      "actor_name": "СЛЕСАРЬ",
+      "source": "ui",
+      "action": "diagnostic_note",
+      "message": "Износ сайлентблока подтверждён, по одному из болтов есть риск закисания.",
+      "details": {
+        "risk": "крепёж",
+        "next_step": "готовить комплект"
+      },
+      "card_id": "demo_tucson_subframe"
+    },
+    {
+      "id": "demo_solaris_headlight_event_2",
+      "timestamp": "2026-03-27T06:36:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "Передано на участок электрики как быстрый вечерний заказ.",
+      "details": {
+        "before_column": "ПРИЁМКА",
+        "after_column": "ЭЛЕКТРИКИ"
+      },
+      "card_id": "demo_solaris_headlight"
+    },
+    {
+      "id": "demo_rav4_drain_event_3",
+      "timestamp": "2026-03-27T07:12:33.937175+00:00",
+      "actor_name": "ЭЛЕКТРИК",
+      "source": "ui",
+      "action": "diagnostic_note",
+      "message": "Зафиксировано потребление выше нормы после засыпания, подозрение на блок обходчика сигнализации.",
+      "details": {
+        "current": "0.42А",
+        "norm": "до 0.06А"
+      },
+      "card_id": "demo_rav4_drain"
+    },
+    {
+      "id": "demo_rapid_body_event_3",
+      "timestamp": "2026-03-27T07:12:33.937175+00:00",
+      "actor_name": "КУЗОВЩИК",
+      "source": "ui",
+      "action": "diagnostic_note",
+      "message": "Крыло ремонтопригодно, усилитель бампера целый, крепление фары требует замены направляющей.",
+      "details": {
+        "paint": "локально",
+        "parts": "направляющая, клипсы"
+      },
+      "card_id": "demo_rapid_body"
+    },
+    {
+      "id": "demo_gazelle_weld_event_2",
+      "timestamp": "2026-03-27T07:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "Передано на токарно-сварочный участок для изготовления усиления.",
+      "details": {
+        "before_column": "ПРИЁМКА",
+        "after_column": "ТОКАРКА"
+      },
+      "card_id": "demo_gazelle_weld"
+    },
+    {
+      "id": "demo_bmw_oil_event_2",
+      "timestamp": "2026-03-27T07:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "estimate_ready",
+      "message": "Смета подготовлена: прокладки корпуса, теплообменник, промывка зоны, долив масла.",
+      "details": {
+        "estimate": "расширенная"
+      },
+      "card_id": "demo_bmw_oil"
+    },
+    {
+      "id": "demo_vesta_service_event_2",
+      "timestamp": "2026-03-27T07:12:33.937175+00:00",
+      "actor_name": "СЛЕСАРЬ",
+      "source": "ui",
+      "action": "repair_finished",
+      "message": "ТО, фильтры и колодки завершены, посторонних замечаний не осталось.",
+      "details": {
+        "result": "готово"
+      },
+      "card_id": "demo_vesta_service"
+    },
+    {
+      "id": "demo_ceed_hood_event_2",
+      "timestamp": "2026-03-27T07:12:33.937175+00:00",
+      "actor_name": "СКЛАД",
+      "source": "ui",
+      "action": "parts_requested",
+      "message": "Оригинальный трос заказан, параллельно проверяется наличие аналога у местного поставщика.",
+      "details": {
+        "vendor": "Город-Авто"
+      },
+      "card_id": "demo_ceed_hood"
+    },
+    {
+      "id": "demo_camry_start_event_3",
+      "timestamp": "2026-03-27T08:00:33.937175+00:00",
+      "actor_name": "ДИАГНОСТ",
+      "source": "ui",
+      "action": "diagnostic_note",
+      "message": "На холодную зафиксирована просадка по плюсовому проводу стартера и нестабильная отдача АКБ.",
+      "details": {
+        "measured_drop": "1.4В",
+        "battery": "просадка до 9.3В"
+      },
+      "card_id": "demo_camry_start"
+    },
+    {
+      "id": "demo_hilux_door_event_3",
+      "timestamp": "2026-03-27T08:12:33.937175+00:00",
+      "actor_name": "МАСТЕР",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "Узел согласован к передаче на токарный участок под изготовление втулки.",
+      "details": {
+        "before_column": "КУЗОВ",
+        "after_column": "ТОКАРКА"
+      },
+      "card_id": "demo_hilux_door"
+    },
+    {
+      "id": "demo_granta_clutch_event_2",
+      "timestamp": "2026-03-27T09:12:33.937175+00:00",
+      "actor_name": "СЛЕСАРЬ",
+      "source": "ui",
+      "action": "diagnostic_note",
+      "message": "Пробуксовка подтверждена на четвёртой передаче, корзина и диск близки к концу ресурса.",
+      "details": {
+        "recommendation": "комплект сцепления"
+      },
+      "card_id": "demo_granta_clutch"
+    },
+    {
+      "id": "demo_outlander_throttle_event_1",
+      "timestamp": "2026-03-27T09:12:33.937175+00:00",
+      "actor_name": "ПРИЁМКА",
+      "source": "ui",
+      "action": "card_created",
+      "message": "Быстрый заказ добавлен в текущую смену без записи.",
+      "details": {
+        "column": "ПРИЁМКА"
+      },
+      "card_id": "demo_outlander_throttle"
+    },
+    {
+      "id": "demo_duster_pump_event_3",
+      "timestamp": "2026-03-27T10:12:33.937175+00:00",
+      "actor_name": "СЛЕСАРЬ",
+      "source": "ui",
+      "action": "repair_started",
+      "message": "Разобрана передняя часть привода, помпа мокрая по дренажному отверстию.",
+      "details": {
+        "bay": "М-3",
+        "comment": "рекомендуется комплектом"
+      },
+      "card_id": "demo_duster_pump"
+    },
+    {
+      "id": "demo_focus_vibration_event_3",
+      "timestamp": "2026-03-27T11:00:33.937175+00:00",
+      "actor_name": "СЛЕСАРЬ",
+      "source": "ui",
+      "action": "diagnostic_note",
+      "message": "На правой стороне зафиксировано повышенное биение диска и следы перекоса посадки.",
+      "details": {
+        "runout": "0.11 мм",
+        "limit": "0.05 мм"
+      },
+      "card_id": "demo_focus_vibration"
+    },
+    {
+      "id": "demo_sprinter_abs_event_4",
+      "timestamp": "2026-03-27T11:12:33.937175+00:00",
+      "actor_name": "ЭЛЕКТРИК",
+      "source": "ui",
+      "action": "inspection_extended",
+      "message": "Разобран разъём на задней балке, следов воды нет, но сопротивление датчика плавает.",
+      "details": {
+        "resistance": "скачет от 0.8 до 1.9 кОм"
+      },
+      "card_id": "demo_sprinter_abs"
+    },
+    {
+      "id": "demo_crafter_relay_event_3",
+      "timestamp": "2026-03-27T11:12:33.937175+00:00",
+      "actor_name": "СКЛАД",
+      "source": "ui",
+      "action": "alternate_source",
+      "message": "Найден запасной вариант через соседний склад, цена выше, но срок лучше.",
+      "details": {
+        "option": "аналог"
+      },
+      "card_id": "demo_crafter_relay"
+    },
+    {
+      "id": "demo_patriot_cross_event_3",
+      "timestamp": "2026-03-27T11:36:33.937175+00:00",
+      "actor_name": "СЛЕСАРЬ",
+      "source": "ui",
+      "action": "diagnostic_note",
+      "message": "Люфт по передней крестовине подтверждён, подвесной без критики, но резина уже уставшая.",
+      "details": {
+        "recommendation": "крестовина + наблюдать подвесной"
+      },
+      "card_id": "demo_patriot_cross"
+    },
+    {
+      "id": "demo_kia_idle_event_3",
+      "timestamp": "2026-03-27T11:42:33.937175+00:00",
+      "actor_name": "ДИСПЕТЧЕР",
+      "source": "ui",
+      "action": "call_logged",
+      "message": "Клиент подтвердил, что машину можно оставить до конца завтрашнего дня.",
+      "details": {
+        "agreement": "оставить до вечера"
+      },
+      "card_id": "demo_kia_idle"
+    },
+    {
+      "id": "demo_polo_rack_event_3",
+      "timestamp": "2026-03-27T11:54:33.937175+00:00",
+      "actor_name": "ДИАГНОСТ",
+      "source": "ui",
+      "action": "diagnostic_note",
+      "message": "Наконечники и тяги без люфта, стойки стабилизатора с минимальным износом, основное подозрение на рейку.",
+      "details": {
+        "next_step": "эндоскоп и контроль на вывешенной подвеске"
+      },
+      "card_id": "demo_polo_rack"
+    },
+    {
+      "id": "demo_solaris_headlight_event_3",
+      "timestamp": "2026-03-27T12:06:33.937175+00:00",
+      "actor_name": "ЭЛЕКТРИК",
+      "source": "ui",
+      "action": "diagnostic_note",
+      "message": "Питание на разъём приходит, но на корпусе фары обнаружена нестабильная масса.",
+      "details": {
+        "fault": "масса",
+        "next_step": "переобжать контакт"
+      },
+      "card_id": "demo_solaris_headlight"
+    },
+    {
+      "id": "demo_gazelle_weld_event_3",
+      "timestamp": "2026-03-27T12:12:33.937175+00:00",
+      "actor_name": "СВАРЩИК",
+      "source": "ui",
+      "action": "repair_started",
+      "message": "Кронштейн срезан, готовится пластина под усиление и новая геометрия подвеса.",
+      "details": {
+        "material": "сталь 4 мм"
+      },
+      "card_id": "demo_gazelle_weld"
+    },
+    {
+      "id": "demo_outlander_throttle_event_2",
+      "timestamp": "2026-03-27T12:12:33.937175+00:00",
+      "actor_name": "ЭЛЕКТРИК",
+      "source": "ui",
+      "action": "repair_finished",
+      "message": "Промывка и адаптация дросселя завершены, чеков и плавающих оборотов нет.",
+      "details": {
+        "result": "норма"
+      },
+      "card_id": "demo_outlander_throttle"
+    },
+    {
+      "id": "demo_xtrail_chain_event_3",
+      "timestamp": "2026-03-27T12:24:33.937175+00:00",
+      "actor_name": "АДМИН",
+      "source": "ui",
+      "action": "estimate_ready",
+      "message": "Собран предварительный список на согласование: цепь, башмаки, натяжитель, масло, прокладки.",
+      "details": {
+        "estimate": "под ключ"
+      },
+      "card_id": "demo_xtrail_chain"
+    },
+    {
+      "id": "demo_rapid_body_event_4",
+      "timestamp": "2026-03-27T12:42:33.937175+00:00",
+      "actor_name": "АДМИН",
+      "source": "ui",
+      "action": "estimate_ready",
+      "message": "Подготовлена смета на согласование с клиентом и по окраске.",
+      "details": {
+        "after_column": "СОГЛАСОВАНИЕ"
+      },
+      "card_id": "demo_rapid_body"
+    },
+    {
+      "id": "demo_camry_start_event_4",
+      "timestamp": "2026-03-27T12:48:33.937175+00:00",
+      "actor_name": "ДИАГНОСТ",
+      "source": "ui",
+      "action": "parts_estimate",
+      "message": "Подготовлен список: провод массы, клемма, возможное втягивающее после повторной проверки.",
+      "details": {
+        "estimate": "предварительный",
+        "next_step": "второй пуск утром"
+      },
+      "card_id": "demo_camry_start"
+    },
+    {
+      "id": "demo_accent_window_event_3",
+      "timestamp": "2026-03-27T12:48:33.937175+00:00",
+      "actor_name": "ЭЛЕКТРИК",
+      "source": "ui",
+      "action": "diagnostic_note",
+      "message": "Трос стеклоподъёмника распушился, мотор работает, стекло целое.",
+      "details": {
+        "repair": "механизм или сборка в комплекте"
+      },
+      "card_id": "demo_accent_window"
+    },
+    {
+      "id": "demo_bmw_oil_event_3",
+      "timestamp": "2026-03-27T13:00:33.937175+00:00",
+      "actor_name": "ДИСПЕТЧЕР",
+      "source": "ui",
+      "action": "customer_callback",
+      "message": "Клиент попросил перезвонить после согласования бюджета с бухгалтерией.",
+      "details": {
+        "status": "ждём ответ"
+      },
+      "card_id": "demo_bmw_oil"
+    },
+    {
+      "id": "demo_largus_hub_event_3",
+      "timestamp": "2026-03-27T13:06:33.937175+00:00",
+      "actor_name": "СЛЕСАРЬ",
+      "source": "ui",
+      "action": "diagnostic_note",
+      "message": "Люфт подтверждён, подшипник шумит, ступица без перегрева и синевы.",
+      "details": {
+        "bay": "М-1",
+        "repair": "замена ступичного подшипника"
+      },
+      "card_id": "demo_largus_hub"
+    },
+    {
+      "id": "demo_octavia_timing_event_3",
+      "timestamp": "2026-03-27T13:12:33.937175+00:00",
+      "actor_name": "СКЛАД",
+      "source": "ui",
+      "action": "supplier_contact",
+      "message": "Поставщик подтвердил наличие ремня и роликов, по помпе ждём обратный звонок.",
+      "details": {
+        "status": "частично подтверждено"
+      },
+      "card_id": "demo_octavia_timing"
+    },
+    {
+      "id": "demo_tucson_subframe_event_3",
+      "timestamp": "2026-03-27T13:24:33.937175+00:00",
+      "actor_name": "ДИСПЕТЧЕР",
+      "source": "ui",
+      "action": "customer_callback",
+      "message": "Клиент просил прислать итоговую сумму и время простоя до конца дня.",
+      "details": {
+        "deadline": "сегодня"
+      },
+      "card_id": "demo_tucson_subframe"
+    },
+    {
+      "id": "demo_focus_vibration_event_4",
+      "timestamp": "2026-03-27T13:30:33.937175+00:00",
+      "actor_name": "СЛЕСАРЬ",
+      "source": "ui",
+      "action": "repair_plan",
+      "message": "Подготовлен вариант: снять диск, зачистить плоскость ступицы, повторно измерить и согласовать замену при необходимости.",
+      "details": {
+        "status": "на согласовании"
+      },
+      "card_id": "demo_focus_vibration"
+    },
+    {
+      "id": "demo_vesta_service_event_3",
+      "timestamp": "2026-03-27T13:42:33.937175+00:00",
+      "actor_name": "АДМИН",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "Карточка перенесена в выдачу, документы и заказ-наряд готовы.",
+      "details": {
+        "before_column": "СЛЕСАРЯ",
+        "after_column": "ВЫДАЧА"
+      },
+      "card_id": "demo_vesta_service"
+    },
+    {
+      "id": "demo_duster_pump_event_4",
+      "timestamp": "2026-03-27T13:48:33.937175+00:00",
+      "actor_name": "СЛЕСАРЬ",
+      "source": "ui",
+      "action": "parts_requested",
+      "message": "Нужны помпа, ремень, ролик, свежий антифриз и комплект хомутов.",
+      "details": {
+        "after_column": "ЗАПЧАСТИ"
+      },
+      "card_id": "demo_duster_pump"
+    },
+    {
+      "id": "demo_ceed_hood_event_3",
+      "timestamp": "2026-03-27T13:54:33.937175+00:00",
+      "actor_name": "СКЛАД",
+      "source": "ui",
+      "action": "supplier_contact",
+      "message": "Подтверждена доставка детали в течение часа, можно готовить пост.",
+      "details": {
+        "status": "в пути"
+      },
+      "card_id": "demo_ceed_hood"
+    },
+    {
+      "id": "demo_rav4_drain_event_4",
+      "timestamp": "2026-03-27T14:06:33.937175+00:00",
+      "actor_name": "ДИСПЕТЧЕР",
+      "source": "ui",
+      "action": "customer_callback",
+      "message": "Клиенту обещан звонок после вечернего контрольного замера.",
+      "details": {
+        "deadline": "сегодня до 20:00"
+      },
+      "card_id": "demo_rav4_drain"
+    },
+    {
+      "id": "demo_granta_clutch_event_3",
+      "timestamp": "2026-03-27T14:12:33.937175+00:00",
+      "actor_name": "ДИСПЕТЧЕР",
+      "source": "ui",
+      "action": "customer_callback",
+      "message": "Нужно созвониться с клиентом до конца смены и подтвердить, идёт ли машина в ремонт завтра.",
+      "details": {
+        "deadline": "сегодня"
+      },
+      "card_id": "demo_granta_clutch"
+    },
+    {
+      "id": "demo_outlander_throttle_event_3",
+      "timestamp": "2026-03-27T14:18:33.937175+00:00",
+      "actor_name": "АДМИН",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "Автомобиль передан на выдачу, ждём клиента к вечеру.",
+      "details": {
+        "before_column": "ЭЛЕКТРИКИ",
+        "after_column": "ВЫДАЧА"
+      },
+      "card_id": "demo_outlander_throttle"
+    },
+    {
+      "id": "demo_crafter_relay_event_4",
+      "timestamp": "2026-03-27T14:36:33.937175+00:00",
+      "actor_name": "СКЛАД",
+      "source": "ui",
+      "action": "signal_expired",
+      "message": "Повторный созвон с поставщиком просрочен, решение по аналогу не принято.",
+      "details": {
+        "signal": "красный"
+      },
+      "card_id": "demo_crafter_relay"
+    },
+    {
+      "id": "demo_sprinter_abs_event_5",
+      "timestamp": "2026-03-27T14:48:33.937175+00:00",
+      "actor_name": "ДИСПЕТЧЕР",
+      "source": "ui",
+      "action": "signal_expired",
+      "message": "Контрольный звонок клиенту просрочен, карточка требует немедленного касания.",
+      "details": {
+        "signal": "красный"
+      },
+      "card_id": "demo_sprinter_abs"
+    },
+    {
+      "id": "78898459-a6be-4abb-aee2-e1d3ac22bc80",
+      "timestamp": "2026-03-27T15:23:00.392412+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T18:12:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-27T18:23:00.392388+00:00",
+        "before_total_seconds": 43200,
+        "after_total_seconds": 10800
+      },
+      "card_id": "demo_ceed_hood"
+    },
+    {
+      "id": "d30a8cce-1551-4442-8c23-16e46095573f",
+      "timestamp": "2026-03-27T15:23:00.392435+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "tag_removed",
+      "message": "UGA снял метку",
+      "details": {
+        "tag": "БЫСТРО"
+      },
+      "card_id": "demo_ceed_hood"
+    },
+    {
+      "id": "f8b6e8a2-caee-45bc-ade2-7d39d707742c",
+      "timestamp": "2026-03-27T15:23:00.392445+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "tag_removed",
+      "message": "UGA снял метку",
+      "details": {
+        "tag": "ЗАКАЗ"
+      },
+      "card_id": "demo_ceed_hood"
+    },
+    {
+      "id": "48f8724a-d4ab-419b-b6ca-60f2a17d9fb9",
+      "timestamp": "2026-03-27T15:23:00.392455+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "tag_added",
+      "message": "UGA добавил метку",
+      "details": {
+        "tag": "СРОЧНО"
+      },
+      "card_id": "demo_ceed_hood"
+    },
+    {
+      "id": "7279237e-d4af-4016-8925-d2ed576cc7bf",
+      "timestamp": "2026-03-27T15:23:00.392463+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "tag_added",
+      "message": "UGA добавил метку",
+      "details": {
+        "tag": "ЖДЁМ"
+      },
+      "card_id": "demo_ceed_hood"
+    },
+    {
+      "id": "5051d7c7-af20-408b-9380-ac9e73b2dd75",
+      "timestamp": "2026-03-27T15:23:00.392472+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "tags_changed",
+      "message": "UGA обновил набор меток",
+      "details": {
+        "before": [
+          "БЫСТРО",
+          "ЗАКАЗ"
+        ],
+        "after": [
+          "СРОЧНО",
+          "ЖДЁМ"
+        ]
+      },
+      "card_id": "demo_ceed_hood"
+    },
+    {
+      "id": "403ea609-fe4c-4c7f-9c4b-e2766dba2c73",
+      "timestamp": "2026-03-27T16:14:38.492830+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "delivery",
+        "after_column": "approval"
+      },
+      "card_id": "demo_outlander_throttle"
+    },
+    {
+      "id": "70700c30-d948-47f8-a623-118693ec92c9",
+      "timestamp": "2026-03-27T16:14:39.282018+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "approval",
+        "after_column": "parts"
+      },
+      "card_id": "demo_outlander_throttle"
+    },
+    {
+      "id": "cfd074de-8731-423a-ba08-c9ea996c73f4",
+      "timestamp": "2026-03-27T16:14:39.967401+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "machining",
+        "after_column": "body"
+      },
+      "card_id": "demo_gazelle_weld"
+    },
+    {
+      "id": "8904d2f6-4780-4bb3-92d7-056c8fb4dbcb",
+      "timestamp": "2026-03-27T16:14:43.916847+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "vehicle_changed",
+      "message": "UGA изменил машину карточки",
+      "details": {
+        "before": "RAPID",
+        "after": "RA"
+      },
+      "card_id": "demo_rapid_body"
+    },
+    {
+      "id": "c07bfc3c-7760-48e0-adfd-c03952a0a30d",
+      "timestamp": "2026-03-27T16:14:43.916884+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-28T22:12:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-28T22:14:43.916868+00:00",
+        "before_total_seconds": 259200,
+        "after_total_seconds": 108000
+      },
+      "card_id": "demo_rapid_body"
+    },
+    {
+      "id": "e17b4a71-72cd-4595-9ceb-2cf7115f8750",
+      "timestamp": "2026-03-27T16:14:48.200454+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T21:12:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-27T22:14:48.200434+00:00",
+        "before_total_seconds": 50400,
+        "after_total_seconds": 21600
+      },
+      "card_id": "demo_focus_vibration"
+    },
+    {
+      "id": "eb4e748d-7ba5-4620-9a2c-75c5786cabe8",
+      "timestamp": "2026-03-27T16:14:50.145191+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "mechanics",
+        "after_column": "body"
+      },
+      "card_id": "demo_patriot_cross"
+    },
+    {
+      "id": "72204739-91a1-4793-b7d2-8600ff8b28d8",
+      "timestamp": "2026-03-27T16:22:02.586911+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "diagnostics",
+        "after_column": "priemka"
+      },
+      "card_id": "demo_polo_rack"
+    },
+    {
+      "id": "f1207f02-4038-4ac2-bb5b-cd0ef4768321",
+      "timestamp": "2026-03-27T16:22:03.392093+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "priemka",
+        "after_column": "diagnostics"
+      },
+      "card_id": "demo_polo_rack"
+    },
+    {
+      "id": "50f66ec1-59a3-4070-b566-715fed9b0197",
+      "timestamp": "2026-03-27T16:22:04.296165+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "diagnostics",
+        "after_column": "priemka"
+      },
+      "card_id": "demo_camry_start"
+    },
+    {
+      "id": "a1aa1862-8095-4bd3-adcb-699eb2214526",
+      "timestamp": "2026-03-27T16:22:04.932135+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "priemka",
+        "after_column": "diagnostics"
+      },
+      "card_id": "demo_camry_start"
+    },
+    {
+      "id": "7f06b9ba-6d38-46da-b83b-d8cbae0e5e1d",
+      "timestamp": "2026-03-27T16:33:14.464563+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.0,
+        "after": 1.5
+      },
+      "card_id": null
+    },
+    {
+      "id": "3c8b6346-9a96-494f-a187-9a5ad1792399",
+      "timestamp": "2026-03-27T16:33:17.427246+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "electrics",
+        "after_column": "diagnostics"
+      },
+      "card_id": "demo_rav4_drain"
+    },
+    {
+      "id": "6e4db667-2208-4cda-98d7-930eb4a8273d",
+      "timestamp": "2026-03-27T16:33:25.216798+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.5,
+        "after": 0.95
+      },
+      "card_id": null
+    },
+    {
+      "id": "413f33a7-d021-4d57-b6be-de11d09c7313",
+      "timestamp": "2026-03-27T16:33:36.452666+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.95,
+        "after": 1.0
+      },
+      "card_id": null
+    },
+    {
+      "id": "2ded3893-909b-4e4a-ad5a-2b468b4f8a33",
+      "timestamp": "2026-03-27T16:33:43.486493+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.0,
+        "after": 1.05
+      },
+      "card_id": null
+    },
+    {
+      "id": "fbe71047-8ffe-4998-813f-4fcd01cd34d7",
+      "timestamp": "2026-03-27T16:46:38.041162+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.05,
+        "after": 0.95
+      },
+      "card_id": null
+    },
+    {
+      "id": "6a6856da-d79f-42b4-9f59-dd953a3b538c",
+      "timestamp": "2026-03-27T16:46:38.618691+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.95,
+        "after": 0.8
+      },
+      "card_id": null
+    },
+    {
+      "id": "e1dd1c9a-e472-4351-ac77-992d206c79c2",
+      "timestamp": "2026-03-27T16:46:38.958604+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.8,
+        "after": 0.75
+      },
+      "card_id": null
+    },
+    {
+      "id": "08662b26-7330-4439-b2fa-37a42dd3e511",
+      "timestamp": "2026-03-27T16:46:39.696585+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.75,
+        "after": 0.65
+      },
+      "card_id": null
+    },
+    {
+      "id": "a71f2b23-7e46-471c-b4b1-96557ff34a0f",
+      "timestamp": "2026-03-27T16:46:40.612348+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.65,
+        "after": 0.5
+      },
+      "card_id": null
+    },
+    {
+      "id": "4753a8c3-8365-41c1-a2dc-91fb0d2f8c20",
+      "timestamp": "2026-03-27T16:46:45.785244+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.5,
+        "after": 0.55
+      },
+      "card_id": null
+    },
+    {
+      "id": "0c80cb69-6f35-4811-9d49-793f5e4961d5",
+      "timestamp": "2026-03-27T16:46:46.271001+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.55,
+        "after": 0.6
+      },
+      "card_id": null
+    },
+    {
+      "id": "2bacfcad-6743-44f4-b2f9-6ebe59a5d43e",
+      "timestamp": "2026-03-27T16:46:46.671401+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.6,
+        "after": 0.65
+      },
+      "card_id": null
+    },
+    {
+      "id": "5aaf645c-af7a-4a80-bd44-deef84079d04",
+      "timestamp": "2026-03-27T16:46:47.194779+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.65,
+        "after": 0.7
+      },
+      "card_id": null
+    },
+    {
+      "id": "5c7f3069-650d-4ba8-899b-2c7bbd4f2495",
+      "timestamp": "2026-03-27T16:46:54.702734+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.7,
+        "after": 0.8
+      },
+      "card_id": null
+    },
+    {
+      "id": "b63b22fb-ee58-4230-a8e9-ec58366d698e",
+      "timestamp": "2026-03-27T16:46:55.020248+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.8,
+        "after": 0.75
+      },
+      "card_id": null
+    },
+    {
+      "id": "0d7927a0-1833-430b-9fa4-7dd19f00114a",
+      "timestamp": "2026-03-27T16:46:55.318338+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.75,
+        "after": 0.8
+      },
+      "card_id": null
+    },
+    {
+      "id": "cbfa83f7-cf75-46a1-bf4d-2317a9aaac8e",
+      "timestamp": "2026-03-27T16:46:55.895668+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.8,
+        "after": 0.9
+      },
+      "card_id": null
+    },
+    {
+      "id": "3e893a09-d4f5-4a34-b60e-f84282de2ad2",
+      "timestamp": "2026-03-27T16:46:57.730455+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.9,
+        "after": 1.0
+      },
+      "card_id": null
+    },
+    {
+      "id": "6296eba1-3028-42d3-b797-043b4cc05130",
+      "timestamp": "2026-03-27T16:46:58.234164+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.0,
+        "after": 1.05
+      },
+      "card_id": null
+    },
+    {
+      "id": "5c328f2a-b754-47d2-b4f5-5b827b5f07e6",
+      "timestamp": "2026-03-27T16:46:59.263438+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.05,
+        "after": 1.1
+      },
+      "card_id": null
+    },
+    {
+      "id": "3ab6d14b-f7ce-416f-9686-81e27434a7a8",
+      "timestamp": "2026-03-27T16:47:00.512192+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.1,
+        "after": 0.95
+      },
+      "card_id": null
+    },
+    {
+      "id": "2c94ca42-b9b5-4ce1-a434-1ebbc57aa7cf",
+      "timestamp": "2026-03-27T16:47:00.950970+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.95,
+        "after": 0.8
+      },
+      "card_id": null
+    },
+    {
+      "id": "eb2617b2-8355-4b39-bc3c-5746d3ace6fd",
+      "timestamp": "2026-03-27T16:47:01.341846+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.8,
+        "after": 0.65
+      },
+      "card_id": null
+    },
+    {
+      "id": "fc3096f9-e0f9-41db-9c24-35de27571be3",
+      "timestamp": "2026-03-27T16:47:07.699106+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.65,
+        "after": 0.7
+      },
+      "card_id": null
+    },
+    {
+      "id": "798986d2-5a36-407e-a047-8c23c4415911",
+      "timestamp": "2026-03-27T16:47:08.318639+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.7,
+        "after": 0.65
+      },
+      "card_id": null
+    },
+    {
+      "id": "0d14fe3a-cb20-4022-a291-0131b965058a",
+      "timestamp": "2026-03-27T16:47:10.763160+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.65,
+        "after": 0.7
+      },
+      "card_id": null
+    },
+    {
+      "id": "d2eb7b9f-67a8-44b4-91f9-78754cf1d0e0",
+      "timestamp": "2026-03-27T16:47:11.242972+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.7,
+        "after": 0.75
+      },
+      "card_id": null
+    },
+    {
+      "id": "4fa4c8f8-2768-4f41-8cbd-e2eb72627ee4",
+      "timestamp": "2026-03-27T16:47:12.151769+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.75,
+        "after": 0.8
+      },
+      "card_id": null
+    },
+    {
+      "id": "bb9ceb32-de55-480d-8d20-445753539c7f",
+      "timestamp": "2026-03-27T16:47:13.233072+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.8,
+        "after": 0.85
+      },
+      "card_id": null
+    },
+    {
+      "id": "55e7a342-551c-4189-9be8-926eab2bf6b8",
+      "timestamp": "2026-03-27T16:47:13.590686+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.85,
+        "after": 0.9
+      },
+      "card_id": null
+    },
+    {
+      "id": "73faf7fc-7105-4c46-a05c-3b3b47cc2446",
+      "timestamp": "2026-03-27T16:47:13.871974+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.9,
+        "after": 0.95
+      },
+      "card_id": null
+    },
+    {
+      "id": "25aa5b81-89b3-471b-86c6-6b782c816a0f",
+      "timestamp": "2026-03-27T16:53:58.983823+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "mechanics",
+        "after_column": "body"
+      },
+      "card_id": "demo_largus_hub"
+    },
+    {
+      "id": "1e02a503-8c4e-4bf6-b7c2-a6a129e0ed8a",
+      "timestamp": "2026-03-27T16:54:01.292971+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "mechanics",
+        "after_column": "body"
+      },
+      "card_id": "demo_duster_pump"
+    },
+    {
+      "id": "8b6a1612-4bc3-483b-9509-1c035c563299",
+      "timestamp": "2026-03-27T16:54:02.096353+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.95,
+        "after": 0.9
+      },
+      "card_id": null
+    },
+    {
+      "id": "29f01123-46c9-43e1-8824-542585610397",
+      "timestamp": "2026-03-27T16:54:02.764144+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.9,
+        "after": 0.95
+      },
+      "card_id": null
+    },
+    {
+      "id": "44a9270d-9c14-494b-9366-6b1c4201941e",
+      "timestamp": "2026-03-27T16:54:03.333367+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.95,
+        "after": 1.05
+      },
+      "card_id": null
+    },
+    {
+      "id": "2bf38296-f715-4b76-8548-717bd63ca6c2",
+      "timestamp": "2026-03-27T16:54:06.875450+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.05,
+        "after": 1.0
+      },
+      "card_id": null
+    },
+    {
+      "id": "dd610cf0-ad53-4839-91dc-469c1a50fc50",
+      "timestamp": "2026-03-27T16:54:07.700452+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.0,
+        "after": 0.95
+      },
+      "card_id": null
+    },
+    {
+      "id": "71395357-5c5c-49b0-979a-3589383ce775",
+      "timestamp": "2026-03-27T16:54:08.118546+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.95,
+        "after": 0.85
+      },
+      "card_id": null
+    },
+    {
+      "id": "90fa33cd-f29e-40cd-a2ed-d6dbbeda269f",
+      "timestamp": "2026-03-27T16:54:08.523986+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.85,
+        "after": 0.8
+      },
+      "card_id": null
+    },
+    {
+      "id": "7bd08b77-bdcf-46ea-abf8-722fac6b263e",
+      "timestamp": "2026-03-27T16:54:12.274910+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "electrics",
+        "after_column": "body"
+      },
+      "card_id": "demo_solaris_headlight"
+    },
+    {
+      "id": "466262fe-9b71-4046-a10f-2846c10d97b5",
+      "timestamp": "2026-03-27T16:54:14.431051+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "electrics",
+        "after_column": "body"
+      },
+      "card_id": "demo_accent_window"
+    },
+    {
+      "id": "f89d1715-f643-4610-bc68-3e1169ca5138",
+      "timestamp": "2026-03-27T17:09:23.342304+00:00",
+      "actor_name": "SMOKE",
+      "source": "ui",
+      "action": "sticky_created",
+      "message": "SMOKE создал стикер",
+      "details": {
+        "sticky_id": "33930d15-82ef-43e3-8215-35e20a1b5797",
+        "text": "????????? ????? ?????????",
+        "x": 140,
+        "y": 120,
+        "deadline_total_seconds": 14400
+      },
+      "card_id": null
+    },
+    {
+      "id": "a0035c8d-35ef-4ab5-b50c-aaab594cd87b",
+      "timestamp": "2026-03-27T17:16:29.992755+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "33930d15-82ef-43e3-8215-35e20a1b5797",
+        "before": {
+          "x": 140,
+          "y": 120
+        },
+        "after": {
+          "x": 144,
+          "y": 245
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "95f3081c-2b41-4326-b13b-e2d6e06de7fd",
+      "timestamp": "2026-03-27T17:16:30.885987+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_deleted",
+      "message": "UGA удалил стикер",
+      "details": {
+        "sticky_id": "33930d15-82ef-43e3-8215-35e20a1b5797",
+        "text": "????????? ????? ?????????",
+        "x": 144,
+        "y": 245
+      },
+      "card_id": null
+    },
+    {
+      "id": "05fa21ad-dc29-4098-a93f-3b5222d1a026",
+      "timestamp": "2026-03-27T17:16:39.399889+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_created",
+      "message": "UGA создал стикер",
+      "details": {
+        "sticky_id": "124b984f-e237-4962-af53-fb9004d04f6d",
+        "text": "уыфвмпвыим",
+        "x": 275,
+        "y": 175,
+        "deadline_total_seconds": 14400
+      },
+      "card_id": null
+    },
+    {
+      "id": "43ec7de8-9dd6-4334-928a-e448b34e160b",
+      "timestamp": "2026-03-27T17:16:44.208196+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "124b984f-e237-4962-af53-fb9004d04f6d",
+        "before": {
+          "x": 275,
+          "y": 175
+        },
+        "after": {
+          "x": 173,
+          "y": 395
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "abc9b0f6-0820-4d5b-b37f-1ec073d6f6d9",
+      "timestamp": "2026-03-27T17:16:45.615601+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.8,
+        "after": 0.75
+      },
+      "card_id": null
+    },
+    {
+      "id": "ce7e0788-fb8e-4c11-8592-682fc71c5a14",
+      "timestamp": "2026-03-27T17:16:45.967100+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.75,
+        "after": 0.8
+      },
+      "card_id": null
+    },
+    {
+      "id": "bd76b6a1-7c19-4cd3-bfcd-3fd4bf8a749a",
+      "timestamp": "2026-03-27T17:16:46.879594+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.8,
+        "after": 0.95
+      },
+      "card_id": null
+    },
+    {
+      "id": "beead7b8-59f2-47eb-8f66-134952159661",
+      "timestamp": "2026-03-27T17:16:48.538781+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.95,
+        "after": 1.1
+      },
+      "card_id": null
+    },
+    {
+      "id": "9ca7910c-e625-4b6b-bcfd-8b1724db6f5a",
+      "timestamp": "2026-03-27T17:16:49.024551+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.1,
+        "after": 1.2
+      },
+      "card_id": null
+    },
+    {
+      "id": "1a06b861-5890-4c99-a196-a6952854fbb5",
+      "timestamp": "2026-03-27T17:16:54.441812+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "124b984f-e237-4962-af53-fb9004d04f6d",
+        "before": {
+          "x": 173,
+          "y": 395
+        },
+        "after": {
+          "x": 1010,
+          "y": 386
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "b9ba955e-c69e-4124-ab09-007a3cb401b2",
+      "timestamp": "2026-03-27T17:16:58.999311+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "124b984f-e237-4962-af53-fb9004d04f6d",
+        "before": {
+          "x": 1010,
+          "y": 386
+        },
+        "after": {
+          "x": 0,
+          "y": 823
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "b705c0be-0c16-47dc-aba9-0eef7af904d5",
+      "timestamp": "2026-03-27T17:17:02.336514+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "124b984f-e237-4962-af53-fb9004d04f6d",
+        "before": {
+          "x": 0,
+          "y": 823
+        },
+        "after": {
+          "x": 143,
+          "y": 405
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "7939c9d0-fef4-46e3-a6b8-96f6c056e79f",
+      "timestamp": "2026-03-27T17:17:02.824219+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "124b984f-e237-4962-af53-fb9004d04f6d",
+        "before": {
+          "x": 143,
+          "y": 405
+        },
+        "after": {
+          "x": 166,
+          "y": 188
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "96cfce13-f378-4b4e-9623-f702043959ca",
+      "timestamp": "2026-03-27T17:17:03.895995+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "124b984f-e237-4962-af53-fb9004d04f6d",
+        "before": {
+          "x": 166,
+          "y": 188
+        },
+        "after": {
+          "x": 1126,
+          "y": 447
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "3eac1e54-39fc-46f3-ae3c-c7b07c3e0a20",
+      "timestamp": "2026-03-27T17:17:04.336741+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "124b984f-e237-4962-af53-fb9004d04f6d",
+        "before": {
+          "x": 1126,
+          "y": 447
+        },
+        "after": {
+          "x": 1074,
+          "y": 443
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "47d03243-7431-4c86-bc36-a510b4b60993",
+      "timestamp": "2026-03-27T17:17:05.169238+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_deleted",
+      "message": "UGA удалил стикер",
+      "details": {
+        "sticky_id": "124b984f-e237-4962-af53-fb9004d04f6d",
+        "text": "уыфвмпвыим",
+        "x": 1074,
+        "y": 443
+      },
+      "card_id": null
+    },
+    {
+      "id": "58f48067-a9ea-43ec-8175-e59f5fdbc42f",
+      "timestamp": "2026-03-27T17:17:11.403204+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.2,
+        "after": 1.15
+      },
+      "card_id": null
+    },
+    {
+      "id": "43b06fcd-15ef-497d-8f8c-6b6bcf26ea6e",
+      "timestamp": "2026-03-27T17:17:11.785409+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.15,
+        "after": 1.2
+      },
+      "card_id": null
+    },
+    {
+      "id": "b2811619-4ace-44d5-a8d1-de30886d6dc3",
+      "timestamp": "2026-03-27T17:17:12.669339+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.2,
+        "after": 1.1
+      },
+      "card_id": null
+    },
+    {
+      "id": "3cd8911f-9edd-4a88-921d-e71f280e04fa",
+      "timestamp": "2026-03-27T17:17:13.237526+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.1,
+        "after": 1.0
+      },
+      "card_id": null
+    },
+    {
+      "id": "85d82834-f193-4acc-a96a-4668e63c9eba",
+      "timestamp": "2026-03-27T17:17:13.822517+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.0,
+        "after": 0.85
+      },
+      "card_id": null
+    },
+    {
+      "id": "14669998-58c2-48a1-88a6-868aec8be687",
+      "timestamp": "2026-03-27T17:17:14.244064+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.85,
+        "after": 0.8
+      },
+      "card_id": null
+    },
+    {
+      "id": "deaf21d4-0fba-4908-aac4-6d4d0b9bc7f5",
+      "timestamp": "2026-03-27T17:17:14.718801+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.8,
+        "after": 0.75
+      },
+      "card_id": null
+    },
+    {
+      "id": "7854580b-d66e-4214-9133-40c2c48907df",
+      "timestamp": "2026-03-27T17:17:15.245445+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.75,
+        "after": 0.7
+      },
+      "card_id": null
+    },
+    {
+      "id": "e3d0fe95-5d31-4bc8-8ed4-653aa04407f7",
+      "timestamp": "2026-03-27T17:17:25.618748+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.7,
+        "after": 0.9
+      },
+      "card_id": null
+    },
+    {
+      "id": "74d2d1ea-af59-45a8-a494-1034debb6cff",
+      "timestamp": "2026-03-27T17:17:27.888871+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.9,
+        "after": 1.0
+      },
+      "card_id": null
+    },
+    {
+      "id": "d3943bfa-5efd-449a-8d97-c54841b96a96",
+      "timestamp": "2026-03-27T17:57:49.967102+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.0,
+        "after": 0.95
+      },
+      "card_id": null
+    },
+    {
+      "id": "182c2251-d22b-4d5f-a1b4-8b9a15e86fab",
+      "timestamp": "2026-03-27T17:57:50.468611+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.95,
+        "after": 1.0
+      },
+      "card_id": null
+    },
+    {
+      "id": "1b4f777b-45aa-4fac-b954-dc7ed9a4b840",
+      "timestamp": "2026-03-27T17:57:50.893182+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.0,
+        "after": 1.05
+      },
+      "card_id": null
+    },
+    {
+      "id": "aff3483f-5d21-44c4-b5a2-15fe84596c2c",
+      "timestamp": "2026-03-27T17:58:19.609710+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.05,
+        "after": 1.0
+      },
+      "card_id": null
+    },
+    {
+      "id": "b0a93152-825a-475e-a566-901e0e7dc991",
+      "timestamp": "2026-03-27T17:58:30.978747+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_created",
+      "message": "UGA создал стикер",
+      "details": {
+        "sticky_id": "74888696-4031-4edd-b6b4-1626d5a410c2",
+        "text": "сптьыапь",
+        "x": 220,
+        "y": 198,
+        "deadline_total_seconds": 14400
+      },
+      "card_id": null
+    },
+    {
+      "id": "6e8566b0-83d6-4195-b90a-22c7d6c4b132",
+      "timestamp": "2026-03-27T17:58:32.328294+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "74888696-4031-4edd-b6b4-1626d5a410c2",
+        "before": {
+          "x": 220,
+          "y": 198
+        },
+        "after": {
+          "x": 1160,
+          "y": 650
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "57da5292-ffc9-4921-aa82-279ae08fbe88",
+      "timestamp": "2026-03-27T17:58:33.736832+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "74888696-4031-4edd-b6b4-1626d5a410c2",
+        "before": {
+          "x": 1160,
+          "y": 650
+        },
+        "after": {
+          "x": 1095,
+          "y": 649
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "46a7dc08-e117-4f96-8bbc-f75576ac6818",
+      "timestamp": "2026-03-27T17:58:38.297718+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "74888696-4031-4edd-b6b4-1626d5a410c2",
+        "before": {
+          "x": 1095,
+          "y": 649
+        },
+        "after": {
+          "x": 2113,
+          "y": 708
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "71d108ff-bbcb-48b3-9c1b-c3b96d0035a1",
+      "timestamp": "2026-03-27T17:58:39.476743+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "74888696-4031-4edd-b6b4-1626d5a410c2",
+        "before": {
+          "x": 2113,
+          "y": 708
+        },
+        "after": {
+          "x": 1964,
+          "y": 705
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "4c44ecf8-9ee8-4bcc-9e39-947fff029bf0",
+      "timestamp": "2026-03-27T17:58:40.352476+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "74888696-4031-4edd-b6b4-1626d5a410c2",
+        "before": {
+          "x": 1964,
+          "y": 705
+        },
+        "after": {
+          "x": 1909,
+          "y": 702
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "ebe2eac5-8328-4bd6-8feb-356c07d0e38e",
+      "timestamp": "2026-03-27T17:58:41.921764+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_deleted",
+      "message": "UGA удалил стикер",
+      "details": {
+        "sticky_id": "74888696-4031-4edd-b6b4-1626d5a410c2",
+        "text": "сптьыапь",
+        "x": 1909,
+        "y": 702
+      },
+      "card_id": null
+    },
+    {
+      "id": "cc2e552a-cae9-4e38-be7a-3eb94c509658",
+      "timestamp": "2026-03-27T17:58:44.409784+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.0,
+        "after": 1.15
+      },
+      "card_id": null
+    },
+    {
+      "id": "a3c5fb9a-f30d-49d0-a39e-4492bd72ea28",
+      "timestamp": "2026-03-27T17:58:45.016529+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.15,
+        "after": 0.95
+      },
+      "card_id": null
+    },
+    {
+      "id": "b6882dd5-1040-42af-b3ff-17eefb1ac2b8",
+      "timestamp": "2026-03-27T17:58:45.416962+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.95,
+        "after": 0.8
+      },
+      "card_id": null
+    },
+    {
+      "id": "331b6ed1-d212-47b4-8051-8d582160bcb9",
+      "timestamp": "2026-03-27T18:08:12.823848+00:00",
+      "actor_name": "ИНСПЕКТОР",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "ИНСПЕКТОР изменил масштаб доски",
+      "details": {
+        "before": 0.8,
+        "after": 1.05
+      },
+      "card_id": null
+    },
+    {
+      "id": "3609db71-0e9d-417e-9c1e-690c6296f421",
+      "timestamp": "2026-03-27T18:08:20.382154+00:00",
+      "actor_name": "ИНСПЕКТОР",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "ИНСПЕКТОР изменил масштаб доски",
+      "details": {
+        "before": 1.05,
+        "after": 1.0
+      },
+      "card_id": null
+    },
+    {
+      "id": "a08e4775-1764-4941-834d-e935617b9573",
+      "timestamp": "2026-03-28T00:17:08.672589+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.0,
+        "after": 0.95
+      },
+      "card_id": null
+    },
+    {
+      "id": "29dc6423-6683-4fc4-bea4-ac0b41aca82e",
+      "timestamp": "2026-03-28T00:17:09.190886+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.95,
+        "after": 0.8
+      },
+      "card_id": null
+    },
+    {
+      "id": "48177a1a-50da-4090-b8ac-935153fea91b",
+      "timestamp": "2026-03-28T00:17:09.665580+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.8,
+        "after": 0.65
+      },
+      "card_id": null
+    },
+    {
+      "id": "1d2252fc-8856-4213-bdb4-31d9d9d965b2",
+      "timestamp": "2026-03-28T00:17:11.012592+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.65,
+        "after": 0.5
+      },
+      "card_id": null
+    },
+    {
+      "id": "aec039dd-4c7b-4461-ab47-0c6cdef32f42",
+      "timestamp": "2026-03-28T00:17:11.937853+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.5,
+        "after": 0.6
+      },
+      "card_id": null
+    },
+    {
+      "id": "f6f4d151-a041-4d8e-8818-0b3d65bc8083",
+      "timestamp": "2026-03-28T00:17:12.365465+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.6,
+        "after": 0.5
+      },
+      "card_id": null
+    },
+    {
+      "id": "c85985bc-65d5-4cc6-b160-b8b3a3831835",
+      "timestamp": "2026-03-28T00:17:17.308598+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.5,
+        "after": 0.65
+      },
+      "card_id": null
+    },
+    {
+      "id": "9226419b-1ffa-4dc5-bfef-6f32b0913e6e",
+      "timestamp": "2026-03-28T00:17:19.923416+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.65,
+        "after": 0.7
+      },
+      "card_id": null
+    },
+    {
+      "id": "b3046c72-045b-4675-8221-77b0af1894dd",
+      "timestamp": "2026-03-28T00:17:20.373888+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.7,
+        "after": 0.65
+      },
+      "card_id": null
+    },
+    {
+      "id": "9903bbfc-07fa-4b99-9f4c-3bee9b909809",
+      "timestamp": "2026-03-28T00:17:21.485390+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.65,
+        "after": 0.55
+      },
+      "card_id": null
+    },
+    {
+      "id": "c32d6b3c-fc4d-48f1-9da1-53966dc5e6d3",
+      "timestamp": "2026-03-28T00:17:21.905489+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.55,
+        "after": 0.6
+      },
+      "card_id": null
+    },
+    {
+      "id": "c7f69f9e-23f2-4d7d-a239-de4eee3c2336",
+      "timestamp": "2026-03-28T00:17:22.338657+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.6,
+        "after": 0.65
+      },
+      "card_id": null
+    },
+    {
+      "id": "92f109e3-9153-49f0-8431-72518a4865bb",
+      "timestamp": "2026-03-28T00:17:24.104605+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.65,
+        "after": 0.7
+      },
+      "card_id": null
+    },
+    {
+      "id": "a69b728e-1b66-4c21-895e-87397e527337",
+      "timestamp": "2026-03-28T00:17:25.256401+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.7,
+        "after": 0.75
+      },
+      "card_id": null
+    },
+    {
+      "id": "f710dc89-df87-49da-8436-50b61e4c4038",
+      "timestamp": "2026-03-28T00:17:26.193591+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.75,
+        "after": 0.8
+      },
+      "card_id": null
+    },
+    {
+      "id": "6bf5009a-529b-4bf1-8532-69810e698e36",
+      "timestamp": "2026-03-28T00:17:26.842547+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.8,
+        "after": 0.85
+      },
+      "card_id": null
+    },
+    {
+      "id": "cd352b5b-30c8-4d41-9e37-85f7576a2c49",
+      "timestamp": "2026-03-28T00:17:51.911717+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.85,
+        "after": 0.9
+      },
+      "card_id": null
+    },
+    {
+      "id": "1ff750ea-5459-46e9-a70b-f628a874bda5",
+      "timestamp": "2026-03-28T00:17:52.985391+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.9,
+        "after": 0.95
+      },
+      "card_id": null
+    },
+    {
+      "id": "9a4ea703-0bb6-469b-a5eb-559b6be7a173",
+      "timestamp": "2026-03-28T00:18:06.579061+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.95,
+        "after": 1.05
+      },
+      "card_id": null
+    },
+    {
+      "id": "9feb9335-0a3d-43e9-80ec-16f9faf6fb11",
+      "timestamp": "2026-03-28T00:21:33.011338+00:00",
+      "actor_name": "ИНСПЕКТОР",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "ИНСПЕКТОР изменил масштаб доски",
+      "details": {
+        "before": 1.05,
+        "after": 1.0
+      },
+      "card_id": null
+    },
+    {
+      "id": "2e9e5a5a-9461-41c6-a6be-b853e1539628",
+      "timestamp": "2026-03-28T01:23:47.868753+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.0,
+        "after": 1.15
+      },
+      "card_id": null
+    },
+    {
+      "id": "aefdc066-97a4-4b1c-9121-f4e8d415b3f3",
+      "timestamp": "2026-03-28T01:23:48.245927+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.15,
+        "after": 1.05
+      },
+      "card_id": null
+    },
+    {
+      "id": "8e6a1772-7468-4a46-8e66-5efe3779c25b",
+      "timestamp": "2026-03-28T01:23:48.703420+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.05,
+        "after": 0.95
+      },
+      "card_id": null
+    },
+    {
+      "id": "3dfd1227-8a44-4f43-ae4a-c012cd156ed1",
+      "timestamp": "2026-03-28T01:24:27.524168+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T20:12:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-29T01:24:27.524147+00:00",
+        "before_total_seconds": 86400,
+        "after_total_seconds": 86400
+      },
+      "card_id": "demo_vesta_service"
+    },
+    {
+      "id": "f0729fdb-8bec-488e-ad1a-7419e7d3e851",
+      "timestamp": "2026-03-28T02:04:09.424819+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.95,
+        "after": 0.8
+      },
+      "card_id": null
+    },
+    {
+      "id": "45bcae56-2130-404b-a44d-7cc14c158d81",
+      "timestamp": "2026-03-28T02:04:10.681143+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.8,
+        "after": 0.5
+      },
+      "card_id": null
+    },
+    {
+      "id": "70bfeb30-2c3a-468c-8524-4f9665aa1f92",
+      "timestamp": "2026-03-28T02:04:11.349154+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.5,
+        "after": 0.55
+      },
+      "card_id": null
+    },
+    {
+      "id": "66a57428-d715-41df-ab86-b86cabaf8aa5",
+      "timestamp": "2026-03-28T02:04:12.591161+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.55,
+        "after": 0.65
+      },
+      "card_id": null
+    },
+    {
+      "id": "d7a1c7ad-5d15-4482-855c-8a20a627b214",
+      "timestamp": "2026-03-28T02:04:13.645555+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.65,
+        "after": 0.95
+      },
+      "card_id": null
+    },
+    {
+      "id": "4fc0f080-ba21-4f0f-a081-0744607737b9",
+      "timestamp": "2026-03-28T02:04:14.699955+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.95,
+        "after": 1.05
+      },
+      "card_id": null
+    },
+    {
+      "id": "a1dee20a-bdec-46f7-a073-87acad34a21c",
+      "timestamp": "2026-03-28T02:52:41.898434+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T15:54:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-31T02:52:41.898411+00:00",
+        "before_total_seconds": 86400,
+        "after_total_seconds": 259200
+      },
+      "card_id": "demo_rav4_drain"
+    },
+    {
+      "id": "b33f9f63-37ce-4431-8622-9186c4a96fe4",
+      "timestamp": "2026-03-28T02:52:45.804480+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-28T00:12:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-31T02:52:45.804459+00:00",
+        "before_total_seconds": 172800,
+        "after_total_seconds": 259200
+      },
+      "card_id": "demo_camry_start"
+    },
+    {
+      "id": "1c453975-73da-4625-9ded-21e9391f191e",
+      "timestamp": "2026-03-28T02:52:49.531492+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T14:42:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-29T05:52:49.531472+00:00",
+        "before_total_seconds": 57600,
+        "after_total_seconds": 97200
+      },
+      "card_id": "demo_sprinter_abs"
+    },
+    {
+      "id": "5a8ecc0f-06ae-4124-9ba3-fdad8cce3355",
+      "timestamp": "2026-03-28T02:53:05.504838+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T19:12:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-31T02:53:05.504820+00:00",
+        "before_total_seconds": 36000,
+        "after_total_seconds": 259200
+      },
+      "card_id": "demo_solaris_headlight"
+    },
+    {
+      "id": "23148e97-c147-4e36-bcf2-3a57cc3b7eb0",
+      "timestamp": "2026-03-28T02:53:16.875753+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T19:42:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-29T08:53:16.875733+00:00",
+        "before_total_seconds": 57600,
+        "after_total_seconds": 108000
+      },
+      "card_id": "demo_polo_rack"
+    },
+    {
+      "id": "6d18a052-225c-4f70-8474-f7fe9c423e84",
+      "timestamp": "2026-03-28T05:18:02.412291+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T22:14:48.200434+00:00",
+        "after_deadline_timestamp": "2026-04-01T05:18:02.412261+00:00",
+        "before_total_seconds": 21600,
+        "after_total_seconds": 345600
+      },
+      "card_id": "demo_focus_vibration"
+    },
+    {
+      "id": "e455d79c-3e7f-4a75-9d60-a328e8496af7",
+      "timestamp": "2026-03-28T05:18:05.878771+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T21:12:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-29T07:18:05.878741+00:00",
+        "before_total_seconds": 50400,
+        "after_total_seconds": 93600
+      },
+      "card_id": "demo_accent_window"
+    },
+    {
+      "id": "3e764267-b4f1-41a6-a3fe-5dda8bacf99a",
+      "timestamp": "2026-03-28T05:18:09.210619+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T17:12:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-29T07:18:09.210596+00:00",
+        "before_total_seconds": 72000,
+        "after_total_seconds": 93600
+      },
+      "card_id": "demo_duster_pump"
+    },
+    {
+      "id": "555b8ec5-4376-4a46-892b-374d7cb49d1d",
+      "timestamp": "2026-03-28T05:18:24.791061+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "body",
+        "after_column": "machining"
+      },
+      "card_id": "demo_duster_pump"
+    },
+    {
+      "id": "750ba648-6c94-4004-b18d-c9afe4b02c07",
+      "timestamp": "2026-03-28T05:18:26.084154+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "body",
+        "after_column": "machining"
+      },
+      "card_id": "demo_solaris_headlight"
+    },
+    {
+      "id": "ddf6dbed-5436-48da-a94d-8a9e7aa4fe42",
+      "timestamp": "2026-03-28T05:18:45.020597+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.05,
+        "after": 1.5
+      },
+      "card_id": null
+    },
+    {
+      "id": "470eeabc-e6c3-4355-8fc6-33c06ae637a4",
+      "timestamp": "2026-03-28T05:18:52.665630+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.5,
+        "after": 1.35
+      },
+      "card_id": null
+    },
+    {
+      "id": "1d0790ef-c2fb-47cb-b1a4-d4b44b4f5a94",
+      "timestamp": "2026-03-28T05:18:57.053866+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.35,
+        "after": 1.1
+      },
+      "card_id": null
+    },
+    {
+      "id": "bd38ca2a-f1f4-4b45-8a0a-68815358856d",
+      "timestamp": "2026-03-28T05:18:58.683553+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.1,
+        "after": 1.0
+      },
+      "card_id": null
+    },
+    {
+      "id": "5840106c-c305-4af4-beb7-7921da530450",
+      "timestamp": "2026-03-28T05:19:29.895623+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_created",
+      "message": "UGA создал стикер",
+      "details": {
+        "sticky_id": "b95273c9-30a7-40c2-8a0b-8bb6954d7cfc",
+        "text": "саня лох",
+        "x": 220,
+        "y": 140,
+        "deadline_total_seconds": 14400
+      },
+      "card_id": null
+    },
+    {
+      "id": "bb404b4c-9348-4288-82ed-ad82b02db5e5",
+      "timestamp": "2026-03-28T05:19:33.308525+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "b95273c9-30a7-40c2-8a0b-8bb6954d7cfc",
+        "before": {
+          "x": 220,
+          "y": 140
+        },
+        "after": {
+          "x": 1101,
+          "y": 291
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "ab31ae4b-f964-4f31-a942-8498a8132c7e",
+      "timestamp": "2026-03-28T05:19:34.235461+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "b95273c9-30a7-40c2-8a0b-8bb6954d7cfc",
+        "before": {
+          "x": 1101,
+          "y": 291
+        },
+        "after": {
+          "x": 1251,
+          "y": 287
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "79be7cc8-94cd-46ed-bca8-2b16be973d65",
+      "timestamp": "2026-03-28T05:19:36.139601+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_deleted",
+      "message": "UGA удалил стикер",
+      "details": {
+        "sticky_id": "b95273c9-30a7-40c2-8a0b-8bb6954d7cfc",
+        "text": "саня лох",
+        "x": 1251,
+        "y": 287
+      },
+      "card_id": null
+    },
+    {
+      "id": "28c8e1be-2df6-4c05-a68f-d208e5f75f4e",
+      "timestamp": "2026-03-28T05:25:11.902499+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_created",
+      "message": "UGA создал стикер",
+      "details": {
+        "sticky_id": "654d1db7-9b96-49d5-9056-1aba2d3e28fc",
+        "text": "ФВКЕАОФАОП",
+        "x": 220,
+        "y": 140,
+        "deadline_total_seconds": 14400
+      },
+      "card_id": null
+    },
+    {
+      "id": "ad66d4d8-b349-4447-8736-7edcddbcd863",
+      "timestamp": "2026-03-28T05:25:13.582431+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "654d1db7-9b96-49d5-9056-1aba2d3e28fc",
+        "before": {
+          "x": 220,
+          "y": 140
+        },
+        "after": {
+          "x": 962,
+          "y": 481
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "3c6ef2a8-d3ca-4b00-b6e9-ff5fded31606",
+      "timestamp": "2026-03-28T05:25:18.052018+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_deleted",
+      "message": "UGA удалил стикер",
+      "details": {
+        "sticky_id": "654d1db7-9b96-49d5-9056-1aba2d3e28fc",
+        "text": "ФВКЕАОФАОП",
+        "x": 962,
+        "y": 481
+      },
+      "card_id": null
+    },
+    {
+      "id": "2498947e-cb69-442f-933e-98eca4909978",
+      "timestamp": "2026-03-28T05:25:39.977593+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_created",
+      "message": "UGA создал стикер",
+      "details": {
+        "sticky_id": "98df2795-023f-43b0-813a-83e7b8dfc92e",
+        "text": "Эту МАШИНУ СРОЧНО!!!! ЗВОНИТ КЛИЕНТ!",
+        "x": 220,
+        "y": 140,
+        "deadline_total_seconds": 14400
+      },
+      "card_id": null
+    },
+    {
+      "id": "b4c3ed96-8bf7-4ab0-a7a1-cf6129e24204",
+      "timestamp": "2026-03-28T05:25:42.480483+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "98df2795-023f-43b0-813a-83e7b8dfc92e",
+        "before": {
+          "x": 220,
+          "y": 140
+        },
+        "after": {
+          "x": 542,
+          "y": 33
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "6eca616e-c2e4-4031-aa60-d37a17adbffb",
+      "timestamp": "2026-03-28T05:25:44.865141+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "98df2795-023f-43b0-813a-83e7b8dfc92e",
+        "before": {
+          "x": 542,
+          "y": 33
+        },
+        "after": {
+          "x": 489,
+          "y": 71
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "2fe8acaf-880b-4fc9-9a3a-fd1c2b601428",
+      "timestamp": "2026-03-28T05:25:46.291632+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "98df2795-023f-43b0-813a-83e7b8dfc92e",
+        "before": {
+          "x": 489,
+          "y": 71
+        },
+        "after": {
+          "x": 496,
+          "y": 128
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "c883b2e8-40c3-4421-bb6d-7f7417026284",
+      "timestamp": "2026-03-28T05:25:48.006507+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "98df2795-023f-43b0-813a-83e7b8dfc92e",
+        "before": {
+          "x": 496,
+          "y": 128
+        },
+        "after": {
+          "x": 361,
+          "y": 27
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "729f9ce4-2b54-4483-8c2c-714943ea44c7",
+      "timestamp": "2026-03-28T05:25:51.162589+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_moved",
+      "message": "UGA переместил стикер",
+      "details": {
+        "sticky_id": "98df2795-023f-43b0-813a-83e7b8dfc92e",
+        "before": {
+          "x": 361,
+          "y": 27
+        },
+        "after": {
+          "x": 445,
+          "y": 81
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "19074188-84bb-4ba9-831e-aa4d57ee57b8",
+      "timestamp": "2026-03-28T05:25:54.578597+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "sticky_deleted",
+      "message": "UGA удалил стикер",
+      "details": {
+        "sticky_id": "98df2795-023f-43b0-813a-83e7b8dfc92e",
+        "text": "Эту МАШИНУ СРОЧНО!!!! ЗВОНИТ КЛИЕНТ!",
+        "x": 445,
+        "y": 81
+      },
+      "card_id": null
+    },
+    {
+      "id": "ee190fca-1ac3-42bd-8885-d89b07b49ce0",
+      "timestamp": "2026-03-28T05:26:04.804836+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T21:42:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-29T08:26:04.804814+00:00",
+        "before_total_seconds": 64800,
+        "after_total_seconds": 97200
+      },
+      "card_id": "demo_patriot_cross"
+    },
+    {
+      "id": "7701fdac-2cb9-426d-99ad-743889bcb9c4",
+      "timestamp": "2026-03-28T05:38:56.591939+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "diagnostics",
+        "after_column": "priemka"
+      },
+      "card_id": "demo_camry_start"
+    },
+    {
+      "id": "cb81c600-b405-4cfc-ab77-3943cdcaacb0",
+      "timestamp": "2026-03-28T05:38:57.593037+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "diagnostics",
+        "after_column": "priemka"
+      },
+      "card_id": "demo_polo_rack"
+    },
+    {
+      "id": "ce66c0bd-797c-4a2b-b6f3-d3494c28cc1a",
+      "timestamp": "2026-03-28T05:39:08.665285+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.0,
+        "after": 1.1
+      },
+      "card_id": null
+    },
+    {
+      "id": "dec0b0d0-4298-42cb-83d5-cd6f18529292",
+      "timestamp": "2026-03-28T05:39:27.613949+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_created",
+      "message": "UGA создал карточку",
+      "details": {
+        "vehicle": "апмиры ь",
+        "title": "аыпольыа",
+        "column": "parts",
+        "tags": [],
+        "deadline_total_seconds": 86400
+      },
+      "card_id": "5d59f3f8-064b-4547-8b2b-35ca52d07192"
+    },
+    {
+      "id": "d1badebe-93df-4d53-be41-a1c9ac2ff828",
+      "timestamp": "2026-03-28T05:39:29.964027+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_archived",
+      "message": "UGA отправил карточку в архив",
+      "details": {
+        "column": "parts"
+      },
+      "card_id": "5d59f3f8-064b-4547-8b2b-35ca52d07192"
+    },
+    {
+      "id": "a232819d-c10a-4e1a-8c2a-3e43c88832d3",
+      "timestamp": "2026-03-28T06:03:42.701943+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T13:12:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-29T09:03:42.701921+00:00",
+        "before_total_seconds": 72000,
+        "after_total_seconds": 97200
+      },
+      "card_id": "demo_crafter_relay"
+    },
+    {
+      "id": "92478aee-2f70-4145-9738-67a6eeda80eb",
+      "timestamp": "2026-03-29T04:13:19.838004+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "electrics",
+        "after_column": "diagnostics"
+      },
+      "card_id": "demo_sprinter_abs"
+    },
+    {
+      "id": "d0852c58-8a69-4125-88cb-c4d66213feb6",
+      "timestamp": "2026-03-29T04:13:21.327042+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "diagnostics",
+        "after_column": "electrics"
+      },
+      "card_id": "demo_sprinter_abs"
+    },
+    {
+      "id": "3f9dbdf2-34d6-4bc7-b743-cb3e697a14ad",
+      "timestamp": "2026-03-29T04:13:26.612034+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "body",
+        "after_column": "mechanics"
+      },
+      "card_id": "demo_patriot_cross"
+    },
+    {
+      "id": "a60c2f30-de0c-4bb4-b390-69a7fe9b3e35",
+      "timestamp": "2026-03-29T04:13:39.088022+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T20:12:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-30T06:13:39.087998+00:00",
+        "before_total_seconds": 64800,
+        "after_total_seconds": 93600
+      },
+      "card_id": "demo_granta_clutch"
+    },
+    {
+      "id": "c6fc5065-7f61-46b9-87a1-0fb802a2bdd8",
+      "timestamp": "2026-03-29T04:13:42.120881+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T22:12:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-30T06:13:42.120852+00:00",
+        "before_total_seconds": 64800,
+        "after_total_seconds": 93600
+      },
+      "card_id": "demo_largus_hub"
+    },
+    {
+      "id": "aa1a39d9-03d5-4d79-8d5d-26ba60619027",
+      "timestamp": "2026-03-29T04:13:44.418739+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-28T22:14:43.916868+00:00",
+        "after_deadline_timestamp": "2026-03-30T07:13:44.418707+00:00",
+        "before_total_seconds": 108000,
+        "after_total_seconds": 97200
+      },
+      "card_id": "demo_rapid_body"
+    },
+    {
+      "id": "f87f034e-639d-4063-800d-41f6e04de5e2",
+      "timestamp": "2026-03-29T04:13:54.280877+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-28T03:12:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-30T10:13:54.280855+00:00",
+        "before_total_seconds": 108000,
+        "after_total_seconds": 108000
+      },
+      "card_id": "demo_hilux_door"
+    },
+    {
+      "id": "e0972fcc-c177-4a63-a1d2-bf325d9ab1d3",
+      "timestamp": "2026-03-29T04:14:02.884531+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T17:42:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-30T06:14:02.884496+00:00",
+        "before_total_seconds": 28800,
+        "after_total_seconds": 93600
+      },
+      "card_id": "demo_gazelle_weld"
+    },
+    {
+      "id": "f98d653c-58cc-4a63-97df-2ceff69064cc",
+      "timestamp": "2026-03-29T04:14:12.195231+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-28T01:12:33.937175+00:00",
+        "after_deadline_timestamp": "2026-04-01T04:14:12.195211+00:00",
+        "before_total_seconds": 93600,
+        "after_total_seconds": 259200
+      },
+      "card_id": "demo_tucson_subframe"
+    },
+    {
+      "id": "9fa2bf8e-1335-4a3b-ad5d-827bcd329604",
+      "timestamp": "2026-03-29T04:14:15.458840+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-28T05:12:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-31T04:14:15.458815+00:00",
+        "before_total_seconds": 108000,
+        "after_total_seconds": 172800
+      },
+      "card_id": "demo_bmw_oil"
+    },
+    {
+      "id": "9003b80b-40eb-4d32-aac8-8d55a70743ee",
+      "timestamp": "2026-03-29T04:14:18.076643+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T18:23:00.392388+00:00",
+        "after_deadline_timestamp": "2026-04-01T04:14:18.076623+00:00",
+        "before_total_seconds": 10800,
+        "after_total_seconds": 259200
+      },
+      "card_id": "demo_ceed_hood"
+    },
+    {
+      "id": "e6b14ab0-10e7-4035-b411-6e84f7a33e61",
+      "timestamp": "2026-03-29T04:14:20.774644+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-29T01:24:27.524147+00:00",
+        "after_deadline_timestamp": "2026-04-01T04:14:20.774620+00:00",
+        "before_total_seconds": 86400,
+        "after_total_seconds": 259200
+      },
+      "card_id": "demo_vesta_service"
+    },
+    {
+      "id": "fa3fd3f3-100d-44ac-9352-7f36fb9f4212",
+      "timestamp": "2026-03-29T04:14:24.036210+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T17:42:33.937175+00:00",
+        "after_deadline_timestamp": "2026-04-01T04:14:24.036183+00:00",
+        "before_total_seconds": 28800,
+        "after_total_seconds": 259200
+      },
+      "card_id": "demo_outlander_throttle"
+    },
+    {
+      "id": "1fa0038f-9a38-4cd4-9ab8-6f9b75be9728",
+      "timestamp": "2026-03-29T04:14:28.485852+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "signal_changed",
+      "message": "UGA изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-03-27T23:12:33.937175+00:00",
+        "after_deadline_timestamp": "2026-03-30T06:14:28.485831+00:00",
+        "before_total_seconds": 86400,
+        "after_total_seconds": 93600
+      },
+      "card_id": "demo_xtrail_chain"
+    },
+    {
+      "id": "43b7e725-aeb9-4767-a311-4936b1ea6a12",
+      "timestamp": "2026-03-30T13:30:28.243960+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "card_moved",
+      "message": "UGA переместил карточку",
+      "details": {
+        "before_column": "electrics",
+        "after_column": "mechanics"
+      },
+      "card_id": "demo_sprinter_abs"
+    },
+    {
+      "id": "3416f104-09e1-4266-bfd0-71a064817300",
+      "timestamp": "2026-04-01T17:41:28.345905+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "column_created",
+      "message": "GPT создал столбец",
+      "details": {
+        "column_id": "column_1",
+        "label": "MCP TEST COLUMN"
+      },
+      "card_id": null
+    },
+    {
+      "id": "5fe99784-3018-4dc8-a702-2c4997f9b5e2",
+      "timestamp": "2026-04-01T17:41:50.912741+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_created",
+      "message": "GPT создал карточку",
+      "details": {
+        "vehicle": "TEST CAR",
+        "title": "[MCP TEST] Полный прогон записи",
+        "column": "column_1",
+        "tags": [
+          "TEST",
+          "MCP"
+        ],
+        "deadline_total_seconds": 93600
+      },
+      "card_id": "beb5def3-9069-4cba-9469-4441dca99ff7"
+    },
+    {
+      "id": "15e7a863-6650-4f72-b293-3b5246bc1cc9",
+      "timestamp": "2026-04-01T17:42:21.598096+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "vehicle_changed",
+      "message": "GPT изменил машину карточки",
+      "details": {
+        "before": "TEST CAR",
+        "after": "TEST CAR UPDATED"
+      },
+      "card_id": "beb5def3-9069-4cba-9469-4441dca99ff7"
+    },
+    {
+      "id": "4e4c0c8b-8ad0-4590-b8ce-c2402092f1b8",
+      "timestamp": "2026-04-01T17:42:21.598105+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "title_changed",
+      "message": "GPT изменил заголовок",
+      "details": {
+        "before": "[MCP TEST] Полный прогон записи",
+        "after": "[MCP TEST] Обновление карточки"
+      },
+      "card_id": "beb5def3-9069-4cba-9469-4441dca99ff7"
+    },
+    {
+      "id": "09b701a1-deff-4531-bb65-b69d484212c9",
+      "timestamp": "2026-04-01T17:42:21.598111+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "description_changed",
+      "message": "GPT изменил описание",
+      "details": {
+        "before": "Тестовая карточка для полного прогона Minimal Kanban через ChatGPT",
+        "after": "Карточка обновлена через update_card в полном прогоне"
+      },
+      "card_id": "beb5def3-9069-4cba-9469-4441dca99ff7"
+    },
+    {
+      "id": "5311fe29-721d-43ab-a2d1-3c418d657124",
+      "timestamp": "2026-04-01T17:42:21.598122+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "tag_added",
+      "message": "GPT добавил метку",
+      "details": {
+        "tag": "UPDATED"
+      },
+      "card_id": "beb5def3-9069-4cba-9469-4441dca99ff7"
+    },
+    {
+      "id": "56a441c7-d180-4f4b-bb85-86f82ac17681",
+      "timestamp": "2026-04-01T17:42:21.598126+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "tags_changed",
+      "message": "GPT обновил набор меток",
+      "details": {
+        "before": [
+          "TEST",
+          "MCP"
+        ],
+        "after": [
+          "TEST",
+          "MCP",
+          "UPDATED"
+        ]
+      },
+      "card_id": "beb5def3-9069-4cba-9469-4441dca99ff7"
+    },
+    {
+      "id": "82346fbe-664f-4983-9f38-9fe341dfc302",
+      "timestamp": "2026-04-01T17:42:37.576755+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "signal_changed",
+      "message": "GPT изменил сигнал карточки",
+      "details": {
+        "before_deadline_timestamp": "2026-04-02T19:41:50.912722+00:00",
+        "after_deadline_timestamp": "2026-04-01T23:42:37.576743+00:00",
+        "before_total_seconds": 93600,
+        "after_total_seconds": 21600
+      },
+      "card_id": "beb5def3-9069-4cba-9469-4441dca99ff7"
+    },
+    {
+      "id": "93909c06-8cde-40a7-8080-ce22d22257e9",
+      "timestamp": "2026-04-01T17:42:44.954363+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "signal_indicator_changed",
+      "message": "GPT изменил сигнал карточки",
+      "details": {
+        "before_indicator": "green",
+        "after_indicator": "yellow",
+        "deadline_total_seconds": 21600,
+        "deadline_timestamp": "2026-04-01T21:18:44.954351+00:00"
+      },
+      "card_id": "beb5def3-9069-4cba-9469-4441dca99ff7"
+    },
+    {
+      "id": "82bac11f-1b20-4bc0-96d7-b47e6a022815",
+      "timestamp": "2026-04-01T17:43:02.880020+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_moved",
+      "message": "GPT переместил карточку",
+      "details": {
+        "before_column": "column_1",
+        "after_column": "priemka"
+      },
+      "card_id": "beb5def3-9069-4cba-9469-4441dca99ff7"
+    },
+    {
+      "id": "691814be-8b1c-42d8-8a9f-ac171c17ea70",
+      "timestamp": "2026-04-01T17:43:26.617916+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "priemka"
+      },
+      "card_id": "beb5def3-9069-4cba-9469-4441dca99ff7"
+    },
+    {
+      "id": "2983a1cf-e8aa-4e12-9cc5-ebd564dc34fe",
+      "timestamp": "2026-04-01T17:43:34.471614+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_restored",
+      "message": "GPT вернул карточку из архива",
+      "details": {
+        "column": "column_1"
+      },
+      "card_id": "beb5def3-9069-4cba-9469-4441dca99ff7"
+    },
+    {
+      "id": "c0ebb6d0-f6d1-4aff-882b-da2dcefeb989",
+      "timestamp": "2026-04-01T17:43:48.423402+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "sticky_created",
+      "message": "GPT создал стикер",
+      "details": {
+        "sticky_id": "ec017cb3-646a-4323-81e1-a35cfc75a7d3",
+        "text": "[MCP TEST] Проверка стикера",
+        "x": 120,
+        "y": 80,
+        "deadline_total_seconds": 14400
+      },
+      "card_id": null
+    },
+    {
+      "id": "db23633f-9aa5-428e-83bf-d7d884fc6888",
+      "timestamp": "2026-04-01T17:44:03.469700+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "sticky_text_changed",
+      "message": "GPT изменил текст стикера",
+      "details": {
+        "sticky_id": "ec017cb3-646a-4323-81e1-a35cfc75a7d3",
+        "before": "[MCP TEST] Проверка стикера",
+        "after": "[MCP TEST] Стикер обновлён"
+      },
+      "card_id": null
+    },
+    {
+      "id": "12ccfe76-874c-4376-a80a-c44bcb9f1efd",
+      "timestamp": "2026-04-01T17:44:03.469721+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "sticky_deadline_changed",
+      "message": "GPT изменил срок стикера",
+      "details": {
+        "sticky_id": "ec017cb3-646a-4323-81e1-a35cfc75a7d3",
+        "before_total_seconds": 14400,
+        "after_total_seconds": 7200,
+        "deadline_timestamp": "2026-04-01T19:44:03.469713+00:00"
+      },
+      "card_id": null
+    },
+    {
+      "id": "4d27b267-ae91-42a8-92d0-1f056f6320ec",
+      "timestamp": "2026-04-01T17:44:15.215792+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "sticky_moved",
+      "message": "GPT переместил стикер",
+      "details": {
+        "sticky_id": "ec017cb3-646a-4323-81e1-a35cfc75a7d3",
+        "before": {
+          "x": 120,
+          "y": 80
+        },
+        "after": {
+          "x": 260,
+          "y": 150
+        }
+      },
+      "card_id": null
+    },
+    {
+      "id": "cce95cf8-3c85-42c4-ad0a-9be197aa16b7",
+      "timestamp": "2026-04-01T17:44:47.188723+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "sticky_deleted",
+      "message": "GPT удалил стикер",
+      "details": {
+        "sticky_id": "ec017cb3-646a-4323-81e1-a35cfc75a7d3",
+        "text": "[MCP TEST] Стикер обновлён",
+        "x": 260,
+        "y": 150
+      },
+      "card_id": null
+    },
+    {
+      "id": "84fc042e-29b1-49c5-be7f-a4739710a222",
+      "timestamp": "2026-04-01T17:59:02.512917+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_moved",
+      "message": "GPT переместил карточку",
+      "details": {
+        "before_column": "column_1",
+        "after_column": "priemka"
+      },
+      "card_id": "beb5def3-9069-4cba-9469-4441dca99ff7"
+    },
+    {
+      "id": "539cb820-55ce-4156-8e2c-5049ee024f1f",
+      "timestamp": "2026-04-01T17:59:12.468334+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_moved",
+      "message": "GPT переместил карточку",
+      "details": {
+        "before_column": "mechanics",
+        "after_column": "priemka"
+      },
+      "card_id": "demo_sprinter_abs"
+    },
+    {
+      "id": "68a9407a-2458-4ce1-98df-e00cfb756489",
+      "timestamp": "2026-04-01T17:59:28.409648+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_moved",
+      "message": "GPT переместил карточку",
+      "details": {
+        "before_column": "approval",
+        "after_column": "priemka"
+      },
+      "card_id": "demo_xtrail_chain"
+    },
+    {
+      "id": "59a10d0c-098c-446f-823a-438f22f9d047",
+      "timestamp": "2026-04-01T17:59:45.986048+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_moved",
+      "message": "GPT переместил карточку",
+      "details": {
+        "before_column": "parts",
+        "after_column": "priemka"
+      },
+      "card_id": "demo_outlander_throttle"
+    },
+    {
+      "id": "9d55799c-0dcd-493d-8629-6aa9d944f669",
+      "timestamp": "2026-04-01T17:59:59.366407+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_moved",
+      "message": "GPT переместил карточку",
+      "details": {
+        "before_column": "delivery",
+        "after_column": "priemka"
+      },
+      "card_id": "demo_vesta_service"
+    },
+    {
+      "id": "ebfdc2e6-e2e2-4876-b72c-d24dca9c1507",
+      "timestamp": "2026-04-01T18:00:10.182842+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_moved",
+      "message": "GPT переместил карточку",
+      "details": {
+        "before_column": "parts",
+        "after_column": "priemka"
+      },
+      "card_id": "demo_ceed_hood"
+    },
+    {
+      "id": "6839b0bb-55da-457b-bf6d-0ffcbcf45e2d",
+      "timestamp": "2026-04-01T18:00:20.463722+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_moved",
+      "message": "GPT переместил карточку",
+      "details": {
+        "before_column": "approval",
+        "after_column": "priemka"
+      },
+      "card_id": "demo_bmw_oil"
+    },
+    {
+      "id": "36b3f403-4855-426e-830e-a3aababe7fea",
+      "timestamp": "2026-04-01T18:00:31.102341+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_moved",
+      "message": "GPT переместил карточку",
+      "details": {
+        "before_column": "approval",
+        "after_column": "priemka"
+      },
+      "card_id": "demo_tucson_subframe"
+    },
+    {
+      "id": "28a008ad-a8a2-4db9-93ca-decc46aeb893",
+      "timestamp": "2026-04-01T18:42:01.184029+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "priemka"
+      },
+      "card_id": "demo_tucson_subframe"
+    },
+    {
+      "id": "0e2bd202-cedd-4319-b1c5-00d4668a713e",
+      "timestamp": "2026-04-01T18:42:21.817656+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "priemka"
+      },
+      "card_id": "demo_bmw_oil"
+    },
+    {
+      "id": "eddb1703-f1f7-4d6c-95a5-4b10c61d5038",
+      "timestamp": "2026-04-01T18:42:47.552768+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.1,
+        "after": 0.5
+      },
+      "card_id": null
+    },
+    {
+      "id": "bd0a91ab-1c61-4f20-9d7c-61f863ba7880",
+      "timestamp": "2026-04-01T18:43:43.244741+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "priemka"
+      },
+      "card_id": "demo_ceed_hood"
+    },
+    {
+      "id": "b6757b7a-0010-4e19-b44d-445e224f36ac",
+      "timestamp": "2026-04-01T18:44:06.292257+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "priemka"
+      },
+      "card_id": "demo_vesta_service"
+    },
+    {
+      "id": "33a24761-8195-4305-bb94-28cf83ca4d92",
+      "timestamp": "2026-04-01T18:44:26.641492+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "priemka"
+      },
+      "card_id": "demo_outlander_throttle"
+    },
+    {
+      "id": "2cb74478-98ea-458e-a2af-56d34bc25ac7",
+      "timestamp": "2026-04-01T18:44:38.043269+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "priemka"
+      },
+      "card_id": "demo_xtrail_chain"
+    },
+    {
+      "id": "b9181c12-b8eb-448c-b8ce-7242e0747b76",
+      "timestamp": "2026-04-01T18:44:59.938107+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "priemka"
+      },
+      "card_id": "demo_sprinter_abs"
+    },
+    {
+      "id": "15dbbb99-43f7-4452-bbe3-208d08f47163",
+      "timestamp": "2026-04-01T18:45:35.735192+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "priemka"
+      },
+      "card_id": "beb5def3-9069-4cba-9469-4441dca99ff7"
+    },
+    {
+      "id": "2f37b43b-cf69-4825-b93e-00f53f1db0cb",
+      "timestamp": "2026-04-01T18:45:50.861539+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "body"
+      },
+      "card_id": "demo_gazelle_weld"
+    },
+    {
+      "id": "ec257015-e085-42e7-b3b9-87949c6c3da0",
+      "timestamp": "2026-04-01T18:46:17.277110+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "body"
+      },
+      "card_id": "demo_hilux_door"
+    },
+    {
+      "id": "87b395d6-f1d6-42f8-b9b6-efe9c3c601f2",
+      "timestamp": "2026-04-01T18:46:50.625000+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "body"
+      },
+      "card_id": "demo_rapid_body"
+    },
+    {
+      "id": "80e03bcb-c107-4f2d-a5f4-3935be9de945",
+      "timestamp": "2026-04-01T18:47:10.252752+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "body"
+      },
+      "card_id": "demo_largus_hub"
+    },
+    {
+      "id": "4112b57f-27b5-404c-9b4e-63affe2a6a19",
+      "timestamp": "2026-04-01T18:47:40.232200+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "approval"
+      },
+      "card_id": "demo_granta_clutch"
+    },
+    {
+      "id": "282c3ef0-42ba-435f-9d04-3d0eb81b1918",
+      "timestamp": "2026-04-01T18:48:08.888727+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.5,
+        "after": 1.0
+      },
+      "card_id": null
+    },
+    {
+      "id": "5cb6c667-8d88-4b35-8819-0772b4997f67",
+      "timestamp": "2026-04-01T18:48:29.169941+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "mechanics"
+      },
+      "card_id": "demo_patriot_cross"
+    },
+    {
+      "id": "2ab26299-5579-4ca3-87c5-8f2c68c31980",
+      "timestamp": "2026-04-01T18:51:04.074181+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "parts"
+      },
+      "card_id": "demo_crafter_relay"
+    },
+    {
+      "id": "0bd28d9f-79a8-427b-85e3-e9a4992bfe84",
+      "timestamp": "2026-04-01T18:51:16.380584+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 1.0,
+        "after": 0.5
+      },
+      "card_id": null
+    },
+    {
+      "id": "e0490474-4185-4a59-9c5d-107af8b3add2",
+      "timestamp": "2026-04-01T18:53:50.881282+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "priemka"
+      },
+      "card_id": "demo_polo_rack"
+    },
+    {
+      "id": "4ee12767-3612-4b0a-9ab5-a1fb1ab3a4ef",
+      "timestamp": "2026-04-01T18:54:19.372620+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "priemka"
+      },
+      "card_id": "demo_camry_start"
+    },
+    {
+      "id": "bcbc75a7-a39a-4789-bc23-804d130c43b9",
+      "timestamp": "2026-04-01T18:54:38.800426+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "machining"
+      },
+      "card_id": "demo_solaris_headlight"
+    },
+    {
+      "id": "34f5b564-cf81-4c89-b955-91c975992a61",
+      "timestamp": "2026-04-01T18:54:53.096256+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "machining"
+      },
+      "card_id": "demo_duster_pump"
+    },
+    {
+      "id": "b358b4b6-ecb4-400a-bc18-305fa77d6167",
+      "timestamp": "2026-04-01T18:57:29.911696+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "body"
+      },
+      "card_id": "demo_accent_window"
+    },
+    {
+      "id": "03d8b0b4-60d5-4ca0-a1dd-576b2385ab3e",
+      "timestamp": "2026-04-01T18:57:45.527265+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "mechanics"
+      },
+      "card_id": "demo_focus_vibration"
+    },
+    {
+      "id": "13f88dc4-a0dc-46cb-a71f-4ca32404a0cb",
+      "timestamp": "2026-04-01T18:57:57.708219+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "diagnostics"
+      },
+      "card_id": "demo_rav4_drain"
+    },
+    {
+      "id": "1de08c4c-be54-46ff-9092-46ec37f08249",
+      "timestamp": "2026-04-01T18:58:10.781627+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "parts"
+      },
+      "card_id": "demo_octavia_timing"
+    },
+    {
+      "id": "bb0abb99-6c67-4a41-8703-942b45838716",
+      "timestamp": "2026-04-01T18:58:46.714775+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_archived",
+      "message": "GPT отправил карточку в архив",
+      "details": {
+        "column": "priemka"
+      },
+      "card_id": "demo_kia_idle"
+    },
+    {
+      "id": "df52cc30-7f4c-4bbe-89a9-0d58651cdd27",
+      "timestamp": "2026-04-01T19:02:04.299492+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "card_created",
+      "message": "GPT создал карточку",
+      "details": {
+        "vehicle": "Suzuki Swift У521ВС124",
+        "title": "Пинки на D на прогретом моторе + замок багажника",
+        "column": "priemka",
+        "tags": [
+          "АКПП",
+          "БАГАЖНИК",
+          "ПРОВЕРИТЬ",
+          "ЗАМЕНА"
+        ],
+        "deadline_total_seconds": 259200
+      },
+      "card_id": "accb1a78-eae9-44e9-8ff0-bb79aa132263"
+    },
+    {
+      "id": "d0132495-6f8e-485a-abbc-c0cdb46098fe",
+      "timestamp": "2026-04-01T19:03:09.945743+00:00",
+      "actor_name": "UGA",
+      "source": "ui",
+      "action": "board_scale_changed",
+      "message": "UGA изменил масштаб доски",
+      "details": {
+        "before": 0.5,
+        "after": 1.0
+      },
+      "card_id": null
+    },
+    {
+      "id": "9b2680f8-234c-4509-afe8-5fbd24c00269",
+      "timestamp": "2026-04-01T19:08:45.923899+00:00",
+      "actor_name": "GPT",
+      "source": "mcp",
+      "action": "column_created",
+      "message": "GPT создал столбец",
+      "details": {
+        "column_id": "column_2",
+        "label": "Машины в ремонте"
+      },
+      "card_id": null
+    }
+  ],
+  "settings": {
+    "has_seen_onboarding": true,
+    "board_scale": 1.0,
+    "demo_seeded": true
+  }
+}

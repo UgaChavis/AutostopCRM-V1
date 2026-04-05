@@ -1,0 +1,20 @@
+﻿MINIMAL KANBAN VERSION 1.1 BETA SNAPSHOT
+
+Created: 2026-04-02
+Source root: C:\Users\User\Desktop\Codex\minimal-kanban
+Runtime data source: C:\Users\User\AppData\Roaming\Minimal Kanban
+
+Contents:
+- project: source snapshot of the current 1.1 beta codebase
+- runtime_data: snapshot of current local data and settings
+
+Restore guidance:
+1. Stop the running Minimal Kanban app.
+2. If needed, back up the current working project first.
+3. Restore source files from .\project into the main project folder.
+4. Restore runtime_data into %APPDATA%\Minimal Kanban if you need the matching local board state.
+5. Rebuild or relaunch the app.
+
+Notes:
+- version-1 remains untouched as the earlier stable backup.
+- version-1.1 is the current working beta snapshot.

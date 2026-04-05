@@ -1,0 +1,237 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "create_card",
+      "description": "Создать карточку в локальной kanban-доске.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Заголовок карточки."
+          },
+          "description": {
+            "type": "string",
+            "description": "Описание карточки."
+          },
+          "column": {
+            "type": "string",
+            "description": "Идентификатор столбца."
+          },
+          "deadline": {
+            "type": "object",
+            "description": "Срок карточки в формате days/hours/minutes/seconds.",
+            "properties": {
+              "days": { "type": "integer", "minimum": 0, "maximum": 365 },
+              "hours": { "type": "integer", "minimum": 0, "maximum": 23 },
+              "minutes": { "type": "integer", "minimum": 0, "maximum": 59 },
+              "seconds": { "type": "integer", "minimum": 0, "maximum": 59 }
+            },
+            "required": ["days", "hours"]
+          }
+        },
+        "required": ["title", "deadline"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "create_column",
+      "description": "Создать новый столбец доски.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Название нового столбца."
+          }
+        },
+        "required": ["label"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_cards",
+      "description": "Получить список карточек.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "include_archived": {
+            "type": "boolean",
+            "description": "Нужно ли включать архив."
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_card",
+      "description": "Получить одну карточку по идентификатору.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "card_id": {
+            "type": "string",
+            "description": "Идентификатор карточки."
+          }
+        },
+        "required": ["card_id"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "update_card",
+      "description": "Обновить заголовок, описание или дедлайн карточки.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "card_id": {
+            "type": "string",
+            "description": "Идентификатор карточки."
+          },
+          "title": {
+            "type": "string",
+            "description": "Новый заголовок."
+          },
+          "description": {
+            "type": "string",
+            "description": "Новое описание."
+          },
+          "deadline": {
+            "type": "object",
+            "description": "Новый срок карточки.",
+            "properties": {
+              "days": { "type": "integer", "minimum": 0, "maximum": 365 },
+              "hours": { "type": "integer", "minimum": 0, "maximum": 23 },
+              "minutes": { "type": "integer", "minimum": 0, "maximum": 59 },
+              "seconds": { "type": "integer", "minimum": 0, "maximum": 59 }
+            }
+          }
+        },
+        "required": ["card_id"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "set_card_deadline",
+      "description": "Поменять только дедлайн карточки.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "card_id": {
+            "type": "string",
+            "description": "Идентификатор карточки."
+          },
+          "deadline": {
+            "type": "object",
+            "description": "Новый срок карточки.",
+            "properties": {
+              "days": { "type": "integer", "minimum": 0, "maximum": 365 },
+              "hours": { "type": "integer", "minimum": 0, "maximum": 23 },
+              "minutes": { "type": "integer", "minimum": 0, "maximum": 59 },
+              "seconds": { "type": "integer", "minimum": 0, "maximum": 59 }
+            }
+          }
+        },
+        "required": ["card_id", "deadline"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "set_card_indicator",
+      "description": "Выставить лампочку карточки в green, yellow или red. Внутри инструмент меняет дедлайн, потому что индикатор вычисляется из срока.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "card_id": {
+            "type": "string",
+            "description": "Идентификатор карточки."
+          },
+          "indicator": {
+            "type": "string",
+            "enum": ["green", "yellow", "red"],
+            "description": "Желаемое состояние лампочки."
+          }
+        },
+        "required": ["card_id", "indicator"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "move_card",
+      "description": "Переместить карточку в другой столбец.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "card_id": {
+            "type": "string",
+            "description": "Идентификатор карточки."
+          },
+          "column": {
+            "type": "string",
+            "description": "Идентификатор целевого столбца."
+          }
+        },
+        "required": ["card_id", "column"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "archive_card",
+      "description": "Отправить карточку в архив.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "card_id": {
+            "type": "string",
+            "description": "Идентификатор карточки."
+          }
+        },
+        "required": ["card_id"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "list_columns",
+      "description": "Получить список столбцов доски.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "list_overdue_cards",
+      "description": "Получить только просроченные карточки.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "include_archived": {
+            "type": "boolean",
+            "description": "Нужно ли включать архив."
+          }
+        }
+      }
+    }
+  }
+]

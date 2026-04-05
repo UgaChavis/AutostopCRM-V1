@@ -1,0 +1,82 @@
+MINIMAL KANBAN — КАРТОЧКА ПОДКЛЮЧЕНИЯ GPT / MCP
+
+[ПРОЕКТ]
+name = Minimal Kanban for Windows
+app_exe = <путь к Start Kanban.exe>
+mcp_entry_ps1 = <путь к scripts\run_mcp_server.ps1>
+mcp_entry_py = <путь к main_mcp.py>
+
+[ФАЙЛЫ]
+settings_json = %APPDATA%\Minimal Kanban\settings.json
+state_json = %APPDATA%\Minimal Kanban\state.json
+log_file = %APPDATA%\Minimal Kanban\logs\minimal-kanban.log
+
+[GENERAL]
+integration_enabled = <true|false>
+use_local_api = <true|false>
+auto_connect_on_startup = <true|false>
+test_mode = <true|false>
+
+[LOCAL API]
+local_api_host = <host>
+local_api_port = <port>
+runtime_local_api_url = <derived>
+current_runtime_api_url = <текущий runtime URL приложения>
+local_api_base_url_override = <optional>
+effective_local_api_url = <derived>
+local_api_health_url = <derived>
+local_api_auth_mode = <none|bearer>
+local_api_bearer_token = <скрыто по умолчанию>
+
+[MCP]
+mcp_enabled = <true|false>
+mcp_host = <host>
+mcp_port = <port>
+mcp_path = <path>
+local_mcp_url = <derived>
+current_runtime_mcp_url = <если MCP запущен из UI>
+public_https_base_url = <optional>
+tunnel_url = <optional>
+full_mcp_url_override = <optional>
+derived_public_mcp_url = <derived>
+derived_tunnel_mcp_url = <derived>
+effective_mcp_url = <главный URL для ChatGPT>
+mcp_auth_mode = <none|bearer>
+mcp_bearer_token = <скрыто по умолчанию>
+mcp_runtime_status = <running|stopped>
+
+[OPENAI / GPT]
+provider = <provider>
+model = <model>
+base_url = <base_url>
+organization_id = <optional>
+project_id = <optional>
+timeout_seconds = <timeout>
+openai_api_key = <скрыто по умолчанию>
+access_token = <скрыто по умолчанию>
+
+[AUTH]
+auth_mode = <none|bearer>
+
+[MCP TOOLS]
+- list_columns
+- create_column
+- get_cards
+- get_card
+- create_card
+- update_card
+- move_card
+- archive_card
+- set_card_indicator
+- set_card_deadline
+- list_overdue_cards
+
+[CHECKLIST]
+1. Запустить приложение.
+2. Открыть Settings -> Integration / GPT / MCP.
+3. Проверить локальный API.
+4. Проверить MCP.
+5. Проверить внешний endpoint.
+6. Скопировать effective_mcp_url.
+7. При bearer-режиме скопировать mcp_bearer_token.
+8. Подключить URL в ChatGPT как MCP endpoint.

@@ -1,0 +1,8 @@
+kanban.example.com {
+    encode zstd gzip
+
+    @mcp path /mcp*
+    reverse_proxy @mcp 127.0.0.1:41831
+
+    reverse_proxy 127.0.0.1:41731
+}

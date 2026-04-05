@@ -1,0 +1,13 @@
+﻿Minimal Kanban Board
+
+This build runs without installation.
+
+How to start:
+1. Double-click Start Kanban.exe.
+2. Wait for the desktop window to open.
+3. No terminal, npm, python, node, or manual commands are required.
+
+Notes:
+- the local API starts automatically
+- data persists between restarts
+- closing the window shuts down internal services cleanly

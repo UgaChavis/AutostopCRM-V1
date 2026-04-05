@@ -1,0 +1,91 @@
+{
+  "schema_version": 3,
+  "general": {
+    "integration_enabled": true,
+    "use_local_api": true,
+    "auto_connect_on_startup": true,
+    "test_mode": true
+  },
+  "local_api": {
+    "local_api_host": "127.0.0.1",
+    "local_api_port": 41731,
+    "runtime_local_api_url": "http://127.0.0.1:41731",
+    "local_api_base_url_override": "",
+    "effective_local_api_url": "http://127.0.0.1:41731",
+    "local_api_health_url": "http://127.0.0.1:41731/api/health",
+    "local_api_auth_mode": "none",
+    "local_api_bearer_token": ""
+  },
+  "mcp": {
+    "mcp_enabled": true,
+    "mcp_host": "127.0.0.1",
+    "mcp_port": 41832,
+    "mcp_path": "/mcp",
+    "local_mcp_url": "http://127.0.0.1:41832/mcp",
+    "public_https_base_url": "",
+    "tunnel_url": "https://unexplicit-julianna-unboldly.ngrok-free.dev",
+    "full_mcp_url_override": "",
+    "derived_public_mcp_url": "",
+    "derived_tunnel_mcp_url": "https://unexplicit-julianna-unboldly.ngrok-free.dev/mcp",
+    "effective_mcp_url": "https://unexplicit-julianna-unboldly.ngrok-free.dev/mcp",
+    "allowed_hosts": [],
+    "allowed_origins": [],
+    "resolved_allowed_hosts": [
+      "127.0.0.1",
+      "127.0.0.1:*",
+      "localhost",
+      "localhost:*",
+      "[::1]",
+      "[::1]:*",
+      "127.0.0.1:41832",
+      "unexplicit-julianna-unboldly.ngrok-free.dev",
+      "unexplicit-julianna-unboldly.ngrok-free.dev:*"
+    ],
+    "resolved_allowed_origins": [
+      "http://127.0.0.1",
+      "http://localhost",
+      "http://[::1]",
+      "http://127.0.0.1:*",
+      "http://localhost:*",
+      "http://[::1]:*",
+      "http://127.0.0.1:41832",
+      "https://unexplicit-julianna-unboldly.ngrok-free.dev",
+      "https://unexplicit-julianna-unboldly.ngrok-free.dev:*"
+    ],
+    "mcp_auth_mode": "none",
+    "mcp_bearer_token": ""
+  },
+  "openai": {
+    "provider": "openai",
+    "model": "gpt-5.4-mini",
+    "base_url": "https://api.openai.com/v1",
+    "organization_id": "",
+    "project_id": "",
+    "timeout_seconds": 24
+  },
+  "auth": {
+    "auth_mode": "none",
+    "access_token": "",
+    "local_api_bearer_token": "",
+    "mcp_bearer_token": "",
+    "openai_api_key": ""
+  },
+  "diagnostics": {
+    "local_api_status": "not_tested",
+    "local_api_message": "",
+    "mcp_status": "success",
+    "mcp_message": "MCP \u0441\u0435\u0440\u0432\u0435\u0440 \u0437\u0430\u043f\u0443\u0449\u0435\u043d: http://127.0.0.1:41832/mcp",
+    "external_status": "failed",
+    "external_message": "Unable to connect to MCP endpoint https://unexplicit-julianna-unboldly.ngrok-free.dev/mcp: ExceptionGroup.",
+    "openai_status": "not_tested",
+    "openai_message": "",
+    "overall_status": "failed",
+    "last_local_api_check": "",
+    "last_mcp_check": "2026-04-01T17:15:12.353173+00:00",
+    "last_external_endpoint_check": "2026-04-01T16:45:12.164254+00:00",
+    "last_openai_check": "",
+    "last_full_check": "",
+    "last_errors": [],
+    "last_warnings": []
+  }
+}

@@ -1,0 +1,28 @@
+MINIMAL KANBAN / VERSION 1
+
+Дата создания слепка: 2026-04-02
+
+Это резервная копия версии 1 проекта Minimal Kanban.
+Слепок сохранён внутри текущего проекта, чтобы к нему можно было вернуться в любой момент.
+
+Что входит в резервную копию:
+- project\ : исходники, тесты, скрипты, релиз, installer и корневые файлы проекта
+- runtime_data\state.json : текущее состояние доски
+- runtime_data\settings.json : текущие настройки приложения
+- runtime_data\attachments\ : пользовательские вложения, если они были
+
+Назначение:
+- сохранить рабочую версию доски как Version 1
+- иметь точку возврата перед дальнейшими улучшениями
+
+Как восстановить проект:
+1. При необходимости скопировать содержимое папки project\ обратно в основной проект.
+2. Восстановить runtime_data\state.json в:
+   C:\Users\User\AppData\Roaming\Minimal Kanban\state.json
+3. Восстановить runtime_data\settings.json в:
+   C:\Users\User\AppData\Roaming\Minimal Kanban\settings.json
+4. Если нужны вложения, восстановить папку runtime_data\attachments\ в:
+   C:\Users\User\AppData\Roaming\Minimal Kanban\attachments\
+
+Основная рабочая версия проекта после этого продолжает жить в:
+C:\Users\User\Desktop\Codex\minimal-kanban

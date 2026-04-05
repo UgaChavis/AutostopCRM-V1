@@ -1,0 +1,154 @@
+MCP / CONNECTOR NOTES FOR MINIMAL KANBAN 1.1 BETA
+
+1. ОБЩАЯ ИДЕЯ
+Коннектор Minimal Kanban теперь работает не только с обычной карточкой работ, но и с новым вложенным объектом vehicle_profile.
+vehicle_profile хранит техкарту автомобиля и отображается в правой панели карточки.
+
+2. ЧТО ИЗМЕНИЛОСЬ В КОНТРАКТЕ КАРТОЧКИ
+У create_card и update_card теперь поддерживается поле:
+- vehicle_profile
+
+vehicle_profile может быть:
+- пустым;
+- частично заполненным;
+- заполненным вручную;
+- частично или в основном автозаполненным.
+
+Обратная совместимость сохранена:
+- старые карточки без vehicle_profile продолжают читаться;
+- пустой vehicle_profile не ломает карточку;
+- старые get_cards / get_card / snapshot / wall продолжают работать.
+
+3. ОСНОВНЫЕ ПОЛЯ VEHICLE_PROFILE
+- make_display
+- model_display
+- generation_or_platform
+- production_year
+- vin
+- engine_code
+- engine_model
+- engine_displacement_l
+- engine_power_hp
+- gearbox_type
+- gearbox_model
+- drivetrain
+- fuel_type
+- oil_engine_capacity_l
+- oil_gearbox_capacity_l
+- coolant_capacity_l
+- steering_system_type
+- brake_front_type
+- brake_rear_type
+- wheel_bolt_pattern
+- oem_notes
+- source_summary
+- source_confidence
+- source_links_or_refs
+- data_completion_state
+
+Служебные метаданные:
+- manual_fields
+- autofilled_fields
+- tentative_fields
+- field_sources
+- raw_input_text
+- raw_image_text
+- image_parse_status
+- warnings
+
+4. НОВЫЙ TOOL / FLOW
+Новый основной tool для сборки профиля:
+- autofill_vehicle_data
+
+Рекомендуемый сценарий:
+1. ping_connector
+2. bootstrap_context
+3. при необходимости get_runtime_status
+4. если нужен общий контекст — get_gpt_wall
+5. если создаётся или обогащается автомобильная карточка — autofill_vehicle_data
+6. затем create_card или update_card
+7. затем get_card для read-after-write проверки
+
+5. ЧТО ПРИНИМАЕТ AUTOFILL_VEHICLE_DATA
+Поддерживаемые поля:
+- raw_text
+- image_base64
+- image_filename
+- image_mime_type
+- vehicle_profile
+- vehicle
+- title
+- description
+
+6. ЧТО ВОЗВРАЩАЕТ AUTOFILL_VEHICLE_DATA
+Ожидаемый результат:
+- vehicle_profile
+- card_draft
+- warnings
+- used_sources
+- image_parse_status
+- image_debug_chunks
+
+7. ПРАВИЛА ДЛЯ КОННЕКТОРА
+- Не выдумывать технические данные автомобиля.
+- Не скрывать low confidence.
+- Не стирать ручные поля пользователя последующим autofill.
+- Если данные конфликтуют, сохранять лучший вариант с предупреждением и provenance.
+- Если OCR слабый, не записывать мусор в карточку.
+- Если image/text/web enrichment дал только частичный результат, это допустимо.
+
+8. READ-AFTER-WRITE
+После create_card или update_card с vehicle_profile рекомендуется:
+- get_card
+И при необходимости:
+- get_card_log
+
+Проверять нужно:
+- что vehicle_profile сохранился;
+- что ручные поля не затёрлись;
+- что source_summary / source_confidence / source_links_or_refs присутствуют, если был autofill;
+- что data_completion_state выглядит корректно.
+
+9. ЧТО ДОСТУПНО ДЛЯ ЧТЕНИЯ
+vehicle_profile должен читаться через:
+- get_card
+- get_cards
+- get_board_snapshot
+- get_gpt_wall
+
+10. ЖУРНАЛ
+Новые события, которые могут появляться агрегированно в журнале:
+- vehicle_profile_autofilled
+- vehicle_profile_updated
+- vehicle_image_parsed
+- vehicle_data_enriched_from_web
+- vehicle_field_corrected_manually
+
+11. ОГРАНИЧЕНИЯ
+- OCR и web enrichment могут дать только частичный результат.
+- VIN валидируется мягко: подозрительное значение не должно ронять сохранение.
+- Не все автомобили можно надёжно обогатить по одному make/model/year без доп. данных.
+
+12. ЧТО ДЕЛАТЬ ПОСЛЕ ОБНОВЛЕНИЯ
+После изменения схемы карточки и набора инструментов старый ChatGPT connector / MCP manifest может остаться устаревшим.
+Поэтому после обновления рекомендуется:
+1. Переподнять локальный API и MCP.
+2. Переподнять внешний tunnel / public MCP URL, если он используется.
+3. Удалить старое подключение Minimal Kanban в ChatGPT.
+4. Создать коннектор заново на актуальном /mcp URL.
+5. Выполнить smoke test:
+   - ping_connector
+   - bootstrap_context
+   - get_board_context
+   - get_gpt_wall
+   - autofill_vehicle_data на тестовом вводе
+   - create_card / update_card с vehicle_profile
+
+13. КОРОТКИЙ SMOKE TEST
+Минимальная проверка после переподключения:
+- ping_connector -> должен ответить pong
+- bootstrap_context -> должен подтвердить board_name и scope_rule
+- get_board_context -> должен читать доску
+- autofill_vehicle_data -> должен вернуть draft без падения
+- create_card / update_card -> должны сохранить vehicle_profile
+- get_card -> должен подтвердить запись
