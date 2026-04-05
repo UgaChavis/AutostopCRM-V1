@@ -1459,12 +1459,12 @@ class CardService:
             )
 
         context = {
-            "product_name": "Minimal Kanban",
-            "board_name": "Current Minimal Kanban Board",
+            "product_name": "AutoStop CRM",
+            "board_name": "Current AutoStop CRM Board",
             "board_key": "minimal-kanban/current-local-board",
             "board_scope": "single_local_board_instance",
             "scope_rule": (
-                "This connector may operate only on the current Minimal Kanban board served by this exact MCP/API "
+                "This connector may operate only on the current AutoStop CRM board served by this exact MCP/API "
                 "instance. Do not use it for Trello, YouGile, or any other kanban system."
             ),
             "storage_backend": "local_json_store",

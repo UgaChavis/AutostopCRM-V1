@@ -162,15 +162,26 @@ def _connector_name_from_url(url: str) -> str:
     return f"minimal-kanban-this-board-only-{sanitized}"
 
 
-def _single_board_rule_text() -> str:
+def _external_product_text(text: str) -> str:
     return (
+        str(text or "")
+        .replace("Current Minimal Kanban Board", "Current AutoStop CRM Board")
+        .replace("current Minimal Kanban board", "current AutoStop CRM board")
+        .replace("Minimal Kanban MCP connector", "AutoStop CRM MCP connector")
+        .replace("Minimal Kanban MCP tool", "AutoStop CRM MCP tool")
+        .replace("Minimal Kanban", "AutoStop CRM")
+    )
+
+
+def _single_board_rule_text() -> str:
+    return _external_product_text(
         "This connector may operate only on the current Minimal Kanban board served by this exact MCP/API endpoint. "
         "Do not use it for Trello, YouGile, or any other kanban connector."
     )
 
 
 def _scoped_description(summary: str) -> str:
-    return f"{summary} {_single_board_rule_text()}"
+    return f"{_external_product_text(summary)} {_single_board_rule_text()}"
 
 
 def _read_tool_annotations(title: str | None = None) -> ToolAnnotations:
@@ -228,8 +239,8 @@ def create_mcp_server(
     connector_name = _connector_name_from_url(effective_resource_url)
     connector_identity = {
         "connector_name": connector_name,
-        "product_name": "Minimal Kanban",
-        "board_name": "Current Minimal Kanban Board",
+        "product_name": "AutoStop CRM",
+        "board_name": "Current AutoStop CRM Board",
         "board_scope": "single_local_board_instance",
         "board_key": "minimal-kanban/current-local-board",
         "scope_rule": _single_board_rule_text(),
@@ -283,7 +294,10 @@ def create_mcp_server(
     server = FastMCP(
         name=connector_name,
         instructions=(
-            f"Minimal Kanban MCP connector for exactly one board instance at {effective_resource_url}. "
+            _external_product_text(
+                f"Minimal Kanban MCP connector for exactly one board instance at {effective_resource_url}. "
+            )
+            + " "
             f"{_single_board_rule_text()} "
             "Before any write operation, first call bootstrap_context. "
             "If bootstrap_context is unavailable, call get_connector_identity, then get_board_context, then get_gpt_wall. "

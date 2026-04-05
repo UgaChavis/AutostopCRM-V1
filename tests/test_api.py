@@ -126,6 +126,8 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(profile["data"]["user"]["username"], "ADMIN")
         self.assertTrue(profile["data"]["user"]["is_admin"])
+        self.assertTrue(profile["data"]["security"]["using_default_admin_credentials"])
+        self.assertIn("MINIMAL_KANBAN_DEFAULT_ADMIN_PASSWORD", profile["data"]["security"]["warning"])
 
         status, saved = self.request(
             "/api/save_operator_user",
@@ -1194,7 +1196,7 @@ class ApiServerAuthTests(unittest.TestCase):
         status, context = self.request("/api/get_board_context", method="GET", token="secret-token")
         self.assertEqual(status, 200)
         self.assertTrue(context["ok"])
-        self.assertEqual(context["data"]["context"]["board_name"], "Current Minimal Kanban Board")
+        self.assertEqual(context["data"]["context"]["board_name"], "Current AutoStop CRM Board")
         self.assertEqual(context["data"]["context"]["board_scope"], "single_local_board_instance")
         self.assertIn("Do not use it for Trello, YouGile", context["data"]["context"]["scope_rule"])
         self.assertTrue(any(column["id"] == column_id for column in context["data"]["context"]["columns"]))

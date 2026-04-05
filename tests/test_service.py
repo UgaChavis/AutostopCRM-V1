@@ -1279,7 +1279,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(context["card"]["events_count"], 2)
         self.assertTrue(context["meta"]["has_repair_order"])
         self.assertEqual(context["meta"]["events_returned"], 2)
-        self.assertIn("Current Minimal Kanban Board", context["board_context"]["text"])
+        self.assertIn("Current AutoStop CRM Board", context["board_context"]["text"])
         self.assertIn("repair_order_updated", {event["action"] for event in context["events"]})
         self.assertIn("ЗАКАЗ-НАРЯД", context["repair_order_text"]["text"])
         self.assertIn("Итого к оплате: 1200", context["repair_order_text"]["text"])
@@ -1835,8 +1835,8 @@ class CardServiceTests(unittest.TestCase):
 
         context = self.service.get_board_context()
 
-        self.assertEqual(context["context"]["product_name"], "Minimal Kanban")
-        self.assertEqual(context["context"]["board_name"], "Current Minimal Kanban Board")
+        self.assertEqual(context["context"]["product_name"], "AutoStop CRM")
+        self.assertEqual(context["context"]["board_name"], "Current AutoStop CRM Board")
         self.assertEqual(context["context"]["board_scope"], "single_local_board_instance")
         self.assertIn("Do not use it for Trello, YouGile", context["context"]["scope_rule"])
         self.assertEqual(context["context"]["vehicle_profile_autofill_mode"], "card_content_first")

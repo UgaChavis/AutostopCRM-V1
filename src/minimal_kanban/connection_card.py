@@ -78,6 +78,8 @@ GPT_CONNECTOR_REQUIRED_TOOL_NAMES = [
 CHATGPT_HOME_URL = "https://chatgpt.com/"
 OPENAI_MCP_CONNECTORS_GUIDE_URL = "https://developers.openai.com/api/docs/guides/tools-connectors-mcp"
 OPENAI_APPS_CONNECT_GUIDE_URL = "https://developers.openai.com/apps-sdk/connect-from-chatgpt"
+DISPLAY_PRODUCT_NAME = "AutoStop CRM"
+SINGLE_BOARD_SCOPE_LABEL = "current AutoStop CRM board only"
 
 
 def resolve_connector_auth_mode(settings: IntegrationSettings) -> str:
@@ -126,8 +128,8 @@ def derive_connector_display_name(settings: IntegrationSettings) -> str:
     mcp_url = (settings.mcp.effective_mcp_url or "").strip()
     host = (urlsplit(mcp_url).hostname or "").strip().lower()
     if host:
-        return f"Minimal Kanban / This Board Only ({host})"
-    return "Minimal Kanban / This Board Only"
+        return f"{DISPLAY_PRODUCT_NAME} / This Board Only ({host})"
+    return f"{DISPLAY_PRODUCT_NAME} / This Board Only"
 
 
 def build_chatgpt_connect_payload(
@@ -179,17 +181,17 @@ def build_chatgpt_connect_payload(
     else:
         lines.extend(
             [
-                "17. Bearer token is not required because MCP auth is disabled.",
-                "18. Press Connect and verify that the tool list is visible.",
-            ]
-        )
+            "17. Bearer token is not required because MCP auth is disabled.",
+            "18. Press Connect and verify that the tool list is visible.",
+        ]
+    )
 
     lines.extend(
         [
             "",
             "[KEY VALUES]",
             f"connector_display_name = {derive_connector_display_name(settings)}",
-            "connector_scope_rule = current Minimal Kanban board only",
+            f"connector_scope_rule = {SINGLE_BOARD_SCOPE_LABEL}",
             f"connector_auth_mode = {connector_auth_mode}",
             f"effective_mcp_url = {render_value(settings.mcp.effective_mcp_url)}",
             f"local_mcp_url = {render_value(settings.mcp.local_mcp_url)}",
@@ -224,7 +226,7 @@ def build_chatgpt_connector_payload(settings: IntegrationSettings) -> str:
     payload = {
         "name": derive_connector_display_name(settings),
         "description": (
-            "Single-board connector for the current Minimal Kanban board only. "
+            "Single-board connector for the current AutoStop CRM board only. "
             "Use it for this local board instance and not for Trello, YouGile, or any other kanban connector."
         ),
         "connector_url": settings.mcp.effective_mcp_url,
@@ -375,12 +377,12 @@ def build_connection_card(
     connector_auth_mode = resolve_connector_auth_mode(settings)
 
     lines = [
-        "MINIMAL KANBAN — КАРТОЧКА ПОДКЛЮЧЕНИЯ GPT / MCP",
+        "AUTOSTOP CRM — КАРТОЧКА ПОДКЛЮЧЕНИЯ GPT / MCP",
         "",
         f"exported_at = {utc_now_iso()}",
         "",
         "[PROJECT]",
-        "name = Minimal Kanban for Windows",
+        "name = AutoStop CRM",
         f"app_exe = {get_release_exe_path()}",
         f"mcp_entry_ps1 = {get_mcp_script_path()}",
         f"mcp_entry_py = {get_mcp_python_entry_path()}",
@@ -406,7 +408,7 @@ def build_connection_card(
         "",
         "[MCP]",
         f"connector_display_name = {derive_connector_display_name(settings)}",
-        "connector_scope_rule = current Minimal Kanban board only",
+        f"connector_scope_rule = {SINGLE_BOARD_SCOPE_LABEL}",
         f"connector_auth_mode = {connector_auth_mode}",
         f"mcp_enabled = {str(settings.mcp.mcp_enabled).lower()}",
         f"mcp_host = {settings.mcp.mcp_host}",

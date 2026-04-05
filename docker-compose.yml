@@ -18,3 +18,15 @@ services:
       MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS: "${AUTOSTOP_MCP_ALLOWED_ORIGINS:-}"
     volumes:
       - "${AUTOSTOP_DATA_DIR:-./data}:/root/.minimal-kanban"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:41731/api/health', timeout=5)); raise SystemExit(0 if data.get('ok') else 1)",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 20s

@@ -309,7 +309,7 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         self.assertEqual(dialog.mcp_public_endpoint_input.text(), "https://public.example/mcp")
         dialog.copy_connection_card_button.click()
         clipboard = QGuiApplication.clipboard().text()
-        self.assertIn("MINIMAL KANBAN — КАРТОЧКА ПОДКЛЮЧЕНИЯ GPT / MCP", clipboard)
+        self.assertIn("AUTOSTOP CRM — КАРТОЧКА ПОДКЛЮЧЕНИЯ GPT / MCP", clipboard)
         self.assertIn("effective_mcp_url = https://demo.ngrok-free.app/mcp", clipboard)
 
         dialog.stop_mcp_button.click()

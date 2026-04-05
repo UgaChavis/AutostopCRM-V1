@@ -26,13 +26,19 @@ git reset --hard origin/autostopCRM
 - подтягивает origin/autostopCRM
 - пересобирает контейнер
 - поднимает docker compose up -d --build
+- дожидается запуска контейнера и healthcheck
+- прогоняет встроенный smoke-check по local API, auth и MCP
+- копирует эту инструкцию в /root/Desktop/AUTOSTOPCRM_FULL_INSTRUCTION.txt, если путь доступен
 
 5. Быстрые проверки после деплоя
 cd /opt/autostopcrm
 docker compose ps
 docker compose logs --tail=200
+docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username admin --operator-password admin --expect-admin
 curl -sS http://127.0.0.1:8000/api/health
 curl -sS http://127.0.0.1:8000/api/get_board_snapshot
+curl -sS http://127.0.0.1:8000/api/get_gpt_wall
+curl -sS http://127.0.0.1:8000/api/list_repair_orders
 curl -sS -H "Accept: text/event-stream" http://127.0.0.1:8001/mcp
 curl -I http://crm.autostopcrm.ru
 curl -I https://crm.autostopcrm.ru

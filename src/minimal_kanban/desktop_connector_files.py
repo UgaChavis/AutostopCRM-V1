@@ -7,9 +7,10 @@ from urllib.parse import urlsplit
 
 CONNECTION_CARD_FILENAME = "GPT_MCP_CONNECTION_CARD.txt"
 CONNECTOR_JSON_FILENAME = "chatgpt-connector.json"
-AUTH_NOTE_FILENAME = "Minimal Kanban Auth Note.txt"
-URL_FILENAME = "Minimal Kanban URL.txt"
+AUTH_NOTE_FILENAME = "AutoStop CRM Auth Note.txt"
+URL_FILENAME = "AutoStop CRM URL.txt"
 WAITING_MESSAGE = ""
+DISPLAY_PRODUCT_NAME = "AutoStop CRM"
 
 
 def _resolve_desktop_path(desktop_path: Path | None = None) -> Path:
@@ -36,7 +37,7 @@ def build_connector_file_contents(mcp_url: str, local_api_url: str, *, auth_mode
     host_label = (urlsplit(normalized_mcp_url).hostname or "current-connector").strip().lower() or "current-connector"
 
     connection_card = (
-        f"Minimal Kanban / This Board Only ({host_label}) -> ChatGPT / MCP\n\n"
+        f"{DISPLAY_PRODUCT_NAME} / This Board Only ({host_label}) -> ChatGPT / MCP\n\n"
         "[KEY VALUES]\n"
         f"connector_auth_mode = {normalized_auth_mode}\n"
         f"effective_mcp_url = {normalized_mcp_url}\n"
@@ -50,8 +51,8 @@ def build_connector_file_contents(mcp_url: str, local_api_url: str, *, auth_mode
         "6. In a new chat call ping_connector, then bootstrap_context.\n"
     )
     connector_payload = {
-        "name": f"Minimal Kanban / This Board Only ({host_label})",
-        "description": "Single-board connector for the current Minimal Kanban board only.",
+        "name": f"{DISPLAY_PRODUCT_NAME} / This Board Only ({host_label})",
+        "description": "Single-board connector for the current AutoStop CRM board only.",
         "connector_url": normalized_mcp_url,
         "auth_mode": normalized_auth_mode,
         "notes": [
@@ -85,7 +86,7 @@ def build_pending_connector_file_contents(*, auth_mode: str = "none", local_api_
     normalized_local_api_url = str(local_api_url or "").strip() or "http://127.0.0.1:41731"
     return {
         CONNECTION_CARD_FILENAME: (
-            "Minimal Kanban / This Board Only (current-connector) -> ChatGPT / MCP\n\n"
+            f"{DISPLAY_PRODUCT_NAME} / This Board Only (current-connector) -> ChatGPT / MCP\n\n"
             "[KEY VALUES]\n"
             f"connector_auth_mode = {normalized_auth_mode}\n"
             "effective_mcp_url = \n"
@@ -100,8 +101,8 @@ def build_pending_connector_file_contents(*, auth_mode: str = "none", local_api_
         ),
         CONNECTOR_JSON_FILENAME: (
             '{\n'
-            '  "name": "Minimal Kanban / This Board Only (current-connector)",\n'
-            '  "description": "Single-board connector for the current Minimal Kanban board only.",\n'
+            f'  "name": "{DISPLAY_PRODUCT_NAME} / This Board Only (current-connector)",\n'
+            '  "description": "Single-board connector for the current AutoStop CRM board only.",\n'
             '  "connector_url": "",\n'
             f'  "auth_mode": "{normalized_auth_mode}",\n'
             '  "notes": [\n'

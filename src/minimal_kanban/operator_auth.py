@@ -338,7 +338,34 @@ class OperatorAuthService:
             "user": user_payload["user"],
             "stats": user_payload["stats"],
             "recent_actions": user_payload["recent_actions"],
+            "security": self._security_payload(user),
         }
+
+    def _security_payload(self, user: dict[str, Any]) -> dict[str, Any]:
+        using_default_admin_credentials = self._uses_default_admin_credentials(user)
+        warning = ""
+        if using_default_admin_credentials:
+            warning = (
+                "Используется дефолтный админ-доступ. Перед постоянной публикацией CRM "
+                "смените MINIMAL_KANBAN_DEFAULT_ADMIN_USERNAME и "
+                "MINIMAL_KANBAN_DEFAULT_ADMIN_PASSWORD, затем выполните deploy."
+            )
+        return {
+            "using_default_admin_credentials": using_default_admin_credentials,
+            "warning": warning,
+        }
+
+    def _uses_default_admin_credentials(self, user: dict[str, Any]) -> bool:
+        if user.get("role") != "admin":
+            return False
+        if user.get("username") != _normalized_username(get_default_admin_username()):
+            return False
+        password_hash = str(user.get("password_hash") or "")
+        if not password_hash:
+            return False
+        if _verify_password(get_default_admin_password(), password_hash):
+            return True
+        return any(_verify_password(legacy_password, password_hash) for legacy_password in LEGACY_DEFAULT_ADMIN_PASSWORDS)
 
     def _serialize_user_summary(
         self,

@@ -40,7 +40,7 @@ class DesktopConnectorFilesTests(unittest.TestCase):
         self.assertIn("effective_local_api_url = http://127.0.0.1:41731", contents[CONNECTION_CARD_FILENAME])
 
         payload = json.loads(contents[CONNECTOR_JSON_FILENAME])
-        self.assertEqual(payload["name"], "Minimal Kanban / This Board Only (kanban.example)")
+        self.assertEqual(payload["name"], "AutoStop CRM / This Board Only (kanban.example)")
         self.assertEqual(payload["connector_url"], "https://kanban.example/mcp")
         self.assertEqual(payload["auth_mode"], "none")
         self.assertEqual(contents[URL_FILENAME], "https://kanban.example/mcp")

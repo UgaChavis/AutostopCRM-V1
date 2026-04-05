@@ -230,7 +230,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(board_context.structuredContent["ok"])
                 self.assertEqual(
                     board_context.structuredContent["data"]["context"]["board_name"],
-                    "Current Minimal Kanban Board",
+                    "Current AutoStop CRM Board",
                 )
                 self.assertIn("[BOARD CONTEXT]", board_context.structuredContent["data"]["text"])
 
@@ -525,7 +525,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("board_content", wall.structuredContent["data"]["sections"])
                 self.assertIn("event_log", wall.structuredContent["data"]["sections"])
                 self.assertIn("resource_url", wall.structuredContent["data"]["text"])
-                self.assertIn("Current Minimal Kanban Board", wall.structuredContent["data"]["text"])
+                self.assertIn("Current AutoStop CRM Board", wall.structuredContent["data"]["text"])
                 self.assertTrue(any(item["id"] == sticky_id for item in wall.structuredContent["data"]["stickies"]))
                 self.assertIn(card_short_id, wall.structuredContent["data"]["sections"]["board_content"]["text"])
                 self.assertTrue(any(item["card_id"] == card_id for item in wall.structuredContent["data"]["sections"]["event_log"]["events"]))
