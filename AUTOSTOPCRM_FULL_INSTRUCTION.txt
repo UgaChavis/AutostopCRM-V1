@@ -34,14 +34,13 @@ git reset --hard origin/autostopCRM
 cd /opt/autostopcrm
 docker compose ps
 docker compose logs --tail=200
-docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username admin --operator-password admin --expect-admin
+docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url http://crm.autostopcrm.ru --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username admin --operator-password admin --expect-admin
 curl -sS http://127.0.0.1:8000/api/health
 curl -sS http://127.0.0.1:8000/api/get_board_snapshot
 curl -sS http://127.0.0.1:8000/api/get_gpt_wall
 curl -sS http://127.0.0.1:8000/api/list_repair_orders
+curl -sS -o /dev/null http://crm.autostopcrm.ru
 curl -sS -H "Accept: text/event-stream" http://127.0.0.1:8001/mcp
-curl -I http://crm.autostopcrm.ru
-curl -I https://crm.autostopcrm.ru
 
 6. Проверка авторизации
 - логин администратора по умолчанию: admin
@@ -97,13 +96,21 @@ PY
 
 10. Проверка HTTPS через certbot
 Если DNS уже смотрит на сервер и nginx отвечает по 80 порту:
+Шаблон nginx лежит в /opt/autostopcrm/scripts/nginx.autostopcrm.conf.example
+
+Базовая схема:
+1. Положить шаблон в /etc/nginx/sites-available/autostopcrm
+2. Сделать symlink в /etc/nginx/sites-enabled/autostopcrm
+3. Проверить nginx -t и перезагрузить nginx
+4. Выпустить сертификат certbot --nginx -d crm.autostopcrm.ru
+
 apt-get update
 apt-get install -y certbot python3-certbot-nginx
 certbot --nginx -d crm.autostopcrm.ru
 
 После выпуска проверить:
-curl -I https://crm.autostopcrm.ru
-curl -I https://crm.autostopcrm.ru/mcp
+curl -sS -o /dev/null https://crm.autostopcrm.ru
+docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --mcp-url https://crm.autostopcrm.ru/mcp --operator-username admin --operator-password admin --expect-admin
 
 11. Что должно быть после нормального прод-подъёма
 - https://crm.autostopcrm.ru открывается без TLS ошибок
@@ -133,6 +140,7 @@ cd /opt/autostopcrm
 docker compose ps
 docker compose logs -f
 docker compose logs --tail=300 autostopcrm
+docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --mcp-url https://crm.autostopcrm.ru/mcp --operator-username admin --operator-password admin --expect-admin
 git status
 git branch -vv
 git log --oneline -n 10

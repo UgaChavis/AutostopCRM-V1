@@ -8,6 +8,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from mcp import ClientSession
@@ -80,6 +81,15 @@ def _resolve_mcp_token(settings: IntegrationSettings, override: str | None) -> s
     ).strip()
 
 
+def _resolve_site_url(settings: IntegrationSettings, override: str | None) -> str:
+    if override:
+        return _clean_url(override)
+    public_base = _clean_url(settings.mcp.public_https_base_url)
+    if public_base:
+        return public_base
+    return ""
+
+
 def _api_request(
     base_url: str,
     path: str,
@@ -117,6 +127,68 @@ def _api_request(
 
 def _envelope_ok(payload: dict[str, Any] | None) -> bool:
     return bool(isinstance(payload, dict) and payload.get("ok"))
+
+
+def check_site(site_url: str, *, expect_https: bool = False) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "checked": bool(site_url),
+        "ok": False,
+        "site_url": site_url,
+        "final_url": "",
+        "status_code": 0,
+        "content_type": "",
+        "title": "",
+        "contains_autostop": False,
+        "contains_login_route": False,
+        "error": None,
+    }
+    if not site_url:
+        result["error"] = "site_url_not_configured"
+        return result
+
+    if expect_https and urlsplit(site_url).scheme.lower() != "https":
+        result["error"] = "site_url_is_not_https"
+        return result
+
+    request = urllib.request.Request(
+        site_url,
+        method="GET",
+        headers={
+            "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+            "User-Agent": "AutoStopCRM-check/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10.0) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            final_url = response.geturl()
+            title = ""
+            title_start = body.lower().find("<title>")
+            title_end = body.lower().find("</title>")
+            if title_start != -1 and title_end != -1 and title_end > title_start:
+                title = body[title_start + 7 : title_end].strip()
+            result["final_url"] = final_url
+            result["status_code"] = int(response.status)
+            result["content_type"] = str(response.headers.get("Content-Type") or "")
+            result["title"] = title
+            result["contains_autostop"] = "AUTOSTOP" in body.upper()
+            result["contains_login_route"] = "/api/login_operator" in body
+            result["ok"] = bool(
+                response.status == 200
+                and result["contains_autostop"]
+                and result["contains_login_route"]
+                and (not expect_https or final_url.lower().startswith("https://"))
+            )
+            if not result["ok"]:
+                result["error"] = "site_surface_incomplete"
+            return result
+    except urllib.error.HTTPError as exc:
+        result["status_code"] = exc.code
+        result["error"] = f"http_error_{exc.code}"
+        return result
+    except Exception as exc:  # pragma: no cover
+        result["error"] = str(exc)
+        return result
 
 
 def check_api_surface(base_url: str, *, bearer_token: str | None = None) -> dict[str, Any]:
@@ -291,62 +363,69 @@ async def check_mcp(mcp_url: str, *, bearer_token: str | None = None) -> dict[st
     if bearer_token:
         headers["Authorization"] = f"Bearer {bearer_token}"
 
-    try:
-        async with httpx.AsyncClient(headers=headers, timeout=20.0) as http_client:
-            async with streamable_http_client(mcp_url, http_client=http_client) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    tools = await session.list_tools()
-                    tool_names = {tool.name for tool in tools.tools}
-                    result["tool_count"] = len(tool_names)
-                    result["has_ping_connector"] = "ping_connector" in tool_names
-                    result["has_bootstrap_context"] = "bootstrap_context" in tool_names
-                    result["has_get_runtime_status"] = "get_runtime_status" in tool_names
+    last_error = ""
+    for attempt in range(1, 3):
+        try:
+            timeout = httpx.Timeout(45.0, connect=10.0, read=45.0, write=45.0, pool=45.0)
+            async with httpx.AsyncClient(headers=headers, timeout=timeout) as http_client:
+                async with streamable_http_client(mcp_url, http_client=http_client) as (read, write, _):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        tools = await session.list_tools()
+                        tool_names = {tool.name for tool in tools.tools}
+                        result["tool_count"] = len(tool_names)
+                        result["has_ping_connector"] = "ping_connector" in tool_names
+                        result["has_bootstrap_context"] = "bootstrap_context" in tool_names
+                        result["has_get_runtime_status"] = "get_runtime_status" in tool_names
 
-                    if result["has_ping_connector"]:
-                        ping = await session.call_tool("ping_connector", {})
-                        result["ping_ok"] = bool(
-                            not ping.isError
-                            and isinstance(ping.structuredContent, dict)
-                            and ping.structuredContent.get("ok")
+                        if result["has_ping_connector"]:
+                            ping = await session.call_tool("ping_connector", {})
+                            result["ping_ok"] = bool(
+                                not ping.isError
+                                and isinstance(ping.structuredContent, dict)
+                                and ping.structuredContent.get("ok")
+                            )
+                            if isinstance(ping.structuredContent, dict):
+                                result["ping_data"] = ping.structuredContent.get("data")
+
+                        if result["has_bootstrap_context"]:
+                            bootstrap = await session.call_tool("bootstrap_context", {})
+                            result["bootstrap_ok"] = bool(
+                                not bootstrap.isError
+                                and isinstance(bootstrap.structuredContent, dict)
+                                and bootstrap.structuredContent.get("ok")
+                            )
+                            if isinstance(bootstrap.structuredContent, dict):
+                                result["bootstrap_data"] = bootstrap.structuredContent.get("data")
+
+                        if result["has_get_runtime_status"]:
+                            runtime = await session.call_tool("get_runtime_status", {})
+                            result["runtime_ok"] = bool(
+                                not runtime.isError
+                                and isinstance(runtime.structuredContent, dict)
+                                and runtime.structuredContent.get("ok")
+                            )
+                            if isinstance(runtime.structuredContent, dict):
+                                result["runtime_data"] = runtime.structuredContent.get("data")
+
+                        result["ok"] = all(
+                            [
+                                result["has_ping_connector"],
+                                result["has_bootstrap_context"],
+                                result["has_get_runtime_status"],
+                                result["ping_ok"],
+                                result["bootstrap_ok"],
+                                result["runtime_ok"],
+                            ]
                         )
-                        if isinstance(ping.structuredContent, dict):
-                            result["ping_data"] = ping.structuredContent.get("data")
-
-                    if result["has_bootstrap_context"]:
-                        bootstrap = await session.call_tool("bootstrap_context", {})
-                        result["bootstrap_ok"] = bool(
-                            not bootstrap.isError
-                            and isinstance(bootstrap.structuredContent, dict)
-                            and bootstrap.structuredContent.get("ok")
-                        )
-                        if isinstance(bootstrap.structuredContent, dict):
-                            result["bootstrap_data"] = bootstrap.structuredContent.get("data")
-
-                    if result["has_get_runtime_status"]:
-                        runtime = await session.call_tool("get_runtime_status", {})
-                        result["runtime_ok"] = bool(
-                            not runtime.isError
-                            and isinstance(runtime.structuredContent, dict)
-                            and runtime.structuredContent.get("ok")
-                        )
-                        if isinstance(runtime.structuredContent, dict):
-                            result["runtime_data"] = runtime.structuredContent.get("data")
-
-                    result["ok"] = all(
-                        [
-                            result["has_ping_connector"],
-                            result["has_bootstrap_context"],
-                            result["has_get_runtime_status"],
-                            result["ping_ok"],
-                            result["bootstrap_ok"],
-                            result["runtime_ok"],
-                        ]
-                    )
-                    if not result["ok"]:
-                        result["error"] = "mcp_surface_incomplete"
-    except Exception as exc:  # pragma: no cover
-        result["error"] = str(exc)
+                        if not result["ok"]:
+                            result["error"] = "mcp_surface_incomplete"
+                        return result
+        except Exception as exc:  # pragma: no cover
+            last_error = str(exc)
+            if attempt < 2:
+                await asyncio.sleep(1.0)
+    result["error"] = last_error or result["error"] or "mcp_surface_incomplete"
     return result
 
 
@@ -364,6 +443,24 @@ def _print_api_surface(report: dict[str, Any]) -> None:
         print(f"snapshot_cards: {summary.get('snapshot_cards', 0)}")
         print(f"repair_orders_total: {summary.get('repair_orders_total', 0)}")
         print(f"wall_cards_total: {summary.get('wall_cards_total', 0)}")
+    else:
+        print("status: failed")
+        print(f"error: {report.get('error')}")
+
+
+def _print_site(report: dict[str, Any]) -> None:
+    print_section("PUBLIC SITE")
+    print(f"site_url: {report.get('site_url') or '<not configured>'}")
+    if not report.get("checked"):
+        print("status: skipped")
+        print("reason: site url was not provided")
+        return
+    if report.get("ok"):
+        print("status: ok")
+        print(f"final_url: {report.get('final_url') or '<unknown>'}")
+        print(f"status_code: {report.get('status_code')}")
+        print(f"title: {report.get('title') or '<unknown>'}")
+        print(f"content_type: {report.get('content_type') or '<unknown>'}")
     else:
         print("status: failed")
         print(f"error: {report.get('error')}")
@@ -420,9 +517,11 @@ def _print_mcp(report: dict[str, Any]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Read-only live diagnostics for AutoStop CRM API/MCP.")
+    parser = argparse.ArgumentParser(description="Read-only live diagnostics for AutoStop CRM site, API and MCP.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON instead of human text.")
     parser.add_argument("--strict", action="store_true", help="Return a non-zero exit code when a checked surface fails.")
+    parser.add_argument("--site-url", default="", help="Explicit public CRM URL, for example https://crm.autostopcrm.ru.")
+    parser.add_argument("--expect-https", action="store_true", help="Require the site URL and final public URL to use https.")
     parser.add_argument("--local-api-url", default="", help="Explicit local API base URL, for example http://127.0.0.1:41731.")
     parser.add_argument("--local-api-token", default=None, help="Optional local API bearer token.")
     parser.add_argument("--mcp-url", default="", help="Explicit MCP URL, for example http://127.0.0.1:41831/mcp.")
@@ -433,11 +532,13 @@ def main() -> int:
     args = parser.parse_args()
 
     settings = load_settings()
+    site_url = _resolve_site_url(settings, args.site_url)
     local_api_token = _resolve_local_api_token(settings, args.local_api_token)
     local_api_url = _resolve_local_api_url(settings, args.local_api_url, local_api_token)
     mcp_url = _resolve_mcp_url(settings, args.mcp_url)
     mcp_token = _resolve_mcp_token(settings, args.mcp_token)
 
+    site_surface = check_site(site_url, expect_https=args.expect_https)
     api_surface = check_api_surface(local_api_url, bearer_token=local_api_token or None)
     operator_auth = check_operator_auth(
         local_api_url,
@@ -450,6 +551,7 @@ def main() -> int:
 
     report = {
         "settings_file": str(get_settings_file()),
+        "site_surface": site_surface,
         "api_surface": api_surface,
         "operator_auth": operator_auth,
         "mcp_surface": mcp_surface,
@@ -460,6 +562,7 @@ def main() -> int:
     else:
         print("AutoStop CRM live diagnostics")
         print(f"settings_file: {report['settings_file']}")
+        _print_site(site_surface)
         _print_api_surface(api_surface)
         _print_operator_auth(operator_auth)
         _print_mcp(mcp_surface)
@@ -468,6 +571,7 @@ def main() -> int:
         return 0
 
     checked_sections = [
+        ("site_surface", site_surface.get("checked"), site_surface.get("ok")),
         ("api_surface", api_surface.get("checked"), api_surface.get("ok")),
         ("operator_auth", operator_auth.get("checked"), operator_auth.get("ok")),
         ("mcp_surface", mcp_surface.get("checked"), mcp_surface.get("ok")),

@@ -59,6 +59,8 @@
 
 Иными словами, внешний адрес должен смотреть на тот же экземпляр приложения, который держит доску на твоём ПК.
 
+Для серверного сценария AutoStop CRM готовый пример nginx лежит в `scripts/nginx.autostopcrm.conf.example`.
+
 ## Быстрый сценарий
 
 1. Запусти [Start Kanban.exe](C:/Users/User/Desktop/Codex/minimal-kanban/release/Start%20Kanban.exe).
