@@ -97,6 +97,8 @@ class RepairOrderPatchPayload(BaseModel):
     license_plate: str | None = Field(default=None, max_length=160)
     vin: str | None = Field(default=None, max_length=160)
     mileage: str | None = Field(default=None, max_length=160)
+    payment_method: Literal["cash", "cashless"] | None = None
+    prepayment: str | None = Field(default=None, max_length=40)
     reason: str | None = Field(default=None, max_length=4000)
     client_information: str | None = Field(default=None, max_length=4000)
     note: str | None = Field(default=None, max_length=4000)

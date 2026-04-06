@@ -38,6 +38,8 @@ def build_card() -> Card:
                 "license_plate": "А123АА124",
                 "vin": "JTNB11HK103456789",
                 "mileage": "165000",
+                "payment_method": "cashless",
+                "prepayment": "1000",
                 "reason": "Плановое обслуживание АКПП",
                 "comment": "Проверили коробку, заменили масло и фильтр, рекомендовали контроль через 1000 км.",
                 "note": "Следов критического износа не обнаружено.",
@@ -84,6 +86,11 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in preview["documents"]], ["repair_order", "invoice"])
         self.assertGreaterEqual(preview["documents"][0]["page_count"], 1)
         self.assertIn("Заказ-наряд", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn("Налоги и сборы", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn("Предоплата", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn("К доплате", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn("Стоимость заказ-наряда", preview["documents"][1]["pages"][0]["html"])
+        self.assertIn("Итого по заказ-наряду", preview["documents"][1]["pages"][0]["html"])
         self.assertEqual(preview["documents"][0]["missing_fields"], [])
 
     def test_template_crud_duplicate_default_and_delete(self) -> None:
