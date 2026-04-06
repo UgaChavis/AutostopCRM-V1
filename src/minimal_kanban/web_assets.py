@@ -5980,6 +5980,22 @@ function renderCompactArchiveRows(cards) {
       return cards.find((card) => card.id === cardId) || archive.find((card) => card.id === cardId) || null;
     }
 
+    function boardCardElementById(cardId) {
+      if (!cardId) return null;
+      return els.board?.querySelector('.card[data-card-id="' + cardId + '"]') || null;
+    }
+
+    function replaceBoardCardElement(nextCard) {
+      const currentCard = boardCardElementById(nextCard?.id);
+      if (!currentCard) return false;
+      const template = document.createElement('template');
+      template.innerHTML = renderBoardCardHtml(nextCard);
+      const nextCardElement = template.content.firstElementChild;
+      if (!nextCardElement) return false;
+      currentCard.replaceWith(nextCardElement);
+      return true;
+    }
+
     function replaceSnapshotCard(nextCard) {
       if (!nextCard?.id) return;
       const previousCard = snapshotCardById(nextCard.id);
@@ -6001,6 +6017,10 @@ function renderCompactArchiveRows(cards) {
       const previousColumnId = String(previousCard.column || '').trim();
       const nextColumnId = String(nextCard.column || '').trim();
       if (previousColumnId && previousColumnId === nextColumnId) {
+        const previousPosition = Number(previousCard.position ?? NaN);
+        const nextPosition = Number(nextCard.position ?? NaN);
+        const samePosition = previousPosition === nextPosition || (Number.isNaN(previousPosition) && Number.isNaN(nextPosition));
+        if (samePosition && replaceBoardCardElement(nextCard)) return;
         if (!renderBoardColumnById(previousColumnId)) renderBoard();
         return;
       }
