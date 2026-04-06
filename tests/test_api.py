@@ -594,7 +594,9 @@ class ApiServerTests(unittest.TestCase):
             self.assertIn("ЗАКАЗ-НАРЯД", body)
             self.assertIn("API заказ-наряд", body)
             self.assertIn("Итого работы: 1000", body)
-            self.assertIn("Итого к оплате: 1000", body)
+            self.assertIn("Стоимость заказ-наряда: 1000", body)
+            self.assertIn("Итого по заказ-наряду: 1000", body)
+            self.assertIn("К доплате: 1000", body)
 
     def test_create_card_accepts_colored_tags(self) -> None:
         status, created = self.request(
@@ -808,6 +810,8 @@ class ApiServerTests(unittest.TestCase):
                 "repair_order": {
                     "client": "Иван Иванов",
                     "phone": "+7 900 123-45-67",
+                    "payment_method": "cashless",
+                    "prepayment": "500",
                     "client_information": "Краткая история ремонта для клиента",
                     "works": [{"name": "Диагностика", "quantity": "1", "price": "1500", "total": ""}],
                 },
@@ -819,9 +823,16 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(updated["data"]["card"]["repair_order"]["client_information"], "Краткая история ремонта для клиента")
         self.assertEqual(updated["data"]["card"]["repair_order"]["works"][0]["name"], "Диагностика")
         self.assertEqual(updated["data"]["card"]["repair_order"]["works"][0]["total"], "1500")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["payment_method"], "cashless")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["payment_method_label"], "Безналичный")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["prepayment"], "500")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["prepayment_display"], "500")
         self.assertEqual(updated["data"]["card"]["repair_order"]["works_total"], "1500")
         self.assertEqual(updated["data"]["card"]["repair_order"]["materials_total"], "0")
-        self.assertEqual(updated["data"]["card"]["repair_order"]["grand_total"], "1500")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["subtotal_total"], "1500")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["taxes_total"], "225")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["grand_total"], "1725")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["due_total"], "1225")
 
     def test_repair_order_context_and_patch_routes(self) -> None:
         status, created = self.request(
@@ -878,7 +889,9 @@ class ApiServerTests(unittest.TestCase):
         status, text_payload = self.request("/api/get_repair_order_text", {"card_id": card_id})
         self.assertEqual(status, 200)
         self.assertEqual(text_payload["data"]["card_id"], card_id)
-        self.assertIn("Итого к оплате: 2000", text_payload["data"]["text"])
+        self.assertIn("Стоимость заказ-наряда: 2000", text_payload["data"]["text"])
+        self.assertIn("Итого по заказ-наряду: 2000", text_payload["data"]["text"])
+        self.assertIn("К доплате: 2000", text_payload["data"]["text"])
 
     def test_repair_order_print_module_routes_preview_export_and_template_crud(self) -> None:
         status, created = self.request(

@@ -1440,6 +1440,10 @@ BOARD_WEB_APP_HTML = "".join(
       grid-template-columns: 56px repeat(3, minmax(0, 1fr));
       align-items: end;
     }
+    .repair-order-card__grid--payment {
+      grid-template-columns: minmax(0, 1fr) minmax(164px, 0.72fr);
+      align-items: end;
+    }
     .repair-order-card__grid--client {
       grid-template-columns: minmax(0, 1.82fr) minmax(162px, 0.66fr);
       align-items: end;
@@ -1449,6 +1453,8 @@ BOARD_WEB_APP_HTML = "".join(
       align-items: end;
     }
     .repair-order-card__grid--document .field--compact input[type="text"],
+    .repair-order-card__grid--payment .field--compact input[type="text"],
+    .repair-order-card__grid--payment .field--compact select,
     .repair-order-card__grid--client .field--compact input[type="text"],
     .repair-order-card__grid--vehicle .field--compact input[type="text"] {
       min-height: 32px;
@@ -1468,6 +1474,7 @@ BOARD_WEB_APP_HTML = "".join(
       font-size: 13.5px;
     }
     .repair-order-card__grid--document .field--compact label,
+    .repair-order-card__grid--payment .field--compact label,
     .repair-order-card__grid--vehicle .field--compact label,
     .repair-order-card__grid--client .field--compact label {
       font-size: 10px;
@@ -1626,6 +1633,9 @@ BOARD_WEB_APP_HTML = "".join(
       display: grid;
       gap: 3px;
       min-width: 132px;
+    }
+    .repair-order-total.is-hidden {
+      display: none;
     }
     .repair-order-total span {
       color: var(--text-soft);
@@ -2815,6 +2825,19 @@ BOARD_WEB_APP_HTML = "".join(
                 <input id="repairOrderMileage" data-repair-order-field="mileage" type="text" maxlength="32" placeholder="215 000">
               </div>
             </div>
+            <div class="repair-order-card__grid repair-order-card__grid--payment">
+              <div class="field field--compact repair-order-field repair-order-field--payment-method">
+                <label for="repairOrderPaymentMethod">ФОРМА ОПЛАТЫ</label>
+                <select id="repairOrderPaymentMethod" data-repair-order-field="payment_method">
+                  <option value="cash">Наличный</option>
+                  <option value="cashless">Безналичный</option>
+                </select>
+              </div>
+              <div class="field field--compact repair-order-field repair-order-field--prepayment">
+                <label for="repairOrderPrepayment">ПРЕДОПЛАТА</label>
+                <input id="repairOrderPrepayment" data-repair-order-field="prepayment" type="text" inputmode="decimal" maxlength="32" placeholder="0,00">
+              </div>
+            </div>
           </section>
         </div>
         <section class="repair-order-card repair-order-card--wide hidden" data-repair-order-section="reason" aria-hidden="true">
@@ -2890,21 +2913,37 @@ BOARD_WEB_APP_HTML = "".join(
           <div class="repair-order-subtotal"><span>ИТОГО МАТЕРИАЛЫ</span><strong data-repair-order-total="materials">0,00</strong></div>
         </section>
       </div>
-      <div class="dialog__foot repair-order-footer">
-        <div class="repair-order-footer__totals">
-          <div class="repair-order-total">
-            <span>ИТОГО РАБОТЫ</span>
-            <strong data-repair-order-total="works">0,00</strong>
+        <div class="dialog__foot repair-order-footer">
+          <div class="repair-order-footer__totals">
+            <div class="repair-order-total">
+              <span>ИТОГО РАБОТЫ</span>
+              <strong data-repair-order-total="works">0,00</strong>
           </div>
-          <div class="repair-order-total">
-            <span>ИТОГО МАТЕРИАЛЫ</span>
-            <strong data-repair-order-total="materials">0,00</strong>
+            <div class="repair-order-total">
+              <span>ИТОГО МАТЕРИАЛЫ</span>
+              <strong data-repair-order-total="materials">0,00</strong>
+            </div>
+            <div class="repair-order-total">
+              <span>СТОИМОСТЬ НАРЯДА</span>
+              <strong data-repair-order-total="subtotal">0,00</strong>
+            </div>
+            <div class="repair-order-total is-hidden" data-repair-order-total-block="taxes">
+              <span>НАЛОГИ И СБОРЫ</span>
+              <strong data-repair-order-total="taxes">0,00</strong>
+            </div>
+            <div class="repair-order-total">
+              <span>ИТОГО ПО ЗАКАЗ-НАРЯДУ</span>
+              <strong data-repair-order-total="grand">0,00</strong>
+            </div>
+            <div class="repair-order-total">
+              <span>ПРЕДОПЛАТА</span>
+              <strong data-repair-order-total="prepayment">0,00</strong>
+            </div>
+            <div class="repair-order-total repair-order-total--grand">
+              <span>К ДОПЛАТЕ</span>
+              <strong data-repair-order-total="due">0,00</strong>
+            </div>
           </div>
-          <div class="repair-order-total repair-order-total--grand">
-            <span>ИТОГО К ОПЛАТЕ</span>
-            <strong data-repair-order-total="grand">0,00</strong>
-          </div>
-        </div>
         <div class="repair-order-footer__actions">
           <button class="btn" data-close="repair-order">ОТМЕНА</button>
           <button class="btn btn--ghost" id="repairOrderCloseButton" type="button">ЗАКРЫТЬ ЗАКАЗ-НАРЯД</button>
@@ -3162,6 +3201,8 @@ BOARD_WEB_APP_HTML = "".join(
       repairOrderLicensePlate: document.getElementById('repairOrderLicensePlate'),
       repairOrderVin: document.getElementById('repairOrderVin'),
       repairOrderMileage: document.getElementById('repairOrderMileage'),
+      repairOrderPaymentMethod: document.getElementById('repairOrderPaymentMethod'),
+      repairOrderPrepayment: document.getElementById('repairOrderPrepayment'),
       repairOrderReason: document.getElementById('repairOrderReason'),
       repairOrderComment: document.getElementById('repairOrderComment'),
       repairOrderNote: document.getElementById('repairOrderNote'),
@@ -4584,6 +4625,20 @@ BOARD_WEB_APP_HTML = "".join(
       }).format(safeValue);
     }
 
+    function normalizeRepairOrderPaymentMethod(value) {
+      const normalized = String(value ?? '').trim().toLowerCase();
+      if (['cashless', 'wire', 'bank', 'card', 'безнал', 'безналичный'].includes(normalized)) return 'cashless';
+      return 'cash';
+    }
+
+    function repairOrderPaymentMethodLabel(value) {
+      return normalizeRepairOrderPaymentMethod(value) === 'cashless' ? 'Безналичный' : 'Наличный';
+    }
+
+    function repairOrderTaxRate(value) {
+      return normalizeRepairOrderPaymentMethod(value) === 'cashless' ? 0.15 : 0;
+    }
+
     function repairOrderRowHasAnyData(row) {
       return ['name', 'quantity', 'price', 'total'].some((fieldName) => String(row?.[fieldName] ?? '').trim());
     }
@@ -4636,6 +4691,8 @@ BOARD_WEB_APP_HTML = "".join(
         license_plate: String(source.license_plate ?? '').trim(),
         vin: String(source.vin ?? '').trim(),
         mileage: String(source.mileage ?? source.odometer ?? '').trim(),
+        payment_method: normalizeRepairOrderPaymentMethod(source.payment_method ?? source.paymentMethod ?? ''),
+        prepayment: String(source.prepayment ?? source.advance_payment ?? source.advancePayment ?? '').trim(),
         reason: String(source.reason ?? '').trim(),
         comment: String(source.client_information ?? source.comment ?? '').trim(),
         note: String(source.note ?? source.master_comment ?? source.masterComment ?? source.internal_comment ?? source.internalComment ?? '').trim(),
@@ -4658,6 +4715,7 @@ BOARD_WEB_APP_HTML = "".join(
         normalized.license_plate ||
         normalized.vin ||
         normalized.mileage ||
+        normalized.prepayment ||
         normalized.reason ||
         normalized.comment ||
         normalized.note ||
@@ -4748,6 +4806,8 @@ BOARD_WEB_APP_HTML = "".join(
         license_plate: currentCard.repair_order?.license_plate || '',
         vin: profile.vin || currentCard.repair_order?.vin || '',
         mileage: currentCard.repair_order?.mileage || (profile.mileage ?? ''),
+        payment_method: currentCard.repair_order?.payment_method || 'cash',
+        prepayment: currentCard.repair_order?.prepayment || '',
         reason: currentCard.title || '',
         comment: currentCard.description || '',
         note: currentCard.repair_order?.note || '',
@@ -4772,6 +4832,8 @@ BOARD_WEB_APP_HTML = "".join(
         license_plate: resolvedField('license_plate', ['licensePlate']),
         vin: resolvedField('vin'),
         mileage: resolvedField('mileage', ['odometer']),
+        payment_method: resolvedField('payment_method', ['paymentMethod']),
+        prepayment: resolvedField('prepayment', ['advance_payment', 'advancePayment']),
         reason: resolvedField('reason'),
         comment: resolvedField('comment', ['client_information', 'clientInformation']),
         note: resolvedField('note', ['master_comment', 'masterComment', 'internal_comment', 'internalComment']),
@@ -4909,9 +4971,28 @@ BOARD_WEB_APP_HTML = "".join(
     function syncRepairOrderTotals() {
       const worksTotal = syncRepairOrderSectionTotals('works');
       const materialsTotal = syncRepairOrderSectionTotals('materials');
-      const grandTotal = repairOrderRoundMoney(worksTotal + materialsTotal);
+      const subtotal = repairOrderRoundMoney(worksTotal + materialsTotal);
+      const taxes = repairOrderRoundMoney(subtotal * repairOrderTaxRate(els.repairOrderPaymentMethod.value));
+      const grandTotal = repairOrderRoundMoney(subtotal + taxes);
+      const prepayment = repairOrderRoundMoney(repairOrderParseNumber(els.repairOrderPrepayment.value) ?? 0);
+      const dueTotal = repairOrderRoundMoney(grandTotal - prepayment);
+      document.querySelectorAll('[data-repair-order-total="subtotal"]').forEach((node) => {
+        node.textContent = repairOrderFormatMoney(subtotal);
+      });
+      document.querySelectorAll('[data-repair-order-total="taxes"]').forEach((node) => {
+        node.textContent = repairOrderFormatMoney(taxes);
+      });
+      document.querySelectorAll('[data-repair-order-total="prepayment"]').forEach((node) => {
+        node.textContent = repairOrderFormatMoney(prepayment);
+      });
       document.querySelectorAll('[data-repair-order-total="grand"]').forEach((node) => {
         node.textContent = repairOrderFormatMoney(grandTotal);
+      });
+      document.querySelectorAll('[data-repair-order-total="due"]').forEach((node) => {
+        node.textContent = repairOrderFormatMoney(dueTotal);
+      });
+      document.querySelectorAll('[data-repair-order-total-block="taxes"]').forEach((node) => {
+        node.classList.toggle('is-hidden', taxes === 0);
       });
     }
 
@@ -4934,6 +5015,8 @@ BOARD_WEB_APP_HTML = "".join(
       els.repairOrderLicensePlate.value = normalized.license_plate;
       els.repairOrderVin.value = normalized.vin;
       els.repairOrderMileage.value = normalized.mileage;
+      els.repairOrderPaymentMethod.value = normalized.payment_method;
+      els.repairOrderPrepayment.value = normalized.prepayment;
       els.repairOrderReason.value = normalized.reason;
       els.repairOrderComment.value = normalized.comment;
       els.repairOrderNote.value = normalized.note;
@@ -4962,6 +5045,8 @@ BOARD_WEB_APP_HTML = "".join(
         license_plate: els.repairOrderLicensePlate.value,
         vin: els.repairOrderVin.value,
         mileage: els.repairOrderMileage.value,
+        payment_method: els.repairOrderPaymentMethod.value,
+        prepayment: els.repairOrderPrepayment.value,
         reason: els.repairOrderReason.value,
         comment: els.repairOrderComment.value,
         client_information: els.repairOrderComment.value,
@@ -5029,7 +5114,11 @@ BOARD_WEB_APP_HTML = "".join(
       const normalized = normalizeRepairOrder(order);
       const worksTotal = repairOrderRowsTotalValue(normalized.works);
       const materialsTotal = repairOrderRowsTotalValue(normalized.materials);
-      const grandTotal = repairOrderRoundMoney(worksTotal + materialsTotal);
+      const subtotal = repairOrderRoundMoney(worksTotal + materialsTotal);
+      const taxesTotal = repairOrderRoundMoney(subtotal * repairOrderTaxRate(normalized.payment_method));
+      const grandTotal = repairOrderRoundMoney(subtotal + taxesTotal);
+      const prepayment = repairOrderRoundMoney(repairOrderParseNumber(normalized.prepayment) ?? 0);
+      const dueTotal = repairOrderRoundMoney(grandTotal - prepayment);
       const comment = escapeHtml(normalized.comment).replace(/\n/g, '<br>');
       return [
         '<!doctype html>',
@@ -5066,6 +5155,8 @@ BOARD_WEB_APP_HTML = "".join(
         '<div class="meta-card"><div class="meta-label">Телефон</div><div class="meta-value">' + escapeHtml(normalized.phone) + '</div></div>',
         '<div class="meta-card"><div class="meta-label">Автомобиль</div><div class="meta-value">' + escapeHtml(normalized.vehicle) + '</div></div>',
         '<div class="meta-card"><div class="meta-label">Госномер</div><div class="meta-value">' + escapeHtml(normalized.license_plate) + '</div></div>',
+        '<div class="meta-card"><div class="meta-label">Форма оплаты</div><div class="meta-value">' + escapeHtml(repairOrderPaymentMethodLabel(normalized.payment_method)) + '</div></div>',
+        '<div class="meta-card"><div class="meta-label">Предоплата</div><div class="meta-value">' + escapeHtml(repairOrderFormatMoney(prepayment)) + '</div></div>',
         '</section>',
         '<section class="print-section"><h2>Информация для клиента</h2><div class="print-comment">' + comment + '</div></section>',
         buildRepairOrderPrintTable('Работы', normalized.works, 'Итого работы'),
@@ -5073,7 +5164,11 @@ BOARD_WEB_APP_HTML = "".join(
         '<section class="print-totals">' +
         '<div class="print-totals__row"><span>Итого работы</span><span>' + escapeHtml(repairOrderFormatMoney(worksTotal)) + '</span></div>' +
         '<div class="print-totals__row"><span>Итого материалы</span><span>' + escapeHtml(repairOrderFormatMoney(materialsTotal)) + '</span></div>' +
-        '<div class="print-totals__row print-totals__row--grand"><span>Итого к оплате</span><span>' + escapeHtml(repairOrderFormatMoney(grandTotal)) + '</span></div>' +
+        '<div class="print-totals__row"><span>Стоимость заказ-наряда</span><span>' + escapeHtml(repairOrderFormatMoney(subtotal)) + '</span></div>' +
+        (taxesTotal ? '<div class="print-totals__row"><span>Налоги и сборы</span><span>' + escapeHtml(repairOrderFormatMoney(taxesTotal)) + '</span></div>' : '') +
+        '<div class="print-totals__row"><span>Итого по заказ-наряду</span><span>' + escapeHtml(repairOrderFormatMoney(grandTotal)) + '</span></div>' +
+        '<div class="print-totals__row"><span>Предоплата</span><span>' + escapeHtml(repairOrderFormatMoney(prepayment)) + '</span></div>' +
+        '<div class="print-totals__row print-totals__row--grand"><span>К доплате</span><span>' + escapeHtml(repairOrderFormatMoney(dueTotal)) + '</span></div>' +
         '</section>',
         '</div></body></html>',
       ].join('');
@@ -7124,7 +7219,13 @@ function renderCompactArchiveRows(cards) {
     function handleRepairOrderModalInput(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      if (target.closest('tr[data-repair-order-row]')) syncRepairOrderTotals();
+      if (
+        target.closest('tr[data-repair-order-row]') ||
+        target === els.repairOrderPrepayment ||
+        target === els.repairOrderPaymentMethod
+      ) {
+        syncRepairOrderTotals();
+      }
     }
 
     function saveRepairOrderDraft() {
@@ -7430,6 +7531,7 @@ function renderCompactArchiveRows(cards) {
     els.repairOrderAddWorkRowButton.addEventListener('click', (event) => addRepairOrderRowFromButton('works', event));
     els.repairOrderAddMaterialRowButton.addEventListener('click', (event) => addRepairOrderRowFromButton('materials', event));
     els.repairOrderModal.addEventListener('input', handleRepairOrderModalInput);
+    els.repairOrderModal.addEventListener('change', handleRepairOrderModalInput);
     els.repairOrderTagAddButton.addEventListener('click', addRepairOrderTag);
     els.repairOrderTagInput.addEventListener('keydown', handleRepairOrderTagInputKeydown);
     els.repairOrderButton.addEventListener('click', openRepairOrderModal);

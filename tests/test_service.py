@@ -1091,6 +1091,8 @@ class CardServiceTests(unittest.TestCase):
                     "phone": "+7 900 123-45-67",
                     "vehicle": "KIA RIO",
                     "license_plate": "А123АА124",
+                    "payment_method": "cashless",
+                    "prepayment": "1000",
                     "client_information": "Кратко объяснить клиенту объём работ и следующие шаги",
                     "works": [{"name": "Замена масла", "quantity": "1", "price": "2500", "total": ""}],
                     "materials": [{"name": "Масло 5W-30", "quantity": "4", "price": "700", "total": "9999"}],
@@ -1107,9 +1109,18 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(order["works"][0]["name"], "Замена масла")
         self.assertEqual(order["works"][0]["total"], "2500")
         self.assertEqual(order["materials"][0]["total"], "2800")
+        self.assertEqual(order["payment_method"], "cashless")
+        self.assertEqual(order["payment_method_label"], "Безналичный")
+        self.assertEqual(order["prepayment"], "1000")
+        self.assertEqual(order["prepayment_display"], "1000")
         self.assertEqual(order["works_total"], "2500")
         self.assertEqual(order["materials_total"], "2800")
-        self.assertEqual(order["grand_total"], "5300")
+        self.assertEqual(order["subtotal_total"], "5300")
+        self.assertEqual(order["taxes_total"], "795")
+        self.assertEqual(order["grand_total"], "6095")
+        self.assertEqual(order["due_total"], "5095")
+        self.assertTrue(order["has_taxes"])
+        self.assertTrue(order["has_prepayment"])
 
         reloaded = CardService(JsonStore(state_file=self.state_file, logger=self.logger), self.logger)
         stored = reloaded.get_card({"card_id": card_id})["card"]["repair_order"]
@@ -1117,7 +1128,12 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(stored["license_plate"], "А123АА124")
         self.assertEqual(stored["client_information"], "Кратко объяснить клиенту объём работ и следующие шаги")
         self.assertEqual(stored["works"][0]["quantity"], "1")
-        self.assertEqual(stored["grand_total"], "5300")
+        self.assertEqual(stored["payment_method"], "cashless")
+        self.assertEqual(stored["payment_method_label"], "Безналичный")
+        self.assertEqual(stored["prepayment"], "1000")
+        self.assertEqual(stored["taxes_total"], "795")
+        self.assertEqual(stored["grand_total"], "6095")
+        self.assertEqual(stored["due_total"], "5095")
 
     def test_list_repair_orders_creates_text_files_and_sorts_by_latest_number(self) -> None:
         first = self.service.create_card({"vehicle": "KIA RIO", "title": "Первый заказ", "deadline": {"hours": 2}})
@@ -1162,7 +1178,9 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("Информация для клиента:", text)
         self.assertIn("Материалы:", text)
         self.assertIn("Итого материалы: 2800", text)
-        self.assertIn("Итого к оплате: 2800", text)
+        self.assertIn("Стоимость заказ-наряда: 2800", text)
+        self.assertIn("Итого по заказ-наряду: 2800", text)
+        self.assertIn("К доплате: 2800", text)
         self.assertIn("Второй текстовый заказ-наряд", text)
 
         download_path, file_name = self.service.get_repair_order_text_download(second_id)
@@ -1475,7 +1493,9 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("Current AutoStop CRM Board", context["board_context"]["text"])
         self.assertIn("repair_order_updated", {event["action"] for event in context["events"]})
         self.assertIn("ЗАКАЗ-НАРЯД", context["repair_order_text"]["text"])
-        self.assertIn("Итого к оплате: 1200", context["repair_order_text"]["text"])
+        self.assertIn("Стоимость заказ-наряда: 1200", context["repair_order_text"]["text"])
+        self.assertIn("Итого по заказ-наряду: 1200", context["repair_order_text"]["text"])
+        self.assertIn("К доплате: 1200", context["repair_order_text"]["text"])
 
     def test_repair_order_patch_and_row_replacement_tools_update_order(self) -> None:
         created = self.service.create_card({"vehicle": "KIA RIO", "title": "Ремонт", "deadline": {"hours": 2}})

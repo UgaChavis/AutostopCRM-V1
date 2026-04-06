@@ -489,7 +489,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
 
                 repair_order_text = await session.call_tool("get_repair_order_text", {"card_id": card_id})
                 self.assertTrue(repair_order_text.structuredContent["ok"])
-                self.assertIn("Итого к оплате: 3100", repair_order_text.structuredContent["data"]["text"])
+                self.assertIn("Стоимость заказ-наряда: 3100", repair_order_text.structuredContent["data"]["text"])
+                self.assertIn("Итого по заказ-наряду: 3100", repair_order_text.structuredContent["data"]["text"])
+                self.assertIn("К доплате: 3100", repair_order_text.structuredContent["data"]["text"])
 
                 repair_orders = await session.call_tool(
                     "list_repair_orders",

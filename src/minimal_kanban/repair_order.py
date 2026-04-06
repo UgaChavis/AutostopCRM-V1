@@ -19,9 +19,17 @@ REPAIR_ORDER_STATUS_OPEN = "open"
 REPAIR_ORDER_STATUS_CLOSED = "closed"
 REPAIR_ORDER_STATUS_LIMIT = 16
 REPAIR_ORDER_DEFAULT_TAG_COLOR = "green"
+REPAIR_ORDER_PAYMENT_METHOD_CASH = "cash"
+REPAIR_ORDER_PAYMENT_METHOD_CASHLESS = "cashless"
+REPAIR_ORDER_PAYMENT_METHOD_LIMIT = 16
+REPAIR_ORDER_PAYMENT_TAX_RATE = Decimal("0.15")
 REPAIR_ORDER_ALLOWED_STATUSES = {
     REPAIR_ORDER_STATUS_OPEN,
     REPAIR_ORDER_STATUS_CLOSED,
+}
+REPAIR_ORDER_ALLOWED_PAYMENT_METHODS = {
+    REPAIR_ORDER_PAYMENT_METHOD_CASH,
+    REPAIR_ORDER_PAYMENT_METHOD_CASHLESS,
 }
 REPAIR_ORDER_ALLOWED_TAG_COLORS = {
     "green",
@@ -61,6 +69,22 @@ def normalize_repair_order_status(value, *, default: str = REPAIR_ORDER_STATUS_O
     if raw in REPAIR_ORDER_ALLOWED_STATUSES:
         return raw
     return default
+
+
+def normalize_repair_order_payment_method(value, *, default: str = REPAIR_ORDER_PAYMENT_METHOD_CASH) -> str:
+    raw = _normalize_single_line(value, limit=REPAIR_ORDER_PAYMENT_METHOD_LIMIT).lower()
+    if raw in {"", "cash", "cash_only", "cash-only", "нал", "наличный", "наличные"}:
+        return default
+    if raw in {"cashless", "wire", "bank", "card", "безнал", "безналичный", "безналичные"}:
+        return REPAIR_ORDER_PAYMENT_METHOD_CASHLESS
+    if raw in REPAIR_ORDER_ALLOWED_PAYMENT_METHODS:
+        return raw
+    return default
+
+
+def repair_order_payment_method_label(value) -> str:
+    normalized = normalize_repair_order_payment_method(value)
+    return "Безналичный" if normalized == REPAIR_ORDER_PAYMENT_METHOD_CASHLESS else "Наличный"
 
 
 def _parse_decimal(value) -> Decimal | None:
@@ -209,6 +233,8 @@ class RepairOrder:
     license_plate: str = ""
     vin: str = ""
     mileage: str = ""
+    payment_method: str = REPAIR_ORDER_PAYMENT_METHOD_CASH
+    prepayment: str = ""
     reason: str = ""
     comment: str = ""
     note: str = ""
@@ -228,6 +254,8 @@ class RepairOrder:
         self.license_plate = _normalize_single_line(self.license_plate, limit=REPAIR_ORDER_FIELD_LIMIT)
         self.vin = _normalize_single_line(self.vin, limit=REPAIR_ORDER_FIELD_LIMIT)
         self.mileage = _normalize_single_line(self.mileage, limit=REPAIR_ORDER_FIELD_LIMIT)
+        self.payment_method = normalize_repair_order_payment_method(self.payment_method)
+        self.prepayment = _normalize_single_line(self.prepayment, limit=REPAIR_ORDER_ROW_VALUE_LIMIT)
         self.reason = _normalize_multiline(self.reason, limit=REPAIR_ORDER_COMMENT_LIMIT)
         self.comment = _normalize_multiline(self.comment, limit=REPAIR_ORDER_COMMENT_LIMIT)
         self.note = _normalize_multiline(self.note, limit=REPAIR_ORDER_COMMENT_LIMIT)
@@ -248,6 +276,7 @@ class RepairOrder:
                 self.license_plate,
                 self.vin,
                 self.mileage,
+                self.prepayment,
                 self.reason,
                 self.comment,
                 self.note,
@@ -270,6 +299,10 @@ class RepairOrder:
             "license_plate": self.license_plate,
             "vin": self.vin,
             "mileage": self.mileage,
+            "payment_method": self.payment_method,
+            "payment_method_label": repair_order_payment_method_label(self.payment_method),
+            "prepayment": self.prepayment,
+            "prepayment_display": self.prepayment_amount(),
             "reason": self.reason,
             "comment": self.comment,
             "client_information": self.comment,
@@ -277,9 +310,14 @@ class RepairOrder:
             "tags": [tag.to_dict() for tag in self.tags],
             "works": [row.to_dict() for row in self.works],
             "materials": [row.to_dict() for row in self.materials],
+            "subtotal_total": self.subtotal_amount(),
+            "taxes_total": self.taxes_amount(),
             "works_total": self.works_total_amount(),
             "materials_total": self.materials_total_amount(),
             "grand_total": self.grand_total_amount(),
+            "due_total": self.due_total_amount(),
+            "has_taxes": self.has_taxes(),
+            "has_prepayment": self.has_prepayment(),
             "has_any_data": not self.is_empty(),
         }
 
@@ -296,6 +334,8 @@ class RepairOrder:
             "license_plate": self.license_plate,
             "vin": self.vin,
             "mileage": self.mileage,
+            "payment_method": self.payment_method,
+            "prepayment": self.prepayment,
             "reason": self.reason,
             "comment": self.comment,
             "note": self.note,
@@ -310,10 +350,43 @@ class RepairOrder:
     def materials_total_amount(self) -> str:
         return _format_decimal(sum((row.total_value() for row in self.materials), Decimal("0")))
 
-    def grand_total_amount(self) -> str:
+    def subtotal_value(self) -> Decimal:
         works_total = _parse_decimal(self.works_total_amount()) or Decimal("0")
         materials_total = _parse_decimal(self.materials_total_amount()) or Decimal("0")
-        return _format_decimal(works_total + materials_total)
+        return works_total + materials_total
+
+    def subtotal_amount(self) -> str:
+        return _format_decimal(self.subtotal_value())
+
+    def taxes_value(self) -> Decimal:
+        if self.payment_method != REPAIR_ORDER_PAYMENT_METHOD_CASHLESS:
+            return Decimal("0")
+        return self.subtotal_value() * REPAIR_ORDER_PAYMENT_TAX_RATE
+
+    def taxes_amount(self) -> str:
+        return _format_decimal(self.taxes_value())
+
+    def grand_total_amount(self) -> str:
+        return _format_decimal(self.subtotal_value() + self.taxes_value())
+
+    def prepayment_value(self) -> Decimal:
+        return _parse_decimal(self.prepayment) or Decimal("0")
+
+    def prepayment_amount(self) -> str:
+        return _format_decimal(self.prepayment_value())
+
+    def due_total_value(self) -> Decimal:
+        grand_total = _parse_decimal(self.grand_total_amount()) or Decimal("0")
+        return grand_total - self.prepayment_value()
+
+    def due_total_amount(self) -> str:
+        return _format_decimal(self.due_total_value())
+
+    def has_taxes(self) -> bool:
+        return self.taxes_value() != Decimal("0")
+
+    def has_prepayment(self) -> bool:
+        return self.prepayment_value() != Decimal("0")
 
     @classmethod
     def from_dict(cls, payload: Any) -> "RepairOrder":
@@ -331,6 +404,8 @@ class RepairOrder:
             license_plate=payload.get("license_plate", payload.get("licensePlate", "")),
             vin=payload.get("vin", ""),
             mileage=payload.get("mileage", payload.get("odometer", "")),
+            payment_method=payload.get("payment_method", payload.get("paymentMethod", "")),
+            prepayment=payload.get("prepayment", payload.get("advance_payment", payload.get("advancePayment", ""))),
             reason=payload.get("reason", payload.get("problem", "")),
             comment=payload.get("client_information", payload.get("clientInformation", payload.get("comment", ""))),
             note=payload.get("note", payload.get("master_comment", payload.get("masterComment", payload.get("internal_comment", payload.get("internalComment", ""))))),

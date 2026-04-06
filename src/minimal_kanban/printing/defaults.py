@@ -151,6 +151,8 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     <div class="doc-card"><div class="doc-label">Госномер</div><div class="doc-value">{{vehicle.license_plate_display}}</div></div>
     <div class="doc-card"><div class="doc-label">VIN</div><div class="doc-value">{{vehicle.vin_display}}</div></div>
     <div class="doc-card"><div class="doc-label">Пробег</div><div class="doc-value">{{vehicle.mileage_display}}</div></div>
+    <div class="doc-card"><div class="doc-label">Форма оплаты</div><div class="doc-value">{{repair_order.payment_method_label}}</div></div>
+    <div class="doc-card"><div class="doc-label">Предоплата</div><div class="doc-value">{{repair_order.prepayment_display}}</div></div>
   </section>
   <section class="doc-section"><h2 class="doc-section__title">Причина обращения</h2><div class="doc-note">{{{repair_order.reason_html}}}</div></section>
   <section class="doc-section"><h2 class="doc-section__title">Информация для клиента</h2><div class="doc-note">{{{repair_order.client_information_html}}}</div></section>
@@ -171,7 +173,11 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   <section class="doc-totals">
     <div class="doc-totals__row"><span>Итого работы</span><span>{{totals.works_display}}</span></div>
     <div class="doc-totals__row"><span>Итого материалы</span><span>{{totals.materials_display}}</span></div>
-    <div class="doc-totals__row doc-totals__row--grand"><span>К оплате</span><span>{{totals.grand_display}}</span></div>
+    <div class="doc-totals__row"><span>Стоимость заказ-наряда</span><span>{{totals.subtotal_display}}</span></div>
+    {{#totals.has_taxes}}<div class="doc-totals__row"><span>Налоги и сборы</span><span>{{totals.taxes_display}}</span></div>{{/totals.has_taxes}}
+    <div class="doc-totals__row"><span>Итого по заказ-наряду</span><span>{{totals.grand_display}}</span></div>
+    {{#totals.has_prepayment}}<div class="doc-totals__row"><span>Предоплата</span><span>{{totals.prepayment_display}}</span></div>{{/totals.has_prepayment}}
+    <div class="doc-totals__row doc-totals__row--grand"><span>К доплате</span><span>{{totals.due_display}}</span></div>
   </section>
 </div>
             """,
@@ -189,13 +195,15 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   <section class="doc-grid">
     <div class="doc-card doc-card--wide"><div class="doc-label">Плательщик</div><div class="doc-value">{{client.name_display}} · {{client.phone_display}}</div></div>
     <div class="doc-card doc-card--wide"><div class="doc-label">Автомобиль</div><div class="doc-value">{{vehicle.display_name}} · {{vehicle.license_plate_display}} · VIN {{vehicle.vin_display}}</div></div>
+    <div class="doc-card"><div class="doc-label">Форма оплаты</div><div class="doc-value">{{repair_order.payment_method_label}}</div></div>
+    <div class="doc-card"><div class="doc-label">Предоплата</div><div class="doc-value">{{repair_order.prepayment_display}}</div></div>
   </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Позиции счета</h2>
     <table class="doc-table"><thead><tr><th>Наименование</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
       {{#line_items}}<tr><td>{{section_label}}: {{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}</td></tr>{{/line_items}}
       {{^line_items}}<tr><td class="doc-table__empty" colspan="4">Нет строк для счета</td></tr>{{/line_items}}
-    </tbody><tfoot><tr><td colspan="3">Итого по счету</td><td class="doc-table__sum">{{totals.grand_display}}</td></tr></tfoot></table>
+    </tbody><tfoot><tr><td colspan="3">Стоимость заказ-наряда</td><td class="doc-table__sum">{{totals.subtotal_display}}</td></tr></tfoot></table>
   </section>
   <section class="doc-grid">
     <div class="doc-card doc-card--wide"><div class="doc-label">Основание</div><div class="doc-value">{{document.description}}</div></div>
@@ -203,7 +211,9 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   </section>
   <section class="doc-totals">
     <div class="doc-totals__row"><span>Без НДС / Налоговый режим</span><span>{{service.tax_label}}</span></div>
-    <div class="doc-totals__row doc-totals__row--grand"><span>К оплате</span><span>{{totals.grand_display}}</span></div>
+    {{#totals.has_taxes}}<div class="doc-totals__row"><span>Налоги и сборы</span><span>{{totals.taxes_display}}</span></div>{{/totals.has_taxes}}
+    {{#totals.has_prepayment}}<div class="doc-totals__row"><span>Предоплата</span><span>{{totals.prepayment_display}}</span></div>{{/totals.has_prepayment}}
+    <div class="doc-totals__row doc-totals__row--grand"><span>К доплате</span><span>{{totals.due_display}}</span></div>
   </section>
 </div>
             """,
@@ -280,6 +290,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     <div class="doc-card"><div class="doc-label">Клиент</div><div class="doc-value">{{client.name_display}}</div></div>
     <div class="doc-card"><div class="doc-label">Телефон</div><div class="doc-value">{{client.phone_display}}</div></div>
     <div class="doc-card"><div class="doc-label">Автомобиль</div><div class="doc-value">{{vehicle.display_name}}</div></div>
+    <div class="doc-card"><div class="doc-label">Форма оплаты</div><div class="doc-value">{{repair_order.payment_method_label}}</div></div>
   </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Выполненные работы</h2>
@@ -299,7 +310,10 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   <section class="doc-totals">
     <div class="doc-totals__row"><span>Итого работы</span><span>{{totals.works_display}}</span></div>
     <div class="doc-totals__row"><span>Итого материалы</span><span>{{totals.materials_display}}</span></div>
-    <div class="doc-totals__row doc-totals__row--grand"><span>Всего выполнено на сумму</span><span>{{totals.grand_display}}</span></div>
+    <div class="doc-totals__row"><span>Стоимость заказ-наряда</span><span>{{totals.subtotal_display}}</span></div>
+    {{#totals.has_taxes}}<div class="doc-totals__row"><span>Налоги и сборы</span><span>{{totals.taxes_display}}</span></div>{{/totals.has_taxes}}
+    {{#totals.has_prepayment}}<div class="doc-totals__row"><span>Предоплата</span><span>{{totals.prepayment_display}}</span></div>{{/totals.has_prepayment}}
+    <div class="doc-totals__row doc-totals__row--grand"><span>К доплате</span><span>{{totals.due_display}}</span></div>
   </section>
   <section class="doc-signatures">
     <div class="doc-signatures__item"><div>Исполнитель</div><div class="doc-hint">{{service.company_name}}</div></div>
