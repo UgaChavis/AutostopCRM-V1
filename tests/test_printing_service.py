@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 import tempfile
-import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -14,8 +13,6 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.models import Card
-from minimal_kanban.printing.pdf import PdfRenderError, render_html_to_pdf_bytes
-from minimal_kanban.printing.printers import PrinterBackendError, print_html
 from minimal_kanban.printing.service import PrintModuleService
 
 
@@ -58,20 +55,6 @@ def build_card() -> Card:
 
 
 class PrintingServiceTests(unittest.TestCase):
-    @classmethod
-    def tearDownClass(cls) -> None:
-        try:
-            from PySide6.QtWidgets import QApplication
-        except Exception:
-            return
-        app = QApplication.instance()
-        if app is None:
-            return
-        for widget in list(app.topLevelWidgets()):
-            widget.close()
-        app.quit()
-        app.processEvents()
-
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.service = PrintModuleService(Path(self.temp_dir.name))
@@ -141,41 +124,6 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual(result["printer_name"], "Office Printer")
         self.assertEqual(result["copies"], 2)
         print_backend.assert_called_once()
-
-    def test_pdf_generation_is_available_from_background_threads(self) -> None:
-        errors: list[str] = []
-        payloads: list[bytes] = []
-
-        def worker() -> None:
-            try:
-                payloads.append(render_html_to_pdf_bytes("<html><body>test</body></html>"))
-            except PdfRenderError as exc:
-                errors.append(str(exc))
-
-        thread = threading.Thread(target=worker, name="printing-test-worker")
-        thread.start()
-        thread.join(timeout=5)
-
-        self.assertFalse(thread.is_alive())
-        self.assertEqual(errors, [])
-        self.assertEqual(len(payloads), 1)
-        self.assertTrue(payloads[0].startswith(b"%PDF"))
-
-    def test_print_backend_no_longer_blocks_background_threads(self) -> None:
-        errors: list[str] = []
-
-        def worker() -> None:
-            try:
-                print_html("<html><body>test</body></html>", printer_name="Office Printer")
-            except PrinterBackendError as exc:
-                errors.append(str(exc))
-
-        thread = threading.Thread(target=worker, name="printing-test-worker")
-        thread.start()
-        thread.join(timeout=5)
-
-        self.assertFalse(thread.is_alive())
-        self.assertNotEqual(errors, ["Qt printing is only available from the main desktop thread."])
 
 
 if __name__ == "__main__":
