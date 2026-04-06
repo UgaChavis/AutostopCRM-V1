@@ -112,18 +112,23 @@ def run() -> int:
     )
 
     app = QApplication.instance()
+    app_created = app is None
     if app is None:
         app = QApplication(sys.argv)
     app.setApplicationName(APP_DISPLAY_NAME)
     app.setApplicationDisplayName(APP_DISPLAY_NAME)
     app.setQuitOnLastWindowClosed(True)
 
-    splash_pixmap = QPixmap(480, 170)
-    splash_pixmap.fill(QColor("#18211b"))
-    splash = QSplashScreen(splash_pixmap, Qt.WindowType.WindowStaysOnTopHint)
-    splash.setFont(QFont("Segoe UI", 10))
+    splash = None
+    if app_created:
+        splash_pixmap = QPixmap(480, 170)
+        splash_pixmap.fill(QColor("#18211b"))
+        splash = QSplashScreen(splash_pixmap, Qt.WindowType.WindowStaysOnTopHint)
+        splash.setFont(QFont("Segoe UI", 10))
 
     def update_splash(message: str) -> None:
+        if splash is None:
+            return
         splash.showMessage(
             f"{APP_DISPLAY_NAME}\n{message}",
             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom),
@@ -131,7 +136,8 @@ def run() -> int:
         )
         app.processEvents()
 
-    splash.show()
+    if splash is not None:
+        splash.show()
     update_splash("Подготавливаю запуск...")
 
     logger = None
@@ -193,7 +199,10 @@ def run() -> int:
             api_server.start()
         except Exception as exc:
             logger.exception("failed_to_start_api error=%s", exc)
-            splash.close()
+            if splash is not None:
+                splash.close()
+                splash.deleteLater()
+                app.processEvents()
             if _suppress_error_dialogs():
                 return 1
             QMessageBox.critical(None, STARTUP_ERROR_TITLE, STARTUP_ERROR_MESSAGE)
@@ -231,12 +240,13 @@ def run() -> int:
         )
         window.show()
         app.processEvents()
-        splash.finish(window)
+        if splash is not None:
+            splash.finish(window)
         return app.exec()
     finally:
         if instance_guard is not None and instance_guard_entered:
             instance_guard.__exit__(None, None, None)
-        if splash.isVisible():
+        if splash is not None and splash.isVisible():
             splash.close()
         if tunnel_controller is not None:
             if _stop_tunnel_on_exit():

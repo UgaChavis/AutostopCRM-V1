@@ -4282,10 +4282,8 @@ class CardService:
         if field not in payload:
             return default
         value = payload.get(field)
-        if isinstance(value, (bool, int, str)):
-            normalized = normalize_bool(value, default=None)
-            if normalized is not None:
-                return normalized
+        if isinstance(value, bool):
+            return value
         self._fail(
             "validation_error",
             f"Поле {field} должно иметь тип boolean.",

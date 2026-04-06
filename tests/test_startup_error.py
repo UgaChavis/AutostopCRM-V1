@@ -20,27 +20,41 @@ from minimal_kanban.app import run
 
 
 class StartupErrorTests(unittest.TestCase):
-    def test_run_returns_error_when_api_port_is_blocked(self) -> None:
+    def _with_blocked_api_port(self) -> int:
         blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         blocker.bind(("127.0.0.1", 0))
         blocker.listen(1)
         blocked_port = blocker.getsockname()[1]
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                with patch.dict(
+                    os.environ,
+                    {
+                        "APPDATA": tmp,
+                        "MINIMAL_KANBAN_API_HOST": "127.0.0.1",
+                        "MINIMAL_KANBAN_API_PORT": str(blocked_port),
+                        "MINIMAL_KANBAN_API_PORT_FALLBACK_LIMIT": "1",
+                        "MINIMAL_KANBAN_SUPPRESS_ERROR_DIALOGS": "1",
+                    },
+                    clear=False,
+                ):
+                    return run()
+        finally:
+            blocker.close()
 
-        with tempfile.TemporaryDirectory() as tmp:
-            with patch.dict(
-                os.environ,
-                {
-                    "APPDATA": tmp,
-                    "MINIMAL_KANBAN_API_HOST": "127.0.0.1",
-                    "MINIMAL_KANBAN_API_PORT": str(blocked_port),
-                    "MINIMAL_KANBAN_API_PORT_FALLBACK_LIMIT": "1",
-                    "MINIMAL_KANBAN_SUPPRESS_ERROR_DIALOGS": "1",
-                },
-                clear=False,
-            ):
-                exit_code = run()
+    def test_run_returns_error_when_api_port_is_blocked(self) -> None:
+        exit_code = self._with_blocked_api_port()
+        self.assertEqual(exit_code, 1)
 
-        blocker.close()
+    def test_run_returns_error_when_api_port_is_blocked_with_existing_qapplication(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+            app.setQuitOnLastWindowClosed(False)
+
+        exit_code = self._with_blocked_api_port()
         self.assertEqual(exit_code, 1)
 
 

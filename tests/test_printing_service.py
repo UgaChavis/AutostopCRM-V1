@@ -58,6 +58,20 @@ def build_card() -> Card:
 
 
 class PrintingServiceTests(unittest.TestCase):
+    @classmethod
+    def tearDownClass(cls) -> None:
+        try:
+            from PySide6.QtWidgets import QApplication
+        except Exception:
+            return
+        app = QApplication.instance()
+        if app is None:
+            return
+        for widget in list(app.topLevelWidgets()):
+            widget.close()
+        app.quit()
+        app.processEvents()
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.service = PrintModuleService(Path(self.temp_dir.name))
@@ -128,12 +142,13 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual(result["copies"], 2)
         print_backend.assert_called_once()
 
-    def test_pdf_generation_refuses_background_threads(self) -> None:
+    def test_pdf_generation_is_available_from_background_threads(self) -> None:
         errors: list[str] = []
+        payloads: list[bytes] = []
 
         def worker() -> None:
             try:
-                render_html_to_pdf_bytes("<html><body>test</body></html>")
+                payloads.append(render_html_to_pdf_bytes("<html><body>test</body></html>"))
             except PdfRenderError as exc:
                 errors.append(str(exc))
 
@@ -141,9 +156,12 @@ class PrintingServiceTests(unittest.TestCase):
         thread.start()
         thread.join(timeout=5)
 
-        self.assertEqual(errors, ["PDF generation is only available from the main desktop thread."])
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(len(payloads), 1)
+        self.assertTrue(payloads[0].startswith(b"%PDF"))
 
-    def test_print_backend_refuses_background_threads(self) -> None:
+    def test_print_backend_no_longer_blocks_background_threads(self) -> None:
         errors: list[str] = []
 
         def worker() -> None:
@@ -156,7 +174,8 @@ class PrintingServiceTests(unittest.TestCase):
         thread.start()
         thread.join(timeout=5)
 
-        self.assertEqual(errors, ["Qt printing is only available from the main desktop thread."])
+        self.assertFalse(thread.is_alive())
+        self.assertNotEqual(errors, ["Qt printing is only available from the main desktop thread."])
 
 
 if __name__ == "__main__":

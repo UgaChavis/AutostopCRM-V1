@@ -350,9 +350,9 @@ class ApiServer:
                         continue
                     value = values[-1]
                     lowered = value.lower()
-                    if lowered == "true":
+                    if lowered in {"true", "1", "yes", "y"}:
                         payload[key] = True
-                    elif lowered == "false":
+                    elif lowered in {"false", "0", "no", "n"}:
                         payload[key] = False
                     else:
                         payload[key] = value
