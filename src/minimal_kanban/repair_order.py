@@ -15,6 +15,9 @@ REPAIR_ORDER_ROWS_LIMIT = 100
 REPAIR_ORDER_TAG_LIMIT = 5
 REPAIR_ORDER_TAG_LABEL_LIMIT = 24
 REPAIR_ORDER_TAG_COLOR_LIMIT = 16
+REPAIR_ORDER_PAYMENT_ID_LIMIT = 80
+REPAIR_ORDER_PAYMENT_NOTE_LIMIT = 240
+REPAIR_ORDER_PAYMENTS_LIMIT = 200
 REPAIR_ORDER_STATUS_OPEN = "open"
 REPAIR_ORDER_STATUS_CLOSED = "closed"
 REPAIR_ORDER_STATUS_LIMIT = 16
@@ -192,6 +195,60 @@ class RepairOrderTag:
         return cls(label=label)
 
 
+@dataclass(slots=True)
+class RepairOrderPayment:
+    id: str = ""
+    amount: str = ""
+    paid_at: str = ""
+    note: str = ""
+    payment_method: str = REPAIR_ORDER_PAYMENT_METHOD_CASH
+
+    def __post_init__(self) -> None:
+        self.id = _normalize_single_line(self.id, limit=REPAIR_ORDER_PAYMENT_ID_LIMIT)
+        self.amount = _normalize_single_line(self.amount, limit=REPAIR_ORDER_ROW_VALUE_LIMIT)
+        self.paid_at = _normalize_single_line(self.paid_at, limit=REPAIR_ORDER_DATE_LIMIT)
+        self.note = _normalize_multiline(self.note, limit=REPAIR_ORDER_PAYMENT_NOTE_LIMIT)
+        self.payment_method = normalize_repair_order_payment_method(self.payment_method)
+
+    def is_empty(self) -> bool:
+        return not any([self.amount, self.note, self.paid_at])
+
+    def amount_value(self) -> Decimal:
+        return _parse_decimal(self.amount) or Decimal("0")
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "id": self.id,
+            "amount": self.amount,
+            "amount_display": _format_decimal(self.amount_value()),
+            "paid_at": self.paid_at,
+            "note": self.note,
+            "payment_method": self.payment_method,
+            "payment_method_label": repair_order_payment_method_label(self.payment_method),
+        }
+
+    def to_storage_dict(self) -> dict[str, str]:
+        return {
+            "id": self.id,
+            "amount": self.amount,
+            "paid_at": self.paid_at,
+            "note": self.note,
+            "payment_method": self.payment_method,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Any, *, fallback_id: str = "") -> "RepairOrderPayment":
+        if not isinstance(payload, dict):
+            return cls(id=fallback_id)
+        return cls(
+            id=payload.get("id", fallback_id),
+            amount=payload.get("amount", payload.get("value", "")),
+            paid_at=payload.get("paid_at", payload.get("paidAt", payload.get("date", ""))),
+            note=payload.get("note", payload.get("comment", payload.get("description", ""))),
+            payment_method=payload.get("payment_method", payload.get("paymentMethod", "")),
+        )
+
+
 def normalize_repair_order_rows(value: Any) -> list[RepairOrderRow]:
     if not isinstance(value, list):
         return []
@@ -220,6 +277,22 @@ def normalize_repair_order_tags(value: Any) -> list[RepairOrderTag]:
     return list(tags_by_label.values())
 
 
+def normalize_repair_order_payments(value: Any) -> list[RepairOrderPayment]:
+    if not isinstance(value, list):
+        return []
+    payments: list[RepairOrderPayment] = []
+    for index, item in enumerate(value, start=1):
+        payment = RepairOrderPayment.from_dict(item, fallback_id=f"payment-{index}")
+        if payment.is_empty():
+            continue
+        if not payment.id:
+            payment.id = f"payment-{index}"
+        payments.append(payment)
+        if len(payments) >= REPAIR_ORDER_PAYMENTS_LIMIT:
+            break
+    return payments
+
+
 @dataclass(slots=True)
 class RepairOrder:
     number: str = ""
@@ -235,6 +308,7 @@ class RepairOrder:
     mileage: str = ""
     payment_method: str = REPAIR_ORDER_PAYMENT_METHOD_CASH
     prepayment: str = ""
+    payments: list[RepairOrderPayment] = field(default_factory=list)
     reason: str = ""
     comment: str = ""
     note: str = ""
@@ -256,6 +330,21 @@ class RepairOrder:
         self.mileage = _normalize_single_line(self.mileage, limit=REPAIR_ORDER_FIELD_LIMIT)
         self.payment_method = normalize_repair_order_payment_method(self.payment_method)
         self.prepayment = _normalize_single_line(self.prepayment, limit=REPAIR_ORDER_ROW_VALUE_LIMIT)
+        self.payments = normalize_repair_order_payments(self.payments)
+        if not self.payments:
+            legacy_amount = _parse_decimal(self.prepayment)
+            if legacy_amount is not None and legacy_amount != Decimal("0"):
+                self.payments = [
+                    RepairOrderPayment(
+                        id="legacy-prepayment",
+                        amount=_format_decimal(legacy_amount),
+                        paid_at=self.opened_at or self.date,
+                        note="Перенесено из предоплаты",
+                        payment_method=self.payment_method,
+                    )
+                ]
+        if self.payments:
+            self.prepayment = self.prepayment_amount()
         self.reason = _normalize_multiline(self.reason, limit=REPAIR_ORDER_COMMENT_LIMIT)
         self.comment = _normalize_multiline(self.comment, limit=REPAIR_ORDER_COMMENT_LIMIT)
         self.note = _normalize_multiline(self.note, limit=REPAIR_ORDER_COMMENT_LIMIT)
@@ -277,6 +366,7 @@ class RepairOrder:
                 self.vin,
                 self.mileage,
                 self.prepayment,
+                self.payments,
                 self.reason,
                 self.comment,
                 self.note,
@@ -301,8 +391,9 @@ class RepairOrder:
             "mileage": self.mileage,
             "payment_method": self.payment_method,
             "payment_method_label": repair_order_payment_method_label(self.payment_method),
-            "prepayment": self.prepayment,
+            "prepayment": self.prepayment_amount() if self.payments else self.prepayment,
             "prepayment_display": self.prepayment_amount(),
+            "payments": [payment.to_storage_dict() for payment in self.payments],
             "reason": self.reason,
             "comment": self.comment,
             "client_information": self.comment,
@@ -335,7 +426,8 @@ class RepairOrder:
             "vin": self.vin,
             "mileage": self.mileage,
             "payment_method": self.payment_method,
-            "prepayment": self.prepayment,
+            "prepayment": self.prepayment_amount() if self.payments else self.prepayment,
+            "payments": [payment.to_dict() for payment in self.payments],
             "reason": self.reason,
             "comment": self.comment,
             "note": self.note,
@@ -370,6 +462,8 @@ class RepairOrder:
         return _format_decimal(self.subtotal_value() + self.taxes_value())
 
     def prepayment_value(self) -> Decimal:
+        if self.payments:
+            return sum((payment.amount_value() for payment in self.payments), Decimal("0"))
         return _parse_decimal(self.prepayment) or Decimal("0")
 
     def prepayment_amount(self) -> str:
@@ -406,6 +500,7 @@ class RepairOrder:
             mileage=payload.get("mileage", payload.get("odometer", "")),
             payment_method=payload.get("payment_method", payload.get("paymentMethod", "")),
             prepayment=payload.get("prepayment", payload.get("advance_payment", payload.get("advancePayment", ""))),
+            payments=payload.get("payments", payload.get("payment_history", [])),
             reason=payload.get("reason", payload.get("problem", "")),
             comment=payload.get("client_information", payload.get("clientInformation", payload.get("comment", ""))),
             note=payload.get("note", payload.get("master_comment", payload.get("masterComment", payload.get("internal_comment", payload.get("internalComment", ""))))),

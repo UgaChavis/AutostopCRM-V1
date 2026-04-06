@@ -53,7 +53,10 @@ from ..repair_order import (
     REPAIR_ORDER_STATUS_CLOSED,
     REPAIR_ORDER_STATUS_OPEN,
     RepairOrder,
+    RepairOrderPayment,
     RepairOrderRow,
+    normalize_repair_order_payments,
+    repair_order_payment_method_label,
     normalize_repair_order_rows,
     normalize_repair_order_tags,
     normalize_repair_order_status,
@@ -3599,6 +3602,8 @@ class CardService:
             "prepayment",
             "advance_payment",
             "advancePayment",
+            "payments",
+            "payment_history",
             "reason",
             "comment",
             "client_information",
@@ -3628,6 +3633,16 @@ class CardService:
             )
         if "tags" in patch:
             patch["tags"] = self._validated_repair_order_tags(patch["tags"], field_name="repair_order.tags")
+        if "payments" in patch:
+            patch["payments"] = self._validated_repair_order_payments(
+                patch["payments"],
+                field_name="repair_order.payments",
+            )
+        if "payment_history" in patch:
+            patch["payment_history"] = self._validated_repair_order_payments(
+                patch["payment_history"],
+                field_name="repair_order.payment_history",
+            )
         return patch
 
     def _validated_repair_order_rows(self, value, *, field_name: str) -> list[dict[str, str]]:
@@ -3648,6 +3663,15 @@ class CardService:
             )
         return [tag.to_dict() for tag in normalize_repair_order_tags(value)]
 
+    def _validated_repair_order_payments(self, value, *, field_name: str) -> list[dict[str, str]]:
+        if not isinstance(value, list):
+            self._fail(
+                "validation_error",
+                f"Поле {field_name} должно быть массивом оплат заказ-наряда.",
+                details={"field": field_name},
+            )
+        return [payment.to_dict() for payment in normalize_repair_order_payments(value)]
+
     def _merged_repair_order_storage(
         self,
         current: dict[str, Any],
@@ -3661,6 +3685,7 @@ class CardService:
             "odometer": "mileage",
             "client_information": "comment",
             "clientInformation": "comment",
+            "payment_history": "payments",
             "master_comment": "note",
             "masterComment": "note",
             "internal_comment": "note",
@@ -3812,6 +3837,20 @@ class CardService:
 
     def _repair_order_search_values(self, card: Card) -> list[str]:
         order = card.repair_order
+        payment_text = " ".join(
+            " ".join(
+                filter(
+                    None,
+                    (
+                        payment.amount,
+                        payment.paid_at,
+                        payment.note,
+                        payment.payment_method,
+                    ),
+                )
+            )
+            for payment in order.payments
+        )
         return [
             order.number,
             order.date,
@@ -3827,6 +3866,7 @@ class CardService:
             order.mileage,
             order.payment_method,
             order.prepayment,
+            payment_text,
             order.reason,
             order.comment,
             order.note,
@@ -3878,8 +3918,9 @@ class CardService:
             "mileage": order.mileage,
             "payment_method": order.payment_method,
             "payment_method_label": order.to_dict()["payment_method_label"],
-            "prepayment": order.prepayment,
+            "prepayment": order.prepayment_amount() if order.payments else order.prepayment,
             "prepayment_display": order.prepayment_amount(),
+            "payments": [payment.to_dict() for payment in order.payments],
             "reason": order.reason,
             "heading": card.heading(),
             "summary": self._repair_order_list_summary(card),
@@ -3991,19 +4032,29 @@ class CardService:
             f"Форма оплаты: {order.to_dict()['payment_method_label']}",
             f"Предоплата: {order.prepayment_amount()}",
             "",
-            f"Клиент: {order.client or '-'}",
-            f"Телефон: {order.phone or '-'}",
-            f"Автомобиль: {order.vehicle or '-'}",
-            f"Госномер: {order.license_plate or '-'}",
-            "",
-            "Информация для клиента:",
-            order.comment or "-",
-            "",
-            "Master note:",
-            order.note or "-",
-            "",
-            "Работы:",
+            "Оплаты:",
         ]
+        if order.payments:
+            lines.extend(self._render_repair_order_payments(order.payments))
+        else:
+            lines.append("-")
+        lines.extend(
+            [
+                "",
+                f"Клиент: {order.client or '-'}",
+                f"Телефон: {order.phone or '-'}",
+                f"Автомобиль: {order.vehicle or '-'}",
+                f"Госномер: {order.license_plate or '-'}",
+                "",
+                "Информация для клиента:",
+                order.comment or "-",
+                "",
+                "Master note:",
+                order.note or "-",
+                "",
+                "Работы:",
+            ]
+        )
         lines.extend(self._render_repair_order_rows(order.works))
         lines.append(f"Итого работы: {order.works_total_amount()}")
         lines.extend(["", "Материалы:"])
@@ -4034,6 +4085,20 @@ class CardService:
                 f"{index}. {row.name or '-'} | кол-во: {row.quantity or '-'} | цена: {row.price or '-'} | сумма: {row.total or '-'}"
             )
         return lines
+
+    def _render_repair_order_payments(self, payments: list[RepairOrderPayment]) -> list[str]:
+        lines: list[str] = []
+        for index, payment in enumerate(payments, start=1):
+            parts = [
+                payment.paid_at or "-",
+                repair_order_payment_method_label(payment.payment_method),
+                payment.amount or "0",
+            ]
+            note = normalize_text(payment.note, default="", limit=240)
+            if note:
+                parts.append(note)
+            lines.append(f"{index}. {' | '.join(parts)}")
+        return lines or ["-"]
 
     def _extract_license_plate(self, card: Card, *, fallback: str = "") -> str:
         haystack = "\n".join(

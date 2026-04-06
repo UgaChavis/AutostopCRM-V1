@@ -85,6 +85,14 @@ class RepairOrderRowPayload(BaseModel):
     total: str = Field(default="", max_length=40)
 
 
+class RepairOrderPaymentPayload(BaseModel):
+    id: str | None = Field(default=None, max_length=80)
+    amount: str = Field(default="", max_length=40)
+    paid_at: str | None = Field(default=None, max_length=32)
+    note: str | None = Field(default=None, max_length=240)
+    payment_method: Literal["cash", "cashless"] | None = None
+
+
 class RepairOrderPatchPayload(BaseModel):
     number: str | None = Field(default=None, max_length=40)
     date: str | None = Field(default=None, max_length=32)
@@ -99,6 +107,7 @@ class RepairOrderPatchPayload(BaseModel):
     mileage: str | None = Field(default=None, max_length=160)
     payment_method: Literal["cash", "cashless"] | None = None
     prepayment: str | None = Field(default=None, max_length=40)
+    payments: list[RepairOrderPaymentPayload] | None = None
     reason: str | None = Field(default=None, max_length=4000)
     client_information: str | None = Field(default=None, max_length=4000)
     note: str | None = Field(default=None, max_length=4000)

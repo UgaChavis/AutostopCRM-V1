@@ -429,7 +429,14 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                             "phone": "+7 900 123-45-67",
                             "client_information": "Согласовать дальнейшую диагностику",
                             "payment_method": "cashless",
-                            "prepayment": "500",
+                            "payments": [
+                                {
+                                    "amount": "500",
+                                    "paid_at": "06.04.2026 12:00",
+                                    "note": "Аванс",
+                                    "payment_method": "cashless",
+                                }
+                            ],
                             "license_plate": "В003НК124",
                             "tags": [
                                 {"label": "Срочно", "color": "yellow"},
@@ -443,6 +450,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(repair_order.structuredContent["data"]["repair_order"]["client"], "Иван Иванов")
                 self.assertEqual(repair_order.structuredContent["data"]["repair_order"]["payment_method"], "cashless")
                 self.assertEqual(repair_order.structuredContent["data"]["repair_order"]["prepayment"], "500")
+                self.assertEqual(len(repair_order.structuredContent["data"]["repair_order"]["payments"]), 1)
                 self.assertEqual(
                     repair_order.structuredContent["data"]["repair_order"]["tags"],
                     [

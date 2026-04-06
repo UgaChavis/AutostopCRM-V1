@@ -811,7 +811,14 @@ class ApiServerTests(unittest.TestCase):
                     "client": "Иван Иванов",
                     "phone": "+7 900 123-45-67",
                     "payment_method": "cashless",
-                    "prepayment": "500",
+                    "payments": [
+                        {
+                            "amount": "500",
+                            "paid_at": "06.04.2026 12:00",
+                            "note": "Аванс",
+                            "payment_method": "cashless",
+                        }
+                    ],
                     "client_information": "Краткая история ремонта для клиента",
                     "works": [{"name": "Диагностика", "quantity": "1", "price": "1500", "total": ""}],
                 },
@@ -827,6 +834,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(updated["data"]["card"]["repair_order"]["payment_method_label"], "Безналичный")
         self.assertEqual(updated["data"]["card"]["repair_order"]["prepayment"], "500")
         self.assertEqual(updated["data"]["card"]["repair_order"]["prepayment_display"], "500")
+        self.assertEqual(len(updated["data"]["card"]["repair_order"]["payments"]), 1)
         self.assertEqual(updated["data"]["card"]["repair_order"]["works_total"], "1500")
         self.assertEqual(updated["data"]["card"]["repair_order"]["materials_total"], "0")
         self.assertEqual(updated["data"]["card"]["repair_order"]["subtotal_total"], "1500")

@@ -1092,7 +1092,14 @@ class CardServiceTests(unittest.TestCase):
                     "vehicle": "KIA RIO",
                     "license_plate": "А123АА124",
                     "payment_method": "cashless",
-                    "prepayment": "1000",
+                    "payments": [
+                        {
+                            "amount": "1000",
+                            "paid_at": "06.04.2026 12:30",
+                            "note": "Аванс",
+                            "payment_method": "cashless",
+                        }
+                    ],
                     "client_information": "Кратко объяснить клиенту объём работ и следующие шаги",
                     "works": [{"name": "Замена масла", "quantity": "1", "price": "2500", "total": ""}],
                     "materials": [{"name": "Масло 5W-30", "quantity": "4", "price": "700", "total": "9999"}],
@@ -1113,6 +1120,8 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(order["payment_method_label"], "Безналичный")
         self.assertEqual(order["prepayment"], "1000")
         self.assertEqual(order["prepayment_display"], "1000")
+        self.assertEqual(len(order["payments"]), 1)
+        self.assertEqual(order["payments"][0]["note"], "Аванс")
         self.assertEqual(order["works_total"], "2500")
         self.assertEqual(order["materials_total"], "2800")
         self.assertEqual(order["subtotal_total"], "5300")
@@ -1131,6 +1140,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(stored["payment_method"], "cashless")
         self.assertEqual(stored["payment_method_label"], "Безналичный")
         self.assertEqual(stored["prepayment"], "1000")
+        self.assertEqual(len(stored["payments"]), 1)
         self.assertEqual(stored["taxes_total"], "795")
         self.assertEqual(stored["grand_total"], "6095")
         self.assertEqual(stored["due_total"], "5095")
