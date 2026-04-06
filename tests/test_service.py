@@ -1518,6 +1518,7 @@ class CardServiceTests(unittest.TestCase):
                     "make_display": "Volkswagen",
                     "model_display": "Tiguan II",
                     "production_year": 2019,
+                    "mileage": 98000,
                 },
             }
         )
@@ -1539,6 +1540,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(order["client"], "РУЧНОЙ КЛИЕНТ")
         self.assertEqual(order["phone"], "+7 999 000-11-22")
         self.assertEqual(order["vehicle"], "Volkswagen Tiguan II")
+        self.assertEqual(order["mileage"], "98000")
         self.assertEqual(order["license_plate"], "А123АА124")
         self.assertIn("замену расходников", order["comment"].lower())
         self.assertEqual(order["works"][0]["name"], "ТО DSG/АКПП")
@@ -1720,6 +1722,7 @@ class CardServiceTests(unittest.TestCase):
                 {
                     "raw_text": (
                         "Toyota Camry XV70 2019\n"
+                        "Пробег: 185000\n"
                         "Клиент: Иван Петров\n"
                         "Телефон: +7 (900) 123-45-67\n"
                         "VIN JTNB11HK103456789\n"
@@ -1734,6 +1737,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(profile["make_display"], "Toyota")
         self.assertEqual(profile["model_display"], "Camry")
         self.assertEqual(profile["generation_or_platform"], "XV70")
+        self.assertEqual(profile["mileage"], 185000)
         self.assertEqual(profile["customer_name"], "Иван Петров")
         self.assertEqual(profile["customer_phone"], "+7 900 123-45-67")
         self.assertEqual(profile["gearbox_model"], "UA80E")
@@ -2204,6 +2208,7 @@ class CardServiceTests(unittest.TestCase):
             {
                 "make_display": "Audi",
                 "model_display": "A4",
+                "mileage": 185000,
                 "customer_phone": "+7 900 123-45-67",
                 "customer_name": "Иван Иванов",
             }
@@ -2212,8 +2217,10 @@ class CardServiceTests(unittest.TestCase):
         payload = profile.to_dict()
         stored = profile.to_storage_dict()
 
+        self.assertEqual(payload["mileage"], 185000)
         self.assertEqual(payload["customer_phone"], "+7 900 123-45-67")
         self.assertEqual(payload["customer_name"], "Иван Иванов")
+        self.assertEqual(stored["mileage"], 185000)
         self.assertEqual(stored["customer_phone"], "+7 900 123-45-67")
         self.assertEqual(stored["customer_name"], "Иван Иванов")
         self.assertTrue(payload["has_any_data"])

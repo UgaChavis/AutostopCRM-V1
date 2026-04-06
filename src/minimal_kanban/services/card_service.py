@@ -2744,7 +2744,7 @@ class CardService:
         if overwrite or not order.vin:
             order.vin = profile.vin or self._extract_vin(card, fallback=order.vin)
         if overwrite or not order.mileage:
-            order.mileage = self._extract_mileage(card, fallback=order.mileage)
+            order.mileage = (str(profile.mileage) if profile.mileage else "") or self._extract_mileage(card, fallback=order.mileage)
         if overwrite or not order.reason:
             order.reason = self._build_repair_order_reason(card) or order.reason
         if overwrite or not order.license_plate:
@@ -3823,6 +3823,8 @@ class CardService:
         return fallback
 
     def _extract_mileage(self, card: Card, *, fallback: str = "") -> str:
+        if card.vehicle_profile.mileage:
+            return str(card.vehicle_profile.mileage)
         haystack = "\n".join(
             part
             for part in (

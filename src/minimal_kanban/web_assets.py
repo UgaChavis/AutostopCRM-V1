@@ -1853,14 +1853,14 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .dialog--repair-orders {
       --repair-orders-columns:
-        minmax(74px, 90px)
-        minmax(118px, 132px)
-        minmax(118px, 132px)
+        minmax(56px, 74px)
+        minmax(90px, 108px)
         minmax(72px, 88px)
-        minmax(190px, 240px)
-        minmax(150px, 190px)
-        minmax(420px, 1.9fr)
-        minmax(88px, 110px);
+        minmax(160px, 208px)
+        minmax(132px, 168px)
+        minmax(132px, 176px)
+        minmax(460px, 2.25fr)
+        minmax(74px, 92px);
     }
     .repair-orders-table-head,
     .repair-orders-row {
@@ -1917,6 +1917,7 @@ BOARD_WEB_APP_HTML = "".join(
     .repair-orders-row__opened,
     .repair-orders-row__closed,
     .repair-orders-row__client,
+    .repair-orders-row__phone,
     .repair-orders-row__vehicle,
     .repair-orders-row__title,
     .repair-orders-row__total {
@@ -1941,12 +1942,14 @@ BOARD_WEB_APP_HTML = "".join(
       white-space: nowrap;
     }
     .repair-orders-row__client,
+    .repair-orders-row__phone,
     .repair-orders-row__vehicle,
     .repair-orders-row__title {
       overflow: hidden;
       text-overflow: ellipsis;
     }
     .repair-orders-row__client,
+    .repair-orders-row__phone,
     .repair-orders-row__vehicle {
       color: var(--text-soft);
       white-space: nowrap;
@@ -2412,9 +2415,9 @@ BOARD_WEB_APP_HTML = "".join(
       <div class="repair-orders-table-head" id="repairOrdersTableHead">
         <div>Номер</div>
         <div>Открыта</div>
-        <div>Закрыта</div>
         <div>Статус</div>
         <div>Клиент</div>
+        <div>Телефон</div>
         <div>Автомобиль</div>
         <div>Смысл карточки</div>
         <div class="repair-orders-table-head__sum">Сумма</div>
@@ -2849,6 +2852,7 @@ BOARD_WEB_APP_HTML = "".join(
           { name: 'make_display', label: 'Марка', placeholder: 'Audi' },
           { name: 'model_display', label: 'Модель', placeholder: 'A8 D4' },
           { name: 'production_year', label: 'Год', type: 'number', min: '1900', max: '2100', step: '1', placeholder: '2016' },
+          { name: 'mileage', label: 'Пробег', type: 'number', min: '0', step: '1', placeholder: '185000' },
           { name: 'vin', label: 'VIN', placeholder: 'WAU...', copy: true, mono: true, wide: true, maxlength: '17' },
         ],
       },
@@ -2931,6 +2935,7 @@ BOARD_WEB_APP_HTML = "".join(
       repairOrdersOpenTab: document.getElementById('repairOrdersOpenTab'),
       repairOrdersClosedTab: document.getElementById('repairOrdersClosedTab'),
       repairOrdersMeta: document.getElementById('repairOrdersMeta'),
+      repairOrdersTableHead: document.getElementById('repairOrdersTableHead'),
       repairOrdersList: document.getElementById('repairOrdersList'),
       gptWallModal: document.getElementById('gptWallModal'),
       gptWallMeta: document.getElementById('gptWallMeta'),
@@ -4212,6 +4217,7 @@ BOARD_WEB_APP_HTML = "".join(
       const profile = cloneVehicleProfile(state.vehicleProfileDraft || emptyVehicleProfile());
       const summaryLines = [];
       if (profile.vin) summaryLines.push('VIN: ' + profile.vin);
+      if (profile.mileage) summaryLines.push('Пробег: ' + profile.mileage);
       els.vehiclePanelSummary.textContent = summaryLines.join('\\n');
       els.vehiclePanelSummary.style.display = summaryLines.length ? '' : 'none';
 
@@ -4529,7 +4535,9 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function repairOrderListDateDisplayValue(value) {
-      return repairOrderCanonicalDateValue(value);
+      const canonical = repairOrderCanonicalDateValue(value);
+      if (!canonical) return '';
+      return canonical.split(' ')[0] || canonical;
     }
 
     function repairOrderStatusLabel(status) {
@@ -4548,7 +4556,7 @@ BOARD_WEB_APP_HTML = "".join(
         vehicle: currentCard.vehicle || [profile.make_display, profile.model_display].filter(Boolean).join(' '),
         license_plate: currentCard.repair_order?.license_plate || '',
         vin: profile.vin || currentCard.repair_order?.vin || '',
-        mileage: currentCard.repair_order?.mileage || '',
+        mileage: currentCard.repair_order?.mileage || (profile.mileage ?? ''),
         reason: currentCard.title || '',
         comment: currentCard.description || '',
         note: currentCard.repair_order?.note || '',
@@ -5470,6 +5478,48 @@ function renderCompactArchiveRows(cards) {
       const isClosed = state.repairOrdersFilter === 'closed';
       if (els.repairOrdersOpenTab) els.repairOrdersOpenTab.classList.toggle('is-active', !isClosed);
       if (els.repairOrdersClosedTab) els.repairOrdersClosedTab.classList.toggle('is-active', isClosed);
+      syncRepairOrdersLayout(isClosed ? 'closed' : 'open');
+    }
+
+    function repairOrdersIsClosedView(status = state.repairOrdersFilter) {
+      return String(status || '').trim().toLowerCase() === 'closed';
+    }
+
+    function repairOrdersColumnsValue(status = state.repairOrdersFilter) {
+      return repairOrdersIsClosedView(status)
+        ? 'minmax(56px, 74px) minmax(90px, 108px) minmax(90px, 108px) minmax(72px, 88px) minmax(150px, 196px) minmax(126px, 160px) minmax(126px, 168px) minmax(380px, 2fr) minmax(74px, 92px)'
+        : 'minmax(56px, 74px) minmax(90px, 108px) minmax(72px, 88px) minmax(160px, 208px) minmax(132px, 168px) minmax(132px, 176px) minmax(460px, 2.25fr) minmax(74px, 92px)';
+    }
+
+    function repairOrdersTableHeadHtml(status = state.repairOrdersFilter) {
+      if (repairOrdersIsClosedView(status)) {
+        return '<div>Номер</div>'
+          + '<div>Открыта</div>'
+          + '<div>Закрыта</div>'
+          + '<div>Статус</div>'
+          + '<div>Клиент</div>'
+          + '<div>Телефон</div>'
+          + '<div>Автомобиль</div>'
+          + '<div>Смысл карточки</div>'
+          + '<div class="repair-orders-table-head__sum">Сумма</div>';
+      }
+      return '<div>Номер</div>'
+        + '<div>Открыта</div>'
+        + '<div>Статус</div>'
+        + '<div>Клиент</div>'
+        + '<div>Телефон</div>'
+        + '<div>Автомобиль</div>'
+        + '<div>Смысл карточки</div>'
+        + '<div class="repair-orders-table-head__sum">Сумма</div>';
+    }
+
+    function syncRepairOrdersLayout(status = state.repairOrdersFilter) {
+      if (els.repairOrdersModal) {
+        els.repairOrdersModal.style.setProperty('--repair-orders-columns', repairOrdersColumnsValue(status));
+      }
+      if (els.repairOrdersTableHead) {
+        els.repairOrdersTableHead.innerHTML = repairOrdersTableHeadHtml(status);
+      }
     }
 
     function normalizeRepairOrdersSortBy(value) {
@@ -5705,6 +5755,7 @@ function renderCompactArchiveRows(cards) {
     };
 
     renderRepairOrderListRows = function(items) {
+      const isClosedView = repairOrdersIsClosedView();
       return items.map((item) => {
         const number = item.number || '-';
         const openedAt = repairOrderListDateDisplayValue(item.opened_at || item.created_at || item.date || item.updated_at);
@@ -5712,7 +5763,8 @@ function renderCompactArchiveRows(cards) {
         const vehicle = String(item.vehicle || '').trim() || '-';
         const client = String(item.client || '').trim();
         const phone = String(item.phone || '').trim();
-        const clientText = [client, phone].filter(Boolean).join(' / ') || '-';
+        const clientText = client || '-';
+        const phoneText = phone || '-';
         const heading = item.summary || item.reason || item.heading || '-';
         const total = repairOrderListTotalText(item.grand_total, item.works_total);
         const status = item.status_label || repairOrderStatusLabel(item.status);
@@ -5723,12 +5775,16 @@ function renderCompactArchiveRows(cards) {
         const tagsHtml = previewTags.length
           ? '<div class="repair-orders-row__tags">' + previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '') + '</div>'
           : '';
+        const closedCell = isClosedView
+          ? '<div class="repair-orders-row__cell"><div class="repair-orders-row__closed">' + escapeHtml(closedAt || '-') + '</div></div>'
+          : '';
         return '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Open repair order">'
           + '<div class="repair-orders-row__cell"><div class="repair-orders-row__number">№ ' + escapeHtml(number) + '</div></div>'
           + '<div class="repair-orders-row__cell"><div class="repair-orders-row__opened">' + escapeHtml(openedAt || '-') + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__closed">' + escapeHtml(closedAt || '-') + '</div></div>'
+          + closedCell
           + '<div class="repair-orders-row__cell"><div class="repair-orders-row__status" data-status="' + escapeHtml(rawStatus) + '">' + escapeHtml(status) + '</div></div>'
           + '<div class="repair-orders-row__cell"><div class="repair-orders-row__client" title="' + escapeHtml(clientText) + '">' + escapeHtml(clientText) + '</div></div>'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__phone" title="' + escapeHtml(phoneText) + '">' + escapeHtml(phoneText) + '</div></div>'
           + '<div class="repair-orders-row__cell"><div class="repair-orders-row__vehicle" title="' + escapeHtml(vehicle) + '">' + escapeHtml(vehicle) + '</div></div>'
           + '<div class="repair-orders-row__cell repair-orders-row__title-cell"><div class="repair-orders-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div>' + tagsHtml + '</div>'
           + '<div class="repair-orders-row__cell repair-orders-row__total-cell"><div class="repair-orders-row__total" data-empty="' + String(total === '0') + '">' + escapeHtml(total) + '</div></div>'

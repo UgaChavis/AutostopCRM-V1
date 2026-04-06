@@ -24,6 +24,7 @@ VEHICLE_PRIMARY_FIELDS: tuple[str, ...] = (
     "model_display",
     "generation_or_platform",
     "production_year",
+    "mileage",
     "customer_phone",
     "customer_name",
     "vin",
@@ -53,6 +54,7 @@ VEHICLE_COMPACT_FIELDS: tuple[str, ...] = (
     "make_display",
     "model_display",
     "production_year",
+    "mileage",
     "vin",
     "engine_model",
     "gearbox_model",
@@ -245,6 +247,7 @@ class VehicleProfile:
     model_display: str = ""
     generation_or_platform: str = ""
     production_year: int | None = None
+    mileage: int | None = None
     customer_phone: str = ""
     customer_name: str = ""
     vin: str = ""
@@ -284,6 +287,7 @@ class VehicleProfile:
                 self.model_display,
                 self.generation_or_platform,
                 self.production_year,
+                self.mileage,
                 self.customer_phone,
                 self.customer_name,
                 self.vin,
@@ -320,6 +324,7 @@ class VehicleProfile:
             "model_display": self.model_display,
             "generation_or_platform": self.generation_or_platform,
             "production_year": self.production_year,
+            "mileage": self.mileage,
             "customer_phone": self.customer_phone,
             "customer_name": self.customer_name,
             "vin": vin,
@@ -402,6 +407,7 @@ class VehicleProfile:
             model_display=normalize_vehicle_text(payload.get("model_display")),
             generation_or_platform=normalize_vehicle_text(payload.get("generation_or_platform")),
             production_year=normalize_vehicle_int(payload.get("production_year")),
+            mileage=normalize_vehicle_int(payload.get("mileage")),
             customer_phone=normalize_vehicle_text(payload.get("customer_phone")),
             customer_name=normalize_vehicle_text(payload.get("customer_name")),
             vin=vin,

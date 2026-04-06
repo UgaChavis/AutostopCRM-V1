@@ -74,6 +74,7 @@ _COOLANT_PATTERN = re.compile(r"(?:ОХЛАЖДАЮЩАЯ ЖИДКОСТЬ|АН�
 _POWER_PATTERN = re.compile(r"(\d{2,4})\s*(?:Л\.?\s*С\.?|HP|ЛС)\b", re.IGNORECASE)
 _DISPLACEMENT_PATTERN = re.compile(r"(\d(?:[.,]\d{1,2})?)\s*(?:Л|L)\b", re.IGNORECASE)
 _YEAR_PATTERN = re.compile(r"\b(19\d{2}|20\d{2}|21\d{2})\b")
+_MILEAGE_PATTERN = re.compile(r"(?:ПРОБЕГ|MILEAGE|ОДОМЕТР)\s*[:\-]?\s*([\d\s]{2,12})", re.IGNORECASE)
 _ENGINE_LABEL_PATTERN = re.compile(r"(?:ENGINE(?:\s+MODEL)?|ДВИГАТЕЛЬ|МОТОР)\s*[:\-]?\s*([A-Z0-9\-/. ]{3,32})", re.IGNORECASE)
 _ENGINE_CODE_PATTERN = re.compile(r"(?:ENGINE\s+CODE|КОД\s+ДВИГАТЕЛЯ|ENGINE NO|ДВИГАТЕЛЬ №)\s*[:\-]?\s*([A-Z0-9\-]{3,24})", re.IGNORECASE)
 _GEARBOX_LABEL_PATTERN = re.compile(r"(?:GEARBOX|TRANSMISSION|КОРОБКА|ТРАНСМИССИЯ)\s*[:\-]?\s*([A-Z0-9\-/. ]{2,32})", re.IGNORECASE)
@@ -583,6 +584,10 @@ class VehicleProfileService:
         year_match = _YEAR_PATTERN.search(combined_text)
         if year_match:
             profile.production_year = normalize_vehicle_int(year_match.group(1))
+
+        mileage_match = _MILEAGE_PATTERN.search(combined_text)
+        if mileage_match:
+            profile.mileage = normalize_vehicle_int(re.sub(r"\s+", "", mileage_match.group(1)))
 
         phone_match = _PHONE_PATTERN.search(combined_text)
         if phone_match:

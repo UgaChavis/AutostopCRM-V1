@@ -56,9 +56,9 @@ PRINTING_WEB_MODULE_STYLE = r"""
       border: 1px solid rgba(116, 128, 111, 0.34);
       border-radius: 14px;
       padding: 10px 12px;
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr);
-      gap: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
       cursor: pointer;
       background: rgba(255, 255, 255, 0.02);
       transition: border-color .15s ease, background .15s ease, transform .15s ease;
@@ -66,6 +66,7 @@ PRINTING_WEB_MODULE_STYLE = r"""
     .repair-order-print-doc:hover { border-color: rgba(167, 178, 132, 0.56); background: rgba(167, 178, 132, 0.08); transform: translateY(-1px); }
     .repair-order-print-doc.is-active { border-color: rgba(167, 178, 132, 0.74); background: rgba(167, 178, 132, 0.14); box-shadow: 0 0 0 1px rgba(167, 178, 132, 0.18) inset; }
     .repair-order-print-doc__meta { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .repair-order-print-doc__state { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-soft); font-family: var(--mono); }
     .repair-order-print-doc__title { font-size: 13px; font-weight: 700; color: var(--text); }
     .repair-order-print-doc__description,
     .repair-order-print-doc__template,
@@ -101,7 +102,9 @@ PRINTING_WEB_MODULE_STYLE = r"""
     .repair-order-print-settings .field { gap: 5px; }
     .repair-order-print-settings input,
     .repair-order-print-settings select,
-    .print-template-editor__editor textarea { background: rgba(14, 18, 15, 0.76); }
+    .print-template-editor__editor select,
+    .print-template-editor__editor input,
+    .print-template-editor__source textarea { background: rgba(14, 18, 15, 0.76); }
     .repair-order-print-settings__row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     .repair-order-print-settings__section { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 14px; border: 1px solid rgba(116, 128, 111, 0.3); background: rgba(255, 255, 255, 0.02); }
     .repair-order-print-settings__section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-soft); font-family: var(--mono); }
@@ -114,8 +117,17 @@ PRINTING_WEB_MODULE_STYLE = r"""
     .print-template-editor__item { border: 1px solid rgba(116, 128, 111, 0.34); border-radius: 14px; padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; background: rgba(255,255,255,0.02); }
     .print-template-editor__item.is-active { border-color: rgba(167, 178, 132, 0.74); background: rgba(167, 178, 132, 0.14); }
     .print-template-editor__item-title { font-size: 13px; font-weight: 700; color: var(--text); }
-    .print-template-editor__editor textarea { min-height: 0; flex: 1; resize: none; font-family: var(--mono); font-size: 12px; line-height: 1.5; }
     .print-template-editor__toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+    .print-template-editor__editor { gap: 12px; }
+    .print-template-editor__editor-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .print-template-editor__editor-toolbar .btn { min-height: 34px; padding-inline: 10px; }
+    .print-template-editor__editor-toolbar select { min-width: 220px; }
+    .print-template-editor__surface-wrap { min-height: 0; flex: 1; overflow: auto; border: 1px solid rgba(116, 128, 111, 0.34); border-radius: 16px; background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.04)), #d8ddd7; padding: 18px; display: flex; justify-content: center; align-items: flex-start; }
+    .print-template-editor__surface-frame { width: 920px; min-height: 1040px; height: 1040px; border: 0; border-radius: 10px; background: #ffffff; box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18); }
+    .print-template-editor__source { border: 1px solid rgba(116, 128, 111, 0.28); border-radius: 14px; background: rgba(255,255,255,0.02); padding: 10px 12px; }
+    .print-template-editor__source summary { cursor: pointer; list-style: none; font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-soft); font-family: var(--mono); }
+    .print-template-editor__source summary::-webkit-details-marker { display: none; }
+    .print-template-editor__source textarea { width: 100%; min-height: 220px; margin-top: 10px; resize: vertical; font-family: var(--mono); font-size: 12px; line-height: 1.5; }
     .print-template-editor__preview-wrap { min-height: 0; overflow: auto; display: flex; justify-content: center; align-items: flex-start; padding: 4px 0 32px; background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.08)), #1a211c; border: 1px solid rgba(116, 128, 111, 0.34); border-radius: 16px; }
     .repair-order-print-empty { border: 1px dashed rgba(167, 178, 132, 0.36); border-radius: 16px; padding: 28px 18px; text-align: center; color: var(--text-soft); background: rgba(255,255,255,0.02); }
     @media (max-width: 1500px) {
@@ -233,7 +245,17 @@ PRINTING_WEB_MODULE_HTML = r"""
           <div class="print-template-editor__title">Редактор</div>
           <div class="field field--compact"><label for="printTemplateName">Название</label><input id="printTemplateName" type="text" maxlength="120"></div>
           <div class="print-template-editor__meta" id="printTemplateEditorMeta">Поддерживаются placeholders вроде {{client.name_display}} и секции {{#works}}...{{/works}}.</div>
-          <textarea id="printTemplateContent" spellcheck="false"></textarea>
+          <div class="print-template-editor__editor-toolbar">
+            <button class="btn btn--ghost" data-print-template-command="formatBlock" data-print-template-value="h1" type="button">H1</button>
+            <button class="btn btn--ghost" data-print-template-command="formatBlock" data-print-template-value="h2" type="button">H2</button>
+            <button class="btn btn--ghost" data-print-template-command="formatBlock" data-print-template-value="p" type="button">P</button>
+            <button class="btn btn--ghost" data-print-template-command="bold" type="button">B</button>
+            <button class="btn btn--ghost" data-print-template-command="insertUnorderedList" type="button">LIST</button>
+            <select id="printTemplateTokenSelect"></select>
+            <button class="btn btn--ghost" id="printTemplateInsertTokenButton" type="button">ВСТАВИТЬ ПОЛЕ</button>
+          </div>
+          <div class="print-template-editor__surface-wrap"><iframe class="print-template-editor__surface-frame" id="printTemplateVisualEditorFrame" title="Визуальный редактор шаблона"></iframe></div>
+          <details class="print-template-editor__source" id="printTemplateSourceSection"><summary>Исходный шаблон</summary><textarea id="printTemplateContent" spellcheck="false"></textarea></details>
         </section>
         <section class="print-template-editor__preview">
           <div class="print-template-editor__title">Предпросмотр</div>
@@ -309,7 +331,11 @@ _PRINTING_SCRIPT_PART1 = r"""
       templateListMeta: document.getElementById('printTemplateListMeta'),
       templateList: document.getElementById('printTemplateList'),
       templateName: document.getElementById('printTemplateName'),
+      templateSourceSection: document.getElementById('printTemplateSourceSection'),
       templateContent: document.getElementById('printTemplateContent'),
+      templateVisualEditorFrame: document.getElementById('printTemplateVisualEditorFrame'),
+      templateTokenSelect: document.getElementById('printTemplateTokenSelect'),
+      templateInsertTokenButton: document.getElementById('printTemplateInsertTokenButton'),
       templateEditorMeta: document.getElementById('printTemplateEditorMeta'),
       templatePreviewMeta: document.getElementById('printTemplatePreviewMeta'),
       templatePreviewFrame: document.getElementById('printTemplatePreviewFrame'),
@@ -335,10 +361,111 @@ _PRINTING_SCRIPT_PART1 = r"""
     function normalizeRepairOrderPrintSelectedIds(value) {
       const docs = repairOrderPrintWorkspaceDocuments();
       const validIds = new Set(docs.map((item) => item.id));
-      const normalized = Array.isArray(value)
-        ? value.map((item) => String(item || '').trim()).filter((item, index, arr) => item && validIds.has(item) && arr.indexOf(item) === index)
-        : [];
-      return normalized.length ? normalized : (validIds.has('repair_order') ? ['repair_order'] : docs.slice(0, 1).map((item) => item.id));
+      const first = Array.isArray(value)
+        ? value.map((item) => String(item || '').trim()).find((item) => item && validIds.has(item))
+        : '';
+      return first ? [first] : (validIds.has('repair_order') ? ['repair_order'] : docs.slice(0, 1).map((item) => item.id));
+    }
+
+    const PRINT_TEMPLATE_EDITOR_TOKENS = [
+      { label: 'Клиент', value: '{{client.name_display}}' },
+      { label: 'Телефон', value: '{{client.phone_display}}' },
+      { label: 'Автомобиль', value: '{{vehicle.display_name}}' },
+      { label: 'VIN', value: '{{vehicle.vin_display}}' },
+      { label: 'Госномер', value: '{{vehicle.license_plate_display}}' },
+      { label: 'Пробег', value: '{{vehicle.mileage_display}}' },
+      { label: 'Причина обращения', value: '{{document.reason}}' },
+      { label: 'Описание', value: '{{document.description}}' },
+      { label: 'Информация для клиента', value: '{{document.client_summary}}' },
+      { label: 'Работы', value: '{{#works}}<tr><td>{{name}}</td><td>{{quantity_display}}</td><td>{{price_display}}</td><td>{{total_display}}</td></tr>{{/works}}' },
+      { label: 'Материалы', value: '{{#materials}}<tr><td>{{name}}</td><td>{{quantity_display}}</td><td>{{price_display}}</td><td>{{total_display}}</td></tr>{{/materials}}' },
+      { label: 'Итого', value: '{{totals.grand_total_display}}' },
+      { label: 'Компания', value: '{{service.company_name}}' },
+      { label: 'Адрес сервиса', value: '{{service.address}}' },
+    ];
+
+    function buildPrintTemplateVisualEditorHtml(content) {
+      return '<!doctype html><html><head><meta charset="utf-8"><style>'
+        + 'html,body{margin:0;padding:0;background:#fff;color:#111;font:14px/1.55 Segoe UI,Arial,sans-serif;}'
+        + 'body{padding:28px;}'
+        + '[contenteditable=\"true\"]{min-height:980px;outline:none;}'
+        + 'table{border-collapse:collapse;width:100%;}'
+        + 'td,th{border:1px solid #d6d6d6;padding:6px 8px;vertical-align:top;}'
+        + '.token{display:inline-block;padding:2px 6px;border-radius:999px;background:#eef3e8;border:1px solid #cad6be;font:12px/1.2 Consolas,monospace;color:#35412f;white-space:nowrap;}'
+        + '</style></head><body><div id=\"editor\" contenteditable=\"true\"></div><script>'
+        + 'const editor=document.getElementById(\"editor\");'
+        + 'editor.innerHTML=' + JSON.stringify(String(content || '')) + ';'
+        + 'document.addEventListener(\"selectionchange\",()=>{window.parent?.postMessage({type:\"print-template-selection-change\"},\"*\");});'
+        + '<\/script></body></html>';
+    }
+
+    function renderPrintTemplateVisualEditor(content) {
+      if (!printEls.templateVisualEditorFrame) return;
+      printEls.templateVisualEditorFrame.srcdoc = buildPrintTemplateVisualEditorHtml(content);
+    }
+
+    function syncPrintTemplateSourceFromVisualEditor() {
+      const doc = printEls.templateVisualEditorFrame?.contentDocument;
+      const editor = doc?.getElementById('editor');
+      if (!editor || !printEls.templateContent) return;
+      printEls.templateContent.value = editor.innerHTML;
+      printEls.templateContent.dataset.dirty = '0';
+    }
+
+    function loadPrintTemplateEditorContent(content) {
+      if (printEls.templateContent) {
+        printEls.templateContent.value = String(content || '');
+        printEls.templateContent.dataset.dirty = '0';
+      }
+      renderPrintTemplateVisualEditor(content);
+    }
+
+    function readPrintTemplateEditorContent() {
+      syncPrintTemplateSourceFromVisualEditor();
+      return printEls.templateContent?.value || '';
+    }
+
+    function handlePrintTemplateVisualEditorLoad() {
+      const doc = printEls.templateVisualEditorFrame?.contentDocument;
+      const editor = doc?.getElementById('editor');
+      if (!editor) return;
+      editor.addEventListener('input', () => {
+        if (printEls.templateContent) {
+          printEls.templateContent.value = editor.innerHTML;
+          printEls.templateContent.dataset.dirty = '0';
+        }
+      });
+    }
+
+    function renderPrintTemplateTokenOptions() {
+      if (!printEls.templateTokenSelect) return;
+      printEls.templateTokenSelect.innerHTML = PRINT_TEMPLATE_EDITOR_TOKENS
+        .map((item) => '<option value="' + escapeHtml(item.value) + '">' + escapeHtml(item.label) + '</option>')
+        .join('');
+    }
+
+    function execPrintTemplateEditorCommand(command, value) {
+      const doc = printEls.templateVisualEditorFrame?.contentDocument;
+      const win = printEls.templateVisualEditorFrame?.contentWindow;
+      if (!doc || !win) return;
+      const editor = doc.getElementById('editor');
+      if (!editor) return;
+      win.focus();
+      editor.focus();
+      doc.execCommand(command, false, value || null);
+      syncPrintTemplateSourceFromVisualEditor();
+    }
+
+    function insertPrintTemplateToken() {
+      const value = printEls.templateTokenSelect?.value || '';
+      if (!value) return;
+      execPrintTemplateEditorCommand('insertHTML', '<span class="token">' + escapeHtml(value) + '</span>');
+      const doc = printEls.templateVisualEditorFrame?.contentDocument;
+      const editor = doc?.getElementById('editor');
+      if (editor) {
+        editor.innerHTML = editor.innerHTML.replace(/<span class=\"token\">([^<]+)<\/span>/g, '$1');
+      }
+      syncPrintTemplateSourceFromVisualEditor();
     }
 
     function repairOrderPrintSelectedIds() {
@@ -468,22 +595,22 @@ _PRINTING_SCRIPT_PART2 = r"""
 
     function renderRepairOrderPrintDocuments() {
       const docs = repairOrderPrintWorkspaceDocuments();
-      const selected = new Set(repairOrderPrintSelectedIds());
       printEls.documents.innerHTML = docs.length ? docs.map((item) => {
-        const activeClass = item.id === repairOrderPrintActiveDocument() ? ' is-active' : '';
-        const checked = selected.has(item.id) ? ' checked' : '';
+        const isActive = item.id === repairOrderPrintActiveDocument();
+        const activeClass = isActive ? ' is-active' : '';
         const templateId = repairOrderPrintSelectedTemplateId(item.id);
         const template = repairOrderPrintTemplatesFor(item.id).find((candidate) => candidate.id === templateId);
         return '<div class="repair-order-print-doc' + activeClass + '" data-print-document="' + escapeHtml(item.id) + '">' +
-          '<input type="checkbox" data-print-document-toggle="' + escapeHtml(item.id) + '"' + checked + '>' +
           '<div class="repair-order-print-doc__meta">' +
+            '<div class="repair-order-print-doc__state">' + (isActive ? 'ACTIVE' : 'SELECT') + '</div>' +
             '<div class="repair-order-print-doc__title">' + escapeHtml(item.label) + '</div>' +
             '<div class="repair-order-print-doc__description">' + escapeHtml(item.description || '') + '</div>' +
             '<div class="repair-order-print-doc__template">Шаблон: ' + escapeHtml(template?.name || 'не выбран') + '</div>' +
           '</div>' +
         '</div>';
       }).join('') : '<div class="repair-order-print-empty">Документы для печати пока недоступны.</div>';
-      printEls.documentsMeta.textContent = docs.length ? ('Выбрано документов: ' + repairOrderPrintSelectedIds().length) : 'Документы для печати отсутствуют.';
+      const activeDoc = repairOrderPrintDocumentMap()[repairOrderPrintActiveDocument()] || docs[0] || null;
+      printEls.documentsMeta.textContent = docs.length ? ('Выбран документ: ' + (activeDoc?.label || repairOrderPrintActiveDocument() || '—')) : 'Документы для печати отсутствуют.';
     }
 
     function renderRepairOrderPrintTemplateSelect() {
@@ -502,8 +629,10 @@ _PRINTING_SCRIPT_PART2 = r"""
         printEls.printerSelect.disabled = !hasPrinters;
       }
       if (printEls.printButton) {
-        printEls.printButton.disabled = !hasPrinters;
-        printEls.printButton.title = hasPrinters ? '' : 'Принтер недоступен. Используйте PDF-экспорт.';
+        printEls.printButton.disabled = !repairOrderPrintWorkspaceDocuments().length;
+        printEls.printButton.title = hasPrinters
+          ? 'Откроет системное окно печати браузера. При сбое будет использован выбранный серверный принтер.'
+          : 'Откроет системное окно печати браузера. Серверные принтеры не найдены.';
       }
     }
 
@@ -600,6 +729,73 @@ _PRINTING_SCRIPT_PART3 = r"""
       return new Blob([bytes], { type: mimeType });
     }
 
+    function repairOrderPrintCombinedHtml() {
+      const docs = repairOrderPrintWorkspaceDocuments();
+      const pages = docs.flatMap((item) => {
+        const preview = repairOrderPrintState.previewByDocument?.[item.id];
+        return Array.isArray(preview?.pages) ? preview.pages : [];
+      });
+      const body = pages.length
+        ? pages.map((page) => page.html || '').join('<div style="page-break-after:always"></div>')
+        : '<!doctype html><html lang="ru"><body style="font-family: Segoe UI, sans-serif; padding: 32px; color: #444">Нет данных для печати.</body></html>';
+      return body.includes('<!doctype html')
+        ? body
+        : '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>AutoStop CRM Print</title></head><body>' + body + '</body></html>';
+    }
+
+    function runRepairOrderBrowserPrint() {
+      const printableHtml = repairOrderPrintCombinedHtml();
+      return new Promise((resolve, reject) => {
+        const frame = document.createElement('iframe');
+        let settled = false;
+        const cleanup = () => window.setTimeout(() => frame.remove(), 1500);
+        frame.style.position = 'fixed';
+        frame.style.right = '-12000px';
+        frame.style.bottom = '0';
+        frame.style.width = '1px';
+        frame.style.height = '1px';
+        frame.style.border = '0';
+        frame.setAttribute('aria-hidden', 'true');
+        frame.onload = () => {
+          window.setTimeout(() => {
+            try {
+              const win = frame.contentWindow;
+              if (!win) throw new Error('Не удалось открыть системное окно печати.');
+              win.onafterprint = () => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                resolve();
+              };
+              win.focus();
+              win.print();
+              window.setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                resolve();
+              }, 1200);
+            } catch (error) {
+              if (settled) return;
+              settled = true;
+              cleanup();
+              reject(error);
+            }
+          }, 120);
+        };
+        document.body.appendChild(frame);
+        const doc = frame.contentDocument;
+        if (!doc) {
+          cleanup();
+          reject(new Error('Не удалось подготовить документ для печати.'));
+          return;
+        }
+        doc.open();
+        doc.write(printableHtml);
+        doc.close();
+      });
+    }
+
     async function exportRepairOrderPrintPdf() {
       try {
         const data = await api('/api/export_repair_order_print_pdf', {
@@ -615,13 +811,20 @@ _PRINTING_SCRIPT_PART3 = r"""
 
     async function runRepairOrderPrintJob() {
       try {
-        const data = await api('/api/print_repair_order_documents', {
-          method: 'POST',
-          body: repairOrderPrintRequestPayload({ printer_name: printEls.printerSelect?.value || '' }),
-        });
-        setStatus('Документы отправлены на принтер: ' + (data?.printer_name || 'неизвестно') + '.', false);
+        await runRepairOrderBrowserPrint();
+        setStatus('Открыто системное окно печати браузера.', false);
       } catch (error) {
-        setStatus(error.message, true);
+        try {
+          const printerName = printEls.printerSelect?.value || '';
+          if (!printerName) throw error;
+          const fallback = await api('/api/print_repair_order_documents', {
+            method: 'POST',
+            body: repairOrderPrintRequestPayload({ printer_name: printerName }),
+          });
+          setStatus('Браузерная печать не открылась. Документ отправлен на серверный принтер: ' + (fallback?.printer_name || printerName) + '.', false);
+        } catch (fallbackError) {
+          setStatus((fallbackError && fallbackError.message) || (error && error.message) || 'Не удалось запустить печать.', true);
+        }
       }
     }
 
@@ -642,32 +845,14 @@ _PRINTING_SCRIPT_PART3 = r"""
       }
     }
 
-    function handleRepairOrderPrintDocumentsChange(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLInputElement)) return;
-      const documentId = target.dataset.printDocumentToggle;
-      if (!documentId) return;
-      const next = new Set(repairOrderPrintSelectedIds());
-      if (target.checked) next.add(documentId); else next.delete(documentId);
-      repairOrderPrintState.selectedDocumentIds = Array.from(next);
-      if (target.checked) repairOrderPrintState.activeDocumentId = documentId;
-      if (!repairOrderPrintState.selectedDocumentIds.length) repairOrderPrintState.selectedDocumentIds = [documentId];
-      if (!repairOrderPrintState.selectedDocumentIds.includes(repairOrderPrintActiveDocument())) repairOrderPrintState.activeDocumentId = repairOrderPrintState.selectedDocumentIds[0];
-      renderRepairOrderPrintDocuments();
-      renderRepairOrderPrintTemplateSelect();
-      refreshRepairOrderPrintPreview();
-    }
-
     function handleRepairOrderPrintDocumentsClick(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      if (target.closest('input[data-print-document-toggle]')) return;
       const card = target.closest('[data-print-document]');
       if (!card) return;
       const documentId = card.dataset.printDocument || 'repair_order';
-      const selectedIds = repairOrderPrintSelectedIds();
-      const needsSelection = !selectedIds.includes(documentId);
-      if (needsSelection) repairOrderPrintState.selectedDocumentIds = [...selectedIds, documentId];
+      const needsSelection = repairOrderPrintActiveDocument() !== documentId;
+      repairOrderPrintState.selectedDocumentIds = [documentId];
       repairOrderPrintState.activeDocumentId = documentId;
       renderRepairOrderPrintDocuments();
       renderRepairOrderPrintTemplateSelect();
@@ -697,6 +882,7 @@ _PRINTING_SCRIPT_PART3 = r"""
       const current = repairOrderPrintState.templateEditor.documentType || repairOrderPrintActiveDocument() || 'repair_order';
       printEls.templateDocumentType.innerHTML = docs.map((item) => '<option value="' + escapeHtml(item.id) + '"' + (item.id === current ? ' selected' : '') + '>' + escapeHtml(item.label) + '</option>').join('');
       repairOrderPrintState.templateEditor.documentType = current;
+      renderPrintTemplateTokenOptions();
     }
 
     function renderPrintTemplateList() {
@@ -710,7 +896,7 @@ _PRINTING_SCRIPT_PART3 = r"""
       printEls.templateListMeta.textContent = templates.length ? ('Шаблонов: ' + templates.length + '. Активный документ: ' + (repairOrderPrintDocumentMap()[documentType]?.label || documentType)) : 'Создайте первый шаблон для этого типа документа.';
       const current = repairOrderPrintCurrentTemplateRecord();
       printEls.templateName.value = current?.name || '';
-      printEls.templateContent.value = current?.content || '';
+      loadPrintTemplateEditorContent(current?.content || '');
       printEls.templateEditorMeta.textContent = current ? ('Источник: ' + (current.source || 'custom') + (current.is_builtin ? '. Встроенный шаблон можно сохранить как новый.' : '.')) : 'Новый шаблон можно сохранить как отдельную запись.';
       printEls.templateFooterMeta.textContent = current?.is_default ? 'Этот шаблон уже используется по умолчанию.' : 'Можно сделать текущий шаблон шаблоном по умолчанию.';
     }
@@ -742,7 +928,7 @@ _PRINTING_SCRIPT_PART3 = r"""
           body: repairOrderPrintRequestPayload({
             selected_document_ids: [documentType],
             active_document_id: documentType,
-            template_overrides: { [documentType]: printEls.templateContent?.value || '' },
+            template_overrides: { [documentType]: readPrintTemplateEditorContent() },
           }),
         });
         const documentPreview = data?.documents?.[0] || null;
@@ -760,7 +946,7 @@ _PRINTING_SCRIPT_PART3 = r"""
       try {
         const data = await api('/api/save_print_template', {
           method: 'POST',
-          body: { source: 'ui', document_type: documentType, template_id: saveTargetId, name: printEls.templateName?.value || '', content: printEls.templateContent?.value || '' },
+          body: { source: 'ui', document_type: documentType, template_id: saveTargetId, name: printEls.templateName?.value || '', content: readPrintTemplateEditorContent() },
         });
         repairOrderPrintState.workspace.templates[documentType] = data?.templates || [];
         repairOrderPrintState.templateEditor.templateId = data?.template?.id || '';
@@ -833,7 +1019,7 @@ _PRINTING_SCRIPT_PART3 = r"""
     function createNewPrintTemplateDraft() {
       repairOrderPrintState.templateEditor.templateId = '';
       printEls.templateName.value = '';
-      printEls.templateContent.value = '';
+      loadPrintTemplateEditorContent('');
       printEls.templateEditorMeta.textContent = 'Новый шаблон будет сохранен как отдельная запись.';
       printEls.templateFooterMeta.textContent = 'Сохраните шаблон, затем при необходимости сделайте его шаблоном по умолчанию.';
       printEls.templateName.focus();
@@ -847,7 +1033,7 @@ _PRINTING_SCRIPT_PART3 = r"""
       const file = input.files[0];
       try {
         printEls.templateName.value = (file.name || 'uploaded-template').replace(/\.[^.]+$/, '');
-        printEls.templateContent.value = await file.text();
+        loadPrintTemplateEditorContent(await file.text());
         repairOrderPrintState.templateEditor.templateId = '';
         previewCurrentPrintTemplate();
       } catch (_) {
@@ -882,7 +1068,6 @@ _PRINTING_SCRIPT_PART3 = r"""
 
     printRepairOrderDraft = function() { return openRepairOrderPrintWorkspace(); };
 
-    if (printEls.documents) printEls.documents.addEventListener('change', handleRepairOrderPrintDocumentsChange);
     if (printEls.documents) printEls.documents.addEventListener('click', handleRepairOrderPrintDocumentsClick);
     if (printEls.templateSelect) printEls.templateSelect.addEventListener('change', handleRepairOrderPrintTemplateSelectChange);
     if (printEls.fitWidthButton) printEls.fitWidthButton.addEventListener('click', () => repairOrderPrintSetZoom('fit', 1));
@@ -910,6 +1095,22 @@ _PRINTING_SCRIPT_PART3 = r"""
     if (printEls.templateNewButton) printEls.templateNewButton.addEventListener('click', createNewPrintTemplateDraft);
     if (printEls.templateUploadButton) printEls.templateUploadButton.addEventListener('click', handlePrintTemplateUpload);
     if (printEls.templateUploadInput) printEls.templateUploadInput.addEventListener('change', handlePrintTemplateUploadChange);
+    if (printEls.templateVisualEditorFrame) printEls.templateVisualEditorFrame.addEventListener('load', handlePrintTemplateVisualEditorLoad);
+    if (printEls.templateInsertTokenButton) printEls.templateInsertTokenButton.addEventListener('click', insertPrintTemplateToken);
+    if (printEls.templateContent) printEls.templateContent.addEventListener('input', () => { printEls.templateContent.dataset.dirty = '1'; });
+    if (printEls.templateContent) printEls.templateContent.addEventListener('blur', () => {
+      if (printEls.templateContent.dataset.dirty === '1') {
+        renderPrintTemplateVisualEditor(printEls.templateContent.value || '');
+        printEls.templateContent.dataset.dirty = '0';
+      }
+    });
+    document.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const commandButton = target.closest('[data-print-template-command]');
+      if (!commandButton) return;
+      execPrintTemplateEditorCommand(commandButton.dataset.printTemplateCommand || '', commandButton.dataset.printTemplateValue || '');
+    });
 """
 
 
