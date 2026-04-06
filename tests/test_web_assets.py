@@ -609,6 +609,23 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("els.repairOrdersOpenTab.addEventListener('click', () => setRepairOrdersFilter('open'));", BOARD_WEB_APP_HTML)
         self.assertIn("els.repairOrdersClosedTab.addEventListener('click', () => setRepairOrdersFilter('closed'));", BOARD_WEB_APP_HTML)
 
+    def test_cashboxes_modal_exposes_minimal_accounting_workspace(self) -> None:
+        self.assertIn('id="cashboxesButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="cashboxesModal"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="cashboxesList"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="cashboxCreateButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="cashboxIncomeButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="cashboxExpenseButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="cashboxTransactions"', BOARD_WEB_APP_HTML)
+        self.assertIn(".cashboxes-layout {", BOARD_WEB_APP_HTML)
+        self.assertIn("function openCashboxesModal()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function createCashbox()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function createCashboxTransaction(direction)", BOARD_WEB_APP_HTML)
+        self.assertIn("async function loadCashboxes(openModal = false)", BOARD_WEB_APP_HTML)
+        self.assertIn("async function loadCashboxDetail(cashboxId, { openModal = false } = {})", BOARD_WEB_APP_HTML)
+        self.assertIn("els.cashboxesButton.addEventListener('click', openCashboxesModal);", BOARD_WEB_APP_HTML)
+        self.assertIn("data-close=\"cashboxes\"", BOARD_WEB_APP_HTML)
+
     def test_modal_data_loader_helpers_drive_active_archive_and_gpt_paths(self) -> None:
         self.assertIn("function maybeOpenModal(modalEl, openModal)", BOARD_WEB_APP_HTML)
         self.assertIn("function openArchiveModal()", BOARD_WEB_APP_HTML)

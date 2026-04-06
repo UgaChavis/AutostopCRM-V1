@@ -153,6 +153,8 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                         "get_card_context",
                         "get_board_snapshot",
                         "review_board",
+                        "list_cashboxes",
+                        "get_cashbox",
                         "autofill_vehicle_data",
                         "autofill_repair_order",
                         "update_board_settings",
@@ -166,6 +168,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                         "get_repair_order_text",
                         "search_cards",
                         "create_card",
+                        "create_cashbox",
+                        "delete_cashbox",
+                        "create_cash_transaction",
                         "update_card",
                         "update_repair_order",
                         "set_repair_order_status",
@@ -239,6 +244,35 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("priority_cards", review.structuredContent["data"])
                 self.assertIn("recent_events", review.structuredContent["data"])
                 self.assertIn("[BOARD REVIEW]", review.structuredContent["data"]["text"])
+
+                created_cashbox = await session.call_tool("create_cashbox", {"name": "Наличный", "actor_name": "ОПЕРАТОР"})
+                self.assertFalse(created_cashbox.isError)
+                self.assertTrue(created_cashbox.structuredContent["ok"])
+                cashbox = created_cashbox.structuredContent["data"]["cashbox"]
+
+                created_cash_transaction = await session.call_tool(
+                    "create_cash_transaction",
+                    {
+                        "cashbox_id": cashbox["id"],
+                        "direction": "income",
+                        "amount": "1000",
+                        "note": "Предоплата",
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(created_cash_transaction.isError)
+                self.assertTrue(created_cash_transaction.structuredContent["ok"])
+                self.assertEqual(created_cash_transaction.structuredContent["data"]["transaction"]["amount_minor"], 100000)
+
+                cashboxes = await session.call_tool("list_cashboxes", {"limit": 20})
+                self.assertFalse(cashboxes.isError)
+                self.assertTrue(cashboxes.structuredContent["ok"])
+                self.assertTrue(any(item["id"] == cashbox["id"] for item in cashboxes.structuredContent["data"]["cashboxes"]))
+
+                cashbox_details = await session.call_tool("get_cashbox", {"cashbox_id": cashbox["short_id"], "transaction_limit": 20})
+                self.assertFalse(cashbox_details.isError)
+                self.assertTrue(cashbox_details.structuredContent["ok"])
+                self.assertEqual(cashbox_details.structuredContent["data"]["cashbox"]["statistics"]["transactions_total"], 1)
 
                 runtime_status = await session.call_tool("get_runtime_status", {})
                 self.assertFalse(runtime_status.isError)
@@ -1172,6 +1206,51 @@ class BoardApiClientTests(unittest.TestCase):
                 unittest.mock.call(
                     "/api/set_repair_order_status",
                     {"card_id": "card-1", "status": "closed", "source": "mcp", "actor_name": "ОПЕРАТОР"},
+                ),
+            ],
+        )
+
+    def test_cashbox_request_helpers_use_expected_payloads(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.list_cashboxes()
+            client.list_cashboxes(limit=50)
+            client.get_cashbox("CB-1", transaction_limit=25)
+            client.create_cashbox("Наличный", actor_name="ОПЕРАТОР")
+            client.create_cash_transaction(
+                cashbox_id="CB-1",
+                direction="income",
+                amount="1000",
+                note="Предоплата",
+                actor_name="ОПЕРАТОР",
+            )
+            client.delete_cashbox("CB-1", actor_name="ОПЕРАТОР")
+
+        self.assertEqual(
+            request.call_args_list,
+            [
+                unittest.mock.call("/api/list_cashboxes", method="GET"),
+                unittest.mock.call("/api/list_cashboxes", {"limit": 50}, method="POST"),
+                unittest.mock.call("/api/get_cashbox", {"cashbox_id": "CB-1", "transaction_limit": 25}),
+                unittest.mock.call(
+                    "/api/create_cashbox",
+                    {"name": "Наличный", "source": "mcp", "actor_name": "ОПЕРАТОР"},
+                ),
+                unittest.mock.call(
+                    "/api/create_cash_transaction",
+                    {
+                        "cashbox_id": "CB-1",
+                        "direction": "income",
+                        "note": "Предоплата",
+                        "amount": "1000",
+                        "source": "mcp",
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                ),
+                unittest.mock.call(
+                    "/api/delete_cashbox",
+                    {"cashbox_id": "CB-1", "source": "mcp", "actor_name": "ОПЕРАТОР"},
                 ),
             ],
         )

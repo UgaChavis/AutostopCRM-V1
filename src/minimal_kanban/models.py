@@ -17,12 +17,14 @@ Indicator = Literal["green", "yellow", "red"]
 TagColor = Literal["green", "yellow", "red"]
 Status = Literal["ok", "warning", "critical", "expired"]
 AuditSource = Literal["ui", "api", "mcp", "system"]
+CashDirection = Literal["income", "expense"]
 
 DEFAULT_COLUMN_IDS: tuple[str, ...] = ("inbox", "in_progress", "control", "done")
 VALID_INDICATORS: tuple[Indicator, ...] = ("green", "yellow", "red")
 VALID_TAG_COLORS: tuple[TagColor, ...] = ("green", "yellow", "red")
 VALID_STATUSES: tuple[Status, ...] = ("ok", "warning", "critical", "expired")
 VALID_AUDIT_SOURCES: tuple[AuditSource, ...] = ("ui", "api", "mcp", "system")
+VALID_CASH_DIRECTIONS: tuple[CashDirection, ...] = ("income", "expense")
 DEFAULT_INDICATOR: Indicator = "green"
 DEFAULT_TAG_COLOR: TagColor = "green"
 DEFAULT_DEADLINE_TOTAL_SECONDS = 24 * 3600
@@ -43,6 +45,8 @@ STICKY_TEXT_LIMIT = 1000
 STICKY_DEFAULT_TOTAL_SECONDS = 24 * 3600
 ACTOR_NAME_LIMIT = 40
 ATTACHMENT_FILE_NAME_LIMIT = 120
+CASHBOX_NAME_LIMIT = 80
+CASHTRANSACTION_NOTE_LIMIT = 240
 ARCHIVE_PREVIEW_LIMIT = 30
 ARCHIVED_CARD_RETENTION_LIMIT = 300
 AUDIT_EVENT_RETENTION_DAYS = 60
@@ -111,6 +115,13 @@ def normalize_source(value, *, default: AuditSource = "api") -> AuditSource:
     return source  # type: ignore[return-value]
 
 
+def normalize_cash_direction(value, *, default: CashDirection = "income") -> CashDirection:
+    direction = str(value or "").strip().lower()
+    if direction not in VALID_CASH_DIRECTIONS:
+        return default
+    return direction  # type: ignore[return-value]
+
+
 def normalize_column(value, *, valid_columns: Collection[str] | None = None, default: str = "inbox") -> ColumnId:
     column = str(value or "").strip().lower()
     if not column:
@@ -134,6 +145,34 @@ def normalize_text(value, *, default: str = "", limit: int | None = None) -> str
     if limit is not None:
         text = text[:limit]
     return text
+
+
+def normalize_money_minor(value, *, default: int = 0, minimum: int | None = None) -> int:
+    if isinstance(value, bool):
+        parsed = default
+    elif isinstance(value, int):
+        parsed = value
+    elif isinstance(value, float):
+        parsed = int(round(value * 100))
+    else:
+        text = str(value or "").strip().replace(" ", "").replace(",", ".")
+        if not text:
+            parsed = default
+        else:
+            try:
+                parsed = int(round(float(text) * 100))
+            except (TypeError, ValueError):
+                parsed = default
+    if minimum is not None:
+        parsed = max(minimum, parsed)
+    return parsed
+
+
+def format_money_minor(value: int) -> str:
+    normalized = int(value)
+    sign = "-" if normalized < 0 else ""
+    amount = abs(normalized) / 100
+    return sign + f"{amount:,.2f}".replace(",", " ").replace(".", ",") + " ₽"
 
 
 def split_legacy_card_title(value) -> tuple[str, str]:
@@ -539,6 +578,104 @@ class AuditEvent:
             message=normalize_text(payload.get("message"), default="Событие", limit=300),
             details=details,
             card_id=card_id,
+        )
+
+
+@dataclass(slots=True)
+class CashBox:
+    id: str
+    name: str
+    created_at: str
+    updated_at: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "id": self.id,
+            "short_id": short_entity_id(self.id, prefix="CB"),
+            "name": self.name,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    def to_storage_dict(self) -> dict[str, str]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "CashBox":
+        if not isinstance(payload, dict):
+            raise TypeError("Cash box payload must be a dictionary.")
+        created_at = parse_datetime(payload.get("created_at")) or utc_now()
+        updated_at = parse_datetime(payload.get("updated_at")) or created_at
+        name = normalize_text(payload.get("name"), limit=CASHBOX_NAME_LIMIT)
+        if not name:
+            raise ValueError("Cash box name is required.")
+        return cls(
+            id=normalize_text(payload.get("id"), default=str(uuid.uuid4()), limit=128),
+            name=name,
+            created_at=created_at.isoformat(),
+            updated_at=updated_at.isoformat(),
+        )
+
+
+@dataclass(slots=True)
+class CashTransaction:
+    id: str
+    cashbox_id: str
+    direction: CashDirection
+    amount_minor: int
+    note: str
+    created_at: str
+    actor_name: str
+    source: AuditSource
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "short_id": short_entity_id(self.id, prefix="CT"),
+            "cashbox_id": self.cashbox_id,
+            "direction": self.direction,
+            "amount_minor": self.amount_minor,
+            "amount_display": format_money_minor(self.amount_minor),
+            "note": self.note,
+            "created_at": self.created_at,
+            "actor_name": self.actor_name,
+            "source": self.source,
+        }
+
+    def to_storage_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "cashbox_id": self.cashbox_id,
+            "direction": self.direction,
+            "amount_minor": self.amount_minor,
+            "note": self.note,
+            "created_at": self.created_at,
+            "actor_name": self.actor_name,
+            "source": self.source,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "CashTransaction":
+        if not isinstance(payload, dict):
+            raise TypeError("Cash transaction payload must be a dictionary.")
+        created_at = parse_datetime(payload.get("created_at")) or utc_now()
+        cashbox_id = normalize_text(payload.get("cashbox_id"), default="", limit=128)
+        if not cashbox_id:
+            raise ValueError("Cash transaction cashbox_id is required.")
+        return cls(
+            id=normalize_text(payload.get("id"), default=str(uuid.uuid4()), limit=128),
+            cashbox_id=cashbox_id,
+            direction=normalize_cash_direction(payload.get("direction")),
+            amount_minor=normalize_money_minor(payload.get("amount_minor"), minimum=1),
+            note=normalize_text(payload.get("note"), default="", limit=CASHTRANSACTION_NOTE_LIMIT),
+            created_at=created_at.isoformat(),
+            actor_name=normalize_actor_name(payload.get("actor_name")),
+            source=normalize_source(payload.get("source"), default="api"),
         )
 
 

@@ -954,6 +954,93 @@ def create_mcp_server(
         )
 
     @server.tool(
+        name="list_cashboxes",
+        description=_scoped_description(
+            "List all cashboxes of the current AutoStop CRM board instance with compact balance statistics."
+        ),
+        annotations=_read_tool_annotations("List Cashboxes"),
+        structured_output=True,
+    )
+    def list_cashboxes(limit: int = 200) -> JsonEnvelope:
+        return _relay_board_call(
+            "list_cashboxes",
+            lambda: board_api.list_cashboxes(limit=limit),
+            error_code="cashboxes_unreachable",
+        )
+
+    @server.tool(
+        name="get_cashbox",
+        description=_scoped_description(
+            "Return one cashbox with its statistics and transaction journal."
+        ),
+        annotations=_read_tool_annotations("Get Cashbox"),
+        structured_output=True,
+    )
+    def get_cashbox(cashbox_id: str, transaction_limit: int = 300) -> JsonEnvelope:
+        return _relay_board_call(
+            "get_cashbox",
+            lambda: board_api.get_cashbox(cashbox_id, transaction_limit=transaction_limit),
+            error_code="cashbox_unreachable",
+        )
+
+    @server.tool(
+        name="create_cashbox",
+        description=_scoped_description("Create a new cashbox for money inflow and outflow tracking."),
+        annotations=_write_tool_annotations("Create Cashbox"),
+        structured_output=True,
+    )
+    def create_cashbox(name: str, actor_name: str | None = None) -> JsonEnvelope:
+        return _relay_board_call(
+            "create_cashbox",
+            lambda: board_api.create_cashbox(name, actor_name=actor_name),
+            error_code="cashbox_write_unreachable",
+        )
+
+    @server.tool(
+        name="delete_cashbox",
+        description=_scoped_description(
+            "Delete a cashbox from the current board instance together with its transaction history."
+        ),
+        annotations=_write_tool_annotations("Delete Cashbox", destructive=True),
+        structured_output=True,
+    )
+    def delete_cashbox(cashbox_id: str, actor_name: str | None = None) -> JsonEnvelope:
+        return _relay_board_call(
+            "delete_cashbox",
+            lambda: board_api.delete_cashbox(cashbox_id, actor_name=actor_name),
+            error_code="cashbox_write_unreachable",
+        )
+
+    @server.tool(
+        name="create_cash_transaction",
+        description=_scoped_description(
+            "Create one cash transaction in a cashbox. Use direction income or expense and pass either amount_minor or amount."
+        ),
+        annotations=_write_tool_annotations("Create Cash Transaction"),
+        structured_output=True,
+    )
+    def create_cash_transaction(
+        cashbox_id: str,
+        direction: Literal["income", "expense"],
+        amount_minor: int | None = None,
+        amount: str | None = None,
+        note: str = "",
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "create_cash_transaction",
+            lambda: board_api.create_cash_transaction(
+                cashbox_id=cashbox_id,
+                direction=direction,
+                amount_minor=amount_minor,
+                amount=amount,
+                note=note,
+                actor_name=actor_name,
+            ),
+            error_code="cashbox_write_unreachable",
+        )
+
+    @server.tool(
         name="update_board_settings",
         description=_scoped_description("Update board-wide settings for the current Minimal Kanban board. Currently supports board_scale."),
         annotations=_write_tool_annotations("Update Board Settings"),

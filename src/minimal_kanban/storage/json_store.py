@@ -15,6 +15,8 @@ from ..models import (
     AUDIT_EVENT_RETENTION_LIMIT,
     AuditEvent,
     Card,
+    CashBox,
+    CashTransaction,
     Column,
     DEFAULT_COLUMN_IDS,
     StickyNote,
@@ -33,10 +35,12 @@ def default_columns() -> list[Column]:
 
 
 DEFAULT_STATE = {
-    "schema_version": 6,
+    "schema_version": 7,
     "columns": [column.to_dict() for column in default_columns()],
     "cards": [],
     "stickies": [],
+    "cashboxes": [],
+    "cash_transactions": [],
     "events": [],
     "settings": {
         "has_seen_onboarding": False,
@@ -68,14 +72,18 @@ class JsonStore:
                 columns, columns_repaired = self._normalize_columns(state)
                 cards, cards_repaired = self._normalize_cards(state, columns)
                 stickies, stickies_repaired = self._normalize_stickies(state)
+                cashboxes, cashboxes_repaired = self._normalize_cashboxes(state)
+                cash_transactions, cash_transactions_repaired = self._normalize_cash_transactions(state, cashboxes)
                 events, events_repaired = self._normalize_events(state)
                 settings, settings_repaired = self._normalize_settings(state)
-                if columns_repaired or cards_repaired or stickies_repaired or events_repaired or settings_repaired:
+                if columns_repaired or cards_repaired or stickies_repaired or cashboxes_repaired or cash_transactions_repaired or events_repaired or settings_repaired:
                     state = {
                         "schema_version": DEFAULT_STATE["schema_version"],
                         "columns": [column.to_dict() for column in columns],
                         "cards": [card.to_storage_dict() for card in cards],
                         "stickies": [sticky.to_storage_dict() for sticky in stickies],
+                        "cashboxes": [cashbox.to_storage_dict() for cashbox in cashboxes],
+                        "cash_transactions": [transaction.to_storage_dict() for transaction in cash_transactions],
                         "events": [event.to_dict() for event in events],
                         "settings": settings,
                     }
@@ -84,6 +92,8 @@ class JsonStore:
                     "columns": columns,
                     "cards": cards,
                     "stickies": stickies,
+                    "cashboxes": cashboxes,
+                    "cash_transactions": cash_transactions,
                     "events": events,
                     "settings": settings,
                 }
@@ -94,13 +104,15 @@ class JsonStore:
         columns: list[Column],
         cards: list[Card],
         stickies: list[StickyNote] | None = None,
+        cashboxes: list[CashBox] | None = None,
+        cash_transactions: list[CashTransaction] | None = None,
         events: list[AuditEvent],
         settings: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         with self._lock:
             with self._process_lock.acquire():
                 current_state: dict[str, Any] | None = None
-                if settings is None or stickies is None:
+                if settings is None or stickies is None or cashboxes is None or cash_transactions is None:
                     current_state = self._read_state()
                 if settings is None:
                     assert current_state is not None
@@ -108,15 +120,25 @@ class JsonStore:
                 if stickies is None:
                     assert current_state is not None
                     stickies, _ = self._normalize_stickies(current_state)
+                if cashboxes is None:
+                    assert current_state is not None
+                    cashboxes, _ = self._normalize_cashboxes(current_state)
+                if cash_transactions is None:
+                    assert current_state is not None
+                    cash_transactions, _ = self._normalize_cash_transactions(current_state, cashboxes or [])
                 normalized_columns = self._normalize_columns_payload(columns)
                 normalized_cards = self._normalize_cards_payload(cards, normalized_columns)
                 normalized_stickies = self._normalize_stickies_payload(stickies or [])
+                normalized_cashboxes = self._normalize_cashboxes_payload(cashboxes or [])
+                normalized_cash_transactions = self._normalize_cash_transactions_payload(cash_transactions or [], normalized_cashboxes)
                 normalized_events = self._normalize_events_payload(events)
                 state = {
                     "schema_version": DEFAULT_STATE["schema_version"],
                     "columns": [column.to_dict() for column in normalized_columns],
                     "cards": [card.to_storage_dict() for card in normalized_cards],
                     "stickies": [sticky.to_storage_dict() for sticky in normalized_stickies],
+                    "cashboxes": [cashbox.to_storage_dict() for cashbox in normalized_cashboxes],
+                    "cash_transactions": [transaction.to_storage_dict() for transaction in normalized_cash_transactions],
                     "events": [event.to_dict() for event in normalized_events],
                     "settings": settings if isinstance(settings, dict) else deepcopy(DEFAULT_STATE["settings"]),
                 }
@@ -125,6 +147,8 @@ class JsonStore:
                     "columns": normalized_columns,
                     "cards": normalized_cards,
                     "stickies": normalized_stickies,
+                    "cashboxes": normalized_cashboxes,
+                    "cash_transactions": normalized_cash_transactions,
                     "events": normalized_events,
                     "settings": state["settings"],
                 }
@@ -192,9 +216,17 @@ class JsonStore:
             columns=bundle["columns"],
             cards=bundle["cards"],
             stickies=stickies,
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
             events=bundle["events"],
             settings=bundle["settings"],
         )
+
+    def read_cashboxes(self) -> list[CashBox]:
+        return self.read_bundle()["cashboxes"]
+
+    def read_cash_transactions(self) -> list[CashTransaction]:
+        return self.read_bundle()["cash_transactions"]
 
     def _read_state(self) -> dict:
         if not self._state_file.exists():
@@ -382,6 +414,60 @@ class JsonStore:
 
         return parsed_stickies, repaired
 
+    def _normalize_cashboxes(self, state: dict) -> tuple[list[CashBox], bool]:
+        raw_cashboxes = state.get("cashboxes", [])
+        repaired = False
+        if not isinstance(raw_cashboxes, list):
+            raw_cashboxes = []
+            repaired = True
+        parsed_cashboxes: list[CashBox] = []
+        seen_ids: set[str] = set()
+        seen_names: set[str] = set()
+        for item in raw_cashboxes:
+            if not isinstance(item, dict):
+                repaired = True
+                continue
+            try:
+                cashbox = CashBox.from_dict(item)
+            except (TypeError, ValueError):
+                repaired = True
+                continue
+            normalized_name = cashbox.name.casefold()
+            if cashbox.id in seen_ids or normalized_name in seen_names:
+                repaired = True
+                continue
+            seen_ids.add(cashbox.id)
+            seen_names.add(normalized_name)
+            parsed_cashboxes.append(cashbox)
+        parsed_cashboxes.sort(key=lambda item: (item.name.casefold(), item.id))
+        return parsed_cashboxes, repaired
+
+    def _normalize_cash_transactions(self, state: dict, cashboxes: list[CashBox]) -> tuple[list[CashTransaction], bool]:
+        raw_transactions = state.get("cash_transactions", [])
+        repaired = False
+        if not isinstance(raw_transactions, list):
+            raw_transactions = []
+            repaired = True
+        valid_cashbox_ids = {item.id for item in cashboxes}
+        parsed_transactions: list[CashTransaction] = []
+        seen_ids: set[str] = set()
+        for item in raw_transactions:
+            if not isinstance(item, dict):
+                repaired = True
+                continue
+            try:
+                transaction = CashTransaction.from_dict(item)
+            except (TypeError, ValueError):
+                repaired = True
+                continue
+            if transaction.id in seen_ids or transaction.cashbox_id not in valid_cashbox_ids:
+                repaired = True
+                continue
+            seen_ids.add(transaction.id)
+            parsed_transactions.append(transaction)
+        parsed_transactions.sort(key=lambda item: (item.created_at, item.id))
+        return parsed_transactions, repaired
+
     def _normalize_stickies_payload(self, stickies: list[StickyNote]) -> list[StickyNote]:
         normalized: list[StickyNote] = []
         seen_ids: set[str] = set()
@@ -424,6 +510,39 @@ class JsonStore:
     def _normalize_events_payload(self, events: list[AuditEvent]) -> list[AuditEvent]:
         normalized = [AuditEvent.from_dict(event.to_dict()) for event in events]
         normalized, _ = self._apply_event_retention(normalized)
+        return normalized
+
+    def _normalize_cashboxes_payload(self, cashboxes: list[CashBox]) -> list[CashBox]:
+        normalized: list[CashBox] = []
+        seen_ids: set[str] = set()
+        seen_names: set[str] = set()
+        for item in cashboxes:
+            if not isinstance(item, CashBox):
+                continue
+            if item.id in seen_ids or item.name.casefold() in seen_names:
+                continue
+            seen_ids.add(item.id)
+            seen_names.add(item.name.casefold())
+            normalized.append(item)
+        normalized.sort(key=lambda item: (item.name.casefold(), item.id))
+        return normalized
+
+    def _normalize_cash_transactions_payload(
+        self,
+        transactions: list[CashTransaction],
+        cashboxes: list[CashBox],
+    ) -> list[CashTransaction]:
+        normalized: list[CashTransaction] = []
+        valid_cashbox_ids = {item.id for item in cashboxes}
+        seen_ids: set[str] = set()
+        for item in transactions:
+            if not isinstance(item, CashTransaction):
+                continue
+            if item.id in seen_ids or item.cashbox_id not in valid_cashbox_ids:
+                continue
+            seen_ids.add(item.id)
+            normalized.append(item)
+        normalized.sort(key=lambda item: (item.created_at, item.id))
         return normalized
 
     def _apply_event_retention(self, events: list[AuditEvent]) -> tuple[list[AuditEvent], bool]:

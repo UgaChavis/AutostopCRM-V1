@@ -502,6 +502,42 @@ class ApiServerTests(unittest.TestCase):
             [first["data"]["card"]["id"], third["data"]["card"]["id"], second["data"]["card"]["id"]],
         )
 
+    def test_cashbox_routes_create_list_transaction_get_and_delete(self) -> None:
+        status, created = self.request("/api/create_cashbox", {"name": "Касса 1", "actor_name": "ADMIN"})
+        self.assertEqual(status, 200)
+        self.assertTrue(created["ok"])
+        cashbox = created["data"]["cashbox"]
+
+        status, listed = self.request("/api/list_cashboxes?limit=20", method="GET")
+        self.assertEqual(status, 200)
+        self.assertEqual(listed["data"]["meta"]["total"], 1)
+        self.assertEqual(listed["data"]["cashboxes"][0]["id"], cashbox["id"])
+
+        status, transaction = self.request(
+            "/api/create_cash_transaction",
+            {
+                "cashbox_id": cashbox["short_id"],
+                "direction": "income",
+                "amount": "2500",
+                "note": "Оплата клиента",
+                "actor_name": "ADMIN",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(transaction["data"]["transaction"]["amount_minor"], 250000)
+
+        status, details = self.request(
+            f"/api/get_cashbox?cashbox_id={cashbox['id']}&transaction_limit=10",
+            method="GET",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(details["data"]["cashbox"]["statistics"]["transactions_total"], 1)
+        self.assertEqual(details["data"]["transactions"][0]["note"], "Оплата клиента")
+
+        status, deleted = self.request("/api/delete_cashbox", {"cashbox_id": cashbox["id"], "actor_name": "ADMIN"})
+        self.assertEqual(status, 200)
+        self.assertTrue(deleted["data"]["meta"]["deleted"])
+
     def test_snapshot_compact_query_returns_board_friendly_cards(self) -> None:
         status, created = self.request(
             "/api/create_card",

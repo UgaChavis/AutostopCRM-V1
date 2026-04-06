@@ -97,6 +97,51 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(created["card"]["description"], large_description)
         self.assertGreater(len(created["card"]["description"]), 5000)
 
+    def test_cashbox_lifecycle_tracks_balance_and_transactions(self) -> None:
+        created = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})
+        cashbox = created["cashbox"]
+        self.assertEqual(cashbox["name"], "Наличный")
+        self.assertEqual(cashbox["statistics"]["transactions_total"], 0)
+
+        income = self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "income",
+                "amount": "1500,50",
+                "note": "Предоплата",
+                "actor_name": "ADMIN",
+            }
+        )
+        self.assertEqual(income["transaction"]["direction"], "income")
+        self.assertEqual(income["transaction"]["amount_minor"], 150050)
+
+        expense = self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["short_id"],
+                "direction": "expense",
+                "amount_minor": 5050,
+                "note": "Расходник",
+                "actor_name": "ADMIN",
+            }
+        )
+        self.assertEqual(expense["transaction"]["direction"], "expense")
+
+        listed = self.service.list_cashboxes()
+        self.assertEqual(listed["meta"]["total"], 1)
+        listed_cashbox = listed["cashboxes"][0]
+        self.assertEqual(listed_cashbox["statistics"]["transactions_total"], 2)
+        self.assertEqual(listed_cashbox["statistics"]["balance_minor"], 145000)
+
+        details = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
+        self.assertEqual(details["cashbox"]["id"], cashbox["id"])
+        self.assertEqual(len(details["transactions"]), 2)
+        self.assertEqual(details["transactions"][0]["note"], "Расходник")
+
+        deleted = self.service.delete_cashbox({"cashbox_id": cashbox["short_id"], "actor_name": "ADMIN"})
+        self.assertTrue(deleted["meta"]["deleted"])
+        self.assertEqual(deleted["meta"]["removed_transactions"], 2)
+        self.assertEqual(self.service.list_cashboxes()["meta"]["total"], 0)
+
     def test_move_card_can_reorder_within_same_column(self) -> None:
         first = self.service.create_card({"title": "First", "column": "inbox", "deadline": {"hours": 2}})
         second = self.service.create_card({"title": "Second", "column": "inbox", "deadline": {"hours": 2}})

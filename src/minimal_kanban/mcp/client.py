@@ -126,6 +126,42 @@ class BoardApiClient:
             return self._request("/api/review_board", method="GET")
         return self._request("/api/review_board", payload, method="POST")
 
+    def list_cashboxes(self, *, limit: int | None = None) -> dict:
+        return self._request_optional_scalar_filter("/api/list_cashboxes", key="limit", value=limit)
+
+    def get_cashbox(self, cashbox_id: str, *, transaction_limit: int | None = None) -> dict:
+        payload: dict[str, object] = {"cashbox_id": cashbox_id}
+        if transaction_limit is not None:
+            payload["transaction_limit"] = transaction_limit
+        return self._request("/api/get_cashbox", payload)
+
+    def create_cashbox(self, name: str, *, actor_name: str | None = None) -> dict:
+        return self._request_with_identity("/api/create_cashbox", {"name": name}, actor_name=actor_name)
+
+    def delete_cashbox(self, cashbox_id: str, *, actor_name: str | None = None) -> dict:
+        return self._request_with_identity("/api/delete_cashbox", {"cashbox_id": cashbox_id}, actor_name=actor_name)
+
+    def create_cash_transaction(
+        self,
+        *,
+        cashbox_id: str,
+        direction: str,
+        amount_minor: int | None = None,
+        amount: str | int | float | None = None,
+        note: str = "",
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {
+            "cashbox_id": cashbox_id,
+            "direction": direction,
+            "note": note,
+        }
+        if amount_minor is not None:
+            payload["amount_minor"] = amount_minor
+        elif amount is not None:
+            payload["amount"] = amount
+        return self._request_with_identity("/api/create_cash_transaction", payload, actor_name=actor_name)
+
     def update_board_settings(self, *, board_scale: float, actor_name: str | None = None) -> dict:
         payload: dict[str, object] = {"board_scale": board_scale}
         return self._request_with_identity("/api/update_board_settings", payload, actor_name=actor_name)

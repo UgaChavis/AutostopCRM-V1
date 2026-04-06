@@ -10,6 +10,7 @@ import shutil
 import threading
 import uuid
 from logging import Logger
+from typing import Any
 
 from ..config import get_attachments_dir
 from ..demo_seed import build_demo_board
@@ -28,12 +29,17 @@ from ..models import (
     AuditEvent,
     Card,
     CardTag,
+    CashBox,
+    CashTransaction,
     Column,
     StickyNote,
+    format_money_minor,
     normalize_actor_name,
     normalize_bool,
+    normalize_cash_direction,
     normalize_file_name,
     normalize_int,
+    normalize_money_minor,
     normalize_source,
     normalize_tag_label,
     normalize_text,
@@ -352,6 +358,168 @@ class CardService:
 
     def review_board(self, payload: dict | None = None) -> dict:
         return self._snapshot_service.review_board(payload)
+
+    def list_cashboxes(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            limit = self._validated_limit(payload.get("limit"), default=200, maximum=1000)
+            bundle = self._store.read_bundle()
+            cashboxes = bundle["cashboxes"]
+            transactions = bundle["cash_transactions"]
+            return {
+                "cashboxes": [self._serialize_cashbox(cashbox, transactions) for cashbox in cashboxes[:limit]],
+                "meta": {
+                    "total": len(cashboxes),
+                    "transactions_total": len(transactions),
+                    "limit": limit,
+                },
+            }
+
+    def get_cashbox(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            transaction_limit = self._validated_limit(payload.get("transaction_limit"), default=300, maximum=5000)
+            bundle = self._store.read_bundle()
+            cashbox = self._find_cashbox(bundle["cashboxes"], payload.get("cashbox_id"))
+            transactions = self._cashbox_transactions(bundle["cash_transactions"], cashbox.id)
+            return {
+                "cashbox": self._serialize_cashbox(cashbox, bundle["cash_transactions"]),
+                "transactions": [self._serialize_cash_transaction(item) for item in transactions[:transaction_limit]],
+                "meta": {
+                    "transactions_total": len(transactions),
+                    "transaction_limit": transaction_limit,
+                },
+            }
+
+    def create_cashbox(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            cashboxes = bundle["cashboxes"]
+            transactions = bundle["cash_transactions"]
+            events = bundle["events"]
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            now_iso = utc_now_iso()
+            cashbox = CashBox(
+                id=str(uuid.uuid4()),
+                name=self._validated_cashbox_name(payload.get("name"), cashboxes),
+                created_at=now_iso,
+                updated_at=now_iso,
+            )
+            cashboxes.append(cashbox)
+            cashboxes.sort(key=lambda item: (item.name.casefold(), item.id))
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="cashbox_created",
+                message=f"{actor_name} создал кассу",
+                card_id=None,
+                details={"cashbox_id": cashbox.id, "cashbox_name": cashbox.name},
+            )
+            self._save_bundle(
+                bundle,
+                columns=bundle["columns"],
+                cards=bundle["cards"],
+                cashboxes=cashboxes,
+                cash_transactions=transactions,
+                events=events,
+            )
+            return {"cashbox": self._serialize_cashbox(cashbox, transactions)}
+
+    def delete_cashbox(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            cashboxes = bundle["cashboxes"]
+            transactions = bundle["cash_transactions"]
+            events = bundle["events"]
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
+            related_transactions = self._cashbox_transactions(transactions, cashbox.id)
+            statistics = self._cashbox_statistics(cashbox, transactions)
+            remaining_cashboxes = [item for item in cashboxes if item.id != cashbox.id]
+            remaining_transactions = [item for item in transactions if item.cashbox_id != cashbox.id]
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="cashbox_deleted",
+                message=f"{actor_name} удалил кассу",
+                card_id=None,
+                details={
+                    "cashbox_id": cashbox.id,
+                    "cashbox_name": cashbox.name,
+                    "transactions_total": len(related_transactions),
+                    "balance_minor": statistics["balance_minor"],
+                },
+            )
+            self._save_bundle(
+                bundle,
+                columns=bundle["columns"],
+                cards=bundle["cards"],
+                cashboxes=remaining_cashboxes,
+                cash_transactions=remaining_transactions,
+                events=events,
+            )
+            return {
+                "cashbox": self._serialize_cashbox(cashbox, transactions),
+                "meta": {
+                    "deleted": True,
+                    "removed_transactions": len(related_transactions),
+                },
+            }
+
+    def create_cash_transaction(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            cashboxes = bundle["cashboxes"]
+            transactions = bundle["cash_transactions"]
+            events = bundle["events"]
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
+            transaction = CashTransaction(
+                id=str(uuid.uuid4()),
+                cashbox_id=cashbox.id,
+                direction=normalize_cash_direction(payload.get("direction"), default="income"),
+                amount_minor=self._validated_cash_amount_minor(payload),
+                note=self._validated_cash_transaction_note(payload.get("note")),
+                created_at=utc_now_iso(),
+                actor_name=actor_name,
+                source=source,
+            )
+            transactions.append(transaction)
+            transactions.sort(key=lambda item: (item.created_at, item.id))
+            cashbox.updated_at = transaction.created_at
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="cash_transaction_created",
+                message=f"{actor_name} добавил движение по кассе",
+                card_id=None,
+                details={
+                    "cashbox_id": cashbox.id,
+                    "cashbox_name": cashbox.name,
+                    "direction": transaction.direction,
+                    "amount_minor": transaction.amount_minor,
+                    "amount_display": format_money_minor(transaction.amount_minor),
+                    "note": transaction.note,
+                },
+            )
+            self._save_bundle(
+                bundle,
+                columns=bundle["columns"],
+                cards=bundle["cards"],
+                cashboxes=cashboxes,
+                cash_transactions=transactions,
+                events=events,
+            )
+            return {
+                "cashbox": self._serialize_cashbox(cashbox, transactions),
+                "transaction": self._serialize_cash_transaction(transaction),
+            }
 
     def update_board_settings(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -1574,6 +1742,48 @@ class CardService:
     def _serialize_sticky(self, sticky: StickyNote) -> dict:
         return sticky.to_dict()
 
+    def _serialize_cash_transaction(self, transaction: CashTransaction) -> dict[str, object]:
+        return transaction.to_dict()
+
+    def _cashbox_transactions(
+        self,
+        transactions: list[CashTransaction],
+        cashbox_id: str,
+    ) -> list[CashTransaction]:
+        matched = [item for item in transactions if item.cashbox_id == cashbox_id]
+        matched.sort(key=lambda item: (item.created_at, item.id), reverse=True)
+        return matched
+
+    def _cashbox_statistics(
+        self,
+        cashbox: CashBox,
+        transactions: list[CashTransaction],
+    ) -> dict[str, object]:
+        related = self._cashbox_transactions(transactions, cashbox.id)
+        income_minor = sum(item.amount_minor for item in related if item.direction == "income")
+        expense_minor = sum(item.amount_minor for item in related if item.direction == "expense")
+        balance_minor = income_minor - expense_minor
+        return {
+            "transactions_total": len(related),
+            "income_total_minor": income_minor,
+            "income_total_display": format_money_minor(income_minor),
+            "expense_total_minor": expense_minor,
+            "expense_total_display": format_money_minor(expense_minor),
+            "balance_minor": balance_minor,
+            "balance_display": format_money_minor(balance_minor),
+            "balance_sign": "negative" if balance_minor < 0 else "positive",
+            "last_transaction_at": related[0].created_at if related else None,
+        }
+
+    def _serialize_cashbox(
+        self,
+        cashbox: CashBox,
+        transactions: list[CashTransaction],
+    ) -> dict[str, object]:
+        payload = cashbox.to_dict()
+        payload["statistics"] = self._cashbox_statistics(cashbox, transactions)
+        return payload
+
     def _column_labels(self, columns: list[Column]) -> dict[str, str]:
         return {column.id: column.label for column in columns}
 
@@ -2351,12 +2561,16 @@ class CardService:
         columns: list[Column],
         cards: list[Card],
         stickies: list[StickyNote] | None = None,
+        cashboxes: list[CashBox] | None = None,
+        cash_transactions: list[CashTransaction] | None = None,
         events: list[AuditEvent],
     ) -> None:
         written_bundle = self._store.write_bundle(
             columns=columns,
             cards=cards,
             stickies=bundle["stickies"] if stickies is None else stickies,
+            cashboxes=bundle["cashboxes"] if cashboxes is None else cashboxes,
+            cash_transactions=bundle["cash_transactions"] if cash_transactions is None else cash_transactions,
             events=events,
             settings=bundle["settings"],
         )
@@ -2460,6 +2674,16 @@ class CardService:
             if sticky.id == requested_id or short_entity_id(sticky.id, prefix="S").upper() == requested_short_id:
                 return sticky
         self._fail("not_found", "Стикер не найден.", status_code=404, details={"sticky_id": sticky_id})
+
+    def _find_cashbox(self, cashboxes: list[CashBox], cashbox_id: str | None) -> CashBox:
+        if not cashbox_id:
+            self._fail("validation_error", "Нужно передать cashbox_id.", details={"field": "cashbox_id"})
+        requested_id = str(cashbox_id).strip()
+        requested_short_id = requested_id.upper()
+        for cashbox in cashboxes:
+            if cashbox.id == requested_id or short_entity_id(cashbox.id, prefix="CB").upper() == requested_short_id:
+                return cashbox
+        self._fail("not_found", "Касса не найдена.", status_code=404, details={"cashbox_id": cashbox_id})
 
     def _find_attachment(self, card: Card, attachment_id: str | None) -> Attachment:
         if not attachment_id:
@@ -4291,6 +4515,39 @@ class CardService:
             f"Поле {field} должно иметь тип boolean.",
             details={"field": field},
         )
+
+    def _validated_cashbox_name(
+        self,
+        value,
+        cashboxes: list[CashBox],
+        *,
+        exclude_cashbox_id: str | None = None,
+    ) -> str:
+        name = normalize_text(value, default="", limit=80)
+        if not name:
+            self._fail("validation_error", "Нужно передать название кассы.", details={"field": "name"})
+        existing_names = {
+            item.name.casefold()
+            for item in cashboxes
+            if exclude_cashbox_id is None or item.id != exclude_cashbox_id
+        }
+        if name.casefold() in existing_names:
+            self._fail("validation_error", "Касса с таким названием уже существует.", details={"field": "name"})
+        return name
+
+    def _validated_cash_transaction_note(self, value) -> str:
+        return normalize_text(value, default="", limit=240)
+
+    def _validated_cash_amount_minor(self, payload: dict) -> int:
+        raw_value = payload.get("amount_minor")
+        if raw_value in (None, ""):
+            raw_value = payload.get("amount")
+        if raw_value in (None, ""):
+            self._fail("validation_error", "Нужно передать сумму операции.", details={"field": "amount"})
+        amount_minor = normalize_money_minor(raw_value, minimum=1)
+        if amount_minor < 1:
+            self._fail("validation_error", "Сумма операции должна быть больше нуля.", details={"field": "amount"})
+        return amount_minor
 
     def _fail(
         self,
