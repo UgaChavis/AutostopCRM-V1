@@ -229,7 +229,11 @@ def normalize_file_name(value) -> str:
         return ""
     safe_name = PurePath(raw_name).name
     safe_name = safe_name.replace("\x00", "")
-    return safe_name[:ATTACHMENT_FILE_NAME_LIMIT]
+    safe_name = re.sub(r'[<>:"/\\\\|?*]+', "_", safe_name)
+    safe_name = re.sub(r"\s+", " ", safe_name).strip(" .")
+    if not safe_name:
+        return ""
+    return safe_name[:ATTACHMENT_FILE_NAME_LIMIT].rstrip(" .")
 
 
 def indicator_from_status(status: Status) -> Indicator:

@@ -57,6 +57,7 @@ from ..vehicle_profile import (
     VehicleProfile,
     normalize_vehicle_field_names,
 )
+from ..printing.service import PrintModuleError, PrintModuleService
 from .column_service import ColumnService
 from .snapshot_service import SnapshotService
 from .vehicle_profile_service import VehicleProfileService
@@ -205,6 +206,7 @@ class CardService:
         self._repair_orders_dir = repair_orders_dir or (self._store.base_dir / "repair-orders")
         self._repair_orders_dir.mkdir(parents=True, exist_ok=True)
         self._vehicle_profiles = VehicleProfileService()
+        self._print_module = PrintModuleService(self._store.base_dir)
         self._column_service = ColumnService(
             store,
             logger,
@@ -701,6 +703,151 @@ class CardService:
                     "updated_at": card.updated_at or card.created_at,
                 },
             }
+
+    def get_repair_order_print_workspace(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            card = self._find_card(bundle["cards"], payload.get("card_id"))
+            preview_card = self._print_module_card(card, payload)
+            try:
+                return self._print_module.workspace(preview_card, repair_order=preview_card.repair_order)
+            except PrintModuleError as exc:
+                self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+
+    def preview_repair_order_print_documents(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            card = self._find_card(bundle["cards"], payload.get("card_id"))
+            preview_card = self._print_module_card(card, payload)
+            try:
+                return self._print_module.preview_documents(
+                    preview_card,
+                    repair_order=preview_card.repair_order,
+                    selected_document_ids=payload.get("selected_document_ids"),
+                    active_document_id=str(payload.get("active_document_id", "") or ""),
+                    selected_template_ids=payload.get("selected_template_ids") if isinstance(payload.get("selected_template_ids"), dict) else {},
+                    template_overrides=payload.get("template_overrides") if isinstance(payload.get("template_overrides"), dict) else {},
+                    print_settings=payload.get("print_settings") if isinstance(payload.get("print_settings"), dict) else {},
+                )
+            except PrintModuleError as exc:
+                self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+
+    def export_repair_order_print_pdf(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            card = self._find_card(bundle["cards"], payload.get("card_id"))
+            preview_card = self._print_module_card(card, payload)
+            try:
+                pdf_bytes, file_name, meta = self._print_module.export_documents_pdf(
+                    preview_card,
+                    repair_order=preview_card.repair_order,
+                    selected_document_ids=payload.get("selected_document_ids"),
+                    selected_template_ids=payload.get("selected_template_ids") if isinstance(payload.get("selected_template_ids"), dict) else {},
+                    template_overrides=payload.get("template_overrides") if isinstance(payload.get("template_overrides"), dict) else {},
+                    print_settings=payload.get("print_settings") if isinstance(payload.get("print_settings"), dict) else {},
+                )
+                return {
+                    "file_name": file_name,
+                    "content_base64": base64.b64encode(pdf_bytes).decode("ascii"),
+                    "size_bytes": len(pdf_bytes),
+                    "meta": meta,
+                }
+            except PrintModuleError as exc:
+                self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+
+    def print_repair_order_documents(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            card = self._find_card(bundle["cards"], payload.get("card_id"))
+            preview_card = self._print_module_card(card, payload)
+            try:
+                result = self._print_module.print_documents(
+                    preview_card,
+                    repair_order=preview_card.repair_order,
+                    selected_document_ids=payload.get("selected_document_ids"),
+                    selected_template_ids=payload.get("selected_template_ids") if isinstance(payload.get("selected_template_ids"), dict) else {},
+                    template_overrides=payload.get("template_overrides") if isinstance(payload.get("template_overrides"), dict) else {},
+                    print_settings=payload.get("print_settings") if isinstance(payload.get("print_settings"), dict) else {},
+                    printer_name=str(payload.get("printer_name", "") or ""),
+                )
+                return {
+                    **result,
+                    "card_id": preview_card.id,
+                }
+            except PrintModuleError as exc:
+                self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+
+    def save_print_template(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            try:
+                return self._print_module.save_template(
+                    document_type=str(payload.get("document_type", "") or ""),
+                    name=str(payload.get("name", "") or ""),
+                    content=str(payload.get("content", "") or ""),
+                    template_id=str(payload.get("template_id", "") or ""),
+                )
+            except PrintModuleError as exc:
+                self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+
+    def duplicate_print_template(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            try:
+                return self._print_module.duplicate_template(
+                    template_id=str(payload.get("template_id", "") or ""),
+                    name=str(payload.get("name", "") or ""),
+                )
+            except PrintModuleError as exc:
+                self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+
+    def delete_print_template(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            try:
+                return self._print_module.delete_template(template_id=str(payload.get("template_id", "") or ""))
+            except PrintModuleError as exc:
+                self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+
+    def set_default_print_template(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            try:
+                return self._print_module.set_default_template(
+                    document_type=str(payload.get("document_type", "") or ""),
+                    template_id=str(payload.get("template_id", "") or ""),
+                )
+            except PrintModuleError as exc:
+                self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+
+    def save_print_module_settings(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            try:
+                settings_payload = payload.get("print_settings") if isinstance(payload.get("print_settings"), dict) else payload
+                return self._print_module.save_settings(settings_payload if isinstance(settings_payload, dict) else {})
+            except PrintModuleError as exc:
+                self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+
+    def _print_module_card(self, card: Card, payload: dict | None = None) -> Card:
+        payload = payload or {}
+        repair_order_payload = payload.get("repair_order")
+        if not isinstance(repair_order_payload, dict):
+            return Card.from_dict(card.to_storage_dict())
+        base_storage = card.repair_order.to_storage_dict()
+        override_storage = RepairOrder.from_dict(repair_order_payload).to_storage_dict()
+        merged_storage = {**base_storage, **override_storage}
+        cloned_card = Card.from_dict(
+            {
+                **card.to_storage_dict(),
+                "repair_order": merged_storage,
+            }
+        )
+        return cloned_card
 
     def autofill_vehicle_data(self, payload: dict | None = None) -> dict:
         with self._lock:

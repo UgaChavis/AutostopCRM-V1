@@ -17,6 +17,7 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $pythonExe = Join-Path $projectRoot ".venv\Scripts\python.exe"
 $releaseRoot = Join-Path $projectRoot "release"
 $stagingRoot = Join-Path $projectRoot "release.staging"
+$releaseParent = Split-Path -Parent $releaseRoot
 $portableExeName = "Start Kanban.exe"
 $portableExeSource = Join-Path $stagingRoot "MinimalKanban.exe"
 $portableExeTarget = Join-Path $stagingRoot $portableExeName
@@ -83,4 +84,5 @@ if (Test-Path $releaseRoot) {
     }
 }
 
-Move-Item -Path $stagingRoot -Destination $releaseRoot
+Move-Item -Path $stagingRoot -Destination $releaseParent
+Rename-Item -Path (Join-Path $releaseParent (Split-Path -Leaf $stagingRoot)) -NewName (Split-Path -Leaf $releaseRoot)

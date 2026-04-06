@@ -1,3 +1,9 @@
+from .printing.web_module import (
+    PRINTING_WEB_MODULE_HTML,
+    PRINTING_WEB_MODULE_SCRIPT,
+    PRINTING_WEB_MODULE_STYLE,
+)
+
 BOARD_WEB_APP_HTML = "".join(
     [
         """<!doctype html>
@@ -2222,6 +2228,9 @@ BOARD_WEB_APP_HTML = "".join(
         opacity: 0.24;
       }
     }
+""",
+        PRINTING_WEB_MODULE_STYLE,
+        """
   </style>
 </head>
 <body>
@@ -2731,6 +2740,9 @@ BOARD_WEB_APP_HTML = "".join(
     </div>
   </div>
 
+""",
+        PRINTING_WEB_MODULE_HTML,
+        """
   <script>
     // Legacy actor localStorage flow removed in favor of operator sessions.
     const OPERATOR_SESSION_STORAGE_KEY = 'kanban-operator-session';
@@ -6477,6 +6489,9 @@ function renderCompactArchiveRows(cards) {
       return saveRepairOrder(true);
     }
 
+""",
+        PRINTING_WEB_MODULE_SCRIPT,
+        """
     function openFilePickerFromDropzone() {
       if (!requireSavedCardForFiles()) return;
       els.fileInput.click();

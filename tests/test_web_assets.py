@@ -470,6 +470,28 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("data?.meta?.autofill_report", BOARD_WEB_APP_HTML)
         self.assertIn("цены из истории", BOARD_WEB_APP_HTML)
 
+    def test_repair_order_print_module_exposes_preview_template_editor_and_routes(self) -> None:
+        self.assertIn('id="repairOrderPrintModal"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="repairOrderPrintDocuments"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="repairOrderPrintPreviewFrame"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="repairOrderPrintTemplateSelect"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="repairOrderPrintPrinterSelect"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="printProfileOgrn"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="printTemplateEditorModal"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="printTemplateContent"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="printTemplatePreviewFrame"', BOARD_WEB_APP_HTML)
+        self.assertIn("async function openRepairOrderPrintWorkspace()", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleRepairOrderPrintDocumentsChange(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("function syncRepairOrderPrintPrinterState()", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/get_repair_order_print_workspace'", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/preview_repair_order_print_documents'", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/export_repair_order_print_pdf'", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/print_repair_order_documents'", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/save_print_template'", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/set_default_print_template'", BOARD_WEB_APP_HTML)
+        self.assertIn("printRepairOrderDraft = function() { return openRepairOrderPrintWorkspace(); };", BOARD_WEB_APP_HTML)
+        self.assertIn("printEls.documents.addEventListener('change', handleRepairOrderPrintDocumentsChange);", BOARD_WEB_APP_HTML)
+
     def test_topbar_repair_orders_list_uses_compact_row_open_flow(self) -> None:
         self.assertIn('id="repairOrdersButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrdersModal"', BOARD_WEB_APP_HTML)

@@ -1063,6 +1063,37 @@ class CardServiceTests(unittest.TestCase):
         self.assertFalse(first_path.exists())
         self.assertTrue(second_path.exists())
 
+    def test_repair_order_text_file_name_sanitizes_windows_unsafe_characters(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "BMW X5",
+                "title": "Диагностика: ограничение мощности / DSC?",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+
+        updated = self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Иван",
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000", "total": ""}],
+                },
+            }
+        )
+
+        path, file_name = self.service.get_repair_order_text_download(card_id)
+
+        self.assertTrue(path.exists())
+        self.assertEqual(path.name, file_name)
+        self.assertNotIn(":", file_name)
+        self.assertNotIn("?", file_name)
+        self.assertNotIn("/", file_name)
+        self.assertTrue(file_name.endswith(".txt"))
+        self.assertIn("__", file_name)
+        self.assertEqual(updated["card"]["repair_order"]["number"], "1")
+
     def test_list_repair_orders_separates_open_and_closed_orders(self) -> None:
         first = self.service.create_card({"vehicle": "KIA RIO", "title": "Open order", "deadline": {"hours": 2}})
         second = self.service.create_card({"vehicle": "LADA VESTA", "title": "Closed order", "deadline": {"hours": 2}})

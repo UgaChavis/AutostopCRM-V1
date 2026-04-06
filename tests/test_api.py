@@ -799,6 +799,97 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(text_payload["data"]["card_id"], card_id)
         self.assertIn("Итого к оплате: 2000", text_payload["data"]["text"])
 
+    def test_repair_order_print_module_routes_preview_export_and_template_crud(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {
+                "vehicle": "Toyota Camry XV70",
+                "title": "Print module API",
+                "deadline": {"hours": 4},
+            },
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        status, _ = self.request(
+            "/api/update_repair_order",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Иван Иванов",
+                    "phone": "+7 900 123-45-67",
+                    "vehicle": "Toyota Camry XV70",
+                    "vin": "JTNB11HK103456789",
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "2500", "total": ""}],
+                    "materials": [{"name": "ATF", "quantity": "6", "price": "950", "total": ""}],
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+
+        status, workspace = self.request("/api/get_repair_order_print_workspace", {"card_id": card_id})
+        self.assertEqual(status, 200)
+        self.assertEqual(workspace["data"]["documents"][0]["id"], "repair_order")
+        self.assertIn("repair_order", workspace["data"]["templates"])
+
+        status, preview = self.request(
+            "/api/preview_repair_order_print_documents",
+            {
+                "card_id": card_id,
+                "selected_document_ids": ["repair_order"],
+                "active_document_id": "repair_order",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(preview["data"]["documents"][0]["id"], "repair_order")
+        self.assertIn("Заказ-наряд", preview["data"]["documents"][0]["pages"][0]["html"])
+
+        status, saved_template = self.request(
+            "/api/save_print_template",
+            {
+                "document_type": "repair_order",
+                "name": "API template",
+                "content": "<div class=\"document-page\"><h1>{{client.name_display}}</h1></div>",
+            },
+        )
+        self.assertEqual(status, 200)
+        template_id = saved_template["data"]["template"]["id"]
+        self.assertTrue(template_id.startswith("custom:repair_order:"))
+
+        status, defaulted = self.request(
+            "/api/set_default_print_template",
+            {"document_type": "repair_order", "template_id": template_id},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(any(item["is_default"] for item in defaulted["data"]["templates"]))
+
+        with patch("minimal_kanban.printing.service.render_html_to_pdf_bytes", return_value=b"%PDF-1.4 route-test"):
+            status, exported = self.request(
+                "/api/export_repair_order_print_pdf",
+                {
+                    "card_id": card_id,
+                    "selected_document_ids": ["repair_order", "invoice"],
+                },
+            )
+        self.assertEqual(status, 200)
+        self.assertTrue(base64.b64decode(exported["data"]["content_base64"]).startswith(b"%PDF-1.4"))
+        self.assertEqual(exported["data"]["meta"]["documents"][0]["id"], "repair_order")
+
+        with patch("minimal_kanban.printing.service.print_html") as print_backend:
+            status, printed = self.request(
+                "/api/print_repair_order_documents",
+                {
+                    "card_id": card_id,
+                    "selected_document_ids": ["repair_order"],
+                    "printer_name": "Office Printer",
+                    "print_settings": {"default_printer": "Office Printer", "copies": 2},
+                },
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(printed["data"]["printer_name"], "Office Printer")
+        self.assertEqual(printed["data"]["copies"], 2)
+        print_backend.assert_called_once()
+
     def test_autofill_repair_order_route_uses_card_and_vehicle_profile(self) -> None:
         status, created = self.request(
             "/api/create_card",
