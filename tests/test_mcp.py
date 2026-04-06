@@ -1055,6 +1055,37 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
             if runtime is not None:
                 runtime.stop()
 
+    async def test_mcp_sticky_deadline_total_seconds_and_short_id_delete_work(self) -> None:
+        async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
+            async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
+                created_sticky = await session.call_tool(
+                    "create_sticky",
+                    {
+                        "text": "Connector sticky total seconds",
+                        "x": 30,
+                        "y": 40,
+                        "deadline": {"total_seconds": 3600},
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(created_sticky.isError)
+                self.assertTrue(created_sticky.structuredContent["ok"])
+                sticky = created_sticky.structuredContent["data"]["sticky"]
+                self.assertTrue(sticky["short_id"].startswith("S-"))
+                self.assertGreater(sticky["remaining_seconds"], 0)
+
+                deleted_sticky = await session.call_tool(
+                    "delete_sticky",
+                    {"sticky_id": sticky["short_id"], "actor_name": "ОПЕРАТОР"},
+                )
+                self.assertFalse(deleted_sticky.isError)
+                self.assertTrue(deleted_sticky.structuredContent["ok"])
+                self.assertEqual(deleted_sticky.structuredContent["data"]["sticky_id"], sticky["id"])
+
+                snapshot = await session.call_tool("get_board_snapshot", {})
+                self.assertFalse(snapshot.isError)
+                self.assertFalse(any(item["id"] == sticky["id"] for item in snapshot.structuredContent["data"]["stickies"]))
+
 
 class BoardApiClientTests(unittest.TestCase):
     def test_compose_url_does_not_duplicate_api_segment(self) -> None:

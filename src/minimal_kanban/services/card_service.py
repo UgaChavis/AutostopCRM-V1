@@ -176,6 +176,7 @@ _REPAIR_QUANTITY_PATTERN = re.compile(
     r"(?<!\d)(\d+(?:[.,]\d+)?)\s*(?:шт|штуки|штук|л|литр(?:а|ов)?|l|компл(?:ект)?|уп(?:ак)?|pcs?)\b",
     re.IGNORECASE,
 )
+_MOJIBAKE_HINT_CHARS = frozenset("РСЃЌљњўќџ °±²ієїґ†‡‰‹›€")
 GPT_WALL_TEXT_LINE_LIMIT = 3000
 REPAIR_ORDER_SORT_FIELDS = {"number", "opened_at", "closed_at"}
 REPAIR_ORDER_SORT_DIRECTIONS = {"asc", "desc"}
@@ -1653,13 +1654,15 @@ class CardService:
         payloads: list[dict] = []
         for event in ordered_events:
             payload = event.to_dict()
+            payload["actor_name"] = self._repair_mojibake_text(payload.get("actor_name"))
+            payload["message"] = self._repair_mojibake_text(payload.get("message"))
             card = cards_by_id.get(event.card_id or "")
             if card is not None:
                 payload["card_short_id"] = short_entity_id(card.id, prefix="C")
                 payload["card_heading"] = card.heading()
                 payload["card_column"] = card.column
                 payload["card_column_label"] = column_labels.get(card.column, card.column)
-            payload["details_text"] = self._describe_wall_event_details(event, column_labels)
+            payload["details_text"] = self._repair_mojibake_text(self._describe_wall_event_details(event, column_labels))
             payloads.append(payload)
         return payloads
 
@@ -1687,7 +1690,38 @@ class CardService:
             return str(value)
         if "total_seconds" in key_lower:
             return str(value)
-        return " ".join(str(value).split())
+        return self._repair_mojibake_text(" ".join(str(value).split()))
+
+    def _repair_mojibake_text(self, value) -> str:
+        text = " ".join(str(value or "").split())
+        if not text:
+            return ""
+        if not self._looks_like_mojibake(text):
+            return text
+        try:
+            repaired = text.encode("cp1251").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            return text
+        repaired = " ".join(repaired.split())
+        return repaired if self._text_quality_score(repaired) > self._text_quality_score(text) else text
+
+    def _looks_like_mojibake(self, text: str) -> bool:
+        suspicious = self._mojibake_hint_score(text)
+        lowercase_cyrillic = self._lowercase_cyrillic_score(text)
+        return suspicious >= 3 and lowercase_cyrillic * 2 < suspicious
+
+    def _mojibake_hint_score(self, text: str) -> int:
+        return sum(1 for char in text if char in _MOJIBAKE_HINT_CHARS)
+
+    def _lowercase_cyrillic_score(self, text: str) -> int:
+        return sum(1 for char in text if ("а" <= char <= "я") or char == "ё")
+
+    def _text_quality_score(self, text: str) -> int:
+        lowercase_cyrillic = self._lowercase_cyrillic_score(text)
+        uppercase_cyrillic = sum(1 for char in text if ("А" <= char <= "Я") or char == "Ё")
+        ascii_letters = sum(1 for char in text if char.isascii() and char.isalpha())
+        suspicious = self._mojibake_hint_score(text)
+        return lowercase_cyrillic * 4 + uppercase_cyrillic * 2 + ascii_letters - suspicious * 3
 
     def _build_board_context_payload(
         self,
@@ -2372,8 +2406,10 @@ class CardService:
     def _find_sticky(self, stickies: list[StickyNote], sticky_id: str | None) -> StickyNote:
         if not sticky_id:
             self._fail("validation_error", "Нужно передать sticky_id.", details={"field": "sticky_id"})
+        requested_id = str(sticky_id).strip()
+        requested_short_id = requested_id.upper()
         for sticky in stickies:
-            if sticky.id == str(sticky_id):
+            if sticky.id == requested_id or short_entity_id(sticky.id, prefix="S").upper() == requested_short_id:
                 return sticky
         self._fail("not_found", "Стикер не найден.", status_code=404, details={"sticky_id": sticky_id})
 
@@ -3889,12 +3925,15 @@ class CardService:
         if not isinstance(value, dict):
             self._fail(
                 "validation_error",
-                "Поле deadline для стикера должно быть JSON-объектом с числами days и hours.",
+                "Поле deadline для стикера должно быть JSON-объектом с числами days, hours, minutes, seconds или total_seconds.",
                 details={"field": "deadline"},
             )
+        total_seconds_direct = self._validated_deadline_part(value, "total_seconds", maximum=31_536_000)
         days = self._validated_deadline_part(value, "days", maximum=365)
         hours = self._validated_deadline_part(value, "hours", maximum=23)
-        total_seconds = days * 24 * 3600 + hours * 3600
+        minutes = self._validated_deadline_part(value, "minutes", maximum=59)
+        seconds = self._validated_deadline_part(value, "seconds", maximum=59)
+        total_seconds = total_seconds_direct + days * 24 * 3600 + hours * 3600 + minutes * 60 + seconds
         if total_seconds <= 0:
             self._fail(
                 "validation_error",

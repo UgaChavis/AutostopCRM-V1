@@ -1905,6 +1905,37 @@ class CardServiceTests(unittest.TestCase):
         self.assertTrue(any(event.action == "sticky_text_changed" for event in events))
         self.assertTrue(any(event.action == "sticky_deleted" for event in events))
 
+    def test_sticky_notes_accept_total_seconds_and_short_id_lookup(self) -> None:
+        created = self.service.create_sticky(
+            {
+                "text": "Перезвонить клиенту",
+                "deadline": {"total_seconds": 3600},
+                "x": 10,
+                "y": 20,
+                "actor_name": "МАСТЕР",
+                "source": "api",
+            }
+        )
+        sticky_id = created["sticky"]["id"]
+        sticky_short_id = created["sticky"]["short_id"]
+        self.assertGreater(created["sticky"]["remaining_seconds"], 0)
+
+        updated = self.service.update_sticky(
+            {
+                "sticky_id": sticky_short_id,
+                "text": "Перезвонить клиенту после согласования",
+                "deadline": {"minutes": 45},
+                "actor_name": "МАСТЕР",
+                "source": "api",
+            }
+        )
+        self.assertEqual(updated["sticky"]["id"], sticky_id)
+        self.assertIn("после согласования", updated["sticky"]["text"])
+
+        deleted = self.service.delete_sticky({"sticky_id": sticky_short_id, "actor_name": "МАСТЕР", "source": "api"})
+        self.assertTrue(deleted["deleted"])
+        self.assertFalse(any(item["id"] == sticky_id for item in deleted["stickies"]))
+
 
     def test_gpt_wall_returns_full_context_layer(self) -> None:
         created = self.service.create_card(
@@ -1970,6 +2001,48 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("action:", event_text)
         self.assertIn("message:", event_text)
         self.assertIn(created["card"]["short_id"], event_text)
+
+    def test_gpt_wall_repairs_mojibake_event_text(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "TEST CAR",
+                "title": "ENCODING CHECK",
+                "description": "Проверка repair для event log",
+                "deadline": {"hours": 1},
+                "actor_name": "MASTER",
+                "source": "api",
+            }
+        )
+        card_id = created["card"]["id"]
+        broken_message = "CHATGPT_AUDIT удалил столбец".encode("utf-8").decode("cp1251")
+        broken_detail = "Диагностика".encode("utf-8").decode("cp1251")
+        bundle = self.store.read_bundle()
+        bundle["events"].append(
+            AuditEvent(
+                id="encoding-event",
+                timestamp=utc_now().isoformat(),
+                actor_name="CHATGPT_AUDIT",
+                source="mcp",
+                action="column_deleted",
+                message=broken_message,
+                details={"after": broken_detail},
+                card_id=card_id,
+            )
+        )
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            stickies=bundle["stickies"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        wall = self.service.get_gpt_wall({"include_archived": True, "event_limit": 20})
+        repaired_event = next(event for event in wall["events"] if event["id"] == "encoding-event")
+
+        self.assertEqual(repaired_event["message"], "CHATGPT_AUDIT удалил столбец")
+        self.assertIn("Диагностика", repaired_event["details_text"])
+        self.assertIn("CHATGPT_AUDIT удалил столбец", wall["sections"]["event_log"]["text"])
 
     def test_gpt_wall_includes_customer_contact_fields(self) -> None:
         self.service.create_card(

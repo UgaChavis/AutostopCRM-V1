@@ -24,6 +24,10 @@ class DeadlinePayload(BaseModel):
     seconds: int = Field(default=0, ge=0, le=59)
 
 
+class StickyDeadlinePayload(DeadlinePayload):
+    total_seconds: int = Field(default=0, ge=0, le=31_536_000)
+
+
 class TagPayload(BaseModel):
     label: str = Field(min_length=1, max_length=24)
     color: Literal["green", "yellow", "red"] = "green"
@@ -840,7 +844,7 @@ def create_mcp_server(
     )
     def create_sticky(
         text: str,
-        deadline: DeadlinePayload,
+        deadline: StickyDeadlinePayload,
         x: int = 0,
         y: int = 0,
         actor_name: str | None = None,
@@ -1331,7 +1335,7 @@ def create_mcp_server(
     def update_sticky(
         sticky_id: str,
         text: str | None = None,
-        deadline: DeadlinePayload | None = None,
+        deadline: StickyDeadlinePayload | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
