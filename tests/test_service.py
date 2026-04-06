@@ -517,6 +517,33 @@ class CardServiceTests(unittest.TestCase):
             archived_ids[-1:-4:-1],
         )
 
+    def test_board_snapshot_compact_mode_skips_heavy_card_payload_fields(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "LEXUS IS F",
+                "title": "Compact snapshot",
+                "description": "Board card preview",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {"client": "Ivan", "phone": "+79001234567"},
+            }
+        )
+
+        snapshot = self.service.get_board_snapshot({"compact": True})
+
+        self.assertTrue(snapshot["meta"]["compact_cards"])
+        compact_card = next(card for card in snapshot["cards"] if card["id"] == card_id)
+        self.assertIn("tag_items", compact_card)
+        self.assertIn("attachment_count", compact_card)
+        self.assertNotIn("repair_order", compact_card)
+        self.assertNotIn("vehicle_profile", compact_card)
+        self.assertNotIn("attachments", compact_card)
+
     def test_board_snapshot_skips_expensive_prep_when_there_are_no_cards(self) -> None:
         snapshot_service = self.service._snapshot_service
         snapshot_service._column_labels = Mock(wraps=snapshot_service._column_labels)

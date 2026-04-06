@@ -495,6 +495,22 @@ class ApiServerTests(unittest.TestCase):
             [first["data"]["card"]["id"], third["data"]["card"]["id"], second["data"]["card"]["id"]],
         )
 
+    def test_snapshot_compact_query_returns_board_friendly_cards(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"vehicle": "LEXUS IS F", "title": "Compact API snapshot", "deadline": {"hours": 2}},
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        status, snapshot = self.request("/api/get_board_snapshot?archive_limit=30&compact=1", method="GET")
+        self.assertEqual(status, 200)
+        self.assertTrue(snapshot["data"]["meta"]["compact_cards"])
+        compact_card = next(card for card in snapshot["data"]["cards"] if card["id"] == card_id)
+        self.assertNotIn("repair_order", compact_card)
+        self.assertNotIn("vehicle_profile", compact_card)
+        self.assertNotIn("attachments", compact_card)
+
     def test_repair_order_routes_list_and_open_text_file(self) -> None:
         status, created = self.request(
             "/api/create_card",

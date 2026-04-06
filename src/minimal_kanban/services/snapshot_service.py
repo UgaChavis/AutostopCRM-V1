@@ -81,6 +81,7 @@ class SnapshotService:
         column_labels: dict[str, str],
         event_counts: dict[str, int],
         viewer_username: str | None,
+        compact: bool = False,
     ) -> list[dict]:
         return [
             self._serialize_card(
@@ -89,6 +90,7 @@ class SnapshotService:
                 column_labels=column_labels,
                 event_counts=event_counts,
                 viewer_username=viewer_username,
+                compact=compact,
             )
             for card in cards
         ]
@@ -211,6 +213,7 @@ class SnapshotService:
         with self._lock:
             payload = payload or {}
             archive_limit = self._validated_limit(payload.get("archive_limit"), default=ARCHIVE_PREVIEW_LIMIT, maximum=50)
+            compact_cards = self._validated_optional_bool(payload, "compact", default=False)
             bundle = self._store.read_bundle()
             cards = self._visible_cards(bundle["cards"], include_archived=False)
             archive = self._archived_cards(bundle["cards"], limit=archive_limit)
@@ -229,6 +232,7 @@ class SnapshotService:
                     column_labels=column_labels,
                     event_counts=event_counts,
                     viewer_username=viewer_username,
+                    compact=compact_cards,
                 ),
                 "archive": self._serialize_cards_payload(
                     archive,
@@ -236,12 +240,14 @@ class SnapshotService:
                     column_labels=column_labels,
                     event_counts=event_counts,
                     viewer_username=viewer_username,
+                    compact=compact_cards,
                 ),
                 "stickies": [self._serialize_sticky(sticky) for sticky in stickies],
                 "settings": dict(bundle["settings"]),
                 "meta": {
                     "generated_at": utc_now_iso(),
                     "archive_limit": archive_limit,
+                    "compact_cards": compact_cards,
                     "stickies_total": len(stickies),
                 },
             }

@@ -677,6 +677,7 @@ class Card:
         events_count: int = 0,
         include_removed_attachments: bool = False,
         viewer_username: str | None = None,
+        compact: bool = False,
     ) -> dict:
         remaining = self.remaining_seconds(reference_time)
         status = self.status(reference_time)
@@ -685,15 +686,11 @@ class Card:
         deadline_progress_bucket = self.deadline_progress_bucket(reference_time)
         attachments = self.attachments if include_removed_attachments else self.active_attachments()
         vehicle_display = self.vehicle_display()
-        return {
+        payload = {
             "id": self.id,
             "short_id": short_entity_id(self.id, prefix="C"),
             "heading": self.heading(),
             "vehicle": vehicle_display,
-            "vehicle_raw": self.vehicle,
-            "vehicle_profile": self.vehicle_profile.to_dict(),
-            "vehicle_profile_compact": self.vehicle_profile.to_compact_dict(),
-            "repair_order": self.repair_order.to_dict(),
             "title": self.title,
             "description": self.description,
             "column": self.column,
@@ -719,12 +716,24 @@ class Card:
             "is_blinking": self.is_blinking(reference_time),
             "tags": self.tag_labels(),
             "tag_items": self.tag_items(),
-            "attachments": [attachment.to_dict() for attachment in attachments],
             "attachment_count": len(self.active_attachments()),
             "events_count": max(0, int(events_count)),
             "is_unread": self.is_unread,
             "has_unseen_update": self.has_unseen_update_for(viewer_username),
         }
+        if compact:
+            return payload
+
+        payload.update(
+            {
+                "vehicle_raw": self.vehicle,
+                "vehicle_profile": self.vehicle_profile.to_dict(),
+                "vehicle_profile_compact": self.vehicle_profile.to_compact_dict(),
+                "repair_order": self.repair_order.to_dict(),
+                "attachments": [attachment.to_dict() for attachment in attachments],
+            }
+        )
+        return payload
 
     def to_storage_dict(self) -> dict:
         return {

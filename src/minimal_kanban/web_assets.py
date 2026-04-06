@@ -3355,6 +3355,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function openArchiveModal() {
+      renderArchive();
       maybeOpenModal(els.archiveModal, true);
     }
 
@@ -5880,7 +5881,6 @@ function renderCompactArchiveRows(cards) {
         actions.insertBefore(button, actions.firstChild);
       });
       renderStickies();
-      renderArchive();
     }
 
     function setTab(name) {
@@ -5912,9 +5912,10 @@ function renderCompactArchiveRows(cards) {
 
       state.refreshInFlight = (async () => {
         try {
-          state.snapshot = await api('/api/get_board_snapshot?archive_limit=30');
+          state.snapshot = await api('/api/get_board_snapshot?archive_limit=30&compact=1');
           applyBoardScale(state.snapshot?.settings?.board_scale ?? state.boardScale ?? 1, { syncInput: true });
           renderBoard();
+          if (els.archiveModal.classList.contains('is-open')) renderArchive();
           primeBoardViewport();
           if (els.gptWallModal.classList.contains('is-open')) await loadGptWall(false);
           const data = state.snapshot;
@@ -5946,6 +5947,7 @@ function renderCompactArchiveRows(cards) {
       }
       if (state.activeCard?.id === nextCard.id) state.activeCard = nextCard;
       renderBoard();
+      if (els.archiveModal.classList.contains('is-open')) renderArchive();
     }
 
     function clearUnreadHoverTimer(cardId) {

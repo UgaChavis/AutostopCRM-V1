@@ -31,6 +31,7 @@ from ..models import (
     Column,
     StickyNote,
     normalize_actor_name,
+    normalize_bool,
     normalize_file_name,
     normalize_int,
     normalize_source,
@@ -1533,6 +1534,7 @@ class CardService:
         event_counts: dict[str, int] | None = None,
         include_removed_attachments: bool = False,
         viewer_username: str | None = None,
+        compact: bool = False,
     ) -> dict:
         if event_counts is None:
             events_count = sum(1 for event in events if event.card_id == card.id)
@@ -1542,6 +1544,7 @@ class CardService:
             events_count=events_count,
             include_removed_attachments=include_removed_attachments,
             viewer_username=viewer_username,
+            compact=compact,
         )
         payload["column_label"] = (column_labels or {}).get(card.column, card.column)
         return payload
@@ -4234,8 +4237,10 @@ class CardService:
         if field not in payload:
             return default
         value = payload.get(field)
-        if isinstance(value, bool):
-            return value
+        if isinstance(value, (bool, int, str)):
+            normalized = normalize_bool(value, default=None)
+            if normalized is not None:
+                return normalized
         self._fail(
             "validation_error",
             f"Поле {field} должно иметь тип boolean.",
