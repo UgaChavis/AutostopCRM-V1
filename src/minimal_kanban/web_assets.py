@@ -1387,8 +1387,8 @@ BOARD_WEB_APP_HTML = "".join(
       letter-spacing: 0.03em;
     }
     .dialog--repair-order {
-      width: min(1380px, calc(100% - 18px));
-      max-height: min(94vh, 980px);
+      width: min(1360px, calc(100% - 18px));
+      max-height: min(94vh, 960px);
       padding: 0;
       gap: 0;
       overflow: hidden;
@@ -1405,8 +1405,8 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .repair-order-shell {
       display: grid;
-      gap: 12px;
-      padding: 14px 16px 16px;
+      gap: 10px;
+      padding: 12px 14px 14px;
       overflow: auto;
       min-height: 0;
       align-content: start;
@@ -1420,15 +1420,15 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .repair-order-groups {
       display: grid;
-      grid-template-columns: minmax(236px, 0.82fr) minmax(332px, 1.04fr) minmax(544px, 1.72fr);
-      gap: 12px;
+      grid-template-columns: minmax(224px, 0.78fr) minmax(316px, 1fr) minmax(520px, 1.82fr);
+      gap: 10px;
       align-items: start;
     }
     .repair-order-card,
     .repair-order-table-card {
       display: grid;
-      gap: 9px;
-      padding: 11px;
+      gap: 8px;
+      padding: 10px;
       border: 1px solid rgba(116, 126, 106, 0.18);
       background:
         linear-gradient(180deg, rgba(255,255,255,0.02), transparent 24%),
@@ -1485,11 +1485,11 @@ BOARD_WEB_APP_HTML = "".join(
       white-space: nowrap;
     }
     .repair-order-client-info textarea {
-      min-height: 156px;
-      height: 156px;
-      max-height: 228px;
-      line-height: 1.48;
-      padding: 10px 12px;
+      min-height: 138px;
+      height: 138px;
+      max-height: 196px;
+      line-height: 1.46;
+      padding: 9px 11px;
       font-size: 13px;
     }
     .repair-order-status {
@@ -1618,7 +1618,7 @@ BOARD_WEB_APP_HTML = "".join(
       font-variant-numeric: tabular-nums;
     }
     .repair-order-footer {
-      padding: 12px 16px 14px;
+      padding: 10px 14px 12px;
       margin: 0;
       border-top: 1px solid rgba(115, 126, 105, 0.18);
       background:
@@ -1627,14 +1627,14 @@ BOARD_WEB_APP_HTML = "".join(
       display: flex;
       justify-content: space-between;
       align-items: flex-end;
-      gap: 16px;
+      gap: 14px;
     }
     .repair-order-footer__totals {
       display: grid;
       grid-auto-flow: column;
-      grid-auto-columns: minmax(136px, max-content);
+      grid-auto-columns: minmax(124px, max-content);
       align-items: end;
-      gap: 14px;
+      gap: 12px;
       flex: 1 1 auto;
       min-width: 0;
     }
@@ -1655,17 +1655,17 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .repair-order-total strong {
       color: var(--text);
-      font-size: 18px;
+      font-size: 17px;
       font-variant-numeric: tabular-nums;
       line-height: 1.1;
     }
     .repair-order-total--grand {
-      padding: 9px 12px;
+      padding: 8px 11px;
       border: 1px solid rgba(140, 151, 109, 0.34);
       background: rgba(140, 151, 109, 0.12);
     }
     .repair-order-total--grand strong {
-      font-size: 28px;
+      font-size: 26px;
       color: #f7f4e6;
     }
     .repair-order-footer__actions {
@@ -1677,7 +1677,7 @@ BOARD_WEB_APP_HTML = "".join(
       flex: 0 0 auto;
     }
     .repair-order-footer__actions .btn {
-      min-width: 118px;
+      min-width: 110px;
     }
     .repair-order-hidden-fields {
       display: none !important;
@@ -1693,69 +1693,138 @@ BOARD_WEB_APP_HTML = "".join(
       font-weight: 700;
       line-height: 1;
     }
+    .dialog--repair-order-payments {
+      width: min(820px, calc(100% - 22px));
+      max-height: min(82vh, 760px);
+      padding: 0;
+      gap: 0;
+      overflow: hidden;
+    }
+    .dialog--repair-order-payments .dialog__head {
+      padding: 14px 16px 10px;
+      margin: 0;
+      border-bottom: 1px solid rgba(115, 126, 105, 0.18);
+      background: rgba(0, 0, 0, 0.08);
+    }
     .repair-order-payments-layout {
       display: grid;
-      gap: 14px;
-      min-height: 320px;
+      gap: 12px;
+      min-height: 0;
+      padding: 14px 16px 16px;
+      overflow: auto;
     }
     .repair-order-payments-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
+      display: grid;
+      gap: 8px;
     }
     .repair-order-payments-summary {
+      display: grid;
+      gap: 8px;
+    }
+    .repair-order-payments-stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .repair-order-payments-stat {
+      display: grid;
+      gap: 3px;
+      padding: 9px 10px;
+      border: 1px solid rgba(116, 126, 106, 0.18);
+      background: rgba(0, 0, 0, 0.08);
+    }
+    .repair-order-payments-stat span {
+      color: var(--text-soft);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .repair-order-payments-stat strong {
+      color: var(--text);
+      font-size: 18px;
+      line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    .repair-order-payments-subline {
       color: var(--muted);
       font-size: 12px;
-      line-height: 1.45;
+      line-height: 1.4;
     }
     .repair-order-payments-form {
       display: grid;
-      grid-template-columns: minmax(140px, 180px) minmax(160px, 220px) minmax(140px, 180px) minmax(0, 1fr) auto;
-      gap: 10px;
+      grid-template-columns: minmax(140px, 156px) minmax(180px, 220px) minmax(140px, 156px) auto;
+      gap: 8px 10px;
       align-items: end;
+      padding: 10px 12px;
+      border: 1px solid rgba(116, 126, 106, 0.18);
+      background: rgba(0, 0, 0, 0.08);
+    }
+    .repair-order-payments-form__note {
+      grid-column: 1 / -1;
+    }
+    .repair-order-payments-form .field--compact input[type="text"],
+    .repair-order-payments-form .field--compact select {
+      min-height: 34px;
+      padding: 6px 8px;
+    }
+    .repair-order-payments-form .btn {
+      min-width: 118px;
+      min-height: 34px;
     }
     .repair-order-payments-list {
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      max-height: 360px;
+      gap: 6px;
+      max-height: 340px;
       overflow: auto;
-      padding-right: 4px;
+      padding: 4px 2px 0 0;
     }
     .repair-order-payment-row {
       display: grid;
-      grid-template-columns: auto minmax(0, 1.1fr) minmax(0, 1fr) auto auto;
+      grid-template-columns: auto minmax(0, 1fr) auto auto;
       gap: 10px;
-      align-items: start;
-      padding: 10px 12px;
+      align-items: center;
+      padding: 8px 10px;
       border: 1px solid var(--line-soft);
       background: rgba(255,255,255,0.02);
     }
     .repair-order-payment-row__badge {
-      min-width: 78px;
-      padding: 5px 8px;
+      min-width: 74px;
+      padding: 4px 7px;
       border: 1px solid rgba(140, 151, 109, 0.28);
       text-align: center;
       color: var(--text-soft);
       font-family: var(--mono);
-      font-size: 11px;
+      font-size: 10px;
       letter-spacing: 0.08em;
       text-transform: uppercase;
+    }
+    .repair-order-payment-row__body {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+    .repair-order-payment-row__line {
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.4;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .repair-order-payment-row__subline {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+      white-space: normal;
+      word-break: break-word;
     }
     .repair-order-payment-row__amount {
       font-size: 16px;
       font-weight: 700;
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
-    }
-    .repair-order-payment-row__meta {
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
-      white-space: pre-wrap;
-      word-break: break-word;
     }
     .repair-order-payment-row__remove {
       min-width: 34px !important;
@@ -2368,9 +2437,12 @@ BOARD_WEB_APP_HTML = "".join(
       .repair-order-footer { align-items: stretch; }
       .repair-order-footer__actions { width: 100%; }
       .repair-order-footer__actions .btn { flex: 1 1 0; min-width: 0; }
+      .repair-order-payments-stats { grid-template-columns: 1fr; }
       .repair-order-payments-form { grid-template-columns: 1fr; }
+      .repair-order-payments-form__note { grid-column: auto; }
       .cashbox-form-grid { grid-template-columns: 1fr; }
-      .repair-order-payment-row { grid-template-columns: 1fr; }
+      .repair-order-payment-row { grid-template-columns: 1fr auto; align-items: start; }
+      .repair-order-payment-row__badge { grid-column: 1 / -1; justify-self: start; }
       .repair-order-payment-row__remove { width: 100%; }
       .cashboxes-layout { grid-template-columns: 1fr; }
       .cashboxes-create-row { grid-template-columns: 1fr; }
@@ -3313,7 +3385,7 @@ BOARD_WEB_APP_HTML = "".join(
         document.body.insertAdjacentHTML(
           'beforeend',
           '<div class="modal" id="repairOrderPaymentsModal">'
-            + '<div class="dialog" style="width:min(760px,100%)">'
+            + '<div class="dialog dialog--repair-order-payments">'
             + '<div class="dialog__head">'
             + '<div class="dialog__title">Оплаты по заказ-наряду</div>'
             + '<button class="btn" data-close="repair-order-payments">Закрыть</button>'
@@ -3324,8 +3396,8 @@ BOARD_WEB_APP_HTML = "".join(
             + '<div class="field field--compact"><label for="repairOrderPaymentsMethod">Форма оплаты</label><select id="repairOrderPaymentsMethod"><option value="cash">Наличный</option><option value="cashless">Безналичный</option></select></div>'
             + '<div class="field field--compact"><label for="repairOrderPaymentCashbox">Касса</label><select id="repairOrderPaymentCashbox"><option value="">Выберите кассу</option></select></div>'
             + '<div class="field field--compact"><label for="repairOrderPaymentAmount">Сумма</label><input id="repairOrderPaymentAmount" type="text" inputmode="decimal" maxlength="24" placeholder="1000 или 1000,50"></div>'
-            + '<div class="field field--compact"><label for="repairOrderPaymentNote">Комментарий</label><input id="repairOrderPaymentNote" type="text" maxlength="240" placeholder="Предоплата / оплата по работам"></div>'
             + '<button class="btn btn--accent" id="repairOrderPaymentAddButton" type="button">+ Оплата</button>'
+            + '<div class="field field--compact repair-order-payments-form__note"><label for="repairOrderPaymentNote">Комментарий</label><input id="repairOrderPaymentNote" type="text" maxlength="240" placeholder="Предоплата / оплата по работам"></div>'
             + '</div>'
             + '<div class="repair-order-payments-list" id="repairOrderPaymentsList"></div>'
             + '</div>'
@@ -5355,14 +5427,24 @@ BOARD_WEB_APP_HTML = "".join(
     function renderRepairOrderPayments() {
       const payments = Array.isArray(state.repairOrderPayments) ? state.repairOrderPayments : [];
       const total = repairOrderPaymentsTotalValue(payments);
+      const subtotal = repairOrderRoundMoney(repairOrderRowsTotalValue(state.repairOrderWorks) + repairOrderRowsTotalValue(state.repairOrderMaterials));
+      const taxes = repairOrderRoundMoney(subtotal * repairOrderTaxRate(els.repairOrderPaymentMethod?.value || 'cash'));
+      const due = repairOrderRoundMoney(subtotal + taxes - total);
       if (els.repairOrderPaymentsMeta) {
-        const due = repairOrderRoundMoney(repairOrderRowsTotalValue(state.repairOrderWorks) + repairOrderRowsTotalValue(state.repairOrderMaterials) + repairOrderRoundMoney((repairOrderRowsTotalValue(state.repairOrderWorks) + repairOrderRowsTotalValue(state.repairOrderMaterials)) * repairOrderTaxRate(els.repairOrderPaymentMethod?.value || 'cash')) - total);
-        els.repairOrderPaymentsMeta.textContent = payments.length
-          ? ('Оплат: ' + payments.length + ' | Внесено: ' + repairOrderFormatMoney(total) + ' | К доплате: ' + repairOrderFormatMoney(due))
-          : 'Пока нет оплат.';
+        const latestPayment = payments.length ? payments[payments.length - 1] : null;
+        const latestText = latestPayment
+          ? ('Последняя оплата: ' + (String(latestPayment?.paid_at || '').trim() || 'дата не указана') + ' | Кем: ' + (String(latestPayment?.actor_name || '').trim() || 'оператор не указан') + ' | Касса: ' + (String(latestPayment?.cashbox_name || '').trim() || 'касса не указана'))
+          : 'Пока нет оплат. Добавьте первое поступление в выбранную кассу.';
+        els.repairOrderPaymentsMeta.innerHTML =
+          '<div class="repair-order-payments-stats">'
+            + '<div class="repair-order-payments-stat"><span>Оплат</span><strong>' + escapeHtml(String(payments.length)) + '</strong></div>'
+            + '<div class="repair-order-payments-stat"><span>Внесено</span><strong>' + escapeHtml(repairOrderFormatMoney(total)) + '</strong></div>'
+            + '<div class="repair-order-payments-stat"><span>К доплате</span><strong>' + escapeHtml(repairOrderFormatMoney(due)) + '</strong></div>'
+          + '</div>'
+          + '<div class="repair-order-payments-subline">' + escapeHtml(latestText) + '</div>';
       }
       if (els.repairOrderPaymentsList) {
-        els.repairOrderPaymentsList.innerHTML = payments.length ? payments.map((item) => {
+        els.repairOrderPaymentsList.innerHTML = payments.length ? payments.slice().reverse().map((item) => {
           const note = String(item?.note || '').trim() || 'Без комментария';
           const paidAt = String(item?.paid_at || '').trim() || 'Дата не указана';
           const method = repairOrderPaymentMethodLabel(item?.payment_method || 'cash');
@@ -5370,8 +5452,10 @@ BOARD_WEB_APP_HTML = "".join(
           const cashboxName = String(item?.cashbox_name || '').trim() || 'Касса не указана';
           return '<div class="repair-order-payment-row">'
             + '<div class="repair-order-payment-row__badge">' + escapeHtml(method) + '</div>'
-            + '<div class="repair-order-payment-row__meta">' + escapeHtml('Когда: ' + paidAt + '\\n' + note) + '</div>'
-            + '<div class="repair-order-payment-row__meta">' + escapeHtml('Кем: ' + actorName + '\\nКасса: ' + cashboxName) + '</div>'
+            + '<div class="repair-order-payment-row__body">'
+              + '<div class="repair-order-payment-row__line">' + escapeHtml(note) + '</div>'
+              + '<div class="repair-order-payment-row__subline">' + escapeHtml('Когда: ' + paidAt + ' | Кем: ' + actorName + ' | Касса: ' + cashboxName) + '</div>'
+            + '</div>'
             + '<div class="repair-order-payment-row__amount">' + escapeHtml(repairOrderFormatMoney(item?.amount || 0)) + '</div>'
             + '<button class="btn btn--ghost repair-order-payment-row__remove" type="button" data-remove-repair-order-payment="' + escapeHtml(item.id) + '">×</button>'
             + '</div>';
