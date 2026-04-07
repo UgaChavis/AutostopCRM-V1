@@ -111,8 +111,8 @@ class WebAssetsTests(unittest.TestCase):
     def test_card_description_textarea_allows_extended_text(self) -> None:
         self.assertIn('id="cardDescription" maxlength="20000"', BOARD_WEB_APP_HTML)
         self.assertIn(".field--description textarea {", BOARD_WEB_APP_HTML)
-        self.assertIn("min-height: 168px;", BOARD_WEB_APP_HTML)
-        self.assertIn("height: 168px;", BOARD_WEB_APP_HTML)
+        self.assertIn("min-height: 154px;", BOARD_WEB_APP_HTML)
+        self.assertIn("height: 154px;", BOARD_WEB_APP_HTML)
         self.assertIn("function syncCardDescriptionHeight()", BOARD_WEB_APP_HTML)
         self.assertIn("els.cardDescription.addEventListener('input', syncCardDescriptionHeight);", BOARD_WEB_APP_HTML)
         self.assertIn("requestAnimationFrame(() => syncCardDescriptionHeight());", BOARD_WEB_APP_HTML)
@@ -138,10 +138,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('class="dialog dialog--card"', BOARD_WEB_APP_HTML)
         self.assertIn(".dialog--card {", BOARD_WEB_APP_HTML)
         self.assertIn('class="dialog__head dialog__head--card"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="dialog__tabs dialog__tabs--card"', BOARD_WEB_APP_HTML)
         self.assertIn(".dialog__title--card {", BOARD_WEB_APP_HTML)
         self.assertIn("text-overflow: ellipsis;", BOARD_WEB_APP_HTML)
         self.assertIn("function limitCardModalHeading(value, maxLength = 92)", BOARD_WEB_APP_HTML)
-        self.assertIn("grid-template-columns: minmax(640px, 760px) minmax(286px, 338px);", BOARD_WEB_APP_HTML)
+        self.assertIn("grid-template-columns: minmax(620px, 734px) minmax(274px, 320px);", BOARD_WEB_APP_HTML)
         self.assertIn('class="subpanel vehicle-panel"', BOARD_WEB_APP_HTML)
         self.assertIn("z-index: 2;", BOARD_WEB_APP_HTML)
         self.assertIn("isolation: isolate;", BOARD_WEB_APP_HTML)
@@ -168,6 +169,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("els.cardButton.addEventListener('click', openDefaultNewCard);", BOARD_WEB_APP_HTML)
         self.assertIn("els.archiveAction.addEventListener('click', archiveActiveCard);", BOARD_WEB_APP_HTML)
         self.assertIn("els.restoreAction.addEventListener('click', restoreActiveCard);", BOARD_WEB_APP_HTML)
+        self.assertIn('class="dialog__foot dialog__foot--card"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="dialog__foot-group dialog__foot-group--danger"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="dialog__foot-group dialog__foot-group--main"', BOARD_WEB_APP_HTML)
 
     def test_vehicle_panel_exposes_only_minimal_profile_fields(self) -> None:
         self.assertIn('id="vehicleAutofillButton"', BOARD_WEB_APP_HTML)
@@ -214,7 +218,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".vehicle-group__grid { grid-template-columns: 1fr; }", BOARD_WEB_APP_HTML)
         self.assertIn(".vehicle-panel__fields { max-height: none; }", BOARD_WEB_APP_HTML)
         self.assertIn(".vehicle-panel::before { display: none; }", BOARD_WEB_APP_HTML)
-        self.assertIn(".dialog--card { width: min(1120px, 100%); }", BOARD_WEB_APP_HTML)
+        self.assertIn(".dialog--card { width: min(1080px, 100%); }", BOARD_WEB_APP_HTML)
 
     def test_vehicle_panel_uses_larger_readable_typography(self) -> None:
         self.assertIn(".vehicle-panel__summary {", BOARD_WEB_APP_HTML)

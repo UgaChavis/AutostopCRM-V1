@@ -713,9 +713,10 @@ BOARD_WEB_APP_HTML = "".join(
       gap: 14px;
     }
     .dialog--card {
-      width: min(1240px, calc(100% - 34px));
-      padding: 18px;
+      width: min(1200px, calc(100% - 28px));
+      padding: 16px;
       transform: none;
+      gap: 12px;
     }
     .dialog__head, .dialog__foot, .dialog__tabs {
       display: flex;
@@ -723,6 +724,22 @@ BOARD_WEB_APP_HTML = "".join(
       gap: 10px;
       align-items: center;
       flex-wrap: wrap;
+    }
+    .dialog__foot--card {
+      padding-top: 6px;
+      border-top: 1px solid rgba(115, 126, 105, 0.16);
+    }
+    .dialog__foot-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .dialog__foot-group--danger {
+      margin-right: auto;
+    }
+    .dialog__foot-group--main {
+      justify-content: flex-end;
     }
 """,
         r"""
@@ -736,20 +753,20 @@ BOARD_WEB_APP_HTML = "".join(
     .dialog__head--card {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
-      gap: 12px;
-      align-items: start;
+      gap: 10px;
+      align-items: center;
     }
     .dialog__title-wrap {
       min-width: 0;
       display: grid;
-      gap: 5px;
+      gap: 3px;
     }
     .dialog__title-prefix {
       font-family: var(--mono);
-      font-size: 11px;
+      font-size: 10px;
       text-transform: uppercase;
-      letter-spacing: 0.16em;
-      color: var(--text-soft);
+      letter-spacing: 0.12em;
+      color: rgba(200, 198, 187, 0.78);
     }
     .dialog__title--card {
       min-width: 0;
@@ -758,6 +775,8 @@ BOARD_WEB_APP_HTML = "".join(
       overflow: hidden;
       text-overflow: ellipsis;
       line-height: 1.2;
+      font-size: 16px;
+      letter-spacing: 0.08em;
     }
     .tab-btn {
       border: 1px solid var(--line-soft);
@@ -773,28 +792,40 @@ BOARD_WEB_APP_HTML = "".join(
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
     .overview-layout {
       display: grid;
-      grid-template-columns: minmax(640px, 760px) minmax(286px, 338px);
-      gap: 26px;
+      grid-template-columns: minmax(620px, 734px) minmax(274px, 320px);
+      gap: 18px;
       align-items: start;
       justify-content: center;
     }
     .overview-main {
       display: grid;
-      gap: 12px;
+      gap: 10px;
       min-width: 0;
-      max-width: 760px;
+      max-width: 734px;
       position: relative;
       z-index: 1;
     }
     .overview-main__meta {
       display: grid;
-      grid-template-columns: minmax(136px, 172px) minmax(0, 1fr);
-      gap: 8px;
+      grid-template-columns: minmax(150px, 168px) minmax(0, 1fr);
+      gap: 7px;
       align-items: start;
     }
+    .dialog__tabs--card {
+      align-items: flex-end;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(115, 126, 105, 0.16);
+    }
+    #cardMetaLine {
+      color: rgba(200, 198, 187, 0.76);
+      font-size: 11px;
+      line-height: 1.35;
+      letter-spacing: 0.03em;
+      text-align: right;
+    }
     .stack { display: grid; gap: 12px; }
-    .field { display: grid; gap: 6px; }
-    .grid--overview { grid-template-columns: minmax(170px, 0.64fr) minmax(0, 1fr); gap: 10px; }
+    .field { display: grid; gap: 5px; }
+    .grid--overview { grid-template-columns: minmax(188px, 0.7fr) minmax(0, 1fr); gap: 8px; }
     .field label {
       font-family: var(--mono);
       font-size: 12px;
@@ -844,11 +875,11 @@ BOARD_WEB_APP_HTML = "".join(
     input[type="number"] { text-align: center; }
     textarea { min-height: 192px; }
     .field--description textarea {
-      min-height: 168px;
-      height: 168px;
+      min-height: 154px;
+      height: 154px;
       max-height: clamp(440px, 56vh, 720px);
-      padding: 12px 13px;
-      line-height: 1.58;
+      padding: 10px 12px;
+      line-height: 1.54;
       resize: vertical;
       overflow-y: auto;
     }
@@ -860,23 +891,28 @@ BOARD_WEB_APP_HTML = "".join(
       color: var(--text-soft);
     }
     .signal-panel {
-      gap: 8px;
-      padding: 10px 10px 10px;
+      gap: 6px;
+      padding: 8px 8px 8px;
       align-content: start;
       min-width: 0;
+    }
+    .signal-panel .panel-title,
+    .tags-panel .panel-title {
+      font-size: 11px;
+      letter-spacing: 0.1em;
     }
     .signal-preview {
       border: 1px solid var(--line-soft);
       background:
         linear-gradient(180deg, rgba(255,255,255,0.03), transparent 38%),
         rgba(0,0,0,0.18);
-      min-height: 34px;
-      padding: 6px 10px;
+      min-height: 32px;
+      padding: 5px 8px;
       display: flex;
       align-items: center;
       justify-content: center;
       font-family: var(--mono);
-      font-size: 13px;
+      font-size: 12px;
       line-height: 1.15;
       letter-spacing: 0.06em;
       color: var(--text);
@@ -905,7 +941,7 @@ BOARD_WEB_APP_HTML = "".join(
       font-size: 11px;
     }
     .signal-grid--timer {
-      gap: 8px;
+      gap: 6px;
     }
     .signal-grid--timer > .signal-cell:not(.signal-cell--timer) {
       display: none;
@@ -924,7 +960,7 @@ BOARD_WEB_APP_HTML = "".join(
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       align-items: center;
-      min-height: 36px;
+      min-height: 34px;
       border: 1px solid var(--line-soft);
       background:
         linear-gradient(180deg, rgba(255,255,255,0.03), transparent 40%),
@@ -932,12 +968,12 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .signal-input__field {
       min-width: 0;
-      min-height: 34px;
+      min-height: 32px;
       border: 0;
       background: transparent;
-      padding: 0 10px;
+      padding: 0 8px;
       font-family: var(--mono);
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 700;
       color: var(--text);
       text-align: center;
@@ -1064,8 +1100,8 @@ BOARD_WEB_APP_HTML = "".join(
       cursor: pointer;
     }
     .tags-panel {
-      gap: 8px;
-      padding: 10px 10px 10px;
+      gap: 7px;
+      padding: 8px 9px 8px;
       align-content: start;
       min-width: 0;
     }
@@ -1100,10 +1136,10 @@ BOARD_WEB_APP_HTML = "".join(
     .tag-list {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
+      gap: 5px;
       align-content: flex-start;
-      min-height: 34px;
-      padding: 2px 0;
+      min-height: 28px;
+      padding: 1px 0;
     }
     .tag-entry input[type="text"] {
       min-height: 34px;
@@ -1132,15 +1168,15 @@ BOARD_WEB_APP_HTML = "".join(
     .tag-suggestions {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
+      gap: 5px;
       align-content: flex-start;
-      min-height: 28px;
+      min-height: 24px;
     }
     .tag-color-picker {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      min-height: 28px;
+      gap: 6px;
+      min-height: 24px;
     }
     .tag-color-option {
       width: 18px;
@@ -1261,12 +1297,12 @@ BOARD_WEB_APP_HTML = "".join(
       background: rgba(0,0,0,0.14);
     }
     .vehicle-panel {
-      gap: 8px;
-      width: min(100%, 338px);
-      max-width: 338px;
+      gap: 7px;
+      width: min(100%, 320px);
+      max-width: 320px;
       justify-self: end;
-      margin-left: 6px;
-      padding: 9px 10px;
+      margin-left: 2px;
+      padding: 8px 9px;
       position: relative;
       z-index: 2;
       isolation: isolate;
@@ -1279,9 +1315,9 @@ BOARD_WEB_APP_HTML = "".join(
       position: absolute;
       top: 12px;
       bottom: 12px;
-      left: -14px;
+      left: -10px;
       width: 1px;
-      background: rgba(115, 126, 105, 0.24);
+      background: rgba(115, 126, 105, 0.16);
     }
     .vehicle-panel__head {
       display: grid;
@@ -1292,8 +1328,8 @@ BOARD_WEB_APP_HTML = "".join(
     .vehicle-panel__summary {
       color: var(--text-soft);
       font-family: var(--mono);
-      font-size: 11px;
-      line-height: 1.5;
+      font-size: 10px;
+      line-height: 1.4;
       letter-spacing: 0.03em;
       white-space: pre-wrap;
     }
@@ -1354,15 +1390,15 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .vehicle-panel__fields {
       display: grid;
-      gap: 7px;
+      gap: 6px;
       max-height: none;
       overflow: visible;
       padding-right: 0;
     }
     .vehicle-panel__repair {
       display: grid;
-      gap: 8px;
-      padding-top: 10px;
+      gap: 6px;
+      padding-top: 8px;
       margin-top: 2px;
       border-top: 1px solid rgba(115, 126, 105, 0.24);
       position: relative;
@@ -1843,8 +1879,8 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .vehicle-group {
       display: grid;
-      gap: 8px;
-      padding-top: 9px;
+      gap: 6px;
+      padding-top: 7px;
       border-top: 1px solid rgba(115, 126, 105, 0.18);
     }
     .vehicle-group:first-child {
@@ -1861,7 +1897,7 @@ BOARD_WEB_APP_HTML = "".join(
     .vehicle-group__grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 6px;
+      gap: 5px;
       align-items: start;
     }
     .vehicle-field {
@@ -1869,9 +1905,9 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .vehicle-field input,
     .vehicle-field select {
-      min-height: 34px;
-      padding: 6px 8px;
-      font-size: 13px;
+      min-height: 32px;
+      padding: 5px 8px;
+      font-size: 12.5px;
     }
     .vehicle-field textarea {
       min-height: 56px;
@@ -1906,7 +1942,7 @@ BOARD_WEB_APP_HTML = "".join(
       background: rgba(0, 0, 0, 0.16);
       color: var(--text-soft);
       padding: 3px 6px;
-      min-height: 22px;
+      min-height: 20px;
       cursor: pointer;
       font-family: var(--mono);
       font-size: 10px;
@@ -2430,7 +2466,7 @@ BOARD_WEB_APP_HTML = "".join(
       .vehicle-panel { max-width: none; width: 100%; margin-left: 0; }
       .vehicle-panel::before { display: none; }
       .vehicle-panel__fields { max-height: none; }
-      .dialog--card { width: min(1120px, 100%); }
+      .dialog--card { width: min(1080px, 100%); }
       .dialog--repair-order { width: min(1260px, 100%); }
       .repair-order-groups { grid-template-columns: 1fr; }
       .repair-order-card__grid { grid-template-columns: 1fr; }
@@ -2941,7 +2977,7 @@ BOARD_WEB_APP_HTML = "".join(
         </div>
         <button class="btn" data-close="card">ЗАКРЫТЬ</button>
       </div>
-      <div class="dialog__tabs">
+      <div class="dialog__tabs dialog__tabs--card">
         <div>
           <button class="tab-btn is-active" data-tab="overview">ОБЗОР</button>
           <button class="tab-btn" data-tab="files">ФАЙЛЫ</button>
@@ -3027,12 +3063,12 @@ BOARD_WEB_APP_HTML = "".join(
       <section data-panel="journal" class="hidden">
         <div class="log-view" id="logList"></div>
       </section>
-      <div class="dialog__foot">
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <div class="dialog__foot dialog__foot--card">
+        <div class="dialog__foot-group dialog__foot-group--danger">
           <button class="btn btn--danger hidden" id="archiveAction">В АРХИВ</button>
           <button class="btn hidden" id="restoreAction">ВЕРНУТЬ ИЗ АРХИВА</button>
         </div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <div class="dialog__foot-group dialog__foot-group--main">
           <button class="btn" data-close="card">ОТМЕНА</button>
           <button class="btn btn--accent" id="saveCardButton">СОХРАНИТЬ</button>
         </div>
@@ -4260,6 +4296,7 @@ BOARD_WEB_APP_HTML = "".join(
     function cardHeading(card) {
       const vehicle = String(card?.vehicle || '').trim();
       const title = String(card?.title || '').trim();
+      if (vehicle && title && title.toLowerCase().includes(vehicle.toLowerCase())) return title;
       if (vehicle && title) return vehicle + ' / ' + title;
       return title || vehicle || 'Без названия';
     }
@@ -5897,7 +5934,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.signalDays.value = parts.days;
       els.signalHours.value = parts.hours;
       renderSignalPreview();
-      els.cardMetaLine.textContent = currentCard?.id ? ('СОЗДАНО: ' + formatDate(currentCard.created_at) + ' · ИЗМЕНЕНО: ' + formatDate(currentCard.updated_at)) : 'НОВАЯ ЗАПИСЬ';
+      els.cardMetaLine.textContent = currentCard?.id ? ('создано ' + formatDate(currentCard.created_at) + ' · изменено ' + formatDate(currentCard.updated_at)) : 'новая запись';
       els.archiveAction.classList.toggle('hidden', !currentCard?.id || currentCard.archived);
       els.restoreAction.classList.toggle('hidden', !currentCard?.id || !currentCard.archived);
       state.vehicleProfileBaseline = cloneVehicleProfile(currentCard?.vehicle_profile || {});
