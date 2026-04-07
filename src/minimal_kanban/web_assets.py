@@ -2534,34 +2534,34 @@ BOARD_WEB_APP_HTML = "".join(
   <div class="shell">
     <header class="topbar">
       <div class="topbar__left">
-        <button class="gear-button" id="boardSettingsButton" title="РќРђРЎРўР РћР™РљР Р”РћРЎРљР" aria-label="РќРђРЎРўР РћР™РљР Р”РћРЎРљР">
+        <button class="gear-button" id="boardSettingsButton" title="НАСТРОЙКИ ДОСКИ" aria-label="НАСТРОЙКИ ДОСКИ">
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M10.5 3.75h3l.47 2.12c.58.16 1.14.39 1.66.68l1.9-1.2 2.12 2.12-1.2 1.9c.29.52.52 1.08.68 1.66l2.12.47v3l-2.12.47c-.16.58-.39 1.14-.68 1.66l1.2 1.9-2.12 2.12-1.9-1.2c-.52.29-1.08.52-1.66.68l-.47 2.12h-3l-.47-2.12a6.9 6.9 0 0 1-1.66-.68l-1.9 1.2-2.12-2.12 1.2-1.9a6.9 6.9 0 0 1-.68-1.66l-2.12-.47v-3l2.12-.47c.16-.58.39-1.14.68-1.66l-1.2-1.9 2.12-2.12 1.9 1.2c.52-.29 1.08-.52 1.66-.68l.47-2.12Zm1.5 5.25a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z"/>
           </svg>
         </button>
         <div class="brand">
-        <div class="brand__title">AUTOSTOP / РџРЈР›Р¬Рў</div>
-          <div class="brand__sub">РњРРќРРњРЈРњ РРќРўР•Р Р¤Р•Р™РЎРђ В· РџРћР›РќР«Р™ Р–РЈР РќРђР› В· РҐРћРЎРў Р’ РЎР•РўР</div>
+        <div class="brand__title">AUTOSTOP / ПУЛЬТ</div>
+          <div class="brand__sub">МИНИМУМ ИНТЕРФЕЙСА · ПОЛНЫЙ ЖУРНАЛ · ХОСТ В СЕТИ</div>
         </div>
       </div>
       <div class="topbar__actions">
-        <button class="btn" id="operatorButton">РћРџР•Р РђРўРћР </button>
-        <button class="btn" id="archiveButton">РђР РҐРР’</button>
-        <button class="btn" id="repairOrdersButton">Р—РђРљРђР—-РќРђР РЇР”Р«</button>
-        <button class="btn" id="cashboxesButton">РљРђРЎРЎР«</button>
-        <button class="btn btn--ghost" id="gptWallButton">РЎРўР•РќРђ</button>
-        <button class="btn" id="columnButton">+ РЎРўРћР›Р‘Р•Р¦</button>
-        <button class="btn btn--accent" id="cardButton">+ РљРђР РўРћР§РљРђ</button>
+        <button class="btn" id="operatorButton">ОПЕРАТОР</button>
+        <button class="btn" id="archiveButton">АРХИВ</button>
+        <button class="btn" id="repairOrdersButton">ЗАКАЗ-НАРЯДЫ</button>
+        <button class="btn" id="cashboxesButton">КАССЫ</button>
+        <button class="btn btn--ghost" id="gptWallButton">СТЕНА</button>
+        <button class="btn" id="columnButton">+ СТОЛБЕЦ</button>
+        <button class="btn btn--accent" id="cardButton">+ КАРТОЧКА</button>
       </div>
     </header>
     <div class="board-scroll">
-      <div class="message" id="statusLine">РЎРћР•Р”РРќР•РќРР• РЎ Р”РћРЎРљРћР™...</div>
+      <div class="message" id="statusLine">СОЕДИНЕНИЕ С ДОСКОЙ...</div>
       <div class="board" id="board"></div>
     </div>
   </div>
 
   <div class="sticky-dock">
-    <button class="sticky-dock__button" id="stickyDockButton" type="button" aria-label="РќРѕРІС‹Р№ СЃС‚РёРєРµСЂ" title="РќРѕРІС‹Р№ СЃС‚РёРєРµСЂ">
+    <button class="sticky-dock__button" id="stickyDockButton" type="button" aria-label="Новый стикер" title="Новый стикер">
       <svg viewBox="0 0 32 32" aria-hidden="true">
         <path d="M8 6h12l4 4v16H8z"></path>
         <path d="M20 6v6h6"></path>
@@ -2573,14 +2573,14 @@ BOARD_WEB_APP_HTML = "".join(
 
   <div class="modal" id="identityModal">
     <div class="dialog" style="width:min(480px,100%)">
-      <div class="dialog__title">РљРўРћ Р РђР‘РћРўРђР•Рў РЎ Р”РћРЎРљРћР™</div>
+      <div class="dialog__title">КТО РАБОТАЕТ С ДОСКОЙ</div>
       <div class="field">
-        <label for="identityInput">РРњРЇ РћРџР•Р РђРўРћР Рђ</label>
-        <input id="identityInput" type="text" maxlength="40" placeholder="РќР°РїСЂРёРјРµСЂ: РђРќР”Р Р•Р™">
+        <label for="identityInput">ИМЯ ОПЕРАТОРА</label>
+        <input id="identityInput" type="text" maxlength="40" placeholder="Например: АНДРЕЙ">
       </div>
       <div class="dialog__foot">
-        <div class="log-row__meta">РРјСЏ РїРѕРїР°РґС‘С‚ РІ Р¶СѓСЂРЅР°Р» РІСЃРµС… РґРµР№СЃС‚РІРёР№ СЌС‚РѕР№ СЃРµСЃСЃРёРё.</div>
-        <button class="btn btn--accent" id="identitySave">РџР РРњР•РќРРўР¬</button>
+        <div class="log-row__meta">Имя попадёт в журнал всех действий этой сессии.</div>
+        <button class="btn btn--accent" id="identitySave">ПРИМЕНИТЬ</button>
       </div>
     </div>
   </div>
@@ -2588,18 +2588,18 @@ BOARD_WEB_APP_HTML = "".join(
   <div class="modal" id="operatorProfileModal">
     <div class="dialog" style="width:min(920px,100%)">
       <div class="dialog__head">
-        <div class="dialog__title">РџР РћР¤РР›Р¬ РћРџР•Р РђРўРћР Рђ</div>
+        <div class="dialog__title">ПРОФИЛЬ ОПЕРАТОРА</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn btn--ghost hidden" id="operatorAdminButton">РђР”РњРРќ-РџРђРќР•Р›Р¬</button>
-          <button class="btn" id="operatorLogoutButton">Р’Р«Р™РўР</button>
-          <button class="btn" data-close="operator-profile">Р—РђРљР Р«РўР¬</button>
+          <button class="btn btn--ghost hidden" id="operatorAdminButton">АДМИН-ПАНЕЛЬ</button>
+          <button class="btn" id="operatorLogoutButton">ВЫЙТИ</button>
+          <button class="btn" data-close="operator-profile">ЗАКРЫТЬ</button>
         </div>
       </div>
-      <div class="wall-meta" id="operatorProfileMeta">Р—РђР“Р РЈР—РљРђ РџР РћР¤РР›РЇ...</div>
+      <div class="wall-meta" id="operatorProfileMeta">ЗАГРУЗКА ПРОФИЛЯ...</div>
       <div class="message hidden" id="operatorSecurityNotice"></div>
       <div class="operator-stats-grid" id="operatorStatsGrid"></div>
       <div class="subpanel">
-        <div class="panel-title">РџРћРЎР›Р•Р”РќРР• Р”Р•Р™РЎРўР’РРЇ</div>
+        <div class="panel-title">ПОСЛЕДНИЕ ДЕЙСТВИЯ</div>
         <div class="log-view" id="operatorActivityList"></div>
       </div>
     </div>
@@ -2608,27 +2608,27 @@ BOARD_WEB_APP_HTML = "".join(
   <div class="modal" id="operatorAdminModal">
     <div class="dialog" style="width:min(1120px,100%)">
       <div class="dialog__head">
-        <div class="dialog__title">РђР”РњРРќ-РџРђРќР•Р›Р¬</div>
-        <button class="btn" data-close="operator-admin">Р—РђРљР Р«РўР¬</button>
+        <div class="dialog__title">АДМИН-ПАНЕЛЬ</div>
+        <button class="btn" data-close="operator-admin">ЗАКРЫТЬ</button>
       </div>
       <div class="operator-admin-layout">
         <div class="subpanel">
-          <div class="panel-title">РџРћР›Р¬Р—РћР’РђРўР•Р›Р¬</div>
+          <div class="panel-title">ПОЛЬЗОВАТЕЛЬ</div>
           <div class="field field--compact">
-            <label for="adminUserLogin">Р›РћР“РРќ</label>
+            <label for="adminUserLogin">ЛОГИН</label>
             <input id="adminUserLogin" type="text" maxlength="40" placeholder="OPERATOR">
           </div>
           <div class="field field--compact">
-            <label for="adminUserPassword">РџРђР РћР›Р¬</label>
-            <input id="adminUserPassword" type="password" maxlength="120" placeholder="РњРёРЅРёРјСѓРј 4 СЃРёРјРІРѕР»Р°">
+            <label for="adminUserPassword">ПАРОЛЬ</label>
+            <input id="adminUserPassword" type="password" maxlength="120" placeholder="Минимум 4 символа">
           </div>
           <div class="dialog__foot" style="padding:0; border:none; margin-top:10px;">
-            <div class="log-row__meta">РђРґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ СЃРѕР·РґР°РµС‚ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РёР»Рё РѕР±РЅРѕРІР»СЏРµС‚ РµРјСѓ РїР°СЂРѕР»СЊ.</div>
-            <button class="btn btn--accent" id="adminSaveUserButton">РЎРћРҐР РђРќРРўР¬ РџРћР›Р¬Р—РћР’РђРўР•Р›РЇ</button>
+            <div class="log-row__meta">Администратор создает пользователя или обновляет ему пароль.</div>
+            <button class="btn btn--accent" id="adminSaveUserButton">СОХРАНИТЬ ПОЛЬЗОВАТЕЛЯ</button>
           </div>
         </div>
         <div class="subpanel">
-          <div class="panel-title">РџРћР›Р¬Р—РћР’РђРўР•Р›Р</div>
+          <div class="panel-title">ПОЛЬЗОВАТЕЛИ</div>
           <div id="adminUsersList"></div>
         </div>
       </div>
@@ -2638,27 +2638,27 @@ BOARD_WEB_APP_HTML = "".join(
   <div class="modal" id="stickyModal">
     <div class="dialog" style="width:min(560px,100%)">
       <div class="dialog__head">
-        <div class="dialog__title" id="stickyModalTitle">РЎРўРРљР•Р </div>
-        <button class="btn" data-close="sticky">Р—РђРљР Р«РўР¬</button>
+        <div class="dialog__title" id="stickyModalTitle">СТИКЕР</div>
+        <button class="btn" data-close="sticky">ЗАКРЫТЬ</button>
       </div>
       <div class="field">
-        <label for="stickyText">РўР•РљРЎРў РЎРўРРљР•Р Рђ</label>
-        <textarea id="stickyText" maxlength="1000" placeholder="РљРѕСЂРѕС‚РєР°СЏ Р·Р°РјРµС‚РєР° Р±РµР· Р»РёС€РЅРµРіРѕ С€СѓРјР°."></textarea>
+        <label for="stickyText">ТЕКСТ СТИКЕРА</label>
+        <textarea id="stickyText" maxlength="1000" placeholder="Короткая заметка без лишнего шума."></textarea>
       </div>
       <div class="signal-grid">
         <div class="signal-cell">
-          <span>Р”РќР</span>
+          <span>ДНИ</span>
           <input id="stickyDays" type="number" min="0" max="365" value="0">
         </div>
         <div class="signal-cell">
-          <span>Р§РђРЎР«</span>
+          <span>ЧАСЫ</span>
           <input id="stickyHours" type="number" min="0" max="23" value="4">
         </div>
       </div>
-      <div class="compact-note">РЎС‚РёРєРµСЂ РїРѕСЏРІРёС‚СЃСЏ РЅР° РґРѕСЃРєРµ, РїРѕСЃР»Рµ С‡РµРіРѕ РµРіРѕ РјРѕР¶РЅРѕ РґРІРёРіР°С‚СЊ РјС‹С€СЊСЋ.</div>
+      <div class="compact-note">Стикер появится на доске, после чего его можно двигать мышью.</div>
       <div class="dialog__foot">
-        <button class="btn" data-close="sticky">РћРўРњР•РќРђ</button>
-        <button class="btn btn--accent" id="saveStickyButton">РЎРћРҐР РђРќРРўР¬</button>
+        <button class="btn" data-close="sticky">ОТМЕНА</button>
+        <button class="btn btn--accent" id="saveStickyButton">СОХРАНИТЬ</button>
       </div>
     </div>
   </div>
@@ -2666,8 +2666,8 @@ BOARD_WEB_APP_HTML = "".join(
   <div class="modal" id="archiveModal">
     <div class="dialog" style="width:min(720px,100%)">
       <div class="dialog__head">
-        <div class="dialog__title">РђР РҐРР’ / РџРћРЎР›Р•Р”РќРР• 30</div>
-        <button class="btn" data-close="archive">Р—РђРљР Р«РўР¬</button>
+        <div class="dialog__title">АРХИВ / ПОСЛЕДНИЕ 30</div>
+        <button class="btn" data-close="archive">ЗАКРЫТЬ</button>
       </div>
       <div id="archiveList"></div>
     </div>
@@ -2676,46 +2676,46 @@ BOARD_WEB_APP_HTML = "".join(
   <div class="modal" id="repairOrdersModal">
     <div class="dialog dialog--repair-orders">
       <div class="dialog__head">
-        <div class="dialog__title">Р—РђРљРђР—-РќРђР РЇР”Р«</div>
-        <button class="btn" data-close="repair-orders">Р—РђРљР Р«РўР¬</button>
+        <div class="dialog__title">ЗАКАЗ-НАРЯДЫ</div>
+        <button class="btn" data-close="repair-orders">ЗАКРЫТЬ</button>
       </div>
       <div class="dialog__tabs dialog__tabs--repair-orders">
         <div>
-          <button class="tab-btn is-active" id="repairOrdersOpenTab" data-repair-orders-status="open">РћРўРљР Р«РўР«Р•</button>
-          <button class="tab-btn" id="repairOrdersClosedTab" data-repair-orders-status="closed">РђР РҐРР’</button>
+          <button class="tab-btn is-active" id="repairOrdersOpenTab" data-repair-orders-status="open">ОТКРЫТЫЕ</button>
+          <button class="tab-btn" id="repairOrdersClosedTab" data-repair-orders-status="closed">АРХИВ</button>
         </div>
       </div>
       <div class="repair-orders-controls">
         <div class="field field--compact">
-          <label for="repairOrdersSearchInput">РџРћРРЎРљ</label>
-          <input id="repairOrdersSearchInput" type="text" maxlength="120" placeholder="РЅРѕРјРµСЂ, РІР»Р°РґРµР»РµС†, С‚РµР»РµС„РѕРЅ, Р°РІС‚Рѕ, СЃРјС‹СЃР»">
+          <label for="repairOrdersSearchInput">ПОИСК</label>
+          <input id="repairOrdersSearchInput" type="text" maxlength="120" placeholder="номер, владелец, телефон, авто, смысл">
         </div>
         <div class="field field--compact">
-          <label for="repairOrdersSortBy">РЎРћР РўРР РћР’РљРђ</label>
+          <label for="repairOrdersSortBy">СОРТИРОВКА</label>
           <select id="repairOrdersSortBy">
-            <option value="opened_at">Р”Р°С‚Р° РѕС‚РєСЂС‹С‚РёСЏ</option>
-            <option value="closed_at">Р”Р°С‚Р° Р·Р°РєСЂС‹С‚РёСЏ</option>
-            <option value="number">РќРѕРјРµСЂ</option>
+            <option value="opened_at">Дата открытия</option>
+            <option value="closed_at">Дата закрытия</option>
+            <option value="number">Номер</option>
           </select>
         </div>
         <div class="field field--compact">
-          <label for="repairOrdersSortDir">РџРћР РЇР”РћРљ</label>
+          <label for="repairOrdersSortDir">ПОРЯДОК</label>
           <select id="repairOrdersSortDir">
-            <option value="desc">РЎРЅР°С‡Р°Р»Р° РЅРѕРІС‹Рµ</option>
-            <option value="asc">РЎРЅР°С‡Р°Р»Р° СЃС‚Р°СЂС‹Рµ</option>
+            <option value="desc">Сначала новые</option>
+            <option value="asc">Сначала старые</option>
           </select>
         </div>
       </div>
-      <div class="wall-meta" id="repairOrdersMeta">Р—РђР“Р РЈР—РљРђ РЎРџРРЎРљРђ...</div>
+      <div class="wall-meta" id="repairOrdersMeta">ЗАГРУЗКА СПИСКА...</div>
       <div class="repair-orders-table-head" id="repairOrdersTableHead">
-        <div>РќРѕРјРµСЂ</div>
-        <div>РћС‚РєСЂС‹С‚Р°</div>
-        <div>РЎС‚Р°С‚СѓСЃ</div>
-        <div>РљР»РёРµРЅС‚</div>
-        <div>РўРµР»РµС„РѕРЅ</div>
-        <div>РђРІС‚РѕРјРѕР±РёР»СЊ</div>
-        <div>РЎРјС‹СЃР» РєР°СЂС‚РѕС‡РєРё</div>
-        <div class="repair-orders-table-head__sum">РЎСѓРјРјР°</div>
+        <div>Номер</div>
+        <div>Открыта</div>
+        <div>Статус</div>
+        <div>Клиент</div>
+        <div>Телефон</div>
+        <div>Автомобиль</div>
+        <div>Смысл карточки</div>
+        <div class="repair-orders-table-head__sum">Сумма</div>
       </div>
       <div class="repair-orders-list" id="repairOrdersList"></div>
     </div>
@@ -2724,47 +2724,47 @@ BOARD_WEB_APP_HTML = "".join(
   <div class="modal" id="cashboxesModal">
     <div class="dialog">
       <div class="dialog__head">
-        <div class="dialog__title">РљРђРЎРЎР«</div>
-        <button class="btn" data-close="cashboxes">Р—РђРљР Р«РўР¬</button>
+        <div class="dialog__title">КАССЫ</div>
+        <button class="btn" data-close="cashboxes">ЗАКРЫТЬ</button>
       </div>
       <div class="cashboxes-layout">
         <div class="subpanel cashboxes-pane">
-          <div class="panel-title">РЎРџРРЎРћРљ РљРђРЎРЎ</div>
+          <div class="panel-title">СПИСОК КАСС</div>
           <div class="field field--compact">
-            <label for="cashboxNameInput">РќРђР—Р’РђРќРР•</label>
-            <input id="cashboxNameInput" type="text" maxlength="80" placeholder="РќР°Р»РёС‡РЅС‹Р№ / РЎС‡РµС‚ РєРѕРјРїР°РЅРёРё">
+            <label for="cashboxNameInput">НАЗВАНИЕ</label>
+            <input id="cashboxNameInput" type="text" maxlength="80" placeholder="Наличный / Счет компании">
           </div>
           <div class="dialog__foot" style="padding:0; border:none; margin-top:10px;">
-            <div class="log-row__meta" id="cashboxesMeta">РљР°СЃСЃС‹ РµС‰Рµ РЅРµ Р·Р°РіСЂСѓР¶РµРЅС‹.</div>
-            <button class="btn btn--accent" id="cashboxCreateButton">+ РљРђРЎРЎРђ</button>
+            <div class="log-row__meta" id="cashboxesMeta">Кассы еще не загружены.</div>
+            <button class="btn btn--accent" id="cashboxCreateButton">+ КАССА</button>
           </div>
           <div class="cashboxes-list" id="cashboxesList"></div>
         </div>
         <div class="subpanel cashbox-detail cashboxes-pane">
           <div class="cashbox-detail__head">
             <div>
-              <div class="panel-title" id="cashboxDetailTitle">РљРђРЎРЎРђ РќР• Р’Р«Р‘Р РђРќРђ</div>
-              <div class="log-row__meta" id="cashboxDetailMeta">Р’С‹Р±РµСЂРёС‚Рµ РєР°СЃСЃСѓ СЃР»РµРІР°.</div>
+              <div class="panel-title" id="cashboxDetailTitle">КАССА НЕ ВЫБРАНА</div>
+              <div class="log-row__meta" id="cashboxDetailMeta">Выберите кассу слева.</div>
             </div>
-            <button class="btn btn--danger" id="cashboxDeleteButton">РЈР”РђР›РРўР¬ РљРђРЎРЎРЈ</button>
+            <button class="btn btn--danger" id="cashboxDeleteButton">УДАЛИТЬ КАССУ</button>
           </div>
           <div class="cashbox-stats" id="cashboxStats"></div>
           <div class="field field--compact">
-            <label for="cashboxAmountInput">РЎРЈРњРњРђ</label>
-            <input id="cashboxAmountInput" type="text" inputmode="decimal" maxlength="24" placeholder="1000 РёР»Рё 1000,50">
+            <label for="cashboxAmountInput">СУММА</label>
+            <input id="cashboxAmountInput" type="text" inputmode="decimal" maxlength="24" placeholder="1000 или 1000,50">
           </div>
           <div class="field field--compact">
-            <label for="cashboxNoteInput">РљРћРњРњР•РќРўРђР РР™</label>
-            <textarea id="cashboxNoteInput" maxlength="240" placeholder="РљРѕСЂРѕС‚РєРѕ РѕРїРёС€РёС‚Рµ РїРѕСЃС‚СѓРїР»РµРЅРёРµ РёР»Рё СЃРїРёСЃР°РЅРёРµ."></textarea>
+            <label for="cashboxNoteInput">КОММЕНТАРИЙ</label>
+            <textarea id="cashboxNoteInput" maxlength="240" placeholder="Коротко опишите поступление или списание."></textarea>
           </div>
           <div class="dialog__foot" style="padding:0;">
-            <div class="log-row__meta">РќРёР¶Рµ С…СЂР°РЅРёС‚СЃСЏ РёСЃС‚РѕСЂРёСЏ РІСЃРµС… РґРІРёР¶РµРЅРёР№ РІС‹Р±СЂР°РЅРЅРѕР№ РєР°СЃСЃС‹.</div>
+            <div class="log-row__meta">Ниже хранится история всех движений выбранной кассы.</div>
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <button class="btn btn--accent" id="cashboxIncomeButton">+ РџРћРЎРўРЈРџР›Р•РќРР•</button>
-              <button class="btn" id="cashboxExpenseButton">- РЎРџРРЎРђРќРР•</button>
+              <button class="btn btn--accent" id="cashboxIncomeButton">+ ПОСТУПЛЕНИЕ</button>
+              <button class="btn" id="cashboxExpenseButton">- СПИСАНИЕ</button>
             </div>
           </div>
-          <div class="panel-title">Р”Р’РР–Р•РќРРЇ</div>
+          <div class="panel-title">ДВИЖЕНИЯ</div>
           <div class="cashbox-transactions" id="cashboxTransactions"></div>
         </div>
       </div>
@@ -2774,33 +2774,33 @@ BOARD_WEB_APP_HTML = "".join(
   <div class="modal" id="gptWallModal">
     <div class="dialog" style="width:min(1040px,100%)">
       <div class="dialog__head">
-        <div class="dialog__title">РЎРўР•РќРђ / РЎР’РЇР—Р¬ РЎ GPT</div>
+        <div class="dialog__title">СТЕНА / СВЯЗЬ С GPT</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn btn--ghost" id="gptWallRefresh">РћР‘РќРћР’РРўР¬</button>
-          <button class="btn" data-close="wall">Р—РђРљР Р«РўР¬</button>
+          <button class="btn btn--ghost" id="gptWallRefresh">ОБНОВИТЬ</button>
+          <button class="btn" data-close="wall">ЗАКРЫТЬ</button>
         </div>
       </div>
-      <div class="wall-meta" id="gptWallMeta">РЎР›РЈР–Р•Р‘РќР«Р™ РЎР›РћР™ Р•Р©РЃ РќР• Р—РђР“Р РЈР–Р•Рќ.</div>
+      <div class="wall-meta" id="gptWallMeta">СЛУЖЕБНЫЙ СЛОЙ ЕЩЁ НЕ ЗАГРУЖЕН.</div>
       <div class="dialog__tabs">
         <div>
-          <button class="tab-btn is-active" id="gptWallBoardTab" data-wall-view="board_content">РЎРћР”Р•Р Р–РђРќРР• Р”РћРЎРљР</button>
-          <button class="tab-btn" id="gptWallEventsTab" data-wall-view="event_log">Р–РЈР РќРђР› РЎРћР‘Р«РўРР™</button>
+          <button class="tab-btn is-active" id="gptWallBoardTab" data-wall-view="board_content">СОДЕРЖАНИЕ ДОСКИ</button>
+          <button class="tab-btn" id="gptWallEventsTab" data-wall-view="event_log">ЖУРНАЛ СОБЫТИЙ</button>
         </div>
       </div>
-      <pre class="wall-view" id="gptWallText">Р—РђР“Р РЈР—РљРђ...</pre>
+      <pre class="wall-view" id="gptWallText">ЗАГРУЗКА...</pre>
     </div>
   </div>
 
   <div class="modal" id="boardSettingsModal">
     <div class="dialog" style="width:min(560px,100%)">
       <div class="dialog__head">
-        <div class="dialog__title">РќРђРЎРўР РћР™РљР Р”РћРЎРљР</div>
-        <button class="btn" data-close="settings">Р—РђРљР Р«РўР¬</button>
+        <div class="dialog__title">НАСТРОЙКИ ДОСКИ</div>
+        <button class="btn" data-close="settings">ЗАКРЫТЬ</button>
       </div>
       <div class="field">
         <div class="scale-control">
           <div class="scale-head">
-            <label class="scale-head__label" for="boardScaleInput">РњРђРЎРЁРўРђР‘</label>
+            <label class="scale-head__label" for="boardScaleInput">МАСШТАБ</label>
             <span class="scale-head__value" id="boardScaleValue">100%</span>
           </div>
           <div class="scale-track">
@@ -2809,7 +2809,7 @@ BOARD_WEB_APP_HTML = "".join(
         </div>
       </div>
       <div class="dialog__foot">
-        <button class="btn btn--ghost" id="boardScaleReset">РЎР‘Р РћРЎРРўР¬ РќРђ 100%</button>
+        <button class="btn btn--ghost" id="boardScaleReset">СБРОСИТЬ НА 100%</button>
       </div>
     </div>
   </div>
@@ -2818,16 +2818,16 @@ BOARD_WEB_APP_HTML = "".join(
     <div class="dialog dialog--card">
       <div class="dialog__head dialog__head--card">
         <div class="dialog__title-wrap">
-          <div class="dialog__title-prefix">РљРђР РўРћР§РљРђ</div>
-          <div class="dialog__title dialog__title--card" id="cardModalTitle">Р РђР‘РћР§РђРЇ РљРђР РўРћР§РљРђ</div>
+          <div class="dialog__title-prefix">КАРТОЧКА</div>
+          <div class="dialog__title dialog__title--card" id="cardModalTitle">РАБОЧАЯ КАРТОЧКА</div>
         </div>
-        <button class="btn" data-close="card">Р—РђРљР Р«РўР¬</button>
+        <button class="btn" data-close="card">ЗАКРЫТЬ</button>
       </div>
       <div class="dialog__tabs">
         <div>
-          <button class="tab-btn is-active" data-tab="overview">РћР‘Р—РћР </button>
-          <button class="tab-btn" data-tab="files">Р¤РђР™Р›Р«</button>
-          <button class="tab-btn" data-tab="journal">Р–РЈР РќРђР›</button>
+          <button class="tab-btn is-active" data-tab="overview">ОБЗОР</button>
+          <button class="tab-btn" data-tab="files">ФАЙЛЫ</button>
+          <button class="tab-btn" data-tab="journal">ЖУРНАЛ</button>
         </div>
         <div class="log-row__meta" id="cardMetaLine"></div>
       </div>
@@ -2836,44 +2836,44 @@ BOARD_WEB_APP_HTML = "".join(
           <div class="overview-main">
             <div class="grid grid--overview">
               <div class="field field--compact">
-                <label for="cardVehicle">РњРђР РљРђ / РњРћР”Р•Р›Р¬</label>
+                <label for="cardVehicle">МАРКА / МОДЕЛЬ</label>
                 <input id="cardVehicle" type="text" maxlength="60" placeholder="KIA RIO">
               </div>
               <div class="field field--compact">
-                <label for="cardColumn">РЎРўРћР›Р‘Р•Р¦</label>
+                <label for="cardColumn">СТОЛБЕЦ</label>
                 <select id="cardColumn"></select>
               </div>
             </div>
             <div class="field">
-              <label for="cardTitle">Р—РђР“РћР›РћР’РћРљ</label>
+              <label for="cardTitle">ЗАГОЛОВОК</label>
               <input id="cardTitle" type="text" maxlength="120">
             </div>
             <div class="field field--description">
-              <label for="cardDescription">РћРџРРЎРђРќРР•</label>
+              <label for="cardDescription">ОПИСАНИЕ</label>
         <textarea id="cardDescription" maxlength="20000"></textarea>
             </div>
             <div class="overview-main__meta">
                 <div class="subpanel signal-panel">
-                  <div class="panel-title">РћР‘Р РђРўРќР«Р™ РћРўРЎР§РЃРў</div>
-                <div class="signal-preview" id="signalPreview">01Р” 00Р§</div>
+                  <div class="panel-title">ОБРАТНЫЙ ОТСЧЁТ</div>
+                <div class="signal-preview" id="signalPreview">01Д 00Ч</div>
                 <div class="signal-grid signal-grid--timer">
                   <label class="signal-cell signal-cell--timer"><span class="signal-cell__label">&#1044;&#1085;&#1077;&#1081;</span><div class="signal-input"><input class="signal-input__field" id="signalDaysStyled" type="number" min="0" max="365" inputmode="numeric"><span class="signal-input__unit">&#1076;</span></div></label>
                   <label class="signal-cell signal-cell--timer"><span class="signal-cell__label">&#1063;&#1072;&#1089;&#1086;&#1074;</span><div class="signal-input"><input class="signal-input__field" id="signalHoursStyled" type="number" min="0" max="23" inputmode="numeric"><span class="signal-input__unit">&#1095;</span></div></label>
-                  <label class="signal-cell"><span>Р”Рќ</span><input id="signalDays" type="number" min="0" max="365"></label>
-                  <label class="signal-cell"><span>Р§РЎ</span><input id="signalHours" type="number" min="0" max="23"></label>
+                  <label class="signal-cell"><span>ДН</span><input id="signalDays" type="number" min="0" max="365"></label>
+                  <label class="signal-cell"><span>ЧС</span><input id="signalHours" type="number" min="0" max="23"></label>
                 </div>
               </div>
               <div class="subpanel tags-panel">
                 <div class="field field--tags">
                   <div class="tags-panel__head">
-                    <label for="tagInput">РњР•РўРљР</label>
+                    <label for="tagInput">МЕТКИ</label>
                     <div class="tag-limit" id="tagMeta">0 / 3</div>
                   </div>
                   <div class="tag-list" id="tagList"></div>
                   <div class="tag-suggestions" id="tagSuggestions"></div>
                   <div class="tag-color-picker" id="tagColorPicker"></div>
                   <div class="tag-entry">
-                    <input id="tagInput" type="text" maxlength="24" placeholder="Р–Р”РЃРњ">
+                    <input id="tagInput" type="text" maxlength="24" placeholder="ЖДЁМ">
                     <button class="btn" id="tagAddButton">+</button>
                   </div>
                 </div>
@@ -2883,25 +2883,25 @@ BOARD_WEB_APP_HTML = "".join(
           <aside class="subpanel vehicle-panel">
             <div class="vehicle-panel__head">
               <div class="stack" style="gap:6px;">
-                <div class="panel-title">РџРђРЎРџРћР Рў РђР’РўРћРњРћР‘РР›РЇ</div>
-                <div class="vehicle-panel__summary" id="vehiclePanelSummary">РўР•РҐРљРђР РўРђ Р•Р©РЃ РќР• Р—РђРџРћР›РќР•РќРђ.</div>
+                <div class="panel-title">ПАСПОРТ АВТОМОБИЛЯ</div>
+                <div class="vehicle-panel__summary" id="vehiclePanelSummary">ТЕХКАРТА ЕЩЁ НЕ ЗАПОЛНЕНА.</div>
               </div>
-              <button class="btn btn--ghost" id="vehicleAutofillButton">РђР’РўРћР—РђРџРћР›РќРРўР¬</button>
+              <button class="btn btn--ghost" id="vehicleAutofillButton">АВТОЗАПОЛНИТЬ</button>
             </div>
             <div class="vehicle-panel__fields" id="vehicleProfileFields"></div>
             <div class="vehicle-panel__repair">
-              <button class="btn" id="repairOrderButton" data-open-repair-order-modal="true" type="button">Р—РђРљРђР—-РќРђР РЇР”</button>
+              <button class="btn" id="repairOrderButton" data-open-repair-order-modal="true" type="button">ЗАКАЗ-НАРЯД</button>
             </div>
           </aside>
         </div>
       </section>
       <section data-panel="files" class="hidden">
         <div class="subpanel file-zone-panel">
-          <div class="file-dropzone" id="fileDropzone" tabindex="0" contenteditable="plaintext-only" spellcheck="false" data-title="РџР•Р Р•РќР•РЎРРўР• РР›Р Р’РЎРўРђР’Р¬РўР• Р¤РђР™Р›" data-hint="Ctrl+V, РїСЂР°РІС‹Р№ РєР»РёРє -> Р’СЃС‚Р°РІРёС‚СЊ, drag-and-drop РёР»Рё РєР»РёРє РґР»СЏ РІС‹Р±РѕСЂР°. TXT, PDF, Word, Excel." aria-label="РџРѕР»Рµ РґР»СЏ РІСЃС‚Р°РІРєРё Рё РїРµСЂРµРЅРѕСЃР° С„Р°Р№Р»РѕРІ"></div>
-          <div class="file-dropzone__meta" id="fileDropMeta">РЎРЅР°С‡Р°Р»Р° СЃРѕС…СЂР°РЅРёС‚Рµ РєР°СЂС‚РѕС‡РєСѓ, Р·Р°С‚РµРј РґРѕР±Р°РІР»СЏР№С‚Рµ РІР»РѕР¶РµРЅРёСЏ.</div>
+          <div class="file-dropzone" id="fileDropzone" tabindex="0" contenteditable="plaintext-only" spellcheck="false" data-title="ПЕРЕНЕСИТЕ ИЛИ ВСТАВЬТЕ ФАЙЛ" data-hint="Ctrl+V, правый клик -> Вставить, drag-and-drop или клик для выбора. TXT, PDF, Word, Excel." aria-label="Поле для вставки и переноса файлов"></div>
+          <div class="file-dropzone__meta" id="fileDropMeta">Сначала сохраните карточку, затем добавляйте вложения.</div>
           <div class="file-upload-legacy" hidden>
           <input id="fileInput" type="file" multiple hidden accept=".txt,.pdf,.doc,.docx,.xls,.xlsx,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
-            <button class="btn" id="uploadButton">Р—РђР“Р РЈР—РРўР¬</button>
+            <button class="btn" id="uploadButton">ЗАГРУЗИТЬ</button>
           </div>
           <div id="fileList"></div>
         </div>
@@ -2911,12 +2911,12 @@ BOARD_WEB_APP_HTML = "".join(
       </section>
       <div class="dialog__foot">
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn btn--danger hidden" id="archiveAction">Р’ РђР РҐРР’</button>
-          <button class="btn hidden" id="restoreAction">Р’Р•Р РќРЈРўР¬ РР— РђР РҐРР’Рђ</button>
+          <button class="btn btn--danger hidden" id="archiveAction">В АРХИВ</button>
+          <button class="btn hidden" id="restoreAction">ВЕРНУТЬ ИЗ АРХИВА</button>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn" data-close="card">РћРўРњР•РќРђ</button>
-          <button class="btn btn--accent" id="saveCardButton">РЎРћРҐР РђРќРРўР¬</button>
+          <button class="btn" data-close="card">ОТМЕНА</button>
+          <button class="btn btn--accent" id="saveCardButton">СОХРАНИТЬ</button>
         </div>
       </div>
     </div>
@@ -2926,192 +2926,192 @@ BOARD_WEB_APP_HTML = "".join(
     <div class="dialog dialog--repair-order">
       <div class="dialog__head dialog__head--card">
         <div class="dialog__title-wrap">
-          <div class="dialog__title dialog__title--card" id="repairOrderModalTitle">Р—РђРљРђР—-РќРђР РЇР”</div>
+          <div class="dialog__title dialog__title--card" id="repairOrderModalTitle">ЗАКАЗ-НАРЯД</div>
         </div>
-        <button class="btn" data-close="repair-order">Р—РђРљР Р«РўР¬</button>
+        <button class="btn" data-close="repair-order">ЗАКРЫТЬ</button>
       </div>
       <div class="repair-order-shell">
         <div class="repair-order-toolbar">
-          <button class="btn btn--ghost" id="repairOrderAutofillButton" type="button">РђР’РўРћР—РђРџРћР›РќР•РќРР•</button>
+          <button class="btn btn--ghost" id="repairOrderAutofillButton" type="button">АВТОЗАПОЛНЕНИЕ</button>
         </div>
         <div class="repair-order-groups">
           <section class="repair-order-card" data-repair-order-section="document">
-            <div class="panel-title">Р”РћРљРЈРњР•РќРў</div>
+            <div class="panel-title">ДОКУМЕНТ</div>
             <div class="repair-order-card__grid repair-order-card__grid--document">
               <div class="field field--compact repair-order-field repair-order-field--number">
-                <label for="repairOrderNumber">РќРћРњР•Р </label>
+                <label for="repairOrderNumber">НОМЕР</label>
                 <input id="repairOrderNumber" data-repair-order-field="number" type="text" maxlength="32" placeholder="1">
               </div>
               <div class="field field--compact repair-order-field repair-order-field--date">
-                <label for="repairOrderDate">Р”РђРўРђ</label>
+                <label for="repairOrderDate">ДАТА</label>
                 <input id="repairOrderDate" data-repair-order-field="date" type="text" maxlength="32" placeholder="04.04.26 14:30">
               </div>
               <div class="field field--compact repair-order-field repair-order-field--date">
-                <label for="repairOrderOpenedAt">РћРўРљР Р«РўРђ</label>
+                <label for="repairOrderOpenedAt">ОТКРЫТА</label>
                 <input id="repairOrderOpenedAt" data-repair-order-field="opened_at" type="text" maxlength="32" placeholder="05.04.26 10:30">
               </div>
               <div class="field field--compact repair-order-field repair-order-field--date">
-                <label for="repairOrderClosedAt">Р—РђРљР Р«РўРђ</label>
+                <label for="repairOrderClosedAt">ЗАКРЫТА</label>
                 <input id="repairOrderClosedAt" data-repair-order-field="closed_at" type="text" maxlength="32" placeholder="05.04.26 18:20">
               </div>
             </div>
-            <div class="repair-order-status" id="repairOrderStatus">РћС‚РєСЂС‹С‚</div>
+            <div class="repair-order-status" id="repairOrderStatus">Открыт</div>
           </section>
           <section class="repair-order-card" data-repair-order-section="client">
-            <div class="panel-title">РљР›РР•РќРў</div>
+            <div class="panel-title">КЛИЕНТ</div>
             <div class="repair-order-card__grid repair-order-card__grid--client">
               <div class="field field--compact repair-order-field repair-order-field--client">
-                <input id="repairOrderClient" data-repair-order-field="client" aria-label="РљР»РёРµРЅС‚" type="text" maxlength="120" placeholder="РРјСЏ Рё С„Р°РјРёР»РёСЏ">
+                <input id="repairOrderClient" data-repair-order-field="client" aria-label="Клиент" type="text" maxlength="120" placeholder="Имя и фамилия">
               </div>
               <div class="field field--compact repair-order-field repair-order-field--phone">
-                <label for="repairOrderPhone">РўР•Р›Р•Р¤РћРќ</label>
+                <label for="repairOrderPhone">ТЕЛЕФОН</label>
                 <input id="repairOrderPhone" data-repair-order-field="phone" type="text" maxlength="60" placeholder="+7 900 123-45-67">
               </div>
             </div>
           </section>
           <section class="repair-order-card" data-repair-order-section="vehicle">
-            <div class="panel-title">РђР’РўРћРњРћР‘РР›Р¬</div>
+            <div class="panel-title">АВТОМОБИЛЬ</div>
             <div class="repair-order-card__grid repair-order-card__grid--vehicle">
               <div class="field field--compact repair-order-field repair-order-field--vehicle">
-                <input id="repairOrderVehicle" data-repair-order-field="vehicle" aria-label="РђРІС‚РѕРјРѕР±РёР»СЊ" type="text" maxlength="120" placeholder="Volkswagen Tiguan">
+                <input id="repairOrderVehicle" data-repair-order-field="vehicle" aria-label="Автомобиль" type="text" maxlength="120" placeholder="Volkswagen Tiguan">
               </div>
               <div class="field field--compact repair-order-field repair-order-field--plate">
-                <label for="repairOrderLicensePlate">Р“РћРЎРќРћРњР•Р </label>
-                <input id="repairOrderLicensePlate" data-repair-order-field="license_plate" type="text" maxlength="20" placeholder="Рђ123РђРђ124">
+                <label for="repairOrderLicensePlate">ГОСНОМЕР</label>
+                <input id="repairOrderLicensePlate" data-repair-order-field="license_plate" type="text" maxlength="20" placeholder="А123АА124">
               </div>
               <div class="field field--compact repair-order-field repair-order-field--vin">
                 <label for="repairOrderVin">VIN</label>
                 <input id="repairOrderVin" data-repair-order-field="vin" type="text" maxlength="32" placeholder="WAUZZZ...">
               </div>
               <div class="field field--compact repair-order-field repair-order-field--mileage">
-                <label for="repairOrderMileage">РџР РћР‘Р•Р“</label>
+                <label for="repairOrderMileage">ПРОБЕГ</label>
                 <input id="repairOrderMileage" data-repair-order-field="mileage" type="text" maxlength="32" placeholder="215 000">
               </div>
             </div>
             <div class="repair-order-hidden-fields" aria-hidden="true">
               <div class="field field--compact repair-order-field repair-order-field--payment-method">
-                <label for="repairOrderPaymentMethod">Р¤РћР РњРђ РћРџР›РђРўР«</label>
+                <label for="repairOrderPaymentMethod">ФОРМА ОПЛАТЫ</label>
                 <select id="repairOrderPaymentMethod" data-repair-order-field="payment_method" tabindex="-1">
-                  <option value="cash">РќР°Р»РёС‡РЅС‹Р№</option>
-                  <option value="cashless">Р‘РµР·РЅР°Р»РёС‡РЅС‹Р№</option>
+                  <option value="cash">Наличный</option>
+                  <option value="cashless">Безналичный</option>
                 </select>
               </div>
               <div class="field field--compact repair-order-field repair-order-field--prepayment">
-                <label for="repairOrderPrepayment">РџР Р•Р”РћРџР›РђРўРђ</label>
+                <label for="repairOrderPrepayment">ПРЕДОПЛАТА</label>
                 <input id="repairOrderPrepayment" data-repair-order-field="prepayment" type="hidden" value="0">
               </div>
             </div>
           </section>
         </div>
         <section class="repair-order-card repair-order-card--wide hidden" data-repair-order-section="reason" aria-hidden="true">
-          <div class="panel-title">РџР РР§РРќРђ РћР‘Р РђР©Р•РќРРЇ</div>
+          <div class="panel-title">ПРИЧИНА ОБРАЩЕНИЯ</div>
           <div class="field field--compact repair-order-client-info">
-            <textarea id="repairOrderReason" data-repair-order-field="reason" aria-label="РџСЂРёС‡РёРЅР° РѕР±СЂР°С‰РµРЅРёСЏ" maxlength="4000" placeholder="РљСЂР°С‚РєРѕ Р·Р°С„РёРєСЃРёСЂСѓР№С‚Рµ СЃСѓС‚СЊ РѕР±СЂР°С‰РµРЅРёСЏ РєР»РёРµРЅС‚Р°."></textarea>
+            <textarea id="repairOrderReason" data-repair-order-field="reason" aria-label="Причина обращения" maxlength="4000" placeholder="Кратко зафиксируйте суть обращения клиента."></textarea>
           </div>
         </section>
         <section class="repair-order-card repair-order-card--wide" data-repair-order-section="client_information">
-          <div class="panel-title">РРќР¤РћР РњРђР¦РРЇ Р”Р›РЇ РљР›РР•РќРўРђ</div>
+          <div class="panel-title">ИНФОРМАЦИЯ ДЛЯ КЛИЕНТА</div>
           <div class="field field--compact repair-order-client-info">
-            <textarea id="repairOrderComment" data-repair-order-field="client_information" aria-label="РРЅС„РѕСЂРјР°С†РёСЏ РґР»СЏ РєР»РёРµРЅС‚Р°" maxlength="4000" placeholder="РљСЂР°С‚РєР°СЏ РёСЃС‚РѕСЂРёСЏ СЂРµРјРѕРЅС‚Р° РґР»СЏ РєР»РёРµРЅС‚Р°: С‡С‚Рѕ РїСЂРѕРІРµСЂРёР»Рё, С‡С‚Рѕ РЅР°С€Р»Рё, С‡С‚Рѕ СЃРґРµР»Р°Р»Рё Рё С‡С‚Рѕ СЂРµРєРѕРјРµРЅРґРѕРІР°РЅРѕ РґР°Р»СЊС€Рµ."></textarea>
+            <textarea id="repairOrderComment" data-repair-order-field="client_information" aria-label="Информация для клиента" maxlength="4000" placeholder="Краткая история ремонта для клиента: что проверили, что нашли, что сделали и что рекомендовано дальше."></textarea>
           </div>
         </section>
         <section class="repair-order-card repair-order-card--wide hidden" data-repair-order-section="note" aria-hidden="true">
-          <div class="panel-title">РџР РРњР•Р§РђРќРР•</div>
+          <div class="panel-title">ПРИМЕЧАНИЕ</div>
           <div class="field field--compact repair-order-client-info">
-            <textarea id="repairOrderNote" data-repair-order-field="note" aria-label="РџСЂРёРјРµС‡Р°РЅРёРµ РјР°СЃС‚РµСЂР°" maxlength="4000" placeholder="Р’РЅСѓС‚СЂРµРЅРЅРёР№ РєРѕРјРјРµРЅС‚Р°СЂРёР№ РјР°СЃС‚РµСЂР° РёР»Рё РїСЂРёРјРµС‡Р°РЅРёРµ РїРѕ Р·Р°РєР°Р·-РЅР°СЂСЏРґСѓ."></textarea>
+            <textarea id="repairOrderNote" data-repair-order-field="note" aria-label="Примечание мастера" maxlength="4000" placeholder="Внутренний комментарий мастера или примечание по заказ-наряду."></textarea>
           </div>
         </section>
         <section class="repair-order-card repair-order-card--wide repair-order-tags-card hidden" data-repair-order-section="tags" aria-hidden="true">
           <div class="repair-order-section-bar">
-            <div class="panel-title">Р’РќРЈРўР Р•РќРќРР• РњР•РўРљР</div>
+            <div class="panel-title">ВНУТРЕННИЕ МЕТКИ</div>
             <div class="tag-limit" id="repairOrderTagMeta">0 / 5</div>
           </div>
           <div class="tag-color-picker" id="repairOrderTagColorPicker"></div>
           <div class="tag-list repair-order-tag-list" id="repairOrderTagList"></div>
           <div class="tag-entry">
-            <input id="repairOrderTagInput" type="text" maxlength="24" placeholder="РњР•РўРљРђ">
+            <input id="repairOrderTagInput" type="text" maxlength="24" placeholder="МЕТКА">
             <button class="btn" id="repairOrderTagAddButton" type="button">+</button>
           </div>
         </section>
         <section class="repair-order-table-card" data-repair-order-section="works">
           <div class="repair-order-section-bar">
-            <div class="panel-title">Р РђР‘РћРўР«</div>
-            <button class="btn btn--ghost" id="repairOrderAddWorkRowButton" type="button" data-add-repair-order-row="works">+ РЎРўР РћРљРђ</button>
+            <div class="panel-title">РАБОТЫ</div>
+            <button class="btn btn--ghost" id="repairOrderAddWorkRowButton" type="button" data-add-repair-order-row="works">+ СТРОКА</button>
           </div>
           <div class="repair-order-table-wrap">
             <table class="repair-order-table">
               <thead>
                 <tr>
-                  <th style="width:52%;">РќР°РёРјРµРЅРѕРІР°РЅРёРµ</th>
-                  <th class="repair-order-table__numeric" style="width:12%;">РљРѕР»-РІРѕ</th>
-                  <th class="repair-order-table__numeric" style="width:16%;">Р¦РµРЅР°</th>
-                  <th class="repair-order-table__numeric" style="width:16%;">РЎСѓРјРјР°</th>
+                  <th style="width:52%;">Наименование</th>
+                  <th class="repair-order-table__numeric" style="width:12%;">Кол-во</th>
+                  <th class="repair-order-table__numeric" style="width:16%;">Цена</th>
+                  <th class="repair-order-table__numeric" style="width:16%;">Сумма</th>
                   <th class="repair-order-table__action" style="width:4%;"></th>
                 </tr>
               </thead>
               <tbody id="repairOrderWorksBody"></tbody>
             </table>
           </div>
-          <div class="repair-order-subtotal"><span>РРўРћР“Рћ Р РђР‘РћРўР«</span><strong data-repair-order-total="works">0,00</strong></div>
+          <div class="repair-order-subtotal"><span>ИТОГО РАБОТЫ</span><strong data-repair-order-total="works">0,00</strong></div>
         </section>
         <section class="repair-order-table-card" data-repair-order-section="materials">
           <div class="repair-order-section-bar">
-            <div class="panel-title">РњРђРўР•Р РРђР›Р«</div>
-            <button class="btn btn--ghost" id="repairOrderAddMaterialRowButton" type="button" data-add-repair-order-row="materials">+ РЎРўР РћРљРђ</button>
+            <div class="panel-title">МАТЕРИАЛЫ</div>
+            <button class="btn btn--ghost" id="repairOrderAddMaterialRowButton" type="button" data-add-repair-order-row="materials">+ СТРОКА</button>
           </div>
           <div class="repair-order-table-wrap">
             <table class="repair-order-table">
               <thead>
                 <tr>
-                  <th style="width:52%;">РќР°РёРјРµРЅРѕРІР°РЅРёРµ</th>
-                  <th class="repair-order-table__numeric" style="width:12%;">РљРѕР»-РІРѕ</th>
-                  <th class="repair-order-table__numeric" style="width:16%;">Р¦РµРЅР°</th>
-                  <th class="repair-order-table__numeric" style="width:16%;">РЎСѓРјРјР°</th>
+                  <th style="width:52%;">Наименование</th>
+                  <th class="repair-order-table__numeric" style="width:12%;">Кол-во</th>
+                  <th class="repair-order-table__numeric" style="width:16%;">Цена</th>
+                  <th class="repair-order-table__numeric" style="width:16%;">Сумма</th>
                   <th class="repair-order-table__action" style="width:4%;"></th>
                 </tr>
               </thead>
               <tbody id="repairOrderMaterialsBody"></tbody>
             </table>
           </div>
-          <div class="repair-order-subtotal"><span>РРўРћР“Рћ РњРђРўР•Р РРђР›Р«</span><strong data-repair-order-total="materials">0,00</strong></div>
+          <div class="repair-order-subtotal"><span>ИТОГО МАТЕРИАЛЫ</span><strong data-repair-order-total="materials">0,00</strong></div>
         </section>
       </div>
         <div class="dialog__foot repair-order-footer">
           <div class="repair-order-footer__totals">
             <div class="repair-order-total">
-              <span>РРўРћР“Рћ Р РђР‘РћРўР«</span>
+              <span>ИТОГО РАБОТЫ</span>
               <strong data-repair-order-total="works">0,00</strong>
           </div>
             <div class="repair-order-total">
-              <span>РРўРћР“Рћ РњРђРўР•Р РРђР›Р«</span>
+              <span>ИТОГО МАТЕРИАЛЫ</span>
               <strong data-repair-order-total="materials">0,00</strong>
             </div>
             <div class="repair-order-total">
-              <span>РЎРўРћРРњРћРЎРўР¬ РќРђР РЇР”Рђ</span>
+              <span>СТОИМОСТЬ НАРЯДА</span>
               <strong data-repair-order-total="subtotal">0,00</strong>
             </div>
             <div class="repair-order-total is-hidden" data-repair-order-total-block="taxes">
-              <span>РќРђР›РћР“Р Р РЎР‘РћР Р«</span>
+              <span>НАЛОГИ И СБОРЫ</span>
               <strong data-repair-order-total="taxes">0,00</strong>
             </div>
             <div class="repair-order-total">
-              <span>РРўРћР“Рћ РџРћ Р—РђРљРђР—-РќРђР РЇР”РЈ</span>
+              <span>ИТОГО ПО ЗАКАЗ-НАРЯДУ</span>
               <strong data-repair-order-total="grand">0,00</strong>
             </div>
             <div class="repair-order-total">
-              <span>РџР Р•Р”РћРџР›РђРўРђ</span>
+              <span>ПРЕДОПЛАТА</span>
               <strong data-repair-order-total="prepayment">0,00</strong>
             </div>
             <div class="repair-order-total repair-order-total--grand">
-              <span>Рљ Р”РћРџР›РђРўР•</span>
+              <span>К ДОПЛАТЕ</span>
               <strong data-repair-order-total="due">0,00</strong>
             </div>
           </div>
         <div class="repair-order-footer__actions">
-          <button class="btn" data-close="repair-order">РћРўРњР•РќРђ</button>
-          <button class="btn btn--ghost" id="repairOrderCloseButton" type="button">Р—РђРљР Р«РўР¬ Р—РђРљРђР—-РќРђР РЇР”</button>
-          <button class="btn repair-order-save" id="repairOrderSaveButton" type="button">РЎРћРҐР РђРќРРўР¬</button>
-          <button class="btn btn--ghost" id="repairOrderPrintButton" type="button">Р РђРЎРџР•Р§РђРўРђРўР¬</button>
+          <button class="btn" data-close="repair-order">ОТМЕНА</button>
+          <button class="btn btn--ghost" id="repairOrderCloseButton" type="button">ЗАКРЫТЬ ЗАКАЗ-НАРЯД</button>
+          <button class="btn repair-order-save" id="repairOrderSaveButton" type="button">СОХРАНИТЬ</button>
+          <button class="btn btn--ghost" id="repairOrderPrintButton" type="button">РАСПЕЧАТАТЬ</button>
         </div>
       </div>
     </div>
@@ -3196,50 +3196,50 @@ BOARD_WEB_APP_HTML = "".join(
       { tint: 'rgba(40, 44, 39, 0.95)', head: 'rgba(110, 122, 96, 0.16)', edge: '#76806f', empty: 'rgba(160, 174, 135, 0.05)' },
     ];
     const SUGGESTED_TAGS = [
-      { label: 'РЎР РћР§РќРћ', color: 'red' },
-      { label: 'Р“РћР РРў РЎР РћРљ', color: 'yellow' },
-      { label: 'Р–Р”РЃРњ', color: 'yellow' },
-      { label: 'РЎРћР“Р›РђРЎРћР’РђРўР¬', color: 'green' },
-      { label: 'Р—РђРљРђР—РђРўР¬', color: 'green' },
+      { label: 'СРОЧНО', color: 'red' },
+      { label: 'ГОРИТ СРОК', color: 'yellow' },
+      { label: 'ЖДЁМ', color: 'yellow' },
+      { label: 'СОГЛАСОВАТЬ', color: 'green' },
+      { label: 'ЗАКАЗАТЬ', color: 'green' },
     ];
     const CARD_TAG_LIMIT = 3;
     const REPAIR_ORDER_TAG_LIMIT = 5;
     const REPAIR_ORDER_SORT_FIELDS = ['number', 'opened_at', 'closed_at'];
     const REPAIR_ORDER_SORT_DIRECTIONS = ['asc', 'desc'];
     const TAG_COLOR_OPTIONS = [
-      { value: 'green', label: 'Р—РµР»С‘РЅР°СЏ' },
-      { value: 'yellow', label: 'Р–С‘Р»С‚Р°СЏ' },
-      { value: 'red', label: 'РљСЂР°СЃРЅР°СЏ' },
+      { value: 'green', label: 'Зелёная' },
+      { value: 'yellow', label: 'Жёлтая' },
+      { value: 'red', label: 'Красная' },
     ];
     const VEHICLE_COMPLETION_LABELS = {
-      manually_entered: 'СЂСѓС‡РЅРѕР№ РІРІРѕРґ',
-      partially_autofilled: 'С‡Р°СЃС‚РёС‡РЅРѕ Р°РІС‚РѕР·Р°РїРѕР»РЅРµРЅРѕ',
-      mostly_autofilled: 'РїРѕС‡С‚Рё Р·Р°РїРѕР»РЅРµРЅРѕ',
-      verified: 'РїСЂРѕРІРµСЂРµРЅРѕ',
+      manually_entered: 'ручной ввод',
+      partially_autofilled: 'частично автозаполнено',
+      mostly_autofilled: 'почти заполнено',
+      verified: 'проверено',
     };
     const VEHICLE_COMPLETION_OPTIONS = [
-      { value: 'manually_entered', label: 'Р РЈР§РќРћР™ Р’Р’РћР”' },
-      { value: 'partially_autofilled', label: 'Р§РђРЎРўРР§РќРћ РђР’РўРћ' },
-      { value: 'mostly_autofilled', label: 'РџРћР§РўР Р—РђРџРћР›РќР•РќРћ' },
-      { value: 'verified', label: 'РџР РћР’Р•Р Р•РќРћ' },
+      { value: 'manually_entered', label: 'РУЧНОЙ ВВОД' },
+      { value: 'partially_autofilled', label: 'ЧАСТИЧНО АВТО' },
+      { value: 'mostly_autofilled', label: 'ПОЧТИ ЗАПОЛНЕНО' },
+      { value: 'verified', label: 'ПРОВЕРЕНО' },
     ];
     const VEHICLE_FIELD_GROUPS = [
       {
-        title: 'РРґРµРЅС‚РёС„РёРєР°С†РёСЏ',
+        title: 'Идентификация',
         fields: [
-          { name: 'make_display', label: 'РњР°СЂРєР°', placeholder: 'Audi' },
-          { name: 'model_display', label: 'РњРѕРґРµР»СЊ', placeholder: 'A8 D4' },
-          { name: 'production_year', label: 'Р“РѕРґ', type: 'number', min: '1900', max: '2100', step: '1', placeholder: '2016' },
-          { name: 'mileage', label: 'РџСЂРѕР±РµРі', type: 'number', min: '0', step: '1', placeholder: '185000' },
+          { name: 'make_display', label: 'Марка', placeholder: 'Audi' },
+          { name: 'model_display', label: 'Модель', placeholder: 'A8 D4' },
+          { name: 'production_year', label: 'Год', type: 'number', min: '1900', max: '2100', step: '1', placeholder: '2016' },
+          { name: 'mileage', label: 'Пробег', type: 'number', min: '0', step: '1', placeholder: '185000' },
           { name: 'vin', label: 'VIN', placeholder: 'WAU...', copy: true, mono: true, wide: true, maxlength: '17' },
         ],
       },
       {
-        title: 'РђРіСЂРµРіР°С‚С‹',
+        title: 'Агрегаты',
         fields: [
-          { name: 'engine_model', label: 'РњРѕРґРµР»СЊ РґРІРёРіР°С‚РµР»СЏ', placeholder: '3.0 TFSI / K12B', wide: true },
-          { name: 'gearbox_model', label: 'РњРѕРґРµР»СЊ РљРџРџ', placeholder: 'ZF 8HP55 / Aisin', wide: true },
-          { name: 'drivetrain', label: 'РџСЂРёРІРѕРґ', placeholder: 'РїРµСЂРµРґРЅРёР№ / Р·Р°РґРЅРёР№ / РїРѕР»РЅС‹Р№', wide: true },
+          { name: 'engine_model', label: 'Модель двигателя', placeholder: '3.0 TFSI / K12B', wide: true },
+          { name: 'gearbox_model', label: 'Модель КПП', placeholder: 'ZF 8HP55 / Aisin', wide: true },
+          { name: 'drivetrain', label: 'Привод', placeholder: 'передний / задний / полный', wide: true },
         ],
       },
     ];
@@ -3247,8 +3247,8 @@ BOARD_WEB_APP_HTML = "".join(
     VEHICLE_FIELD_GROUPS[0].fields.splice(
       3,
       0,
-      { name: 'customer_phone', label: 'РўРµР»РµС„РѕРЅ РєР»РёРµРЅС‚Р°', placeholder: '+7 900 123-45-67', wide: true },
-      { name: 'customer_name', label: 'Р¤РРћ РєР»РёРµРЅС‚Р°', placeholder: 'РРІР°РЅ РРІР°РЅРѕРІ', wide: true },
+      { name: 'customer_phone', label: 'Телефон клиента', placeholder: '+7 900 123-45-67', wide: true },
+      { name: 'customer_name', label: 'ФИО клиента', placeholder: 'Иван Иванов', wide: true },
     );
     const VEHICLE_FIELD_MAP = Object.fromEntries(
       VEHICLE_FIELD_GROUPS.flatMap((group) => group.fields.map((field) => [field.name, field]))
@@ -3495,7 +3495,7 @@ BOARD_WEB_APP_HTML = "".join(
       try {
         response = await fetch(path, request);
       } catch (_) {
-        throw new Error('РќР•Рў РЎР’РЇР—Р РЎ Р”РћРЎРљРћР™. РџР РћР’Р•Р Р¬ РЎР•РўР¬ РР›Р РџРЈР‘Р›РР§РќР«Р™ РђР”Р Р•РЎ.');
+        throw new Error('НЕТ СВЯЗИ С ДОСКОЙ. ПРОВЕРЬ СЕТЬ ИЛИ ПУБЛИЧНЫЙ АДРЕС.');
       }
       const rawText = await response.text();
       let payload = null;
@@ -3508,12 +3508,12 @@ BOARD_WEB_APP_HTML = "".join(
         if (response.status === 401) {
           clearOperatorSession({ openLogin: true, preserveStatus: true });
         }
-        throw new Error(payload?.error?.message || 'РќСѓР¶РµРЅ РІС…РѕРґ РѕРїРµСЂР°С‚РѕСЂР°.');
+        throw new Error(payload?.error?.message || 'Нужен вход оператора.');
       }
       if (response.status === 401 || payload?.error?.code === 'unauthorized') {
         throw new Error(accessDeniedMessage());
       }
-      if (!payload.ok) throw new Error(payload.error?.message || 'РћС€РёР±РєР° API');
+      if (!payload.ok) throw new Error(payload.error?.message || 'Ошибка API');
       if (!response.ok) {
         throw new Error(payload?.error?.message || ('HTTP ' + response.status));
       }
@@ -3552,9 +3552,9 @@ BOARD_WEB_APP_HTML = "".join(
 
     function accessDeniedMessage() {
       if (state.apiToken) {
-        return 'Р”РћРЎРўРЈРџ РћРўРљР›РћРќРЃРќ. РўРћРљР•Рќ РЈРЎРўРђР Р•Р› РР›Р РќР• РџРћР”РҐРћР”РРў Р”Р›РЇ Р­РўРћР™ Р”РћРЎРљР.';
+        return 'ДОСТУП ОТКЛОНЁН. ТОКЕН УСТАРЕЛ ИЛИ НЕ ПОДХОДИТ ДЛЯ ЭТОЙ ДОСКИ.';
       }
-      return 'Р­РўРђ Р”РћРЎРљРђ Р—РђР©РР©Р•РќРђ. РћРўРљР РћР™ РЎРЎР«Р›РљРЈ Р”РћРЎРўРЈРџРђ РР— РћРљРќРђ РҐРћРЎРўРђ РР›Р РџР•Р Р•Р”РђР™ access_token Р’ URL.';
+      return 'ЭТА ДОСКА ЗАЩИЩЕНА. ОТКРОЙ ССЫЛКУ ДОСТУПА ИЗ ОКНА ХОСТА ИЛИ ПЕРЕДАЙ access_token В URL.';
     }
 
     function extractDownloadName(response, fallbackName) {
@@ -3596,13 +3596,13 @@ BOARD_WEB_APP_HTML = "".join(
       try {
         response = await fetch(url, { headers, cache: 'no-store' });
       } catch (_) {
-        throw new Error('РќР• РЈР”РђР›РћРЎР¬ РЎРљРђР§РђРўР¬ Р¤РђР™Р›. РџР РћР’Р•Р Р¬ РЎР•РўР¬ Р Р”РћРЎРўРЈРџ Рљ Р”РћРЎРљР•.');
+        throw new Error('НЕ УДАЛОСЬ СКАЧАТЬ ФАЙЛ. ПРОВЕРЬ СЕТЬ И ДОСТУП К ДОСКЕ.');
       }
       if (response.status === 401) {
         throw new Error(accessDeniedMessage());
       }
       if (!response.ok) {
-        throw new Error('Р¤РђР™Р› РќР•Р”РћРЎРўРЈРџР•Рќ: HTTP ' + response.status);
+        throw new Error('ФАЙЛ НЕДОСТУПЕН: HTTP ' + response.status);
       }
       const blob = await response.blob();
       triggerBlobDownload(blob, extractDownloadName(response, 'attachment.bin'));
@@ -3610,7 +3610,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     function ensureActor() {
       if (state.actor) {
-        els.operatorButton.textContent = 'РћРџР•Р РђРўРћР : ' + state.actor;
+        els.operatorButton.textContent = 'ОПЕРАТОР: ' + state.actor;
         els.identityModal.classList.remove('is-open');
         return true;
       }
@@ -3622,9 +3622,9 @@ BOARD_WEB_APP_HTML = "".join(
 
     function configureOperatorIdentityUi() {
       const title = els.identityModal?.querySelector('.dialog__title');
-      if (title) title.textContent = 'Р’РҐРћР” РћРџР•Р РђРўРћР Рђ';
+      if (title) title.textContent = 'ВХОД ОПЕРАТОРА';
       const loginLabel = document.querySelector('label[for="identityInput"]');
-      if (loginLabel) loginLabel.textContent = 'Р›РћР“РРќ';
+      if (loginLabel) loginLabel.textContent = 'ЛОГИН';
       if (els.identityInput) {
         els.identityInput.placeholder = 'ADMIN';
         els.identityInput.autocomplete = 'username';
@@ -3632,7 +3632,7 @@ BOARD_WEB_APP_HTML = "".join(
       if (!els.identityPassword && els.identityInput?.parentElement) {
         els.identityInput.parentElement.insertAdjacentHTML(
           'afterend',
-          '<div class="field"><label for="identityPassword">РџРђР РћР›Р¬</label><input id="identityPassword" type="password" maxlength="120" placeholder="вЂўвЂўвЂўвЂўвЂўвЂўвЂўвЂў" autocomplete="current-password"></div>'
+          '<div class="field"><label for="identityPassword">ПАРОЛЬ</label><input id="identityPassword" type="password" maxlength="120" placeholder="••••••••" autocomplete="current-password"></div>'
         );
         els.identityPassword = document.getElementById('identityPassword');
       }
@@ -3644,15 +3644,15 @@ BOARD_WEB_APP_HTML = "".join(
         }
       }
       if (els.identityMeta) {
-        els.identityMeta.textContent = 'Р›РѕРіРёРЅ РѕРїСЂРµРґРµР»СЏРµС‚ РїСЂРѕС„РёР»СЊ Рё СЃС‚Р°С‚РёСЃС‚РёРєСѓ РґРµР№СЃС‚РІРёР№ РЅР° РґРѕСЃРєРµ.';
+        els.identityMeta.textContent = 'Логин определяет профиль и статистику действий на доске.';
       } else if (els.identitySave?.parentElement) {
         els.identitySave.insertAdjacentHTML(
           'beforebegin',
-          '<div class="log-row__meta" id="identityMeta">Р›РѕРіРёРЅ РѕРїСЂРµРґРµР»СЏРµС‚ РїСЂРѕС„РёР»СЊ Рё СЃС‚Р°С‚РёСЃС‚РёРєСѓ РґРµР№СЃС‚РІРёР№ РЅР° РґРѕСЃРєРµ.</div>'
+          '<div class="log-row__meta" id="identityMeta">Логин определяет профиль и статистику действий на доске.</div>'
         );
         els.identityMeta = document.getElementById('identityMeta');
       }
-      if (els.identitySave) els.identitySave.textContent = 'Р’РћР™РўР';
+      if (els.identitySave) els.identitySave.textContent = 'ВОЙТИ';
     }
 
     function setOperatorSessionToken(token, { persist = true } = {}) {
@@ -3678,10 +3678,10 @@ BOARD_WEB_APP_HTML = "".join(
 
     function updateOperatorButton() {
       if (!state.actor) {
-        els.operatorButton.textContent = 'РћРџР•Р РђРўРћР ';
+        els.operatorButton.textContent = 'ОПЕРАТОР';
         return;
       }
-      const rolePrefix = state.operatorProfile?.user?.is_admin ? 'РђР”РњРРќ' : 'РћРџР•Р РђРўРћР ';
+      const rolePrefix = state.operatorProfile?.user?.is_admin ? 'АДМИН' : 'ОПЕРАТОР';
       els.operatorButton.textContent = rolePrefix + ': ' + state.actor;
     }
 
@@ -3695,14 +3695,14 @@ BOARD_WEB_APP_HTML = "".join(
       els.operatorAdminModal.classList.remove('is-open');
       els.operatorSecurityNotice.classList.add('hidden');
       els.operatorSecurityNotice.textContent = '';
-      if (!preserveStatus) setStatus('РќСѓР¶РµРЅ РІС…РѕРґ РѕРїРµСЂР°С‚РѕСЂР°.', true);
+      if (!preserveStatus) setStatus('Нужен вход оператора.', true);
       if (openLogin) openOperatorLoginModal();
     }
 
     function requireOperatorSession() {
       if (state.operatorSessionToken && state.actor) return true;
       openOperatorLoginModal();
-      setStatus('РќСѓР¶РµРЅ РІС…РѕРґ РѕРїРµСЂР°С‚РѕСЂР°.', true);
+      setStatus('Нужен вход оператора.', true);
       return false;
     }
 
@@ -3713,7 +3713,7 @@ BOARD_WEB_APP_HTML = "".join(
     function renderOperatorActivity(actions) {
       els.operatorActivityList.innerHTML = actions.length
         ? actions.map((item) => '<div class="log-row">' + escapeHtml([formatDate(item.timestamp), item.message].join(' | ')) + '</div>').join('')
-        : '<div class="log-row__meta">Р”Р•Р™РЎРўР’РР™ РџРћРљРђ РќР•Рў.</div>';
+        : '<div class="log-row__meta">ДЕЙСТВИЙ ПОКА НЕТ.</div>';
     }
 
     function renderOperatorProfile(data, { openModal = false } = {}) {
@@ -3723,17 +3723,17 @@ BOARD_WEB_APP_HTML = "".join(
       updateOperatorButton();
       const stats = data?.stats || {};
       els.operatorProfileMeta.textContent =
-        'РџРћР›Р¬Р—РћР’РђРўР•Р›Р¬: ' + (data?.user?.username || '-') +
-        ' | Р РћР›Р¬: ' + (data?.user?.is_admin ? 'РђР”РњРРќРРЎРўР РђРўРћР ' : 'РћРџР•Р РђРўРћР ') +
-        ' | РћР‘РќРћР’Р›Р•РќРћ: ' + formatDate(data?.user?.updated_at);
+        'ПОЛЬЗОВАТЕЛЬ: ' + (data?.user?.username || '-') +
+        ' | РОЛЬ: ' + (data?.user?.is_admin ? 'АДМИНИСТРАТОР' : 'ОПЕРАТОР') +
+        ' | ОБНОВЛЕНО: ' + formatDate(data?.user?.updated_at);
       const securityWarning = data?.security?.warning || '';
       els.operatorSecurityNotice.classList.toggle('hidden', !securityWarning);
       els.operatorSecurityNotice.textContent = securityWarning;
       els.operatorStatsGrid.innerHTML = [
-        operatorStatHtml('РћРўРљР Р«РўРћ РљРђР РўРћР§Р•Рљ', stats.cards_opened ?? 0),
-        operatorStatHtml('РЎРћР—Р”РђРќРћ', stats.cards_created ?? 0),
-        operatorStatHtml('Р—РђРљР Р«РўРћ', stats.cards_archived ?? 0),
-        operatorStatHtml('РџР•Р Р•РњР•Р©Р•РќРР™', stats.card_moves ?? 0),
+        operatorStatHtml('ОТКРЫТО КАРТОЧЕК', stats.cards_opened ?? 0),
+        operatorStatHtml('СОЗДАНО', stats.cards_created ?? 0),
+        operatorStatHtml('ЗАКРЫТО', stats.cards_archived ?? 0),
+        operatorStatHtml('ПЕРЕМЕЩЕНИЙ', stats.card_moves ?? 0),
       ].join('');
       renderOperatorActivity(data?.recent_actions || []);
       els.operatorAdminButton.classList.toggle('hidden', !data?.user?.is_admin);
@@ -3803,16 +3803,16 @@ BOARD_WEB_APP_HTML = "".join(
         ? users.map((user) => {
             const stats = user.stats || {};
             return '<div class="operator-user-row">' +
-              '<div class="operator-user-row__head"><strong>' + escapeHtml(user.username) + '</strong><span class="operator-user-chip">' + escapeHtml(user.is_admin ? 'РђР”РњРРќ' : 'РћРџР•Р РђРўРћР ') + '</span></div>' +
+              '<div class="operator-user-row__head"><strong>' + escapeHtml(user.username) + '</strong><span class="operator-user-chip">' + escapeHtml(user.is_admin ? 'АДМИН' : 'ОПЕРАТОР') + '</span></div>' +
               '<div class="operator-user-row__stats">' +
-                '<span class="operator-user-chip">РћРўРљР Р«РўРћ: ' + escapeHtml(stats.cards_opened ?? 0) + '</span>' +
-                '<span class="operator-user-chip">Р—РђРљР Р«РўРћ: ' + escapeHtml(stats.cards_archived ?? 0) + '</span>' +
-                '<span class="operator-user-chip">РџР•Р Р•РњР•Р©Р•РќРР™: ' + escapeHtml(stats.card_moves ?? 0) + '</span>' +
+                '<span class="operator-user-chip">ОТКРЫТО: ' + escapeHtml(stats.cards_opened ?? 0) + '</span>' +
+                '<span class="operator-user-chip">ЗАКРЫТО: ' + escapeHtml(stats.cards_archived ?? 0) + '</span>' +
+                '<span class="operator-user-chip">ПЕРЕМЕЩЕНИЙ: ' + escapeHtml(stats.card_moves ?? 0) + '</span>' +
               '</div>' +
-              '<div class="operator-user-row__actions"><span class="log-row__meta">РћР‘РќРћР’Р›Р•РќРћ: ' + escapeHtml(formatDate(user.updated_at)) + ' | РЎРўРђРўРРЎРўРРљРђ: 15 Р”РќР•Р™</span><div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="btn" type="button" data-open-operator-report="' + escapeHtml(user.username) + '">РЎРўРђРўРРЎРўРРљРђ</button><button class="btn btn--danger" type="button" data-delete-operator-user="' + escapeHtml(user.username) + '">РЈР”РђР›РРўР¬</button></div></div>' +
+              '<div class="operator-user-row__actions"><span class="log-row__meta">ОБНОВЛЕНО: ' + escapeHtml(formatDate(user.updated_at)) + ' | СТАТИСТИКА: 15 ДНЕЙ</span><div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="btn" type="button" data-open-operator-report="' + escapeHtml(user.username) + '">СТАТИСТИКА</button><button class="btn btn--danger" type="button" data-delete-operator-user="' + escapeHtml(user.username) + '">УДАЛИТЬ</button></div></div>' +
             '</div>';
           }).join('')
-        : '<div class="log-row__meta">РџРћР›Р¬Р—РћР’РђРўР•Р›Р•Р™ РџРћРљРђ РќР•Рў.</div>';
+        : '<div class="log-row__meta">ПОЛЬЗОВАТЕЛЕЙ ПОКА НЕТ.</div>';
     }
 
     function openTextBlobWindow(text, fileName) {
@@ -3892,7 +3892,7 @@ BOARD_WEB_APP_HTML = "".join(
         const data = await api('/api/get_operator_user_report?username=' + encodeURIComponent(username));
         const text = String(data?.text || '').trim();
         if (!text) {
-          setStatus('РћРўР§РЃРў РџРЈРЎРў.', true);
+          setStatus('ОТЧЁТ ПУСТ.', true);
           return;
         }
         openTextBlobWindow(text, data?.file_name || ('operator-report-' + username + '.txt'));
@@ -3928,7 +3928,7 @@ BOARD_WEB_APP_HTML = "".join(
         });
         els.adminUserLogin.value = '';
         els.adminUserPassword.value = '';
-        setStatus((data?.meta?.created ? 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ СЃРѕР·РґР°РЅ.' : 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РѕР±РЅРѕРІР»С‘РЅ.') + ' ' + (data?.user?.username || ''), false);
+        setStatus((data?.meta?.created ? 'Пользователь создан.' : 'Пользователь обновлён.') + ' ' + (data?.user?.username || ''), false);
         await refreshOperatorAdminSurfaces({ openAdminModal: true, refreshProfile: true });
       } catch (error) {
         setStatus(error.message, true);
@@ -3936,7 +3936,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     async function deleteOperatorUser(username) {
-      if (!window.confirm('РЈРґР°Р»РёС‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ ' + username + '?')) return;
+      if (!window.confirm('Удалить пользователя ' + username + '?')) return;
       try {
         await api('/api/delete_operator_user', { method: 'POST', body: { username } });
         await refreshOperatorAdminSurfaces({ openAdminModal: true });
@@ -3969,7 +3969,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function formatDate(value) {
-      if (!value) return 'РЅРµС‚ РґР°С‚С‹';
+      if (!value) return 'нет даты';
       try { return new Date(value).toLocaleString('ru-RU'); } catch { return value; }
     }
 
@@ -4160,22 +4160,22 @@ BOARD_WEB_APP_HTML = "".join(
     function durationToShort(total) {
       const parts = secondsToParts(total);
       const hh = String(parts.hours).padStart(2, '0');
-      if (parts.days > 0) return parts.days + 'Р” ' + hh + 'Р§';
-      return hh + 'Р§';
+      if (parts.days > 0) return parts.days + 'Д ' + hh + 'Ч';
+      return hh + 'Ч';
     }
 
     function durationToFull(total) {
       const parts = secondsToParts(total);
-      return String(parts.days).padStart(2, '0') + 'Р” ' + String(parts.hours).padStart(2, '0') + 'Р§';
+      return String(parts.days).padStart(2, '0') + 'Д ' + String(parts.hours).padStart(2, '0') + 'Ч';
     }
 
     function durationToMarkup(total, alwaysShowDays = false) {
       const parts = secondsToParts(total);
       const groups = [];
       if (alwaysShowDays || parts.days > 0) {
-        groups.push('<span class="time-readout__group"><span class="time-readout__num">' + String(parts.days).padStart(2, '0') + '</span><span class="time-readout__unit">Р”</span></span>');
+        groups.push('<span class="time-readout__group"><span class="time-readout__num">' + String(parts.days).padStart(2, '0') + '</span><span class="time-readout__unit">Д</span></span>');
       }
-      groups.push('<span class="time-readout__group"><span class="time-readout__num">' + String(parts.hours).padStart(2, '0') + '</span><span class="time-readout__unit">Р§</span></span>');
+      groups.push('<span class="time-readout__group"><span class="time-readout__num">' + String(parts.hours).padStart(2, '0') + '</span><span class="time-readout__unit">Ч</span></span>');
       return '<span class="time-readout">' + groups.join('') + '</span>';
     }
 
@@ -4183,14 +4183,14 @@ BOARD_WEB_APP_HTML = "".join(
       const vehicle = String(card?.vehicle || '').trim();
       const title = String(card?.title || '').trim();
       if (vehicle && title) return vehicle + ' / ' + title;
-      return title || vehicle || 'Р‘РµР· РЅР°Р·РІР°РЅРёСЏ';
+      return title || vehicle || 'Без названия';
     }
 
     function limitCardModalHeading(value, maxLength = 92) {
       const text = String(value || '').trim();
-      if (!text) return 'Р Р°Р±РѕС‡Р°СЏ РєР°СЂС‚РѕС‡РєР°';
+      if (!text) return 'Рабочая карточка';
       if (text.length <= maxLength) return text;
-      return text.slice(0, Math.max(0, maxLength - 1)).trimEnd() + 'вЂ¦';
+      return text.slice(0, Math.max(0, maxLength - 1)).trimEnd() + '…';
     }
 
     function configureVehicleAutofillUi() {
@@ -4226,7 +4226,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function stickyHeadingLabel(sticky) {
-      return 'РЎРўРРљР•Р  / ' + String(sticky?.id || '').slice(0, 8).toUpperCase();
+      return 'СТИКЕР / ' + String(sticky?.id || '').slice(0, 8).toUpperCase();
     }
 
     function stickyRenderPosition(value, scale = state.boardScale || 1) {
@@ -4261,8 +4261,8 @@ BOARD_WEB_APP_HTML = "".join(
       const expired = sticky.is_expired ? 'true' : 'false';
       const tone = style.toneClass;
       return '<article class="sticky" data-sticky-id="' + escapeHtml(sticky.id) + '" data-expired="' + expired + '" data-opacity="' + tone + '" style="left:' + style.left + 'px; top:' + style.top + 'px; opacity:' + style.opacity + ';">' +
-        '<div class="sticky__head"><span class="sticky__pin">РЎРўРРљР•Р </span><button class="sticky__close" type="button" data-delete-sticky="' + escapeHtml(sticky.id) + '" title="РЈРґР°Р»РёС‚СЊ">Г—</button></div>' +
-        '<div class="sticky__text">' + escapeHtml(sticky.text || 'Р—РђРњР•РўРљРђ') + '</div>' +
+        '<div class="sticky__head"><span class="sticky__pin">СТИКЕР</span><button class="sticky__close" type="button" data-delete-sticky="' + escapeHtml(sticky.id) + '" title="Удалить">×</button></div>' +
+        '<div class="sticky__text">' + escapeHtml(sticky.text || 'ЗАМЕТКА') + '</div>' +
         '<div class="sticky__meta"><span>' + stickyDurationMarkup(sticky) + '</span><span>TIME</span></div>' +
         '</article>';
     }
@@ -4344,7 +4344,7 @@ BOARD_WEB_APP_HTML = "".join(
       if (!normalized) return false;
       const exists = state.draftTags.some((item) => item.label === normalized.label);
       if (!exists && state.draftTags.length >= CARD_TAG_LIMIT) {
-        setStatus('РќРђ РљРђР РўРћР§РљР• РњРћР–Р•Рў Р‘Р«РўР¬ РќР• Р‘РћР›Р•Р• 3 РњР•РўРћРљ.', true);
+        setStatus('НА КАРТОЧКЕ МОЖЕТ БЫТЬ НЕ БОЛЕЕ 3 МЕТОК.', true);
         return false;
       }
       const nextTags = normalizeDraftTags(state.draftTags.concat([normalized]), state.draftTagColor);
@@ -4385,7 +4385,7 @@ BOARD_WEB_APP_HTML = "".join(
       if (!normalized) return false;
       const exists = state.repairOrderTags.some((item) => item.label === normalized.label);
       if (!exists && state.repairOrderTags.length >= REPAIR_ORDER_TAG_LIMIT) {
-        setStatus('РќРђ Р—РђРљРђР—-РќРђР РЇР”Р• РњРћР–Р•Рў Р‘Р«РўР¬ РќР• Р‘РћР›Р•Р• 5 РњР•РўРћРљ.', true);
+        setStatus('НА ЗАКАЗ-НАРЯДЕ МОЖЕТ БЫТЬ НЕ БОЛЕЕ 5 МЕТОК.', true);
         return false;
       }
       state.repairOrderTags = normalizeRepairOrderTags(state.repairOrderTags.concat([normalized]), state.repairOrderTagColor);
@@ -4407,17 +4407,17 @@ BOARD_WEB_APP_HTML = "".join(
       els.repairOrderTagList.innerHTML = state.repairOrderTags.length
         ? state.repairOrderTags.map((tag) => (
             '<span class="repair-order-tag-item">'
-            + '<button class="tag repair-order-tag-edit" type="button" data-tag-color="' + escapeHtml(tag.color) + '" data-edit-repair-order-tag="' + escapeHtml(tag.label) + '" title="Р РµРґР°РєС‚РёСЂРѕРІР°С‚СЊ РјРµС‚РєСѓ"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</button>'
-            + '<button class="btn btn--ghost repair-order-tag-remove" type="button" data-remove-repair-order-tag="' + escapeHtml(tag.label) + '" aria-label="РЈРґР°Р»РёС‚СЊ РјРµС‚РєСѓ">Г—</button>'
+            + '<button class="tag repair-order-tag-edit" type="button" data-tag-color="' + escapeHtml(tag.color) + '" data-edit-repair-order-tag="' + escapeHtml(tag.label) + '" title="Редактировать метку"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</button>'
+            + '<button class="btn btn--ghost repair-order-tag-remove" type="button" data-remove-repair-order-tag="' + escapeHtml(tag.label) + '" aria-label="Удалить метку">×</button>'
             + '</span>'
           )).join('')
-        : '<div class="tag tag--muted">РњР•РўРћРљ РќР•Рў</div>';
+        : '<div class="tag tag--muted">МЕТОК НЕТ</div>';
       if (els.repairOrderTagMeta) {
         els.repairOrderTagMeta.textContent = state.repairOrderTags.length + ' / ' + REPAIR_ORDER_TAG_LIMIT;
         els.repairOrderTagMeta.dataset.limitState = atLimit ? 'full' : 'open';
       }
       els.repairOrderTagInput.disabled = atLimit;
-      els.repairOrderTagInput.placeholder = atLimit ? 'Р›РРњРРў 5 / 5' : 'РњР•РўРљРђ';
+      els.repairOrderTagInput.placeholder = atLimit ? 'ЛИМИТ 5 / 5' : 'МЕТКА';
       els.repairOrderTagAddButton.disabled = atLimit;
     }
 
@@ -4543,7 +4543,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function vehicleCompletionLabel(value) {
-      return VEHICLE_COMPLETION_LABELS[String(value || '').trim()] || 'РґР°РЅРЅС‹Рµ СѓС‚РѕС‡РЅСЏСЋС‚СЃСЏ';
+      return VEHICLE_COMPLETION_LABELS[String(value || '').trim()] || 'данные уточняются';
     }
 
     function vinLooksSuspicious(value) {
@@ -4582,7 +4582,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.vehicleProfileFields.innerHTML = VEHICLE_FIELD_GROUPS.map((group) => {
         const fields = group.fields.map((field) => {
           const copyButton = field.copy
-            ? '<button class="vehicle-copy" type="button" data-copy-vehicle-field="' + escapeHtml(field.name) + '">РєРѕРїРёСЏ</button>'
+            ? '<button class="vehicle-copy" type="button" data-copy-vehicle-field="' + escapeHtml(field.name) + '">копия</button>'
             : '';
           return '<div class="field field--compact vehicle-field' + (field.wide ? ' vehicle-field--wide' : '') + '">' +
             '<div class="vehicle-field__label"><span>' + escapeHtml(field.label) + '</span>' + copyButton + '</div>' +
@@ -4626,7 +4626,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     function defaultVehicleStatusText(profile) {
       const lines = [];
-      if (profile?.source_summary) lines.push('РСЃС‚РѕС‡РЅРёРє: ' + profile.source_summary);
+      if (profile?.source_summary) lines.push('Источник: ' + profile.source_summary);
       if (profile?.source_confidence !== null && profile?.source_confidence !== undefined && profile.source_confidence !== '') {
         lines.push('Confidence: ' + Math.round(Number(profile.source_confidence) * 100) + '%');
       }
@@ -4637,20 +4637,20 @@ BOARD_WEB_APP_HTML = "".join(
         lines.push('Refs: ' + profile.source_links_or_refs.join(' | '));
       }
       (profile?.warnings || []).forEach((warning) => lines.push('! ' + warning));
-      return lines.length ? lines.join('\\n') : 'РђРІС‚РѕР·Р°РїРѕР»РЅРµРЅРёРµ РїРѕРєР° РЅРµ Р·Р°РїСѓСЃРєР°Р»РѕСЃСЊ.';
+      return lines.length ? lines.join('\\n') : 'Автозаполнение пока не запускалось.';
     }
 
     function renderVehicleAutofillStatus(message, isWarning = false) {
       if (!els.vehicleAutofillStatus) return;
-      const text = String(message || '').trim() || 'РђРІС‚РѕР·Р°РїРѕР»РЅРµРЅРёРµ РїРѕРєР° РЅРµ Р·Р°РїСѓСЃРєР°Р»РѕСЃСЊ.';
+      const text = String(message || '').trim() || 'Автозаполнение пока не запускалось.';
       els.vehicleAutofillStatus.textContent = text;
       els.vehicleAutofillStatus.classList.toggle('is-warning', isWarning);
-      els.vehicleAutofillStatus.classList.toggle('is-empty', !text || text === 'РђРІС‚РѕР·Р°РїРѕР»РЅРµРЅРёРµ РїРѕРєР° РЅРµ Р·Р°РїСѓСЃРєР°Р»РѕСЃСЊ.');
+      els.vehicleAutofillStatus.classList.toggle('is-empty', !text || text === 'Автозаполнение пока не запускалось.');
     }
 
     cardUnreadBadgeHtml = function(card) {
       return card?.is_unread
-        ? '<div class="card__unread-badge" title="РќРµ РїСЂРѕС‡РёС‚Р°РЅРѕ" aria-label="РќРµ РїСЂРѕС‡РёС‚Р°РЅРѕ">NEW</div>'
+        ? '<div class="card__unread-badge" title="Не прочитано" aria-label="Не прочитано">NEW</div>'
         : '';
     };
 
@@ -4659,9 +4659,9 @@ BOARD_WEB_APP_HTML = "".join(
       const extraTags = (card.tags || []).length - previewTags.length;
       const tagsHtml = previewTags.length
         ? previewTags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
-        : '<span class="tag tag--muted">Р‘Р•Р— РњР•РўРћРљ</span>';
+        : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
-      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'РћРїРёСЃР°РЅРёРµ РЅРµ СѓРєР°Р·Р°РЅРѕ') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>РЎРР“Рќ</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>Р¤РђР™Р›Р« ' + escapeHtml(card.attachment_count) + '</span><span>Р–РЈР РќРђР› ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
     };
 
     renderCardHtml = function(card) {
@@ -4670,10 +4670,10 @@ BOARD_WEB_APP_HTML = "".join(
       const extraTags = normalizedTags.length - previewTags.length;
       const tagsHtml = previewTags.length
         ? previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
-        : '<span class="tag tag--muted">Р‘Р•Р— РњР•РўРћРљ</span>';
+        : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'РћРїРёСЃР°РЅРёРµ РЅРµ СѓРєР°Р·Р°РЅРѕ') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>РЎРР“Рќ</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>Р¤РђР™Р›Р« ' + escapeHtml(card.attachment_count) + '</span><span>Р–РЈР РќРђР› ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
     };
 
     renderBoardCardHtml = function(card) {
@@ -4682,18 +4682,18 @@ BOARD_WEB_APP_HTML = "".join(
       const extraTags = normalizedTags.length - previewTags.length;
       const tagsHtml = previewTags.length
         ? previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
-        : '<span class="tag tag--muted">Р‘Р•Р— РњР•РўРћРљ</span>';
+        : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
       const unreadBadgeHtml = cardUnreadBadgeHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'РћРїРёСЃР°РЅРёРµ РЅРµ СѓРєР°Р·Р°РЅРѕ') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>РЎРР“Рќ</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>Р¤РђР™Р›Р« ' + escapeHtml(card.attachment_count) + '</span><span>Р–РЈР РќРђР› ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
     };
 
     function legacyRefreshVehiclePanelShadow() {
       const profile = cloneVehicleProfile(state.vehicleProfileDraft || emptyVehicleProfile());
       const summaryLines = [];
       if (profile.vin) summaryLines.push('VIN: ' + profile.vin);
-      if (profile.mileage) summaryLines.push('РџСЂРѕР±РµРі: ' + profile.mileage);
+      if (profile.mileage) summaryLines.push('Пробег: ' + profile.mileage);
       els.vehiclePanelSummary.textContent = summaryLines.join('\\n');
       els.vehiclePanelSummary.style.display = summaryLines.length ? '' : 'none';
 
@@ -4735,8 +4735,8 @@ BOARD_WEB_APP_HTML = "".join(
       VEHICLE_PRIMARY_FIELDS.forEach((fieldName) => {
         profile[fieldName] = readVehicleFieldValue(fieldName);
       });
-      const warnings = Array.isArray(profile.warnings) ? profile.warnings.filter((item) => item !== 'VIN С‚СЂРµР±СѓРµС‚ СЂСѓС‡РЅРѕР№ РїСЂРѕРІРµСЂРєРё.') : [];
-      if (vinLooksSuspicious(profile.vin)) warnings.push('VIN С‚СЂРµР±СѓРµС‚ СЂСѓС‡РЅРѕР№ РїСЂРѕРІРµСЂРєРё.');
+      const warnings = Array.isArray(profile.warnings) ? profile.warnings.filter((item) => item !== 'VIN требует ручной проверки.') : [];
+      if (vinLooksSuspicious(profile.vin)) warnings.push('VIN требует ручной проверки.');
       profile.warnings = warnings;
       state.vehicleProfileDraft = cloneVehicleProfile(profile);
       return profile;
@@ -4746,7 +4746,7 @@ BOARD_WEB_APP_HTML = "".join(
       const rawValue = readVehicleFieldValue(fieldName);
       const value = Array.isArray(rawValue) ? rawValue.join('\\n') : String(rawValue || '').trim();
       if (!value) {
-        setStatus('РќР•Рў Р”РђРќРќР«РҐ Р”Р›РЇ РљРћРџРР РћР’РђРќРРЇ.', true);
+        setStatus('НЕТ ДАННЫХ ДЛЯ КОПИРОВАНИЯ.', true);
         return;
       }
       try {
@@ -4760,9 +4760,9 @@ BOARD_WEB_APP_HTML = "".join(
           document.execCommand('copy');
           temp.remove();
         }
-        setStatus('РЎРљРћРџРР РћР’РђРќРћ: ' + fieldName.toUpperCase(), false);
+        setStatus('СКОПИРОВАНО: ' + fieldName.toUpperCase(), false);
       } catch (_) {
-        setStatus('РќР• РЈР”РђР›РћРЎР¬ РЎРљРћРџРР РћР’РђРўР¬ РџРћР›Р•.', true);
+        setStatus('НЕ УДАЛОСЬ СКОПИРОВАТЬ ПОЛЕ.', true);
       }
     }
 
@@ -4770,8 +4770,8 @@ BOARD_WEB_APP_HTML = "".join(
       const profile = cloneVehicleProfile(result?.vehicle_profile || {});
       const warnings = Array.from(new Set([...(result?.warnings || []), ...(profile.warnings || [])]));
       const lines = [];
-      if (profile.source_summary) lines.push('РСЃС‚РѕС‡РЅРёРє: ' + profile.source_summary);
-      if (result?.used_sources?.length) lines.push('РСЃС‚РѕС‡РЅРёРєРё: ' + result.used_sources.join(' | '));
+      if (profile.source_summary) lines.push('Источник: ' + profile.source_summary);
+      if (result?.used_sources?.length) lines.push('Источники: ' + result.used_sources.join(' | '));
       if (profile.source_confidence !== null && profile.source_confidence !== undefined && profile.source_confidence !== '') {
         lines.push('Confidence: ' + Math.round(Number(profile.source_confidence) * 100) + '%');
       }
@@ -4780,7 +4780,7 @@ BOARD_WEB_APP_HTML = "".join(
       }
       warnings.forEach((warning) => lines.push('! ' + warning));
       return {
-        text: lines.length ? lines.join('\\n') : 'РђРІС‚РѕР·Р°РїРѕР»РЅРµРЅРёРµ РѕС‚СЂР°Р±РѕС‚Р°Р»Рѕ Р±РµР· Р·Р°РјРµС‡Р°РЅРёР№.',
+        text: lines.length ? lines.join('\\n') : 'Автозаполнение отработало без замечаний.',
         isWarning: warnings.length > 0 || vinLooksSuspicious(profile.vin),
       };
     }
@@ -4788,12 +4788,12 @@ BOARD_WEB_APP_HTML = "".join(
     async function autofillVehicleProfile() {
       const rawText = buildVehicleAutofillRawText();
       if (!rawText) {
-        renderVehicleAutofillStatus('РќРЈР–РќР« Р”РђРќРќР«Р• Р’ РџРћР›РЇРҐ РљРђР РўРћР§РљР РР›Р Р’ Р”РћРџ. Р—РђРњР•РўРљР• Р”Р›РЇ РђР’РўРћР—РђРџРћР›РќР•РќРРЇ.', true);
+        renderVehicleAutofillStatus('НУЖНЫ ДАННЫЕ В ПОЛЯХ КАРТОЧКИ ИЛИ В ДОП. ЗАМЕТКЕ ДЛЯ АВТОЗАПОЛНЕНИЯ.', true);
         return;
       }
       try {
         els.vehicleAutofillButton.disabled = true;
-        renderVehicleAutofillStatus('РђРќРђР›РР—РР РЈР® РњРђР РљРЈ, Р—РђР“РћР›РћР’РћРљ Р РћРџРРЎРђРќРР• РљРђР РўРћР§РљР...', false);
+        renderVehicleAutofillStatus('АНАЛИЗИРУЮ МАРКУ, ЗАГОЛОВОК И ОПИСАНИЕ КАРТОЧКИ...', false);
         const payload = {
           raw_text: rawText,
           vehicle_profile: readVehicleProfileForm(),
@@ -4810,10 +4810,10 @@ BOARD_WEB_APP_HTML = "".join(
         syncCardDescriptionHeight();
         const status = buildVehicleAutofillStatus(result);
         renderVehicleAutofillStatus(status.text, status.isWarning);
-        setStatus('РўР•РҐРљРђР РўРђ РћР‘РќРћР’Р›Р•РќРђ РђР’РўРћР—РђРџРћР›РќР•РќРР•Рњ.', false);
+        setStatus('ТЕХКАРТА ОБНОВЛЕНА АВТОЗАПОЛНЕНИЕМ.', false);
       } catch (error) {
         state.vehicleAutofillResult = null;
-        renderVehicleAutofillStatus(error.message || 'РђР’РўРћР—РђРџРћР›РќР•РќРР• РќР• РЈР”РђР›РћРЎР¬.', true);
+        renderVehicleAutofillStatus(error.message || 'АВТОЗАПОЛНЕНИЕ НЕ УДАЛОСЬ.', true);
         setStatus(error.message, true);
       } finally {
         els.vehicleAutofillButton.disabled = false;
@@ -4871,7 +4871,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     function normalizeRepairOrderPaymentMethod(value) {
       const normalized = String(value ?? '').trim().toLowerCase();
-      if (['cashless', 'wire', 'bank', 'card', 'Р±РµР·РЅР°Р»', 'Р±РµР·РЅР°Р»РёС‡РЅС‹Р№'].includes(normalized)) return 'cashless';
+      if (['cashless', 'wire', 'bank', 'card', 'безнал', 'безналичный'].includes(normalized)) return 'cashless';
       return 'cash';
     }
 
@@ -4918,7 +4918,7 @@ BOARD_WEB_APP_HTML = "".join(
             id: 'legacy-prepayment',
             amount: repairOrderNumberToRaw(legacyAmount),
             paid_at: defaultPaidAt || currentRepairOrderDateTime(),
-            note: 'РџРµСЂРµРЅРµСЃРµРЅРѕ РёР· РїСЂРµРґРѕРїР»Р°С‚С‹',
+            note: 'Перенесено из предоплаты',
             payment_method: els.repairOrderPaymentMethod?.value || 'cash',
           },
           'legacy-prepayment'
@@ -4933,7 +4933,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function repairOrderPaymentMethodLabel(value) {
-      return normalizeRepairOrderPaymentMethod(value) === 'cashless' ? 'Р‘РµР·РЅР°Р»РёС‡РЅС‹Р№' : 'РќР°Р»РёС‡РЅС‹Р№';
+      return normalizeRepairOrderPaymentMethod(value) === 'cashless' ? 'Безналичный' : 'Наличный';
     }
 
     function repairOrderTaxRate(value) {
@@ -4955,10 +4955,10 @@ BOARD_WEB_APP_HTML = "".join(
       if (!els.repairOrderPaymentCashbox) return;
       const selected = String(selectedId || '').trim();
       const items = Array.isArray(state.cashboxes) ? state.cashboxes : [];
-      const options = ['<option value="">Р вЂ™Р В«Р вЂР вЂўР В Р В Р С™Р С’Р РЋР РЋР Р€</option>'].concat(items.map((item) => {
+      const options = ['<option value="">ВЫБЕРИ КАССУ</option>'].concat(items.map((item) => {
         const itemId = String(item?.id || '').trim();
         const isSelected = itemId && itemId === selected ? ' selected' : '';
-        return '<option value="' + escapeHtml(itemId) + '"' + isSelected + '>' + escapeHtml(item?.name || itemId || 'Р С™Р В°РЎРѓРЎРѓР В°') + '</option>';
+        return '<option value="' + escapeHtml(itemId) + '"' + isSelected + '>' + escapeHtml(item?.name || itemId || 'Касса') + '</option>';
       }));
       els.repairOrderPaymentCashbox.innerHTML = options.join('');
       if (!selected && items.length && !els.repairOrderPaymentCashbox.value) {
@@ -5135,7 +5135,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function repairOrderStatusLabel(status) {
-      return String(status || '').trim().toLowerCase() === 'closed' ? 'Р—Р°РєСЂС‹С‚' : 'РћС‚РєСЂС‹С‚';
+      return String(status || '').trim().toLowerCase() === 'closed' ? 'Закрыт' : 'Открыт';
     }
 
     function repairOrderCardDefaults(card) {
@@ -5192,20 +5192,20 @@ BOARD_WEB_APP_HTML = "".join(
 
     function repairOrderHeadingLegacy(number) {
       const normalizedNumber = String(number ?? '').trim();
-      return normalizedNumber ? ('Р вЂ”Р С’Р С™Р С’Р вЂ”-Р СњР С’Р В Р Р‡Р вЂќ РІвЂћвЂ“' + normalizedNumber) : 'Р вЂ”Р С’Р С™Р С’Р вЂ”-Р СњР С’Р В Р Р‡Р вЂќ';
+      return normalizedNumber ? ('ЗАКАЗ-НАРЯД №' + normalizedNumber) : 'ЗАКАЗ-НАРЯД';
     }
 
     function repairOrderCardRequiredMessageLegacy() {
-      return 'Р РЋР Р…Р В°РЎвЂЎР В°Р В»Р В° РЎРѓР С•РЎвЂ¦РЎР‚Р В°Р Р…Р С‘РЎвЂљР Вµ Р С”Р В°РЎР‚РЎвЂљР С•РЎвЂЎР С”РЎС“, РЎвЂЎРЎвЂљР С•Р В±РЎвЂ№ Р С•РЎвЂљР С”РЎР‚РЎвЂ№РЎвЂљРЎРЉ Р В·Р В°Р С”Р В°Р В·-Р Р…Р В°РЎР‚РЎРЏР Т‘.';
+      return 'Сначала сохраните карточку, чтобы открыть заказ-наряд.';
     }
 
     function repairOrderHeading(number) {
       const normalizedNumber = String(number ?? '').trim();
-      return normalizedNumber ? ('Р—РђРљРђР—-РќРђР РЇР” в„–' + normalizedNumber) : 'Р—РђРљРђР—-РќРђР РЇР”';
+      return normalizedNumber ? ('ЗАКАЗ-НАРЯД №' + normalizedNumber) : 'ЗАКАЗ-НАРЯД';
     }
 
     function repairOrderCardRequiredMessage() {
-      return 'РЎРЅР°С‡Р°Р»Р° СЃРѕС…СЂР°РЅРёС‚Рµ РєР°СЂС‚РѕС‡РєСѓ, С‡С‚РѕР±С‹ РѕС‚РєСЂС‹С‚СЊ Р·Р°РєР°Р·-РЅР°СЂСЏРґ.';
+      return 'Сначала сохраните карточку, чтобы открыть заказ-наряд.';
     }
 
     function repairOrderResponseCard(data, fallbackOrder = {}) {
@@ -5222,7 +5222,7 @@ BOARD_WEB_APP_HTML = "".join(
       const payload = currentCardPayload();
       if (!payload.title) {
         const repairOrder = readRepairOrderFromForm();
-        payload.title = repairOrder.reason || repairOrder.vehicle || 'Р—Р°РєР°Р·-РЅР°СЂСЏРґ';
+        payload.title = repairOrder.reason || repairOrder.vehicle || 'Заказ-наряд';
         if (!payload.vehicle && repairOrder.vehicle) payload.vehicle = repairOrder.vehicle;
       }
       if (!payload.title) {
@@ -5265,7 +5265,7 @@ BOARD_WEB_APP_HTML = "".join(
       const totalValue = repairOrderResolvedRowTotalValue(normalized);
       const hasDisplayTotal = totalValue !== null || Boolean(normalized.total);
       return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '">' +
-        '<td>' + repairOrderRowInputHtml('name', normalized.name, 'РќР°РёРјРµРЅРѕРІР°РЅРёРµ') + '</td>' +
+        '<td>' + repairOrderRowInputHtml('name', normalized.name, 'Наименование') + '</td>' +
         '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('quantity', normalized.quantity, '1') + '</td>' +
         '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('price', normalized.price, '0') + '</td>' +
         '<td class="repair-order-table__numeric"><div class="repair-order-cell-total" data-repair-order-row-total data-empty="' + (hasDisplayTotal ? 'false' : 'true') + '">' + escapeHtml(hasDisplayTotal ? repairOrderFormatMoney(totalValue ?? normalized.total) : '-') + '</div></td>' +
@@ -5455,7 +5455,7 @@ BOARD_WEB_APP_HTML = "".join(
       const normalizedStatus = String(status || '').trim().toLowerCase() === 'closed' ? 'closed' : 'open';
       els.repairOrderStatus.textContent = repairOrderStatusLabel(normalizedStatus);
       els.repairOrderStatus.dataset.status = normalizedStatus;
-      els.repairOrderCloseButton.textContent = normalizedStatus === 'closed' ? 'РћРўРљР Р«РўР¬ Р—РђРљРђР—-РќРђР РЇР”' : 'Р—РђРљР Р«РўР¬ Р—РђРљРђР—-РќРђР РЇР”';
+      els.repairOrderCloseButton.textContent = normalizedStatus === 'closed' ? 'ОТКРЫТЬ ЗАКАЗ-НАРЯД' : 'ЗАКРЫТЬ ЗАКАЗ-НАРЯД';
     }
 
     function applyRepairOrderToForm(order) {
@@ -5563,12 +5563,12 @@ BOARD_WEB_APP_HTML = "".join(
           '<td class="print-table__numeric">' + escapeHtml(row.price) + '</td>' +
           '<td class="print-table__numeric">' + escapeHtml(totalValue === null ? row.total : repairOrderFormatMoney(totalValue)) + '</td>' +
           '</tr>';
-      }).join('') : '<tr><td class="print-table__empty" colspan="4">РќРµС‚ РїРѕР·РёС†РёР№</td></tr>';
+      }).join('') : '<tr><td class="print-table__empty" colspan="4">Нет позиций</td></tr>';
       const subtotal = repairOrderRowsTotalValue(normalizedRows);
       return '<section class="print-section">' +
         '<h2>' + escapeHtml(title) + '</h2>' +
         '<table class="print-table">' +
-        '<thead><tr><th>РќР°РёРјРµРЅРѕРІР°РЅРёРµ</th><th>РљРѕР»РёС‡РµСЃС‚РІРѕ</th><th>Р¦РµРЅР°</th><th>РЎСѓРјРјР°</th></tr></thead>' +
+        '<thead><tr><th>Наименование</th><th>Количество</th><th>Цена</th><th>Сумма</th></tr></thead>' +
         '<tbody>' + body + '</tbody>' +
         '<tfoot><tr class="print-table__summary"><td colspan="3">' + escapeHtml(subtotalLabel) + '</td><td class="print-table__numeric">' + escapeHtml(repairOrderFormatMoney(subtotal)) + '</td></tr></tfoot>' +
         '</table>' +
@@ -5587,7 +5587,7 @@ BOARD_WEB_APP_HTML = "".join(
       const comment = escapeHtml(normalized.comment).replace(/\n/g, '<br>');
       return [
         '<!doctype html>',
-        '<html lang="ru"><head><meta charset="utf-8"><title>Р—Р°РєР°Р·-РЅР°СЂСЏРґ</title><style>',
+        '<html lang="ru"><head><meta charset="utf-8"><title>Заказ-наряд</title><style>',
         '@page { size: A4; margin: 12mm; }',
         'html, body { margin: 0; padding: 0; background: #ffffff; color: #000000; font-family: "Segoe UI", Arial, sans-serif; font-size: 12px; line-height: 1.45; }',
         'body { padding: 0; }',
@@ -5614,26 +5614,26 @@ BOARD_WEB_APP_HTML = "".join(
         '.print-totals__row span:last-child { font-variant-numeric: tabular-nums; }',
         '.print-totals__row--grand { font-size: 16px; font-weight: 700; }',
         '</style></head><body><div class="sheet">',
-        '<header class="sheet__head"><div><h1 class="sheet__title">Р—Р°РєР°Р·-РЅР°СЂСЏРґ</h1><div class="sheet__number">в„– ' + escapeHtml(normalized.number || 'вЂ”') + '</div></div><div class="sheet__number">Р”Р°С‚Р°: ' + escapeHtml(normalized.date || 'вЂ”') + '</div></header>',
+        '<header class="sheet__head"><div><h1 class="sheet__title">Заказ-наряд</h1><div class="sheet__number">№ ' + escapeHtml(normalized.number || '—') + '</div></div><div class="sheet__number">Дата: ' + escapeHtml(normalized.date || '—') + '</div></header>',
         '<section class="meta-grid">',
-        '<div class="meta-card"><div class="meta-label">РљР»РёРµРЅС‚</div><div class="meta-value">' + escapeHtml(normalized.client) + '</div></div>',
-        '<div class="meta-card"><div class="meta-label">РўРµР»РµС„РѕРЅ</div><div class="meta-value">' + escapeHtml(normalized.phone) + '</div></div>',
-        '<div class="meta-card"><div class="meta-label">РђРІС‚РѕРјРѕР±РёР»СЊ</div><div class="meta-value">' + escapeHtml(normalized.vehicle) + '</div></div>',
-        '<div class="meta-card"><div class="meta-label">Р“РѕСЃРЅРѕРјРµСЂ</div><div class="meta-value">' + escapeHtml(normalized.license_plate) + '</div></div>',
-        '<div class="meta-card"><div class="meta-label">Р¤РѕСЂРјР° РѕРїР»Р°С‚С‹</div><div class="meta-value">' + escapeHtml(repairOrderPaymentMethodLabel(normalized.payment_method)) + '</div></div>',
-        '<div class="meta-card"><div class="meta-label">РџСЂРµРґРѕРїР»Р°С‚Р°</div><div class="meta-value">' + escapeHtml(repairOrderFormatMoney(prepayment)) + '</div></div>',
+        '<div class="meta-card"><div class="meta-label">Клиент</div><div class="meta-value">' + escapeHtml(normalized.client) + '</div></div>',
+        '<div class="meta-card"><div class="meta-label">Телефон</div><div class="meta-value">' + escapeHtml(normalized.phone) + '</div></div>',
+        '<div class="meta-card"><div class="meta-label">Автомобиль</div><div class="meta-value">' + escapeHtml(normalized.vehicle) + '</div></div>',
+        '<div class="meta-card"><div class="meta-label">Госномер</div><div class="meta-value">' + escapeHtml(normalized.license_plate) + '</div></div>',
+        '<div class="meta-card"><div class="meta-label">Форма оплаты</div><div class="meta-value">' + escapeHtml(repairOrderPaymentMethodLabel(normalized.payment_method)) + '</div></div>',
+        '<div class="meta-card"><div class="meta-label">Предоплата</div><div class="meta-value">' + escapeHtml(repairOrderFormatMoney(prepayment)) + '</div></div>',
         '</section>',
-        '<section class="print-section"><h2>РРЅС„РѕСЂРјР°С†РёСЏ РґР»СЏ РєР»РёРµРЅС‚Р°</h2><div class="print-comment">' + comment + '</div></section>',
-        buildRepairOrderPrintTable('Р Р°Р±РѕС‚С‹', normalized.works, 'РС‚РѕРіРѕ СЂР°Р±РѕС‚С‹'),
-        buildRepairOrderPrintTable('РњР°С‚РµСЂРёР°Р»С‹', normalized.materials, 'РС‚РѕРіРѕ РјР°С‚РµСЂРёР°Р»С‹'),
+        '<section class="print-section"><h2>Информация для клиента</h2><div class="print-comment">' + comment + '</div></section>',
+        buildRepairOrderPrintTable('Работы', normalized.works, 'Итого работы'),
+        buildRepairOrderPrintTable('Материалы', normalized.materials, 'Итого материалы'),
         '<section class="print-totals">' +
-        '<div class="print-totals__row"><span>РС‚РѕРіРѕ СЂР°Р±РѕС‚С‹</span><span>' + escapeHtml(repairOrderFormatMoney(worksTotal)) + '</span></div>' +
-        '<div class="print-totals__row"><span>РС‚РѕРіРѕ РјР°С‚РµСЂРёР°Р»С‹</span><span>' + escapeHtml(repairOrderFormatMoney(materialsTotal)) + '</span></div>' +
-        '<div class="print-totals__row"><span>РЎС‚РѕРёРјРѕСЃС‚СЊ Р·Р°РєР°Р·-РЅР°СЂСЏРґР°</span><span>' + escapeHtml(repairOrderFormatMoney(subtotal)) + '</span></div>' +
-        (taxesTotal ? '<div class="print-totals__row"><span>РќР°Р»РѕРіРё Рё СЃР±РѕСЂС‹</span><span>' + escapeHtml(repairOrderFormatMoney(taxesTotal)) + '</span></div>' : '') +
-        '<div class="print-totals__row"><span>РС‚РѕРіРѕ РїРѕ Р·Р°РєР°Р·-РЅР°СЂСЏРґСѓ</span><span>' + escapeHtml(repairOrderFormatMoney(grandTotal)) + '</span></div>' +
-        '<div class="print-totals__row"><span>РџСЂРµРґРѕРїР»Р°С‚Р°</span><span>' + escapeHtml(repairOrderFormatMoney(prepayment)) + '</span></div>' +
-        '<div class="print-totals__row print-totals__row--grand"><span>Рљ РґРѕРїР»Р°С‚Рµ</span><span>' + escapeHtml(repairOrderFormatMoney(dueTotal)) + '</span></div>' +
+        '<div class="print-totals__row"><span>Итого работы</span><span>' + escapeHtml(repairOrderFormatMoney(worksTotal)) + '</span></div>' +
+        '<div class="print-totals__row"><span>Итого материалы</span><span>' + escapeHtml(repairOrderFormatMoney(materialsTotal)) + '</span></div>' +
+        '<div class="print-totals__row"><span>Стоимость заказ-наряда</span><span>' + escapeHtml(repairOrderFormatMoney(subtotal)) + '</span></div>' +
+        (taxesTotal ? '<div class="print-totals__row"><span>Налоги и сборы</span><span>' + escapeHtml(repairOrderFormatMoney(taxesTotal)) + '</span></div>' : '') +
+        '<div class="print-totals__row"><span>Итого по заказ-наряду</span><span>' + escapeHtml(repairOrderFormatMoney(grandTotal)) + '</span></div>' +
+        '<div class="print-totals__row"><span>Предоплата</span><span>' + escapeHtml(repairOrderFormatMoney(prepayment)) + '</span></div>' +
+        '<div class="print-totals__row print-totals__row--grand"><span>К доплате</span><span>' + escapeHtml(repairOrderFormatMoney(dueTotal)) + '</span></div>' +
         '</section>',
         '</div></body></html>',
       ].join('');
@@ -5642,7 +5642,7 @@ BOARD_WEB_APP_HTML = "".join(
     function openRepairOrderPrint(order) {
       const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=1024,height=1360');
       if (!printWindow) {
-        setStatus('РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РєСЂС‹С‚СЊ РѕРєРЅРѕ РїРµС‡Р°С‚Рё.', true);
+        setStatus('Не удалось открыть окно печати.', true);
         return;
       }
       printWindow.document.open();
@@ -5653,7 +5653,7 @@ BOARD_WEB_APP_HTML = "".join(
           printWindow.focus();
           printWindow.print();
         } catch (_) {
-          setStatus('РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РїСѓСЃС‚РёС‚СЊ РїРµС‡Р°С‚СЊ.', true);
+          setStatus('Не удалось запустить печать.', true);
         }
       }, 120);
     }
@@ -5693,7 +5693,7 @@ BOARD_WEB_APP_HTML = "".join(
         });
         const updatedCard = repairOrderResponseCard(data, repairOrder);
         const nextOrder = applyRepairOrderCardUpdate(updatedCard, repairOrder);
-        setStatus('Р—Р°РєР°Р·-РЅР°СЂСЏРґ СЃРѕС…СЂР°РЅС‘РЅ.', false);
+        setStatus('Заказ-наряд сохранён.', false);
         if (printAfter) openRepairOrderPrint(nextOrder);
       } catch (error) {
         setStatus(error.message, true);
@@ -5725,25 +5725,25 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function buildRepairOrderAutofillStatus(data) {
-      if (!data?.meta?.changed) return 'РџСѓСЃС‚С‹Рµ РїРѕР»СЏ РґР»СЏ Р°РІС‚РѕР·Р°РїРѕР»РЅРµРЅРёСЏ РЅРµ РЅР°Р№РґРµРЅС‹.';
+      if (!data?.meta?.changed) return 'Пустые поля для автозаполнения не найдены.';
       const report = data?.meta?.autofill_report || {};
       const parts = [];
       const worksSuggested = Number(report.works_suggested || 0);
       const materialsSuggested = Number(report.materials_suggested || 0);
       const priceHits = Array.isArray(report.prices_applied) ? report.prices_applied.length : 0;
-      if (worksSuggested > 0) parts.push('СЂР°Р±РѕС‚С‹ ' + worksSuggested);
-      if (materialsSuggested > 0) parts.push('РјР°С‚РµСЂРёР°Р»С‹ ' + materialsSuggested);
-      if (priceHits > 0) parts.push('С†РµРЅС‹ РёР· РёСЃС‚РѕСЂРёРё ' + priceHits);
+      if (worksSuggested > 0) parts.push('работы ' + worksSuggested);
+      if (materialsSuggested > 0) parts.push('материалы ' + materialsSuggested);
+      if (priceHits > 0) parts.push('цены из истории ' + priceHits);
       const reviewItems = Array.isArray(report.review_items) ? report.review_items.filter(Boolean) : [];
-      if (!parts.length) return 'Р—Р°РєР°Р·-РЅР°СЂСЏРґ Р°РІС‚РѕР·Р°РїРѕР»РЅРµРЅ.';
-      return 'Р—Р°РєР°Р·-РЅР°СЂСЏРґ Р°РІС‚РѕР·Р°РїРѕР»РЅРµРЅ: ' + parts.join(', ') + '.' + (reviewItems.length ? ' ' + reviewItems[0] : '');
+      if (!parts.length) return 'Заказ-наряд автозаполнен.';
+      return 'Заказ-наряд автозаполнен: ' + parts.join(', ') + '.' + (reviewItems.length ? ' ' + reviewItems[0] : '');
     }
 
     saveRepairOrder = async function(printAfter = false) {
       try {
-        const persisted = await persistRepairOrderRecord({ statusMessage: 'Р—Р°РєР°Р·-РЅР°СЂСЏРґ СЃРѕС…СЂР°РЅС‘РЅ.' });
+        const persisted = await persistRepairOrderRecord({ statusMessage: 'Заказ-наряд сохранён.' });
         if (!persisted) return;
-        if (printAfter) setStatus('РџРµС‡Р°С‚СЊ Р±СѓРґРµС‚ РґРѕР±Р°РІР»РµРЅР° РїРѕР·Р¶Рµ. Р—Р°РєР°Р·-РЅР°СЂСЏРґ СЃРѕС…СЂР°РЅС‘РЅ.', false);
+        if (printAfter) setStatus('Печать будет добавлена позже. Заказ-наряд сохранён.', false);
       } catch (error) {
         setStatus(error.message, true);
       }
@@ -5768,7 +5768,7 @@ BOARD_WEB_APP_HTML = "".join(
         const updatedCard = repairOrderResponseCard(data, persisted.repairOrder);
         applyRepairOrderCardUpdate(updatedCard, data?.repair_order || persisted.repairOrder);
         await loadRepairOrders(false);
-        setStatus(nextStatus === 'closed' ? 'Р—Р°РєР°Р·-РЅР°СЂСЏРґ Р·Р°РєСЂС‹С‚.' : 'Р—Р°РєР°Р·-РЅР°СЂСЏРґ РѕС‚РєСЂС‹С‚.', false);
+        setStatus(nextStatus === 'closed' ? 'Заказ-наряд закрыт.' : 'Заказ-наряд открыт.', false);
       } catch (error) {
         setStatus(error.message, true);
       } finally {
@@ -5785,7 +5785,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     function columnLabelById(columnId) {
       const found = (state.snapshot?.columns || []).find((column) => column.id === columnId);
-      return found?.label || String(columnId || 'вЂ”');
+      return found?.label || String(columnId || '—');
     }
 
     function applyCardModalState(card) {
@@ -5795,7 +5795,7 @@ BOARD_WEB_APP_HTML = "".join(
       state.vehicleAutofillResult = null;
       state.draftTags = normalizeDraftTags(currentCard?.tag_items || currentCard?.tags || []);
       state.draftTagColor = 'green';
-      const modalHeading = currentCard?.id ? cardHeading(currentCard) : 'РќРѕРІР°СЏ РєР°СЂС‚РѕС‡РєР°';
+      const modalHeading = currentCard?.id ? cardHeading(currentCard) : 'Новая карточка';
       els.cardModalTitle.textContent = limitCardModalHeading(modalHeading);
       els.cardModalTitle.title = modalHeading;
       els.cardVehicle.value = currentCard?.vehicle || '';
@@ -5806,7 +5806,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.signalDays.value = parts.days;
       els.signalHours.value = parts.hours;
       renderSignalPreview();
-      els.cardMetaLine.textContent = currentCard?.id ? ('РЎРћР—Р”РђРќРћ: ' + formatDate(currentCard.created_at) + ' В· РР—РњР•РќР•РќРћ: ' + formatDate(currentCard.updated_at)) : 'РќРћР’РђРЇ Р—РђРџРРЎР¬';
+      els.cardMetaLine.textContent = currentCard?.id ? ('СОЗДАНО: ' + formatDate(currentCard.created_at) + ' · ИЗМЕНЕНО: ' + formatDate(currentCard.updated_at)) : 'НОВАЯ ЗАПИСЬ';
       els.archiveAction.classList.toggle('hidden', !currentCard?.id || currentCard.archived);
       els.restoreAction.classList.toggle('hidden', !currentCard?.id || !currentCard.archived);
       state.vehicleProfileBaseline = cloneVehicleProfile(currentCard?.vehicle_profile || {});
@@ -5838,23 +5838,23 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function formatIndicatorLabel(value) {
-      return ({ green: 'Р·РµР»С‘РЅС‹Р№', yellow: 'Р¶С‘Р»С‚С‹Р№', red: 'РєСЂР°СЃРЅС‹Р№' }[String(value || '').toLowerCase()] || String(value || 'вЂ”'));
+      return ({ green: 'зелёный', yellow: 'жёлтый', red: 'красный' }[String(value || '').toLowerCase()] || String(value || '—'));
     }
 
     function formatSourceLabel(value) {
-      return ({ ui: '', mcp: 'С‡РµСЂРµР· GPT', api: 'С‡РµСЂРµР· API', system: 'СЃРёСЃС‚РµРјРѕР№' }[String(value || '').toLowerCase()] || String(value || ''));
+      return ({ ui: '', mcp: 'через GPT', api: 'через API', system: 'системой' }[String(value || '').toLowerCase()] || String(value || ''));
     }
 
     function formatBytes(value) {
       const size = Number(value || 0);
-      if (size >= 1024 * 1024) return (size / (1024 * 1024)).toFixed(1) + ' РњР‘';
-      if (size >= 1024) return Math.round(size / 1024) + ' РљР‘';
-      return size + ' Р‘';
+      if (size >= 1024 * 1024) return (size / (1024 * 1024)).toFixed(1) + ' МБ';
+      if (size >= 1024) return Math.round(size / 1024) + ' КБ';
+      return size + ' Б';
     }
 
     function describeValue(value, key = '') {
-      if (Array.isArray(value)) return value.length ? value.join(', ') : 'вЂ”';
-      if (value === null || value === undefined || value === '') return 'вЂ”';
+      if (Array.isArray(value)) return value.length ? value.join(', ') : '—';
+      if (value === null || value === undefined || value === '') return '—';
       if (String(key).includes('column')) return columnLabelById(value);
       if (String(key).includes('indicator')) return formatIndicatorLabel(value);
       if (String(key).includes('size_bytes')) return formatBytes(value);
@@ -5871,36 +5871,36 @@ BOARD_WEB_APP_HTML = "".join(
       };
 
       if (event.action === 'card_created') {
-        if (details.vehicle) push('РјР°С€РёРЅР°', details.vehicle);
-        if (details.column) push('СЃС‚РѕР»Р±РµС†', details.column);
-        if (details.tags) push('РјРµС‚РєРё', details.tags);
-        if (details.deadline_total_seconds !== undefined) push('СЃРёРіРЅР°Р»', details.deadline_total_seconds, 'deadline_total_seconds');
+        if (details.vehicle) push('машина', details.vehicle);
+        if (details.column) push('столбец', details.column);
+        if (details.tags) push('метки', details.tags);
+        if (details.deadline_total_seconds !== undefined) push('сигнал', details.deadline_total_seconds, 'deadline_total_seconds');
       } else if (event.action === 'card_moved') {
-        if (details.before_column) push('РёР·', details.before_column);
-        if (details.after_column) push('РІ', details.after_column);
+        if (details.before_column) push('из', details.before_column);
+        if (details.after_column) push('в', details.after_column);
       } else if (event.action === 'card_archived' || event.action === 'card_restored') {
-        if (details.column) push('СЃС‚РѕР»Р±РµС†', details.column);
+        if (details.column) push('столбец', details.column);
       } else if (event.action === 'vehicle_changed') {
-        if (details.before !== undefined) push('Р±С‹Р»Рѕ', details.before);
-        if (details.after !== undefined) push('СЃС‚Р°Р»Рѕ', details.after);
+        if (details.before !== undefined) push('было', details.before);
+        if (details.after !== undefined) push('стало', details.after);
       } else if (event.action === 'title_changed' || event.action === 'description_changed') {
-        if (details.before !== undefined) push('Р±С‹Р»Рѕ', details.before);
-        if (details.after !== undefined) push('СЃС‚Р°Р»Рѕ', details.after);
+        if (details.before !== undefined) push('было', details.before);
+        if (details.after !== undefined) push('стало', details.after);
       } else if (event.action === 'signal_changed') {
-        if (details.before_total_seconds !== undefined) push('Р±С‹Р»Рѕ', details.before_total_seconds, 'before_total_seconds');
-        if (details.after_total_seconds !== undefined) push('СЃС‚Р°Р»Рѕ', details.after_total_seconds, 'after_total_seconds');
+        if (details.before_total_seconds !== undefined) push('было', details.before_total_seconds, 'before_total_seconds');
+        if (details.after_total_seconds !== undefined) push('стало', details.after_total_seconds, 'after_total_seconds');
       } else if (event.action === 'signal_indicator_changed') {
-        if (details.before_indicator !== undefined) push('Р±С‹Р»Рѕ', details.before_indicator, 'before_indicator');
-        if (details.after_indicator !== undefined) push('СЃС‚Р°Р»Рѕ', details.after_indicator, 'after_indicator');
-        if (details.deadline_total_seconds !== undefined) push('СЃРёРіРЅР°Р»', details.deadline_total_seconds, 'deadline_total_seconds');
+        if (details.before_indicator !== undefined) push('было', details.before_indicator, 'before_indicator');
+        if (details.after_indicator !== undefined) push('стало', details.after_indicator, 'after_indicator');
+        if (details.deadline_total_seconds !== undefined) push('сигнал', details.deadline_total_seconds, 'deadline_total_seconds');
       } else if (event.action === 'attachment_added' || event.action === 'attachment_removed') {
-        if (details.file_name) push('С„Р°Р№Р»', details.file_name);
-        if (details.size_bytes !== undefined) push('СЂР°Р·РјРµСЂ', details.size_bytes, 'size_bytes');
+        if (details.file_name) push('файл', details.file_name);
+        if (details.size_bytes !== undefined) push('размер', details.size_bytes, 'size_bytes');
       } else if (event.action === 'tag_added' || event.action === 'tag_removed') {
-        if (details.tag) push('РјРµС‚РєР°', details.tag);
+        if (details.tag) push('метка', details.tag);
       } else if (event.action === 'tags_changed') {
-        if (details.before !== undefined) push('Р±С‹Р»Рѕ', details.before);
-        if (details.after !== undefined) push('СЃС‚Р°Р»Рѕ', details.after);
+        if (details.before !== undefined) push('было', details.before);
+        if (details.after !== undefined) push('стало', details.after);
       } else {
         Object.entries(details).forEach(([key, value]) => push(key.replace(/_/g, ' '), value));
       }
@@ -5910,8 +5910,8 @@ BOARD_WEB_APP_HTML = "".join(
 
     function renderTags() {
       els.tagList.innerHTML = state.draftTags.length
-        ? state.draftTags.map((tag) => '<button class="tag" data-remove-tag="' + escapeHtml(tag) + '">' + escapeHtml(tag) + ' Г—</button>').join('')
-        : '<div class="tag tag--muted">РњР•РўРћРљ РќР•Рў</div>';
+        ? state.draftTags.map((tag) => '<button class="tag" data-remove-tag="' + escapeHtml(tag) + '">' + escapeHtml(tag) + ' ×</button>').join('')
+        : '<div class="tag tag--muted">МЕТОК НЕТ</div>';
       els.tagSuggestions.innerHTML = SUGGESTED_TAGS.map((tag) => {
         const active = state.draftTags.includes(tag.label);
         const toneClass = tag.tone === 'danger' ? ' tag-suggestion--danger' : '';
@@ -5924,14 +5924,14 @@ BOARD_WEB_APP_HTML = "".join(
       const atLimit = state.draftTags.length >= CARD_TAG_LIMIT;
       renderTagColorPicker();
       els.tagList.innerHTML = state.draftTags.length
-        ? state.draftTags.map((tag) => '<button class="tag" data-tag-color="' + escapeHtml(tag.color) + '" data-remove-tag="' + escapeHtml(tag.label) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + ' Г—</button>').join('')
-        : '<div class="tag tag--muted">РњР•РўРћРљ РќР•Рў</div>';
+        ? state.draftTags.map((tag) => '<button class="tag" data-tag-color="' + escapeHtml(tag.color) + '" data-remove-tag="' + escapeHtml(tag.label) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + ' ×</button>').join('')
+        : '<div class="tag tag--muted">МЕТОК НЕТ</div>';
       if (els.tagMeta) {
         els.tagMeta.textContent = state.draftTags.length + ' / ' + CARD_TAG_LIMIT;
         els.tagMeta.dataset.limitState = atLimit ? 'full' : 'open';
       }
       els.tagInput.disabled = atLimit;
-      els.tagInput.placeholder = atLimit ? 'Р›РРњРРў 3 / 3' : 'Р–Р”РЃРњ';
+      els.tagInput.placeholder = atLimit ? 'ЛИМИТ 3 / 3' : 'ЖДЁМ';
       els.tagAddButton.disabled = atLimit;
       els.tagSuggestions.innerHTML = SUGGESTED_TAGS.map((tag) => {
         const active = state.draftTags.some((item) => item.label === tag.label);
@@ -5949,10 +5949,10 @@ BOARD_WEB_APP_HTML = "".join(
       els.fileDropzone.classList.remove('is-active');
       els.fileDropzone.setAttribute('aria-disabled', canUpload ? 'false' : 'true');
       els.fileDropzone.setAttribute('contenteditable', canUpload ? 'plaintext-only' : 'false');
-      els.fileDropzone.dataset.title = canUpload ? 'РџР•Р Р•РќР•РЎРРўР• РР›Р Р’РЎРўРђР’Р¬РўР• Р¤РђР™Р›' : 'РЎРќРђР§РђР›Рђ РЎРћРҐР РђРќРРўР• РљРђР РўРћР§РљРЈ';
+      els.fileDropzone.dataset.title = canUpload ? 'ПЕРЕНЕСИТЕ ИЛИ ВСТАВЬТЕ ФАЙЛ' : 'СНАЧАЛА СОХРАНИТЕ КАРТОЧКУ';
       els.fileDropzone.dataset.hint = canUpload
-        ? 'Ctrl+V, РїСЂР°РІС‹Р№ РєР»РёРє -> Р’СЃС‚Р°РІРёС‚СЊ, drag-and-drop РёР»Рё РєР»РёРє РґР»СЏ РІС‹Р±РѕСЂР°. TXT, PDF, Word, Excel.'
-        : 'Р‘РµР· СЃРѕС…СЂР°РЅС‘РЅРЅРѕР№ РєР°СЂС‚РѕС‡РєРё РІР»РѕР¶РµРЅРёСЏ РЅРµ РїСЂРёРЅРёРјР°СЋС‚СЃСЏ.';
+        ? 'Ctrl+V, правый клик -> Вставить, drag-and-drop или клик для выбора. TXT, PDF, Word, Excel.'
+        : 'Без сохранённой карточки вложения не принимаются.';
       els.fileDropzone.textContent = '';
     }
 
@@ -5961,17 +5961,17 @@ BOARD_WEB_APP_HTML = "".join(
       syncFileDropzone(card);
       els.fileDropMeta.textContent = card?.id
         ? (attachments.length
-            ? ('Р’Р›РћР–Р•РќРР™: ' + attachments.length + '. РџР•Р Р•РўРђР©РРўР•, Р’РЎРўРђР’Р¬РўР• РР›Р РљР›РРљРќРРўР• РџРћ РџРћР›Р® Р”Р›РЇ Р”РћР‘РђР’Р›Р•РќРРЇ.')
-            : 'РџРћР›Р• РџРЈРЎРўРћ. РџР•Р Р•РўРђР©РРўР• Р¤РђР™Р›, РќРђР–РњРРўР• CTRL+V РР›Р Р’РЎРўРђР’Р¬РўР• Р§Р•Р Р•Р— РљРћРќРўР•РљРЎРўРќРћР• РњР•РќР®.')
-        : 'РЎРќРђР§РђР›Рђ РЎРћРҐР РђРќРРўР• РљРђР РўРћР§РљРЈ, Р—РђРўР•Рњ Р”РћР‘РђР’Р›РЇР™РўР• Р’Р›РћР–Р•РќРРЇ.';
+            ? ('ВЛОЖЕНИЙ: ' + attachments.length + '. ПЕРЕТАЩИТЕ, ВСТАВЬТЕ ИЛИ КЛИКНИТЕ ПО ПОЛЮ ДЛЯ ДОБАВЛЕНИЯ.')
+            : 'ПОЛЕ ПУСТО. ПЕРЕТАЩИТЕ ФАЙЛ, НАЖМИТЕ CTRL+V ИЛИ ВСТАВЬТЕ ЧЕРЕЗ КОНТЕКСТНОЕ МЕНЮ.')
+        : 'СНАЧАЛА СОХРАНИТЕ КАРТОЧКУ, ЗАТЕМ ДОБАВЛЯЙТЕ ВЛОЖЕНИЯ.';
       els.fileList.innerHTML = attachments.length
-        ? attachments.map((item) => '<div class="file-row"><div>' + escapeHtml(item.file_name) + '</div><div class="log-row__meta">' + escapeHtml(formatDate(item.created_at)) + ' В· ' + Math.round(item.size_bytes / 1024) + ' РљР‘</div><div style="display:flex; gap:8px; flex-wrap:wrap;"><a class="btn" href="/api/attachment?card_id=' + encodeURIComponent(card.id) + '&attachment_id=' + encodeURIComponent(item.id) + '">РЎРљРђР§РђРўР¬</a><button class="btn btn--danger" data-remove-file="' + escapeHtml(item.id) + '">РЈР”РђР›РРўР¬</button></div></div>').join('')
-        : '<div class="log-row__meta">Р¤РђР™Р›РћР’ РќР•Рў.</div>';
+        ? attachments.map((item) => '<div class="file-row"><div>' + escapeHtml(item.file_name) + '</div><div class="log-row__meta">' + escapeHtml(formatDate(item.created_at)) + ' · ' + Math.round(item.size_bytes / 1024) + ' КБ</div><div style="display:flex; gap:8px; flex-wrap:wrap;"><a class="btn" href="/api/attachment?card_id=' + encodeURIComponent(card.id) + '&attachment_id=' + encodeURIComponent(item.id) + '">СКАЧАТЬ</a><button class="btn btn--danger" data-remove-file="' + escapeHtml(item.id) + '">УДАЛИТЬ</button></div></div>').join('')
+        : '<div class="log-row__meta">ФАЙЛОВ НЕТ.</div>';
     }
 
     function requireSavedCardForFiles({ syncDropzone = false } = {}) {
       if (state.editingId) return true;
-      setStatus('РЎРќРђР§РђР›Рђ РЎРћРҐР РђРќРРўР• РљРђР РўРћР§РљРЈ.', true);
+      setStatus('СНАЧАЛА СОХРАНИТЕ КАРТОЧКУ.', true);
       if (syncDropzone) syncFileDropzone(null);
       return false;
     }
@@ -6004,30 +6004,30 @@ BOARD_WEB_APP_HTML = "".join(
             if (details) parts.push(details);
             return '<div class="log-row">' + escapeHtml(parts.join(' | ')) + '</div>';
           }).join('')
-        : '<div class="log-row__meta">Р—РђРџРРЎР•Р™ РќР•Рў.</div>';
+        : '<div class="log-row__meta">ЗАПИСЕЙ НЕТ.</div>';
     }
 
     function renderArchive() {
       const cards = state.snapshot?.archive || [];
       els.archiveList.innerHTML = cards.length
-        ? cards.map((card) => '<div class="archive-row"><div><strong>' + escapeHtml(cardHeading(card)) + '</strong></div><div>' + escapeHtml(card.description || 'РћРїРёСЃР°РЅРёРµ РЅРµ СѓРєР°Р·Р°РЅРѕ') + '</div><div class="archive-row__meta">РђР РҐРР’: ' + escapeHtml(formatDate(card.updated_at)) + '</div><div style="display:flex; gap:8px;"><button class="btn" data-restore-card="' + escapeHtml(card.id) + '">Р’Р•Р РќРЈРўР¬</button></div></div>').join('')
-        : '<div class="log-row__meta">РђР РҐРР’ РџРЈРЎРў.</div>';
+        ? cards.map((card) => '<div class="archive-row"><div><strong>' + escapeHtml(cardHeading(card)) + '</strong></div><div>' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="archive-row__meta">АРХИВ: ' + escapeHtml(formatDate(card.updated_at)) + '</div><div style="display:flex; gap:8px;"><button class="btn" data-restore-card="' + escapeHtml(card.id) + '">ВЕРНУТЬ</button></div></div>').join('')
+        : '<div class="log-row__meta">АРХИВ ПУСТ.</div>';
     }
 
     function legacyRenderRepairOrderRowsExpandedShadow(items) {
-      return items.map((item) => '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Р С›РЎвЂљР С”РЎР‚РЎвЂ№РЎвЂљРЎРЉ Р В·Р В°Р С”Р В°Р В·-Р Р…Р В°РЎР‚РЎРЏР Т‘"><div class="repair-orders-row__number">РІвЂћвЂ“ ' + escapeHtml(item.number || '-') + '</div><div class="repair-orders-row__vehicle" title="' + escapeHtml(item.vehicle || '-') + '">' + escapeHtml(item.vehicle || 'Р С’Р Р†РЎвЂљР С• Р Р…Р Вµ РЎС“Р С”Р В°Р В·Р В°Р Р…Р С•') + '</div><div class="repair-orders-row__title" title="' + escapeHtml(item.heading || 'Р вЂ”Р В°Р С”Р В°Р В·-Р Р…Р В°РЎР‚РЎРЏР Т‘') + '">' + escapeHtml(item.heading || 'Р вЂ”Р В°Р С”Р В°Р В·-Р Р…Р В°РЎР‚РЎРЏР Т‘') + '</div></div>').join('');
+      return items.map((item) => '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Открыть заказ-наряд"><div class="repair-orders-row__number">№ ' + escapeHtml(item.number || '-') + '</div><div class="repair-orders-row__vehicle" title="' + escapeHtml(item.vehicle || '-') + '">' + escapeHtml(item.vehicle || 'Авто не указано') + '</div><div class="repair-orders-row__title" title="' + escapeHtml(item.heading || 'Заказ-наряд') + '">' + escapeHtml(item.heading || 'Заказ-наряд') + '</div></div>').join('');
     }
 
     function renderRepairOrders(data) {
       const items = data?.repair_orders || [];
       const meta = data?.meta || {};
       els.repairOrdersMeta.textContent =
-        'РџРћРљРђР—РђРќРћ: ' + items.length +
-        ' | Р’РЎР•Р“Рћ: ' + (meta.total ?? items.length) +
-        ' | РЎРџРРЎРћРљ: РќРћРњР•Р  / РњРђР РљРђ / Р—РђР“РћР›РћР’РћРљ';
+        'ПОКАЗАНО: ' + items.length +
+        ' | ВСЕГО: ' + (meta.total ?? items.length) +
+        ' | СПИСОК: НОМЕР / МАРКА / ЗАГОЛОВОК';
       els.repairOrdersList.innerHTML = items.length
-        ? items.map((item) => '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="РћС‚РєСЂС‹С‚СЊ Р·Р°РєР°Р·-РЅР°СЂСЏРґ"><div class="repair-orders-row__number">в„– ' + escapeHtml(item.number || '-') + '</div><div class="repair-orders-row__vehicle" title="' + escapeHtml(item.vehicle || '-') + '">' + escapeHtml(item.vehicle || 'РђРІС‚Рѕ РЅРµ СѓРєР°Р·Р°РЅРѕ') + '</div><div class="repair-orders-row__title" title="' + escapeHtml(item.heading || 'Р—Р°РєР°Р·-РЅР°СЂСЏРґ') + '">' + escapeHtml(item.heading || 'Р—Р°РєР°Р·-РЅР°СЂСЏРґ') + '</div></div>').join('')
-        : '<div class="log-row__meta">Р—РђРљРђР—-РќРђР РЇР”РћР’ РџРћРљРђ РќР•Рў.</div>';
+        ? items.map((item) => '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Открыть заказ-наряд"><div class="repair-orders-row__number">№ ' + escapeHtml(item.number || '-') + '</div><div class="repair-orders-row__vehicle" title="' + escapeHtml(item.vehicle || '-') + '">' + escapeHtml(item.vehicle || 'Авто не указано') + '</div><div class="repair-orders-row__title" title="' + escapeHtml(item.heading || 'Заказ-наряд') + '">' + escapeHtml(item.heading || 'Заказ-наряд') + '</div></div>').join('')
+        : '<div class="log-row__meta">ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.</div>';
     }
 
     renderArchive = function() {
@@ -6035,35 +6035,35 @@ BOARD_WEB_APP_HTML = "".join(
       els.archiveList.innerHTML = cards.length
         ? cards.map((card) => {
             const heading = cardHeading(card);
-            const compactDescription = String(card.description || 'РћРїРёСЃР°РЅРёРµ РЅРµ СѓРєР°Р·Р°РЅРѕ').replace(/\s+/g, ' ').trim();
+            const compactDescription = String(card.description || 'Описание не указано').replace(/\s+/g, ' ').trim();
             const summary = compactDescription.length > 180 ? compactDescription.slice(0, 177) + '...' : compactDescription;
-            return '<div class="archive-row archive-row--compact"><div class="archive-row__main"><div class="archive-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div><div class="archive-row__summary" title="' + escapeHtml(compactDescription || 'РћРїРёСЃР°РЅРёРµ РЅРµ СѓРєР°Р·Р°РЅРѕ') + '">' + escapeHtml(summary || 'РћРїРёСЃР°РЅРёРµ РЅРµ СѓРєР°Р·Р°РЅРѕ') + '</div></div><div class="archive-row__side"><div class="archive-row__meta">РђР РҐРР’: ' + escapeHtml(formatDate(card.updated_at)) + '</div><button class="btn" data-restore-card="' + escapeHtml(card.id) + '">Р’Р•Р РќРЈРўР¬</button></div></div>';
+            return '<div class="archive-row archive-row--compact"><div class="archive-row__main"><div class="archive-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div><div class="archive-row__summary" title="' + escapeHtml(compactDescription || 'Описание не указано') + '">' + escapeHtml(summary || 'Описание не указано') + '</div></div><div class="archive-row__side"><div class="archive-row__meta">АРХИВ: ' + escapeHtml(formatDate(card.updated_at)) + '</div><button class="btn" data-restore-card="' + escapeHtml(card.id) + '">ВЕРНУТЬ</button></div></div>';
           }).join('')
-        : '<div class="log-row__meta">РђР РҐРР’ РџРЈРЎРў.</div>';
+        : '<div class="log-row__meta">АРХИВ ПУСТ.</div>';
     };
 
 function renderCompactArchiveRows(cards) {
       return cards.map((card) => {
         const heading = cardHeading(card);
-        const compactDescription = String(card.description || 'РћРїРёСЃР°РЅРёРµ РЅРµ СѓРєР°Р·Р°РЅРѕ').replace(/\s+/g, ' ').trim();
+        const compactDescription = String(card.description || 'Описание не указано').replace(/\s+/g, ' ').trim();
         const summary = compactDescription.length > 180 ? compactDescription.slice(0, 177) + '...' : compactDescription;
-        return '<div class="archive-row archive-row--compact"><div class="archive-row__main"><div class="archive-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div><div class="archive-row__summary" title="' + escapeHtml(compactDescription || 'РћРїРёСЃР°РЅРёРµ РЅРµ СѓРєР°Р·Р°РЅРѕ') + '">' + escapeHtml(summary || 'РћРїРёСЃР°РЅРёРµ РЅРµ СѓРєР°Р·Р°РЅРѕ') + '</div></div><div class="archive-row__side"><div class="archive-row__meta">РђР РҐРР’: ' + escapeHtml(formatDate(card.updated_at)) + '</div><button class="btn" data-restore-card="' + escapeHtml(card.id) + '">Р’Р•Р РќРЈРўР¬</button></div></div>';
+        return '<div class="archive-row archive-row--compact"><div class="archive-row__main"><div class="archive-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div><div class="archive-row__summary" title="' + escapeHtml(compactDescription || 'Описание не указано') + '">' + escapeHtml(summary || 'Описание не указано') + '</div></div><div class="archive-row__side"><div class="archive-row__meta">АРХИВ: ' + escapeHtml(formatDate(card.updated_at)) + '</div><button class="btn" data-restore-card="' + escapeHtml(card.id) + '">ВЕРНУТЬ</button></div></div>';
       }).join('');
     }
 
     function legacyRepairOrdersMetaTextExpandedShadow(items, meta) {
-      return 'РџРћРљРђР—РђРќРћ: ' + items.length +
-        ' | Р’РЎР•Р“Рћ: ' + (meta.total ?? items.length) +
-        ' | РЎРџРРЎРћРљ: РќРћРњР•Р  / РњРђР РљРђ / Р—РђР“РћР›РћР’РћРљ';
+      return 'ПОКАЗАНО: ' + items.length +
+        ' | ВСЕГО: ' + (meta.total ?? items.length) +
+        ' | СПИСОК: НОМЕР / МАРКА / ЗАГОЛОВОК';
     }
 
     function gptWallMetaText(meta) {
-      return 'РЎРћР‘Р РђРќРћ: ' + formatDate(meta.generated_at) +
-        ' | РЎРўРћР›Р‘Р¦РћР’: ' + (meta.columns ?? 0) +
-        ' | РђРљРўРР’РќР«РҐ: ' + (meta.active_cards ?? 0) +
-        ' | РђР РҐРР’: ' + (meta.archived_cards ?? 0) +
-        ' | РЎРўРРљР•Р РћР’: ' + (meta.stickies ?? 0) +
-        ' | РЎРћР‘Р«РўРР™: ' + (meta.events_total ?? 0);
+      return 'СОБРАНО: ' + formatDate(meta.generated_at) +
+        ' | СТОЛБЦОВ: ' + (meta.columns ?? 0) +
+        ' | АКТИВНЫХ: ' + (meta.active_cards ?? 0) +
+        ' | АРХИВ: ' + (meta.archived_cards ?? 0) +
+        ' | СТИКЕРОВ: ' + (meta.stickies ?? 0) +
+        ' | СОБЫТИЙ: ' + (meta.events_total ?? 0);
     }
 
     function normalizeGptWallView(value) {
@@ -6072,13 +6072,13 @@ function renderCompactArchiveRows(cards) {
 
     function buildGptWallEventsFallback(data) {
       const events = Array.isArray(data?.events) ? data.events : [];
-      if (!events.length) return 'РЎРћР‘Р«РўРР™ РќР•Рў.';
+      if (!events.length) return 'СОБЫТИЙ НЕТ.';
       return events.map((event) => {
         const parts = [
-          event?.timestamp || 'вЂ”',
-          event?.actor_name || 'вЂ”',
-          event?.message || 'вЂ”',
-          event?.card_short_id || event?.card_id || 'вЂ”',
+          event?.timestamp || '—',
+          event?.actor_name || '—',
+          event?.message || '—',
+          event?.card_short_id || event?.card_id || '—',
         ];
         if (event?.details_text) parts.push(event.details_text);
         return parts.join(' | ');
@@ -6087,15 +6087,15 @@ function renderCompactArchiveRows(cards) {
 
     function buildReadableGptWallEvents(data) {
       const events = Array.isArray(data?.events) ? data.events : [];
-      if (!events.length) return 'Р РЋР С›Р вЂР В«Р СћР ВР в„ў Р СњР вЂўР Сћ.';
+      if (!events.length) return 'СОБЫТИЙ НЕТ.';
       return events.map((event, index) => {
         const lines = [
           '[event ' + (index + 1) + ']',
-          'time: ' + (event?.timestamp || 'РІР‚вЂќ'),
-          'actor: ' + (event?.actor_name || 'РІР‚вЂќ'),
-          'source: ' + (event?.source || 'РІР‚вЂќ'),
-          'action: ' + (event?.action || 'РІР‚вЂќ'),
-          'message: ' + (event?.message || 'РІР‚вЂќ'),
+          'time: ' + (event?.timestamp || 'вЂ”'),
+          'actor: ' + (event?.actor_name || 'вЂ”'),
+          'source: ' + (event?.source || 'вЂ”'),
+          'action: ' + (event?.action || 'вЂ”'),
+          'message: ' + (event?.message || 'вЂ”'),
         ];
         const cardRef = event?.card_short_id || event?.card_id || '';
         if (cardRef) lines.push('card: ' + cardRef);
@@ -6111,11 +6111,11 @@ function renderCompactArchiveRows(cards) {
       const section = sections?.[view] || {};
       if (view === 'event_log') {
         const sectionMeta = section?.meta || {};
-        return 'Р–РЈР РќРђР› РЎРћР‘Р«РўРР™ | РЎРћР‘Р РђРќРћ: ' + formatDate(sectionMeta.generated_at || meta.generated_at) +
-          ' | РџРћРљРђР—РђРќРћ: ' + (sectionMeta.events_returned ?? meta.events_returned ?? 0) +
-          ' | Р’РЎР•Р“Рћ: ' + (sectionMeta.events_total ?? meta.events_total ?? 0);
+        return 'ЖУРНАЛ СОБЫТИЙ | СОБРАНО: ' + formatDate(sectionMeta.generated_at || meta.generated_at) +
+          ' | ПОКАЗАНО: ' + (sectionMeta.events_returned ?? meta.events_returned ?? 0) +
+          ' | ВСЕГО: ' + (sectionMeta.events_total ?? meta.events_total ?? 0);
       }
-      return 'РЎРћР”Р•Р Р–РђРќРР• Р”РћРЎРљР | ' + gptWallMetaText(section?.meta || meta);
+      return 'СОДЕРЖАНИЕ ДОСКИ | ' + gptWallMetaText(section?.meta || meta);
     }
 
     function gptWallSectionText(view, data) {
@@ -6124,7 +6124,7 @@ function renderCompactArchiveRows(cards) {
       if (view === 'event_log') {
         return section?.text || buildReadableGptWallEvents(data);
       }
-      return section?.text || data?.text || 'Р”РђРќРќР«РҐ РќР•Рў.';
+      return section?.text || data?.text || 'ДАННЫХ НЕТ.';
     }
 
     function renderGptWallView() {
@@ -6155,7 +6155,7 @@ function renderCompactArchiveRows(cards) {
       const cards = state.snapshot?.archive || [];
       els.archiveList.innerHTML = cards.length
         ? renderCompactArchiveRows(cards)
-        : '<div class="log-row__meta">РђР РҐРР’ РџРЈРЎРў.</div>';
+        : '<div class="log-row__meta">АРХИВ ПУСТ.</div>';
     };
 
     legacyRenderRepairOrdersBase = function(data) {
@@ -6164,7 +6164,7 @@ function renderCompactArchiveRows(cards) {
       els.repairOrdersMeta.textContent = repairOrdersMetaText(items, meta);
       els.repairOrdersList.innerHTML = items.length
         ? renderRepairOrderRows(items)
-        : '<div class="log-row__meta">Р—РђРљРђР—-РќРђР РЇР”РћР’ РџРћРљРђ РќР•Рў.</div>';
+        : '<div class="log-row__meta">ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.</div>';
     };
 
     function legacyRepairOrderListTotalTextBase(value) {
@@ -6173,23 +6173,23 @@ function renderCompactArchiveRows(cards) {
     }
 
     function legacyRepairOrdersMetaTextShadow(items, meta) {
-      return 'РџРћРљРђР—РђРќРћ: ' + items.length +
-        ' | Р’РЎР•Р“Рћ: ' + (meta.total ?? items.length) +
-        ' | РЎРџРРЎРћРљ: Р”РђРўРђ / РђР’РўРћ / РЎРЈРўР¬ / РЎРЈРњРњРђ';
+      return 'ПОКАЗАНО: ' + items.length +
+        ' | ВСЕГО: ' + (meta.total ?? items.length) +
+        ' | СПИСОК: ДАТА / АВТО / СУТЬ / СУММА';
     }
 
     function legacyRenderRepairOrderRowsShadow(items) {
       return items.map((item) => {
         const number = item.number || '-';
         const createdAt = formatDate(item.created_at || item.date || item.updated_at);
-        const vehicle = item.vehicle || 'РђРІС‚Рѕ РЅРµ СѓРєР°Р·Р°РЅРѕ';
-        const heading = item.heading || 'Р—Р°РєР°Р·-РЅР°СЂСЏРґ';
+        const vehicle = item.vehicle || 'Авто не указано';
+        const heading = item.heading || 'Заказ-наряд';
         const total = repairOrderListTotalText(item.grand_total);
-        return '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="РћС‚РєСЂС‹С‚СЊ Р·Р°РєР°Р·-РЅР°СЂСЏРґ">'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">РћС‚РєСЂС‹С‚Р°</div><div class="repair-orders-row__number">в„– ' + escapeHtml(number) + ' | ' + escapeHtml(createdAt) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">РђРІС‚РѕРјРѕР±РёР»СЊ</div><div class="repair-orders-row__vehicle" title="' + escapeHtml(vehicle) + '">' + escapeHtml(vehicle) + '</div></div>'
-          + '<div class="repair-orders-row__cell repair-orders-row__title-cell"><div class="repair-orders-row__label">РЎРјС‹СЃР» РєР°СЂС‚РѕС‡РєРё</div><div class="repair-orders-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div></div>'
-          + '<div class="repair-orders-row__cell repair-orders-row__total-cell"><div class="repair-orders-row__label">РЎСѓРјРјР°</div><div class="repair-orders-row__total" data-empty="' + String(total === '0') + '">' + escapeHtml(total) + '</div></div>'
+        return '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Открыть заказ-наряд">'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Открыта</div><div class="repair-orders-row__number">№ ' + escapeHtml(number) + ' | ' + escapeHtml(createdAt) + '</div></div>'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Автомобиль</div><div class="repair-orders-row__vehicle" title="' + escapeHtml(vehicle) + '">' + escapeHtml(vehicle) + '</div></div>'
+          + '<div class="repair-orders-row__cell repair-orders-row__title-cell"><div class="repair-orders-row__label">Смысл карточки</div><div class="repair-orders-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div></div>'
+          + '<div class="repair-orders-row__cell repair-orders-row__total-cell"><div class="repair-orders-row__label">Сумма</div><div class="repair-orders-row__total" data-empty="' + String(total === '0') + '">' + escapeHtml(total) + '</div></div>'
           + '</div>';
       }).join('');
     }
@@ -6200,7 +6200,7 @@ function renderCompactArchiveRows(cards) {
         renderRepairOrders(data);
         if (openModal) els.repairOrdersModal.classList.add('is-open');
       } catch (error) {
-        els.repairOrdersMeta.textContent = 'РћРЁРР‘РљРђ Р—РђР“Р РЈР—РљР РЎРџРРЎРљРђ Р—РђРљРђР—-РќРђР РЇР”РћР’.';
+        els.repairOrdersMeta.textContent = 'ОШИБКА ЗАГРУЗКИ СПИСКА ЗАКАЗ-НАРЯДОВ.';
         els.repairOrdersList.innerHTML = '<div class="log-row__meta">' + escapeHtml(error.message) + '</div>';
         if (openModal) els.repairOrdersModal.classList.add('is-open');
         setStatus(error.message, true);
@@ -6310,30 +6310,30 @@ function renderCompactArchiveRows(cards) {
     };
 
     legacyRepairOrdersMetaTextShadow2 = function(items, meta) {
-      return 'РџРћРљРђР—РђРќРћ: ' + items.length +
-        ' | РћРўРљР Р«РўР«Р•: ' + (meta.active_total ?? 0) +
-        ' | РђР РҐРР’: ' + (meta.archived_total ?? 0);
+      return 'ПОКАЗАНО: ' + items.length +
+        ' | ОТКРЫТЫЕ: ' + (meta.active_total ?? 0) +
+        ' | АРХИВ: ' + (meta.archived_total ?? 0);
     };
 
     function legacyRenderRepairOrderListRowsShadow2(items) {
       return items.map((item) => {
         const number = item.number || '-';
         const openedAt = repairOrderDateDisplayValue(item.opened_at || item.created_at || item.date || item.updated_at);
-        const vehicle = item.vehicle || 'РђРІС‚Рѕ РЅРµ СѓРєР°Р·Р°РЅРѕ';
-        const client = item.client || 'РљР»РёРµРЅС‚ РЅРµ СѓРєР°Р·Р°РЅ';
-        const phone = item.phone || 'РўРµР»РµС„РѕРЅ РЅРµ СѓРєР°Р·Р°РЅ';
-        const heading = item.summary || item.reason || item.heading || 'Р—Р°РєР°Р·-РЅР°СЂСЏРґ';
+        const vehicle = item.vehicle || 'Авто не указано';
+        const client = item.client || 'Клиент не указан';
+        const phone = item.phone || 'Телефон не указан';
+        const heading = item.summary || item.reason || item.heading || 'Заказ-наряд';
         const total = repairOrderListTotalText(item.grand_total, item.works_total);
         const status = item.status_label || repairOrderStatusLabel(item.status);
         const rawStatus = String(item.status || 'open').trim().toLowerCase() === 'closed' ? 'closed' : 'open';
-        return '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="РћС‚РєСЂС‹С‚СЊ Р·Р°РєР°Р·-РЅР°СЂСЏРґ">'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">РќРѕРјРµСЂ / РѕС‚РєСЂС‹С‚Р°</div><div class="repair-orders-row__number">в„– ' + escapeHtml(number) + ' | ' + escapeHtml(openedAt) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">РЎС‚Р°С‚СѓСЃ</div><div class="repair-orders-row__status" data-status="' + escapeHtml(rawStatus) + '">' + escapeHtml(status) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Р’Р»Р°РґРµР»РµС†</div><div class="repair-orders-row__client" title="' + escapeHtml(client) + '">' + escapeHtml(client) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">РўРµР»РµС„РѕРЅ</div><div class="repair-orders-row__phone" title="' + escapeHtml(phone) + '">' + escapeHtml(phone) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">РђРІС‚РѕРјРѕР±РёР»СЊ</div><div class="repair-orders-row__vehicle" title="' + escapeHtml(vehicle) + '">' + escapeHtml(vehicle) + '</div></div>'
-          + '<div class="repair-orders-row__cell repair-orders-row__title-cell"><div class="repair-orders-row__label">РЎРјС‹СЃР» РєР°СЂС‚РѕС‡РєРё</div><div class="repair-orders-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div></div>'
-          + '<div class="repair-orders-row__cell repair-orders-row__total-cell"><div class="repair-orders-row__label">РЎСѓРјРјР°</div><div class="repair-orders-row__total" data-empty="' + String(total === '0') + '">' + escapeHtml(total) + '</div></div>'
+        return '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Открыть заказ-наряд">'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Номер / открыта</div><div class="repair-orders-row__number">№ ' + escapeHtml(number) + ' | ' + escapeHtml(openedAt) + '</div></div>'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Статус</div><div class="repair-orders-row__status" data-status="' + escapeHtml(rawStatus) + '">' + escapeHtml(status) + '</div></div>'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Владелец</div><div class="repair-orders-row__client" title="' + escapeHtml(client) + '">' + escapeHtml(client) + '</div></div>'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Телефон</div><div class="repair-orders-row__phone" title="' + escapeHtml(phone) + '">' + escapeHtml(phone) + '</div></div>'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Автомобиль</div><div class="repair-orders-row__vehicle" title="' + escapeHtml(vehicle) + '">' + escapeHtml(vehicle) + '</div></div>'
+          + '<div class="repair-orders-row__cell repair-orders-row__title-cell"><div class="repair-orders-row__label">Смысл карточки</div><div class="repair-orders-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div></div>'
+          + '<div class="repair-orders-row__cell repair-orders-row__total-cell"><div class="repair-orders-row__label">Сумма</div><div class="repair-orders-row__total" data-empty="' + String(total === '0') + '">' + escapeHtml(total) + '</div></div>'
           + '</div>';
       }).join('');
     }
@@ -6346,7 +6346,7 @@ function renderCompactArchiveRows(cards) {
       els.repairOrdersMeta.textContent = repairOrdersMetaText(items, meta);
       els.repairOrdersList.innerHTML = items.length
         ? renderRepairOrderListRows(items)
-        : '<div class="log-row__meta">' + (state.repairOrdersFilter === 'closed' ? 'РђР РҐРР’ Р—РђРљРђР—-РќРђР РЇР”РћР’ РџРЈРЎРў.' : 'РћРўРљР Р«РўР«РҐ Р—РђРљРђР—-РќРђР РЇР”РћР’ РџРћРљРђ РќР•Рў.') + '</div>';
+        : '<div class="log-row__meta">' + (state.repairOrdersFilter === 'closed' ? 'АРХИВ ЗАКАЗ-НАРЯДОВ ПУСТ.' : 'ОТКРЫТЫХ ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.') + '</div>';
     };
 
     async function setRepairOrdersFilter(status, { openModal = false } = {}) {
@@ -6365,7 +6365,7 @@ function renderCompactArchiveRows(cards) {
           setModalListError(
             els.repairOrdersMeta,
             els.repairOrdersList,
-            'РћРЁРР‘РљРђ Р—РђР“Р РЈР—РљР РЎРџРРЎРљРђ Р—РђРљРђР—-РќРђР РЇР”РћР’.',
+            'ОШИБКА ЗАГРУЗКИ СПИСКА ЗАКАЗ-НАРЯДОВ.',
             error.message,
           );
         },
@@ -6399,7 +6399,7 @@ function renderCompactArchiveRows(cards) {
         renderGptWall(data);
         if (openModal) els.gptWallModal.classList.add('is-open');
       } catch (error) {
-        els.gptWallMeta.textContent = 'РћРЁРР‘РљРђ Р—РђР“Р РЈР—РљР РЎР›РћРЇ GPT.';
+        els.gptWallMeta.textContent = 'ОШИБКА ЗАГРУЗКИ СЛОЯ GPT.';
         els.gptWallText.textContent = error.message;
         if (openModal) els.gptWallModal.classList.add('is-open');
         setStatus(error.message, true);
@@ -6415,7 +6415,7 @@ function renderCompactArchiveRows(cards) {
           setModalListError(
             els.repairOrdersMeta,
             els.repairOrdersList,
-            'РћРЁРР‘РљРђ Р—РђР“Р РЈР—РљР РЎРџРРЎРљРђ Р—РђРљРђР—-РќРђР РЇР”РћР’.',
+            'ОШИБКА ЗАГРУЗКИ СПИСКА ЗАКАЗ-НАРЯДОВ.',
             error.message,
           );
         },
@@ -6429,18 +6429,18 @@ function renderCompactArchiveRows(cards) {
       return fallback || normalized || '0';
     };
 
-    // Р РЋР СџР ВР РЋР С›Р С™: Р вЂќР С’Р СћР С’ / Р С’Р вЂ™Р СћР С› / Р РЋР Р€Р СћР В¬ / Р РЋР Р€Р СљР СљР С’
+    // СПИСОК: ДАТА / АВТО / СУТЬ / СУММА
     repairOrdersMetaText = function(items, meta) {
       const parts = [
-        'РџРћРљРђР—РђРќРћ: ' + items.length,
-        'РћРўРљР Р«РўР«Р•: ' + (meta.active_total ?? 0),
-        'РђР РҐРР’: ' + (meta.archived_total ?? 0),
+        'ПОКАЗАНО: ' + items.length,
+        'ОТКРЫТЫЕ: ' + (meta.active_total ?? 0),
+        'АРХИВ: ' + (meta.archived_total ?? 0),
       ];
-      if (meta.query) parts.push('РџРћРРЎРљ: ' + String(meta.query).trim());
+      if (meta.query) parts.push('ПОИСК: ' + String(meta.query).trim());
       const sortBy = normalizeRepairOrdersSortBy(meta.sort_by || state.repairOrdersSortBy);
       const sortDir = normalizeRepairOrdersSortDir(meta.sort_dir || state.repairOrdersSortDir);
-      const sortLabel = sortBy === 'number' ? 'РќРћРњР•Р ' : (sortBy === 'closed_at' ? 'Р”РђРўРђ Р—РђРљР Р«РўРРЇ' : 'Р”РђРўРђ РћРўРљР Р«РўРРЇ');
-      parts.push('РЎРћР Рў: ' + sortLabel + ' ' + (sortDir === 'asc' ? 'в†‘' : 'в†“'));
+      const sortLabel = sortBy === 'number' ? 'НОМЕР' : (sortBy === 'closed_at' ? 'ДАТА ЗАКРЫТИЯ' : 'ДАТА ОТКРЫТИЯ');
+      parts.push('СОРТ: ' + sortLabel + ' ' + (sortDir === 'asc' ? '↑' : '↓'));
       return parts.join(' | ');
     };
 
@@ -6449,10 +6449,10 @@ function renderCompactArchiveRows(cards) {
         const number = item.number || '-';
         const openedAt = repairOrderDateDisplayValue(item.opened_at || item.created_at || item.date || item.updated_at);
         const closedAt = repairOrderDateDisplayValue(item.closed_at);
-        const vehicle = item.vehicle || 'РђРІС‚Рѕ РЅРµ СѓРєР°Р·Р°РЅРѕ';
-        const client = item.client || 'РљР»РёРµРЅС‚ РЅРµ СѓРєР°Р·Р°РЅ';
-        const phone = item.phone || 'РўРµР»РµС„РѕРЅ РЅРµ СѓРєР°Р·Р°РЅ';
-        const heading = item.summary || item.reason || item.heading || 'Р—Р°РєР°Р·-РЅР°СЂСЏРґ';
+        const vehicle = item.vehicle || 'Авто не указано';
+        const client = item.client || 'Клиент не указан';
+        const phone = item.phone || 'Телефон не указан';
+        const heading = item.summary || item.reason || item.heading || 'Заказ-наряд';
         const total = repairOrderListTotalText(item.grand_total, item.works_total);
         const status = item.status_label || repairOrderStatusLabel(item.status);
         const rawStatus = String(item.status || 'open').trim().toLowerCase() === 'closed' ? 'closed' : 'open';
@@ -6462,16 +6462,16 @@ function renderCompactArchiveRows(cards) {
         const tagsHtml = previewTags.length
           ? '<div class="repair-orders-row__tags">' + previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '') + '</div>'
           : '';
-        return '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="РћС‚РєСЂС‹С‚СЊ Р·Р°РєР°Р·-РЅР°СЂСЏРґ">'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">РќРѕРјРµСЂ</div><div class="repair-orders-row__number">в„– ' + escapeHtml(number) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">РћС‚РєСЂС‹С‚Р°</div><div class="repair-orders-row__opened">' + escapeHtml(openedAt || 'вЂ”') + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Р—Р°РєСЂС‹С‚Р°</div><div class="repair-orders-row__closed">' + escapeHtml(closedAt || 'вЂ”') + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">РЎС‚Р°С‚СѓСЃ</div><div class="repair-orders-row__status" data-status="' + escapeHtml(rawStatus) + '">' + escapeHtml(status) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Р’Р»Р°РґРµР»РµС†</div><div class="repair-orders-row__client" title="' + escapeHtml(client) + '">' + escapeHtml(client) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">РўРµР»РµС„РѕРЅ</div><div class="repair-orders-row__phone" title="' + escapeHtml(phone) + '">' + escapeHtml(phone) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">РђРІС‚РѕРјРѕР±РёР»СЊ</div><div class="repair-orders-row__vehicle" title="' + escapeHtml(vehicle) + '">' + escapeHtml(vehicle) + '</div></div>'
-          + '<div class="repair-orders-row__cell repair-orders-row__title-cell"><div class="repair-orders-row__label">РЎРјС‹СЃР» РєР°СЂС‚РѕС‡РєРё</div><div class="repair-orders-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div>' + tagsHtml + '</div>'
-          + '<div class="repair-orders-row__cell repair-orders-row__total-cell"><div class="repair-orders-row__label">РЎСѓРјРјР°</div><div class="repair-orders-row__total" data-empty="' + String(total === '0') + '">' + escapeHtml(total) + '</div></div>'
+        return '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Открыть заказ-наряд">'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Номер</div><div class="repair-orders-row__number">№ ' + escapeHtml(number) + '</div></div>'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Открыта</div><div class="repair-orders-row__opened">' + escapeHtml(openedAt || '—') + '</div></div>'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Закрыта</div><div class="repair-orders-row__closed">' + escapeHtml(closedAt || '—') + '</div></div>'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Статус</div><div class="repair-orders-row__status" data-status="' + escapeHtml(rawStatus) + '">' + escapeHtml(status) + '</div></div>'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Владелец</div><div class="repair-orders-row__client" title="' + escapeHtml(client) + '">' + escapeHtml(client) + '</div></div>'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Телефон</div><div class="repair-orders-row__phone" title="' + escapeHtml(phone) + '">' + escapeHtml(phone) + '</div></div>'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Автомобиль</div><div class="repair-orders-row__vehicle" title="' + escapeHtml(vehicle) + '">' + escapeHtml(vehicle) + '</div></div>'
+          + '<div class="repair-orders-row__cell repair-orders-row__title-cell"><div class="repair-orders-row__label">Смысл карточки</div><div class="repair-orders-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div>' + tagsHtml + '</div>'
+          + '<div class="repair-orders-row__cell repair-orders-row__total-cell"><div class="repair-orders-row__label">Сумма</div><div class="repair-orders-row__total" data-empty="' + String(total === '0') + '">' + escapeHtml(total) + '</div></div>'
           + '</div>';
       }).join('');
     };
@@ -6481,11 +6481,11 @@ function renderCompactArchiveRows(cards) {
         const number = item.number || '-';
         const openedAt = repairOrderListDateDisplayValue(item.opened_at || item.created_at || item.date || item.updated_at);
         const closedAt = repairOrderListDateDisplayValue(item.closed_at);
-        const vehicle = String(item.vehicle || '').trim() || 'вЂ”';
+        const vehicle = String(item.vehicle || '').trim() || '—';
         const client = String(item.client || '').trim();
         const phone = String(item.phone || '').trim();
-        const clientText = [client, phone].filter(Boolean).join(' В· ') || 'вЂ”';
-        const heading = item.summary || item.reason || item.heading || 'Р—Р°РєР°Р·-РЅР°СЂСЏРґ';
+        const clientText = [client, phone].filter(Boolean).join(' · ') || '—';
+        const heading = item.summary || item.reason || item.heading || 'Заказ-наряд';
         const total = repairOrderListTotalText(item.grand_total, item.works_total);
         const status = item.status_label || repairOrderStatusLabel(item.status);
         const rawStatus = String(item.status || 'open').trim().toLowerCase() === 'closed' ? 'closed' : 'open';
@@ -6495,10 +6495,10 @@ function renderCompactArchiveRows(cards) {
         const tagsHtml = previewTags.length
           ? '<div class="repair-orders-row__tags">' + previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '') + '</div>'
           : '';
-        return '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="РћС‚РєСЂС‹С‚СЊ Р·Р°РєР°Р·-РЅР°СЂСЏРґ">'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__number">в„– ' + escapeHtml(number) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__opened">' + escapeHtml(openedAt || 'вЂ”') + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__closed">' + escapeHtml(closedAt || 'вЂ”') + '</div></div>'
+        return '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Открыть заказ-наряд">'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__number">№ ' + escapeHtml(number) + '</div></div>'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__opened">' + escapeHtml(openedAt || '—') + '</div></div>'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__closed">' + escapeHtml(closedAt || '—') + '</div></div>'
           + '<div class="repair-orders-row__cell"><div class="repair-orders-row__status" data-status="' + escapeHtml(rawStatus) + '">' + escapeHtml(status) + '</div></div>'
           + '<div class="repair-orders-row__cell"><div class="repair-orders-row__client" title="' + escapeHtml(clientText) + '">' + escapeHtml(clientText) + '</div></div>'
           + '<div class="repair-orders-row__cell"><div class="repair-orders-row__vehicle" title="' + escapeHtml(vehicle) + '">' + escapeHtml(vehicle) + '</div></div>'
@@ -6563,8 +6563,8 @@ function renderCompactArchiveRows(cards) {
       els.repairOrdersList.innerHTML = items.length
         ? renderRepairOrderListRows(items)
         : '<div class="log-row__meta">' + (state.repairOrdersQuery
-            ? 'РџРћ РџРћРРЎРљРЈ РќРР§Р•Р“Рћ РќР• РќРђР™Р”Р•РќРћ.'
-            : (state.repairOrdersFilter === 'closed' ? 'РђР РҐРР’ Р—РђРљРђР—-РќРђР РЇР”РћР’ РџРЈРЎРў.' : 'РћРўРљР Р«РўР«РҐ Р—РђРљРђР—-РќРђР РЇР”РћР’ РџРћРљРђ РќР•Рў.')) + '</div>';
+            ? 'ПО ПОИСКУ НИЧЕГО НЕ НАЙДЕНО.'
+            : (state.repairOrdersFilter === 'closed' ? 'АРХИВ ЗАКАЗ-НАРЯДОВ ПУСТ.' : 'ОТКРЫТЫХ ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.')) + '</div>';
     };
 
     loadRepairOrders = async function(openModal = false) {
@@ -6576,7 +6576,7 @@ function renderCompactArchiveRows(cards) {
           setModalListError(
             els.repairOrdersMeta,
             els.repairOrdersList,
-            'РћРЁРР‘РљРђ Р—РђР“Р РЈР—РљР РЎРџРРЎРљРђ Р—РђРљРђР—-РќРђР РЇР”РћР’.',
+            'ОШИБКА ЗАГРУЗКИ СПИСКА ЗАКАЗ-НАРЯДОВ.',
             error.message,
           );
         },
@@ -6609,7 +6609,7 @@ function renderCompactArchiveRows(cards) {
           setModalTextError(
             els.gptWallMeta,
             els.gptWallText,
-            'РћРЁРР‘РљРђ Р—РђР“Р РЈР—РљР РЎР›РћРЇ GPT.',
+            'ОШИБКА ЗАГРУЗКИ СЛОЯ GPT.',
             error.message,
           );
         },
@@ -6621,11 +6621,11 @@ function renderCompactArchiveRows(cards) {
       const extraTags = (card.tags || []).length - previewTags.length;
       const tagsHtml = previewTags.length
         ? previewTags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
-        : '<span class="tag tag--muted">Р‘Р•Р— РњР•РўРћРљ</span>';
+        : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = card.vehicle
         ? '<div class="card__heading"><div class="card__vehicle">' + escapeHtml(card.vehicle) + '</div><span class="card__slash">/</span><div class="card__title">' + escapeHtml(card.title) + '</div></div>'
         : '<div class="card__title">' + escapeHtml(card.title) + '</div>';
-      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'РћРїРёСЃР°РЅРёРµ РЅРµ СѓРєР°Р·Р°РЅРѕ') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>РЎРР“Рќ</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>Р¤РђР™Р›Р« ' + escapeHtml(card.attachment_count) + '</span><span>Р–РЈР РќРђР› ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
     }
 
     function renderCardHtml(card) {
@@ -6634,12 +6634,12 @@ function renderCompactArchiveRows(cards) {
       const extraTags = normalizedTags.length - previewTags.length;
       const tagsHtml = previewTags.length
         ? previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
-        : '<span class="tag tag--muted">Р‘Р•Р— РњР•РўРћРљ</span>';
+        : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = card.vehicle
         ? '<div class="card__heading"><div class="card__vehicle">' + escapeHtml(card.vehicle) + '</div><span class="card__slash">/</span><div class="card__title">' + escapeHtml(card.title) + '</div></div>'
         : '<div class="card__title">' + escapeHtml(card.title) + '</div>';
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'РћРїРёСЃР°РЅРёРµ РЅРµ СѓРєР°Р·Р°РЅРѕ') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>РЎРР“Рќ</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>Р¤РђР™Р›Р« ' + escapeHtml(card.attachment_count) + '</span><span>Р–РЈР РќРђР› ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
     }
 
     function renderBoardCardHtml(card) {
@@ -6648,11 +6648,11 @@ function renderCompactArchiveRows(cards) {
       const extraTags = normalizedTags.length - previewTags.length;
       const tagsHtml = previewTags.length
         ? previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
-        : '<span class="tag tag--muted">Р вЂР вЂўР вЂ” Р СљР вЂўР СћР С›Р С™</span>';
+        : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
       const unreadBadgeHtml = cardUnreadBadgeHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Р С›Р С—Р С‘РЎРѓР В°Р Р…Р С‘Р Вµ Р Р…Р Вµ РЎС“Р С”Р В°Р В·Р В°Р Р…Р С•') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>Р РЋР ВР вЂњР Сњ</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>Р В¤Р С’Р в„ўР вЂєР В« ' + escapeHtml(card.attachment_count) + '</span><span>Р вЂ“Р Р€Р В Р СњР С’Р вЂє ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
     }
 
     function sortedCardsForBoardColumn(snapshot, columnId) {
@@ -6670,11 +6670,11 @@ function renderCompactArchiveRows(cards) {
       const toneStyle = '--column-tint:' + tone.tint + ';--column-head:' + tone.head + ';--column-edge:' + tone.edge + ';--column-empty:' + tone.empty + ';';
       const isDeleteBlocked = cards.length > 0 || snapshot.columns.length <= 1;
       const deleteTitle = cards.length > 0
-        ? 'РЎРЅР°С‡Р°Р»Р° СѓР±РµСЂРё РєР°СЂС‚РѕС‡РєРё РёР· СЌС‚РѕРіРѕ СЃС‚РѕР»Р±С†Р°'
-        : (snapshot.columns.length <= 1 ? 'РџРѕСЃР»РµРґРЅРёР№ СЃС‚РѕР»Р±РµС† РЅРµР»СЊР·СЏ СѓРґР°Р»РёС‚СЊ' : 'РЈРґР°Р»РёС‚СЊ РїСѓСЃС‚РѕР№ СЃС‚РѕР»Р±РµС†');
-      const renameTitle = 'РџРµСЂРµРёРјРµРЅРѕРІР°С‚СЊ СЃС‚РѕР»Р±РµС†';
+        ? 'Сначала убери карточки из этого столбца'
+        : (snapshot.columns.length <= 1 ? 'Последний столбец нельзя удалить' : 'Удалить пустой столбец');
+      const renameTitle = 'Переименовать столбец';
       const deleteAttrs = isDeleteBlocked ? ' disabled' : '';
-      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '"><div class="column__head"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '">&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>Г—</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '<div class="empty">Р—Р”Р•РЎР¬ РџРћРљРђ РџРЈРЎРўРћ.</div>') + '</div><button class="btn" data-create-in="' + escapeHtml(column.id) + '">+ РљРђР РўРћР§РљРђ</button></section>';
+      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '"><div class="column__head"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '">&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>×</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '<div class="empty">ЗДЕСЬ ПОКА ПУСТО.</div>') + '</div><button class="btn" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
     }
 
     function renderBoardColumnById(columnId) {
@@ -6743,7 +6743,7 @@ function renderCompactArchiveRows(cards) {
           state.lastSnapshotRevision = nextRevision;
           if (els.gptWallModal.classList.contains('is-open')) await loadGptWall(false);
           const data = state.snapshot;
-        setStatus(showSuccess ? ('Р”РћРЎРљРђ РћР‘РќРћР’Р›Р•РќРђ В· ' + new Date().toLocaleTimeString('ru-RU')) : ('РЎР•Р Р’Р•Р  РђРљРўРР’Р•Рќ В· РљРђР РўРћР§Р•Рљ: ' + data.cards.length + ' В· РђР РҐРР’: ' + data.archive.length));
+        setStatus(showSuccess ? ('ДОСКА ОБНОВЛЕНА · ' + new Date().toLocaleTimeString('ru-RU')) : ('СЕРВЕР АКТИВЕН · КАРТОЧЕК: ' + data.cards.length + ' · АРХИВ: ' + data.archive.length));
         } catch (error) {
           setStatus(error.message, true);
         } finally {
@@ -6782,8 +6782,8 @@ function renderCompactArchiveRows(cards) {
       if (!data) return;
       setStatus(
         showSuccess
-          ? ('Р”РћРЎРљРђ РћР‘РќРћР’Р›Р•РќРђ В· ' + new Date().toLocaleTimeString('ru-RU'))
-          : ('РЎР•Р Р’Р•Р  РђРљРўРР’Р•Рќ В· РљРђР РўРћР§Р•Рљ: ' + data.cards.length + ' В· РђР РҐРР’: ' + data.archive.length),
+          ? ('ДОСКА ОБНОВЛЕНА · ' + new Date().toLocaleTimeString('ru-RU'))
+          : ('СЕРВЕР АКТИВЕН · КАРТОЧЕК: ' + data.cards.length + ' · АРХИВ: ' + data.archive.length),
         false,
       );
     }
@@ -6944,7 +6944,7 @@ function renderCompactArchiveRows(cards) {
 
     async function legacySaveCardShadow() {
       const payload = currentCardPayload();
-      if (!payload.title) return setStatus('РЈРљРђР–Р Р—РђР“РћР›РћР’РћРљ РљРђР РўРћР§РљР.', true);
+      if (!payload.title) return setStatus('УКАЖИ ЗАГОЛОВОК КАРТОЧКИ.', true);
       try {
         if (state.editingId) {
           await api('/api/update_card', { method: 'POST', body: { card_id: state.editingId, ...payload } });
@@ -6963,7 +6963,7 @@ function renderCompactArchiveRows(cards) {
         const data = await api('/api/get_card_log?card_id=' + encodeURIComponent(cardId));
         renderLogs(data.events || []);
       } catch (error) {
-        renderLogs([{ message: error.message, timestamp: new Date().toISOString(), actor_name: 'РЎРРЎРўР•РњРђ', source: 'ui', details: {} }]);
+        renderLogs([{ message: error.message, timestamp: new Date().toISOString(), actor_name: 'СИСТЕМА', source: 'ui', details: {} }]);
       }
     }
 
@@ -7030,7 +7030,7 @@ function renderCompactArchiveRows(cards) {
         if (!patched && !data?.card) {
           await refreshSnapshot(true);
         } else {
-          setStatus('Р”РћРЎРљРђ РћР‘РќРћР’Р›Р•РќРђ В· ' + new Date().toLocaleTimeString('ru-RU'), false);
+          setStatus('ДОСКА ОБНОВЛЕНА · ' + new Date().toLocaleTimeString('ru-RU'), false);
         }
       } catch (error) {
         setStatus(error.message, true);
@@ -7056,10 +7056,10 @@ function renderCompactArchiveRows(cards) {
     async function renameColumnFromButton(button) {
       const columnId = button.dataset.renameColumn;
       const columnLabel = button.dataset.columnLabel || columnId || 'column';
-      const label = window.prompt('РќРѕРІРѕРµ РЅР°Р·РІР°РЅРёРµ СЃС‚РѕР»Р±С†Р°', columnLabel);
+      const label = window.prompt('Новое название столбца', columnLabel);
       if (label === null) return;
       if (!label.trim()) {
-        setStatus('РќРЈР–РќРћ РЈРљРђР—РђРўР¬ РќРђР—Р’РђРќРР• РЎРўРћР›Р‘Р¦Рђ.', true);
+        setStatus('НУЖНО УКАЗАТЬ НАЗВАНИЕ СТОЛБЦА.', true);
         return;
       }
       try {
@@ -7075,17 +7075,17 @@ function renderCompactArchiveRows(cards) {
 
     async function deleteColumnFromButton(button) {
       const columnId = button.dataset.deleteColumn;
-      const columnLabel = button.dataset.columnLabel || columnId || 'СЃС‚РѕР»Р±РµС†';
+      const columnLabel = button.dataset.columnLabel || columnId || 'столбец';
       const cardsCount = Number(button.dataset.cardCount || '0');
       if (button.hasAttribute('disabled')) {
         if (cardsCount > 0) {
-          setStatus('РЎРќРђР§РђР›Рђ РЈР‘Р•Р Р РљРђР РўРћР§РљР РР— РЎРўРћР›Р‘Р¦Рђ В«' + columnLabel + 'В».', true);
+          setStatus('СНАЧАЛА УБЕРИ КАРТОЧКИ ИЗ СТОЛБЦА «' + columnLabel + '».', true);
           return;
         }
-        setStatus('РџРћРЎР›Р•Р”РќРР™ РЎРўРћР›Р‘Р•Р¦ РЈР”РђР›РЇРўР¬ РќР•Р›Р¬Р—РЇ.', true);
+        setStatus('ПОСЛЕДНИЙ СТОЛБЕЦ УДАЛЯТЬ НЕЛЬЗЯ.', true);
         return;
       }
-      if (!window.confirm('РЈРґР°Р»РёС‚СЊ РїСѓСЃС‚РѕР№ СЃС‚РѕР»Р±РµС† В«' + columnLabel + 'В»?')) return;
+      if (!window.confirm('Удалить пустой столбец «' + columnLabel + '»?')) return;
       try {
         await api('/api/delete_column', { method: 'POST', body: { column_id: columnId, actor_name: state.actor, source: 'ui' } });
         await refreshSnapshot(true);
@@ -7182,7 +7182,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     async function createColumnFromTopbar() {
-      const label = window.prompt('Р СњР В°Р В·Р Р†Р В°Р Р…Р С‘Р Вµ РЎРѓРЎвЂљР С•Р В»Р В±РЎвЂ Р В°');
+      const label = window.prompt('Название столбца');
       if (!label) return;
       try {
         await api('/api/create_column', { method: 'POST', body: { label, actor_name: state.actor, source: 'ui' } });
@@ -7210,7 +7210,7 @@ function renderCompactArchiveRows(cards) {
       const amount = Number(value || 0);
       const sign = amount < 0 ? '-' : '';
       const absolute = Math.abs(amount) / 100;
-      return sign + absolute.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' в‚Ѕ';
+      return sign + absolute.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
     }
 
     function activeCashboxStatistics() {
@@ -7240,25 +7240,25 @@ function renderCompactArchiveRows(cards) {
         const stats = item?.statistics || {};
         const balanceMinor = Number(stats?.balance_minor || 0);
         const transactionsTotal = Number(stats?.transactions_total || 0);
-        const lastTransactionAt = stats?.last_transaction_at ? formatDate(stats.last_transaction_at) : 'вЂ”';
+        const lastTransactionAt = stats?.last_transaction_at ? formatDate(stats.last_transaction_at) : '—';
         const activeClass = item.id === state.activeCashboxId ? ' is-active' : '';
         return '<button class="cashbox-row' + activeClass + '" type="button" data-cashbox-id="' + escapeHtml(item.id) + '">'
           + '<div class="cashbox-row__head">'
-          + '<div class="cashbox-row__name">' + escapeHtml(item.name || 'вЂ”') + '</div>'
+          + '<div class="cashbox-row__name">' + escapeHtml(item.name || '—') + '</div>'
           + '<div class="cashbox-row__balance" data-balance-sign="' + escapeHtml(balanceMinor < 0 ? 'negative' : 'positive') + '">' + escapeHtml(stats?.balance_display || cashboxFormatMinorAmount(balanceMinor)) + '</div>'
           + '</div>'
-          + '<div class="cashbox-row__meta">Р”РІРёР¶РµРЅРёР№: ' + escapeHtml(String(transactionsTotal)) + ' | РџРѕСЃР»РµРґРЅРµРµ: ' + escapeHtml(lastTransactionAt) + '</div>'
+          + '<div class="cashbox-row__meta">Движений: ' + escapeHtml(String(transactionsTotal)) + ' | Последнее: ' + escapeHtml(lastTransactionAt) + '</div>'
           + '</button>';
-      }).join('') : '<div class="cashboxes-empty">РљРђРЎРЎ РџРћРљРђ РќР•Рў.</div>';
+      }).join('') : '<div class="cashboxes-empty">КАСС ПОКА НЕТ.</div>';
     }
 
     function renderCashboxStats() {
       const stats = activeCashboxStatistics();
       const balanceMinor = Number(stats.balance_minor || 0);
       els.cashboxStats.innerHTML = [
-        { label: 'Р‘Р°Р»Р°РЅСЃ', value: stats.balance_display || cashboxFormatMinorAmount(balanceMinor), sign: balanceMinor < 0 ? 'negative' : 'positive' },
-        { label: 'РџРѕСЃС‚СѓРїР»РµРЅРёСЏ', value: stats.income_total_display || cashboxFormatMinorAmount(stats.income_total_minor || 0), sign: 'positive' },
-        { label: 'РЎРїРёСЃР°РЅРёСЏ', value: stats.expense_total_display || cashboxFormatMinorAmount(stats.expense_total_minor || 0), sign: 'positive' },
+        { label: 'Баланс', value: stats.balance_display || cashboxFormatMinorAmount(balanceMinor), sign: balanceMinor < 0 ? 'negative' : 'positive' },
+        { label: 'Поступления', value: stats.income_total_display || cashboxFormatMinorAmount(stats.income_total_minor || 0), sign: 'positive' },
+        { label: 'Списания', value: stats.expense_total_display || cashboxFormatMinorAmount(stats.expense_total_minor || 0), sign: 'positive' },
       ].map((item) => '<div class="cashbox-stat-grid"><div class="cashbox-stat-grid__label">' + escapeHtml(item.label) + '</div><div class="cashbox-stat-grid__value" data-balance-sign="' + escapeHtml(item.sign) + '">' + escapeHtml(item.value) + '</div></div>').join('');
     }
 
@@ -7266,32 +7266,32 @@ function renderCompactArchiveRows(cards) {
       const transactions = Array.isArray(state.activeCashbox?.transactions) ? state.activeCashbox.transactions : [];
       els.cashboxTransactions.innerHTML = transactions.length ? transactions.map((item) => {
         const direction = item?.direction === 'expense' ? 'expense' : 'income';
-        const note = String(item?.note || '').trim() || 'Р‘РµР· РєРѕРјРјРµРЅС‚Р°СЂРёСЏ';
-        const actor = String(item?.actor_name || '').trim() || 'вЂ”';
+        const note = String(item?.note || '').trim() || 'Без комментария';
+        const actor = String(item?.actor_name || '').trim() || '—';
         return '<div class="cashbox-transaction">'
-          + '<div class="cashbox-transaction__badge" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(direction === 'expense' ? 'СЃРїРёСЃР°РЅРёРµ' : 'РїРѕСЃС‚СѓРїР»РµРЅРёРµ') + '</div>'
+          + '<div class="cashbox-transaction__badge" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(direction === 'expense' ? 'списание' : 'поступление') + '</div>'
           + '<div><div class="cashbox-transaction__note">' + escapeHtml(note) + '</div><div class="cashbox-transaction__meta">' + escapeHtml(formatDate(item?.created_at)) + ' | ' + escapeHtml(actor) + '</div></div>'
           + '<div class="cashbox-transaction__amount" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(direction === 'expense' ? '-' : '+') + escapeHtml(item?.amount_display || cashboxFormatMinorAmount(item?.amount_minor || 0)) + '</div>'
           + '</div>';
-      }).join('') : '<div class="cashboxes-empty">Р”Р’РР–Р•РќРР™ РџРћРљРђ РќР•Рў.</div>';
+      }).join('') : '<div class="cashboxes-empty">ДВИЖЕНИЙ ПОКА НЕТ.</div>';
     }
 
     function renderCashboxDetail() {
       const cashbox = state.activeCashbox?.cashbox || null;
       if (!cashbox) {
-        els.cashboxDetailTitle.textContent = 'РљРђРЎРЎРђ РќР• Р’Р«Р‘Р РђРќРђ';
-        els.cashboxDetailMeta.textContent = 'Р’С‹Р±РµСЂРёС‚Рµ РєР°СЃСЃСѓ СЃР»РµРІР°.';
+        els.cashboxDetailTitle.textContent = 'КАССА НЕ ВЫБРАНА';
+        els.cashboxDetailMeta.textContent = 'Выберите кассу слева.';
         els.cashboxDeleteButton.disabled = true;
         els.cashboxIncomeButton.disabled = true;
         els.cashboxExpenseButton.disabled = true;
         els.cashboxStats.innerHTML = '';
-        els.cashboxTransactions.innerHTML = '<div class="cashboxes-empty">РќР•Рў Р”РђРќРќР«РҐ.</div>';
+        els.cashboxTransactions.innerHTML = '<div class="cashboxes-empty">НЕТ ДАННЫХ.</div>';
         return;
       }
       const stats = activeCashboxStatistics();
-      const lastTransactionAt = stats?.last_transaction_at ? formatDate(stats.last_transaction_at) : 'вЂ”';
-      els.cashboxDetailTitle.textContent = cashbox.name || 'РљРђРЎРЎРђ';
-      els.cashboxDetailMeta.textContent = 'ID: ' + (cashbox.short_id || cashbox.id || 'вЂ”') + ' | Р”РІРёР¶РµРЅРёР№: ' + String(stats.transactions_total || 0) + ' | РџРѕСЃР»РµРґРЅРµРµ: ' + lastTransactionAt;
+      const lastTransactionAt = stats?.last_transaction_at ? formatDate(stats.last_transaction_at) : '—';
+      els.cashboxDetailTitle.textContent = cashbox.name || 'КАССА';
+      els.cashboxDetailMeta.textContent = 'ID: ' + (cashbox.short_id || cashbox.id || '—') + ' | Движений: ' + String(stats.transactions_total || 0) + ' | Последнее: ' + lastTransactionAt;
       els.cashboxDeleteButton.disabled = false;
       els.cashboxIncomeButton.disabled = false;
       els.cashboxExpenseButton.disabled = false;
@@ -7317,7 +7317,7 @@ function renderCompactArchiveRows(cards) {
         maybeOpenModal(els.cashboxesModal, openModal);
         return data;
       } catch (error) {
-        els.cashboxDetailTitle.textContent = 'РћРЁРР‘РљРђ Р—РђР“Р РЈР—РљР';
+        els.cashboxDetailTitle.textContent = 'ОШИБКА ЗАГРУЗКИ';
         els.cashboxDetailMeta.textContent = error.message;
         els.cashboxTransactions.innerHTML = '<div class="cashboxes-empty">' + escapeHtml(error.message) + '</div>';
         maybeOpenModal(els.cashboxesModal, openModal);
@@ -7332,7 +7332,7 @@ function renderCompactArchiveRows(cards) {
         state.cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
         const total = Number(data?.meta?.total || state.cashboxes.length);
         const transactionsTotal = Number(data?.meta?.transactions_total || 0);
-        els.cashboxesMeta.textContent = 'РљРђРЎРЎ: ' + total + ' | Р”Р’РР–Р•РќРР™: ' + transactionsTotal;
+        els.cashboxesMeta.textContent = 'КАСС: ' + total + ' | ДВИЖЕНИЙ: ' + transactionsTotal;
         const nextId = state.cashboxes.some((item) => item.id === state.activeCashboxId)
           ? state.activeCashboxId
           : (state.cashboxes[0]?.id || '');
@@ -7346,7 +7346,7 @@ function renderCompactArchiveRows(cards) {
         renderCashboxDetail();
         maybeOpenModal(els.cashboxesModal, openModal);
       } catch (error) {
-        els.cashboxesMeta.textContent = 'РћРЁРР‘РљРђ Р—РђР“Р РЈР—РљР РљРђРЎРЎ.';
+        els.cashboxesMeta.textContent = 'ОШИБКА ЗАГРУЗКИ КАСС.';
         els.cashboxesList.innerHTML = '<div class="cashboxes-empty">' + escapeHtml(error.message) + '</div>';
         state.activeCashboxId = '';
         state.activeCashbox = null;
@@ -7363,7 +7363,7 @@ function renderCompactArchiveRows(cards) {
     async function createCashbox() {
       const name = String(els.cashboxNameInput.value || '').trim();
       if (!name) {
-        setStatus('РЈРљРђР–РРўР• РќРђР—Р’РђРќРР• РљРђРЎРЎР«.', true);
+        setStatus('УКАЖИТЕ НАЗВАНИЕ КАССЫ.', true);
         return;
       }
       try {
@@ -7375,7 +7375,7 @@ function renderCompactArchiveRows(cards) {
         els.cashboxNameInput.value = '';
         if (data?.cashbox?.id) state.activeCashboxId = data.cashbox.id;
         await loadCashboxes(true);
-        setStatus('РљРђРЎРЎРђ РЎРћР—Р”РђРќРђ.', false);
+        setStatus('КАССА СОЗДАНА.', false);
       } catch (error) {
         setStatus(error.message, true);
       } finally {
@@ -7386,7 +7386,7 @@ function renderCompactArchiveRows(cards) {
     async function deleteActiveCashbox() {
       const cashbox = state.activeCashbox?.cashbox || null;
       if (!cashbox?.id) return;
-      if (!window.confirm('РЈРґР°Р»РёС‚СЊ РєР°СЃСЃСѓ "' + String(cashbox.name || '').trim() + '" РІРјРµСЃС‚Рµ СЃ РµРµ РґРІРёР¶РµРЅРёСЏРјРё?')) return;
+      if (!window.confirm('Удалить кассу "' + String(cashbox.name || '').trim() + '" вместе с ее движениями?')) return;
       try {
         els.cashboxDeleteButton.disabled = true;
         await api('/api/delete_cashbox', {
@@ -7396,7 +7396,7 @@ function renderCompactArchiveRows(cards) {
         state.activeCashboxId = '';
         state.activeCashbox = null;
         await loadCashboxes(true);
-        setStatus('РљРђРЎРЎРђ РЈР”РђР›Р•РќРђ.', false);
+        setStatus('КАССА УДАЛЕНА.', false);
       } catch (error) {
         setStatus(error.message, true);
       } finally {
@@ -7407,12 +7407,12 @@ function renderCompactArchiveRows(cards) {
     async function createCashboxTransaction(direction) {
       const cashbox = state.activeCashbox?.cashbox || null;
       if (!cashbox?.id) {
-        setStatus('РЎРќРђР§РђР›Рђ Р’Р«Р‘Р•Р РРўР• РљРђРЎРЎРЈ.', true);
+        setStatus('СНАЧАЛА ВЫБЕРИТЕ КАССУ.', true);
         return;
       }
       const amount = String(els.cashboxAmountInput.value || '').trim();
       if (!amount) {
-        setStatus('РЈРљРђР–РРўР• РЎРЈРњРњРЈ.', true);
+        setStatus('УКАЖИТЕ СУММУ.', true);
         return;
       }
       try {
@@ -7432,7 +7432,7 @@ function renderCompactArchiveRows(cards) {
         els.cashboxAmountInput.value = '';
         els.cashboxNoteInput.value = '';
         await loadCashboxDetail(cashbox.id, { openModal: true });
-        setStatus(direction === 'expense' ? 'РЎРџРРЎРђРќРР• РЎРћРҐР РђРќР•РќРћ.' : 'РџРћРЎРўРЈРџР›Р•РќРР• РЎРћРҐР РђРќР•РќРћ.', false);
+        setStatus(direction === 'expense' ? 'СПИСАНИЕ СОХРАНЕНО.' : 'ПОСТУПЛЕНИЕ СОХРАНЕНО.', false);
       } catch (error) {
         setStatus(error.message, true);
       } finally {
@@ -7488,7 +7488,7 @@ function renderCompactArchiveRows(cards) {
     function openStickyModal(sticky = null) {
       const existing = sticky || null;
       state.stickyDraft = existing;
-      els.stickyModalTitle.textContent = existing ? ('РЎРўРРљР•Р  / ' + String(existing.id).slice(0, 8).toUpperCase()) : 'РќРћР’Р«Р™ РЎРўРРљР•Р ';
+      els.stickyModalTitle.textContent = existing ? ('СТИКЕР / ' + String(existing.id).slice(0, 8).toUpperCase()) : 'НОВЫЙ СТИКЕР';
       els.stickyText.value = existing?.text || '';
       const parts = secondsToParts(existing?.deadline_total_seconds || 4 * 3600);
       els.stickyDays.value = parts.days ?? 0;
@@ -7542,7 +7542,7 @@ function renderCompactArchiveRows(cards) {
 
     async function saveSticky() {
       const payload = buildStickyPayload();
-      if (!payload.text) return setStatus('РЈРљРђР–Р РўР•РљРЎРў РЎРўРРљР•Р Рђ.', true);
+      if (!payload.text) return setStatus('УКАЖИ ТЕКСТ СТИКЕРА.', true);
       try {
         let data = null;
         if (payload.sticky_id) {
@@ -7552,7 +7552,7 @@ function renderCompactArchiveRows(cards) {
         }
         closeStickyModal();
         if (applyStickySnapshot(data?.stickies || [])) {
-          setStatus('РЎРўРРљР•Р  РЎРћРҐР РђРќР•Рќ.', false);
+          setStatus('СТИКЕР СОХРАНЕН.', false);
           return;
         }
         await refreshSnapshot(true);
@@ -7565,7 +7565,7 @@ function renderCompactArchiveRows(cards) {
       try {
         const data = await api('/api/delete_sticky', { method: 'POST', body: { sticky_id: stickyId, actor_name: state.actor, source: 'ui' } });
         if (applyStickySnapshot(data?.stickies || [])) {
-          setStatus('РЎРўРРљР•Р  РЈР”РђР›Р•Рќ.', false);
+          setStatus('СТИКЕР УДАЛЕН.', false);
           return;
         }
         await refreshSnapshot(true);
@@ -7673,7 +7673,7 @@ function renderCompactArchiveRows(cards) {
           await api('/api/add_card_attachment', { method: 'POST', body: { card_id: state.editingId, actor_name: state.actor, source: 'ui', file_name: file.name, mime_type: file.type || 'application/octet-stream', content_base64: base64 } });
         }
         await refreshActiveCardFiles();
-        setStatus(normalizedFiles.length > 1 ? 'Р¤РђР™Р›Р« Р—РђР“Р РЈР–Р•РќР«.' : 'Р¤РђР™Р› Р—РђР“Р РЈР–Р•Рќ.', false);
+        setStatus(normalizedFiles.length > 1 ? 'ФАЙЛЫ ЗАГРУЖЕНЫ.' : 'ФАЙЛ ЗАГРУЖЕН.', false);
         await refreshSnapshot(true);
       } catch (error) {
         setStatus(error.message, true);
@@ -7772,7 +7772,7 @@ function renderCompactArchiveRows(cards) {
       if (!requireSavedCardForFiles()) return;
       const files = collectClipboardAttachmentFiles(event);
       if (!files.length) {
-        setStatus('Р вЂ™ Р вЂР Р€Р В¤Р вЂўР В Р вЂў Р СњР вЂўР Сћ Р В¤Р С’Р в„ўР вЂєР С’ Р ВР вЂєР В Р СћР вЂўР С™Р РЋР СћР С’ Р вЂќР вЂєР Р‡ Р вЂ™Р вЂєР С›Р вЂ“Р вЂўР СњР ВР Р‡.', true);
+        setStatus('В БУФЕРЕ НЕТ ФАЙЛА ИЛИ ТЕКСТА ДЛЯ ВЛОЖЕНИЯ.', true);
         return;
       }
       await uploadProvidedFiles(files);
@@ -7916,7 +7916,7 @@ function renderCompactArchiveRows(cards) {
 
     /* Legacy pre-session operator listeners removed.
       const actor = els.identityInput.value.trim().toUpperCase();
-      if (!actor) return setStatus('РќРЈР–РќРћ РЈРљРђР—РђРўР¬ РРњРЇ РћРџР•Р РђРўРћР Рђ.', true);
+      if (!actor) return setStatus('НУЖНО УКАЗАТЬ ИМЯ ОПЕРАТОРА.', true);
       state.actor = actor;
       sessionStorage.setItem('legacy-operator-unused', actor);
       ensureActor();
@@ -8048,22 +8048,22 @@ function renderCompactArchiveRows(cards) {
     els.operatorProfileModal.addEventListener('click', handleOperatorProfileModalOverlayClick);
     els.operatorAdminModal.addEventListener('click', handleOperatorAdminModalOverlayClick);
 
-    const CARD_VEHICLE_FIELD_LABEL = 'РњР°СЂРєР° / РјРѕРґРµР»СЊ';
-    const CARD_TITLE_FIELD_LABEL = 'РљСЂР°С‚РєР°СЏ СЃСѓС‚СЊ';
-    const CARD_TITLE_REQUIRED_MESSAGE = 'РЈРљРђР–Р РљР РђРўРљРЈР® РЎРЈРўР¬ РљРђР РўРћР§РљР.';
+    const CARD_VEHICLE_FIELD_LABEL = 'Марка / модель';
+    const CARD_TITLE_FIELD_LABEL = 'Краткая суть';
+    const CARD_TITLE_REQUIRED_MESSAGE = 'УКАЖИ КРАТКУЮ СУТЬ КАРТОЧКИ.';
 
     function configureCardFieldSemantics() {
       const vehicleLabel = document.querySelector('label[for="cardVehicle"]');
-      if (vehicleLabel) vehicleLabel.textContent = 'РњРђР РљРђ / РњРћР”Р•Р›Р¬';
+      if (vehicleLabel) vehicleLabel.textContent = 'МАРКА / МОДЕЛЬ';
       if (els.cardVehicle) {
         els.cardVehicle.placeholder = 'Nissan Teana J32';
-        els.cardVehicle.title = 'РЈРєР°Р·С‹РІР°Р№ С‚РѕР»СЊРєРѕ РјР°СЂРєСѓ Рё РјРѕРґРµР»СЊ Р°РІС‚РѕРјРѕР±РёР»СЏ.';
+        els.cardVehicle.title = 'Указывай только марку и модель автомобиля.';
       }
       const titleLabel = document.querySelector('label[for="cardTitle"]');
-      if (titleLabel) titleLabel.textContent = 'РљР РђРўРљРђРЇ РЎРЈРўР¬';
+      if (titleLabel) titleLabel.textContent = 'КРАТКАЯ СУТЬ';
       if (els.cardTitle) {
-        els.cardTitle.placeholder = 'РљСЂР°С‚РєР°СЏ СЃСѓС‚СЊ РїСЂРѕР±Р»РµРјС‹, Р·Р°РґР°С‡Рё РёР»Рё СЂРµР·СѓР»СЊС‚Р°С‚Р°';
-        els.cardTitle.title = 'РЈРєР°Р·С‹РІР°Р№ С‚РѕР»СЊРєРѕ РєСЂР°С‚РєСѓСЋ СЃСѓС‚СЊ РєР°СЂС‚РѕС‡РєРё, Р±РµР· РјР°СЂРєРё Рё РјРѕРґРµР»Рё.';
+        els.cardTitle.placeholder = 'Краткая суть проблемы, задачи или результата';
+        els.cardTitle.title = 'Указывай только краткую суть карточки, без марки и модели.';
       }
     }
 
@@ -8074,7 +8074,7 @@ function renderCompactArchiveRows(cards) {
       const description = String(els.cardDescription.value || '').trim();
       if (vehicle) parts.push(CARD_VEHICLE_FIELD_LABEL + ': ' + vehicle);
       if (title) parts.push(CARD_TITLE_FIELD_LABEL + ': ' + title);
-      if (description) parts.push('РћРїРёСЃР°РЅРёРµ:\\n' + description);
+      if (description) parts.push('Описание:\\n' + description);
       return parts.join('\\n\\n').trim();
     }
 
@@ -8090,16 +8090,16 @@ function renderCompactArchiveRows(cards) {
 
     function cardUnreadBadgeHtml(card) {
       return card?.is_unread
-        ? '<div class="card__unread-badge" title="РќРµ РїСЂРѕС‡РёС‚Р°РЅРѕ" aria-label="РќРµ РїСЂРѕС‡РёС‚Р°РЅРѕ">NEW</div>'
+        ? '<div class="card__unread-badge" title="Не прочитано" aria-label="Не прочитано">NEW</div>'
         : '';
     }
 
     cardUnreadBadgeHtml = function(card) {
       if (card?.is_unread) {
-        return '<div class="card__unread-badge" title="РќРµ РїСЂРѕС‡РёС‚Р°РЅРѕ" aria-label="РќРµ РїСЂРѕС‡РёС‚Р°РЅРѕ">NEW</div>';
+        return '<div class="card__unread-badge" title="Не прочитано" aria-label="Не прочитано">NEW</div>';
       }
       if (card?.has_unseen_update) {
-        return '<div class="card__updated-badge" title="РћР±РЅРѕРІР»РµРЅРѕ" aria-label="РћР±РЅРѕРІР»РµРЅРѕ">РћР‘РќРћР’Р›Р•РќРћ</div>';
+        return '<div class="card__updated-badge" title="Обновлено" aria-label="Обновлено">ОБНОВЛЕНО</div>';
       }
       return '';
     };
@@ -8110,11 +8110,11 @@ function renderCompactArchiveRows(cards) {
       const extraTags = normalizedTags.length - previewTags.length;
       const tagsHtml = previewTags.length
         ? previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
-        : '<span class="tag tag--muted">Р‘Р•Р— РњР•РўРћРљ</span>';
+        : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
       const badgeHtml = cardUnreadBadgeHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-updated-unseen="' + (card.has_unseen_update ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + badgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'РћРїРёСЃР°РЅРёРµ РЅРµ СѓРєР°Р·Р°РЅРѕ') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>РЎРР“Рќ</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>Р¤РђР™Р›Р« ' + escapeHtml(card.attachment_count) + '</span><span>Р–РЈР РќРђР› ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-updated-unseen="' + (card.has_unseen_update ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + badgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
     };
 
     function legacyCardHtmlBase(card) {
@@ -8122,9 +8122,9 @@ function renderCompactArchiveRows(cards) {
       const extraTags = (card.tags || []).length - previewTags.length;
       const tagsHtml = previewTags.length
         ? previewTags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
-        : '<span class="tag tag--muted">Р вЂР вЂўР вЂ” Р СљР вЂўР СћР С›Р С™</span>';
+        : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
-      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Р С›Р С—Р С‘РЎРѓР В°Р Р…Р С‘Р Вµ Р Р…Р Вµ РЎС“Р С”Р В°Р В·Р В°Р Р…Р С•') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>Р РЋР ВР вЂњР Сњ</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>Р В¤Р С’Р в„ўР вЂєР В« ' + escapeHtml(card.attachment_count) + '</span><span>Р вЂ“Р Р€Р В Р СњР С’Р вЂє ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
     }
 
     function legacyRenderCardHtmlBase(card) {
@@ -8133,11 +8133,11 @@ function renderCompactArchiveRows(cards) {
       const extraTags = normalizedTags.length - previewTags.length;
       const tagsHtml = previewTags.length
         ? previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
-        : '<span class="tag tag--muted">Р вЂР вЂўР вЂ” Р СљР вЂўР СћР С›Р С™</span>';
+        : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
       const unreadBadgeHtml = cardUnreadBadgeHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Р С›Р С—Р С‘РЎРѓР В°Р Р…Р С‘Р Вµ Р Р…Р Вµ РЎС“Р С”Р В°Р В·Р В°Р Р…Р С•') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>Р РЋР ВР вЂњР Сњ</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>Р В¤Р С’Р в„ўР вЂєР В« ' + escapeHtml(card.attachment_count) + '</span><span>Р вЂ“Р Р€Р В Р СњР С’Р вЂє ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
     }
 
     function legacyCardHtmlShadow(card) {
@@ -8145,9 +8145,9 @@ function renderCompactArchiveRows(cards) {
       const extraTags = (card.tags || []).length - previewTags.length;
       const tagsHtml = previewTags.length
         ? previewTags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
-        : '<span class="tag tag--muted">Р‘Р•Р— РњР•РўРћРљ</span>';
+        : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
-      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'РћРїРёСЃР°РЅРёРµ РЅРµ СѓРєР°Р·Р°РЅРѕ') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>РЎРР“Рќ</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>Р¤РђР™Р›Р« ' + escapeHtml(card.attachment_count) + '</span><span>Р–РЈР РќРђР› ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
     }
 
     function legacyRenderCardHtmlShadow(card) {
@@ -8156,10 +8156,10 @@ function renderCompactArchiveRows(cards) {
       const extraTags = normalizedTags.length - previewTags.length;
       const tagsHtml = previewTags.length
         ? previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
-        : '<span class="tag tag--muted">Р‘Р•Р— РњР•РўРћРљ</span>';
+        : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'РћРїРёСЃР°РЅРёРµ РЅРµ СѓРєР°Р·Р°РЅРѕ') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>РЎРР“Рќ</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>Р¤РђР™Р›Р« ' + escapeHtml(card.attachment_count) + '</span><span>Р–РЈР РќРђР› ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
     }
 
     function refreshVehiclePanel() {
