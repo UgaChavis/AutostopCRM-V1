@@ -838,8 +838,8 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .overview-main__meta {
       display: grid;
-      grid-template-columns: minmax(136px, 152px) minmax(0, 1fr);
-      gap: 6px;
+      grid-template-columns: minmax(128px, 144px) minmax(0, 1fr);
+      gap: 5px;
       align-items: start;
     }
     .dialog__tabs--card {
@@ -923,8 +923,8 @@ BOARD_WEB_APP_HTML = "".join(
       color: var(--text-soft);
     }
     .signal-panel {
-      gap: 5px;
-      padding: 7px 7px 7px;
+      gap: 4px;
+      padding: 6px;
       align-content: start;
       min-width: 0;
     }
@@ -938,8 +938,8 @@ BOARD_WEB_APP_HTML = "".join(
       background:
         linear-gradient(180deg, rgba(255,255,255,0.03), transparent 38%),
         rgba(0,0,0,0.18);
-      min-height: 30px;
-      padding: 4px 8px;
+      min-height: 28px;
+      padding: 3px 7px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -954,7 +954,7 @@ BOARD_WEB_APP_HTML = "".join(
     .signal-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 4px;
+      gap: 3px;
     }
     .signal-cell {
       display: grid;
@@ -973,7 +973,7 @@ BOARD_WEB_APP_HTML = "".join(
       font-size: 11px;
     }
     .signal-grid--timer {
-      gap: 5px;
+      gap: 4px;
     }
     .signal-grid--timer > .signal-cell:not(.signal-cell--timer) {
       display: none;
@@ -992,7 +992,7 @@ BOARD_WEB_APP_HTML = "".join(
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       align-items: center;
-      min-height: 32px;
+      min-height: 30px;
       border: 1px solid var(--line-soft);
       background:
         linear-gradient(180deg, rgba(255,255,255,0.03), transparent 40%),
@@ -1000,10 +1000,10 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .signal-input__field {
       min-width: 0;
-      min-height: 30px;
+      min-height: 28px;
       border: 0;
       background: transparent;
-      padding: 0 8px;
+      padding: 0 7px;
       font-family: var(--mono);
       font-size: 13px;
       font-weight: 700;
@@ -1132,8 +1132,8 @@ BOARD_WEB_APP_HTML = "".join(
       cursor: pointer;
     }
     .tags-panel {
-      gap: 5px;
-      padding: 6px 7px 6px;
+      gap: 4px;
+      padding: 6px;
       align-content: start;
       min-width: 0;
     }
@@ -1141,15 +1141,15 @@ BOARD_WEB_APP_HTML = "".join(
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 6px;
+      gap: 4px;
     }
     .tag-limit {
-      min-width: 40px;
-      padding: 3px 5px;
+      min-width: 34px;
+      padding: 2px 4px;
       border: 1px solid var(--line-soft);
       background: rgba(0,0,0,0.16);
       font-family: var(--mono);
-      font-size: 9px;
+      font-size: 8.5px;
       letter-spacing: 0.06em;
       text-align: center;
       color: var(--text-soft);
@@ -1162,28 +1162,28 @@ BOARD_WEB_APP_HTML = "".join(
     .tag-controls {
       display: grid;
       grid-template-columns: auto minmax(0, 1fr);
-      gap: 6px;
+      gap: 5px;
       align-items: center;
     }
     .tag-entry {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 34px;
-      gap: 4px;
+      grid-template-columns: minmax(0, 1fr) 28px;
+      gap: 3px;
       align-items: center;
     }
     .tag-list {
       display: flex;
       flex-wrap: wrap;
-      gap: 4px;
+      gap: 3px;
       align-content: flex-start;
-      min-height: 24px;
-      padding: 1px 0;
+      min-height: 20px;
+      padding: 0;
     }
     .tag-entry input[type="text"] {
-      min-height: 30px;
-      padding: 5px 9px;
+      min-height: 28px;
+      padding: 4px 8px;
       font-family: var(--mono);
-      font-size: 11px;
+      font-size: 10.5px;
       letter-spacing: 0.04em;
       text-transform: uppercase;
     }
@@ -1192,12 +1192,12 @@ BOARD_WEB_APP_HTML = "".join(
       cursor: not-allowed;
     }
     .tag-entry .btn {
-      min-width: 34px;
-      min-height: 30px;
+      min-width: 28px;
+      min-height: 28px;
       padding: 0;
       display: grid;
       place-items: center;
-      font-size: 12px;
+      font-size: 11px;
     }
     .tag-entry .btn[disabled] {
       opacity: 0.44;
@@ -1206,20 +1206,20 @@ BOARD_WEB_APP_HTML = "".join(
     .tag-suggestions {
       display: flex;
       flex-wrap: wrap;
-      gap: 4px;
+      gap: 3px;
       align-content: flex-start;
-      min-height: 22px;
+      min-height: 20px;
     }
     .tag-color-picker {
       display: inline-flex;
       align-items: center;
-      gap: 4px;
-      min-height: 30px;
-      padding: 0 2px;
+      gap: 3px;
+      min-height: 28px;
+      padding: 0 1px 0 0;
     }
     .tag-color-option {
-      width: 16px;
-      height: 16px;
+      width: 14px;
+      height: 14px;
       border: 1px solid rgba(255,255,255,0.14);
       background: rgba(0, 0, 0, 0.16);
       padding: 0;
@@ -1229,7 +1229,7 @@ BOARD_WEB_APP_HTML = "".join(
     .tag-color-option::after {
       content: "";
       position: absolute;
-      inset: 3px;
+      inset: 2.5px;
       border-radius: 50%;
       background: currentColor;
     }
@@ -1244,17 +1244,17 @@ BOARD_WEB_APP_HTML = "".join(
       display: inline-flex;
       align-items: center;
       justify-content: flex-start;
-      min-height: 22px;
-      padding: 2px 7px;
+      min-height: 20px;
+      padding: 2px 6px;
       font-family: var(--mono);
-      font-size: 9px;
+      font-size: 8.5px;
       font-weight: 700;
       letter-spacing: 0.05em;
       line-height: 1;
     }
     .tag-list .tag--muted {
       justify-content: center;
-      min-width: 96px;
+      min-width: 84px;
       color: var(--text-soft);
       background: rgba(0,0,0,0.14);
       border-color: var(--line-soft);
@@ -1263,13 +1263,13 @@ BOARD_WEB_APP_HTML = "".join(
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 22px;
+      min-height: 20px;
       border: 1px solid var(--line-soft);
       background: rgba(0, 0, 0, 0.16);
       color: var(--text-soft);
-      padding: 2px 7px;
+      padding: 2px 6px;
       font-family: var(--mono);
-      font-size: 9px;
+      font-size: 8.5px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.05em;
@@ -2014,7 +2014,7 @@ BOARD_WEB_APP_HTML = "".join(
       box-shadow: inset 0 0 0 1px rgba(209, 90, 76, 0.15);
     }
     .field--tags {
-      gap: 7px;
+      gap: 5px;
     }
     .file-row, .archive-row {
       border: 1px solid var(--line-soft);
