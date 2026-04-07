@@ -135,6 +135,10 @@ def _format_decimal(value: Decimal) -> str:
     return text or "0"
 
 
+def _round_money(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 @dataclass(slots=True)
 class RepairOrderRow:
     name: str = ""
@@ -253,6 +257,11 @@ class RepairOrderPayment:
 
     def amount_value(self) -> Decimal:
         return _parse_decimal(self.amount) or Decimal("0")
+
+    def taxes_value(self) -> Decimal:
+        if self.payment_method != REPAIR_ORDER_PAYMENT_METHOD_CASHLESS:
+            return Decimal("0")
+        return _round_money(self.amount_value() * REPAIR_ORDER_PAYMENT_TAX_RATE)
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -509,10 +518,27 @@ class RepairOrder:
     def subtotal_amount(self) -> str:
         return _format_decimal(self.subtotal_value())
 
-    def taxes_value(self) -> Decimal:
+    def cashless_payments_value(self) -> Decimal:
+        if self.payments:
+            return sum(
+                (
+                    payment.amount_value()
+                    for payment in self.payments
+                    if payment.payment_method == REPAIR_ORDER_PAYMENT_METHOD_CASHLESS
+                ),
+                Decimal("0"),
+            )
+        prepayment = _parse_decimal(self.prepayment) or Decimal("0")
         if self.payment_method != REPAIR_ORDER_PAYMENT_METHOD_CASHLESS:
             return Decimal("0")
-        return self.subtotal_value() * REPAIR_ORDER_PAYMENT_TAX_RATE
+        return prepayment
+
+    def taxes_value(self) -> Decimal:
+        if self.payments:
+            return sum((payment.taxes_value() for payment in self.payments), Decimal("0"))
+        if self.payment_method != REPAIR_ORDER_PAYMENT_METHOD_CASHLESS:
+            return Decimal("0")
+        return _round_money(self.cashless_payments_value() * REPAIR_ORDER_PAYMENT_TAX_RATE)
 
     def taxes_amount(self) -> str:
         return _format_decimal(self.taxes_value())

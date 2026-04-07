@@ -4463,10 +4463,10 @@ class CardService:
 
     def _require_attachment_file(self, card_id: str, attachment: Attachment) -> Path:
         attachment_path = self._attachment_path(card_id, attachment.stored_name)
-        for _ in range(4):
+        for _ in range(20):
             if attachment_path.exists():
                 return attachment_path
-            time.sleep(0.02)
+            time.sleep(0.05)
         if not attachment_path.exists():
             self._fail(
                 "not_found",

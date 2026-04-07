@@ -1134,9 +1134,9 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(order["works_total"], "2500")
         self.assertEqual(order["materials_total"], "2800")
         self.assertEqual(order["subtotal_total"], "5300")
-        self.assertEqual(order["taxes_total"], "795")
-        self.assertEqual(order["grand_total"], "6095")
-        self.assertEqual(order["due_total"], "5095")
+        self.assertEqual(order["taxes_total"], "150")
+        self.assertEqual(order["grand_total"], "5450")
+        self.assertEqual(order["due_total"], "4450")
         self.assertTrue(order["has_taxes"])
         self.assertTrue(order["has_prepayment"])
 
@@ -1153,12 +1153,13 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(stored["payment_status"], "unpaid")
         self.assertEqual(len(stored["payments"]), 1)
         self.assertEqual(stored["payments"][0]["cashbox_name"], cashbox["name"])
-        self.assertEqual(stored["taxes_total"], "795")
-        self.assertEqual(stored["grand_total"], "6095")
-        self.assertEqual(stored["due_total"], "5095")
+        self.assertEqual(stored["taxes_total"], "150")
+        self.assertEqual(stored["grand_total"], "5450")
+        self.assertEqual(stored["due_total"], "4450")
 
     def test_repair_order_cash_taxes_depend_on_selected_cashbox(self) -> None:
         cashless_cashbox = self.service.create_cashbox({"name": "Безналичный", "actor_name": "ADMIN"})["cashbox"]
+        cash_cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})["cashbox"]
         card_cashless = self.service.create_card({"vehicle": "AUDI A4", "title": "Диагностика", "deadline": {"hours": 2}})["card"]
         updated_cashless = self.service.update_card(
             {
@@ -1179,9 +1180,41 @@ class CardServiceTests(unittest.TestCase):
             }
         )["card"]["repair_order"]
         self.assertEqual(updated_cashless["payment_method"], "cashless")
-        self.assertEqual(updated_cashless["taxes_total"], "150")
-        self.assertEqual(updated_cashless["grand_total"], "1150")
-        self.assertEqual(updated_cashless["due_total"], "650")
+        self.assertEqual(updated_cashless["taxes_total"], "75")
+        self.assertEqual(updated_cashless["grand_total"], "1075")
+        self.assertEqual(updated_cashless["due_total"], "575")
+
+        updated_mixed = self.service.update_card(
+            {
+                "card_id": card_cashless["id"],
+                "repair_order": {
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+                    "payments": [
+                        {
+                            "amount": "500",
+                            "paid_at": "06.04.2026 10:00",
+                            "note": "Аванс",
+                            "payment_method": "cash",
+                            "actor_name": "ADMIN",
+                            "cashbox_id": cashless_cashbox["id"],
+                        },
+                        {
+                            "amount": "500",
+                            "paid_at": "06.04.2026 10:10",
+                            "note": "Доплата",
+                            "payment_method": "cash",
+                            "actor_name": "ADMIN",
+                            "cashbox_id": cash_cashbox["id"],
+                        },
+                    ],
+                },
+            }
+        )["card"]["repair_order"]
+        self.assertEqual(updated_mixed["payment_method"], "cashless")
+        self.assertEqual(updated_mixed["taxes_total"], "75")
+        self.assertEqual(updated_mixed["grand_total"], "1075")
+        self.assertEqual(updated_mixed["paid_total"], "1000")
+        self.assertEqual(updated_mixed["due_total"], "75")
 
         maria_cashbox = self.service.create_cashbox({"name": "Карта Мария", "actor_name": "ADMIN"})["cashbox"]
         card_maria = self.service.create_card({"vehicle": "BMW X5", "title": "Осмотр", "deadline": {"hours": 2}})["card"]

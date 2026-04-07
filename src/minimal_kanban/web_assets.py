@@ -5177,6 +5177,17 @@ BOARD_WEB_APP_HTML = "".join(
       }, 0));
     }
 
+    function repairOrderCashlessPaymentsValue(payments) {
+      return repairOrderRoundMoney((Array.isArray(payments) ? payments : []).reduce((total, item) => {
+        const paymentMethod = repairOrderPaymentMethodFromCashboxName(
+          item?.cashbox_name ?? item?.cashboxName ?? '',
+          item?.payment_method ?? item?.paymentMethod ?? 'cash'
+        );
+        if (paymentMethod !== 'cashless') return total;
+        return total + (repairOrderParseNumber(item?.amount) ?? 0);
+      }, 0));
+    }
+
     function repairOrderPaymentMethodLabel(value) {
       return normalizeRepairOrderPaymentMethod(value) === 'cashless' ? 'Безналичный' : 'Наличный';
     }
@@ -5566,7 +5577,7 @@ BOARD_WEB_APP_HTML = "".join(
       const worksTotal = syncRepairOrderSectionTotals('works');
       const materialsTotal = syncRepairOrderSectionTotals('materials');
       const subtotal = repairOrderRoundMoney(worksTotal + materialsTotal);
-      const taxes = repairOrderRoundMoney(subtotal * repairOrderTaxRate(els.repairOrderPaymentMethod.value));
+      const taxes = repairOrderRoundMoney(repairOrderCashlessPaymentsValue(state.repairOrderPayments) * repairOrderTaxRate('cashless'));
       const grandTotal = repairOrderRoundMoney(subtotal + taxes);
       const prepayment = repairOrderPaymentsTotalValue(state.repairOrderPayments);
       if (els.repairOrderPrepayment) {
@@ -5595,16 +5606,10 @@ BOARD_WEB_APP_HTML = "".join(
 
     function renderRepairOrderPayments() {
       const payments = Array.isArray(state.repairOrderPayments) ? state.repairOrderPayments : [];
-      const actualPaymentMethod = syncRepairOrderPaymentMethodFromPayments();
-      const previewPaymentMethod = payments.length
-        ? actualPaymentMethod
-        : repairOrderPaymentMethodFromCashboxName(
-            selectedRepairOrderPaymentCashbox()?.name || '',
-            actualPaymentMethod
-          );
+      syncRepairOrderPaymentMethodFromPayments();
       const total = repairOrderPaymentsTotalValue(payments);
       const subtotal = repairOrderRoundMoney(repairOrderRowsTotalValue(state.repairOrderWorks) + repairOrderRowsTotalValue(state.repairOrderMaterials));
-      const taxes = repairOrderRoundMoney(subtotal * repairOrderTaxRate(previewPaymentMethod));
+      const taxes = repairOrderRoundMoney(repairOrderCashlessPaymentsValue(payments) * repairOrderTaxRate('cashless'));
       const due = repairOrderRoundMoney(subtotal + taxes - total);
       if (els.repairOrderPaymentsMeta) {
         const latestPayment = payments.length ? payments[payments.length - 1] : null;
@@ -5845,7 +5850,7 @@ BOARD_WEB_APP_HTML = "".join(
       const worksTotal = repairOrderRowsTotalValue(normalized.works);
       const materialsTotal = repairOrderRowsTotalValue(normalized.materials);
       const subtotal = repairOrderRoundMoney(worksTotal + materialsTotal);
-      const taxesTotal = repairOrderRoundMoney(subtotal * repairOrderTaxRate(normalized.payment_method));
+      const taxesTotal = repairOrderRoundMoney(repairOrderCashlessPaymentsValue(normalized.payments) * repairOrderTaxRate('cashless'));
       const grandTotal = repairOrderRoundMoney(subtotal + taxesTotal);
       const prepayment = repairOrderRoundMoney(repairOrderParseNumber(normalized.prepayment) ?? 0);
       const dueTotal = repairOrderRoundMoney(grandTotal - prepayment);

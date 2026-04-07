@@ -630,9 +630,45 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         cashless_order = updated_cashless["data"]["card"]["repair_order"]
         self.assertEqual(cashless_order["payment_method"], "cashless")
-        self.assertEqual(cashless_order["taxes_total"], "150")
-        self.assertEqual(cashless_order["grand_total"], "1150")
-        self.assertEqual(cashless_order["due_total"], "650")
+        self.assertEqual(cashless_order["taxes_total"], "75")
+        self.assertEqual(cashless_order["grand_total"], "1075")
+        self.assertEqual(cashless_order["due_total"], "575")
+
+        status, cash_cashbox = self.request("/api/create_cashbox", {"name": "Наличный", "actor_name": "ADMIN"})
+        self.assertEqual(status, 200)
+        status, mixed_paid = self.request(
+            "/api/update_card",
+            {
+                "card_id": cashless_card_id,
+                "repair_order": {
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+                    "payments": [
+                        {
+                            "amount": "500",
+                            "paid_at": "06.04.2026 10:00",
+                            "note": "Аванс",
+                            "payment_method": "cash",
+                            "cashbox_id": cashless_cashbox["data"]["cashbox"]["id"],
+                            "actor_name": "ADMIN",
+                        },
+                        {
+                            "amount": "500",
+                            "paid_at": "06.04.2026 10:10",
+                            "note": "Доплата",
+                            "payment_method": "cash",
+                            "cashbox_id": cash_cashbox["data"]["cashbox"]["id"],
+                            "actor_name": "ADMIN",
+                        },
+                    ],
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        mixed_order = mixed_paid["data"]["card"]["repair_order"]
+        self.assertEqual(mixed_order["taxes_total"], "75")
+        self.assertEqual(mixed_order["grand_total"], "1075")
+        self.assertEqual(mixed_order["paid_total"], "1000")
+        self.assertEqual(mixed_order["due_total"], "75")
 
         status, created = self.request("/api/create_card", {"vehicle": "BMW X5", "title": "API карта", "deadline": {"hours": 2}})
         self.assertEqual(status, 200)
@@ -915,9 +951,9 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(updated["data"]["card"]["repair_order"]["works_total"], "1500")
         self.assertEqual(updated["data"]["card"]["repair_order"]["materials_total"], "0")
         self.assertEqual(updated["data"]["card"]["repair_order"]["subtotal_total"], "1500")
-        self.assertEqual(updated["data"]["card"]["repair_order"]["taxes_total"], "225")
-        self.assertEqual(updated["data"]["card"]["repair_order"]["grand_total"], "1725")
-        self.assertEqual(updated["data"]["card"]["repair_order"]["due_total"], "1225")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["taxes_total"], "75")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["grand_total"], "1575")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["due_total"], "1075")
 
     def test_repair_order_context_and_patch_routes(self) -> None:
         status, created = self.request(

@@ -501,9 +501,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertTrue(materials.structuredContent["ok"])
                 self.assertEqual(materials.structuredContent["data"]["repair_order"]["subtotal_total"], "3100")
-                self.assertEqual(materials.structuredContent["data"]["repair_order"]["taxes_total"], "465")
-                self.assertEqual(materials.structuredContent["data"]["repair_order"]["grand_total"], "3565")
-                self.assertEqual(materials.structuredContent["data"]["repair_order"]["due_total"], "3065")
+                self.assertEqual(materials.structuredContent["data"]["repair_order"]["taxes_total"], "75")
+                self.assertEqual(materials.structuredContent["data"]["repair_order"]["grand_total"], "3175")
+                self.assertEqual(materials.structuredContent["data"]["repair_order"]["due_total"], "2675")
 
                 repair_order_read = await session.call_tool("get_repair_order", {"card_id": card_id})
                 self.assertTrue(repair_order_read.structuredContent["ok"])
@@ -522,9 +522,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 repair_order_text = await session.call_tool("get_repair_order_text", {"card_id": card_id})
                 self.assertTrue(repair_order_text.structuredContent["ok"])
                 self.assertIn("Стоимость заказ-наряда: 3100", repair_order_text.structuredContent["data"]["text"])
-                self.assertIn("Налоги и сборы: 465", repair_order_text.structuredContent["data"]["text"])
-                self.assertIn("Итого по заказ-наряду: 3565", repair_order_text.structuredContent["data"]["text"])
-                self.assertIn("К доплате: 3065", repair_order_text.structuredContent["data"]["text"])
+                self.assertIn("Налоги и сборы: 75", repair_order_text.structuredContent["data"]["text"])
+                self.assertIn("Итого по заказ-наряду: 3175", repair_order_text.structuredContent["data"]["text"])
+                self.assertIn("К доплате: 2675", repair_order_text.structuredContent["data"]["text"])
 
                 repair_orders = await session.call_tool(
                     "list_repair_orders",
