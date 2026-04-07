@@ -2509,61 +2509,65 @@ BOARD_WEB_APP_HTML = "".join(
 """,
         PRINTING_WEB_MODULE_STYLE,
         """
-    #cashboxesModal .dialog { width: min(1120px, 100%); }
+    #cashboxesModal .dialog { width: min(1060px, 100%); }
     .cashboxes-layout {
       display: grid;
-      grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
-      gap: 14px;
-      min-height: 500px;
+      grid-template-columns: minmax(238px, 276px) minmax(0, 1fr);
+      gap: 12px;
+      min-height: 472px;
     }
     .cashboxes-pane {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
     }
     .cashboxes-create-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
-      gap: 8px;
+      gap: 6px;
       align-items: end;
+    }
+    .cashboxes-create-row .btn {
+      min-height: 34px;
+      padding: 7px 10px;
     }
     .cashboxes-meta {
       color: var(--muted);
-      font-size: 11px;
-      line-height: 1.35;
+      font-size: 10.5px;
+      line-height: 1.3;
     }
     .cashboxes-list {
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      max-height: 560px;
+      gap: 6px;
+      max-height: 540px;
       overflow: auto;
-      padding-right: 4px;
+      padding-right: 3px;
     }
     .cashbox-row {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 3px;
       width: 100%;
       text-align: left;
-      padding: 10px 12px;
+      padding: 9px 10px;
       border: 1px solid var(--line-soft);
       background: rgba(255,255,255,0.02);
       color: var(--text);
       cursor: pointer;
     }
-    .cashbox-row.is-active { border-color: var(--accent); background: rgba(167, 178, 132, 0.08); box-shadow: inset 2px 0 0 rgba(167, 178, 132, 0.84); }
+    .cashbox-row.is-active { border-color: rgba(167, 178, 132, 0.64); background: rgba(167, 178, 132, 0.06); box-shadow: inset 3px 0 0 rgba(167, 178, 132, 0.76); }
     .cashbox-row__head,
     .cashbox-stat-grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
-      gap: 8px;
+      gap: 6px;
       align-items: center;
     }
-    .cashbox-row__name { font-size: 16px; font-weight: 700; line-height: 1.2; }
+    .cashbox-row__name { font-size: 15px; font-weight: 700; line-height: 1.18; }
     .cashbox-row__balance,
     .cashbox-stat-grid__value {
-      font-size: 17px;
+      font-size: 16px;
       font-weight: 700;
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
@@ -2574,63 +2578,76 @@ BOARD_WEB_APP_HTML = "".join(
     .cashbox-transaction__meta,
     .cashboxes-empty {
       color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
+      font-size: 11px;
+      line-height: 1.35;
     }
     .cashbox-stats {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 8px;
+      gap: 6px;
     }
     .cashbox-stat-grid {
       border: 1px solid var(--line-soft);
-      padding: 9px 10px;
+      padding: 8px 9px;
       background: rgba(255,255,255,0.02);
+    }
+    .cashbox-stat-grid:first-child {
+      border-color: rgba(167, 178, 132, 0.3);
+      background: rgba(167, 178, 132, 0.06);
     }
     .cashbox-stat-grid__label {
       color: var(--muted);
-      font-size: 11px;
+      font-size: 10px;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
     .cashbox-detail {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
       min-width: 0;
     }
     .cashbox-detail__meta {
       color: var(--muted);
-      font-size: 12px;
-      line-height: 1.35;
+      font-size: 11px;
+      line-height: 1.3;
     }
     .cashbox-composer {
       display: grid;
-      gap: 10px;
-      padding: 10px;
+      gap: 8px;
+      padding: 9px;
       border: 1px solid var(--line-soft);
       background: rgba(255,255,255,0.02);
     }
     .cashbox-form-grid {
       display: grid;
-      grid-template-columns: minmax(150px, 180px) minmax(0, 1fr);
-      gap: 10px;
+      grid-template-columns: minmax(148px, 172px) minmax(0, 1fr);
+      gap: 8px;
       align-items: end;
     }
+    .cashbox-form-grid .field--compact input[type="text"],
+    .cashbox-form-grid .field--compact textarea {
+      min-height: 34px;
+      padding: 6px 8px;
+    }
     .cashbox-composer textarea {
-      min-height: 76px;
-      max-height: 96px;
+      min-height: 64px;
+      max-height: 84px;
     }
     .cashbox-composer__actions {
       display: flex;
       justify-content: flex-end;
-      gap: 8px;
+      gap: 6px;
       flex-wrap: wrap;
+    }
+    .cashbox-composer__actions .btn {
+      min-height: 34px;
+      padding: 7px 10px;
     }
     .cashbox-transactions-card {
       display: grid;
-      gap: 8px;
-      padding: 10px;
+      gap: 6px;
+      padding: 9px;
       border: 1px solid var(--line-soft);
       background: rgba(255,255,255,0.02);
     }
@@ -2644,45 +2661,57 @@ BOARD_WEB_APP_HTML = "".join(
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
+      gap: 10px;
       flex-wrap: wrap;
+    }
+    .cashbox-delete-button {
+      border-color: rgba(207, 91, 75, 0.42);
+      color: rgba(255, 210, 201, 0.9);
+      background: rgba(47, 16, 14, 0.18);
+    }
+    .cashbox-delete-button:hover {
+      border-color: rgba(207, 91, 75, 0.66);
+      background: rgba(58, 18, 16, 0.28);
+      color: #ffd2c9;
     }
     .cashbox-transactions {
       display: flex;
       flex-direction: column;
-      gap: 6px;
-      max-height: 380px;
+      gap: 5px;
+      max-height: 340px;
       overflow: auto;
-      padding-right: 4px;
+      padding-right: 3px;
     }
     .cashbox-transaction {
       display: grid;
       grid-template-columns: auto minmax(0, 1fr) auto;
-      gap: 8px;
+      gap: 7px;
       align-items: start;
       border: 1px solid var(--line-soft);
-      padding: 8px 10px;
+      padding: 7px 8px;
       background: rgba(255,255,255,0.02);
     }
     .cashbox-transaction__badge {
-      min-width: 64px;
+      min-width: 58px;
       text-align: center;
-      padding: 4px 7px;
+      padding: 3px 6px;
       border: 1px solid var(--line-soft);
-      font-size: 10px;
+      font-size: 9.5px;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
     .cashbox-transaction__badge[data-direction="income"] { border-color: rgba(67, 126, 79, 0.62); color: #d3efd9; }
     .cashbox-transaction__badge[data-direction="expense"] { border-color: rgba(152, 86, 78, 0.58); color: #ffd2c9; }
     .cashbox-transaction__amount {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 700;
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
     .cashbox-transaction__amount[data-direction="expense"] { color: #f0b1a6; }
     .cashbox-transaction__note {
+      font-size: 12.5px;
+      line-height: 1.35;
       white-space: pre-wrap;
       word-break: break-word;
     }
@@ -2905,7 +2934,7 @@ BOARD_WEB_APP_HTML = "".join(
               <div class="panel-title" id="cashboxDetailTitle">КАССА НЕ ВЫБРАНА</div>
               <div class="cashbox-detail__meta" id="cashboxDetailMeta">Выберите кассу слева.</div>
             </div>
-            <button class="btn btn--danger" id="cashboxDeleteButton">УДАЛИТЬ КАССУ</button>
+            <button class="btn btn--ghost cashbox-delete-button" id="cashboxDeleteButton">УДАЛИТЬ КАССУ</button>
           </div>
           <div class="cashbox-stats" id="cashboxStats"></div>
           <div class="cashbox-composer">

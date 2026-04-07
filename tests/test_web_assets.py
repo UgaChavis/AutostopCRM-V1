@@ -663,6 +663,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".cashboxes-layout {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-composer {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-transactions-card {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-delete-button {", BOARD_WEB_APP_HTML)
+        self.assertIn('class="btn btn--ghost cashbox-delete-button" id="cashboxDeleteButton"', BOARD_WEB_APP_HTML)
         self.assertIn("function ensureCashboxesUi()", BOARD_WEB_APP_HTML)
         self.assertIn("function openCashboxesModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function createCashbox()", BOARD_WEB_APP_HTML)
