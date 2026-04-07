@@ -5608,7 +5608,7 @@ BOARD_WEB_APP_HTML = "".join(
       const payments = Array.isArray(state.repairOrderPayments) ? state.repairOrderPayments : [];
       syncRepairOrderPaymentMethodFromPayments();
       const total = repairOrderPaymentsTotalValue(payments);
-      const subtotal = repairOrderRoundMoney(repairOrderRowsTotalValue(state.repairOrderWorks) + repairOrderRowsTotalValue(state.repairOrderMaterials));
+      const subtotal = repairOrderRoundMoney(syncRepairOrderSectionTotals('works') + syncRepairOrderSectionTotals('materials'));
       const taxes = repairOrderRoundMoney(repairOrderCashlessPaymentsValue(payments) * repairOrderTaxRate('cashless'));
       const due = repairOrderRoundMoney(subtotal + taxes - total);
       if (els.repairOrderPaymentsMeta) {
