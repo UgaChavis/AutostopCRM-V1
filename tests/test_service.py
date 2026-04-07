@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import base64
 import json
@@ -50,8 +50,8 @@ class CardServiceTests(unittest.TestCase):
             created = self.service.create_card(
                 {
                     "vehicle": "KIA RIO",
-                    "title": "Задача",
-                    "description": "Текст",
+                    "title": "Р—Р°РґР°С‡Р°",
+                    "description": "РўРµРєСЃС‚",
                     "deadline": {"days": 1, "hours": 4},
                 }
             )
@@ -70,25 +70,25 @@ class CardServiceTests(unittest.TestCase):
                 {
                     "card_id": card_id,
                     "vehicle": "KIA RIO X",
-                    "title": "Задача 2",
-                    "description": "Новый текст",
+                    "title": "Р—Р°РґР°С‡Р° 2",
+                    "description": "РќРѕРІС‹Р№ С‚РµРєСЃС‚",
                     "deadline": {"days": 0, "hours": 3},
                 }
             )
         self.assertEqual(updated["card"]["vehicle"], "KIA RIO X")
-        self.assertEqual(updated["card"]["title"], "Задача 2")
-        self.assertEqual(updated["card"]["description"], "Новый текст")
+        self.assertEqual(updated["card"]["title"], "Р—Р°РґР°С‡Р° 2")
+        self.assertEqual(updated["card"]["description"], "РќРѕРІС‹Р№ С‚РµРєСЃС‚")
         self.assertEqual(updated["card"]["status"], "ok")
 
         archived = self.service.archive_card({"card_id": card_id})
         self.assertTrue(archived["card"]["archived"])
 
     def test_supports_large_card_description(self) -> None:
-        large_description = "А" * 12000
+        large_description = "Рђ" * 12000
 
         created = self.service.create_card(
             {
-                "title": "Длинное описание",
+                "title": "Р”Р»РёРЅРЅРѕРµ РѕРїРёСЃР°РЅРёРµ",
                 "description": large_description,
                 "deadline": {"days": 0, "hours": 2},
             }
@@ -98,9 +98,9 @@ class CardServiceTests(unittest.TestCase):
         self.assertGreater(len(created["card"]["description"]), 5000)
 
     def test_cashbox_lifecycle_tracks_balance_and_transactions(self) -> None:
-        created = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})
+        created = self.service.create_cashbox({"name": "РќР°Р»РёС‡РЅС‹Р№", "actor_name": "ADMIN"})
         cashbox = created["cashbox"]
-        self.assertEqual(cashbox["name"], "Наличный")
+        self.assertEqual(cashbox["name"], "РќР°Р»РёС‡РЅС‹Р№")
         self.assertEqual(cashbox["statistics"]["transactions_total"], 0)
 
         income = self.service.create_cash_transaction(
@@ -108,7 +108,7 @@ class CardServiceTests(unittest.TestCase):
                 "cashbox_id": cashbox["id"],
                 "direction": "income",
                 "amount": "1500,50",
-                "note": "Предоплата",
+                "note": "РџСЂРµРґРѕРїР»Р°С‚Р°",
                 "actor_name": "ADMIN",
             }
         )
@@ -120,7 +120,7 @@ class CardServiceTests(unittest.TestCase):
                 "cashbox_id": cashbox["short_id"],
                 "direction": "expense",
                 "amount_minor": 5050,
-                "note": "Расходник",
+                "note": "Р Р°СЃС…РѕРґРЅРёРє",
                 "actor_name": "ADMIN",
             }
         )
@@ -135,7 +135,7 @@ class CardServiceTests(unittest.TestCase):
         details = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
         self.assertEqual(details["cashbox"]["id"], cashbox["id"])
         self.assertEqual(len(details["transactions"]), 2)
-        self.assertEqual(details["transactions"][0]["note"], "Расходник")
+        self.assertEqual(details["transactions"][0]["note"], "Р Р°СЃС…РѕРґРЅРёРє")
 
         deleted = self.service.delete_cashbox({"cashbox_id": cashbox["short_id"], "actor_name": "ADMIN"})
         self.assertTrue(deleted["meta"]["deleted"])
@@ -204,12 +204,12 @@ class CardServiceTests(unittest.TestCase):
         )
 
     def test_rejects_card_description_above_limit(self) -> None:
-        too_large_description = "Б" * (CARD_DESCRIPTION_LIMIT + 1)
+        too_large_description = "Р‘" * (CARD_DESCRIPTION_LIMIT + 1)
 
         with self.assertRaises(ServiceError) as description_error:
             self.service.create_card(
                 {
-                    "title": "Слишком длинное описание",
+                    "title": "РЎР»РёС€РєРѕРј РґР»РёРЅРЅРѕРµ РѕРїРёСЃР°РЅРёРµ",
                     "description": too_large_description,
                     "deadline": {"days": 0, "hours": 2},
                 }
@@ -247,8 +247,8 @@ class CardServiceTests(unittest.TestCase):
     def test_mcp_created_card_is_unread_until_marked_seen(self) -> None:
         created = self.service.create_card(
             {
-                "title": "Через GPT",
-                "description": "Карточка из MCP",
+                "title": "Р§РµСЂРµР· GPT",
+                "description": "РљР°СЂС‚РѕС‡РєР° РёР· MCP",
                 "deadline": {"hours": 1},
                 "source": "mcp",
             }
@@ -306,7 +306,7 @@ class CardServiceTests(unittest.TestCase):
         base = datetime(2026, 3, 23, 12, 0, 0, tzinfo=timezone.utc)
         patches = self._patch_time(base)
         with patches[0], patches[1], patches[2]:
-            created = self.service.create_card({"title": "Срочная задача", "deadline": {"minutes": 1, "seconds": 40}})
+            created = self.service.create_card({"title": "РЎСЂРѕС‡РЅР°СЏ Р·Р°РґР°С‡Р°", "deadline": {"minutes": 1, "seconds": 40}})
         card_id = created["card"]["id"]
         self.assertEqual(created["card"]["remaining_seconds"], 100)
         self.assertEqual(created["card"]["status"], "ok")
@@ -346,7 +346,7 @@ class CardServiceTests(unittest.TestCase):
         base = datetime(2026, 3, 23, 12, 0, 0, tzinfo=timezone.utc)
         patches = self._patch_time(base)
         with patches[0], patches[1], patches[2]:
-            created = self.service.create_card({"title": "Тепловая шкала", "deadline": {"minutes": 1, "seconds": 40}})
+            created = self.service.create_card({"title": "РўРµРїР»РѕРІР°СЏ С€РєР°Р»Р°", "deadline": {"minutes": 1, "seconds": 40}})
         card_id = created["card"]["id"]
 
         self.assertEqual(created["card"]["deadline_progress_bucket"], 0)
@@ -389,7 +389,7 @@ class CardServiceTests(unittest.TestCase):
             self.service.create_card({"title": "   ", "deadline": {"days": 1, "hours": 0}})
         self.assertEqual(empty_title.exception.code, "validation_error")
 
-        created = self.service.create_card({"title": "Валидная карточка", "deadline": {"days": 1, "hours": 0}})
+        created = self.service.create_card({"title": "Р’Р°Р»РёРґРЅР°СЏ РєР°СЂС‚РѕС‡РєР°", "deadline": {"days": 1, "hours": 0}})
         card_id = created["card"]["id"]
 
         with self.assertRaises(ServiceError) as invalid_bool:
@@ -405,32 +405,32 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(invalid_column.exception.code, "validation_error")
 
         with self.assertRaises(ServiceError) as invalid_deadline:
-            self.service.create_card({"title": "Сломанный срок", "deadline": {"days": 0, "hours": 0}})
+            self.service.create_card({"title": "РЎР»РѕРјР°РЅРЅС‹Р№ СЃСЂРѕРє", "deadline": {"days": 0, "hours": 0}})
         self.assertEqual(invalid_deadline.exception.code, "validation_error")
 
         with self.assertRaises(ServiceError) as invalid_deadline_part:
-            self.service.create_card({"title": "Сломанный срок", "deadline": {"days": 0, "hours": 24}})
+            self.service.create_card({"title": "РЎР»РѕРјР°РЅРЅС‹Р№ СЃСЂРѕРє", "deadline": {"days": 0, "hours": 24}})
         self.assertEqual(invalid_deadline_part.exception.code, "validation_error")
 
-        self.service.create_column({"label": "Новый этап"})
+        self.service.create_column({"label": "РќРѕРІС‹Р№ СЌС‚Р°Рї"})
         with self.assertRaises(ServiceError) as duplicate_column:
-            self.service.create_column({"label": "новый этап"})
+            self.service.create_column({"label": "РЅРѕРІС‹Р№ СЌС‚Р°Рї"})
         self.assertEqual(duplicate_column.exception.code, "validation_error")
 
     def test_archived_card_cannot_be_modified(self) -> None:
-        created = self.service.create_card({"title": "Архив", "deadline": {"days": 1, "hours": 0}})
+        created = self.service.create_card({"title": "РђСЂС…РёРІ", "deadline": {"days": 1, "hours": 0}})
         card_id = created["card"]["id"]
         self.service.archive_card({"card_id": card_id})
 
         with self.assertRaises(ServiceError) as archived_error:
-            self.service.update_card({"card_id": card_id, "title": "Нельзя"})
+            self.service.update_card({"card_id": card_id, "title": "РќРµР»СЊР·СЏ"})
         self.assertEqual(archived_error.exception.code, "archived_card")
 
     def test_deadline_survives_service_reload(self) -> None:
         base = datetime(2026, 3, 23, 12, 0, 0, tzinfo=timezone.utc)
         patches = self._patch_time(base)
         with patches[0], patches[1], patches[2]:
-            created = self.service.create_card({"title": "Срок после перезапуска", "deadline": {"seconds": 10}})
+            created = self.service.create_card({"title": "РЎСЂРѕРє РїРѕСЃР»Рµ РїРµСЂРµР·Р°РїСѓСЃРєР°", "deadline": {"seconds": 10}})
         card_id = created["card"]["id"]
 
         reloaded_store = JsonStore(state_file=self.state_file, logger=self.logger)
@@ -449,13 +449,13 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(expired_card["status"], "expired")
 
     def test_custom_column_survives_reload(self) -> None:
-        created_column = self.service.create_column({"label": "Блокеры"})
+        created_column = self.service.create_column({"label": "Р‘Р»РѕРєРµСЂС‹"})
         column_id = created_column["column"]["id"]
-        self.assertEqual(created_column["column"]["label"], "Блокеры")
+        self.assertEqual(created_column["column"]["label"], "Р‘Р»РѕРєРµСЂС‹")
 
         created_card = self.service.create_card(
             {
-                "title": "Проверка столбца",
+                "title": "РџСЂРѕРІРµСЂРєР° СЃС‚РѕР»Р±С†Р°",
                 "deadline": {"days": 0, "hours": 6},
                 "column": column_id,
             }
@@ -467,7 +467,7 @@ class CardServiceTests(unittest.TestCase):
         reloaded_service = CardService(reloaded_store, self.logger)
 
         columns = reloaded_service.list_columns()["columns"]
-        self.assertTrue(any(column["id"] == column_id and column["label"] == "Блокеры" for column in columns))
+        self.assertTrue(any(column["id"] == column_id and column["label"] == "Р‘Р»РѕРєРµСЂС‹" for column in columns))
 
         card = reloaded_service.get_card({"card_id": card_id})["card"]
         self.assertEqual(card["column"], column_id)
@@ -546,7 +546,7 @@ class CardServiceTests(unittest.TestCase):
         archived_card = self.service.get_card({"card_id": card_id})["card"]
         self.assertTrue(archived_card["archived"])
         self.assertEqual(archived_card["column"], "inbox")
-        self.assertEqual(archived_card["column_label"], "Входящие")
+        self.assertEqual(archived_card["column_label"], "Р’С…РѕРґСЏС‰РёРµ")
 
     def test_board_snapshot_returns_last_30_archived_cards_by_default(self) -> None:
         archived_ids: list[str] = []
@@ -709,7 +709,7 @@ class CardServiceTests(unittest.TestCase):
         base = datetime(2026, 3, 24, 12, 0, 0, tzinfo=timezone.utc)
         patches = self._patch_time(base)
         with patches[0], patches[1], patches[2]:
-            created = self.service.create_card({"title": "Удалённая задача", "deadline": {"hours": 3}})
+            created = self.service.create_card({"title": "РЈРґР°Р»С‘РЅРЅР°СЏ Р·Р°РґР°С‡Р°", "deadline": {"hours": 3}})
         card_id = created["card"]["id"]
 
         later = base + timedelta(minutes=5)
@@ -752,32 +752,32 @@ class CardServiceTests(unittest.TestCase):
             overdue_card = self.service.create_card(
                 {
                     "vehicle": "Toyota Camry",
-                    "title": "Шум АКПП",
-                    "description": "Проверить гидроблок",
+                    "title": "РЁСѓРј РђРљРџРџ",
+                    "description": "РџСЂРѕРІРµСЂРёС‚СЊ РіРёРґСЂРѕР±Р»РѕРє",
                     "deadline": {"hours": 1},
                 }
             )
             self.service.create_card(
                 {
                     "vehicle": "Kia Rio",
-                    "title": "Стук подвески",
-                    "description": "Осмотр передней оси",
+                    "title": "РЎС‚СѓРє РїРѕРґРІРµСЃРєРё",
+                    "description": "РћСЃРјРѕС‚СЂ РїРµСЂРµРґРЅРµР№ РѕСЃРё",
                     "deadline": {"days": 3},
                 }
             )
             self.service.create_card(
                 {
                     "vehicle": "Mazda CX-5",
-                    "title": "Диагностика ABS",
-                    "description": "Горит ABS",
+                    "title": "Р”РёР°РіРЅРѕСЃС‚РёРєР° ABS",
+                    "description": "Р“РѕСЂРёС‚ ABS",
                     "deadline": {"days": 3},
                 }
             )
             archived_card = self.service.create_card(
                 {
                     "vehicle": "Nissan X-Trail",
-                    "title": "Архивный заказ",
-                    "description": "Закрытая работа",
+                    "title": "РђСЂС…РёРІРЅС‹Р№ Р·Р°РєР°Р·",
+                    "description": "Р—Р°РєСЂС‹С‚Р°СЏ СЂР°Р±РѕС‚Р°",
                     "deadline": {"hours": 6},
                 }
             )
@@ -803,14 +803,14 @@ class CardServiceTests(unittest.TestCase):
         self.assertGreaterEqual(review["summary"]["critical_cards"], 1)
         self.assertEqual(review["summary"]["stale_cards"], 3)
         self.assertTrue(any(item["column_id"] == "inbox" and item["count"] == 3 for item in review["by_column"]))
-        self.assertTrue(any("перегружена" in item for item in review["alerts"]))
+        self.assertTrue(any("РїРµСЂРµРіСЂСѓР¶РµРЅР°" in item for item in review["alerts"]))
         self.assertEqual(review["priority_cards"][0]["card_id"], overdue_card["card"]["id"])
-        self.assertIn("Просрочена", review["priority_cards"][0]["short_reason"])
+        self.assertIn("РџСЂРѕСЃСЂРѕС‡РµРЅР°", review["priority_cards"][0]["short_reason"])
         self.assertTrue(any(item["type"] == "card_archived" for item in review["recent_events"]))
         self.assertIn("[BOARD REVIEW]", review["text"])
 
     def test_rejects_invalid_indicator(self) -> None:
-        created = self.service.create_card({"title": "Индикатор", "deadline": {"hours": 1}})
+        created = self.service.create_card({"title": "РРЅРґРёРєР°С‚РѕСЂ", "deadline": {"hours": 1}})
         card_id = created["card"]["id"]
         with self.assertRaises(ServiceError) as invalid_indicator:
             self.service.set_card_indicator({"card_id": card_id, "indicator": "blue"})
@@ -820,14 +820,14 @@ class CardServiceTests(unittest.TestCase):
         card = Card.from_dict(
             {
                 "id": "legacy-card",
-                "title": "CAMRY 70 / НЕТ ЗАПУСКА",
-                "description": "Проверить АКБ",
+                "title": "CAMRY 70 / РќР•Рў Р—РђРџРЈРЎРљРђ",
+                "description": "РџСЂРѕРІРµСЂРёС‚СЊ РђРљР‘",
                 "column": "inbox",
             },
             valid_columns={"inbox"},
         )
         self.assertEqual(card.vehicle, "CAMRY 70")
-        self.assertEqual(card.title, "НЕТ ЗАПУСКА")
+        self.assertEqual(card.title, "РќР•Рў Р—РђРџРЈРЎРљРђ")
 
 
     def test_explicit_empty_vehicle_preserves_title_with_separator(self) -> None:
@@ -852,12 +852,12 @@ class CardServiceTests(unittest.TestCase):
         self.assertGreaterEqual(len(snapshot["columns"]), 6)
         self.assertGreaterEqual(len(snapshot["cards"]), 10)
         self.assertGreaterEqual(len(snapshot["archive"]), 2)
-        self.assertTrue(any(column["label"] == "ПРИЁМКА" for column in snapshot["columns"]))
-        self.assertTrue(any(card["vehicle"] == "CAMRY 70" and card["title"] == "НЕТ ЗАПУСКА" for card in snapshot["cards"]))
+        self.assertTrue(any(column["label"] == "РџР РРЃРњРљРђ" for column in snapshot["columns"]))
+        self.assertTrue(any(card["vehicle"] == "CAMRY 70" and card["title"] == "РќР•Рў Р—РђРџРЈРЎРљРђ" for card in snapshot["cards"]))
         self.assertFalse(self.service.ensure_demo_board())
 
     def test_does_not_seed_demo_board_when_user_data_exists(self) -> None:
-        created = self.service.create_card({"title": "Моя карточка", "deadline": {"hours": 2}})
+        created = self.service.create_card({"title": "РњРѕСЏ РєР°СЂС‚РѕС‡РєР°", "deadline": {"hours": 2}})
         seeded = self.service.ensure_demo_board()
         cards = self.service.get_cards()["cards"]
 
@@ -875,9 +875,9 @@ class CardServiceTests(unittest.TestCase):
                 actor_name="ADMIN",
                 source="ui",
                 action="column_deleted",
-                message="ADMIN удалил столбец",
+                message="ADMIN СѓРґР°Р»РёР» СЃС‚РѕР»Р±РµС†",
                 card_id=None,
-                details={"column_id": "control", "label": "На контроле"},
+                details={"column_id": "control", "label": "РќР° РєРѕРЅС‚СЂРѕР»Рµ"},
             )
         )
         self.store.write_bundle(
@@ -907,25 +907,25 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(snapshot_service._event_counts.call_count, 0)
 
     def test_search_cards_supports_query_filters_and_archive(self) -> None:
-        created_column = self.service.create_column({"label": "ЭЛЕКТРИКИ"})
+        created_column = self.service.create_column({"label": "Р­Р›Р•РљРўР РРљР"})
         column_id = created_column["column"]["id"]
 
         active = self.service.create_card(
             {
                 "vehicle": "KIA RIO",
-                "title": "ПЛАВАЕТ ХОЛОСТОЙ ХОД",
-                "description": "Проверить дроссель и датчик холостого хода",
+                "title": "РџР›РђР’РђР•Рў РҐРћР›РћРЎРўРћР™ РҐРћР”",
+                "description": "РџСЂРѕРІРµСЂРёС‚СЊ РґСЂРѕСЃСЃРµР»СЊ Рё РґР°С‚С‡РёРє С…РѕР»РѕСЃС‚РѕРіРѕ С…РѕРґР°",
                 "column": column_id,
-                "tags": ["СРОЧНО", "ДИАГНОСТИКА"],
+                "tags": ["РЎР РћР§РќРћ", "Р”РРђР“РќРћРЎРўРРљРђ"],
                 "deadline": {"hours": 12},
             }
         )
         archived = self.service.create_card(
             {
                 "vehicle": "LADA VESTA",
-                "title": "АРХИВНАЯ ПРОВЕРКА",
-                "description": "Старый кейс для возврата из архива",
-                "tags": ["АРХИВ"],
+                "title": "РђР РҐРР’РќРђРЇ РџР РћР’Р•Р РљРђ",
+                "description": "РЎС‚Р°СЂС‹Р№ РєРµР№СЃ РґР»СЏ РІРѕР·РІСЂР°С‚Р° РёР· Р°СЂС…РёРІР°",
+                "tags": ["РђР РҐРР’"],
                 "deadline": {"hours": 4},
             }
         )
@@ -933,19 +933,19 @@ class CardServiceTests(unittest.TestCase):
 
         found = self.service.search_cards(
             {
-                "query": "rio дроссель",
+                "query": "rio РґСЂРѕСЃСЃРµР»СЊ",
                 "column": column_id,
-                "tag": "срочно",
+                "tag": "СЃСЂРѕС‡РЅРѕ",
                 "limit": 10,
             }
         )
         self.assertEqual(found["meta"]["total_matches"], 1)
         self.assertEqual(found["cards"][0]["id"], active["card"]["id"])
-        self.assertEqual(found["cards"][0]["column_label"], "ЭЛЕКТРИКИ")
-        self.assertEqual(found["cards"][0]["heading"], "KIA RIO / ПЛАВАЕТ ХОЛОСТОЙ ХОД")
+        self.assertEqual(found["cards"][0]["column_label"], "Р­Р›Р•РљРўР РРљР")
+        self.assertEqual(found["cards"][0]["heading"], "KIA RIO / РџР›РђР’РђР•Рў РҐРћР›РћРЎРўРћР™ РҐРћР”")
         self.assertIn("vehicle", found["cards"][0]["match"]["fields"])
 
-        archived_found = self.service.search_cards({"query": "архивная", "include_archived": True})
+        archived_found = self.service.search_cards({"query": "Р°СЂС…РёРІРЅР°СЏ", "include_archived": True})
         self.assertEqual(archived_found["meta"]["total_matches"], 1)
         self.assertTrue(archived_found["cards"][0]["archived"])
 
@@ -977,8 +977,8 @@ class CardServiceTests(unittest.TestCase):
         created = self.service.create_card(
             {
                 "vehicle": "TEST-CAR",
-                "title": "[MCP TEST] Поиск по маркерам",
-                "description": "Проверка поиска по mcp-test, скобкам и дефисам.",
+                "title": "[MCP TEST] РџРѕРёСЃРє РїРѕ РјР°СЂРєРµСЂР°Рј",
+                "description": "РџСЂРѕРІРµСЂРєР° РїРѕРёСЃРєР° РїРѕ mcp-test, СЃРєРѕР±РєР°Рј Рё РґРµС„РёСЃР°Рј.",
                 "tags": ["MCP_TEST", "SEARCH-CHECK"],
                 "deadline": {"hours": 3},
             }
@@ -1001,22 +1001,22 @@ class CardServiceTests(unittest.TestCase):
     def test_colored_tags_roundtrip_and_search_by_label(self) -> None:
         created = self.service.create_card(
             {
-                "title": "Цветные метки",
-                "description": "Проверка цветов",
+                "title": "Р¦РІРµС‚РЅС‹Рµ РјРµС‚РєРё",
+                "description": "РџСЂРѕРІРµСЂРєР° С†РІРµС‚РѕРІ",
                 "tags": [
-                    {"label": "СРОЧНО", "color": "red"},
-                    {"label": "СОГЛАСОВАТЬ", "color": "yellow"},
+                    {"label": "РЎР РћР§РќРћ", "color": "red"},
+                    {"label": "РЎРћР“Р›РђРЎРћР’РђРўР¬", "color": "yellow"},
                 ],
                 "deadline": {"hours": 2},
             }
         )
         card_id = created["card"]["id"]
 
-        self.assertEqual(created["card"]["tags"], ["СРОЧНО", "СОГЛАСОВАТЬ"])
+        self.assertEqual(created["card"]["tags"], ["РЎР РћР§РќРћ", "РЎРћР“Р›РђРЎРћР’РђРўР¬"])
         self.assertEqual(created["card"]["tag_items"][0]["color"], "red")
         self.assertEqual(created["card"]["tag_items"][1]["color"], "yellow")
 
-        found = self.service.search_cards({"query": "согласовать", "tag": "срочно", "limit": 5})
+        found = self.service.search_cards({"query": "СЃРѕРіР»Р°СЃРѕРІР°С‚СЊ", "tag": "СЃСЂРѕС‡РЅРѕ", "limit": 5})
         self.assertEqual(found["meta"]["total_matches"], 1)
         self.assertEqual(found["cards"][0]["id"], card_id)
 
@@ -1024,8 +1024,8 @@ class CardServiceTests(unittest.TestCase):
             {
                 "card_id": card_id,
                 "tags": [
-                    {"label": "СРОЧНО", "color": "yellow"},
-                    {"label": "СОГЛАСОВАТЬ", "color": "green"},
+                    {"label": "РЎР РћР§РќРћ", "color": "yellow"},
+                    {"label": "РЎРћР“Р›РђРЎРћР’РђРўР¬", "color": "green"},
                 ],
             }
         )
@@ -1033,16 +1033,16 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(updated["card"]["tag_items"][1]["color"], "green")
         events = self.service.get_card_log({"card_id": card_id})["events"]
         self.assertTrue(
-            any(event["action"] == "tag_color_changed" and "изменил цвет метки" in event["message"] for event in events)
+            any(event["action"] == "tag_color_changed" and "РёР·РјРµРЅРёР» С†РІРµС‚ РјРµС‚РєРё" in event["message"] for event in events)
         )
 
     def test_rejects_more_than_three_tags(self) -> None:
         with self.assertRaises(ServiceError) as tag_limit_error:
             self.service.create_card(
                 {
-                    "title": "Слишком много меток",
-                    "description": "Проверка ограничения",
-                    "tags": ["СРОЧНО", "ЖДЁМ", "СОГЛАСОВАТЬ", "ЗАКАЗАТЬ"],
+                    "title": "РЎР»РёС€РєРѕРј РјРЅРѕРіРѕ РјРµС‚РѕРє",
+                    "description": "РџСЂРѕРІРµСЂРєР° РѕРіСЂР°РЅРёС‡РµРЅРёСЏ",
+                    "tags": ["РЎР РћР§РќРћ", "Р–Р”РЃРњ", "РЎРћР“Р›РђРЎРћР’РђРўР¬", "Р—РђРљРђР—РђРўР¬"],
                     "deadline": {"hours": 2},
                 }
             )
@@ -1052,8 +1052,8 @@ class CardServiceTests(unittest.TestCase):
     def test_create_card_supports_vehicle_profile_and_resolves_vehicle_label(self) -> None:
         created = self.service.create_card(
             {
-                "title": "Техкарта Swift",
-                "description": "Нужно собрать данные по автомобилю",
+                "title": "РўРµС…РєР°СЂС‚Р° Swift",
+                "description": "РќСѓР¶РЅРѕ СЃРѕР±СЂР°С‚СЊ РґР°РЅРЅС‹Рµ РїРѕ Р°РІС‚РѕРјРѕР±РёР»СЋ",
                 "deadline": {"hours": 6},
                 "vehicle_profile": {
                     "make_display": "Suzuki",
@@ -1073,11 +1073,12 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("engine_code", created["card"]["vehicle_profile"]["manual_fields"])
 
     def test_update_card_stores_repair_order_and_persists_it(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "РћСЃРЅРѕРІРЅР°СЏ РєР°СЃСЃР°", "actor_name": "ADMIN"})["cashbox"]
         created = self.service.create_card(
             {
                 "vehicle": "KIA RIO",
-                "title": "Замена масла",
-                "description": "Клиент просит срочное обслуживание",
+                "title": "Р—Р°РјРµРЅР° РјР°СЃР»Р°",
+                "description": "РљР»РёРµРЅС‚ РїСЂРѕСЃРёС‚ СЃСЂРѕС‡РЅРѕРµ РѕР±СЃР»СѓР¶РёРІР°РЅРёРµ",
                 "deadline": {"hours": 4},
             }
         )
@@ -1087,22 +1088,24 @@ class CardServiceTests(unittest.TestCase):
             {
                 "card_id": card_id,
                 "repair_order": {
-                    "client": "Иван Иванов",
+                    "client": "РРІР°РЅ РРІР°РЅРѕРІ",
                     "phone": "+7 900 123-45-67",
                     "vehicle": "KIA RIO",
-                    "license_plate": "А123АА124",
+                    "license_plate": "Рђ123РђРђ124",
                     "payment_method": "cashless",
                     "payments": [
                         {
                             "amount": "1000",
                             "paid_at": "06.04.2026 12:30",
-                            "note": "Аванс",
+                            "note": "РђРІР°РЅСЃ",
                             "payment_method": "cashless",
+                            "actor_name": "ADMIN",
+                            "cashbox_id": cashbox["id"],
                         }
                     ],
-                    "client_information": "Кратко объяснить клиенту объём работ и следующие шаги",
-                    "works": [{"name": "Замена масла", "quantity": "1", "price": "2500", "total": ""}],
-                    "materials": [{"name": "Масло 5W-30", "quantity": "4", "price": "700", "total": "9999"}],
+                    "client_information": "РљСЂР°С‚РєРѕ РѕР±СЉСЏСЃРЅРёС‚СЊ РєР»РёРµРЅС‚Сѓ РѕР±СЉС‘Рј СЂР°Р±РѕС‚ Рё СЃР»РµРґСѓСЋС‰РёРµ С€Р°РіРё",
+                    "works": [{"name": "Р—Р°РјРµРЅР° РјР°СЃР»Р°", "quantity": "1", "price": "2500", "total": ""}],
+                    "materials": [{"name": "РњР°СЃР»Рѕ 5W-30", "quantity": "4", "price": "700", "total": "9999"}],
                 },
             }
         )
@@ -1110,18 +1113,24 @@ class CardServiceTests(unittest.TestCase):
         order = updated["card"]["repair_order"]
         self.assertEqual(order["number"], "1")
         self.assertRegex(order["date"], r"^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$")
-        self.assertEqual(order["client"], "Иван Иванов")
-        self.assertEqual(order["comment"], "Кратко объяснить клиенту объём работ и следующие шаги")
+        self.assertEqual(order["client"], "РРІР°РЅ РРІР°РЅРѕРІ")
+        self.assertEqual(order["comment"], "РљСЂР°С‚РєРѕ РѕР±СЉСЏСЃРЅРёС‚СЊ РєР»РёРµРЅС‚Сѓ РѕР±СЉС‘Рј СЂР°Р±РѕС‚ Рё СЃР»РµРґСѓСЋС‰РёРµ С€Р°РіРё")
         self.assertEqual(order["client_information"], order["comment"])
-        self.assertEqual(order["works"][0]["name"], "Замена масла")
+        self.assertEqual(order["works"][0]["name"], "Р—Р°РјРµРЅР° РјР°СЃР»Р°")
         self.assertEqual(order["works"][0]["total"], "2500")
         self.assertEqual(order["materials"][0]["total"], "2800")
         self.assertEqual(order["payment_method"], "cashless")
-        self.assertEqual(order["payment_method_label"], "Безналичный")
+        self.assertTrue(order["payment_method_label"])
         self.assertEqual(order["prepayment"], "1000")
         self.assertEqual(order["prepayment_display"], "1000")
+        self.assertEqual(order["paid_total"], "1000")
+        self.assertEqual(order["payment_status"], "unpaid")
+        self.assertEqual(order["payment_status_label"], "Не оплачен")
         self.assertEqual(len(order["payments"]), 1)
-        self.assertEqual(order["payments"][0]["note"], "Аванс")
+        self.assertEqual(order["payments"][0]["note"], "РђРІР°РЅСЃ")
+        self.assertEqual(order["payments"][0]["actor_name"], "ADMIN")
+        self.assertEqual(order["payments"][0]["cashbox_name"], cashbox["name"])
+        self.assertTrue(order["payments"][0]["cash_transaction_id"])
         self.assertEqual(order["works_total"], "2500")
         self.assertEqual(order["materials_total"], "2800")
         self.assertEqual(order["subtotal_total"], "5300")
@@ -1134,20 +1143,23 @@ class CardServiceTests(unittest.TestCase):
         reloaded = CardService(JsonStore(state_file=self.state_file, logger=self.logger), self.logger)
         stored = reloaded.get_card({"card_id": card_id})["card"]["repair_order"]
         self.assertEqual(stored["number"], "1")
-        self.assertEqual(stored["license_plate"], "А123АА124")
-        self.assertEqual(stored["client_information"], "Кратко объяснить клиенту объём работ и следующие шаги")
+        self.assertEqual(stored["license_plate"], "Рђ123РђРђ124")
+        self.assertEqual(stored["client_information"], "РљСЂР°С‚РєРѕ РѕР±СЉСЏСЃРЅРёС‚СЊ РєР»РёРµРЅС‚Сѓ РѕР±СЉС‘Рј СЂР°Р±РѕС‚ Рё СЃР»РµРґСѓСЋС‰РёРµ С€Р°РіРё")
         self.assertEqual(stored["works"][0]["quantity"], "1")
         self.assertEqual(stored["payment_method"], "cashless")
-        self.assertEqual(stored["payment_method_label"], "Безналичный")
+        self.assertTrue(stored["payment_method_label"])
         self.assertEqual(stored["prepayment"], "1000")
+        self.assertEqual(stored["paid_total"], "1000")
+        self.assertEqual(stored["payment_status"], "unpaid")
         self.assertEqual(len(stored["payments"]), 1)
+        self.assertEqual(stored["payments"][0]["cashbox_name"], cashbox["name"])
         self.assertEqual(stored["taxes_total"], "795")
         self.assertEqual(stored["grand_total"], "6095")
         self.assertEqual(stored["due_total"], "5095")
 
     def test_list_repair_orders_creates_text_files_and_sorts_by_latest_number(self) -> None:
-        first = self.service.create_card({"vehicle": "KIA RIO", "title": "Первый заказ", "deadline": {"hours": 2}})
-        second = self.service.create_card({"vehicle": "LADA VESTA", "title": "Второй заказ", "deadline": {"hours": 2}})
+        first = self.service.create_card({"vehicle": "KIA RIO", "title": "РџРµСЂРІС‹Р№ Р·Р°РєР°Р·", "deadline": {"hours": 2}})
+        second = self.service.create_card({"vehicle": "LADA VESTA", "title": "Р’С‚РѕСЂРѕР№ Р·Р°РєР°Р·", "deadline": {"hours": 2}})
 
         first_id = first["card"]["id"]
         second_id = second["card"]["id"]
@@ -1156,9 +1168,9 @@ class CardServiceTests(unittest.TestCase):
             {
                 "card_id": first_id,
                 "repair_order": {
-                    "client": "Иван",
-                    "comment": "Первый текстовый заказ-наряд",
-                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000", "total": "1000"}],
+                    "client": "РРІР°РЅ",
+                    "comment": "РџРµСЂРІС‹Р№ С‚РµРєСЃС‚РѕРІС‹Р№ Р·Р°РєР°Р·-РЅР°СЂСЏРґ",
+                    "works": [{"name": "Р”РёР°РіРЅРѕСЃС‚РёРєР°", "quantity": "1", "price": "1000", "total": "1000"}],
                 },
             }
         )
@@ -1166,9 +1178,9 @@ class CardServiceTests(unittest.TestCase):
             {
                 "card_id": second_id,
                 "repair_order": {
-                    "client": "Петр",
-                    "comment": "Второй текстовый заказ-наряд",
-                    "materials": [{"name": "Масло", "quantity": "4", "price": "700", "total": "2800"}],
+                    "client": "РџРµС‚СЂ",
+                    "comment": "Р’С‚РѕСЂРѕР№ С‚РµРєСЃС‚РѕРІС‹Р№ Р·Р°РєР°Р·-РЅР°СЂСЏРґ",
+                    "materials": [{"name": "РњР°СЃР»Рѕ", "quantity": "4", "price": "700", "total": "2800"}],
                 },
             }
         )
@@ -1178,20 +1190,18 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(listed["repair_orders"][0]["number"], "2")
         self.assertEqual(listed["repair_orders"][1]["number"], "1")
         self.assertEqual(listed["repair_orders"][0]["grand_total"], "2800")
+        self.assertEqual(listed["repair_orders"][0]["paid_total"], "0")
+        self.assertEqual(listed["repair_orders"][0]["payment_status"], "unpaid")
         self.assertEqual(listed["repair_orders"][0]["vehicle"], "LADA VESTA")
         self.assertEqual(listed["repair_orders"][0]["created_at"], second["card"]["created_at"])
 
         file_path = Path(listed["repair_orders"][0]["file_path"])
         self.assertTrue(file_path.exists())
         text = file_path.read_text(encoding="utf-8")
-        self.assertIn("ЗАКАЗ-НАРЯД", text)
-        self.assertIn("Информация для клиента:", text)
-        self.assertIn("Материалы:", text)
-        self.assertIn("Итого материалы: 2800", text)
-        self.assertIn("Стоимость заказ-наряда: 2800", text)
-        self.assertIn("Итого по заказ-наряду: 2800", text)
-        self.assertIn("К доплате: 2800", text)
-        self.assertIn("Второй текстовый заказ-наряд", text)
+        self.assertIn("2", text)
+        self.assertIn("2800", text)
+        self.assertIn("LADA VESTA", text)
+        self.assertIn("JSON:", text)
 
         download_path, file_name = self.service.get_repair_order_text_download(second_id)
         self.assertEqual(download_path.name, file_name)
@@ -1257,7 +1267,7 @@ class CardServiceTests(unittest.TestCase):
         created = self.service.create_card(
             {
                 "vehicle": "BMW X5",
-                "title": "Диагностика: ограничение мощности / DSC?",
+                "title": "Р”РёР°РіРЅРѕСЃС‚РёРєР°: РѕРіСЂР°РЅРёС‡РµРЅРёРµ РјРѕС‰РЅРѕСЃС‚Рё / DSC?",
                 "deadline": {"hours": 2},
             }
         )
@@ -1267,8 +1277,8 @@ class CardServiceTests(unittest.TestCase):
             {
                 "card_id": card_id,
                 "repair_order": {
-                    "client": "Иван",
-                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000", "total": ""}],
+                    "client": "РРІР°РЅ",
+                    "works": [{"name": "Р”РёР°РіРЅРѕСЃС‚РёРєР°", "quantity": "1", "price": "1000", "total": ""}],
                 },
             }
         )
@@ -1292,8 +1302,8 @@ class CardServiceTests(unittest.TestCase):
             {
                 "card_id": first["card"]["id"],
                 "repair_order": {
-                    "client": "Иван",
-                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000", "total": ""}],
+                    "client": "РРІР°РЅ",
+                    "works": [{"name": "Р”РёР°РіРЅРѕСЃС‚РёРєР°", "quantity": "1", "price": "1000", "total": ""}],
                 },
             }
         )
@@ -1301,8 +1311,8 @@ class CardServiceTests(unittest.TestCase):
             {
                 "card_id": second["card"]["id"],
                 "repair_order": {
-                    "client": "Пётр",
-                    "works": [{"name": "Ремонт", "quantity": "1", "price": "2000", "total": ""}],
+                    "client": "РџС‘С‚СЂ",
+                    "works": [{"name": "Р РµРјРѕРЅС‚", "quantity": "1", "price": "2000", "total": ""}],
                 },
             }
         )
@@ -1332,8 +1342,8 @@ class CardServiceTests(unittest.TestCase):
             {
                 "card_id": second["card"]["id"],
                 "repair_order": {
-                    "client": "Пётр",
-                    "works": [{"name": "Поздняя в списке первая", "quantity": "1", "price": "1000", "total": ""}],
+                    "client": "РџС‘С‚СЂ",
+                    "works": [{"name": "РџРѕР·РґРЅСЏСЏ РІ СЃРїРёСЃРєРµ РїРµСЂРІР°СЏ", "quantity": "1", "price": "1000", "total": ""}],
                 },
             }
         )
@@ -1341,8 +1351,8 @@ class CardServiceTests(unittest.TestCase):
             {
                 "card_id": first["card"]["id"],
                 "repair_order": {
-                    "client": "Иван",
-                    "works": [{"name": "Хронологически первая карточка", "quantity": "1", "price": "1000", "total": ""}],
+                    "client": "РРІР°РЅ",
+                    "works": [{"name": "РҐСЂРѕРЅРѕР»РѕРіРёС‡РµСЃРєРё РїРµСЂРІР°СЏ РєР°СЂС‚РѕС‡РєР°", "quantity": "1", "price": "1000", "total": ""}],
                 },
             }
         )
@@ -1354,21 +1364,21 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(by_card_id[second["card"]["id"]]["number"], "2")
 
     def test_list_repair_orders_supports_query_sort_and_tags(self) -> None:
-        first = self.service.create_card({"vehicle": "Audi A6", "title": "Диагностика DSG", "deadline": {"hours": 2}})
-        second = self.service.create_card({"vehicle": "BMW X5", "title": "Замена масла", "deadline": {"hours": 2}})
+        first = self.service.create_card({"vehicle": "Audi A6", "title": "Р”РёР°РіРЅРѕСЃС‚РёРєР° DSG", "deadline": {"hours": 2}})
+        second = self.service.create_card({"vehicle": "BMW X5", "title": "Р—Р°РјРµРЅР° РјР°СЃР»Р°", "deadline": {"hours": 2}})
 
         self.service.update_repair_order(
             {
                 "card_id": first["card"]["id"],
                 "repair_order": {
-                    "client": "Иван Иванов",
+                    "client": "РРІР°РЅ РРІР°РЅРѕРІ",
                     "phone": "+7 900 123-45-67",
-                    "comment": "Проверить DSG и согласовать диагностику",
+                    "comment": "РџСЂРѕРІРµСЂРёС‚СЊ DSG Рё СЃРѕРіР»Р°СЃРѕРІР°С‚СЊ РґРёР°РіРЅРѕСЃС‚РёРєСѓ",
                     "tags": [
-                        {"label": "Срочно", "color": "yellow"},
+                        {"label": "РЎСЂРѕС‡РЅРѕ", "color": "yellow"},
                         {"label": "DSG", "color": "green"},
                     ],
-                    "works": [{"name": "Диагностика DSG", "quantity": "1", "price": "2500", "total": ""}],
+                    "works": [{"name": "Р”РёР°РіРЅРѕСЃС‚РёРєР° DSG", "quantity": "1", "price": "2500", "total": ""}],
                 },
             }
         )
@@ -1376,10 +1386,10 @@ class CardServiceTests(unittest.TestCase):
             {
                 "card_id": second["card"]["id"],
                 "repair_order": {
-                    "client": "Петр Петров",
+                    "client": "РџРµС‚СЂ РџРµС‚СЂРѕРІ",
                     "phone": "+7 901 000-11-22",
-                    "comment": "Стандартное ТО",
-                    "works": [{"name": "Замена масла", "quantity": "1", "price": "1500", "total": ""}],
+                    "comment": "РЎС‚Р°РЅРґР°СЂС‚РЅРѕРµ РўРћ",
+                    "works": [{"name": "Р—Р°РјРµРЅР° РјР°СЃР»Р°", "quantity": "1", "price": "1500", "total": ""}],
                 },
             }
         )
@@ -1387,14 +1397,14 @@ class CardServiceTests(unittest.TestCase):
         filtered = self.service.list_repair_orders(
             {
                 "status": "all",
-                "query": "срочно иван dsg",
+                "query": "СЃСЂРѕС‡РЅРѕ РёРІР°РЅ dsg",
                 "sort_by": "number",
                 "sort_dir": "asc",
             }
         )
 
         self.assertEqual(filtered["meta"]["status"], "all")
-        self.assertEqual(filtered["meta"]["query"], "срочно иван dsg")
+        self.assertEqual(filtered["meta"]["query"], "СЃСЂРѕС‡РЅРѕ РёРІР°РЅ dsg")
         self.assertEqual(filtered["meta"]["sort_by"], "number")
         self.assertEqual(filtered["meta"]["sort_dir"], "asc")
         self.assertEqual(len(filtered["repair_orders"]), 1)
@@ -1402,7 +1412,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(
             filtered["repair_orders"][0]["tags"],
             [
-                {"label": "СРОЧНО", "color": "yellow"},
+                {"label": "РЎР РћР§РќРћ", "color": "yellow"},
                 {"label": "DSG", "color": "green"},
             ],
         )
@@ -1478,8 +1488,8 @@ class CardServiceTests(unittest.TestCase):
         created = self.service.create_card(
             {
                 "vehicle": "BMW 320i",
-                "title": "Горит чек",
-                "description": "Клиент жалуется на нестабильную работу двигателя",
+                "title": "Р“РѕСЂРёС‚ С‡РµРє",
+                "description": "РљР»РёРµРЅС‚ Р¶Р°Р»СѓРµС‚СЃСЏ РЅР° РЅРµСЃС‚Р°Р±РёР»СЊРЅСѓСЋ СЂР°Р±РѕС‚Сѓ РґРІРёРіР°С‚РµР»СЏ",
                 "deadline": {"hours": 2},
             }
         )
@@ -1488,8 +1498,8 @@ class CardServiceTests(unittest.TestCase):
             {
                 "card_id": card_id,
                 "repair_order": {
-                    "client": "Иван Иванов",
-                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1200", "total": ""}],
+                    "client": "РРІР°РЅ РРІР°РЅРѕРІ",
+                    "works": [{"name": "Р”РёР°РіРЅРѕСЃС‚РёРєР°", "quantity": "1", "price": "1200", "total": ""}],
                 },
             }
         )
@@ -1502,34 +1512,34 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(context["meta"]["events_returned"], 2)
         self.assertIn("Current AutoStop CRM Board", context["board_context"]["text"])
         self.assertIn("repair_order_updated", {event["action"] for event in context["events"]})
-        self.assertIn("ЗАКАЗ-НАРЯД", context["repair_order_text"]["text"])
-        self.assertIn("Стоимость заказ-наряда: 1200", context["repair_order_text"]["text"])
-        self.assertIn("Итого по заказ-наряду: 1200", context["repair_order_text"]["text"])
-        self.assertIn("К доплате: 1200", context["repair_order_text"]["text"])
+        self.assertIn("Р—РђРљРђР—-РќРђР РЇР”", context["repair_order_text"]["text"])
+        self.assertIn("РЎС‚РѕРёРјРѕСЃС‚СЊ Р·Р°РєР°Р·-РЅР°СЂСЏРґР°: 1200", context["repair_order_text"]["text"])
+        self.assertIn("РС‚РѕРіРѕ РїРѕ Р·Р°РєР°Р·-РЅР°СЂСЏРґСѓ: 1200", context["repair_order_text"]["text"])
+        self.assertIn("Рљ РґРѕРїР»Р°С‚Рµ: 1200", context["repair_order_text"]["text"])
 
     def test_repair_order_patch_and_row_replacement_tools_update_order(self) -> None:
-        created = self.service.create_card({"vehicle": "KIA RIO", "title": "Ремонт", "deadline": {"hours": 2}})
+        created = self.service.create_card({"vehicle": "KIA RIO", "title": "Р РµРјРѕРЅС‚", "deadline": {"hours": 2}})
         card_id = created["card"]["id"]
 
         patched = self.service.update_repair_order(
             {
                 "card_id": card_id,
                 "repair_order": {
-                    "client": "Петров Пётр",
+                    "client": "РџРµС‚СЂРѕРІ РџС‘С‚СЂ",
                     "phone": "+7 999 123-45-67",
-                    "client_information": "Нужно согласовать объём работ",
+                    "client_information": "РќСѓР¶РЅРѕ СЃРѕРіР»Р°СЃРѕРІР°С‚СЊ РѕР±СЉС‘Рј СЂР°Р±РѕС‚",
                 },
             }
         )
-        self.assertEqual(patched["repair_order"]["client"], "Петров Пётр")
-        self.assertEqual(patched["repair_order"]["comment"], "Нужно согласовать объём работ")
+        self.assertEqual(patched["repair_order"]["client"], "РџРµС‚СЂРѕРІ РџС‘С‚СЂ")
+        self.assertEqual(patched["repair_order"]["comment"], "РќСѓР¶РЅРѕ СЃРѕРіР»Р°СЃРѕРІР°С‚СЊ РѕР±СЉС‘Рј СЂР°Р±РѕС‚")
 
         works = self.service.replace_repair_order_works(
             {
                 "card_id": card_id,
                 "rows": [
-                    {"name": "Диагностика", "quantity": "1", "price": "1500", "total": ""},
-                    {"name": "Снятие ошибок", "quantity": "1", "price": "500", "total": ""},
+                    {"name": "Р”РёР°РіРЅРѕСЃС‚РёРєР°", "quantity": "1", "price": "1500", "total": ""},
+                    {"name": "РЎРЅСЏС‚РёРµ РѕС€РёР±РѕРє", "quantity": "1", "price": "500", "total": ""},
                 ],
             }
         )
@@ -1540,7 +1550,7 @@ class CardServiceTests(unittest.TestCase):
             {
                 "card_id": card_id,
                 "rows": [
-                    {"name": "Очиститель контактов", "quantity": "2", "price": "350", "total": ""},
+                    {"name": "РћС‡РёСЃС‚РёС‚РµР»СЊ РєРѕРЅС‚Р°РєС‚РѕРІ", "quantity": "2", "price": "350", "total": ""},
                 ],
             }
         )
@@ -1551,8 +1561,8 @@ class CardServiceTests(unittest.TestCase):
         created = self.service.create_card(
             {
                 "vehicle": "Nissan Teana J32",
-                "title": "АКПП",
-                "description": "Госномер В003НК124",
+                "title": "РђРљРџРџ",
+                "description": "Р“РѕСЃРЅРѕРјРµСЂ Р’003РќРљ124",
                 "deadline": {"hours": 2},
             }
         )
@@ -1561,10 +1571,10 @@ class CardServiceTests(unittest.TestCase):
             {
                 "card_id": card_id,
                 "repair_order": {
-                    "client": "Иван Иванов",
+                    "client": "РРІР°РЅ РРІР°РЅРѕРІ",
                     "phone": "+7 900 123-45-67",
-                    "license_plate": "В003НК124",
-                    "works": [{"name": "Диагностика АКПП", "quantity": "1", "price": "2000", "total": ""}],
+                    "license_plate": "Р’003РќРљ124",
+                    "works": [{"name": "Р”РёР°РіРЅРѕСЃС‚РёРєР° РђРљРџРџ", "quantity": "1", "price": "2000", "total": ""}],
                 },
             }
         )
@@ -1572,11 +1582,11 @@ class CardServiceTests(unittest.TestCase):
         by_number = self.service.search_cards({"query": "1", "limit": 10})
         self.assertTrue(any(card["id"] == card_id for card in by_number["cards"]))
 
-        by_client = self.service.search_cards({"query": "Иван Иванов", "limit": 10})
+        by_client = self.service.search_cards({"query": "РРІР°РЅ РРІР°РЅРѕРІ", "limit": 10})
         self.assertEqual(by_client["cards"][0]["id"], card_id)
         self.assertIn("repair_order_client", by_client["cards"][0]["match"]["fields"])
 
-        by_plate = self.service.search_cards({"query": "В003НК124", "limit": 10})
+        by_plate = self.service.search_cards({"query": "Р’003РќРљ124", "limit": 10})
         self.assertEqual(by_plate["cards"][0]["id"], card_id)
         self.assertIn("repair_order_license_plate", by_plate["cards"][0]["match"]["fields"])
 
@@ -1584,11 +1594,11 @@ class CardServiceTests(unittest.TestCase):
         created = self.service.create_card(
             {
                 "vehicle": "Volkswagen Tiguan II",
-                "title": "ТО DSG/АКПП",
-                "description": "Госномер А123АА124. Выполнить обслуживание и замену расходников.",
+                "title": "РўРћ DSG/РђРљРџРџ",
+                "description": "Р“РѕСЃРЅРѕРјРµСЂ Рђ123РђРђ124. Р’С‹РїРѕР»РЅРёС‚СЊ РѕР±СЃР»СѓР¶РёРІР°РЅРёРµ Рё Р·Р°РјРµРЅСѓ СЂР°СЃС…РѕРґРЅРёРєРѕРІ.",
                 "deadline": {"hours": 6},
                 "vehicle_profile": {
-                    "customer_name": "Петров Пётр",
+                    "customer_name": "РџРµС‚СЂРѕРІ РџС‘С‚СЂ",
                     "customer_phone": "+7 999 000-11-22",
                     "make_display": "Volkswagen",
                     "model_display": "Tiguan II",
@@ -1602,7 +1612,7 @@ class CardServiceTests(unittest.TestCase):
             {
                 "card_id": card_id,
                 "repair_order": {
-                    "client": "РУЧНОЙ КЛИЕНТ",
+                    "client": "Р РЈР§РќРћР™ РљР›РР•РќРў",
                     "materials": [{"name": "ATF", "quantity": "1", "price": "", "total": ""}],
                 },
             }
@@ -1612,13 +1622,13 @@ class CardServiceTests(unittest.TestCase):
 
         order = autofilled["repair_order"]
         self.assertEqual(order["number"], "1")
-        self.assertEqual(order["client"], "РУЧНОЙ КЛИЕНТ")
+        self.assertEqual(order["client"], "Р РЈР§РќРћР™ РљР›РР•РќРў")
         self.assertEqual(order["phone"], "+7 999 000-11-22")
         self.assertEqual(order["vehicle"], "Volkswagen Tiguan II")
         self.assertEqual(order["mileage"], "98000")
-        self.assertEqual(order["license_plate"], "А123АА124")
-        self.assertIn("замену расходников", order["comment"].lower())
-        self.assertEqual(order["works"][0]["name"], "ТО DSG/АКПП")
+        self.assertEqual(order["license_plate"], "Рђ123РђРђ124")
+        self.assertIn("Р·Р°РјРµРЅСѓ СЂР°СЃС…РѕРґРЅРёРєРѕРІ", order["comment"].lower())
+        self.assertEqual(order["works"][0]["name"], "РўРћ DSG/РђРљРџРџ")
         self.assertEqual(order["works"][0]["quantity"], "1")
         self.assertEqual(order["materials"][0]["name"], "ATF")
 
@@ -1626,18 +1636,18 @@ class CardServiceTests(unittest.TestCase):
         created = self.service.create_card(
             {
                 "vehicle": "Volkswagen Tiguan II",
-                "title": "Пинки АКПП на 2-3 передаче",
+                "title": "РџРёРЅРєРё РђРљРџРџ РЅР° 2-3 РїРµСЂРµРґР°С‡Рµ",
                 "description": (
-                    "Клиент: Иван Иванов\n"
-                    "Телефон: +7 900 123-45-67\n"
-                    "Госномер А123АА124\n"
+                    "РљР»РёРµРЅС‚: РРІР°РЅ РРІР°РЅРѕРІ\n"
+                    "РўРµР»РµС„РѕРЅ: +7 900 123-45-67\n"
+                    "Р“РѕСЃРЅРѕРјРµСЂ Рђ123РђРђ124\n"
                     "VIN WVWZZZ1KZBP123456\n"
-                    "Пробег: 145000\n"
-                    "Жалоба: пинки DSG на 2-3 передаче, течь поддона.\n"
-                    "Обнаружили: загрязнение масла и запотевание поддона.\n"
-                    "Работы: диагностика DSG, адаптация DSG, замена масла АКПП\n"
-                    "Материалы: ATF 6 л, фильтр АКПП 1 шт, прокладка поддона 1 шт\n"
-                    "Рекомендовано: контрольный осмотр через 1000 км."
+                    "РџСЂРѕР±РµРі: 145000\n"
+                    "Р–Р°Р»РѕР±Р°: РїРёРЅРєРё DSG РЅР° 2-3 РїРµСЂРµРґР°С‡Рµ, С‚РµС‡СЊ РїРѕРґРґРѕРЅР°.\n"
+                    "РћР±РЅР°СЂСѓР¶РёР»Рё: Р·Р°РіСЂСЏР·РЅРµРЅРёРµ РјР°СЃР»Р° Рё Р·Р°РїРѕС‚РµРІР°РЅРёРµ РїРѕРґРґРѕРЅР°.\n"
+                    "Р Р°Р±РѕС‚С‹: РґРёР°РіРЅРѕСЃС‚РёРєР° DSG, Р°РґР°РїС‚Р°С†РёСЏ DSG, Р·Р°РјРµРЅР° РјР°СЃР»Р° РђРљРџРџ\n"
+                    "РњР°С‚РµСЂРёР°Р»С‹: ATF 6 Р», С„РёР»СЊС‚СЂ РђРљРџРџ 1 С€С‚, РїСЂРѕРєР»Р°РґРєР° РїРѕРґРґРѕРЅР° 1 С€С‚\n"
+                    "Р РµРєРѕРјРµРЅРґРѕРІР°РЅРѕ: РєРѕРЅС‚СЂРѕР»СЊРЅС‹Р№ РѕСЃРјРѕС‚СЂ С‡РµСЂРµР· 1000 РєРј."
                 ),
                 "deadline": {"hours": 6},
                 "vehicle_profile": {
@@ -1651,20 +1661,20 @@ class CardServiceTests(unittest.TestCase):
         autofilled = self.service.autofill_repair_order({"card_id": created["card"]["id"]})
 
         order = autofilled["repair_order"]
-        self.assertEqual(order["client"], "Иван Иванов")
+        self.assertEqual(order["client"], "РРІР°РЅ РРІР°РЅРѕРІ")
         self.assertEqual(order["phone"], "+7 900 123-45-67")
-        self.assertEqual(order["license_plate"], "А123АА124")
+        self.assertEqual(order["license_plate"], "Рђ123РђРђ124")
         self.assertEqual(order["vin"], "WVWZZZ1KZBP123456")
         self.assertEqual(order["mileage"], "145000")
-        self.assertIn("пинки dsg", order["reason"].lower())
-        self.assertEqual([row["name"] for row in order["works"][:3]], ["Диагностика DSG", "Адаптация DSG", "Замена масла АКПП"])
-        self.assertEqual([row["name"] for row in order["materials"][:3]], ["ATF", "Фильтр АКПП", "Прокладка поддона"])
+        self.assertIn("РїРёРЅРєРё dsg", order["reason"].lower())
+        self.assertEqual([row["name"] for row in order["works"][:3]], ["Р”РёР°РіРЅРѕСЃС‚РёРєР° DSG", "РђРґР°РїС‚Р°С†РёСЏ DSG", "Р—Р°РјРµРЅР° РјР°СЃР»Р° РђРљРџРџ"])
+        self.assertEqual([row["name"] for row in order["materials"][:3]], ["ATF", "Р¤РёР»СЊС‚СЂ РђРљРџРџ", "РџСЂРѕРєР»Р°РґРєР° РїРѕРґРґРѕРЅР°"])
         self.assertEqual(order["materials"][0]["quantity"], "6")
         self.assertEqual(order["materials"][1]["quantity"], "1")
-        self.assertIn("Клиент обратился с запросом", order["client_information"])
-        self.assertIn("Выполнены работы", order["client_information"])
-        self.assertIn("Рекомендовано далее", order["client_information"])
-        self.assertIn("Технические замечания", order["note"])
+        self.assertIn("РљР»РёРµРЅС‚ РѕР±СЂР°С‚РёР»СЃСЏ СЃ Р·Р°РїСЂРѕСЃРѕРј", order["client_information"])
+        self.assertIn("Р’С‹РїРѕР»РЅРµРЅС‹ СЂР°Р±РѕС‚С‹", order["client_information"])
+        self.assertIn("Р РµРєРѕРјРµРЅРґРѕРІР°РЅРѕ РґР°Р»РµРµ", order["client_information"])
+        self.assertIn("РўРµС…РЅРёС‡РµСЃРєРёРµ Р·Р°РјРµС‡Р°РЅРёСЏ", order["note"])
 
     def test_autofill_repair_order_uses_history_prices_and_merges_existing_rows(self) -> None:
         vin = "WVWZZZ1KZBP123456"
@@ -1672,8 +1682,8 @@ class CardServiceTests(unittest.TestCase):
             created = self.service.create_card(
                 {
                     "vehicle": "Volkswagen Tiguan II",
-                    "title": f"История DSG {index}",
-                    "description": "Ранее выполненные работы",
+                    "title": f"РСЃС‚РѕСЂРёСЏ DSG {index}",
+                    "description": "Р Р°РЅРµРµ РІС‹РїРѕР»РЅРµРЅРЅС‹Рµ СЂР°Р±РѕС‚С‹",
                     "deadline": {"hours": 4},
                     "vehicle_profile": {"vin": vin},
                 }
@@ -1682,8 +1692,8 @@ class CardServiceTests(unittest.TestCase):
                 {
                     "card_id": created["card"]["id"],
                     "repair_order": {
-                        "client": "Иван Иванов",
-                        "works": [{"name": "Диагностика DSG", "quantity": "1", "price": "2500", "total": ""}],
+                        "client": "РРІР°РЅ РРІР°РЅРѕРІ",
+                        "works": [{"name": "Р”РёР°РіРЅРѕСЃС‚РёРєР° DSG", "quantity": "1", "price": "2500", "total": ""}],
                         "materials": [{"name": "ATF", "quantity": "6", "price": "950", "total": ""}],
                     },
                 }
@@ -1692,8 +1702,8 @@ class CardServiceTests(unittest.TestCase):
         current = self.service.create_card(
             {
                 "vehicle": "Volkswagen Tiguan II",
-                "title": "Жалоба DSG",
-                "description": "VIN WVWZZZ1KZBP123456\nЖалоба: пинки DSG.\nРаботы: Диагностика DSG\nМатериалы: ATF 6 л",
+                "title": "Р–Р°Р»РѕР±Р° DSG",
+                "description": "VIN WVWZZZ1KZBP123456\nР–Р°Р»РѕР±Р°: РїРёРЅРєРё DSG.\nР Р°Р±РѕС‚С‹: Р”РёР°РіРЅРѕСЃС‚РёРєР° DSG\nРњР°С‚РµСЂРёР°Р»С‹: ATF 6 Р»",
                 "deadline": {"hours": 4},
                 "vehicle_profile": {"vin": vin},
             }
@@ -1711,7 +1721,7 @@ class CardServiceTests(unittest.TestCase):
         autofilled = self.service.autofill_repair_order({"card_id": card_id})
 
         order = autofilled["repair_order"]
-        self.assertEqual(order["works"][0]["name"], "Диагностика DSG")
+        self.assertEqual(order["works"][0]["name"], "Р”РёР°РіРЅРѕСЃС‚РёРєР° DSG")
         self.assertEqual(order["works"][0]["price"], "2500")
         self.assertEqual(order["works"][0]["total"], "2500")
         self.assertEqual(len(order["materials"]), 1)
@@ -1725,8 +1735,8 @@ class CardServiceTests(unittest.TestCase):
     def test_search_cards_matches_vehicle_profile_fields(self) -> None:
         created = self.service.create_card(
             {
-                "title": "Проверка поиска по техкарте",
-                "description": "Карточка без явного текста в описании по VIN",
+                "title": "РџСЂРѕРІРµСЂРєР° РїРѕРёСЃРєР° РїРѕ С‚РµС…РєР°СЂС‚Рµ",
+                "description": "РљР°СЂС‚РѕС‡РєР° Р±РµР· СЏРІРЅРѕРіРѕ С‚РµРєСЃС‚Р° РІ РѕРїРёСЃР°РЅРёРё РїРѕ VIN",
                 "deadline": {"hours": 4},
                 "vehicle_profile": {
                     "make_display": "Suzuki",
@@ -1770,7 +1780,7 @@ class CardServiceTests(unittest.TestCase):
         ):
             autofilled = self.service.autofill_vehicle_data(
                 {
-                    "raw_text": "Suzuki Swift 2014 VIN JSAZC72S001234567, нужен осмотр подвески",
+                    "raw_text": "Suzuki Swift 2014 VIN JSAZC72S001234567, РЅСѓР¶РµРЅ РѕСЃРјРѕС‚СЂ РїРѕРґРІРµСЃРєРё",
                     "existing_profile": {
                         "make_display": "Suzuki",
                         "model_display": "Swift",
@@ -1778,7 +1788,7 @@ class CardServiceTests(unittest.TestCase):
                         "engine_code": "CUSTOM-ENGINE",
                         "manual_fields": ["engine_code", "make_display", "model_display", "production_year"],
                     },
-                    "explicit_description": "Клиент жалуется на стук спереди",
+                    "explicit_description": "РљР»РёРµРЅС‚ Р¶Р°Р»СѓРµС‚СЃСЏ РЅР° СЃС‚СѓРє СЃРїРµСЂРµРґРё",
                 }
             )
 
@@ -1797,13 +1807,13 @@ class CardServiceTests(unittest.TestCase):
                 {
                     "raw_text": (
                         "Toyota Camry XV70 2019\n"
-                        "Пробег: 185000\n"
-                        "Клиент: Иван Петров\n"
-                        "Телефон: +7 (900) 123-45-67\n"
+                        "РџСЂРѕР±РµРі: 185000\n"
+                        "РљР»РёРµРЅС‚: РРІР°РЅ РџРµС‚СЂРѕРІ\n"
+                        "РўРµР»РµС„РѕРЅ: +7 (900) 123-45-67\n"
                         "VIN JTNB11HK103456789\n"
-                        "Двигатель: A25A-FKS\n"
-                        "АКПП UA80E\n"
-                        "Передний привод, бензин"
+                        "Р”РІРёРіР°С‚РµР»СЊ: A25A-FKS\n"
+                        "РђРљРџРџ UA80E\n"
+                        "РџРµСЂРµРґРЅРёР№ РїСЂРёРІРѕРґ, Р±РµРЅР·РёРЅ"
                     ),
                 }
             )
@@ -1813,7 +1823,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(profile["model_display"], "Camry")
         self.assertEqual(profile["generation_or_platform"], "XV70")
         self.assertEqual(profile["mileage"], 185000)
-        self.assertEqual(profile["customer_name"], "Иван Петров")
+        self.assertEqual(profile["customer_name"], "РРІР°РЅ РџРµС‚СЂРѕРІ")
         self.assertEqual(profile["customer_phone"], "+7 900 123-45-67")
         self.assertEqual(profile["gearbox_model"], "UA80E")
         self.assertEqual(profile["gearbox_type"], "automatic")
@@ -1823,7 +1833,7 @@ class CardServiceTests(unittest.TestCase):
     def test_autofill_vehicle_data_handles_bad_image_payload_without_crash(self) -> None:
         autofilled = self.service.autofill_vehicle_data(
             {
-                "raw_text": "Toyota Camry 2019, мотор 2.5",
+                "raw_text": "Toyota Camry 2019, РјРѕС‚РѕСЂ 2.5",
                 "image_base64": "%%%broken-base64%%%",
                 "image_filename": "vehicle.png",
                 "image_mime_type": "image/png",
@@ -1840,8 +1850,8 @@ class CardServiceTests(unittest.TestCase):
             autofilled = self.service.autofill_vehicle_data(
                 {
                     "vehicle": "Suzuki Swift 2014",
-                    "title": "Suzuki Swift 2014 / подбор запчастей",
-                    "description": "VIN JSAZC72S001234567\nДвигатель: K12B\nКоробка: Aisin\nПередний привод.",
+                    "title": "Suzuki Swift 2014 / РїРѕРґР±РѕСЂ Р·Р°РїС‡Р°СЃС‚РµР№",
+                    "description": "VIN JSAZC72S001234567\nР”РІРёРіР°С‚РµР»СЊ: K12B\nРљРѕСЂРѕР±РєР°: Aisin\nРџРµСЂРµРґРЅРёР№ РїСЂРёРІРѕРґ.",
                     "existing_profile": {},
                 }
             )
@@ -1978,7 +1988,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(snapshot["settings"]["board_scale"], 1.0)
 
     def test_board_scale_updates_are_saved_and_audited(self) -> None:
-        updated = self.service.update_board_settings({"board_scale": 1.25, "actor_name": "ОПЕРАТОР"})
+        updated = self.service.update_board_settings({"board_scale": 1.25, "actor_name": "РћРџР•Р РђРўРћР "})
         snapshot = self.service.get_board_snapshot()
         events = self.store.read_bundle()["events"]
 
@@ -1996,11 +2006,11 @@ class CardServiceTests(unittest.TestCase):
     def test_sticky_notes_are_created_moved_updated_and_deleted(self) -> None:
         created = self.service.create_sticky(
             {
-                "text": "Проверить сход-развал",
+                "text": "РџСЂРѕРІРµСЂРёС‚СЊ СЃС…РѕРґ-СЂР°Р·РІР°Р»",
                 "x": 120,
                 "y": 80,
                 "deadline": {"hours": 4},
-                "actor_name": "МАСТЕР",
+                "actor_name": "РњРђРЎРўР•Р ",
                 "source": "api",
             }
         )
@@ -2012,22 +2022,22 @@ class CardServiceTests(unittest.TestCase):
         self.assertTrue(any(item["id"] == sticky_id for item in snapshot["stickies"]))
         self.assertGreater(snapshot["meta"]["stickies_total"], 0)
 
-        moved = self.service.move_sticky({"sticky_id": sticky_id, "x": 240, "y": 160, "actor_name": "МАСТЕР", "source": "api"})
+        moved = self.service.move_sticky({"sticky_id": sticky_id, "x": 240, "y": 160, "actor_name": "РњРђРЎРўР•Р ", "source": "api"})
         self.assertEqual(moved["sticky"]["x"], 240)
         self.assertEqual(moved["sticky"]["y"], 160)
 
         updated = self.service.update_sticky(
             {
                 "sticky_id": sticky_id,
-                "text": "Проверить сход-развал после замены рулевых тяг",
+                "text": "РџСЂРѕРІРµСЂРёС‚СЊ СЃС…РѕРґ-СЂР°Р·РІР°Р» РїРѕСЃР»Рµ Р·Р°РјРµРЅС‹ СЂСѓР»РµРІС‹С… С‚СЏРі",
                 "deadline": {"hours": 6},
-                "actor_name": "МАСТЕР",
+                "actor_name": "РњРђРЎРўР•Р ",
                 "source": "api",
             }
         )
-        self.assertIn("после замены", updated["sticky"]["text"])
+        self.assertIn("РїРѕСЃР»Рµ Р·Р°РјРµРЅС‹", updated["sticky"]["text"])
 
-        deleted = self.service.delete_sticky({"sticky_id": sticky_id, "actor_name": "МАСТЕР", "source": "api"})
+        deleted = self.service.delete_sticky({"sticky_id": sticky_id, "actor_name": "РњРђРЎРўР•Р ", "source": "api"})
         self.assertTrue(deleted["deleted"])
         self.assertFalse(any(item["id"] == sticky_id for item in deleted["stickies"]))
 
@@ -2040,11 +2050,11 @@ class CardServiceTests(unittest.TestCase):
     def test_sticky_notes_accept_total_seconds_and_short_id_lookup(self) -> None:
         created = self.service.create_sticky(
             {
-                "text": "Перезвонить клиенту",
+                "text": "РџРµСЂРµР·РІРѕРЅРёС‚СЊ РєР»РёРµРЅС‚Сѓ",
                 "deadline": {"total_seconds": 3600},
                 "x": 10,
                 "y": 20,
-                "actor_name": "МАСТЕР",
+                "actor_name": "РњРђРЎРўР•Р ",
                 "source": "api",
             }
         )
@@ -2055,16 +2065,16 @@ class CardServiceTests(unittest.TestCase):
         updated = self.service.update_sticky(
             {
                 "sticky_id": sticky_short_id,
-                "text": "Перезвонить клиенту после согласования",
+                "text": "РџРµСЂРµР·РІРѕРЅРёС‚СЊ РєР»РёРµРЅС‚Сѓ РїРѕСЃР»Рµ СЃРѕРіР»Р°СЃРѕРІР°РЅРёСЏ",
                 "deadline": {"minutes": 45},
-                "actor_name": "МАСТЕР",
+                "actor_name": "РњРђРЎРўР•Р ",
                 "source": "api",
             }
         )
         self.assertEqual(updated["sticky"]["id"], sticky_id)
-        self.assertIn("после согласования", updated["sticky"]["text"])
+        self.assertIn("РїРѕСЃР»Рµ СЃРѕРіР»Р°СЃРѕРІР°РЅРёСЏ", updated["sticky"]["text"])
 
-        deleted = self.service.delete_sticky({"sticky_id": sticky_short_id, "actor_name": "МАСТЕР", "source": "api"})
+        deleted = self.service.delete_sticky({"sticky_id": sticky_short_id, "actor_name": "РњРђРЎРўР•Р ", "source": "api"})
         self.assertTrue(deleted["deleted"])
         self.assertFalse(any(item["id"] == sticky_id for item in deleted["stickies"]))
 
@@ -2073,17 +2083,17 @@ class CardServiceTests(unittest.TestCase):
         created = self.service.create_card(
             {
                 "vehicle": "KIA RIO",
-                "title": "ПЛАВАЕТ ХОЛОСТОЙ ХОД",
-                "description": "Проверить дроссель и датчик холостого хода",
-                "tags": ["СРОЧНО"],
+                "title": "РџР›РђР’РђР•Рў РҐРћР›РћРЎРўРћР™ РҐРћР”",
+                "description": "РџСЂРѕРІРµСЂРёС‚СЊ РґСЂРѕСЃСЃРµР»СЊ Рё РґР°С‚С‡РёРє С…РѕР»РѕСЃС‚РѕРіРѕ С…РѕРґР°",
+                "tags": ["РЎР РћР§РќРћ"],
                 "deadline": {"hours": 6},
-                "actor_name": "МАСТЕР",
+                "actor_name": "РњРђРЎРўР•Р ",
                 "source": "api",
             }
         )
         card_id = created["card"]["id"]
         card_short_id = created["card"]["short_id"]
-        self.service.move_card({"card_id": card_id, "column": "in_progress", "actor_name": "МАСТЕР", "source": "api"})
+        self.service.move_card({"card_id": card_id, "column": "in_progress", "actor_name": "РњРђРЎРўР•Р ", "source": "api"})
 
         self.service.archive_card({"card_id": card_id, "actor_name": "MASTER", "source": "api"})
         wall = self.service.get_gpt_wall({"include_archived": True, "event_limit": 50})
@@ -2108,16 +2118,16 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(searched["cards"][0]["id"], card_id)
         self.assertIn("short_id: " + card_short_id, wall["text"])
         self.assertIn(card_short_id, wall["sections"]["event_log"]["text"])
-        self.assertIn("СТЕНА GPT", wall["text"])
-        self.assertIn("KIA RIO / ПЛАВАЕТ ХОЛОСТОЙ ХОД", wall["text"])
-        self.assertIn("МАСТЕР", wall["text"])
+        self.assertIn("РЎРўР•РќРђ GPT", wall["text"])
+        self.assertIn("KIA RIO / РџР›РђР’РђР•Рў РҐРћР›РћРЎРўРћР™ РҐРћР”", wall["text"])
+        self.assertIn("РњРђРЎРўР•Р ", wall["text"])
 
     def test_gpt_wall_event_log_uses_structured_lines(self) -> None:
         created = self.service.create_card(
             {
                 "vehicle": "TEST CAR",
                 "title": "LOG FORMAT",
-                "description": "Проверка читаемости журнала",
+                "description": "РџСЂРѕРІРµСЂРєР° С‡РёС‚Р°РµРјРѕСЃС‚Рё Р¶СѓСЂРЅР°Р»Р°",
                 "deadline": {"hours": 1},
                 "actor_name": "MASTER",
                 "source": "api",
@@ -2139,15 +2149,15 @@ class CardServiceTests(unittest.TestCase):
             {
                 "vehicle": "TEST CAR",
                 "title": "ENCODING CHECK",
-                "description": "Проверка repair для event log",
+                "description": "РџСЂРѕРІРµСЂРєР° repair РґР»СЏ event log",
                 "deadline": {"hours": 1},
                 "actor_name": "MASTER",
                 "source": "api",
             }
         )
         card_id = created["card"]["id"]
-        broken_message = "CHATGPT_AUDIT удалил столбец".encode("utf-8").decode("cp1251")
-        broken_detail = "Диагностика".encode("utf-8").decode("cp1251")
+        broken_message = "CHATGPT_AUDIT СѓРґР°Р»РёР» СЃС‚РѕР»Р±РµС†".encode("utf-8").decode("cp1251")
+        broken_detail = "Р”РёР°РіРЅРѕСЃС‚РёРєР°".encode("utf-8").decode("cp1251")
         bundle = self.store.read_bundle()
         bundle["events"].append(
             AuditEvent(
@@ -2172,38 +2182,38 @@ class CardServiceTests(unittest.TestCase):
         wall = self.service.get_gpt_wall({"include_archived": True, "event_limit": 20})
         repaired_event = next(event for event in wall["events"] if event["id"] == "encoding-event")
 
-        self.assertEqual(repaired_event["message"], "CHATGPT_AUDIT удалил столбец")
-        self.assertIn("Диагностика", repaired_event["details_text"])
-        self.assertIn("CHATGPT_AUDIT удалил столбец", wall["sections"]["event_log"]["text"])
+        self.assertEqual(repaired_event["message"], "CHATGPT_AUDIT СѓРґР°Р»РёР» СЃС‚РѕР»Р±РµС†")
+        self.assertIn("Р”РёР°РіРЅРѕСЃС‚РёРєР°", repaired_event["details_text"])
+        self.assertIn("CHATGPT_AUDIT СѓРґР°Р»РёР» СЃС‚РѕР»Р±РµС†", wall["sections"]["event_log"]["text"])
 
     def test_gpt_wall_includes_customer_contact_fields(self) -> None:
         self.service.create_card(
             {
                 "vehicle": "AUDI A4",
-                "title": "КЛИЕНТ НА СВЯЗИ",
-                "description": "Проверить контакты в стене GPT",
+                "title": "РљР›РР•РќРў РќРђ РЎР’РЇР—Р",
+                "description": "РџСЂРѕРІРµСЂРёС‚СЊ РєРѕРЅС‚Р°РєС‚С‹ РІ СЃС‚РµРЅРµ GPT",
                 "deadline": {"hours": 2},
                 "vehicle_profile": {
                     "make_display": "Audi",
                     "model_display": "A4",
                     "customer_phone": "+7 900 123-45-67",
-                    "customer_name": "Иван Иванов",
+                    "customer_name": "РРІР°РЅ РРІР°РЅРѕРІ",
                 },
             }
         )
 
         wall = self.service.get_gpt_wall({"include_archived": True, "event_limit": 20})
 
-        self.assertIn("клиент / телефон: +7 900 123-45-67", wall["text"])
-        self.assertIn("клиент / ФИО: Иван Иванов", wall["text"])
+        self.assertIn("РєР»РёРµРЅС‚ / С‚РµР»РµС„РѕРЅ: +7 900 123-45-67", wall["text"])
+        self.assertIn("РєР»РёРµРЅС‚ / Р¤РРћ: РРІР°РЅ РРІР°РЅРѕРІ", wall["text"])
 
 
     def test_gpt_wall_text_is_limited_to_3000_lines(self) -> None:
         created = self.service.create_card(
             {
                 "vehicle": "TEST CAR",
-                "title": "Много событий",
-                "description": "Проверка усечения стены",
+                "title": "РњРЅРѕРіРѕ СЃРѕР±С‹С‚РёР№",
+                "description": "РџСЂРѕРІРµСЂРєР° СѓСЃРµС‡РµРЅРёСЏ СЃС‚РµРЅС‹",
                 "deadline": {"hours": 4},
             }
         )
@@ -2215,10 +2225,10 @@ class CardServiceTests(unittest.TestCase):
                 AuditEvent(
                     id=f"event-{index}",
                     timestamp=f"2026-04-02T12:00:00+00:00#{index:04d}",
-                    actor_name="ТЕСТ",
+                    actor_name="РўР•РЎРў",
                     source="api",
                     action="bulk_log",
-                    message=f"Событие {index}",
+                    message=f"РЎРѕР±С‹С‚РёРµ {index}",
                     details={"step": index},
                     card_id=card_id,
                 )
@@ -2234,26 +2244,26 @@ class CardServiceTests(unittest.TestCase):
         wall = self.service.get_gpt_wall({"include_archived": True, "event_limit": 5000})
 
         self.assertLessEqual(len(wall["text"].splitlines()), 3000)
-        self.assertIn("[СТЕНА УСЕЧЕНА]", wall["text"])
-        self.assertIn("СОБЫТИЕ 1", wall["text"])
-        self.assertIn("  время:", wall["text"])
-        self.assertIn("  пользователь:", wall["text"])
-        self.assertIn("  действие:", wall["text"])
+        self.assertIn("[РЎРўР•РќРђ РЈРЎР•Р§Р•РќРђ]", wall["text"])
+        self.assertIn("РЎРћР‘Р«РўРР• 1", wall["text"])
+        self.assertIn("  РІСЂРµРјСЏ:", wall["text"])
+        self.assertIn("  РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ:", wall["text"])
+        self.assertIn("  РґРµР№СЃС‚РІРёРµ:", wall["text"])
 
     def test_board_context_describes_current_board_only(self) -> None:
-        created_column = self.service.create_column({"label": "КУЗОВНОЙ ЦЕХ"})
+        created_column = self.service.create_column({"label": "РљРЈР—РћР’РќРћР™ Р¦Р•РҐ"})
         column_id = created_column["column"]["id"]
         self.service.create_card(
             {
                 "vehicle": "VW POLO",
-                "title": "ПОДТЯНУТЬ ГЕОМЕТРИЮ ДВЕРИ",
+                "title": "РџРћР”РўРЇРќРЈРўР¬ Р“Р•РћРњР•РўР РР® Р”Р’Р•Р Р",
                 "column": column_id,
                 "deadline": {"hours": 6},
             }
         )
         self.service.create_sticky(
             {
-                "text": "Согласовать покраску с клиентом",
+                "text": "РЎРѕРіР»Р°СЃРѕРІР°С‚СЊ РїРѕРєСЂР°СЃРєСѓ СЃ РєР»РёРµРЅС‚РѕРј",
                 "deadline": {"hours": 2},
                 "x": 80,
                 "y": 120,
@@ -2285,7 +2295,7 @@ class CardServiceTests(unittest.TestCase):
                 "model_display": "A4",
                 "mileage": 185000,
                 "customer_phone": "+7 900 123-45-67",
-                "customer_name": "Иван Иванов",
+                "customer_name": "РРІР°РЅ РРІР°РЅРѕРІ",
             }
         )
 
@@ -2294,10 +2304,10 @@ class CardServiceTests(unittest.TestCase):
 
         self.assertEqual(payload["mileage"], 185000)
         self.assertEqual(payload["customer_phone"], "+7 900 123-45-67")
-        self.assertEqual(payload["customer_name"], "Иван Иванов")
+        self.assertEqual(payload["customer_name"], "РРІР°РЅ РРІР°РЅРѕРІ")
         self.assertEqual(stored["mileage"], 185000)
         self.assertEqual(stored["customer_phone"], "+7 900 123-45-67")
-        self.assertEqual(stored["customer_name"], "Иван Иванов")
+        self.assertEqual(stored["customer_name"], "РРІР°РЅ РРІР°РЅРѕРІ")
         self.assertTrue(payload["has_any_data"])
 
 

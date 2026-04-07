@@ -55,6 +55,7 @@ from ..repair_order import (
     RepairOrder,
     RepairOrderPayment,
     RepairOrderRow,
+    normalize_repair_order_payment_method,
     normalize_repair_order_payments,
     repair_order_payment_method_label,
     normalize_repair_order_rows,
@@ -720,13 +721,29 @@ class CardService:
             self._ensure_not_archived(card)
             actor_name, source = self._audit_identity(payload, default_source="api")
             next_payload = self._merged_repair_order_storage(card.repair_order.to_storage_dict(), patch)
-            changed = self._update_repair_order(card, cards, next_payload, events, actor_name, source)
+            changed = self._update_repair_order(
+                card,
+                cards,
+                next_payload,
+                events,
+                actor_name,
+                source,
+                cashboxes=bundle["cashboxes"],
+                cash_transactions=bundle["cash_transactions"],
+            )
             numbering_changed = self._synchronize_repair_order_numbers(cards)
             if changed or numbering_changed:
                 self._touch_card(card, actor_name)
                 if self._card_has_repair_order(card):
                     self._ensure_repair_order_text_file(card, force=True)
-                self._save_bundle(bundle, columns=columns, cards=cards, events=events)
+                self._save_bundle(
+                    bundle,
+                    columns=columns,
+                    cards=cards,
+                    cashboxes=bundle["cashboxes"],
+                    cash_transactions=bundle["cash_transactions"],
+                    events=events,
+                )
             return {
                 "repair_order": card.repair_order.to_dict(),
                 "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
@@ -750,13 +767,29 @@ class CardService:
                 card.repair_order.to_storage_dict(),
                 {"works": rows},
             )
-            changed = self._update_repair_order(card, cards, next_payload, events, actor_name, source)
+            changed = self._update_repair_order(
+                card,
+                cards,
+                next_payload,
+                events,
+                actor_name,
+                source,
+                cashboxes=bundle["cashboxes"],
+                cash_transactions=bundle["cash_transactions"],
+            )
             numbering_changed = self._synchronize_repair_order_numbers(cards)
             if changed or numbering_changed:
                 self._touch_card(card, actor_name)
                 if self._card_has_repair_order(card):
                     self._ensure_repair_order_text_file(card, force=True)
-                self._save_bundle(bundle, columns=columns, cards=cards, events=events)
+                self._save_bundle(
+                    bundle,
+                    columns=columns,
+                    cards=cards,
+                    cashboxes=bundle["cashboxes"],
+                    cash_transactions=bundle["cash_transactions"],
+                    events=events,
+                )
             return {
                 "repair_order": card.repair_order.to_dict(),
                 "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
@@ -781,13 +814,29 @@ class CardService:
                 card.repair_order.to_storage_dict(),
                 {"materials": rows},
             )
-            changed = self._update_repair_order(card, cards, next_payload, events, actor_name, source)
+            changed = self._update_repair_order(
+                card,
+                cards,
+                next_payload,
+                events,
+                actor_name,
+                source,
+                cashboxes=bundle["cashboxes"],
+                cash_transactions=bundle["cash_transactions"],
+            )
             numbering_changed = self._synchronize_repair_order_numbers(cards)
             if changed or numbering_changed:
                 self._touch_card(card, actor_name)
                 if self._card_has_repair_order(card):
                     self._ensure_repair_order_text_file(card, force=True)
-                self._save_bundle(bundle, columns=columns, cards=cards, events=events)
+                self._save_bundle(
+                    bundle,
+                    columns=columns,
+                    cards=cards,
+                    cashboxes=bundle["cashboxes"],
+                    cash_transactions=bundle["cash_transactions"],
+                    events=events,
+                )
             return {
                 "repair_order": card.repair_order.to_dict(),
                 "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
@@ -811,7 +860,16 @@ class CardService:
             next_payload = card.repair_order.to_storage_dict()
             next_payload["status"] = status
             next_payload["closed_at"] = self._repair_order_now() if status == REPAIR_ORDER_STATUS_CLOSED else ""
-            changed = self._update_repair_order(card, cards, next_payload, events, actor_name, source)
+            changed = self._update_repair_order(
+                card,
+                cards,
+                next_payload,
+                events,
+                actor_name,
+                source,
+                cashboxes=bundle["cashboxes"],
+                cash_transactions=bundle["cash_transactions"],
+            )
             numbering_changed = self._synchronize_repair_order_numbers(cards)
             if changed:
                 self._append_event(
@@ -827,7 +885,14 @@ class CardService:
                 self._touch_card(card, actor_name)
                 if self._card_has_repair_order(card):
                     self._ensure_repair_order_text_file(card, force=True)
-                self._save_bundle(bundle, columns=columns, cards=cards, events=events)
+                self._save_bundle(
+                    bundle,
+                    columns=columns,
+                    cards=cards,
+                    cashboxes=bundle["cashboxes"],
+                    cash_transactions=bundle["cash_transactions"],
+                    events=events,
+                )
             return {
                 "repair_order": card.repair_order.to_dict(),
                 "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
@@ -1091,14 +1156,33 @@ class CardService:
             if "tags" in payload:
                 changed = self._update_tags(card, payload.get("tags"), events, actor_name, source) or changed
             if "repair_order" in payload:
-                changed = self._update_repair_order(card, cards, payload.get("repair_order"), events, actor_name, source) or changed
+                changed = (
+                    self._update_repair_order(
+                        card,
+                        cards,
+                        payload.get("repair_order"),
+                        events,
+                        actor_name,
+                        source,
+                        cashboxes=bundle["cashboxes"],
+                        cash_transactions=bundle["cash_transactions"],
+                    )
+                    or changed
+                )
 
             numbering_changed = self._synchronize_repair_order_numbers(cards)
             if changed or numbering_changed:
                 self._touch_card(card, actor_name)
                 if self._card_has_repair_order(card):
                     self._ensure_repair_order_text_file(card, force=True)
-                self._save_bundle(bundle, columns=bundle["columns"], cards=cards, events=events)
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=cards,
+                    cashboxes=bundle["cashboxes"],
+                    cash_transactions=bundle["cash_transactions"],
+                    events=events,
+                )
             self._logger.info(
                 "update_card id=%s changed=%s actor=%s source=%s",
                 card.id,
@@ -1747,6 +1831,20 @@ class CardService:
 
     def _serialize_cash_transaction(self, transaction: CashTransaction) -> dict[str, object]:
         return transaction.to_dict()
+
+    def _find_cash_transaction(
+        self,
+        transactions: list[CashTransaction],
+        transaction_id: str | None,
+    ) -> CashTransaction | None:
+        requested_id = normalize_text(transaction_id, default="", limit=128)
+        if not requested_id:
+            return None
+        requested_short_id = requested_id.upper()
+        for transaction in transactions:
+            if transaction.id == requested_id or short_entity_id(transaction.id, prefix="CT").upper() == requested_short_id:
+                return transaction
+        return None
 
     def _cashbox_transactions(
         self,
@@ -2915,14 +3013,29 @@ class CardService:
         events: list[AuditEvent],
         actor_name: str,
         source: str,
+        *,
+        cashboxes: list[CashBox] | None = None,
+        cash_transactions: list[CashTransaction] | None = None,
     ) -> bool:
+        previous_order = RepairOrder.from_dict(card.repair_order.to_storage_dict())
         order = self._prepared_repair_order(
             self._validated_repair_order(value),
             cards,
             card=card,
             exclude_card_id=card.id,
         )
-        if order.to_storage_dict() == card.repair_order.to_storage_dict():
+        if cashboxes is not None and cash_transactions is not None:
+            order = self._sync_repair_order_payment_transactions(
+                card,
+                previous_order,
+                order,
+                cashboxes,
+                cash_transactions,
+                events,
+                actor_name,
+                source,
+            )
+        if order.to_storage_dict() == previous_order.to_storage_dict():
             return False
         card.repair_order = order
         self._append_event(
@@ -2937,9 +3050,115 @@ class CardService:
                 "status": order.status,
                 "works": len(order.works),
                 "materials": len(order.materials),
+                "payments": len(order.payments),
+                "paid_total": order.prepayment_amount(),
+                "payment_status": order.payment_status(),
             },
         )
         return True
+
+    def _repair_order_payment_financial_signature(self, payment: RepairOrderPayment) -> tuple[str, str, str]:
+        return (
+            payment.amount or "",
+            payment.note or "",
+            payment.cashbox_id or "",
+        )
+
+    def _sync_repair_order_payment_transactions(
+        self,
+        card: Card,
+        previous_order: RepairOrder,
+        next_order: RepairOrder,
+        cashboxes: list[CashBox],
+        cash_transactions: list[CashTransaction],
+        events: list[AuditEvent],
+        actor_name: str,
+        source: str,
+    ) -> RepairOrder:
+        next_payments = [RepairOrderPayment.from_dict(payment.to_storage_dict()) for payment in next_order.payments]
+        next_by_id = {payment.id: payment for payment in next_payments if payment.id}
+
+        for previous_payment in previous_order.payments:
+            existing_transaction = self._find_cash_transaction(cash_transactions, previous_payment.cash_transaction_id)
+            next_payment = next_by_id.get(previous_payment.id)
+            keep_transaction = (
+                existing_transaction is not None
+                and next_payment is not None
+                and self._repair_order_payment_financial_signature(previous_payment)
+                == self._repair_order_payment_financial_signature(next_payment)
+            )
+            if keep_transaction:
+                next_payment.cash_transaction_id = existing_transaction.id
+                next_payment.actor_name = next_payment.actor_name or previous_payment.actor_name or existing_transaction.actor_name
+                next_payment.cashbox_id = next_payment.cashbox_id or previous_payment.cashbox_id or existing_transaction.cashbox_id
+                next_payment.cashbox_name = next_payment.cashbox_name or previous_payment.cashbox_name
+                continue
+            if existing_transaction is None:
+                continue
+            cash_transactions[:] = [item for item in cash_transactions if item.id != existing_transaction.id]
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="cash_transaction_deleted",
+                message=f"{actor_name} удалил движение по кассе",
+                card_id=card.id,
+                details={
+                    "cash_transaction_id": existing_transaction.id,
+                    "cashbox_id": existing_transaction.cashbox_id,
+                    "repair_order_number": next_order.number or previous_order.number,
+                    "amount_minor": existing_transaction.amount_minor,
+                },
+            )
+
+        for payment in next_payments:
+            if not payment.id:
+                payment.id = f"payment-{uuid.uuid4().hex[:10]}"
+            payment.actor_name = payment.actor_name or actor_name
+            payment.payment_method = normalize_repair_order_payment_method(payment.payment_method or next_order.payment_method)
+            if not payment.cashbox_id:
+                payment.cashbox_name = ""
+                payment.cash_transaction_id = ""
+                continue
+            cashbox = self._find_cashbox(cashboxes, payment.cashbox_id)
+            payment.cashbox_id = cashbox.id
+            payment.cashbox_name = cashbox.name
+            if self._find_cash_transaction(cash_transactions, payment.cash_transaction_id) is not None:
+                continue
+            transaction = CashTransaction(
+                id=str(uuid.uuid4()),
+                cashbox_id=cashbox.id,
+                direction="income",
+                amount_minor=normalize_money_minor(payment.amount, minimum=1),
+                note=self._validated_cash_transaction_note(payment.note or f"Заказ-наряд №{next_order.number or '-'}"),
+                created_at=payment.paid_at or utc_now_iso(),
+                actor_name=payment.actor_name or actor_name,
+                source=source,
+            )
+            cash_transactions.append(transaction)
+            cash_transactions.sort(key=lambda item: (item.created_at, item.id))
+            cashbox.updated_at = transaction.created_at
+            payment.cash_transaction_id = transaction.id
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="cash_transaction_created",
+                message=f"{actor_name} добавил движение по кассе",
+                card_id=card.id,
+                details={
+                    "cash_transaction_id": transaction.id,
+                    "cashbox_id": cashbox.id,
+                    "cashbox_name": cashbox.name,
+                    "repair_order_number": next_order.number,
+                    "amount_minor": transaction.amount_minor,
+                    "amount_display": format_money_minor(transaction.amount_minor),
+                },
+            )
+
+        next_order.payments = next_payments
+        next_order.prepayment = next_order.prepayment_amount()
+        return next_order
 
     def _autofill_repair_order(self, card: Card, cards: list[Card], *, overwrite: bool) -> tuple[RepairOrder, dict[str, object]]:
         order = self._prepared_repair_order(
@@ -3670,7 +3889,7 @@ class CardService:
                 f"Поле {field_name} должно быть массивом оплат заказ-наряда.",
                 details={"field": field_name},
             )
-        return [payment.to_dict() for payment in normalize_repair_order_payments(value)]
+        return [payment.to_storage_dict() for payment in normalize_repair_order_payments(value)]
 
     def _merged_repair_order_storage(
         self,
@@ -3901,6 +4120,7 @@ class CardService:
     def _serialize_repair_order_list_item(self, card: Card) -> dict[str, object]:
         path = self._ensure_repair_order_text_file(card)
         order = card.repair_order
+        paid_total = order.prepayment_amount()
         return {
             "card_id": card.id,
             "number": order.number,
@@ -3920,6 +4140,11 @@ class CardService:
             "payment_method_label": order.to_dict()["payment_method_label"],
             "prepayment": order.prepayment_amount() if order.payments else order.prepayment,
             "prepayment_display": order.prepayment_amount(),
+            "paid_total": paid_total,
+            "paid_total_display": paid_total,
+            "is_paid": order.is_paid(),
+            "payment_status": order.payment_status(),
+            "payment_status_label": order.payment_status_label(),
             "payments": [payment.to_dict() for payment in order.payments],
             "reason": order.reason,
             "heading": card.heading(),
@@ -4094,6 +4319,10 @@ class CardService:
                 repair_order_payment_method_label(payment.payment_method),
                 payment.amount or "0",
             ]
+            if payment.actor_name:
+                parts.append(f"кто: {payment.actor_name}")
+            if payment.cashbox_name:
+                parts.append(f"касса: {payment.cashbox_name}")
             note = normalize_text(payment.note, default="", limit=240)
             if note:
                 parts.append(note)

@@ -91,6 +91,10 @@ class RepairOrderPaymentPayload(BaseModel):
     paid_at: str | None = Field(default=None, max_length=32)
     note: str | None = Field(default=None, max_length=240)
     payment_method: Literal["cash", "cashless"] | None = None
+    actor_name: str | None = Field(default=None, max_length=160)
+    cashbox_id: str | None = Field(default=None, max_length=80)
+    cashbox_name: str | None = Field(default=None, max_length=160)
+    cash_transaction_id: str | None = Field(default=None, max_length=80)
 
 
 class RepairOrderPatchPayload(BaseModel):

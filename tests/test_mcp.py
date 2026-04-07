@@ -420,6 +420,10 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(autofilled_repair_order.structuredContent["ok"])
                 self.assertEqual(autofilled_repair_order.structuredContent["data"]["repair_order"]["number"], "1")
 
+                created_cashbox = await session.call_tool("create_cashbox", {"name": "Основная касса", "actor_name": "ОПЕРАТОР"})
+                self.assertFalse(created_cashbox.isError)
+                self.assertTrue(created_cashbox.structuredContent["ok"])
+                repair_order_cashbox = created_cashbox.structuredContent["data"]["cashbox"]
                 repair_order = await session.call_tool(
                     "update_repair_order",
                     {
@@ -435,6 +439,8 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                                     "paid_at": "06.04.2026 12:00",
                                     "note": "Аванс",
                                     "payment_method": "cashless",
+                                    "actor_name": "ОПЕРАТОР",
+                                    "cashbox_id": repair_order_cashbox["id"],
                                 }
                             ],
                             "license_plate": "В003НК124",
@@ -450,7 +456,18 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(repair_order.structuredContent["data"]["repair_order"]["client"], "Иван Иванов")
                 self.assertEqual(repair_order.structuredContent["data"]["repair_order"]["payment_method"], "cashless")
                 self.assertEqual(repair_order.structuredContent["data"]["repair_order"]["prepayment"], "500")
+                self.assertEqual(repair_order.structuredContent["data"]["repair_order"]["paid_total"], "500")
+                self.assertEqual(
+                    repair_order.structuredContent["data"]["repair_order"]["payment_status"],
+                    "paid" if repair_order.structuredContent["data"]["repair_order"]["is_paid"] else "unpaid",
+                )
                 self.assertEqual(len(repair_order.structuredContent["data"]["repair_order"]["payments"]), 1)
+                self.assertEqual(repair_order.structuredContent["data"]["repair_order"]["payments"][0]["actor_name"], "ОПЕРАТОР")
+                self.assertEqual(
+                    repair_order.structuredContent["data"]["repair_order"]["payments"][0]["cashbox_name"],
+                    repair_order_cashbox["name"],
+                )
+                self.assertTrue(repair_order.structuredContent["data"]["repair_order"]["payments"][0]["cash_transaction_id"])
                 self.assertEqual(
                     repair_order.structuredContent["data"]["repair_order"]["tags"],
                     [

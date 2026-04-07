@@ -202,6 +202,10 @@ class RepairOrderPayment:
     paid_at: str = ""
     note: str = ""
     payment_method: str = REPAIR_ORDER_PAYMENT_METHOD_CASH
+    actor_name: str = ""
+    cashbox_id: str = ""
+    cashbox_name: str = ""
+    cash_transaction_id: str = ""
 
     def __post_init__(self) -> None:
         self.id = _normalize_single_line(self.id, limit=REPAIR_ORDER_PAYMENT_ID_LIMIT)
@@ -209,6 +213,10 @@ class RepairOrderPayment:
         self.paid_at = _normalize_single_line(self.paid_at, limit=REPAIR_ORDER_DATE_LIMIT)
         self.note = _normalize_multiline(self.note, limit=REPAIR_ORDER_PAYMENT_NOTE_LIMIT)
         self.payment_method = normalize_repair_order_payment_method(self.payment_method)
+        self.actor_name = _normalize_single_line(self.actor_name, limit=80)
+        self.cashbox_id = _normalize_single_line(self.cashbox_id, limit=128)
+        self.cashbox_name = _normalize_single_line(self.cashbox_name, limit=REPAIR_ORDER_FIELD_LIMIT)
+        self.cash_transaction_id = _normalize_single_line(self.cash_transaction_id, limit=128)
 
     def is_empty(self) -> bool:
         return not any([self.amount, self.note, self.paid_at])
@@ -225,6 +233,10 @@ class RepairOrderPayment:
             "note": self.note,
             "payment_method": self.payment_method,
             "payment_method_label": repair_order_payment_method_label(self.payment_method),
+            "actor_name": self.actor_name,
+            "cashbox_id": self.cashbox_id,
+            "cashbox_name": self.cashbox_name,
+            "cash_transaction_id": self.cash_transaction_id,
         }
 
     def to_storage_dict(self) -> dict[str, str]:
@@ -234,6 +246,10 @@ class RepairOrderPayment:
             "paid_at": self.paid_at,
             "note": self.note,
             "payment_method": self.payment_method,
+            "actor_name": self.actor_name,
+            "cashbox_id": self.cashbox_id,
+            "cashbox_name": self.cashbox_name,
+            "cash_transaction_id": self.cash_transaction_id,
         }
 
     @classmethod
@@ -246,6 +262,10 @@ class RepairOrderPayment:
             paid_at=payload.get("paid_at", payload.get("paidAt", payload.get("date", ""))),
             note=payload.get("note", payload.get("comment", payload.get("description", ""))),
             payment_method=payload.get("payment_method", payload.get("paymentMethod", "")),
+            actor_name=payload.get("actor_name", payload.get("actorName", "")),
+            cashbox_id=payload.get("cashbox_id", payload.get("cashboxId", "")),
+            cashbox_name=payload.get("cashbox_name", payload.get("cashboxName", "")),
+            cash_transaction_id=payload.get("cash_transaction_id", payload.get("cashTransactionId", "")),
         )
 
 
@@ -393,6 +413,8 @@ class RepairOrder:
             "payment_method_label": repair_order_payment_method_label(self.payment_method),
             "prepayment": self.prepayment_amount() if self.payments else self.prepayment,
             "prepayment_display": self.prepayment_amount(),
+            "paid_total": self.prepayment_amount(),
+            "paid_total_display": self.prepayment_amount(),
             "payments": [payment.to_storage_dict() for payment in self.payments],
             "reason": self.reason,
             "comment": self.comment,
@@ -409,6 +431,9 @@ class RepairOrder:
             "due_total": self.due_total_amount(),
             "has_taxes": self.has_taxes(),
             "has_prepayment": self.has_prepayment(),
+            "is_paid": self.is_paid(),
+            "payment_status": self.payment_status(),
+            "payment_status_label": self.payment_status_label(),
             "has_any_data": not self.is_empty(),
         }
 
@@ -481,6 +506,16 @@ class RepairOrder:
 
     def has_prepayment(self) -> bool:
         return self.prepayment_value() != Decimal("0")
+
+    def is_paid(self) -> bool:
+        grand_total = _parse_decimal(self.grand_total_amount()) or Decimal("0")
+        return self.prepayment_value() >= grand_total
+
+    def payment_status(self) -> str:
+        return "paid" if self.is_paid() else "unpaid"
+
+    def payment_status_label(self) -> str:
+        return "Оплачен" if self.is_paid() else "Не оплачен"
 
     @classmethod
     def from_dict(cls, payload: Any) -> "RepairOrder":
