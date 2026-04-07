@@ -1073,7 +1073,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("engine_code", created["card"]["vehicle_profile"]["manual_fields"])
 
     def test_update_card_stores_repair_order_and_persists_it(self) -> None:
-        cashbox = self.service.create_cashbox({"name": "Основная касса", "actor_name": "ADMIN"})["cashbox"]
+        cashbox = self.service.create_cashbox({"name": "Безналичный", "actor_name": "ADMIN"})["cashbox"]
         created = self.service.create_card(
             {
                 "vehicle": "KIA RIO",
@@ -1092,13 +1092,13 @@ class CardServiceTests(unittest.TestCase):
                     "phone": "+7 900 123-45-67",
                     "vehicle": "KIA RIO",
                     "license_plate": "А123АА124",
-                    "payment_method": "cashless",
+                    "payment_method": "cash",
                     "payments": [
                         {
                             "amount": "1000",
                             "paid_at": "06.04.2026 12:30",
                             "note": "Аванс",
-                            "payment_method": "cashless",
+                            "payment_method": "cash",
                             "actor_name": "ADMIN",
                             "cashbox_id": cashbox["id"],
                         }
@@ -1156,6 +1156,57 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(stored["taxes_total"], "795")
         self.assertEqual(stored["grand_total"], "6095")
         self.assertEqual(stored["due_total"], "5095")
+
+    def test_repair_order_cash_taxes_depend_on_selected_cashbox(self) -> None:
+        cashless_cashbox = self.service.create_cashbox({"name": "Безналичный", "actor_name": "ADMIN"})["cashbox"]
+        card_cashless = self.service.create_card({"vehicle": "AUDI A4", "title": "Диагностика", "deadline": {"hours": 2}})["card"]
+        updated_cashless = self.service.update_card(
+            {
+                "card_id": card_cashless["id"],
+                "repair_order": {
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+                    "payments": [
+                        {
+                            "amount": "500",
+                            "paid_at": "06.04.2026 10:00",
+                            "note": "Аванс",
+                            "payment_method": "cash",
+                            "actor_name": "ADMIN",
+                            "cashbox_id": cashless_cashbox["id"],
+                        }
+                    ],
+                },
+            }
+        )["card"]["repair_order"]
+        self.assertEqual(updated_cashless["payment_method"], "cashless")
+        self.assertEqual(updated_cashless["taxes_total"], "150")
+        self.assertEqual(updated_cashless["grand_total"], "1150")
+        self.assertEqual(updated_cashless["due_total"], "650")
+
+        maria_cashbox = self.service.create_cashbox({"name": "Карта Мария", "actor_name": "ADMIN"})["cashbox"]
+        card_maria = self.service.create_card({"vehicle": "BMW X5", "title": "Осмотр", "deadline": {"hours": 2}})["card"]
+        updated_maria = self.service.update_card(
+            {
+                "card_id": card_maria["id"],
+                "repair_order": {
+                    "works": [{"name": "Осмотр", "quantity": "1", "price": "1000"}],
+                    "payments": [
+                        {
+                            "amount": "500",
+                            "paid_at": "06.04.2026 10:05",
+                            "note": "Оплата",
+                            "payment_method": "cashless",
+                            "actor_name": "ADMIN",
+                            "cashbox_id": maria_cashbox["id"],
+                        }
+                    ],
+                },
+            }
+        )["card"]["repair_order"]
+        self.assertEqual(updated_maria["payment_method"], "cash")
+        self.assertEqual(updated_maria["taxes_total"], "0")
+        self.assertEqual(updated_maria["grand_total"], "1000")
+        self.assertEqual(updated_maria["due_total"], "500")
 
     def test_list_repair_orders_creates_text_files_and_sorts_by_latest_number(self) -> None:
         first = self.service.create_card({"vehicle": "KIA RIO", "title": "Первый заказ", "deadline": {"hours": 2}})

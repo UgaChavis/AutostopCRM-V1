@@ -598,6 +598,72 @@ class ApiServerTests(unittest.TestCase):
             self.assertIn("+7 900 123-45-67", body)
             self.assertIn("JSON:", body)
 
+    def test_update_card_route_derives_repair_order_taxes_from_selected_cashbox(self) -> None:
+        status, cashless_cashbox = self.request("/api/create_cashbox", {"name": "Безналичный", "actor_name": "ADMIN"})
+        self.assertEqual(status, 200)
+        status, maria_cashbox = self.request("/api/create_cashbox", {"name": "Карта Мария", "actor_name": "ADMIN"})
+        self.assertEqual(status, 200)
+
+        status, created = self.request("/api/create_card", {"vehicle": "AUDI A4", "title": "API оплата", "deadline": {"hours": 2}})
+        self.assertEqual(status, 200)
+        cashless_card_id = created["data"]["card"]["id"]
+
+        status, updated_cashless = self.request(
+            "/api/update_card",
+            {
+                "card_id": cashless_card_id,
+                "repair_order": {
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+                    "payments": [
+                        {
+                            "amount": "500",
+                            "paid_at": "06.04.2026 10:00",
+                            "note": "Аванс",
+                            "payment_method": "cash",
+                            "cashbox_id": cashless_cashbox["data"]["cashbox"]["id"],
+                            "actor_name": "ADMIN",
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        cashless_order = updated_cashless["data"]["card"]["repair_order"]
+        self.assertEqual(cashless_order["payment_method"], "cashless")
+        self.assertEqual(cashless_order["taxes_total"], "150")
+        self.assertEqual(cashless_order["grand_total"], "1150")
+        self.assertEqual(cashless_order["due_total"], "650")
+
+        status, created = self.request("/api/create_card", {"vehicle": "BMW X5", "title": "API карта", "deadline": {"hours": 2}})
+        self.assertEqual(status, 200)
+        maria_card_id = created["data"]["card"]["id"]
+
+        status, updated_maria = self.request(
+            "/api/update_card",
+            {
+                "card_id": maria_card_id,
+                "repair_order": {
+                    "works": [{"name": "Осмотр", "quantity": "1", "price": "1000"}],
+                    "payments": [
+                        {
+                            "amount": "500",
+                            "paid_at": "06.04.2026 10:05",
+                            "note": "Оплата",
+                            "payment_method": "cashless",
+                            "cashbox_id": maria_cashbox["data"]["cashbox"]["id"],
+                            "actor_name": "ADMIN",
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        maria_order = updated_maria["data"]["card"]["repair_order"]
+        self.assertEqual(maria_order["payment_method"], "cash")
+        self.assertEqual(maria_order["taxes_total"], "0")
+        self.assertEqual(maria_order["grand_total"], "1000")
+        self.assertEqual(maria_order["due_total"], "500")
+
     def test_create_card_accepts_colored_tags(self) -> None:
         status, created = self.request(
             "/api/create_card",
@@ -792,7 +858,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(marked["data"]["card"]["updated_at"], updated_at)
 
     def test_update_card_accepts_repair_order_payload(self) -> None:
-        status, cashbox_created = self.request("/api/create_cashbox", {"name": "Основная касса", "actor_name": "ADMIN"})
+        status, cashbox_created = self.request("/api/create_cashbox", {"name": "Безналичный", "actor_name": "ADMIN"})
         self.assertEqual(status, 200)
         cashbox = cashbox_created["data"]["cashbox"]
         status, created = self.request(

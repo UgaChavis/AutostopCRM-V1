@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import threading
+import time
 import uuid
 from logging import Logger
 from typing import Any
@@ -56,6 +57,8 @@ from ..repair_order import (
     RepairOrderPayment,
     RepairOrderRow,
     normalize_repair_order_payment_method,
+    repair_order_payment_method_from_cashbox_name,
+    repair_order_payment_method_from_payments,
     normalize_repair_order_payments,
     repair_order_payment_method_label,
     normalize_repair_order_rows,
@@ -3123,6 +3126,10 @@ class CardService:
             cashbox = self._find_cashbox(cashboxes, payment.cashbox_id)
             payment.cashbox_id = cashbox.id
             payment.cashbox_name = cashbox.name
+            payment.payment_method = repair_order_payment_method_from_cashbox_name(
+                payment.cashbox_name,
+                default=payment.payment_method or next_order.payment_method,
+            )
             if self._find_cash_transaction(cash_transactions, payment.cash_transaction_id) is not None:
                 continue
             transaction = CashTransaction(
@@ -3157,6 +3164,10 @@ class CardService:
             )
 
         next_order.payments = next_payments
+        next_order.payment_method = repair_order_payment_method_from_payments(
+            next_payments,
+            default=next_order.payment_method,
+        )
         next_order.prepayment = next_order.prepayment_amount()
         return next_order
 
@@ -4452,6 +4463,10 @@ class CardService:
 
     def _require_attachment_file(self, card_id: str, attachment: Attachment) -> Path:
         attachment_path = self._attachment_path(card_id, attachment.stored_name)
+        for _ in range(4):
+            if attachment_path.exists():
+                return attachment_path
+            time.sleep(0.02)
         if not attachment_path.exists():
             self._fail(
                 "not_found",

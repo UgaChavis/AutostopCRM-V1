@@ -420,7 +420,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(autofilled_repair_order.structuredContent["ok"])
                 self.assertEqual(autofilled_repair_order.structuredContent["data"]["repair_order"]["number"], "1")
 
-                created_cashbox = await session.call_tool("create_cashbox", {"name": "Основная касса", "actor_name": "ОПЕРАТОР"})
+                created_cashbox = await session.call_tool("create_cashbox", {"name": "Безналичный", "actor_name": "ОПЕРАТОР"})
                 self.assertFalse(created_cashbox.isError)
                 self.assertTrue(created_cashbox.structuredContent["ok"])
                 repair_order_cashbox = created_cashbox.structuredContent["data"]["cashbox"]
@@ -432,13 +432,12 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                             "client": "Иван Иванов",
                             "phone": "+7 900 123-45-67",
                             "client_information": "Согласовать дальнейшую диагностику",
-                            "payment_method": "cashless",
                             "payments": [
                                 {
                                     "amount": "500",
                                     "paid_at": "06.04.2026 12:00",
                                     "note": "Аванс",
-                                    "payment_method": "cashless",
+                                    "payment_method": "cash",
                                     "actor_name": "ОПЕРАТОР",
                                     "cashbox_id": repair_order_cashbox["id"],
                                 }

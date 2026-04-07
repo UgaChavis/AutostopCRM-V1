@@ -78,11 +78,38 @@ def normalize_repair_order_payment_method(value, *, default: str = REPAIR_ORDER_
     raw = _normalize_single_line(value, limit=REPAIR_ORDER_PAYMENT_METHOD_LIMIT).lower()
     if raw in {"", "cash", "cash_only", "cash-only", "нал", "наличный", "наличные"}:
         return default
-    if raw in {"cashless", "wire", "bank", "card", "безнал", "безналичный", "безналичные"}:
+    if raw in {"cashless", "wire", "bank", "безнал", "безналичный", "безналичные"}:
         return REPAIR_ORDER_PAYMENT_METHOD_CASHLESS
     if raw in REPAIR_ORDER_ALLOWED_PAYMENT_METHODS:
         return raw
     return default
+
+
+def repair_order_payment_method_from_cashbox_name(
+    value, *, default: str = REPAIR_ORDER_PAYMENT_METHOD_CASH
+) -> str:
+    raw = _normalize_single_line(value, limit=REPAIR_ORDER_FIELD_LIMIT).casefold()
+    if not raw:
+        return normalize_repair_order_payment_method(default)
+    if "безнал" in raw or "cashless" in raw or "wire" in raw or "bank" in raw:
+        return REPAIR_ORDER_PAYMENT_METHOD_CASHLESS
+    return REPAIR_ORDER_PAYMENT_METHOD_CASH
+
+
+def repair_order_payment_method_from_payments(
+    payments: list["RepairOrderPayment"] | Any, *, default: str = REPAIR_ORDER_PAYMENT_METHOD_CASH
+) -> str:
+    normalized_payments = payments if isinstance(payments, list) else normalize_repair_order_payments(payments)
+    if not normalized_payments:
+        return normalize_repair_order_payment_method(default)
+    for payment in normalized_payments:
+        resolved = repair_order_payment_method_from_cashbox_name(
+            getattr(payment, "cashbox_name", ""),
+            default=getattr(payment, "payment_method", default),
+        )
+        if resolved == REPAIR_ORDER_PAYMENT_METHOD_CASHLESS:
+            return REPAIR_ORDER_PAYMENT_METHOD_CASHLESS
+    return REPAIR_ORDER_PAYMENT_METHOD_CASH
 
 
 def repair_order_payment_method_label(value) -> str:
@@ -212,11 +239,14 @@ class RepairOrderPayment:
         self.amount = _normalize_single_line(self.amount, limit=REPAIR_ORDER_ROW_VALUE_LIMIT)
         self.paid_at = _normalize_single_line(self.paid_at, limit=REPAIR_ORDER_DATE_LIMIT)
         self.note = _normalize_multiline(self.note, limit=REPAIR_ORDER_PAYMENT_NOTE_LIMIT)
-        self.payment_method = normalize_repair_order_payment_method(self.payment_method)
         self.actor_name = _normalize_single_line(self.actor_name, limit=80)
         self.cashbox_id = _normalize_single_line(self.cashbox_id, limit=128)
         self.cashbox_name = _normalize_single_line(self.cashbox_name, limit=REPAIR_ORDER_FIELD_LIMIT)
         self.cash_transaction_id = _normalize_single_line(self.cash_transaction_id, limit=128)
+        self.payment_method = repair_order_payment_method_from_cashbox_name(
+            self.cashbox_name,
+            default=normalize_repair_order_payment_method(self.payment_method),
+        )
 
     def is_empty(self) -> bool:
         return not any([self.amount, self.note, self.paid_at])
@@ -364,6 +394,10 @@ class RepairOrder:
                     )
                 ]
         if self.payments:
+            self.payment_method = repair_order_payment_method_from_payments(
+                self.payments,
+                default=self.payment_method,
+            )
             self.prepayment = self.prepayment_amount()
         self.reason = _normalize_multiline(self.reason, limit=REPAIR_ORDER_COMMENT_LIMIT)
         self.comment = _normalize_multiline(self.comment, limit=REPAIR_ORDER_COMMENT_LIMIT)

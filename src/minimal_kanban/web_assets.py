@@ -3526,7 +3526,6 @@ BOARD_WEB_APP_HTML = "".join(
             + '<div class="repair-order-payments-layout">'
             + '<div class="repair-order-payments-head"><div class="repair-order-payments-summary" id="repairOrderPaymentsMeta">Пока нет оплат.</div></div>'
             + '<div class="repair-order-payments-form">'
-            + '<div class="field field--compact"><label for="repairOrderPaymentsMethod">Форма оплаты</label><select id="repairOrderPaymentsMethod"><option value="cash">Наличный</option><option value="cashless">Безналичный</option></select></div>'
             + '<div class="field field--compact"><label for="repairOrderPaymentCashbox">Касса</label><select id="repairOrderPaymentCashbox"><option value="">Выберите кассу</option></select></div>'
             + '<div class="field field--compact"><label for="repairOrderPaymentAmount">Сумма</label><input id="repairOrderPaymentAmount" type="text" inputmode="decimal" maxlength="24" placeholder="1000 или 1000,50"></div>'
             + '<button class="btn btn--accent" id="repairOrderPaymentAddButton" type="button">+ Оплата</button>'
@@ -3653,7 +3652,6 @@ BOARD_WEB_APP_HTML = "".join(
       repairOrderPaymentsModal: document.getElementById('repairOrderPaymentsModal'),
       repairOrderPaymentsMeta: document.getElementById('repairOrderPaymentsMeta'),
       repairOrderPaymentsList: document.getElementById('repairOrderPaymentsList'),
-      repairOrderPaymentsMethod: document.getElementById('repairOrderPaymentsMethod'),
       repairOrderPaymentCashbox: document.getElementById('repairOrderPaymentCashbox'),
       repairOrderPaymentAmount: document.getElementById('repairOrderPaymentAmount'),
       repairOrderPaymentNote: document.getElementById('repairOrderPaymentNote'),
@@ -5089,8 +5087,34 @@ BOARD_WEB_APP_HTML = "".join(
 
     function normalizeRepairOrderPaymentMethod(value) {
       const normalized = String(value ?? '').trim().toLowerCase();
-      if (['cashless', 'wire', 'bank', 'card', 'безнал', 'безналичный'].includes(normalized)) return 'cashless';
+      if (['cashless', 'wire', 'bank', 'безнал', 'безналичный'].includes(normalized)) return 'cashless';
       return 'cash';
+    }
+
+    function repairOrderPaymentMethodFromCashboxName(value, fallback = 'cash') {
+      const normalized = String(value ?? '').trim().toLowerCase();
+      if (!normalized) return normalizeRepairOrderPaymentMethod(fallback);
+      if (normalized.includes('безнал') || normalized.includes('cashless') || normalized.includes('wire') || normalized.includes('bank')) {
+        return 'cashless';
+      }
+      return 'cash';
+    }
+
+    function selectedRepairOrderPaymentCashbox() {
+      const cashboxId = String(els.repairOrderPaymentCashbox?.value || '').trim();
+      if (!cashboxId) return null;
+      return (Array.isArray(state.cashboxes) ? state.cashboxes : []).find((item) => String(item?.id || '').trim() === cashboxId) || null;
+    }
+
+    function repairOrderPaymentMethodFromPayments(payments, fallback = 'cash') {
+      const normalizedPayments = Array.isArray(payments) ? payments : [];
+      if (!normalizedPayments.length) return normalizeRepairOrderPaymentMethod(fallback);
+      return normalizedPayments.some((item) => {
+        return repairOrderPaymentMethodFromCashboxName(
+          item?.cashbox_name || '',
+          item?.payment_method || fallback
+        ) === 'cashless';
+      }) ? 'cashless' : 'cash';
     }
 
     function emptyRepairOrderPayment() {
@@ -5099,7 +5123,7 @@ BOARD_WEB_APP_HTML = "".join(
         amount: '',
         paid_at: '',
         note: '',
-        payment_method: normalizeRepairOrderPaymentMethod(els.repairOrderPaymentMethod?.value || 'cash'),
+        payment_method: 'cash',
         actor_name: '',
         cashbox_id: '',
         cashbox_name: '',
@@ -5115,7 +5139,10 @@ BOARD_WEB_APP_HTML = "".join(
         amount: amountValue === null ? String(source.amount ?? source.value ?? '').trim() : repairOrderNumberToRaw(amountValue),
         paid_at: String(source.paid_at ?? source.paidAt ?? source.date ?? '').trim(),
         note: String(source.note ?? source.comment ?? source.description ?? '').trim(),
-        payment_method: normalizeRepairOrderPaymentMethod(source.payment_method ?? source.paymentMethod ?? els.repairOrderPaymentMethod?.value ?? 'cash'),
+        payment_method: repairOrderPaymentMethodFromCashboxName(
+          source.cashbox_name ?? source.cashboxName ?? '',
+          source.payment_method ?? source.paymentMethod ?? 'cash'
+        ),
         actor_name: String(source.actor_name ?? source.actorName ?? '').trim(),
         cashbox_id: String(source.cashbox_id ?? source.cashboxId ?? '').trim(),
         cashbox_name: String(source.cashbox_name ?? source.cashboxName ?? '').trim(),
@@ -5137,7 +5164,7 @@ BOARD_WEB_APP_HTML = "".join(
             amount: repairOrderNumberToRaw(legacyAmount),
             paid_at: defaultPaidAt || currentRepairOrderDateTime(),
             note: 'Перенесено из предоплаты',
-            payment_method: els.repairOrderPaymentMethod?.value || 'cash',
+            payment_method: 'cash',
           },
           'legacy-prepayment'
         ),
@@ -5161,12 +5188,11 @@ BOARD_WEB_APP_HTML = "".join(
     function syncRepairOrderPaymentMethod(value) {
       const normalized = normalizeRepairOrderPaymentMethod(value);
       if (els.repairOrderPaymentMethod) els.repairOrderPaymentMethod.value = normalized;
-      if (els.repairOrderPaymentsMethod) els.repairOrderPaymentsMethod.value = normalized;
-      state.repairOrderPayments = (state.repairOrderPayments || []).map((item) => ({
-        ...item,
-        payment_method: normalized,
-      }));
-      syncRepairOrderTotals();
+      return normalized;
+    }
+
+    function syncRepairOrderPaymentMethodFromPayments() {
+      return syncRepairOrderPaymentMethod(repairOrderPaymentMethodFromPayments(state.repairOrderPayments, 'cash'));
     }
 
     function renderRepairOrderPaymentCashboxOptions(selectedId = '') {
@@ -5234,11 +5260,14 @@ BOARD_WEB_APP_HTML = "".join(
     function normalizeRepairOrder(order) {
       const source = order && typeof order === 'object' ? order : {};
       const normalizeRows = (rows) => Array.isArray(rows) ? rows.map(normalizeRepairOrderRow).filter(repairOrderRowHasAnyData) : [];
-      const paymentMethod = normalizeRepairOrderPaymentMethod(source.payment_method ?? source.paymentMethod ?? '');
       const payments = normalizeRepairOrderPayments(
         source.payments ?? source.payment_history ?? [],
         source.prepayment ?? source.advance_payment ?? source.advancePayment ?? '',
         String(source.opened_at ?? source.openedAt ?? source.date ?? '').trim()
+      );
+      const paymentMethod = repairOrderPaymentMethodFromPayments(
+        payments,
+        source.payment_method ?? source.paymentMethod ?? 'cash'
       );
       return {
         number: String(source.number ?? '').trim(),
@@ -5566,9 +5595,16 @@ BOARD_WEB_APP_HTML = "".join(
 
     function renderRepairOrderPayments() {
       const payments = Array.isArray(state.repairOrderPayments) ? state.repairOrderPayments : [];
+      const actualPaymentMethod = syncRepairOrderPaymentMethodFromPayments();
+      const previewPaymentMethod = payments.length
+        ? actualPaymentMethod
+        : repairOrderPaymentMethodFromCashboxName(
+            selectedRepairOrderPaymentCashbox()?.name || '',
+            actualPaymentMethod
+          );
       const total = repairOrderPaymentsTotalValue(payments);
       const subtotal = repairOrderRoundMoney(repairOrderRowsTotalValue(state.repairOrderWorks) + repairOrderRowsTotalValue(state.repairOrderMaterials));
-      const taxes = repairOrderRoundMoney(subtotal * repairOrderTaxRate(els.repairOrderPaymentMethod?.value || 'cash'));
+      const taxes = repairOrderRoundMoney(subtotal * repairOrderTaxRate(previewPaymentMethod));
       const due = repairOrderRoundMoney(subtotal + taxes - total);
       if (els.repairOrderPaymentsMeta) {
         const latestPayment = payments.length ? payments[payments.length - 1] : null;
@@ -5605,9 +5641,6 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     async function openRepairOrderPaymentsModal() {
-      if (els.repairOrderPaymentsMethod) {
-        els.repairOrderPaymentsMethod.value = normalizeRepairOrderPaymentMethod(els.repairOrderPaymentMethod?.value || 'cash');
-      }
       try {
         await ensureRepairOrderPaymentCashboxes();
       } catch (error) {
@@ -5643,15 +5676,15 @@ BOARD_WEB_APP_HTML = "".join(
         els.repairOrderPaymentCashbox?.focus();
         return;
       }
-      const selectedCashbox = (state.cashboxes || []).find((item) => String(item?.id || '').trim() === cashboxId);
-      syncRepairOrderPaymentMethod(els.repairOrderPaymentsMethod?.value || els.repairOrderPaymentMethod?.value || 'cash');
+      const selectedCashbox = selectedRepairOrderPaymentCashbox();
+      const paymentMethod = repairOrderPaymentMethodFromCashboxName(selectedCashbox?.name || '', 'cash');
       const payment = normalizeRepairOrderPayment(
         {
           id: 'payment-' + Date.now(),
           amount: repairOrderNumberToRaw(parsedAmount),
           paid_at: currentRepairOrderDateTime(),
           note: String(els.repairOrderPaymentNote?.value || '').trim(),
-          payment_method: els.repairOrderPaymentsMethod?.value || els.repairOrderPaymentMethod?.value || 'cash',
+          payment_method: paymentMethod,
           actor_name: state.actor || '',
           cashbox_id: cashboxId,
           cashbox_name: selectedCashbox?.name || '',
@@ -5659,6 +5692,7 @@ BOARD_WEB_APP_HTML = "".join(
         'payment-' + Date.now()
       );
       state.repairOrderPayments = (state.repairOrderPayments || []).concat([payment]);
+      syncRepairOrderPaymentMethodFromPayments();
       if (els.repairOrderPaymentAmount) els.repairOrderPaymentAmount.value = '';
       if (els.repairOrderPaymentNote) els.repairOrderPaymentNote.value = '';
       renderRepairOrderPayments();
@@ -5676,8 +5710,7 @@ BOARD_WEB_APP_HTML = "".join(
     function handleRepairOrderPaymentsFormChange(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      if (target === els.repairOrderPaymentsMethod) {
-        syncRepairOrderPaymentMethod(els.repairOrderPaymentsMethod?.value || 'cash');
+      if (target === els.repairOrderPaymentCashbox) {
         renderRepairOrderPayments();
       }
     }
@@ -5701,8 +5734,8 @@ BOARD_WEB_APP_HTML = "".join(
       els.repairOrderLicensePlate.value = normalized.license_plate;
       els.repairOrderVin.value = normalized.vin;
       els.repairOrderMileage.value = normalized.mileage;
-      syncRepairOrderPaymentMethod(normalized.payment_method);
       state.repairOrderPayments = normalizeRepairOrderPayments(normalized.payments, normalized.prepayment, normalized.opened_at || normalized.date);
+      syncRepairOrderPaymentMethod(repairOrderPaymentMethodFromPayments(state.repairOrderPayments, normalized.payment_method));
       renderRepairOrderPaymentCashboxOptions('');
       if (els.repairOrderPrepayment) {
         els.repairOrderPrepayment.value = repairOrderNumberToRaw(repairOrderPaymentsTotalValue(state.repairOrderPayments));
@@ -5724,6 +5757,8 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function readRepairOrderFromForm() {
+      const paymentMethod = repairOrderPaymentMethodFromPayments(state.repairOrderPayments, 'cash');
+      syncRepairOrderPaymentMethod(paymentMethod);
       return normalizeRepairOrder({
         number: els.repairOrderNumber.value,
         date: repairOrderCanonicalDateValue(els.repairOrderDate.value),
@@ -5736,11 +5771,10 @@ BOARD_WEB_APP_HTML = "".join(
         license_plate: els.repairOrderLicensePlate.value,
         vin: els.repairOrderVin.value,
         mileage: els.repairOrderMileage.value,
-        payment_method: els.repairOrderPaymentMethod.value,
+        payment_method: paymentMethod,
         prepayment: repairOrderNumberToRaw(repairOrderPaymentsTotalValue(state.repairOrderPayments)),
         payments: (state.repairOrderPayments || []).map((item, index) => normalizeRepairOrderPayment({
           ...item,
-          payment_method: els.repairOrderPaymentMethod.value,
         }, item?.id || ('payment-' + (index + 1)))),
         reason: els.repairOrderReason.value,
         comment: els.repairOrderComment.value,
@@ -8245,7 +8279,7 @@ function renderCompactArchiveRows(cards) {
     els.repairOrderPaymentsButton.addEventListener('click', openRepairOrderPaymentsModal);
     els.repairOrderPaymentAddButton.addEventListener('click', addRepairOrderPayment);
     els.repairOrderPaymentsList.addEventListener('click', handleRepairOrderPaymentsListClick);
-    els.repairOrderPaymentsMethod?.addEventListener('change', handleRepairOrderPaymentsFormChange);
+    els.repairOrderPaymentCashbox?.addEventListener('change', handleRepairOrderPaymentsFormChange);
     els.repairOrderPaymentAmount.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
