@@ -38,6 +38,7 @@ class OpenAIJsonAgentClient:
         return self._model
 
     def next_step(self, *, system_prompt: str, messages: list[dict[str, str]]) -> dict[str, Any]:
+        instructions = f"{system_prompt.strip()}\n\nReturn only one JSON object that matches the requested schema."
         input_messages = []
         for message in messages:
             input_messages.append(
@@ -54,7 +55,7 @@ class OpenAIJsonAgentClient:
         payload = {
             "model": self._model,
             "temperature": 0.1,
-            "instructions": system_prompt,
+            "instructions": instructions,
             "text": {"format": {"type": "json_object"}},
             "input": input_messages,
         }
