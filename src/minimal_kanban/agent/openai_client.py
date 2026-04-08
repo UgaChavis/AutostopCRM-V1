@@ -38,11 +38,25 @@ class OpenAIJsonAgentClient:
         return self._model
 
     def next_step(self, *, system_prompt: str, messages: list[dict[str, str]]) -> dict[str, Any]:
+        input_messages = []
+        for message in messages:
+            input_messages.append(
+                {
+                    "role": str(message.get("role") or "user"),
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": str(message.get("content") or ""),
+                        }
+                    ],
+                }
+            )
         payload = {
             "model": self._model,
             "temperature": 0.1,
-            "response_format": {"type": "json_object"},
-            "messages": [{"role": "system", "content": system_prompt}, *messages],
+            "instructions": system_prompt,
+            "text": {"format": {"type": "json_object"}},
+            "input": input_messages,
         }
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -50,16 +64,55 @@ class OpenAIJsonAgentClient:
         }
         try:
             with httpx.Client(timeout=self._timeout_seconds) as client:
-                response = client.post(f"{self._base_url}/chat/completions", headers=headers, json=payload)
+                response = client.post(f"{self._base_url}/responses", headers=headers, json=payload)
             response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            message = self._extract_error_message(exc.response)
+            raise AgentModelError(f"Agent model request failed: {message}") from exc
         except httpx.HTTPError as exc:
             raise AgentModelError(f"Agent model request failed: {exc}") from exc
         try:
             payload = response.json()
-            message = payload["choices"][0]["message"]["content"]
+            message = self._extract_output_text(payload)
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise AgentModelError("Agent model returned an unexpected payload.") from exc
         return self._parse_json_payload(message)
+
+    def _extract_error_message(self, response: httpx.Response) -> str:
+        status = response.status_code
+        try:
+            payload = response.json()
+        except ValueError:
+            body = response.text.strip()
+            return f"HTTP {status}: {body or 'Unknown API error'}"
+        error = payload.get("error")
+        if isinstance(error, dict):
+            code = str(error.get("code") or "").strip()
+            message = str(error.get("message") or "").strip()
+            if code and message:
+                return f"HTTP {status} ({code}): {message}"
+            if message:
+                return f"HTTP {status}: {message}"
+            if code:
+                return f"HTTP {status} ({code})"
+        return f"HTTP {status}: {json.dumps(payload, ensure_ascii=False)}"
+
+    def _extract_output_text(self, payload: dict[str, Any]) -> str:
+        text = str(payload.get("output_text") or "").strip()
+        if text:
+            return text
+        chunks: list[str] = []
+        for item in payload.get("output", []):
+            if not isinstance(item, dict):
+                continue
+            for content in item.get("content", []):
+                if not isinstance(content, dict):
+                    continue
+                if content.get("type") in {"output_text", "text"}:
+                    chunk = content.get("text")
+                    if chunk:
+                        chunks.append(str(chunk))
+        return "".join(chunks).strip()
 
     def _parse_json_payload(self, content: Any) -> dict[str, Any]:
         if isinstance(content, list):
