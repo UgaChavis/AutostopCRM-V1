@@ -130,9 +130,11 @@ class OpenAIJsonAgentClient:
             payload = json.loads(text)
         except json.JSONDecodeError:
             start = text.find("{")
-            end = text.rfind("}")
-            if start >= 0 and end > start:
-                payload = json.loads(text[start : end + 1])
+            if start >= 0:
+                try:
+                    payload, _ = json.JSONDecoder().raw_decode(text[start:])
+                except json.JSONDecodeError:
+                    raise AgentModelError("Agent model did not return valid JSON.")
             else:
                 raise AgentModelError("Agent model did not return valid JSON.")
         if not isinstance(payload, dict):
