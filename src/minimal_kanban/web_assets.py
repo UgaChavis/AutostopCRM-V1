@@ -271,10 +271,13 @@ BOARD_WEB_APP_HTML = "".join(
         box-shadow: 0 0 0 1px rgba(200, 210, 166, 0.22);
       }
       .card-agent-button {
-        min-width: 42px;
-        padding: 7px 10px;
+        min-width: 48px;
+        padding: 7px 11px;
         font-family: var(--mono);
         letter-spacing: 0.08em;
+        color: var(--text);
+        border-color: rgba(167, 178, 132, 0.38);
+        background: rgba(0,0,0,0.12);
       }
     .board-scroll {
       overflow: auto;
@@ -2963,6 +2966,9 @@ BOARD_WEB_APP_HTML = "".join(
       </svg>
     </button>
   </div>
+  <div class="agent-dock" id="agentDock">
+    <button class="agent-dock__button" id="agentDockButton" type="button" aria-label="Агент доски" title="Агент доски">AI</button>
+  </div>
 
   <div class="modal" id="identityModal">
     <div class="dialog" style="width:min(480px,100%)">
@@ -3319,6 +3325,7 @@ BOARD_WEB_APP_HTML = "".join(
         </div>
         <div class="dialog__foot-group dialog__foot-group--main">
           <button class="btn" data-close="card">ОТМЕНА</button>
+          <button class="btn btn--ghost card-agent-button" id="cardAgentButton" type="button" title="Агент по карточке" aria-label="Агент по карточке">AI</button>
           <button class="btn btn--accent" id="saveCardButton">СОХРАНИТЬ</button>
         </div>
       </div>
