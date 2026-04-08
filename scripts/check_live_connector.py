@@ -394,17 +394,24 @@ def check_public_write_protection(site_url: str) -> dict[str, Any]:
         return result
 
     marker = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-    create_status, create_payload = _api_request(
-        _clean_url(site_url),
-        "/api/create_sticky",
-        method="POST",
-        payload={
-            "text": f"AUDIT TEMP {marker}",
-            "x": 1,
-            "y": 1,
-            "deadline": {"days": 0, "hours": 1},
-        },
-    )
+    try:
+        create_status, create_payload = _api_request(
+            _clean_url(site_url),
+            "/api/create_sticky",
+            method="POST",
+            payload={
+                "text": f"AUDIT TEMP {marker}",
+                "x": 1,
+                "y": 1,
+                "deadline": {"days": 0, "hours": 1},
+            },
+        )
+    except urllib.error.URLError as exc:
+        result["error"] = f"public_write_probe_unreachable: {exc}"
+        return result
+    except Exception as exc:  # pragma: no cover
+        result["error"] = str(exc)
+        return result
     result["status_code"] = create_status
     error_payload = ((create_payload or {}).get("error") or {}) if isinstance(create_payload, dict) else {}
     result["error_code"] = str(error_payload.get("code") or "")
