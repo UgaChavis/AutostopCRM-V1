@@ -24,3 +24,17 @@ services:
       timeout: 5s
       retries: 6
       start_period: 20s
+  autostopcrm-agent:
+    container_name: autostopcrm-agent
+    build: .
+    command: ["python", "main_agent.py"]
+    restart: always
+    depends_on:
+      - autostopcrm
+    environment:
+      MINIMAL_KANBAN_AGENT_ENABLED: "1"
+      MINIMAL_KANBAN_AGENT_BOARD_API_URL: "http://autostopcrm:41731"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.4-mini}"
+    volumes:
+      - "${AUTOSTOP_DATA_DIR:-./data}:/root/.minimal-kanban"

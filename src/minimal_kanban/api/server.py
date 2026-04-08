@@ -59,6 +59,7 @@ class ApiServer:
         logger: Logger,
         *,
         operator_service: OperatorAuthService | None = None,
+        agent_service=None,
         host: str | None = None,
         start_port: int | None = None,
         fallback_limit: int | None = None,
@@ -77,6 +78,7 @@ class ApiServer:
         self._fallback_limit = resolved_fallback_limit
         self._bearer_token = bearer_token if bearer_token is not None else get_api_bearer_token()
         self._operator_service = operator_service
+        self._agent_service = agent_service
 
     @property
     def base_url(self) -> str:
@@ -119,6 +121,7 @@ class ApiServer:
         logger = self._logger
         bearer_token = self._bearer_token
         operator_service = self._operator_service
+        agent_service = self._agent_service
         base_url = self.base_url
         routes = {
             "/api/create_card": service.create_card,
@@ -225,6 +228,25 @@ class ApiServer:
             "/api/delete_operator_user",
             "/api/get_operator_user_report",
         }
+        if agent_service is not None:
+            routes.update(
+                {
+                    "/api/agent_status": agent_service.agent_status,
+                    "/api/agent_enqueue_task": agent_service.agent_enqueue_task,
+                    "/api/agent_runs": agent_service.agent_runs,
+                    "/api/agent_actions": agent_service.agent_actions,
+                    "/api/agent_tasks": agent_service.agent_tasks,
+                }
+            )
+            admin_only_routes.update(
+                {
+                    "/api/agent_status",
+                    "/api/agent_enqueue_task",
+                    "/api/agent_runs",
+                    "/api/agent_actions",
+                    "/api/agent_tasks",
+                }
+            )
         if operator_service is not None:
             routes.update(
                 {
@@ -288,7 +310,7 @@ class ApiServer:
                         return
                     self._serve_repair_order_text(request_id, query)
                     return
-                if route in {
+                readonly_routes = {
                     "/api/list_columns",
                     "/api/get_cards",
                     "/api/get_card",
@@ -306,7 +328,17 @@ class ApiServer:
                     "/api/get_operator_profile",
                     "/api/list_operator_users",
                     "/api/get_operator_user_report",
-                }:
+                }
+                if agent_service is not None:
+                    readonly_routes.update(
+                        {
+                            "/api/agent_status",
+                            "/api/agent_runs",
+                            "/api/agent_actions",
+                            "/api/agent_tasks",
+                        }
+                    )
+                if route in readonly_routes:
                     if not self._authenticate(request_id, query):
                         return
                     self._dispatch(route, request_id, query)
@@ -457,6 +489,14 @@ class ApiServer:
                 except ServiceError as exc:
                     logger.warning("api_request route=%s request_id=%s status=error code=%s", route, request_id, exc.code)
                     self._send_error_response(request_id, exc.status_code, exc.code, exc.message, exc.details)
+                except ValueError as exc:
+                    logger.warning("api_request route=%s request_id=%s status=error code=validation_error", route, request_id)
+                    self._send_error_response(
+                        request_id,
+                        HTTPStatus.BAD_REQUEST,
+                        "validation_error",
+                        str(exc) or "Request payload is invalid.",
+                    )
                 except Exception as exc:  # pragma: no cover
                     logger.exception("api_request_failed route=%s request_id=%s error=%s", route, request_id, exc)
                     self._send_error_response(

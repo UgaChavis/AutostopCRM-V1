@@ -1,0 +1,54 @@
+AUTOSTOP CRM SERVER AGENT WORKFLOW
+
+Current execution model:
+1. task is added to queue
+2. server agent picks oldest pending task
+3. agent calls OpenAI model gpt-5.4-mini
+4. model selects one CRM tool at a time
+5. tool result is appended to context
+6. agent returns final result
+7. run and actions are stored on disk
+
+Primary tools exposed to server agent:
+- ping_connector
+- review_board
+- list_columns
+- get_board_snapshot
+- search_cards
+- get_card
+- get_card_context
+- create_card
+- update_card
+- move_card
+- archive_card
+- restore_card
+- list_repair_orders
+- get_repair_order
+- update_repair_order
+- replace_repair_order_works
+- replace_repair_order_materials
+- set_repair_order_status
+- list_cashboxes
+- get_cashbox
+- create_cashbox
+- delete_cashbox
+- create_cash_transaction
+
+Recommended task patterns:
+- board review and overload summary
+- find overdue or stalled cards
+- create a card from user text
+- move a card to a target column
+- update repair order fields
+- inspect cashboxes and payment flows
+
+Do not rely on invented ids.
+Always use ids returned by tools.
+
+Current runtime status source:
+- /api/agent_status
+
+Current task history sources:
+- /api/agent_tasks
+- /api/agent_runs
+- /api/agent_actions

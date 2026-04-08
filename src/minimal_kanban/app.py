@@ -148,6 +148,8 @@ def run() -> int:
     try:
         update_splash("Загружаю модули...")
         from .api.server import ApiServer
+        from .agent.control import AgentControlService
+        from .agent.storage import AgentStorage
         from .config import get_api_bearer_token, get_api_host, get_api_port
         from .integration_runtime import McpRuntimeController
         from .logging_setup import close_logger, configure_logging
@@ -164,6 +166,7 @@ def run() -> int:
         store = JsonStore(logger=logger)
         service = CardService(store, logger)
         operator_service = OperatorAuthService(store, service, logger=logger)
+        agent_service = AgentControlService(AgentStorage())
         settings_store = SettingsStore(logger=logger)
         settings_service = SettingsService(settings_store, logger)
         settings = settings_service.load()
@@ -191,6 +194,7 @@ def run() -> int:
             service,
             logger,
             operator_service=operator_service,
+            agent_service=agent_service,
             host=api_host,
             start_port=api_port,
             bearer_token=api_bearer_token,

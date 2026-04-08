@@ -1,0 +1,55 @@
+AUTOSTOP CRM SERVER AGENT API AND COMMANDS
+
+Admin API routes:
+- GET /api/agent_status
+- POST /api/agent_enqueue_task
+- GET /api/agent_runs
+- GET /api/agent_actions
+- GET /api/agent_tasks
+
+Auth:
+- use operator session
+- login via /api/login_operator
+
+Minimal task payload:
+{
+  "task_text": "Сделай обзор доски и дай короткий отчет"
+}
+
+Optional enqueue payload:
+{
+  "task_text": "Найди неоплаченные заказ-наряды и дай сводку",
+  "source": "manual",
+  "mode": "manual",
+  "metadata": {
+    "requested_by": "admin"
+  }
+}
+
+Server commands:
+- deploy:
+  cd /opt/autostopcrm
+  ./deploy.sh
+
+- restart:
+  cd /opt/autostopcrm
+  docker compose restart
+
+- agent logs:
+  cd /opt/autostopcrm
+  docker compose logs -f autostopcrm-agent
+
+- app logs:
+  cd /opt/autostopcrm
+  docker compose logs -f autostopcrm
+
+- check agent runtime:
+  cd /opt/autostopcrm
+  docker compose exec -T autostopcrm python scripts/check_agent_runtime.py --local-api-url http://127.0.0.1:41731 --operator-username admin --operator-password admin
+
+Useful local API commands from server:
+- health:
+  curl http://127.0.0.1:8000/api/health
+
+- login:
+  curl -X POST http://127.0.0.1:8000/api/login_operator -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"admin\"}"

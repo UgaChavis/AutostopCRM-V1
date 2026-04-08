@@ -1,0 +1,43 @@
+AUTOSTOP CRM SERVER AGENT
+
+Purpose:
+- long-running GPT agent on the server
+- executes tasks against local AutoStop CRM
+- uses local board API as tool surface
+
+Deployment model:
+- main app container: autostopcrm
+- server agent container: autostopcrm-agent
+
+Server paths:
+- project: /opt/autostopcrm
+- data: /opt/autostopcrm/data
+- app data in container: /root/.minimal-kanban
+- agent data on host: /opt/autostopcrm/data/agent
+
+Environment:
+- OPENAI_API_KEY must exist in /opt/autostopcrm/.env
+- OPENAI_MODEL=gpt-5.4-mini
+- MINIMAL_KANBAN_AGENT_ENABLED=1
+- MINIMAL_KANBAN_AGENT_BOARD_API_URL=http://autostopcrm:41731
+
+Agent files:
+- tasks.json
+- status.json
+- runs.jsonl
+- actions.jsonl
+- system_prompt.md
+- memory.md
+
+Agent behavior:
+- polls queue
+- executes tasks step-by-step
+- uses available CRM tools
+- writes run log and action log
+
+Current business rules in memory:
+- CRM URL: https://crm.autostopcrm.ru
+- MCP URL: https://crm.autostopcrm.ru/mcp
+- default admin: admin/admin
+- cashbox Безналичный adds +15 percent taxes and fees from that payment amount
+- cashboxes Наличный and Карта Мария do not add taxes and fees

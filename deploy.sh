@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SERVICE_NAME="${AUTOSTOP_COMPOSE_SERVICE:-autostopcrm}"
+AGENT_SERVICE_NAME="${AUTOSTOP_AGENT_COMPOSE_SERVICE:-autostopcrm-agent}"
 SMOKE_ATTEMPTS="${AUTOSTOP_SMOKE_ATTEMPTS:-20}"
 SMOKE_DELAY_SECONDS="${AUTOSTOP_SMOKE_DELAY_SECONDS:-3}"
 SMOKE_OPERATOR_USERNAME="${AUTOSTOP_SMOKE_OPERATOR_USERNAME:-${MINIMAL_KANBAN_DEFAULT_ADMIN_USERNAME:-admin}}"
@@ -54,6 +55,25 @@ done
 if [[ "$smoke_ok" -ne 1 ]]; then
   echo "ERROR: deploy smoke-check failed." >&2
   docker compose logs --tail=200 "$SERVICE_NAME" >&2 || true
+  exit 1
+fi
+
+agent_smoke_ok=0
+for attempt in $(seq 1 "$SMOKE_ATTEMPTS"); do
+  if docker compose exec -T "$SERVICE_NAME" python scripts/check_agent_runtime.py \
+    --local-api-url http://127.0.0.1:41731 \
+    --operator-username "$SMOKE_OPERATOR_USERNAME" \
+    --operator-password "$SMOKE_OPERATOR_PASSWORD"
+  then
+    agent_smoke_ok=1
+    break
+  fi
+  sleep "$SMOKE_DELAY_SECONDS"
+done
+
+if [[ "$agent_smoke_ok" -ne 1 ]]; then
+  echo "ERROR: agent smoke-check failed." >&2
+  docker compose logs --tail=200 "$AGENT_SERVICE_NAME" >&2 || true
   exit 1
 fi
 
