@@ -45,12 +45,7 @@ class OpenAIJsonAgentClient:
             input_messages.append(
                 {
                     "role": str(message.get("role") or "user"),
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": f"JSON mode. {message_text}",
-                        }
-                    ],
+                    "content": f"JSON mode. {message_text}",
                 }
             )
         payload = {
