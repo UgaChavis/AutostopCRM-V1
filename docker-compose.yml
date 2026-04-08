@@ -3,6 +3,8 @@ services:
     container_name: autostopcrm
     build: .
     restart: always
+    extra_hosts:
+      - "crm.autostopcrm.ru:host-gateway"
     ports:
       - "127.0.0.1:8000:41731"
       - "127.0.0.1:8001:41831"
@@ -32,6 +34,8 @@ services:
     build: .
     command: ["python", "main_agent.py"]
     restart: always
+    extra_hosts:
+      - "crm.autostopcrm.ru:host-gateway"
     depends_on:
       - autostopcrm
     environment:
