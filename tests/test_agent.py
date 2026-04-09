@@ -17,6 +17,7 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.agent.control import AgentControlService
 from minimal_kanban.agent.automotive_tools import AutomotiveLookupService
+from minimal_kanban.agent.instructions import build_default_system_prompt
 from minimal_kanban.agent.runner import AgentRunner
 from minimal_kanban.agent.storage import AgentStorage
 from minimal_kanban.api.server import ApiServer
@@ -80,6 +81,11 @@ class AgentStorageTests(unittest.TestCase):
 
 
 class AgentRunnerTests(unittest.TestCase):
+    def test_default_prompt_includes_card_cleanup_rules(self) -> None:
+        prompt = build_default_system_prompt()
+        self.assertIn("tidy up, clean up, or structure a card", prompt)
+        self.assertIn("preserve all facts from the card", prompt)
+
     def test_runner_executes_tool_and_completes_task(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = AgentStorage(base_dir=Path(temp_dir))

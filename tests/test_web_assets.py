@@ -127,6 +127,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function boardAgentContext()", BOARD_WEB_APP_HTML)
         self.assertIn("function cardAgentContext()", BOARD_WEB_APP_HTML)
         self.assertIn("function quickAgentPrompts(context)", BOARD_WEB_APP_HTML)
+        self.assertIn("{ label: 'ПОРЯДОК', prompt: 'Наведи порядок в этой карточке:", BOARD_WEB_APP_HTML)
         self.assertIn("function syncAgentTaskInputHeight()", BOARD_WEB_APP_HTML)
         self.assertIn("function formatAgentErrorMessage(rawValue)", BOARD_WEB_APP_HTML)
         self.assertIn("function normalizeAgentDisplay(task)", BOARD_WEB_APP_HTML)

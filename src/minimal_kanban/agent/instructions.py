@@ -47,6 +47,15 @@ AUTOMOTIVE_RULES = """Automotive rules:
 """
 
 
+CARD_CLEANUP_RULES = """Card cleanup rules:
+- If the task asks to tidy up, clean up, or structure a card, preserve all facts from the card.
+- Improve structure and readability, but do not drop meaningful details to make the text shorter.
+- Fill missing card fields only when the current card data supports them confidently.
+- Separate confirmed updates from guessed or missing data.
+- In cleanup tasks, prefer proposing or applying a normalized card payload with clearer title, description, tags, and vehicle profile.
+"""
+
+
 SOURCES_RULES = f"""Preferred source groups:
 {describe_sources()}
 """
@@ -59,6 +68,7 @@ def build_default_system_prompt() -> str:
             BASE_SYSTEM_PROMPT,
             CONTEXT_RULES,
             AUTOMOTIVE_RULES,
+            CARD_CLEANUP_RULES,
             SOURCES_RULES,
         )
         if part.strip()
