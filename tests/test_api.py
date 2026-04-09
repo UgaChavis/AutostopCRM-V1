@@ -1139,8 +1139,8 @@ class ApiServerTests(unittest.TestCase):
             "/api/create_card",
             {
                 "vehicle": "Mazda CX-3",
-                "title": "Заполнить ведомость",
-                "description": "Шум в подвеске, требуется дефектовка.",
+                "title": "Fill inspection sheet",
+                "description": "Suspension noise, inspection required.",
                 "deadline": {"hours": 4},
             },
         )
@@ -1152,15 +1152,15 @@ class ApiServerTests(unittest.TestCase):
             {
                 "card_id": card_id,
                 "repair_order": {
-                    "client": "Ярулина Нина Васильевна",
+                    "client": "Nina Yarulina",
                     "vehicle": "Mazda CX-3",
                     "vin": "DK5FW106086",
-                    "license_plate": "А123АА124",
-                    "reason": "Шум в подвеске",
-                    "comment": "Клиент просит проверить ходовую часть",
-                    "note": "Выявлен люфт стойки стабилизатора",
-                    "works": [{"name": "Диагностика подвески", "quantity": "1", "price": "1800", "total": ""}],
-                    "materials": [{"name": "Стойка стабилизатора", "quantity": "2", "price": "900", "total": ""}],
+                    "license_plate": "A123AA124",
+                    "reason": "Suspension noise",
+                    "comment": "Client asked for chassis inspection",
+                    "note": "Stabilizer link play found",
+                    "works": [{"name": "Suspension diagnosis", "quantity": "1", "price": "1800", "total": ""}],
+                    "materials": [{"name": "Stabilizer link", "quantity": "2", "price": "900", "total": ""}],
                 },
             },
         )
@@ -1169,26 +1169,36 @@ class ApiServerTests(unittest.TestCase):
         status, loaded = self.request("/api/get_inspection_sheet_form", {"card_id": card_id})
         self.assertEqual(status, 200)
         self.assertIn("complaint_summary", loaded["data"]["form"])
+        self.assertIn("planned_work_rows", loaded["data"]["form"])
+        self.assertIn("planned_material_rows", loaded["data"]["form"])
 
         status, saved = self.request(
             "/api/save_inspection_sheet_form",
             {
                 "card_id": card_id,
                 "form_data": {
-                    "client": "Ярулина Нина Васильевна",
+                    "client": "Nina Yarulina",
                     "vehicle": "Mazda CX-3",
-                    "vin_or_plate": "DK5FW106086 · А123АА124",
-                    "complaint_summary": "Шум в подвеске",
-                    "findings": "Люфт стойки стабилизатора",
-                    "recommendations": "Заменить стойки стабилизатора",
-                    "planned_works": "Замена стоек стабилизатора",
-                    "planned_materials": "Стойка стабилизатора",
-                    "master_comment": "Согласовать смету",
+                    "vin_or_plate": "DK5FW106086 ? A123AA124",
+                    "complaint_summary": "Suspension noise",
+                    "findings": "Stabilizer link play",
+                    "recommendations": "Replace stabilizer links",
+                    "planned_works": "Replace stabilizer links",
+                    "planned_materials": "Stabilizer link",
+                    "planned_work_rows": [
+                        {"name": "Replace stabilizer links", "quantity": "1"},
+                        {"name": "Check bushings", "quantity": "1"},
+                    ],
+                    "planned_material_rows": [
+                        {"name": "Stabilizer link", "quantity": "2"},
+                    ],
+                    "master_comment": "Approve estimate",
                 },
             },
         )
         self.assertEqual(status, 200)
         self.assertEqual(saved["data"]["form"]["vehicle"], "Mazda CX-3")
+        self.assertEqual(saved["data"]["form"]["planned_work_rows"][1]["name"], "Check bushings")
 
         status, preview = self.request(
             "/api/preview_repair_order_print_documents",
@@ -1201,29 +1211,40 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         html = preview["data"]["documents"][0]["pages"][0]["html"]
         self.assertIn("Mazda CX-3", html)
-        self.assertIn("Люфт стойки стабилизатора", html)
-        self.assertIn("Замена стоек стабилизатора", html)
+        self.assertIn("Stabilizer link play", html)
+        self.assertIn("Replace stabilizer links", html)
+        self.assertIn("Check bushings", html)
+        self.assertIn("Stabilizer link", html)
 
         with patch("minimal_kanban.services.card_service.OpenAIJsonAgentClient") as client_cls:
             client = client_cls.return_value
             client.model = "gpt-5.4-mini"
             client.complete_json.return_value = {
-                "client": "Ярулина Нина Васильевна",
+                "client": "Nina Yarulina",
                 "vehicle": "Mazda CX-3",
-                "vin_or_plate": "DK5FW106086 · А123АА124",
-                "complaint_summary": "Шум в подвеске и биение",
-                "findings": ["Люфт стойки стабилизатора", "Износ втулок"],
-                "recommendations": ["Заменить стойки", "Проверить втулки"],
-                "planned_works": ["Замена стоек стабилизатора", "Проверка втулок"],
-                "planned_materials": ["Стойка стабилизатора", "Втулка стабилизатора"],
-                "master_comment": "Подготовить смету",
-                "confidence_notes": ["Часть данных собрана из описания карточки"],
+                "vin_or_plate": "DK5FW106086 ? A123AA124",
+                "complaint_summary": "Suspension noise and vibration",
+                "findings": ["Stabilizer link play", "Bushing wear"],
+                "recommendations": ["Replace links", "Check bushings"],
+                "planned_works": ["Replace stabilizer links", "Check bushings"],
+                "planned_materials": ["Stabilizer link", "Stabilizer bushing"],
+                "planned_work_rows": [
+                    {"name": "Replace stabilizer links", "quantity": "1"},
+                    {"name": "Check bushings", "quantity": "1"},
+                ],
+                "planned_material_rows": [
+                    {"name": "Stabilizer link", "quantity": "2"},
+                    {"name": "Stabilizer bushing", "quantity": "2"},
+                ],
+                "master_comment": "Prepare estimate",
+                "confidence_notes": ["Part of the data came from the card description"],
             }
             status, autofilled = self.request("/api/autofill_inspection_sheet_form", {"card_id": card_id})
         self.assertEqual(status, 200)
-        self.assertEqual(autofilled["data"]["form"]["master_comment"], "Подготовить смету")
+        self.assertEqual(autofilled["data"]["form"]["master_comment"], "Prepare estimate")
         self.assertEqual(autofilled["data"]["autofill"]["model"], "gpt-5.4-mini")
-        self.assertIn("Часть данных собрана из описания карточки", autofilled["data"]["autofill"]["confidence_notes"][0])
+        self.assertEqual(autofilled["data"]["form"]["planned_material_rows"][1]["name"], "Stabilizer bushing")
+        self.assertIn("Part of the data came from the card description", autofilled["data"]["autofill"]["confidence_notes"][0])
 
     def test_repair_order_print_pdf_export_works_from_http_thread(self) -> None:
         status, created = self.request(

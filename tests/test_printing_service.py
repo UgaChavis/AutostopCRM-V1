@@ -113,25 +113,36 @@ class PrintingServiceTests(unittest.TestCase):
     def test_inspection_sheet_form_roundtrip_updates_preview(self) -> None:
         initial = self.service.get_inspection_sheet_form(self.card)
         self.assertIn("planned_works", initial["form"])
+        self.assertIn("planned_work_rows", initial["form"])
+        self.assertIn("planned_material_rows", initial["form"])
 
         saved = self.service.save_inspection_sheet_form(
             self.card,
             form_data={
-                "client": "Новый клиент",
+                "client": "New client",
                 "vehicle": "Mazda CX-3",
-                "vin_or_plate": "DK5FW106086 · А123АА124",
-                "complaint_summary": "Шум в подвеске",
-                "findings": "Люфт стойки стабилизатора\nТечь амортизатора",
-                "recommendations": "Заменить стойки\nПроверить втулки",
-                "planned_works": "Замена стоек стабилизатора",
-                "planned_materials": "Стойка стабилизатора",
-                "master_comment": "Согласовать после дефектовки",
+                "vin_or_plate": "DK5FW106086 ? A123AA124",
+                "complaint_summary": "Suspension noise",
+                "findings": "Stabilizer link play\nDamper leak",
+                "recommendations": "Replace links\nCheck bushings",
+                "planned_works": "Replace stabilizer links",
+                "planned_materials": "Stabilizer link",
+                "planned_work_rows": [
+                    {"name": "Replace stabilizer links", "quantity": "1"},
+                    {"name": "Check bushings", "quantity": "1"},
+                ],
+                "planned_material_rows": [
+                    {"name": "Stabilizer link", "quantity": "2"},
+                ],
+                "master_comment": "Confirm estimate after inspection",
             },
             filled_by="admin",
             source="manual",
         )
-        self.assertEqual(saved["form"]["client"], "Новый клиент")
+        self.assertEqual(saved["form"]["client"], "New client")
         self.assertEqual(saved["meta"]["source"], "manual")
+        self.assertEqual(saved["form"]["planned_work_rows"][0]["quantity"], "1")
+        self.assertEqual(saved["form"]["planned_material_rows"][0]["name"], "Stabilizer link")
 
         preview = self.service.preview_documents(
             self.card,
@@ -139,11 +150,13 @@ class PrintingServiceTests(unittest.TestCase):
             active_document_id="inspection_sheet",
         )
         html = preview["documents"][0]["pages"][0]["html"]
-        self.assertIn("Новый клиент", html)
+        self.assertIn("New client", html)
         self.assertIn("Mazda CX-3", html)
-        self.assertIn("Шум в подвеске", html)
-        self.assertIn("Люфт стойки стабилизатора", html)
-        self.assertIn("Замена стоек стабилизатора", html)
+        self.assertIn("Suspension noise", html)
+        self.assertIn("Stabilizer link play", html)
+        self.assertIn("Replace stabilizer links", html)
+        self.assertIn("Check bushings", html)
+        self.assertIn("Stabilizer link", html)
 
     def test_template_engine_renders_list_item_fields_inside_sections(self) -> None:
         rendered = render_template(

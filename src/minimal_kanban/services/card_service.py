@@ -125,13 +125,23 @@ Return exactly one JSON object with these string fields:
 - planned_works
 - planned_materials
 - master_comment
-And one optional array field:
+And these optional array fields:
+- planned_work_rows
+- planned_material_rows
+- confidence_notes
+
+Each row inside planned_work_rows / planned_material_rows must be an object with:
+- name
+- quantity
+
+Also allowed:
 - confidence_notes
 
 Rules:
 - Preserve important facts from the source data.
 - Do not invent facts that are not present in the CRM data.
 - Use short structured multiline text with one item per line for findings, recommendations, planned_works, and planned_materials.
+- If possible, also return planned_work_rows and planned_material_rows as compact structured rows.
 - If a field is unknown, leave it empty instead of guessing.
 - vin_or_plate may contain both VIN and license plate in one short string.
 """
@@ -1046,6 +1056,14 @@ class CardService:
             "recommendations": self._inspection_sheet_text(result.get("recommendations"), multiline=True),
             "planned_works": self._inspection_sheet_text(result.get("planned_works"), multiline=True),
             "planned_materials": self._inspection_sheet_text(result.get("planned_materials"), multiline=True),
+            "planned_work_rows": self._inspection_sheet_table_rows(
+                result.get("planned_work_rows"),
+                fallback_text=result.get("planned_works"),
+            ),
+            "planned_material_rows": self._inspection_sheet_table_rows(
+                result.get("planned_material_rows"),
+                fallback_text=result.get("planned_materials"),
+            ),
             "master_comment": self._inspection_sheet_text(result.get("master_comment"), multiline=True),
         }
         confidence_notes = self._inspection_sheet_lines(result.get("confidence_notes"))
@@ -1228,6 +1246,25 @@ class CardService:
             if len(lines) >= 20:
                 break
         return lines
+
+    def _inspection_sheet_table_rows(self, value: Any, *, fallback_text: Any = "") -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    name = normalize_text(item.get("name"), default="", limit=240)
+                    quantity = normalize_text(item.get("quantity"), default="", limit=40)
+                else:
+                    name = normalize_text(item, default="", limit=240)
+                    quantity = ""
+                if not name and not quantity:
+                    continue
+                rows.append({"name": name, "quantity": quantity})
+                if len(rows) >= 50:
+                    break
+        if rows:
+            return rows
+        return [{"name": line, "quantity": ""} for line in self._inspection_sheet_lines(fallback_text)]
 
     def autofill_vehicle_data(self, payload: dict | None = None) -> dict:
         with self._lock:

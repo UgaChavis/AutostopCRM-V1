@@ -173,6 +173,13 @@ PRINTING_WEB_MODULE_STYLE = r"""
       background: rgba(14, 18, 15, 0.76);
       line-height: 1.45;
     }
+    .inspection-sheet-table-editor { border: 1px solid rgba(116, 128, 111, 0.42); border-radius: 12px; padding: 10px; background: rgba(255,255,255,0.02); }
+    .inspection-sheet-table-editor__head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .inspection-sheet-table-editor__title { color: var(--text-soft); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .inspection-sheet-table-editor__rows { display: flex; flex-direction: column; gap: 8px; }
+    .inspection-sheet-table-editor__row { display: grid; grid-template-columns: minmax(0, 1fr) 92px 36px; gap: 8px; align-items: end; }
+    .inspection-sheet-table-editor__row .field { gap: 4px; }
+    .inspection-sheet-table-editor__remove { min-width: 36px; padding-inline: 0; }
     .inspection-sheet-form__field--wide { grid-column: 1 / -1; }
     .inspection-sheet-form__footer {
       display: flex;
@@ -348,6 +355,22 @@ PRINTING_WEB_MODULE_HTML = r"""
             <div class="inspection-sheet-form__field"><div class="field field--compact"><label for="inspectionSheetPlannedWorks">Планируемые работы</label><textarea id="inspectionSheetPlannedWorks"></textarea></div></div>
             <div class="inspection-sheet-form__field"><div class="field field--compact"><label for="inspectionSheetPlannedMaterials">Планируемые материалы</label><textarea id="inspectionSheetPlannedMaterials"></textarea></div></div>
           </div>
+          <div class="inspection-sheet-form__row">
+            <div class="inspection-sheet-table-editor">
+              <div class="inspection-sheet-table-editor__head">
+                <div class="inspection-sheet-table-editor__title">Необходимые работы</div>
+                <button class="btn btn--ghost" id="inspectionSheetAddWorkRowButton" type="button">+ строка</button>
+              </div>
+              <div class="inspection-sheet-table-editor__rows" id="inspectionSheetWorkRows"></div>
+            </div>
+            <div class="inspection-sheet-table-editor">
+              <div class="inspection-sheet-table-editor__head">
+                <div class="inspection-sheet-table-editor__title">Необходимые запчасти</div>
+                <button class="btn btn--ghost" id="inspectionSheetAddMaterialRowButton" type="button">+ строка</button>
+              </div>
+              <div class="inspection-sheet-table-editor__rows" id="inspectionSheetMaterialRows"></div>
+            </div>
+          </div>
           <div class="inspection-sheet-form__field inspection-sheet-form__field--wide"><div class="field field--compact"><label for="inspectionSheetMasterComment">Комментарий мастера</label><textarea id="inspectionSheetMasterComment"></textarea></div></div>
         </div>
       </div>
@@ -417,6 +440,10 @@ _PRINTING_SCRIPT_PART1 = r"""
       inspectionSheetRecommendations: document.getElementById('inspectionSheetRecommendations'),
       inspectionSheetPlannedWorks: document.getElementById('inspectionSheetPlannedWorks'),
       inspectionSheetPlannedMaterials: document.getElementById('inspectionSheetPlannedMaterials'),
+      inspectionSheetWorkRows: document.getElementById('inspectionSheetWorkRows'),
+      inspectionSheetMaterialRows: document.getElementById('inspectionSheetMaterialRows'),
+      inspectionSheetAddWorkRowButton: document.getElementById('inspectionSheetAddWorkRowButton'),
+      inspectionSheetAddMaterialRowButton: document.getElementById('inspectionSheetAddMaterialRowButton'),
       inspectionSheetMasterComment: document.getElementById('inspectionSheetMasterComment'),
       inspectionSheetAutofillButton: document.getElementById('inspectionSheetFormAutofillButton'),
       inspectionSheetSaveButton: document.getElementById('inspectionSheetFormSaveButton'),
@@ -669,11 +696,26 @@ _PRINTING_SCRIPT_PART1 = r"""
         recommendations: '',
         planned_works: '',
         planned_materials: '',
+        planned_work_rows: [],
+        planned_material_rows: [],
         master_comment: '',
         updated_at: '',
         filled_by: '',
         source: 'manual',
       };
+    }
+
+    function normalizeInspectionSheetTableRows(value) {
+      const items = Array.isArray(value) ? value : [];
+      const rows = [];
+      items.forEach((item) => {
+        const row = item && typeof item === 'object' ? item : { name: String(item || ''), quantity: '' };
+        const name = String(row.name || '').trim();
+        const quantity = String(row.quantity || '').trim();
+        if (!name && !quantity) return;
+        rows.push({ name, quantity });
+      });
+      return rows.slice(0, 80);
     }
 
     function normalizeInspectionSheetForm(value) {
@@ -687,11 +729,62 @@ _PRINTING_SCRIPT_PART1 = r"""
         recommendations: String(input.recommendations || '').trim(),
         planned_works: String(input.planned_works || '').trim(),
         planned_materials: String(input.planned_materials || '').trim(),
+        planned_work_rows: normalizeInspectionSheetTableRows(input.planned_work_rows),
+        planned_material_rows: normalizeInspectionSheetTableRows(input.planned_material_rows),
         master_comment: String(input.master_comment || '').trim(),
         updated_at: String(input.updated_at || '').trim(),
         filled_by: String(input.filled_by || '').trim(),
         source: String(input.source || 'manual').trim() || 'manual',
       };
+    }
+
+    function inspectionSheetTableElements(kind) {
+      return kind === 'works'
+        ? { rows: printEls.inspectionSheetWorkRows, field: 'planned_work_rows' }
+        : { rows: printEls.inspectionSheetMaterialRows, field: 'planned_material_rows' };
+    }
+
+    function renderInspectionSheetTableRows(kind, rows) {
+      const target = inspectionSheetTableElements(kind).rows;
+      if (!target) return;
+      const normalized = normalizeInspectionSheetTableRows(rows);
+      if (!normalized.length) {
+        target.innerHTML = '';
+        return;
+      }
+      target.innerHTML = normalized.map((row, index) => (
+        '<div class="inspection-sheet-table-editor__row" data-inspection-row-kind="' + escapeHtml(kind) + '" data-inspection-row-index="' + String(index) + '">' +
+          '<div class="field field--compact"><label>Наименование</label><input data-inspection-row-name type="text" maxlength="240" value="' + escapeHtml(row.name) + '"></div>' +
+          '<div class="field field--compact"><label>Кол-во</label><input data-inspection-row-quantity type="text" maxlength="40" value="' + escapeHtml(row.quantity) + '"></div>' +
+          '<button class="btn btn--ghost inspection-sheet-table-editor__remove" data-inspection-row-remove type="button">−</button>' +
+        '</div>'
+      )).join('');
+    }
+
+    function readInspectionSheetTableRows(kind) {
+      const target = inspectionSheetTableElements(kind).rows;
+      if (!target) return [];
+      const rows = [];
+      target.querySelectorAll('[data-inspection-row-kind]').forEach((rowElement) => {
+        const name = String(rowElement.querySelector('[data-inspection-row-name]')?.value || '').trim();
+        const quantity = String(rowElement.querySelector('[data-inspection-row-quantity]')?.value || '').trim();
+        if (!name && !quantity) return;
+        rows.push({ name, quantity });
+      });
+      return normalizeInspectionSheetTableRows(rows);
+    }
+
+    function appendInspectionSheetTableRow(kind) {
+      const currentRows = readInspectionSheetTableRows(kind);
+      currentRows.push({ name: '', quantity: '' });
+      renderInspectionSheetTableRows(kind, currentRows);
+    }
+
+    function removeInspectionSheetTableRow(kind, index) {
+      const currentRows = readInspectionSheetTableRows(kind);
+      if (index < 0 || index >= currentRows.length) return;
+      currentRows.splice(index, 1);
+      renderInspectionSheetTableRows(kind, currentRows);
     }
 
     function applyInspectionSheetFormToInputs(form) {
@@ -705,6 +798,8 @@ _PRINTING_SCRIPT_PART1 = r"""
       if (printEls.inspectionSheetRecommendations) printEls.inspectionSheetRecommendations.value = normalized.recommendations;
       if (printEls.inspectionSheetPlannedWorks) printEls.inspectionSheetPlannedWorks.value = normalized.planned_works;
       if (printEls.inspectionSheetPlannedMaterials) printEls.inspectionSheetPlannedMaterials.value = normalized.planned_materials;
+      renderInspectionSheetTableRows('works', normalized.planned_work_rows);
+      renderInspectionSheetTableRows('materials', normalized.planned_material_rows);
       if (printEls.inspectionSheetMasterComment) printEls.inspectionSheetMasterComment.value = normalized.master_comment;
       if (printEls.inspectionSheetMeta) {
         const metaBits = [];
@@ -713,7 +808,7 @@ _PRINTING_SCRIPT_PART1 = r"""
         if (normalized.updated_at) metaBits.push('Обновлено: ' + normalized.updated_at);
         printEls.inspectionSheetMeta.textContent = metaBits.length
           ? metaBits.join(' · ')
-          : 'Заполните поля вручную или используйте автозаполнение по данным карточки.';
+          : 'Заполните поля вручную или используйте автозаполнение по данным текущей карточки.';
       }
     }
 
@@ -727,6 +822,8 @@ _PRINTING_SCRIPT_PART1 = r"""
         recommendations: printEls.inspectionSheetRecommendations?.value || '',
         planned_works: printEls.inspectionSheetPlannedWorks?.value || '',
         planned_materials: printEls.inspectionSheetPlannedMaterials?.value || '',
+        planned_work_rows: readInspectionSheetTableRows('works'),
+        planned_material_rows: readInspectionSheetTableRows('materials'),
         master_comment: printEls.inspectionSheetMasterComment?.value || '',
         updated_at: repairOrderPrintState.inspectionSheetForm?.updated_at || '',
         filled_by: repairOrderPrintState.inspectionSheetForm?.filled_by || '',
@@ -1354,6 +1451,19 @@ _PRINTING_SCRIPT_PART3 = r"""
       if (event.target === printEls.inspectionSheetModal) closeInspectionSheetForm();
     }
 
+    function handleInspectionSheetTableRowsClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const removeButton = target.closest('[data-inspection-row-remove]');
+      if (!removeButton) return;
+      const row = removeButton.closest('[data-inspection-row-kind]');
+      if (!row) return;
+      const kind = row.getAttribute('data-inspection-row-kind') || '';
+      const index = Number(row.getAttribute('data-inspection-row-index') || '-1');
+      if (!kind || Number.isNaN(index)) return;
+      removeInspectionSheetTableRow(kind, index);
+    }
+
     printRepairOrderDraft = function() { return openRepairOrderPrintWorkspace(); };
 
     if (printEls.documents) printEls.documents.addEventListener('click', handleRepairOrderPrintDocumentsClick);
@@ -1373,6 +1483,10 @@ _PRINTING_SCRIPT_PART3 = r"""
     if (printEls.previewWrap) window.addEventListener('resize', applyRepairOrderPrintZoom);
     if (printEls.inspectionSheetCloseX) printEls.inspectionSheetCloseX.addEventListener('click', closeInspectionSheetForm);
     if (printEls.inspectionSheetModal) printEls.inspectionSheetModal.addEventListener('click', handleInspectionSheetFormOverlayClick);
+    if (printEls.inspectionSheetWorkRows) printEls.inspectionSheetWorkRows.addEventListener('click', handleInspectionSheetTableRowsClick);
+    if (printEls.inspectionSheetMaterialRows) printEls.inspectionSheetMaterialRows.addEventListener('click', handleInspectionSheetTableRowsClick);
+    if (printEls.inspectionSheetAddWorkRowButton) printEls.inspectionSheetAddWorkRowButton.addEventListener('click', () => { appendInspectionSheetTableRow('works'); });
+    if (printEls.inspectionSheetAddMaterialRowButton) printEls.inspectionSheetAddMaterialRowButton.addEventListener('click', () => { appendInspectionSheetTableRow('materials'); });
     if (printEls.inspectionSheetSaveButton) printEls.inspectionSheetSaveButton.addEventListener('click', () => { saveInspectionSheetFormDraft(); });
     if (printEls.inspectionSheetApplyButton) printEls.inspectionSheetApplyButton.addEventListener('click', () => { saveInspectionSheetFormDraft({ closeAfter: true }); });
     if (printEls.inspectionSheetAutofillButton) printEls.inspectionSheetAutofillButton.addEventListener('click', autofillInspectionSheetFormDraft);

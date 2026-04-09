@@ -21,6 +21,25 @@ def _clean_multiline(value: Any, *, limit: int = 120_000) -> str:
     return str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()[:limit]
 
 
+def _clean_table_rows(value: Any, *, limit_rows: int = 80) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    rows: list[dict[str, str]] = []
+    for item in value:
+        if isinstance(item, dict):
+            name = _clean_text(item.get("name", ""), limit=240)
+            quantity = _clean_text(item.get("quantity", ""), limit=40)
+        else:
+            name = _clean_text(item, limit=240)
+            quantity = ""
+        if not name and not quantity:
+            continue
+        rows.append({"name": name, "quantity": quantity})
+        if len(rows) >= limit_rows:
+            break
+    return rows
+
+
 @dataclass(slots=True)
 class PrintServiceProfile:
     company_name: str = "AutoStop CRM"
@@ -194,6 +213,8 @@ class InspectionSheetFormData:
     recommendations: str = ""
     planned_works: str = ""
     planned_materials: str = ""
+    planned_work_rows: list[dict[str, str]] = field(default_factory=list)
+    planned_material_rows: list[dict[str, str]] = field(default_factory=list)
     master_comment: str = ""
     updated_at: str = ""
     filled_by: str = ""
@@ -208,6 +229,8 @@ class InspectionSheetFormData:
         self.recommendations = _clean_multiline(self.recommendations, limit=24_000)
         self.planned_works = _clean_multiline(self.planned_works, limit=24_000)
         self.planned_materials = _clean_multiline(self.planned_materials, limit=24_000)
+        self.planned_work_rows = _clean_table_rows(self.planned_work_rows)
+        self.planned_material_rows = _clean_table_rows(self.planned_material_rows)
         self.master_comment = _clean_multiline(self.master_comment, limit=16_000)
         self.updated_at = _clean_text(self.updated_at, limit=48)
         self.filled_by = _clean_text(self.filled_by, limit=120)
@@ -223,6 +246,8 @@ class InspectionSheetFormData:
             "recommendations": self.recommendations,
             "planned_works": self.planned_works,
             "planned_materials": self.planned_materials,
+            "planned_work_rows": [dict(item) for item in self.planned_work_rows],
+            "planned_material_rows": [dict(item) for item in self.planned_material_rows],
             "master_comment": self.master_comment,
             "updated_at": self.updated_at,
             "filled_by": self.filled_by,

@@ -275,6 +275,20 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <div class="doc-card"><div class="doc-label">Комментарий мастера</div><div class="doc-value">{{inspection_sheet.master_comment_display}}</div></div>
     </div>
   </section>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Перечень необходимых работ</h2>
+    <table class="doc-table"><thead><tr><th class="doc-table__narrow">№</th><th>Наименование</th><th class="doc-table__narrow">Кол-во</th></tr></thead><tbody>
+      {{#inspection_sheet.planned_work_rows}}<tr><td class="doc-table__narrow">{{index}}</td><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td></tr>{{/inspection_sheet.planned_work_rows}}
+      {{^inspection_sheet.planned_work_rows}}<tr><td class="doc-table__empty" colspan="3">Работы не указаны</td></tr>{{/inspection_sheet.planned_work_rows}}
+    </tbody></table>
+  </section>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Перечень необходимых запчастей / материалов</h2>
+    <table class="doc-table"><thead><tr><th class="doc-table__narrow">№</th><th>Наименование</th><th class="doc-table__narrow">Кол-во</th></tr></thead><tbody>
+      {{#inspection_sheet.planned_material_rows}}<tr><td class="doc-table__narrow">{{index}}</td><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td></tr>{{/inspection_sheet.planned_material_rows}}
+      {{^inspection_sheet.planned_material_rows}}<tr><td class="doc-table__empty" colspan="3">Запчасти и материалы не указаны</td></tr>{{/inspection_sheet.planned_material_rows}}
+    </tbody></table>
+  </section>
 </div>
             """,
         ),

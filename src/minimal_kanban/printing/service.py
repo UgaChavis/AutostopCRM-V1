@@ -722,6 +722,14 @@ class PrintModuleService:
                 "note": order.note,
                 "works": [item["name"] for item in [_repair_row_dict(row, section="works", index=index) for index, row in enumerate(order.works)]],
                 "materials": [item["name"] for item in [_repair_row_dict(row, section="materials", index=index) for index, row in enumerate(order.materials)]],
+                "work_rows": [
+                    {"name": item["name"], "quantity": "" if item["quantity_display"] == "вЂ”" else item["quantity_display"]}
+                    for item in [_repair_row_dict(row, section="works", index=index) for index, row in enumerate(order.works)]
+                ],
+                "material_rows": [
+                    {"name": item["name"], "quantity": "" if item["quantity_display"] == "вЂ”" else item["quantity_display"]}
+                    for item in [_repair_row_dict(row, section="materials", index=index) for index, row in enumerate(order.materials)]
+                ],
             },
             "current_form": form.to_dict(),
             "suggested_defaults": self._default_inspection_sheet_form(card, order).to_dict(),
@@ -763,6 +771,8 @@ class PrintModuleService:
             recommendations=self._bullet_lines(order.comment),
             planned_works=self._row_lines(order.works),
             planned_materials=self._row_lines(order.materials),
+            planned_work_rows=self._default_inspection_sheet_table_rows(order.works),
+            planned_material_rows=self._default_inspection_sheet_table_rows(order.materials),
             master_comment=_normalize_multiline(order.note, limit=16_000),
         )
 
@@ -776,12 +786,65 @@ class PrintModuleService:
             parts.append(f"{name} — {quantity} шт." if quantity else name)
         return "\n".join(parts)
 
+    def _default_inspection_sheet_table_rows(self, rows: list[RepairOrderRow]) -> list[dict[str, str]]:
+        items: list[dict[str, str]] = []
+        for row in rows:
+            name = _normalize_text(row.name, limit=240)
+            quantity = _normalize_text(row.quantity, limit=40)
+            if not name and not quantity:
+                continue
+            items.append({"name": name, "quantity": quantity})
+        return items
+
     def _bullet_lines(self, value: Any, fallback_source: Any = "") -> str:
         points = self._bullet_points(value, fallback_source=fallback_source)
         return "\n".join(item["text"] for item in points if item.get("text"))
 
     def _inspection_sheet_list(self, value: Any) -> list[dict[str, str]]:
         return self._bullet_points(value)
+
+    def _inspection_sheet_table_row(self, row: dict[str, Any], *, index: int) -> dict[str, str | int]:
+        name = _normalize_text(row.get("name"), limit=240)
+        quantity = _normalize_text(row.get("quantity"), limit=40)
+        return {
+            "index": index + 1,
+            "name": name or "вЂ”",
+            "quantity": quantity,
+            "quantity_display": quantity or "вЂ”",
+        }
+
+    def _inspection_sheet_table_rows(
+        self,
+        rows_value: Any,
+        *,
+        text_value: Any,
+        fallback_rows: list[dict[str, Any]],
+    ) -> list[dict[str, str | int]]:
+        normalized_rows: list[dict[str, str | int]] = []
+        if isinstance(rows_value, list):
+            for index, item in enumerate(rows_value):
+                if not isinstance(item, dict):
+                    continue
+                row = self._inspection_sheet_table_row(item, index=index)
+                if row["name"] == "вЂ”" and row["quantity_display"] == "вЂ”":
+                    continue
+                normalized_rows.append(row)
+        if normalized_rows:
+            return normalized_rows
+        list_rows = self._inspection_sheet_list(text_value)
+        if list_rows:
+            return [
+                self._inspection_sheet_table_row({"name": item.get("text", ""), "quantity": ""}, index=index)
+                for index, item in enumerate(list_rows)
+            ]
+        return [
+            self._inspection_sheet_table_row(
+                {"name": item.get("name", ""), "quantity": "" if item.get("quantity_display") == "вЂ”" else item.get("quantity_display", "")},
+                index=index,
+            )
+            for index, item in enumerate(fallback_rows)
+            if item.get("name")
+        ]
 
     def _inspection_sheet_missing_fields(self, form: InspectionSheetFormData) -> list[str]:
         missing: list[str] = []
@@ -815,6 +878,16 @@ class PrintModuleService:
         missing_fields = self._missing_fields(card, order, works=works, materials=materials)
         inspection_planned_works = self._inspection_sheet_list(inspection_form.planned_works)
         inspection_planned_materials = self._inspection_sheet_list(inspection_form.planned_materials)
+        inspection_planned_work_rows = self._inspection_sheet_table_rows(
+            inspection_form.planned_work_rows,
+            text_value=inspection_form.planned_works,
+            fallback_rows=works,
+        )
+        inspection_planned_material_rows = self._inspection_sheet_table_rows(
+            inspection_form.planned_material_rows,
+            text_value=inspection_form.planned_materials,
+            fallback_rows=materials,
+        )
         if document.id == "inspection_sheet":
             findings = self._inspection_sheet_list(inspection_form.findings)
             recommendations = self._inspection_sheet_list(inspection_form.recommendations)
@@ -900,8 +973,12 @@ class PrintModuleService:
                 "recommendations": recommendations,
                 "planned_works": inspection_planned_works,
                 "planned_materials": inspection_planned_materials,
+                "planned_work_rows": inspection_planned_work_rows,
+                "planned_material_rows": inspection_planned_material_rows,
                 "planned_works_count": len(inspection_planned_works),
                 "planned_materials_count": len(inspection_planned_materials),
+                "planned_work_rows_count": len(inspection_planned_work_rows),
+                "planned_material_rows_count": len(inspection_planned_material_rows),
                 "master_comment_display": _display(inspection_form.master_comment),
                 "master_comment_html": _line_breaks_html(inspection_form.master_comment),
                 "updated_at_display": _date_display(inspection_form.updated_at),
