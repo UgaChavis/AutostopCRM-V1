@@ -13,7 +13,8 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.models import Card
-from minimal_kanban.printing.service import PrintModuleService
+from minimal_kanban.printing.models import SUPPORTED_PRINT_DOCUMENT_TYPES
+from minimal_kanban.printing.service import PrintModuleError, PrintModuleService
 
 
 def build_card() -> Card:
@@ -69,7 +70,7 @@ class PrintingServiceTests(unittest.TestCase):
         workspace = self.service.workspace(self.card)
 
         self.assertEqual(workspace["card_id"], self.card.id)
-        self.assertEqual(len(workspace["documents"]), 5)
+        self.assertEqual(len(workspace["documents"]), len(SUPPORTED_PRINT_DOCUMENT_TYPES))
         self.assertEqual(workspace["documents"][0]["id"], "repair_order")
         self.assertTrue(workspace["documents"][0]["selected_template_id"].startswith("builtin:repair_order"))
         self.assertIn("repair_order", workspace["templates"])
@@ -92,6 +93,19 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Стоимость заказ-наряда", preview["documents"][1]["pages"][0]["html"])
         self.assertIn("Итого по заказ-наряду", preview["documents"][1]["pages"][0]["html"])
         self.assertEqual(preview["documents"][0]["missing_fields"], [])
+
+    def test_preview_supports_all_builtin_document_types(self) -> None:
+        preview = self.service.preview_documents(
+            self.card,
+            selected_document_ids=list(SUPPORTED_PRINT_DOCUMENT_TYPES),
+            active_document_id="repair_order",
+        )
+
+        self.assertEqual([item["id"] for item in preview["documents"]], list(SUPPORTED_PRINT_DOCUMENT_TYPES))
+        for document in preview["documents"]:
+            self.assertGreaterEqual(document["page_count"], 1)
+            self.assertIn("<!doctype html>", document["pages"][0]["html"].lower())
+            self.assertIn(document["label"], document["pages"][0]["html"])
 
     def test_template_crud_duplicate_default_and_delete(self) -> None:
         saved = self.service.save_template(
@@ -131,6 +145,17 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual(result["printer_name"], "Office Printer")
         self.assertEqual(result["copies"], 2)
         print_backend.assert_called_once()
+
+    def test_print_requires_printer_selection_when_direct_print_requested(self) -> None:
+        with self.assertRaises(PrintModuleError) as context:
+            self.service.print_documents(
+                self.card,
+                selected_document_ids=["repair_order"],
+                printer_name="",
+            )
+
+        self.assertEqual(context.exception.code, "validation_error")
+        self.assertIn("Не выбран принтер", context.exception.message)
 
 
 if __name__ == "__main__":
