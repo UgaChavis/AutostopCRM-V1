@@ -1892,8 +1892,8 @@ BOARD_WEB_APP_HTML = "".join(
         overflow: hidden;
       }
       .dialog--agent {
-        width: min(520px, calc(100% - 20px));
-        max-height: min(82vh, 700px);
+        width: min(496px, calc(100% - 20px));
+        max-height: min(78vh, 660px);
         padding: 0;
         gap: 0;
         overflow: hidden;
@@ -1906,9 +1906,9 @@ BOARD_WEB_APP_HTML = "".join(
       }
       .agent-shell {
         display: grid;
-        gap: 10px;
+        gap: 8px;
         min-height: 0;
-        padding: 12px;
+        padding: 11px;
         overflow: auto;
       }
       .agent-headline {
@@ -1918,33 +1918,52 @@ BOARD_WEB_APP_HTML = "".join(
         align-items: center;
         flex-wrap: wrap;
         font-family: var(--mono);
-        font-size: 11px;
+        font-size: 10px;
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
       .agent-context {
         color: var(--text-soft);
+        max-width: calc(100% - 110px);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .agent-status {
         color: var(--muted);
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+      }
+      .agent-status::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: rgba(129, 138, 123, 0.76);
+        box-shadow: 0 0 0 1px rgba(0,0,0,0.18);
       }
       .agent-status[data-state="online"] { color: var(--accent); }
       .agent-status[data-state="busy"] { color: var(--text); }
       .agent-status[data-state="error"] { color: #e0a19c; }
+      .agent-status[data-state="online"]::before { background: rgba(115, 182, 107, 0.92); }
+      .agent-status[data-state="busy"]::before { background: rgba(214, 175, 55, 0.94); }
+      .agent-status[data-state="error"]::before { background: rgba(207, 91, 75, 0.94); }
       .agent-shortcuts {
         display: flex;
         flex-wrap: wrap;
-        gap: 6px;
+        gap: 4px;
       }
       .agent-shortcut {
-        min-height: 28px;
-        padding: 5px 9px;
+        min-height: 24px;
+        padding: 4px 8px;
         border: 1px solid rgba(116, 126, 106, 0.22);
         background: rgba(0, 0, 0, 0.08);
         color: var(--text-soft);
         cursor: pointer;
         font-family: var(--mono);
-        font-size: 10px;
+        font-size: 9.5px;
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
@@ -1954,8 +1973,8 @@ BOARD_WEB_APP_HTML = "".join(
         background: rgba(167, 178, 132, 0.08);
       }
       .agent-field textarea {
-        min-height: 70px;
-        height: 70px;
+        min-height: 60px;
+        height: 60px;
         resize: vertical;
       }
       .agent-actions-row {
@@ -1963,44 +1982,42 @@ BOARD_WEB_APP_HTML = "".join(
         justify-content: flex-end;
       }
       .agent-actions-row .btn {
-        min-width: 132px;
+        min-width: 124px;
       }
       .agent-result {
-        min-height: 84px;
-        padding: 10px 11px;
+        min-height: 64px;
+        padding: 9px 10px;
         border: 1px solid rgba(116, 126, 106, 0.18);
         background: rgba(0, 0, 0, 0.08);
         white-space: pre-wrap;
-        line-height: 1.45;
+        line-height: 1.4;
       }
       .agent-result[data-state="empty"] {
         color: var(--muted);
       }
+      .agent-result[data-state="error"] {
+        border-color: rgba(151, 92, 83, 0.38);
+        color: #f1d0c7;
+      }
       .agent-runs {
         display: grid;
-        gap: 6px;
-      }
-      .agent-runs__label {
-        color: var(--text-soft);
-        font-family: var(--mono);
-        font-size: 10px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        gap: 4px;
       }
       .agent-runs__list {
         display: grid;
         gap: 4px;
+        padding: 0 10px 10px;
       }
       .agent-run-row {
         width: 100%;
-        padding: 7px 8px;
+        padding: 6px 8px;
         border: 1px solid rgba(116, 126, 106, 0.18);
         background: rgba(0, 0, 0, 0.06);
         color: var(--text);
         cursor: pointer;
         text-align: left;
         display: grid;
-        gap: 3px;
+        gap: 2px;
       }
       .agent-run-row:hover {
         border-color: rgba(167, 178, 132, 0.42);
@@ -2016,7 +2033,7 @@ BOARD_WEB_APP_HTML = "".join(
         gap: 8px;
         align-items: center;
         font-family: var(--mono);
-        font-size: 10px;
+        font-size: 9.5px;
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
@@ -2024,11 +2041,15 @@ BOARD_WEB_APP_HTML = "".join(
         color: var(--text-soft);
       }
       .agent-run-row__summary {
-        line-height: 1.35;
+        line-height: 1.3;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
       }
       .agent-run-row__meta {
         color: var(--muted);
-        font-size: 11px;
+        font-size: 10.5px;
       }
       .agent-details {
         border: 1px solid rgba(116, 126, 106, 0.18);
@@ -2042,6 +2063,9 @@ BOARD_WEB_APP_HTML = "".join(
         letter-spacing: 0.08em;
         text-transform: uppercase;
         color: var(--text-soft);
+      }
+      .agent-details--secondary summary {
+        padding: 7px 10px;
       }
       .agent-actions-list {
         display: grid;
@@ -3879,10 +3903,10 @@ BOARD_WEB_APP_HTML = "".join(
                   + '<button class="btn btn--accent" id="agentRunButton" type="button">ВЫПОЛНИТЬ</button>'
                 + '</div>'
                 + '<div class="agent-result" id="agentResultPanel" data-state="empty">Введите запрос.</div>'
-                + '<div class="agent-runs">'
-                  + '<div class="agent-runs__label">ПОСЛЕДНИЕ ЗАПУСКИ</div>'
+                + '<details class="agent-details agent-details--secondary" id="agentRunsDetails">'
+                  + '<summary>ПОСЛЕДНИЕ ЗАПУСКИ</summary>'
                   + '<div class="agent-runs__list" id="agentRunsList"><div class="cashboxes-empty">Запусков пока нет.</div></div>'
-                + '</div>'
+                + '</details>'
                 + '<details class="agent-details" id="agentDetails">'
                   + '<summary>ДЕЙСТВИЯ</summary>'
                   + '<div class="agent-actions-list" id="agentActionsList"><div class="cashboxes-empty">Действий пока нет.</div></div>'
@@ -3981,6 +4005,7 @@ BOARD_WEB_APP_HTML = "".join(
       agentTaskInput: document.getElementById('agentTaskInput'),
       agentRunButton: document.getElementById('agentRunButton'),
       agentResultPanel: document.getElementById('agentResultPanel'),
+      agentRunsDetails: document.getElementById('agentRunsDetails'),
       agentRunsList: document.getElementById('agentRunsList'),
       agentActionsList: document.getElementById('agentActionsList'),
       agentDetails: document.getElementById('agentDetails'),
@@ -4521,21 +4546,47 @@ BOARD_WEB_APP_HTML = "".join(
       ];
     }
 
+    function summarizeAgentText(value, maxLength = 140) {
+      const text = String(value || '').replace(/\\s+/g, ' ').trim();
+      if (!text) return '';
+      if (text.length <= maxLength) return text;
+      return text.slice(0, Math.max(0, maxLength - 1)).trimEnd() + '…';
+    }
+
+    function formatAgentErrorMessage(rawValue) {
+      const raw = String(rawValue || '').trim();
+      if (!raw) return 'Агент завершил задачу с ошибкой.';
+      const normalized = raw.toLowerCase();
+      if (normalized.includes('unsupported_country_region_territory')) {
+        return 'OpenAI API недоступен из текущего региона сервера.';
+      }
+      if (normalized.includes('http 403')) {
+        return 'Внешний сервис отклонил запрос агента (403).';
+      }
+      if (normalized.includes('timed out') || normalized.includes('timeout')) {
+        return 'Агент не дождался ответа внешнего сервиса.';
+      }
+      if (normalized.includes('network') || normalized.includes('connection')) {
+        return 'Ошибка сетевого доступа у агента.';
+      }
+      return summarizeAgentText(raw, 220);
+    }
+
     function renderAgentStatus(statusPayload) {
       const payload = statusPayload && typeof statusPayload === 'object' ? statusPayload : {};
       const status = payload.status && typeof payload.status === 'object' ? payload.status : {};
       const queue = payload.queue && typeof payload.queue === 'object' ? payload.queue : {};
-      let stateLabel = 'OFFLINE';
+      let stateLabel = 'ОФЛАЙН';
       let stateValue = 'idle';
       if (payload.agent?.enabled) {
-        stateLabel = 'ONLINE';
+        stateLabel = 'ГОТОВ';
         stateValue = 'online';
       }
       if (status.running) {
-        stateLabel = 'ВЫПОЛНЯЕТ';
+        stateLabel = 'В РАБОТЕ';
         stateValue = 'busy';
       } else if (status.last_error) {
-        stateLabel = 'ОШИБКА';
+        stateLabel = 'СБОЙ';
         stateValue = 'error';
       }
       if (els.agentStatusLabel) {
@@ -4587,16 +4638,23 @@ BOARD_WEB_APP_HTML = "".join(
       const filtered = cardId
         ? items.filter((item) => String(item?.metadata?.context?.card_id || '').trim() === cardId)
         : items;
-      const visible = (filtered.length ? filtered : items).slice(0, 4);
+      const visible = (filtered.length ? filtered : items).slice(0, 2);
       if (!visible.length) {
         els.agentRunsList.innerHTML = '<div class="cashboxes-empty">Запусков пока нет.</div>';
+        if (els.agentRunsDetails) els.agentRunsDetails.open = false;
         return;
       }
+      if (els.agentRunsDetails) els.agentRunsDetails.open = false;
       els.agentRunsList.innerHTML = visible.map((item) => {
         const taskId = String(item?.task_id || '').trim();
         const status = String(item?.status || '').trim().toLowerCase();
         const statusLabel = status === 'completed' ? 'ГОТОВО' : (status === 'failed' ? 'ОШИБКА' : (status === 'running' ? 'В РАБОТЕ' : 'ОЖИДАЕТ'));
-        const summary = String(item?.summary || item?.task_text || 'Запуск агента').trim();
+        const summarySource = status === 'failed'
+          ? String(item?.error || item?.summary || item?.task_text || 'Запуск агента').trim()
+          : String(item?.summary || item?.task_text || 'Запуск агента').trim();
+        const summary = status === 'failed'
+          ? formatAgentErrorMessage(summarySource)
+          : summarizeAgentText(summarySource, 96);
         const meta = [formatDate(item?.finished_at || item?.started_at || ''), String(item?.model || '').trim()].filter(Boolean).join(' · ');
         return '<button class="agent-run-row" type="button" data-agent-task-id="' + escapeHtml(taskId) + '" data-active="' + String(taskId && taskId === state.agentTaskId) + '">'
           + '<div class="agent-run-row__top"><span class="agent-run-row__status">' + escapeHtml(statusLabel) + '</span><span>' + escapeHtml(taskId || 'RUN') + '</span></div>'
@@ -4622,8 +4680,8 @@ BOARD_WEB_APP_HTML = "".join(
         return;
       }
       if (status === 'failed') {
-        els.agentResultPanel.dataset.state = 'active';
-        els.agentResultPanel.textContent = String(task.error || 'Агент завершил задачу с ошибкой.');
+        els.agentResultPanel.dataset.state = 'error';
+        els.agentResultPanel.textContent = formatAgentErrorMessage(task.error || 'Агент завершил задачу с ошибкой.');
         return;
       }
       const summary = String(task.summary || '').trim();
@@ -4696,8 +4754,8 @@ BOARD_WEB_APP_HTML = "".join(
       } catch (error) {
         renderAgentStatus({ agent: { enabled: false }, status: { running: false, last_error: error.message }, queue: { pending_total: 0 } });
         if (els.agentResultPanel) {
-          els.agentResultPanel.dataset.state = 'active';
-          els.agentResultPanel.textContent = error.message;
+          els.agentResultPanel.dataset.state = 'error';
+          els.agentResultPanel.textContent = formatAgentErrorMessage(error.message);
         }
         scheduleAgentRefresh(5000);
       }
@@ -4716,10 +4774,11 @@ BOARD_WEB_APP_HTML = "".join(
       }
       if (els.agentResultPanel) {
         els.agentResultPanel.dataset.state = 'empty';
-        els.agentResultPanel.textContent = 'Введите запрос.';
+        els.agentResultPanel.textContent = 'Короткий запрос по доске или этой карточке.';
       }
       renderAgentActions([]);
       renderAgentRuns([]);
+      if (els.agentRunsDetails) els.agentRunsDetails.open = false;
       if (els.agentDetails) els.agentDetails.open = false;
       els.agentModal.classList.add('is-open');
       refreshAgentModalState();
@@ -4765,8 +4824,8 @@ BOARD_WEB_APP_HTML = "".join(
         refreshAgentModalState();
       } catch (error) {
         if (els.agentResultPanel) {
-          els.agentResultPanel.dataset.state = 'active';
-          els.agentResultPanel.textContent = error.message;
+          els.agentResultPanel.dataset.state = 'error';
+          els.agentResultPanel.textContent = formatAgentErrorMessage(error.message);
         }
         setStatus(error.message, true);
       }
