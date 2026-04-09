@@ -195,6 +195,56 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(summary["base_salary"], "50000")
         self.assertEqual(summary["total_salary"], "51500")
 
+    def test_reopening_repair_order_clears_employee_salary_snapshot(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Иван Мастер",
+                "position": "Механик",
+                "salary_mode": "salary_plus_percent",
+                "base_salary": "50000",
+                "work_percent": "30",
+            }
+        )["employee"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Mitsubishi L200",
+                "title": "Снятие начисления",
+                "description": "Проверка повторного открытия",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "28",
+                    "status": "open",
+                    "client": "Витя Покровский",
+                    "vehicle": "Mitsubishi L200",
+                    "works": [
+                        {
+                            "name": "Диагностика",
+                            "quantity": "1",
+                            "price": "5000",
+                            "executor_id": employee["id"],
+                        }
+                    ],
+                },
+            }
+        )
+
+        closed = self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+        self.assertEqual(closed["repair_order"]["works"][0]["salary_amount"], "1500")
+
+        reopened = self.service.set_repair_order_status({"card_id": card_id, "status": "open"})
+        reopened_row = reopened["repair_order"]["works"][0]
+        self.assertEqual(reopened_row["salary_mode_snapshot"], "")
+        self.assertEqual(reopened_row["base_salary_snapshot"], "")
+        self.assertEqual(reopened_row["work_percent_snapshot"], "")
+        self.assertEqual(reopened_row["salary_amount"], "")
+        self.assertEqual(reopened_row["salary_accrued_at"], "")
+
     def test_supports_large_card_description(self) -> None:
         large_description = "А" * 12000
 

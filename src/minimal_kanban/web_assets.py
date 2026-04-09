@@ -3175,7 +3175,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .employees-layout {
       display: grid;
-      grid-template-columns: 268px minmax(0, 1fr);
+      grid-template-columns: 228px minmax(0, 1fr);
       gap: 14px;
       min-height: 620px;
     }
@@ -3194,10 +3194,10 @@ BOARD_WEB_APP_HTML = "".join(
     .employees-row {
       border: 1px solid var(--line);
       background: rgba(21, 29, 23, 0.68);
-      padding: 9px 11px;
+      padding: 8px 10px;
       cursor: pointer;
       display: grid;
-      gap: 3px;
+      gap: 4px;
       text-align: left;
     }
     .employees-row.is-active {
@@ -3205,14 +3205,32 @@ BOARD_WEB_APP_HTML = "".join(
       background: rgba(38, 48, 40, 0.92);
       box-shadow: inset 0 0 0 1px rgba(182, 177, 116, 0.16);
     }
+    .employees-row__top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
     .employees-row__title {
       font-size: 14px;
       font-weight: 700;
+    }
+    .employees-row__state {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(231, 226, 193, 0.64);
+      white-space: nowrap;
     }
     .employees-row__meta {
       font-size: 11px;
       opacity: 0.78;
       line-height: 1.35;
+    }
+    .employees-row__comp {
+      font-size: 11px;
+      color: rgba(231, 226, 193, 0.86);
+      line-height: 1.3;
     }
     .employees-actions {
       display: flex;
@@ -3221,13 +3239,27 @@ BOARD_WEB_APP_HTML = "".join(
       justify-content: space-between;
       flex-wrap: wrap;
     }
+    .employees-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .employees-card-mode {
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(231, 226, 193, 0.68);
+    }
     .employees-form-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px 12px;
     }
     .employees-form-grid .field--secondary {
-      opacity: 0.88;
+      opacity: 0.72;
     }
     .employees-form-grid .field--wide {
       grid-column: 1 / -1;
@@ -3257,6 +3289,9 @@ BOARD_WEB_APP_HTML = "".join(
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 8px;
       margin-top: 12px;
+    }
+    .employees-summary-strip:empty {
+      display: none;
     }
     .employees-kpi {
       display: grid;
@@ -4192,7 +4227,7 @@ BOARD_WEB_APP_HTML = "".join(
                 + '</div>'
                 + '<div class="employees-pane">'
                   + '<div class="subpanel">'
-                    + '<div class="panel-title">КАРТОЧКА</div>'
+                    + '<div class="employees-card-head"><div class="panel-title">КАРТОЧКА</div><div class="employees-card-mode" id="employeesCardMode">НОВЫЙ СОТРУДНИК</div></div>'
                     + '<div class="employees-form-grid">'
                       + '<div class="field"><label for="employeeNameInput">ИМЯ</label><input id="employeeNameInput" type="text" maxlength="80"></div>'
                       + '<div class="field"><label for="employeePositionInput">ДОЛЖНОСТЬ</label><input id="employeePositionInput" type="text" maxlength="80"></div>'
@@ -4213,7 +4248,7 @@ BOARD_WEB_APP_HTML = "".join(
                   + '</div>'
                   + '<div class="subpanel">'
                     + '<div class="employees-panel-head"><div class="panel-title">НАЧИСЛЕНИЯ</div><input class="repair-orders-search" id="employeesMonthInput" type="month"></div>'
-                    + '<div class="employees-table-wrap"><table class="employees-table"><thead><tr><th>СОТРУДНИК</th><th>ДОЛЖНОСТЬ</th><th class="is-num">РАБОТ</th><th class="is-num">ПО РАБОТАМ</th><th class="is-num">ОКЛАД</th><th class="is-num">ИТОГ</th></tr></thead><tbody id="employeesSummaryTable"></tbody></table></div>'
+                    + '<div class="employees-table-wrap"><table class="employees-table"><thead><tr><th>СОТРУДНИК</th><th>ДОЛЖНОСТЬ</th><th class="is-num">КОЛ-ВО</th><th class="is-num">НАЧИСЛЕНО %</th><th class="is-num">ОКЛАД</th><th class="is-num">ИТОГ</th></tr></thead><tbody id="employeesSummaryTable"></tbody></table></div>'
                   + '</div>'
                   + '<div class="subpanel">'
                     + '<div class="panel-title">СТРОКИ</div>'
@@ -4283,6 +4318,7 @@ BOARD_WEB_APP_HTML = "".join(
       cashboxesModal: document.getElementById('cashboxesModal'),
       employeesModal: document.getElementById('employeesModal'),
       employeesList: document.getElementById('employeesList'),
+      employeesCardMode: document.getElementById('employeesCardMode'),
       employeesMonthInput: document.getElementById('employeesMonthInput'),
       employeesMeta: document.getElementById('employeesMeta'),
       employeesSummaryStrip: document.getElementById('employeesSummaryStrip'),
@@ -4823,6 +4859,9 @@ BOARD_WEB_APP_HTML = "".join(
 
     function fillEmployeeForm(employee) {
       const current = employee || null;
+      if (els.employeesCardMode) {
+        els.employeesCardMode.textContent = current ? String(current.name || 'СОТРУДНИК').toUpperCase() : 'НОВЫЙ СОТРУДНИК';
+      }
       els.employeeNameInput.value = current?.name || '';
       els.employeePositionInput.value = current?.position || '';
       els.employeeSalaryModeInput.value = current?.salary_mode || 'salary_plus_percent';
@@ -4853,22 +4892,30 @@ BOARD_WEB_APP_HTML = "".join(
     function renderEmployeesList() {
       const employees = Array.isArray(state.employees) ? state.employees : [];
       if (!employees.length) {
-        els.employeesList.innerHTML = '<div class="cashboxes-empty">Сотрудников пока нет.</div>';
+        els.employeesList.innerHTML = '<div class="cashboxes-empty">Нет сотрудников.</div>';
         return;
       }
-      els.employeesList.innerHTML = employees.map((employee) => {
+      const orderedEmployees = employees.slice().sort((left, right) => {
+        const leftActive = left?.is_active ? 1 : 0;
+        const rightActive = right?.is_active ? 1 : 0;
+        if (leftActive !== rightActive) return rightActive - leftActive;
+        return String(left?.name || '').localeCompare(String(right?.name || ''), 'ru');
+      });
+      els.employeesList.innerHTML = orderedEmployees.map((employee) => {
         const isActive = employee.id === state.activeEmployeeId;
         const modeLabel = employee.salary_mode === 'salary_only'
           ? 'ОКЛАД'
           : (employee.salary_mode === 'percent_only' ? '% ОТ РАБОТ' : 'ОКЛАД + %');
-        const meta = [
-          employee.position || 'Без должности',
+        const comp = [
           employee.base_salary ? ('Оклад ' + employee.base_salary) : '',
           employee.work_percent ? (employee.work_percent + '%') : '',
           modeLabel,
-          employee.is_active ? '' : 'Отключен',
         ].filter(Boolean).join(' · ');
-        return '<button class="employees-row' + (isActive ? ' is-active' : '') + '" type="button" data-employee-id="' + escapeHtml(employee.id) + '"><div class="employees-row__title">' + escapeHtml(employee.name) + '</div><div class="employees-row__meta">' + escapeHtml(meta) + '</div></button>';
+        return '<button class="employees-row' + (isActive ? ' is-active' : '') + '" type="button" data-employee-id="' + escapeHtml(employee.id) + '">'
+          + '<div class="employees-row__top"><div class="employees-row__title">' + escapeHtml(employee.name) + '</div><div class="employees-row__state">' + (employee.is_active ? 'АКТИВЕН' : 'ВЫКЛ') + '</div></div>'
+          + '<div class="employees-row__meta">' + escapeHtml(employee.position || 'Без должности') + '</div>'
+          + '<div class="employees-row__comp">' + escapeHtml(comp || modeLabel) + '</div>'
+          + '</button>';
       }).join('');
     }
 
@@ -4895,19 +4942,16 @@ BOARD_WEB_APP_HTML = "".join(
       const rows = Array.isArray(state.payrollReport?.summary) ? state.payrollReport.summary : [];
       const selectedSummary = rows.find((item) => String(item.employee_id || '') === String(state.activeEmployeeId || '')) || null;
       const selectedEmployee = selectedEmployeeRecord();
-      const kpis = selectedSummary
-        ? [
-            { label: 'ОКЛАД', value: selectedSummary.base_salary || '0' },
-            { label: '%', value: selectedEmployee?.work_percent || '0' },
-            { label: 'РАБОТ', value: selectedSummary.works_count || '0' },
-            { label: 'ИТОГ', value: selectedSummary.total_salary || '0' },
-          ]
-        : [
-            { label: 'ОКЛАД', value: '—' },
-            { label: '%', value: '—' },
-            { label: 'РАБОТ', value: '—' },
-            { label: 'ИТОГ', value: '—' },
-          ];
+      if (!selectedSummary) {
+        els.employeesSummaryStrip.innerHTML = '';
+        return;
+      }
+      const kpis = [
+        { label: 'ОКЛАД', value: selectedSummary.base_salary || '0' },
+        { label: '%', value: selectedEmployee?.work_percent || '0' },
+        { label: 'КОЛ-ВО', value: selectedSummary.works_count || '0' },
+        { label: 'ИТОГ', value: selectedSummary.total_salary || '0' },
+      ];
       els.employeesSummaryStrip.innerHTML = kpis.map((item) => (
         '<div class="employees-kpi"><div class="employees-kpi__label">' + escapeHtml(item.label) + '</div><div class="employees-kpi__value">' + escapeHtml(item.value) + '</div></div>'
       )).join('');
@@ -4953,7 +4997,7 @@ BOARD_WEB_APP_HTML = "".join(
       const selectedSummary = summaryRows.find((item) => item.employee_id === state.activeEmployeeId) || null;
       els.employeesMeta.textContent = selectedSummary
         ? ('МЕСЯЦ ' + (state.payrollMonth || currentPayrollMonthValue()) + ' · ИТОГ ' + (selectedSummary.total_salary || '0'))
-        : ('МЕСЯЦ ' + (state.payrollMonth || currentPayrollMonthValue()));
+        : (selectedEmployeeRecord() ? 'СОХРАНЕНИЕ' : 'НОВЫЙ СОТРУДНИК');
     }
 
     async function loadEmployeesReference() {

@@ -3078,7 +3078,29 @@ class CardService:
 
     def _apply_repair_order_payroll_snapshot(self, order: RepairOrder, settings: dict[str, Any]) -> RepairOrder:
         if order.status != REPAIR_ORDER_STATUS_CLOSED:
-            return order
+            next_rows: list[dict[str, str]] = []
+            changed = False
+            for source_row in order.works:
+                row = RepairOrderRow.from_dict(source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row)
+                if any(
+                    [
+                        row.salary_mode_snapshot,
+                        row.base_salary_snapshot,
+                        row.work_percent_snapshot,
+                        row.salary_amount,
+                        row.salary_accrued_at,
+                    ]
+                ):
+                    changed = True
+                row.salary_mode_snapshot = ""
+                row.base_salary_snapshot = ""
+                row.work_percent_snapshot = ""
+                row.salary_amount = ""
+                row.salary_accrued_at = ""
+                next_rows.append(row.to_dict())
+            if not changed:
+                return order
+            return RepairOrder.from_dict({**order.to_storage_dict(), "works": next_rows})
         employees_by_id = {item["id"]: item for item in self._employees_from_settings(settings)}
         next_rows: list[dict[str, str]] = []
         accrued_at = order.closed_at or self._repair_order_now()

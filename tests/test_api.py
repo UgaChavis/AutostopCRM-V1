@@ -880,6 +880,12 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(any(item["employee_id"] == employee_id for item in report["data"]["summary"]))
 
+        status, reopened = self.request("/api/set_repair_order_status", {"card_id": card_id, "status": "open"})
+        self.assertEqual(status, 200)
+        reopened_row = reopened["data"]["repair_order"]["works"][0]
+        self.assertEqual(reopened_row["salary_amount"], "")
+        self.assertEqual(reopened_row["salary_accrued_at"], "")
+
     def test_rename_column_route_updates_label_and_preserves_id(self) -> None:
         status, created_column = self.request("/api/create_column", {"label": "OLD LABEL"})
         self.assertEqual(status, 200)
