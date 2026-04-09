@@ -1996,7 +1996,7 @@ BOARD_WEB_APP_HTML = "".join(
         padding: 11px 12px;
         border: 1px solid rgba(116, 126, 106, 0.18);
         background: rgba(0, 0, 0, 0.08);
-        white-space: pre-wrap;
+        white-space: normal;
         line-height: 1.5;
         overflow: auto;
       }
@@ -2006,6 +2006,92 @@ BOARD_WEB_APP_HTML = "".join(
       .agent-result[data-state="error"] {
         border-color: rgba(151, 92, 83, 0.38);
         color: #f1d0c7;
+      }
+      .agent-result[data-tone="warning"] {
+        border-color: rgba(167, 146, 92, 0.34);
+      }
+      .agent-result[data-tone="error"] {
+        border-color: rgba(151, 92, 83, 0.38);
+      }
+      .agent-result[data-tone="success"] {
+        border-color: rgba(116, 146, 106, 0.26);
+      }
+      .agent-result__fallback {
+        white-space: pre-wrap;
+      }
+      .agent-result__hero {
+        display: grid;
+        gap: 6px;
+      }
+      .agent-result__hero-line {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      .agent-result__emoji {
+        font-size: 18px;
+        line-height: 1.1;
+      }
+      .agent-result__title {
+        font-size: 17px;
+        line-height: 1.2;
+        font-weight: 700;
+      }
+      .agent-result__summary {
+        color: var(--text-soft);
+      }
+      .agent-result__sections {
+        display: grid;
+        gap: 12px;
+        margin-top: 12px;
+      }
+      .agent-result__section {
+        display: grid;
+        gap: 6px;
+      }
+      .agent-result__section-title {
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-soft);
+      }
+      .agent-result__section-body {
+        color: var(--text);
+      }
+      .agent-result__list {
+        display: grid;
+        gap: 5px;
+        margin: 0;
+        padding: 0 0 0 18px;
+      }
+      .agent-result__list li::marker {
+        color: rgba(167, 178, 132, 0.92);
+      }
+      .agent-result__actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 14px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(116, 126, 106, 0.16);
+      }
+      .agent-result__action {
+        min-height: 24px;
+        padding: 4px 8px;
+        border: 1px solid rgba(116, 126, 106, 0.22);
+        background: rgba(0, 0, 0, 0.08);
+        color: var(--text-soft);
+        cursor: pointer;
+        font-family: var(--mono);
+        font-size: 9.5px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .agent-result__action:hover {
+        color: var(--text);
+        border-color: rgba(167, 178, 132, 0.42);
+        background: rgba(167, 178, 132, 0.08);
       }
       .agent-runs {
         display: grid;
@@ -4580,6 +4666,102 @@ BOARD_WEB_APP_HTML = "".join(
       return summarizeAgentText(raw, 220);
     }
 
+    function normalizeAgentDisplay(task) {
+      const rawDisplay = task?.display && typeof task.display === 'object' ? task.display : {};
+      const title = String(rawDisplay.title || task?.summary || '').trim();
+      const summary = String(rawDisplay.summary || '').trim();
+      const emoji = String(rawDisplay.emoji || '').trim().slice(0, 6);
+      const tone = String(rawDisplay.tone || '').trim().toLowerCase();
+      const sections = Array.isArray(rawDisplay.sections) ? rawDisplay.sections : [];
+      const actions = Array.isArray(rawDisplay.actions) ? rawDisplay.actions : [];
+      if (title || summary || sections.length || actions.length) {
+        return {
+          emoji,
+          title,
+          summary,
+          tone: ['info', 'success', 'warning', 'error'].includes(tone) ? tone : 'success',
+          sections: sections
+            .filter((item) => item && typeof item === 'object')
+            .map((item) => ({
+              title: String(item.title || '').trim(),
+              body: String(item.body || '').trim(),
+              items: Array.isArray(item.items)
+                ? item.items.map((entry) => String(entry || '').trim()).filter(Boolean)
+                : [],
+            }))
+            .filter((item) => item.title || item.body || item.items.length),
+          actions: actions.map((item) => String(item || '').trim()).filter(Boolean),
+        };
+      }
+      const summaryText = String(task?.summary || '').trim();
+      const resultText = String(task?.result || '').trim();
+      const blocks = resultText ? resultText.split(/\\n\\s*\\n/).map((item) => item.trim()).filter(Boolean) : [];
+      const lead = blocks.length ? blocks.shift() : resultText;
+      const parsedSections = blocks.map((block) => {
+        const lines = block.split('\\n').map((item) => item.trim()).filter(Boolean);
+        if (!lines.length) return null;
+        const titleLine = lines[0].endsWith(':') ? lines[0].slice(0, -1).trim() : '';
+        const bulletLines = lines
+          .filter((line) => /^[-•]/.test(line))
+          .map((line) => line.replace(/^[-•]\\s*/, '').trim())
+          .filter(Boolean);
+        const bodyLines = titleLine
+          ? lines.slice(1).filter((line) => !/^[-•]/.test(line))
+          : lines.filter((line) => !/^[-•]/.test(line));
+        if (!titleLine && !bulletLines.length) return { title: '', body: lines.join(' '), items: [] };
+        return {
+          title: titleLine,
+          body: bodyLines.join(' ').trim(),
+          items: bulletLines,
+        };
+      }).filter(Boolean);
+      return {
+        emoji: '',
+        title: summaryText,
+        summary: lead,
+        tone: 'success',
+        sections: parsedSections,
+        actions: [],
+      };
+    }
+
+    function renderAgentDisplay(display) {
+      const payload = display && typeof display === 'object' ? display : {};
+      const title = String(payload.title || '').trim();
+      const summary = String(payload.summary || '').trim();
+      const emoji = String(payload.emoji || '').trim();
+      const sections = Array.isArray(payload.sections) ? payload.sections : [];
+      const actions = Array.isArray(payload.actions) ? payload.actions : [];
+      const hero = (emoji || title || summary)
+        ? '<div class="agent-result__hero">'
+          + ((emoji || title)
+            ? '<div class="agent-result__hero-line">'
+              + (emoji ? '<div class="agent-result__emoji">' + escapeHtml(emoji) + '</div>' : '')
+              + (title ? '<div class="agent-result__title">' + escapeHtml(title) + '</div>' : '')
+              + '</div>'
+            : '')
+          + (summary ? '<div class="agent-result__summary">' + escapeHtml(summary) + '</div>' : '')
+          + '</div>'
+        : '';
+      const sectionsHtml = sections.length
+        ? '<div class="agent-result__sections">' + sections.map((section) =>
+            '<section class="agent-result__section">'
+              + (section.title ? '<div class="agent-result__section-title">' + escapeHtml(section.title) + '</div>' : '')
+              + (section.body ? '<div class="agent-result__section-body">' + escapeHtml(section.body) + '</div>' : '')
+              + (Array.isArray(section.items) && section.items.length
+                ? '<ul class="agent-result__list">' + section.items.map((item) => '<li>' + escapeHtml(item) + '</li>').join('') + '</ul>'
+                : '')
+              + '</section>'
+          ).join('') + '</div>'
+        : '';
+      const actionsHtml = actions.length
+        ? '<div class="agent-result__actions">' + actions.map((item) =>
+            '<button class="agent-result__action" type="button" data-agent-follow-up="' + escapeHtml(item) + '">' + escapeHtml(item) + '</button>'
+          ).join('') + '</div>'
+        : '';
+      return hero + sectionsHtml + actionsHtml;
+    }
+
     function renderAgentStatus(statusPayload) {
       const payload = statusPayload && typeof statusPayload === 'object' ? statusPayload : {};
       const status = payload.status && typeof payload.status === 'object' ? payload.status : {};
@@ -4686,6 +4868,7 @@ BOARD_WEB_APP_HTML = "".join(
       if (!task) {
         els.agentResultPanel.dataset.state = 'empty';
         els.agentResultPanel.textContent = 'Введите запрос.';
+        delete els.agentResultPanel.dataset.tone;
         renderAgentActions([]);
         if (els.agentDetails) els.agentDetails.open = false;
         return;
@@ -4694,21 +4877,37 @@ BOARD_WEB_APP_HTML = "".join(
       if (status === 'running' || status === 'pending') {
         els.agentResultPanel.dataset.state = 'active';
         els.agentResultPanel.textContent = 'Задача принята и выполняется.';
+        delete els.agentResultPanel.dataset.tone;
         renderAgentActions([]);
         if (els.agentDetails) els.agentDetails.open = false;
         return;
       }
       if (status === 'failed') {
         els.agentResultPanel.dataset.state = 'error';
-        els.agentResultPanel.textContent = formatAgentErrorMessage(task.error || 'Агент завершил задачу с ошибкой.');
+        els.agentResultPanel.dataset.tone = 'error';
+        els.agentResultPanel.innerHTML = '<div class="agent-result__fallback">' + escapeHtml(formatAgentErrorMessage(task.error || 'Агент завершил задачу с ошибкой.')) + '</div>';
         renderAgentActions([]);
         if (els.agentDetails) els.agentDetails.open = false;
         return;
       }
       const summary = String(task.summary || '').trim();
       const result = String(task.result || '').trim();
+      const display = normalizeAgentDisplay(task);
       els.agentResultPanel.dataset.state = summary || result ? 'filled' : 'empty';
-      els.agentResultPanel.textContent = [summary, result].filter(Boolean).join('\\n\\n') || 'Ответ агента пока пуст.';
+      els.agentResultPanel.dataset.tone = display.tone || 'success';
+      els.agentResultPanel.innerHTML = (display.title || display.summary || display.sections.length || display.actions.length)
+        ? renderAgentDisplay(display)
+        : '<div class="agent-result__fallback">' + escapeHtml([summary, result].filter(Boolean).join('\\n\\n') || 'Ответ агента пока пуст.') + '</div>';
+    }
+
+    function handleAgentResultActionClick(event) {
+      const button = event.target.closest('[data-agent-follow-up]');
+      if (!button || !els.agentTaskInput) return;
+      const followUp = String(button.dataset.agentFollowUp || '').trim();
+      if (!followUp) return;
+      els.agentTaskInput.value = followUp;
+      syncAgentTaskInputHeight();
+      els.agentTaskInput.focus();
     }
 
     function selectAgentTask(tasks) {
@@ -4786,7 +4985,8 @@ BOARD_WEB_APP_HTML = "".join(
         renderAgentStatus({ agent: { enabled: false }, status: { running: false, last_error: error.message }, queue: { pending_total: 0 } });
         if (els.agentResultPanel) {
           els.agentResultPanel.dataset.state = 'error';
-          els.agentResultPanel.textContent = formatAgentErrorMessage(error.message);
+          els.agentResultPanel.dataset.tone = 'error';
+          els.agentResultPanel.innerHTML = '<div class="agent-result__fallback">' + escapeHtml(formatAgentErrorMessage(error.message)) + '</div>';
         }
         scheduleAgentRefresh(5000);
       }
@@ -4805,6 +5005,7 @@ BOARD_WEB_APP_HTML = "".join(
       }
       if (els.agentResultPanel) {
         els.agentResultPanel.dataset.state = 'empty';
+        delete els.agentResultPanel.dataset.tone;
         els.agentResultPanel.textContent = 'Короткий запрос по доске или этой карточке.';
       }
       renderAgentActions([]);
@@ -4852,6 +5053,7 @@ BOARD_WEB_APP_HTML = "".join(
         state.agentTaskStatus = String(data?.task?.status || '');
         if (els.agentResultPanel) {
           els.agentResultPanel.dataset.state = 'active';
+          delete els.agentResultPanel.dataset.tone;
           els.agentResultPanel.textContent = 'Задача принята и выполняется.';
         }
         if (els.agentDetails) els.agentDetails.open = false;
@@ -4859,7 +5061,8 @@ BOARD_WEB_APP_HTML = "".join(
       } catch (error) {
         if (els.agentResultPanel) {
           els.agentResultPanel.dataset.state = 'error';
-          els.agentResultPanel.textContent = formatAgentErrorMessage(error.message);
+          els.agentResultPanel.dataset.tone = 'error';
+          els.agentResultPanel.innerHTML = '<div class="agent-result__fallback">' + escapeHtml(formatAgentErrorMessage(error.message)) + '</div>';
         }
         setStatus(error.message, true);
       }
@@ -9157,6 +9360,7 @@ function renderCompactArchiveRows(cards) {
     els.repairOrdersList.addEventListener('keydown', handleRepairOrdersListKeydown);
     els.stickyModal.addEventListener('click', handleStickyModalOverlayClick);
     els.agentModal.addEventListener('click', handleAgentModalOverlayClick);
+    els.agentResultPanel?.addEventListener('click', handleAgentResultActionClick);
     els.repairOrderModal.addEventListener('click', handleRepairOrderModalOverlayClick);
     els.repairOrderPaymentsModal.addEventListener('click', handleRepairOrderPaymentsModalOverlayClick);
     els.operatorProfileModal.addEventListener('click', handleOperatorProfileModalOverlayClick);

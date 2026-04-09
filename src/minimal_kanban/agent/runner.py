@@ -64,12 +64,13 @@ class AgentRunner:
         tool_calls = 0
         started_at = utc_now_iso()
         try:
-            summary, result, tool_calls = self._execute_task(task, run_id=run_id)
+            summary, result, display, tool_calls = self._execute_task(task, run_id=run_id)
             completed = self._storage.complete_task(
                 task_id=task["id"],
                 run_id=run_id,
                 summary=summary,
                 result=result,
+                display=display,
                 tool_calls=tool_calls,
             )
             self._storage.append_run(
@@ -84,6 +85,7 @@ class AgentRunner:
                     "task_text": task["task_text"],
                     "summary": summary,
                     "result": result,
+                    "display": display,
                     "tool_calls": tool_calls,
                     "model": self._model_client.model,
                     "metadata": task.get("metadata", {}),
@@ -135,7 +137,7 @@ class AgentRunner:
             self._logger.exception("agent_task_failed task_id=%s run_id=%s error=%s", task["id"], run_id, exc)
             return True
 
-    def _execute_task(self, task: dict[str, Any], *, run_id: str) -> tuple[str, str, int]:
+    def _execute_task(self, task: dict[str, Any], *, run_id: str) -> tuple[str, str, dict[str, Any], int]:
         prompt_override = self._storage.read_prompt_text().strip()
         memory_text = self._storage.read_memory_text().strip()
         system_prompt = DEFAULT_SYSTEM_PROMPT
@@ -159,7 +161,8 @@ class AgentRunner:
             if decision_type == "final":
                 summary = str(decision.get("summary", "") or "").strip() or "Task completed."
                 result = str(decision.get("result", "") or "").strip() or summary
-                return summary, result, tool_calls
+                display = self._normalize_display_payload(decision, summary=summary, result=result)
+                return summary, result, display, tool_calls
             if decision_type != "tool":
                 raise AgentModelError("Agent model returned neither a tool call nor a final answer.")
             tool_name = str(decision.get("tool", "") or "").strip()
@@ -201,6 +204,75 @@ class AgentRunner:
                 }
             )
         raise AgentModelError(f"Agent exceeded max steps ({self._max_steps}) without returning a final answer.")
+
+    def _normalize_display_payload(
+        self,
+        decision: dict[str, Any],
+        *,
+        summary: str,
+        result: str,
+    ) -> dict[str, Any]:
+        raw_display = decision.get("display")
+        payload = raw_display if isinstance(raw_display, dict) else {}
+
+        def _clean_text(value: Any, *, limit: int = 400) -> str:
+            text = str(value or "").strip()
+            if not text:
+                return ""
+            return text[:limit].strip()
+
+        def _clean_items(value: Any) -> list[str]:
+            if not isinstance(value, list):
+                return []
+            items: list[str] = []
+            for entry in value:
+                text = _clean_text(entry, limit=220)
+                if text:
+                    items.append(text)
+                if len(items) >= 8:
+                    break
+            return items
+
+        sections: list[dict[str, Any]] = []
+        if isinstance(payload.get("sections"), list):
+            for entry in payload["sections"]:
+                if not isinstance(entry, dict):
+                    continue
+                section = {
+                    "title": _clean_text(entry.get("title"), limit=72),
+                    "body": _clean_text(entry.get("body"), limit=500),
+                    "items": _clean_items(entry.get("items")),
+                }
+                if section["title"] or section["body"] or section["items"]:
+                    sections.append(section)
+                if len(sections) >= 6:
+                    break
+
+        emoji = _clean_text(payload.get("emoji"), limit=6)
+        title = _clean_text(payload.get("title"), limit=96) or _clean_text(summary, limit=96)
+        lead = _clean_text(payload.get("summary"), limit=320)
+        tone = _clean_text(payload.get("tone"), limit=16).lower()
+        if tone not in {"info", "success", "warning", "error"}:
+            tone = "success"
+        actions = _clean_items(payload.get("actions"))[:4]
+        normalized = {
+            "emoji": emoji,
+            "title": title,
+            "summary": lead,
+            "tone": tone,
+            "sections": sections,
+            "actions": actions,
+        }
+        if normalized["title"] or normalized["summary"] or normalized["sections"] or normalized["actions"]:
+            return normalized
+        return {
+            "emoji": "",
+            "title": _clean_text(summary, limit=96),
+            "summary": _clean_text(result, limit=500),
+            "tone": "success",
+            "sections": [],
+            "actions": [],
+        }
 
     def _preview_payload(self, payload: dict[str, Any]) -> str:
         text = json.dumps(payload, ensure_ascii=False, indent=2)

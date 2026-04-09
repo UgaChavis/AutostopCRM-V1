@@ -112,6 +112,7 @@ class AgentStorage:
             "run_id": "",
             "summary": "",
             "result": "",
+            "display": {},
             "error": "",
             "tool_calls": 0,
         }
@@ -155,6 +156,7 @@ class AgentStorage:
         run_id: str,
         summary: str,
         result: str,
+        display: dict[str, Any] | None,
         tool_calls: int,
     ) -> dict[str, Any]:
         return self._finish_task(
@@ -163,6 +165,7 @@ class AgentStorage:
             status="completed",
             summary=summary,
             result=result,
+            display=display,
             error="",
             tool_calls=tool_calls,
         )
@@ -181,6 +184,7 @@ class AgentStorage:
             status="failed",
             summary="",
             result="",
+            display={},
             error=error,
             tool_calls=tool_calls,
         )
@@ -216,6 +220,7 @@ class AgentStorage:
         status: str,
         summary: str,
         result: str,
+        display: dict[str, Any] | None,
         error: str,
         tool_calls: int,
     ) -> dict[str, Any]:
@@ -231,6 +236,7 @@ class AgentStorage:
                 updated["run_id"] = run_id
                 updated["summary"] = summary
                 updated["result"] = result
+                updated["display"] = display if isinstance(display, dict) else {}
                 updated["error"] = error
                 updated["tool_calls"] = int(tool_calls)
                 tasks[index] = updated

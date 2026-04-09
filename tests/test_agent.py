@@ -72,6 +72,7 @@ class AgentStorageTests(unittest.TestCase):
                 run_id="agrun_test",
                 summary="done",
                 result="ok",
+                display={"title": "done", "summary": "ok", "tone": "success", "sections": [], "actions": []},
                 tool_calls=1,
             )
             self.assertEqual(completed["status"], "completed")
@@ -103,7 +104,45 @@ class AgentRunnerTests(unittest.TestCase):
             task = storage.list_tasks(limit=1)[0]
             self.assertEqual(task["status"], "completed")
             self.assertEqual(task["summary"], "Board reviewed")
+            self.assertEqual(task["display"]["title"], "Board reviewed")
             self.assertEqual(len(storage.list_actions(limit=10)), 1)
+
+    def test_runner_persists_structured_display_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = AgentStorage(base_dir=Path(temp_dir))
+            storage.enqueue_task(task_text="List overdue cards.")
+            logger = logging.getLogger("test.agent.runner.display")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            runner = AgentRunner(
+                storage=storage,
+                board_api=_FakeBoardApi(),
+                model_client=_FakeModelClient(
+                    [
+                        {
+                            "type": "final",
+                            "summary": "Overdue cards found",
+                            "result": "Fallback text.",
+                            "display": {
+                                "emoji": "⚠️",
+                                "title": "Просрочки",
+                                "summary": "Найдены карточки с просрочкой.",
+                                "tone": "warning",
+                                "sections": [{"title": "Приоритет", "items": ["BMW X5", "Renault Duster"]}],
+                                "actions": ["Покажи детали просрочек"],
+                            },
+                        }
+                    ]
+                ),
+                logger=logger,
+            )
+            processed = runner.run_once()
+            self.assertTrue(processed)
+            task = storage.list_tasks(limit=1)[0]
+            self.assertEqual(task["display"]["emoji"], "⚠️")
+            self.assertEqual(task["display"]["tone"], "warning")
+            self.assertEqual(task["display"]["sections"][0]["title"], "Приоритет")
 
     def test_runner_includes_card_context_in_model_messages(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
