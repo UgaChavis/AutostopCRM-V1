@@ -9022,6 +9022,18 @@ function renderCompactArchiveRows(cards) {
       resetCardModalState();
     }
 
+    function bindDirectCardModalCloseButtons() {
+      if (!els.cardModal) return;
+      els.cardModal.querySelectorAll('[data-close="card"]').forEach((button) => {
+        if (!(button instanceof HTMLElement)) return;
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          closeCardModal();
+        });
+      });
+    }
+
     async function refreshSnapshot(showSuccess = false) {
       if (state.refreshInFlight) {
         const pending = state.refreshInFlight;
@@ -10680,6 +10692,7 @@ function renderCompactArchiveRows(cards) {
     applyVehicleProfileToForm(emptyVehicleProfile());
     refreshRepairOrderEntry(null);
     renderCashboxDetail();
+    bindDirectCardModalCloseButtons();
     mountStatusLine();
     bootstrapOperatorSession();
     refreshSnapshot(true);
