@@ -3829,7 +3829,7 @@ BOARD_WEB_APP_HTML = "".join(
           <div class="dialog__title-prefix">КАРТОЧКА</div>
           <div class="dialog__title dialog__title--card" id="cardModalTitle">РАБОЧАЯ КАРТОЧКА</div>
         </div>
-        <button class="btn" id="cardModalCloseButtonTop" data-close="card">ЗАКРЫТЬ</button>
+        <button class="btn" id="cardModalCloseButtonTop" data-close="card" onclick="window.__closeCardModal && window.__closeCardModal(); return false;">ЗАКРЫТЬ</button>
       </div>
       <div class="dialog__tabs dialog__tabs--card">
         <div>
@@ -3925,7 +3925,7 @@ BOARD_WEB_APP_HTML = "".join(
           <button class="btn hidden" id="restoreAction">ВЕРНУТЬ ИЗ АРХИВА</button>
         </div>
         <div class="dialog__foot-group dialog__foot-group--main">
-          <button class="btn" id="cardModalCloseButtonBottom" data-close="card">ОТМЕНА</button>
+          <button class="btn" id="cardModalCloseButtonBottom" data-close="card" onclick="window.__closeCardModal && window.__closeCardModal(); return false;">ОТМЕНА</button>
           <button class="btn btn--ghost card-agent-button" id="cardAgentButton" type="button" title="Агент по карточке" aria-label="Агент по карточке">АГЕНТ</button>
           <button class="btn btn--accent" id="saveCardButton">СОХРАНИТЬ</button>
         </div>
@@ -9028,6 +9028,7 @@ function renderCompactArchiveRows(cards) {
       els.cardModal.classList.remove('is-open');
       resetCardModalState();
     }
+    window.__closeCardModal = closeCardModal;
 
     function bindDirectCardModalCloseButtons() {
       [els.cardModalCloseButtonTop, els.cardModalCloseButtonBottom].forEach((button) => {
