@@ -10326,7 +10326,10 @@ function renderCompactArchiveRows(cards) {
     }
 
     document.addEventListener('click', async (event) => {
-      const target = event.target;
+      const rawTarget = event.target;
+      const target = rawTarget instanceof Element
+        ? rawTarget
+        : (rawTarget instanceof Node ? rawTarget.parentElement : null);
       if (!(target instanceof Element)) return;
       const closeTrigger = target.closest('[data-close]');
       if (closeTrigger instanceof HTMLElement) closeNamedModal(closeTrigger.dataset.close);
