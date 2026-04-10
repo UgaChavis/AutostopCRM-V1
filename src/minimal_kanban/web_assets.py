@@ -5072,7 +5072,7 @@ BOARD_WEB_APP_HTML = "".join(
       const employees = Array.isArray(state.employees) ? state.employees : [];
       const query = String(state.employeesQuery || '').trim().toLocaleLowerCase('ru');
       const visibilityFilter = normalizeEmployeesVisibilityFilter(state.employeesVisibilityFilter);
-      return employees
+      const visibleEmployees = employees
         .filter((employee) => {
           if (visibilityFilter === 'active' && !employee?.is_active) return false;
           if (!query) return true;
@@ -5089,6 +5089,11 @@ BOARD_WEB_APP_HTML = "".join(
           if (leftActive !== rightActive) return rightActive - leftActive;
           return String(left?.name || '').localeCompare(String(right?.name || ''), 'ru');
         });
+      const selectedEmployee = selectedEmployeeRecord();
+      if (selectedEmployee && !visibleEmployees.some((item) => item?.id === selectedEmployee.id)) {
+        visibleEmployees.unshift(selectedEmployee);
+      }
+      return visibleEmployees;
     }
 
     function payrollSummaryMap() {
@@ -5327,12 +5332,16 @@ BOARD_WEB_APP_HTML = "".join(
 
     function resetEmployeeForm() {
       if (!confirmDiscardEmployeeChanges()) return;
+      state.employeesQuery = '';
       state.activeEmployeeId = '';
+      if (els.employeesSearchInput) els.employeesSearchInput.value = '';
       fillEmployeeForm(null);
       renderEmployeesList();
       renderEmployeesSummaryStrip();
       renderEmployeesDetails();
       renderEmployeeProfileMeta();
+      requestAnimationFrame(() => els.employeeNameInput?.focus());
+      setStatus('РЕЖИМ СОЗДАНИЯ СОТРУДНИКА.', false);
     }
 
     function openEmployeesModal() {
@@ -5353,6 +5362,11 @@ BOARD_WEB_APP_HTML = "".join(
         const data = await api('/api/save_employee', { method: 'POST', body: readEmployeeFormPayload() });
         state.employees = Array.isArray(data?.employees) ? data.employees : [];
         state.activeEmployeeId = data?.employee?.id || state.activeEmployeeId;
+        state.employeesQuery = '';
+        if (els.employeesSearchInput) els.employeesSearchInput.value = '';
+        if (data?.employee && !data.employee.is_active) {
+          state.employeesVisibilityFilter = 'all';
+        }
         await loadPayrollReport();
         renderEmployeesWorkspace();
         refreshRepairOrderEmployeeSelects();
