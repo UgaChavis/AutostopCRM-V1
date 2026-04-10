@@ -10327,9 +10327,11 @@ function renderCompactArchiveRows(cards) {
 
     document.addEventListener('click', async (event) => {
       const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      if (target.dataset.close) closeNamedModal(target.dataset.close);
-      if (target.dataset.tab) setTab(target.dataset.tab);
+      if (!(target instanceof Element)) return;
+      const closeTrigger = target.closest('[data-close]');
+      if (closeTrigger instanceof HTMLElement) closeNamedModal(closeTrigger.dataset.close);
+      const tabTrigger = target.closest('[data-tab]');
+      if (tabTrigger instanceof HTMLElement) setTab(tabTrigger.dataset.tab);
       const openRepairOrderModalTarget = target.closest('[data-open-repair-order-modal]');
       if (openRepairOrderModalTarget) {
         event.preventDefault();
@@ -10365,7 +10367,8 @@ function renderCompactArchiveRows(cards) {
         await deleteColumnFromButton(deleteColumnButton);
         return;
       }
-      if (target.dataset.createIn) openNewCardInColumn(target.dataset.createIn);
+      const createInTrigger = target.closest('[data-create-in]');
+      if (createInTrigger instanceof HTMLElement) openNewCardInColumn(createInTrigger.dataset.createIn);
       if (await handleAuxiliaryBoardClick(target, event)) return;
       if (await handleCardWorkspaceClick(target)) return;
     });
