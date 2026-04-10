@@ -4190,9 +4190,11 @@ BOARD_WEB_APP_HTML = "".join(
       payrollMonth: '',
       payrollReport: null,
       employeesUiBound: false,
+      repairOrderPaymentsUiBound: false,
       repairOrderTags: [],
       repairOrderPayments: [],
       repairOrderTagColor: 'green',
+      agentUiBound: false,
       agentContext: { kind: 'board' },
       agentRefreshTimer: null,
       agentTaskId: '',
@@ -4291,6 +4293,9 @@ BOARD_WEB_APP_HTML = "".join(
         button.textContent = '₽';
         footerActions.insertBefore(button, document.getElementById('repairOrderPrintButton'));
       }
+    }
+
+    function ensureRepairOrderPaymentsModalUi() {
       if (!document.getElementById('repairOrderPaymentsModal')) {
         document.body.insertAdjacentHTML(
           'beforeend',
@@ -4316,21 +4321,6 @@ BOARD_WEB_APP_HTML = "".join(
       }
     }
     function ensureAgentUi() {
-      if (!document.getElementById('agentDock')) {
-        document.body.insertAdjacentHTML(
-          'beforeend',
-          '<div class="agent-dock" id="agentDock">'
-            + '<button class="agent-dock__button" id="agentDockButton" type="button" aria-label="Агент доски" title="Агент доски">AI</button>'
-          + '</div>'
-        );
-      }
-      const cardMainGroup = document.querySelector('#cardModal .dialog__foot-group--main');
-      if (cardMainGroup && !document.getElementById('cardAgentButton')) {
-        cardMainGroup.insertAdjacentHTML(
-          'beforeend',
-          '<button class="btn btn--ghost card-agent-button" id="cardAgentButton" type="button" title="Агент по карточке" aria-label="Агент по карточке">АГЕНТ</button>'
-        );
-      }
       if (!document.getElementById('agentModal')) {
         document.body.insertAdjacentHTML(
           'beforeend',
@@ -4435,7 +4425,6 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     ensureRepairOrderPaymentsUi();
-    ensureAgentUi();
     ensureCashboxesUi();
 
     const els = {
@@ -4644,6 +4633,69 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeeNoteInput = document.getElementById('employeeNoteInput');
       els.employeeActiveInput = document.getElementById('employeeActiveInput');
       els.employeeSaveButton = document.getElementById('employeeSaveButton');
+    }
+
+    function hydrateRepairOrderPaymentsUiRefs() {
+      els.repairOrderPaymentsModal = document.getElementById('repairOrderPaymentsModal');
+      els.repairOrderPaymentsList = document.getElementById('repairOrderPaymentsList');
+      els.repairOrderPaymentCashbox = document.getElementById('repairOrderPaymentCashbox');
+      els.repairOrderPaymentAmount = document.getElementById('repairOrderPaymentAmount');
+      els.repairOrderPaymentNote = document.getElementById('repairOrderPaymentNote');
+      els.repairOrderPaymentAddButton = document.getElementById('repairOrderPaymentAddButton');
+    }
+
+    function bindRepairOrderPaymentsUiEvents() {
+      if (state.repairOrderPaymentsUiBound) return;
+      hydrateRepairOrderPaymentsUiRefs();
+      els.repairOrderPaymentAddButton?.addEventListener('click', addRepairOrderPayment);
+      els.repairOrderPaymentsList?.addEventListener('click', handleRepairOrderPaymentsListClick);
+      els.repairOrderPaymentCashbox?.addEventListener('change', handleRepairOrderPaymentsFormChange);
+      els.repairOrderPaymentAmount?.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          addRepairOrderPayment();
+        }
+      });
+      els.repairOrderPaymentNote?.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          addRepairOrderPayment();
+        }
+      });
+      els.repairOrderPaymentsModal?.addEventListener('click', handleRepairOrderPaymentsModalOverlayClick);
+      state.repairOrderPaymentsUiBound = true;
+    }
+
+    function hydrateAgentUiRefs() {
+      els.agentModal = document.getElementById('agentModal');
+      els.agentContextLabel = document.getElementById('agentContextLabel');
+      els.agentStatusLabel = document.getElementById('agentStatusLabel');
+      els.agentQuickActions = document.getElementById('agentQuickActions');
+      els.agentTaskInput = document.getElementById('agentTaskInput');
+      els.agentRunButton = document.getElementById('agentRunButton');
+      els.agentResultPanel = document.getElementById('agentResultPanel');
+      els.agentRunsDetails = document.getElementById('agentRunsDetails');
+      els.agentRunsList = document.getElementById('agentRunsList');
+      els.agentActionsList = document.getElementById('agentActionsList');
+      els.agentDetails = document.getElementById('agentDetails');
+    }
+
+    function bindAgentUiEvents() {
+      if (state.agentUiBound) return;
+      hydrateAgentUiRefs();
+      els.agentQuickActions?.addEventListener('click', handleAgentQuickActionClick);
+      els.agentRunsList?.addEventListener('click', handleAgentRunSelection);
+      els.agentRunButton?.addEventListener('click', enqueueAgentTask);
+      els.agentTaskInput?.addEventListener('input', syncAgentTaskInputHeight);
+      els.agentTaskInput?.addEventListener('keydown', (event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+          event.preventDefault();
+          enqueueAgentTask();
+        }
+      });
+      els.agentModal?.addEventListener('click', handleAgentModalOverlayClick);
+      els.agentResultPanel?.addEventListener('click', handleAgentResultActionClick);
+      state.agentUiBound = true;
     }
 
     function bindEmployeesUiEvents() {
@@ -5930,6 +5982,8 @@ BOARD_WEB_APP_HTML = "".join(
 
     function openAgentModal(kind = 'board') {
       if (!requireOperatorSession()) return;
+      ensureAgentUi();
+      bindAgentUiEvents();
       state.agentContext = buildAgentContext(kind);
       state.agentTaskId = '';
       state.agentTaskStatus = '';
@@ -7673,6 +7727,8 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     async function openRepairOrderPaymentsModal() {
+      ensureRepairOrderPaymentsModalUi();
+      bindRepairOrderPaymentsUiEvents();
       try {
         await ensureRepairOrderPaymentCashboxes();
       } catch (error) {
@@ -10374,16 +10430,6 @@ function renderCompactArchiveRows(cards) {
     configureVehicleAutofillUi();
     els.cardDescription.addEventListener('input', syncCardDescriptionHeight);
     els.cardAgentButton?.addEventListener('click', () => openAgentModal('card'));
-    els.agentQuickActions?.addEventListener('click', handleAgentQuickActionClick);
-    els.agentRunsList?.addEventListener('click', handleAgentRunSelection);
-    els.agentRunButton?.addEventListener('click', enqueueAgentTask);
-    els.agentTaskInput?.addEventListener('input', syncAgentTaskInputHeight);
-    els.agentTaskInput?.addEventListener('keydown', (event) => {
-      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-        event.preventDefault();
-        enqueueAgentTask();
-      }
-    });
     els.vehicleAutofillButton.addEventListener('click', autofillVehicleProfile);
     els.repairOrderAddWorkRowButton.addEventListener('click', (event) => addRepairOrderRowFromButton('works', event));
     els.repairOrderAddMaterialRowButton.addEventListener('click', (event) => addRepairOrderRowFromButton('materials', event));
@@ -10396,21 +10442,6 @@ function renderCompactArchiveRows(cards) {
     els.repairOrderCloseButton.addEventListener('click', toggleRepairOrderStatus);
     els.repairOrderSaveButton.addEventListener('click', saveRepairOrderDraft);
     els.repairOrderPaymentsButton.addEventListener('click', openRepairOrderPaymentsModal);
-    els.repairOrderPaymentAddButton.addEventListener('click', addRepairOrderPayment);
-    els.repairOrderPaymentsList.addEventListener('click', handleRepairOrderPaymentsListClick);
-    els.repairOrderPaymentCashbox?.addEventListener('change', handleRepairOrderPaymentsFormChange);
-    els.repairOrderPaymentAmount.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        addRepairOrderPayment();
-      }
-    });
-    els.repairOrderPaymentNote.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        addRepairOrderPayment();
-      }
-    });
     els.repairOrderPrintButton.addEventListener('click', printRepairOrderDraft);
     els.saveCardButton.addEventListener('click', saveCard);
     els.saveStickyButton.addEventListener('click', saveSticky);
@@ -10429,10 +10460,7 @@ function renderCompactArchiveRows(cards) {
     els.fileDropzone.addEventListener('paste', handleFileDropzonePaste);
     els.repairOrdersList.addEventListener('keydown', handleRepairOrdersListKeydown);
     els.stickyModal.addEventListener('click', handleStickyModalOverlayClick);
-    els.agentModal.addEventListener('click', handleAgentModalOverlayClick);
-    els.agentResultPanel?.addEventListener('click', handleAgentResultActionClick);
     els.repairOrderModal.addEventListener('click', handleRepairOrderModalOverlayClick);
-    els.repairOrderPaymentsModal.addEventListener('click', handleRepairOrderPaymentsModalOverlayClick);
     els.operatorProfileModal.addEventListener('click', handleOperatorProfileModalOverlayClick);
     els.operatorAdminModal.addEventListener('click', handleOperatorAdminModalOverlayClick);
 

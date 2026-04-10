@@ -108,23 +108,55 @@ class SnapshotService:
             return {}, {}
         return self._column_labels(columns), self._event_counts(events)
 
+    def _snapshot_card_signature(
+        self,
+        *,
+        card: Card,
+        events_count: int,
+        viewer_username: str | None,
+    ) -> dict[str, Any]:
+        return {
+            "card": card.to_storage_dict(),
+            "events_count": events_count,
+            "viewer_seen_at": str(card.seen_by_users.get(str(viewer_username or "").strip()) or ""),
+            "has_unseen_update": card.has_unseen_update_for(viewer_username),
+        }
+
     def _snapshot_revision(
         self,
         *,
-        columns: list[dict[str, Any]],
-        cards: list[dict[str, Any]],
-        archive: list[dict[str, Any]],
-        stickies: list[dict[str, Any]],
+        columns: list[Column],
+        cards: list[Card],
+        archive: list[Card],
+        stickies: list[StickyNote],
+        events: list[AuditEvent],
         settings: dict[str, Any],
+        viewer_username: str | None,
         compact_cards: bool,
         archive_limit: int,
     ) -> str:
+        event_counts = self._event_counts(events) if cards or archive else {}
         revision_payload = {
-            "columns": columns,
-            "cards": cards,
-            "archive": archive,
-            "stickies": stickies,
-            "settings": settings,
+            "columns": [column.to_dict() for column in columns],
+            "cards": [
+                self._snapshot_card_signature(
+                    card=card,
+                    events_count=event_counts.get(card.id, 0),
+                    viewer_username=viewer_username,
+                )
+                for card in cards
+            ],
+            "archive": [
+                self._snapshot_card_signature(
+                    card=card,
+                    events_count=event_counts.get(card.id, 0),
+                    viewer_username=viewer_username,
+                )
+                for card in archive
+            ],
+            "stickies": [sticky.to_storage_dict() for sticky in stickies],
+            "settings": dict(settings),
+            "viewer_username": str(viewer_username or ""),
             "compact_cards": compact_cards,
             "archive_limit": archive_limit,
         }
@@ -249,6 +281,17 @@ class SnapshotService:
                 columns=bundle["columns"],
                 events=bundle["events"],
             )
+            revision = self._snapshot_revision(
+                columns=bundle["columns"],
+                cards=cards,
+                archive=archive,
+                stickies=stickies,
+                events=bundle["events"],
+                settings=bundle["settings"],
+                viewer_username=viewer_username,
+                compact_cards=compact_cards,
+                archive_limit=archive_limit,
+            )
             serialized_columns = [column.to_dict() for column in bundle["columns"]]
             serialized_cards = self._serialize_cards_payload(
                 cards,
@@ -268,15 +311,6 @@ class SnapshotService:
             )
             serialized_stickies = [self._serialize_sticky(sticky) for sticky in stickies]
             serialized_settings = dict(bundle["settings"])
-            revision = self._snapshot_revision(
-                columns=serialized_columns,
-                cards=serialized_cards,
-                archive=serialized_archive,
-                stickies=serialized_stickies,
-                settings=serialized_settings,
-                compact_cards=compact_cards,
-                archive_limit=archive_limit,
-            )
             return {
                 "columns": serialized_columns,
                 "cards": serialized_cards,
