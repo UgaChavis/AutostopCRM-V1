@@ -903,6 +903,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("event.stopPropagation();", BOARD_WEB_APP_HTML)
         self.assertIn("bindDirectCardModalCloseButtons();", BOARD_WEB_APP_HTML)
         self.assertIn("window.__closeCardModal = closeCardModal;", BOARD_WEB_APP_HTML)
+        self.assertIn("els.repairOrderPaymentsModal?.classList.remove('is-open');", BOARD_WEB_APP_HTML)
         self.assertIn("els.archiveButton.addEventListener('click', openArchiveModal);", BOARD_WEB_APP_HTML)
         self.assertIn("els.boardSettingsButton.addEventListener('click', openBoardSettings);", BOARD_WEB_APP_HTML)
         self.assertIn("els.boardScaleInput.addEventListener('input', handleBoardScaleInput);", BOARD_WEB_APP_HTML)

@@ -7799,7 +7799,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function closeRepairOrderPaymentsModal() {
-      els.repairOrderPaymentsModal.classList.remove('is-open');
+      els.repairOrderPaymentsModal?.classList.remove('is-open');
       if (els.repairOrderPaymentAmount) els.repairOrderPaymentAmount.value = '';
       if (els.repairOrderPaymentNote) els.repairOrderPaymentNote.value = '';
     }
