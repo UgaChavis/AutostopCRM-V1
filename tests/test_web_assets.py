@@ -89,7 +89,8 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_archive_modal_uses_last_30_compact_rows(self) -> None:
         self.assertIn("АРХИВ / ПОСЛЕДНИЕ 30", BOARD_WEB_APP_HTML)
-        self.assertIn("/api/get_board_snapshot?archive_limit=30&compact=1", BOARD_WEB_APP_HTML)
+        self.assertIn("/api/get_board_snapshot?compact=1&include_archive=0", BOARD_WEB_APP_HTML)
+        self.assertIn("/api/list_archived_cards?limit=' + ARCHIVE_PREVIEW_LIMIT + '&compact=1", BOARD_WEB_APP_HTML)
         self.assertIn(".archive-row--compact {", BOARD_WEB_APP_HTML)
         self.assertIn(".archive-row__summary {", BOARD_WEB_APP_HTML)
         self.assertIn("renderArchive = function() {", BOARD_WEB_APP_HTML)
@@ -818,8 +819,10 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_modal_data_loader_helpers_drive_active_archive_and_gpt_paths(self) -> None:
         self.assertIn("function maybeOpenModal(modalEl, openModal)", BOARD_WEB_APP_HTML)
-        self.assertIn("function openArchiveModal()", BOARD_WEB_APP_HTML)
-        self.assertIn("renderArchive();", BOARD_WEB_APP_HTML)
+        self.assertIn("async function openArchiveModal()", BOARD_WEB_APP_HTML)
+        self.assertIn("await loadArchive(true);", BOARD_WEB_APP_HTML)
+        self.assertIn("async function loadArchive(openModal = false, { force = false } = {})", BOARD_WEB_APP_HTML)
+        self.assertIn("state.archiveCards = [];", BOARD_WEB_APP_HTML)
         self.assertIn("function handleBoardScaleInput()", BOARD_WEB_APP_HTML)
         self.assertIn("async function resetBoardScaleToDefault()", BOARD_WEB_APP_HTML)
         self.assertIn("async function persistBoardScaleChange()", BOARD_WEB_APP_HTML)

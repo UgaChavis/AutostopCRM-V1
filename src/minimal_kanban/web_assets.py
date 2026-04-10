@@ -4124,6 +4124,7 @@ BOARD_WEB_APP_HTML = "".join(
     const OPERATOR_SESSION_STORAGE_KEY = 'kanban-operator-session';
     const API_TOKEN_STORAGE_KEY = 'kanban-api-token';
     const BOARD_SCALE_STORAGE_KEY_PREFIX = 'kanban-board-scale:';
+    const ARCHIVE_PREVIEW_LIMIT = 30;
 
     const state = {
       actor: '',
@@ -4154,6 +4155,9 @@ BOARD_WEB_APP_HTML = "".join(
         moved: false,
       },
       snapshot: null,
+      archiveCards: [],
+      archiveLoaded: false,
+      archiveLoading: null,
       lastSnapshotRevision: '',
       gptWall: null,
       gptWallView: 'board_content',
@@ -4923,6 +4927,8 @@ BOARD_WEB_APP_HTML = "".join(
       state.actor = '';
       state.operatorProfile = null;
       state.operatorUsers = [];
+      state.archiveCards = [];
+      state.archiveLoaded = false;
       setOperatorSessionToken('');
       applyBoardScalePreference({ fallbackValue: 1, syncInput: true, persistFallback: false });
       updateOperatorButton();
@@ -5070,15 +5076,18 @@ BOARD_WEB_APP_HTML = "".join(
       if (openModal && modalEl) modalEl.classList.add('is-open');
     }
 
-    function openArchiveModal() {
-      renderArchive();
-      maybeOpenModal(els.archiveModal, true);
+    async function openArchiveModal() {
+      await loadArchive(true);
     }
 
     function closeNamedModal(closeKey) {
       const closeActions = {
         card: () => closeCardModal(),
-        archive: () => els.archiveModal.classList.remove('is-open'),
+        archive: () => {
+          els.archiveModal.classList.remove('is-open');
+          state.archiveCards = [];
+          state.archiveLoaded = false;
+        },
         'repair-orders': () => els.repairOrdersModal.classList.remove('is-open'),
         cashboxes: () => els.cashboxesModal.classList.remove('is-open'),
         employees: () => {
@@ -5112,6 +5121,50 @@ BOARD_WEB_APP_HTML = "".join(
         setStatus(error.message, true);
         return null;
       }
+    }
+
+    function archivedCardsTotal() {
+      const metaTotal = Number(state.snapshot?.meta?.archived_cards_total ?? NaN);
+      if (Number.isFinite(metaTotal) && metaTotal >= 0) return metaTotal;
+      return Array.isArray(state.archiveCards) ? state.archiveCards.length : 0;
+    }
+
+    async function loadArchive(openModal = false, { force = false } = {}) {
+      if (state.archiveLoading) {
+        const pending = state.archiveLoading;
+        await pending;
+        if (openModal) maybeOpenModal(els.archiveModal, true);
+        return pending;
+      }
+      if (state.archiveLoaded && !force) {
+        renderArchive();
+        if (openModal) maybeOpenModal(els.archiveModal, true);
+        return { cards: state.archiveCards };
+      }
+      if (openModal) maybeOpenModal(els.archiveModal, true);
+      if (els.archiveList && (!state.archiveLoaded || force)) {
+        els.archiveList.innerHTML = '<div class="log-row__meta">ЗАГРУЗКА АРХИВА...</div>';
+      }
+      state.archiveLoading = (async () => {
+        try {
+          const data = await api('/api/list_archived_cards?limit=' + ARCHIVE_PREVIEW_LIMIT + '&compact=1');
+          state.archiveCards = Array.isArray(data?.cards) ? data.cards : [];
+          state.archiveLoaded = true;
+          renderArchive();
+          if (openModal) maybeOpenModal(els.archiveModal, true);
+          return data;
+        } catch (error) {
+          if (els.archiveList) {
+            els.archiveList.innerHTML = '<div class="log-row__meta">НЕ УДАЛОСЬ ЗАГРУЗИТЬ АРХИВ.</div>';
+          }
+          if (openModal) maybeOpenModal(els.archiveModal, true);
+          setStatus(error.message, true);
+          return null;
+        } finally {
+          state.archiveLoading = null;
+        }
+      })();
+      return state.archiveLoading;
     }
 
     function currentPayrollMonthValue() {
@@ -5559,12 +5612,11 @@ BOARD_WEB_APP_HTML = "".join(
     function boardAgentContext() {
       const columns = Array.isArray(state.snapshot?.columns) ? state.snapshot.columns : [];
       const cards = Array.isArray(state.snapshot?.cards) ? state.snapshot.cards : [];
-      const archive = Array.isArray(state.snapshot?.archive) ? state.snapshot.archive : [];
       return {
         kind: 'board',
-        revision: String(state.snapshot?.revision || ''),
+        revision: String(state.snapshot?.meta?.revision || ''),
         active_cards: cards.length,
-        archived_cards: archive.length,
+        archived_cards: archivedCardsTotal(),
         columns: columns.map((column) => ({ id: column.id, label: column.label })),
       };
     }
@@ -8238,7 +8290,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function renderArchive() {
-      const cards = state.snapshot?.archive || [];
+      const cards = Array.isArray(state.archiveCards) ? state.archiveCards : [];
       els.archiveList.innerHTML = cards.length
         ? cards.map((card) => '<div class="archive-row"><div><strong>' + escapeHtml(cardHeading(card)) + '</strong></div><div>' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="archive-row__meta">АРХИВ: ' + escapeHtml(formatDate(card.updated_at)) + '</div><div style="display:flex; gap:8px;"><button class="btn" data-restore-card="' + escapeHtml(card.id) + '">ВЕРНУТЬ</button></div></div>').join('')
         : '<div class="log-row__meta">АРХИВ ПУСТ.</div>';
@@ -8261,7 +8313,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     renderArchive = function() {
-      const cards = state.snapshot?.archive || [];
+      const cards = Array.isArray(state.archiveCards) ? state.archiveCards : [];
       els.archiveList.innerHTML = cards.length
         ? cards.map((card) => {
             const heading = cardHeading(card);
@@ -8382,9 +8434,11 @@ function renderCompactArchiveRows(cards) {
     }
 
     renderArchive = function() {
-      const cards = state.snapshot?.archive || [];
+      const cards = Array.isArray(state.archiveCards) ? state.archiveCards : [];
       els.archiveList.innerHTML = cards.length
         ? renderCompactArchiveRows(cards)
+        : state.archiveLoading
+          ? '<div class="log-row__meta">ЗАГРУЗКА АРХИВА...</div>'
         : '<div class="log-row__meta">АРХИВ ПУСТ.</div>';
     };
 
@@ -8977,7 +9031,7 @@ function renderCompactArchiveRows(cards) {
 
       state.refreshInFlight = (async () => {
         try {
-          const nextSnapshot = await api('/api/get_board_snapshot?archive_limit=30&compact=1');
+          const nextSnapshot = await api('/api/get_board_snapshot?compact=1&include_archive=0');
           const previousRevision = String(state.lastSnapshotRevision || '');
           const nextRevision = String(nextSnapshot?.meta?.revision || '');
           const boardChanged = !previousRevision || !nextRevision || previousRevision !== nextRevision;
@@ -8985,13 +9039,15 @@ function renderCompactArchiveRows(cards) {
           applyBoardScalePreference({ fallbackValue: state.snapshot?.settings?.board_scale ?? 1, syncInput: true, persistFallback: true });
           if (boardChanged) {
             renderBoard();
-            if (els.archiveModal.classList.contains('is-open')) renderArchive();
             primeBoardViewport();
           }
           state.lastSnapshotRevision = nextRevision;
+          if (els.archiveModal.classList.contains('is-open')) {
+            await loadArchive(false, { force: true });
+          }
           if (els.gptWallModal.classList.contains('is-open')) await loadGptWall(false);
           const data = state.snapshot;
-        setStatus(showSuccess ? ('ДОСКА ОБНОВЛЕНА · ' + new Date().toLocaleTimeString('ru-RU')) : ('СЕРВЕР АКТИВЕН · КАРТОЧЕК: ' + data.cards.length + ' · АРХИВ: ' + data.archive.length));
+        setStatus(showSuccess ? ('ДОСКА ОБНОВЛЕНА · ' + new Date().toLocaleTimeString('ru-RU')) : ('СЕРВЕР АКТИВЕН · КАРТОЧЕК: ' + data.cards.length + ' · АРХИВ: ' + archivedCardsTotal()));
         } catch (error) {
           setStatus(error.message, true);
         } finally {
@@ -9005,7 +9061,7 @@ function renderCompactArchiveRows(cards) {
     function snapshotCardById(cardId) {
       if (!cardId) return null;
       const cards = state.snapshot?.cards || [];
-      const archive = state.snapshot?.archive || [];
+      const archive = state.archiveCards || [];
       return cards.find((card) => card.id === cardId) || archive.find((card) => card.id === cardId) || null;
     }
 
@@ -9031,7 +9087,7 @@ function renderCompactArchiveRows(cards) {
       setStatus(
         showSuccess
           ? ('ДОСКА ОБНОВЛЕНА · ' + new Date().toLocaleTimeString('ru-RU'))
-          : ('СЕРВЕР АКТИВЕН · КАРТОЧЕК: ' + data.cards.length + ' · АРХИВ: ' + data.archive.length),
+          : ('СЕРВЕР АКТИВЕН · КАРТОЧЕК: ' + data.cards.length + ' · АРХИВ: ' + archivedCardsTotal()),
         false,
       );
     }
@@ -9060,12 +9116,16 @@ function renderCompactArchiveRows(cards) {
     }
 
     function applyArchivedCardPatch(nextCard) {
-      if (!nextCard?.id || !Array.isArray(state.snapshot?.cards) || !Array.isArray(state.snapshot?.archive)) return false;
+      if (!nextCard?.id || !Array.isArray(state.snapshot?.cards)) return false;
       const previousCard = snapshotCardById(nextCard.id);
       state.snapshot.cards = state.snapshot.cards.filter((card) => card.id !== nextCard.id);
-      state.snapshot.archive = state.snapshot.archive.filter((card) => card.id !== nextCard.id);
+      if (Array.isArray(state.archiveCards)) {
+        state.archiveCards = state.archiveCards.filter((card) => card.id !== nextCard.id);
+      }
       if (nextCard.archived) {
-        state.snapshot.archive = [nextCard].concat(state.snapshot.archive);
+        if (state.archiveLoaded) {
+          state.archiveCards = [nextCard].concat(state.archiveCards).slice(0, ARCHIVE_PREVIEW_LIMIT);
+        }
       } else {
         state.snapshot.cards = state.snapshot.cards.concat(nextCard);
       }
@@ -9095,8 +9155,8 @@ function renderCompactArchiveRows(cards) {
       if (Array.isArray(state.snapshot?.cards)) {
         state.snapshot.cards = state.snapshot.cards.map((card) => card.id === nextCard.id ? nextCard : card);
       }
-      if (Array.isArray(state.snapshot?.archive)) {
-        state.snapshot.archive = state.snapshot.archive.map((card) => card.id === nextCard.id ? nextCard : card);
+      if (Array.isArray(state.archiveCards)) {
+        state.archiveCards = state.archiveCards.map((card) => card.id === nextCard.id ? nextCard : card);
       }
       if (state.activeCard?.id === nextCard.id) state.activeCard = nextCard;
       const archiveOpen = els.archiveModal.classList.contains('is-open');

@@ -589,6 +589,22 @@ class ApiServerTests(unittest.TestCase):
         self.assertNotIn("attachments", compact_card)
         self.assertTrue(snapshot["data"]["meta"]["revision"])
 
+    def test_snapshot_can_skip_archive_payload_for_board_refresh(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"vehicle": "MITSUBISHI L200", "title": "Archive API snapshot", "deadline": {"hours": 2}},
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+        status, archived = self.request("/api/archive_card", {"card_id": card_id, "actor_name": "ADMIN"})
+        self.assertEqual(status, 200)
+        self.assertTrue(archived["data"]["card"]["archived"])
+
+        status, snapshot = self.request("/api/get_board_snapshot?compact=1&include_archive=0", method="GET")
+        self.assertEqual(status, 200)
+        self.assertEqual(snapshot["data"]["archive"], [])
+        self.assertEqual(snapshot["data"]["meta"]["archived_cards_total"], 1)
+
     def test_repair_order_routes_list_and_open_text_file(self) -> None:
         status, created = self.request(
             "/api/create_card",

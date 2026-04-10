@@ -133,6 +133,7 @@ class SnapshotService:
         settings: dict[str, Any],
         viewer_username: str | None,
         compact_cards: bool,
+        include_archive: bool,
         archive_limit: int,
     ) -> str:
         event_counts = self._event_counts(events) if cards or archive else {}
@@ -158,6 +159,7 @@ class SnapshotService:
             "settings": dict(settings),
             "viewer_username": str(viewer_username or ""),
             "compact_cards": compact_cards,
+            "include_archive": include_archive,
             "archive_limit": archive_limit,
         }
         serialized = json.dumps(revision_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -271,9 +273,11 @@ class SnapshotService:
             payload = payload or {}
             archive_limit = self._validated_limit(payload.get("archive_limit"), default=ARCHIVE_PREVIEW_LIMIT, maximum=50)
             compact_cards = self._validated_optional_bool(payload, "compact", default=False)
+            include_archive = self._validated_optional_bool(payload, "include_archive", default=True)
             bundle = self._store.read_bundle()
             cards = self._visible_cards(bundle["cards"], include_archived=False)
-            archive = self._archived_cards(bundle["cards"], limit=archive_limit)
+            archived_cards_total = sum(1 for card in bundle["cards"] if card.archived)
+            archive = self._archived_cards(bundle["cards"], limit=archive_limit) if include_archive else []
             stickies = self._stickies(bundle["stickies"])
             viewer_username = self._viewer_username(payload)
             column_labels, event_counts = self._card_serialization_context(
@@ -290,6 +294,7 @@ class SnapshotService:
                 settings=bundle["settings"],
                 viewer_username=viewer_username,
                 compact_cards=compact_cards,
+                include_archive=include_archive,
                 archive_limit=archive_limit,
             )
             serialized_columns = [column.to_dict() for column in bundle["columns"]]
@@ -321,6 +326,8 @@ class SnapshotService:
                     "generated_at": utc_now_iso(),
                     "archive_limit": archive_limit,
                     "compact_cards": compact_cards,
+                    "include_archive": include_archive,
+                    "archived_cards_total": archived_cards_total,
                     "stickies_total": len(stickies),
                     "revision": revision,
                 },
@@ -555,6 +562,7 @@ class SnapshotService:
         with self._lock:
             payload = payload or {}
             limit = self._validated_limit(payload.get("limit"), default=ARCHIVE_PREVIEW_LIMIT, maximum=100)
+            compact_cards = self._validated_optional_bool(payload, "compact", default=False)
             bundle = self._store.read_bundle()
             archived = self._archived_cards(bundle["cards"], limit=limit)
             viewer_username = self._viewer_username(payload)
@@ -570,6 +578,7 @@ class SnapshotService:
                     column_labels=column_labels,
                     event_counts=event_counts,
                     viewer_username=viewer_username,
+                    compact=compact_cards,
                 )
             }
 

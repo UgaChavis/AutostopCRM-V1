@@ -766,6 +766,24 @@ class CardServiceTests(unittest.TestCase):
         self.assertNotIn("vehicle_profile", compact_card)
         self.assertNotIn("attachments", compact_card)
 
+    def test_board_snapshot_can_skip_archive_payload_but_keep_archive_total(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "MITSUBISHI L200",
+                "title": "Archive optimization",
+                "description": "Archive payload should be lazy-loaded separately.",
+                "deadline": {"hours": 2},
+            }
+        )
+        self.service.archive_card({"card_id": created["card"]["id"]})
+
+        snapshot = self.service.get_board_snapshot({"compact": True, "include_archive": False})
+
+        self.assertTrue(snapshot["meta"]["compact_cards"])
+        self.assertFalse(snapshot["meta"]["include_archive"])
+        self.assertEqual(snapshot["archive"], [])
+        self.assertEqual(snapshot["meta"]["archived_cards_total"], 1)
+
     def test_board_snapshot_revision_stays_stable_until_board_changes(self) -> None:
         first_snapshot = self.service.get_board_snapshot({"compact": True})
         second_snapshot = self.service.get_board_snapshot({"compact": True})
