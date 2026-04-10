@@ -895,6 +895,21 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(reopened_row["salary_amount"], "")
         self.assertEqual(reopened_row["salary_accrued_at"], "")
 
+    def test_save_employee_requires_name(self) -> None:
+        status, response = self.request(
+            "/api/save_employee",
+            {
+                "name": "",
+                "position": "Механик",
+                "salary_mode": "salary_plus_percent",
+                "base_salary": "50000",
+                "work_percent": "30",
+            },
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(response["error"]["code"], "validation_error")
+        self.assertEqual(response["error"]["details"]["field"], "name")
+
     def test_rename_column_route_updates_label_and_preserves_id(self) -> None:
         status, created_column = self.request("/api/create_column", {"label": "OLD LABEL"})
         self.assertEqual(status, 200)
