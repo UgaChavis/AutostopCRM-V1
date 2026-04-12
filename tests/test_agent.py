@@ -137,6 +137,77 @@ class _FakeWrappedBoardApi(_FakeBoardApi):
         return {"ok": True, "data": raw}
 
 
+class _FakeAutomotiveService:
+    def decode_vin(self, vin: str) -> dict:
+        return {
+            "vin": vin,
+            "make": "BMW",
+            "model": "320i",
+            "model_year": "2016",
+            "engine_model": "2.0 N20",
+            "transmission": "AT",
+            "drive_type": "RWD",
+            "plant_country": "Germany",
+            "source_url": "https://example.test/vin",
+        }
+
+    def find_part_numbers(self, *, query: str, vehicle: dict[str, object] | str | None = None, limit: int = 5) -> dict:
+        return {
+            "query": query,
+            "vehicle_context": vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()},
+            "part_numbers": [
+                {"value": "17118625431", "label": "OEM"},
+                {"value": "AVA BW2285", "label": "analog"},
+            ],
+            "results": [{"title": "BMW radiator", "snippet": "OEM 17118625431", "url": "https://example.test/rad"}],
+        }
+
+    def estimate_price_ru(self, *, part_number: str, vehicle: dict[str, object] | str | None = None, limit: int = 5) -> dict:
+        return {
+            "part_number": part_number,
+            "vehicle_context": vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()},
+            "price_summary": {"offers_total": 3, "min_rub": 14500, "max_rub": 21900},
+            "results": [{"title": "Цена", "snippet": "14 500 ₽", "url": "https://example.test/price"}],
+        }
+
+    def decode_dtc(
+        self,
+        *,
+        code: str,
+        vehicle_context: dict[str, object] | None = None,
+        vehicle: dict[str, object] | str | None = None,
+        limit: int = 5,
+    ) -> dict:
+        return {
+            "code": code,
+            "vehicle_context": vehicle_context or (vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()}),
+            "results": [{"title": "DTC", "snippet": "Пропуски воспламенения, сначала проверить свечи и катушки."}],
+        }
+
+    def search_fault_info(
+        self,
+        *,
+        query: str,
+        vehicle_context: dict[str, object] | None = None,
+        vehicle: dict[str, object] | str | None = None,
+        limit: int = 5,
+    ) -> dict:
+        return {
+            "query": query,
+            "vehicle_context": vehicle_context or (vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()}),
+            "results": [{"title": "Fault", "snippet": "Типовая причина — течь радиатора или патрубков, проверить бачок и опрессовку."}],
+        }
+
+    def estimate_maintenance(self, *, vehicle_context: dict[str, object] | None, service_type: str = "ТО") -> dict:
+        return {
+            "service_type": service_type,
+            "vehicle_context": vehicle_context or {},
+            "works": [{"name": "Замена масла", "quantity": "1"}],
+            "materials": [{"name": "Масляный фильтр", "quantity": "1"}],
+            "notes": ["План предварительный."],
+        }
+
+
 class AgentStorageTests(unittest.TestCase):
     def test_queue_lifecycle(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -344,6 +415,7 @@ class AgentRunnerTests(unittest.TestCase):
             log_messages = [item.get("message", "") for item in actions if item.get("kind") == "log"]
             self.assertIn("Первый проход автосопровождения запущен.", log_messages)
             self.assertIn("Начат анализ карточки.", log_messages)
+            self.assertTrue(any(message.startswith("План:") for message in log_messages))
             self.assertIn("Изменений не обнаружено.", log_messages)
 
     def test_runner_merges_card_autofill_description_in_additive_mode(self) -> None:
@@ -362,85 +434,52 @@ class AgentRunnerTests(unittest.TestCase):
             logger.addHandler(logging.NullHandler())
             logger.propagate = False
             board_api = _FakeBoardApi()
+            board_api.cards["card-1"]["description"] = (
+                "VIN: WBAPF71060A798127\n"
+                "Бежит антифриз.\n"
+                "Проверили: течь в основном радиаторе.\n"
+                "Нужно найти радиатор и сориентировать по цене.\n"
+                "Цена детали 5000.\n"
+                "Артикул ABC-123."
+            )
             runner = AgentRunner(
                 storage=storage,
                 board_api=board_api,
-                model_client=_FakeModelClient(
-                    [
-                        {
-                            "type": "final",
-                            "summary": "Карточка дополнена",
-                            "result": "Добавлены ИИ-комментарии.",
-                            "apply": {
-                                "type": "update_card",
-                                "card_id": "card-1",
-                                "payload": {
-                                    "description": "Проверить VIN и уточнить комплектацию.",
-                                },
-                            },
-                        }
-                    ]
-                ),
+                model_client=_FakeModelClient([{"type": "final", "summary": "unused", "result": "unused"}]),
                 logger=logger,
             )
+            runner._tools._automotive = _FakeAutomotiveService()
             self.assertTrue(runner.run_once())
             update_call = next(call for call in board_api.calls if call[0] == "update_card")
-            self.assertIn("Исходный текст карточки.", update_call[1]["description"])
+            self.assertIn("Бежит антифриз.", update_call[1]["description"])
             self.assertIn("Цена детали 5000.", update_call[1]["description"])
             self.assertIn("Артикул ABC-123.", update_call[1]["description"])
             self.assertIn("ИИ:", update_call[1]["description"])
-            self.assertIn("Проверить VIN и уточнить комплектацию.", update_call[1]["description"])
+            self.assertIn("По VIN подтверждено", update_call[1]["description"])
+            self.assertIn("Радиатор: OEM/каталожные номера 17118625431, AVA BW2285.", update_call[1]["description"])
+            self.assertIn("Ориентир по РФ: 14 500-21 900 ₽ (3 предложений).", update_call[1]["description"])
+            self.assertIsInstance(update_call[1]["vehicle_profile"], dict)
+            self.assertEqual(update_call[1]["vehicle_profile"]["make_display"], "BMW")
 
     def test_runner_card_autofill_dedupes_repeated_description_blocks(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            storage = AgentStorage(base_dir=Path(temp_dir))
-            storage.enqueue_task(
-                task_text="Добавь короткую ИИ-заметку без дублирования существующего текста.",
-                metadata={
-                    "purpose": "card_autofill",
-                    "trigger": "manual_activate",
-                    "context": {"kind": "card", "card_id": "card-1", "title": "Черновик"},
-                },
-            )
-            logger = logging.getLogger("test.agent.runner.autofill.dedupe")
-            logger.handlers.clear()
-            logger.addHandler(logging.NullHandler())
-            logger.propagate = False
-            board_api = _FakeBoardApi()
-            current = board_api.cards["card-1"]["description"]
-            runner = AgentRunner(
-                storage=storage,
-                board_api=board_api,
-                model_client=_FakeModelClient(
-                    [
-                        {
-                            "type": "final",
-                            "summary": "Карточка дополнена",
-                            "result": "Добавлена ИИ-заметка.",
-                            "apply": {
-                                "type": "update_card",
-                                "card_id": "card-1",
-                                "payload": {
-                                    "description": current + "\n\n" + current + "\n\nAI: Подтвержден VIN и нужна проверка радиатора.",
-                                },
-                            },
-                        }
-                    ]
-                ),
-                logger=logger,
-            )
-            self.assertTrue(runner.run_once())
-            update_call = next(call for call in board_api.calls if call[0] == "update_card")
-            merged = update_call[1]["description"]
-            for line in [item.strip() for item in current.splitlines() if item.strip()]:
-                self.assertEqual(merged.count(line), 1)
-            self.assertIn("AI: Подтвержден VIN и нужна проверка радиатора.", merged)
+        runner = AgentRunner(
+            storage=AgentStorage(base_dir=Path(tempfile.mkdtemp())),
+            board_api=_FakeBoardApi(),
+            model_client=_FakeModelClient([{"type": "final", "summary": "unused", "result": "unused"}]),
+            logger=logging.getLogger("test.agent.runner.autofill.dedupe"),
+        )
+        current = "Строка 1.\nСтрока 2."
+        proposed = current + "\n\n" + current + "\n\nAI: Подтвержден VIN и нужна проверка радиатора."
+        merged = runner._merge_card_autofill_description(current, proposed)
+        for line in [item.strip() for item in current.splitlines() if item.strip()]:
+            self.assertEqual(merged.count(line), 1)
+        self.assertIn("AI: Подтвержден VIN и нужна проверка радиатора.", merged)
 
-    def test_runner_unwraps_wrapped_card_context_for_model(self) -> None:
+    def test_runner_unwraps_wrapped_card_context_for_deterministic_autofill(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = AgentStorage(base_dir=Path(temp_dir))
             storage.enqueue_task(
-                task_text="Проверь карточку и при необходимости дополни её.",
+                task_text="Расшифруй VIN и добавь краткую полезную ИИ-заметку.",
                 metadata={
                     "purpose": "card_autofill",
                     "trigger": "manual_activate",
@@ -451,29 +490,20 @@ class AgentRunnerTests(unittest.TestCase):
             logger.handlers.clear()
             logger.addHandler(logging.NullHandler())
             logger.propagate = False
-            model = _FakeModelClient(
-                [
-                    {
-                        "type": "tool",
-                        "tool": "get_card_context",
-                        "args": {"card_id": "card-1", "event_limit": 10, "include_repair_order_text": True},
-                        "reason": "Read current card context before autofill",
-                    },
-                    {"type": "final", "summary": "done", "result": "No safe changes were needed."},
-                ]
-            )
+            board_api = _FakeWrappedBoardApi()
+            board_api.cards["card-1"]["description"] = "VIN: WBAPF71060A798127\nНужно понять, что с машиной."
             runner = AgentRunner(
                 storage=storage,
-                board_api=_FakeWrappedBoardApi(),
-                model_client=model,
+                board_api=board_api,
+                model_client=_FakeModelClient([{"type": "final", "summary": "unused", "result": "unused"}]),
                 logger=logger,
             )
+            runner._tools._automotive = _FakeAutomotiveService()
             self.assertTrue(runner.run_once())
-            second_call = model.calls[1]
-            tool_result_message = second_call["messages"][-1]["content"]
-            self.assertIn("Исходный текст карточки.", tool_result_message)
-            self.assertIn("ABC-123", tool_result_message)
-            self.assertIn("WBAPF71060A798127", tool_result_message)
+            update_call = next(call for call in board_api.calls if call[0] == "update_card")
+            self.assertIn("VIN: WBAPF71060A798127", update_call[1]["description"])
+            self.assertIn("По VIN подтверждено: BMW, 320i, 2016", update_call[1]["description"])
+            self.assertEqual(update_call[1]["vehicle_profile"]["production_year"], 2016)
 
     def test_runner_merges_card_autofill_description_with_wrapped_get_card_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -491,34 +521,23 @@ class AgentRunnerTests(unittest.TestCase):
             logger.addHandler(logging.NullHandler())
             logger.propagate = False
             board_api = _FakeWrappedBoardApi()
+            board_api.cards["card-1"]["description"] = (
+                "VIN: WBAPF71060A798127\n"
+                "Бежит антифриз.\n"
+                "Проверили течь: основной радиатор."
+            )
             runner = AgentRunner(
                 storage=storage,
                 board_api=board_api,
-                model_client=_FakeModelClient(
-                    [
-                        {
-                            "type": "final",
-                            "summary": "Карточка дополнена",
-                            "result": "Добавлены ИИ-комментарии.",
-                            "apply": {
-                                "type": "update_card",
-                                "card_id": "card-1",
-                                "payload": {
-                                    "description": "Подтвердить VIN и подготовить краткий список проверок.",
-                                },
-                            },
-                        }
-                    ]
-                ),
+                model_client=_FakeModelClient([{"type": "final", "summary": "unused", "result": "unused"}]),
                 logger=logger,
             )
+            runner._tools._automotive = _FakeAutomotiveService()
             self.assertTrue(runner.run_once())
             update_call = next(call for call in board_api.calls if call[0] == "update_card")
-            self.assertIn("Исходный текст карточки.", update_call[1]["description"])
-            self.assertIn("Цена детали 5000.", update_call[1]["description"])
-            self.assertIn("Артикул ABC-123.", update_call[1]["description"])
+            self.assertIn("Бежит антифриз.", update_call[1]["description"])
             self.assertIn("ИИ:", update_call[1]["description"])
-            self.assertIn("Подтвердить VIN и подготовить краткий список проверок.", update_call[1]["description"])
+            self.assertIn("По VIN подтверждено: BMW, 320i, 2016", update_call[1]["description"])
 
     def test_runner_includes_card_context_in_model_messages(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

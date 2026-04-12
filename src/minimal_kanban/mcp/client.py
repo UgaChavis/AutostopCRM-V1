@@ -172,6 +172,127 @@ class BoardApiClient:
             payload["event_limit"] = event_limit
         return self._request("/api/get_gpt_wall", payload, method="POST")
 
+    def agent_status(self, *, run_limit: int | None = None) -> dict:
+        return self._request_optional_scalar_filter("/api/agent_status", key="run_limit", value=run_limit)
+
+    def agent_runs(self, *, limit: int | None = None) -> dict:
+        return self._request_optional_scalar_filter("/api/agent_runs", key="limit", value=limit)
+
+    def agent_actions(
+        self,
+        *,
+        limit: int | None = None,
+        run_id: str | None = None,
+        task_id: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {}
+        if limit is not None:
+            payload["limit"] = limit
+        if run_id:
+            payload["run_id"] = run_id
+        if task_id:
+            payload["task_id"] = task_id
+        if not payload:
+            return self._request("/api/agent_actions", method="GET")
+        return self._request("/api/agent_actions", payload, method="POST")
+
+    def agent_tasks(self, *, limit: int | None = None, status: str | None = None) -> dict:
+        payload: dict[str, object] = {}
+        if limit is not None:
+            payload["limit"] = limit
+        if status:
+            payload["status"] = status
+        if not payload:
+            return self._request("/api/agent_tasks", method="GET")
+        return self._request("/api/agent_tasks", payload, method="POST")
+
+    def agent_scheduled_tasks(self) -> dict:
+        return self._request("/api/agent_scheduled_tasks", method="GET")
+
+    def agent_enqueue_task(
+        self,
+        *,
+        task_text: str,
+        mode: str = "manual",
+        source: str = "mcp_agent",
+        metadata: dict[str, object] | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {
+            "task_text": task_text,
+            "mode": mode,
+            "source": source,
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+        return self._request_with_identity("/api/agent_enqueue_task", payload, actor_name=actor_name)
+
+    def save_agent_scheduled_task(
+        self,
+        *,
+        name: str,
+        prompt: str,
+        task_id: str | None = None,
+        scope_type: str = "all_cards",
+        scope_column: str | None = None,
+        scope_column_label: str | None = None,
+        scope_card_id: str | None = None,
+        scope_card_label: str | None = None,
+        schedule_type: str = "once",
+        interval_value: int | None = None,
+        interval_unit: str | None = None,
+        active: bool = True,
+    ) -> dict:
+        payload: dict[str, object] = {
+            "name": name,
+            "prompt": prompt,
+            "scope_type": scope_type,
+            "schedule_type": schedule_type,
+            "active": active,
+        }
+        if task_id:
+            payload["task_id"] = task_id
+        if scope_column:
+            payload["scope_column"] = scope_column
+        if scope_column_label:
+            payload["scope_column_label"] = scope_column_label
+        if scope_card_id:
+            payload["scope_card_id"] = scope_card_id
+        if scope_card_label:
+            payload["scope_card_label"] = scope_card_label
+        if interval_value is not None:
+            payload["interval_value"] = interval_value
+        if interval_unit:
+            payload["interval_unit"] = interval_unit
+        return self._request("/api/save_agent_scheduled_task", payload)
+
+    def delete_agent_scheduled_task(self, *, task_id: str) -> dict:
+        return self._request("/api/delete_agent_scheduled_task", {"task_id": task_id})
+
+    def pause_agent_scheduled_task(self, *, task_id: str) -> dict:
+        return self._request("/api/pause_agent_scheduled_task", {"task_id": task_id})
+
+    def resume_agent_scheduled_task(self, *, task_id: str) -> dict:
+        return self._request("/api/resume_agent_scheduled_task", {"task_id": task_id})
+
+    def run_agent_scheduled_task(self, *, task_id: str) -> dict:
+        return self._request("/api/run_agent_scheduled_task", {"task_id": task_id})
+
+    def set_card_ai_autofill(
+        self,
+        *,
+        card_id: str,
+        enabled: bool | None = None,
+        prompt: str | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {"card_id": card_id}
+        if enabled is not None:
+            payload["enabled"] = enabled
+        if prompt is not None:
+            payload["prompt"] = prompt
+        return self._request_with_identity("/api/set_card_ai_autofill", payload, actor_name=actor_name)
+
     def autofill_vehicle_data(
         self,
         *,

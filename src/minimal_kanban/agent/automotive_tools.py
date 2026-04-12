@@ -10,6 +10,9 @@ from .source_registry import PARTS_CATALOG_SOURCES, PARTS_PRICE_SOURCES, trusted
 from .web_tools import DuckDuckGoSearchClient, InternetToolError
 
 
+_PART_NUMBER_PATTERN = re.compile(r"\b(?=[A-Z0-9-]{5,15}\b)(?=.*\d)(?=.*[A-Z])[A-Z0-9-]+\b")
+
+
 _PRICE_PATTERN = re.compile(r"(\d[\d\s]{2,}(?:[.,]\d{1,2})?)\s*(₽|руб(?:\.|лей|ля)?|KZT|₸|\$|€)", re.I)
 _DEFAULT_SERVICE_TYPE = "ТО"
 _MAINTENANCE_HINTS = ("то", "техобслуж", "техничес", "service", "oil")
@@ -79,6 +82,7 @@ class AutomotiveLookupService:
             "vehicle_context": context,
             "part_query": normalized_query,
             "results": results,
+            "part_numbers": self._extract_part_numbers_from_results(results),
             "source_group": [item.label for item in PARTS_CATALOG_SOURCES],
         }
 
@@ -128,6 +132,7 @@ class AutomotiveLookupService:
             "vehicle_context": context,
             "query": normalized_query,
             "results": enriched,
+            "price_summary": self._summarize_price_results(enriched),
             "source_group": [item.label for item in PARTS_PRICE_SOURCES],
         }
 
@@ -202,20 +207,45 @@ class AutomotiveLookupService:
             "results": results,
         }
 
-    def decode_dtc(self, *, code: str, limit: int = 5) -> dict[str, Any]:
+    def decode_dtc(
+        self,
+        *,
+        code: str,
+        vehicle_context: dict[str, Any] | None = None,
+        vehicle: dict[str, Any] | str | None = None,
+        limit: int = 5,
+    ) -> dict[str, Any]:
         normalized_code = self._required_query(code).upper()
-        query = f"{normalized_code} DTC code meaning"
+        context = self._normalize_vehicle_context(
+            vehicle_context if isinstance(vehicle_context, dict) else (vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()})
+        )
+        query = " ".join(part for part in (context.get("vehicle", ""), normalized_code, "DTC code meaning") if part).strip()
         return {
             "code": normalized_code,
+            "vehicle_context": context,
+            "query": query,
             "results": [item.to_dict() for item in self._search.search(query, limit=limit, allowed_domains=trusted_domains(kind="dtc"))],
             "source_group": ["DTC lookup"],
         }
 
-    def search_fault_info(self, *, query: str, limit: int = 5) -> dict[str, Any]:
+    def search_fault_info(
+        self,
+        *,
+        query: str,
+        vehicle_context: dict[str, Any] | None = None,
+        vehicle: dict[str, Any] | str | None = None,
+        limit: int = 5,
+    ) -> dict[str, Any]:
         normalized_query = self._required_query(query)
+        context = self._normalize_vehicle_context(
+            vehicle_context if isinstance(vehicle_context, dict) else (vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()})
+        )
+        search_query = self._build_vehicle_query(context, normalized_query)
         return {
             "query": normalized_query,
-            "results": [item.to_dict() for item in self._search.search(normalized_query, limit=limit, allowed_domains=trusted_domains(kind="fault"))],
+            "vehicle_context": context,
+            "search_query": search_query,
+            "results": [item.to_dict() for item in self._search.search(search_query, limit=limit, allowed_domains=trusted_domains(kind="fault"))],
             "source_group": ["Fault search"],
         }
 
@@ -292,6 +322,88 @@ class AutomotiveLookupService:
             seen.add(key)
             prices.append({"amount": amount.strip(), "currency": currency.strip()})
         return prices[:5]
+
+    def _extract_part_numbers_from_results(self, results: list[dict[str, Any]]) -> list[dict[str, str]]:
+        candidates: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            text = " ".join(
+                str(part or "")
+                for part in (
+                    item.get("title"),
+                    item.get("snippet"),
+                    item.get("page_excerpt"),
+                )
+            ).upper()
+            for value in self._extract_part_numbers(text):
+                key = value.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                candidates.append(
+                    {
+                        "value": value,
+                        "domain": str(item.get("domain", "") or "").strip(),
+                        "url": str(item.get("url", "") or "").strip(),
+                    }
+                )
+                if len(candidates) >= 6:
+                    return candidates
+        return candidates
+
+    def _extract_part_numbers(self, text: str) -> list[str]:
+        values: list[str] = []
+        seen: set[str] = set()
+        for raw in _PART_NUMBER_PATTERN.findall(str(text or "").upper()):
+            candidate = str(raw or "").strip("- ")
+            if len(candidate) < 5 or len(candidate) > 15:
+                continue
+            if candidate.isdigit() or len(candidate) == 17:
+                continue
+            key = candidate.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            values.append(candidate)
+        return values
+
+    def _summarize_price_results(self, results: list[dict[str, Any]]) -> dict[str, int] | None:
+        amounts: list[int] = []
+        offers_total = 0
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            for price in item.get("prices") if isinstance(item.get("prices"), list) else []:
+                if not isinstance(price, dict):
+                    continue
+                rub_amount = self._rub_amount(price.get("amount"), price.get("currency"))
+                if rub_amount is None:
+                    continue
+                offers_total += 1
+                amounts.append(rub_amount)
+        if not amounts:
+            return None
+        amounts.sort()
+        return {
+            "offers_total": offers_total,
+            "min_rub": amounts[0],
+            "max_rub": amounts[-1],
+            "avg_rub": int(round(sum(amounts) / len(amounts))),
+        }
+
+    def _rub_amount(self, amount: Any, currency: Any) -> int | None:
+        currency_text = str(currency or "").strip().casefold()
+        if "руб" not in currency_text and "₽" not in currency_text and "rub" not in currency_text:
+            return None
+        normalized = str(amount or "").strip().replace(" ", "").replace(",", ".")
+        if not normalized:
+            return None
+        try:
+            return int(round(float(normalized)))
+        except (TypeError, ValueError):
+            return None
 
     def _normalize_service_type(self, value: str) -> str:
         text = str(value or "").strip()

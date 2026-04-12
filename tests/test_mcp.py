@@ -27,6 +27,8 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.api.server import ApiServer
+from minimal_kanban.agent.control import AgentControlService
+from minimal_kanban.agent.storage import AgentStorage
 from minimal_kanban.mcp.client import BoardApiClient, BoardApiTransportError
 from minimal_kanban.mcp.runtime import McpServerRuntime
 from minimal_kanban.mcp.server import create_mcp_server
@@ -102,11 +104,16 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         self.logger.propagate = False
         self.store = JsonStore(state_file=state_file, logger=self.logger)
         self.service = CardService(self.store, self.logger)
+        self.agent_storage = AgentStorage(base_dir=Path(self.temp_dir.name) / "agent")
+        self.agent_service = AgentControlService(self.agent_storage)
+        self.service.attach_agent_control(self.agent_service)
+        self.agent_service.bind_board_service(self.service)
         self.api_port = reserve_port()
         self.mcp_port = reserve_port()
         self.api_server = ApiServer(
             self.service,
             self.logger,
+            agent_service=self.agent_service,
             start_port=self.api_port,
             fallback_limit=1,
             bearer_token="api-secret",
@@ -146,6 +153,18 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                         "bootstrap_context",
                         "get_connector_identity",
                         "get_runtime_status",
+                        "agent_status",
+                        "agent_runs",
+                        "agent_actions",
+                        "agent_tasks",
+                        "agent_scheduled_tasks",
+                        "agent_enqueue_task",
+                        "save_agent_scheduled_task",
+                        "delete_agent_scheduled_task",
+                        "pause_agent_scheduled_task",
+                        "resume_agent_scheduled_task",
+                        "run_agent_scheduled_task",
+                        "set_card_ai_autofill",
                         "get_board_context",
                         "list_columns",
                         "create_column",
@@ -755,6 +774,88 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertTrue(restored.structuredContent["ok"])
                 self.assertFalse(restored.structuredContent["data"]["card"]["archived"])
+
+    async def test_mcp_agent_tools_reach_backend(self) -> None:
+        async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
+            async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
+                status = await session.call_tool("agent_status", {"run_limit": 5})
+                self.assertFalse(status.isError)
+                self.assertTrue(status.structuredContent["ok"])
+                self.assertIn("agent", status.structuredContent["data"])
+                self.assertIn("queue", status.structuredContent["data"])
+
+                created = await session.call_tool(
+                    "create_card",
+                    {
+                        "vehicle": "BMW 320i",
+                        "title": "Agent MCP",
+                        "description": "VIN: WBAPF71060A798127\nТечет антифриз.\nНужно найти радиатор.",
+                        "deadline": {"hours": 2},
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(created.isError)
+                card_id = created.structuredContent["data"]["card"]["id"]
+
+                enabled = await session.call_tool(
+                    "set_card_ai_autofill",
+                    {"card_id": card_id, "enabled": True, "prompt": "Расшифруй VIN и помоги с радиатором.", "actor_name": "AI"},
+                )
+                self.assertFalse(enabled.isError)
+                self.assertTrue(enabled.structuredContent["ok"])
+                self.assertTrue(enabled.structuredContent["data"]["meta"]["enabled"])
+                self.assertTrue(enabled.structuredContent["data"]["meta"]["launched"])
+
+                tasks = await session.call_tool("agent_tasks", {"limit": 20})
+                self.assertFalse(tasks.isError)
+                self.assertTrue(tasks.structuredContent["ok"])
+                self.assertTrue(any(item["metadata"].get("purpose") == "card_autofill" for item in tasks.structuredContent["data"]["tasks"]))
+
+                enqueue = await session.call_tool(
+                    "agent_enqueue_task",
+                    {"task_text": "Review board for urgent cards.", "requested_by": "mcp", "actor_name": "AI"},
+                )
+                self.assertFalse(enqueue.isError)
+                self.assertTrue(enqueue.structuredContent["ok"])
+                self.assertEqual(enqueue.structuredContent["data"]["task"]["mode"], "manual")
+
+                scheduled = await session.call_tool(
+                    "save_agent_scheduled_task",
+                    {
+                        "name": "MCP autofill",
+                        "prompt": "Inspect new inbox cards and enrich them.",
+                        "scope_type": "all_cards",
+                        "schedule_type": "interval",
+                        "interval_value": 1,
+                        "interval_unit": "hour",
+                        "active": True,
+                    },
+                )
+                self.assertFalse(scheduled.isError)
+                self.assertTrue(scheduled.structuredContent["ok"])
+                scheduled_id = scheduled.structuredContent["data"]["task"]["id"]
+
+                listed = await session.call_tool("agent_scheduled_tasks", {})
+                self.assertFalse(listed.isError)
+                self.assertTrue(any(item["id"] == scheduled_id for item in listed.structuredContent["data"]["tasks"]))
+
+                paused = await session.call_tool("pause_agent_scheduled_task", {"task_id": scheduled_id})
+                self.assertFalse(paused.isError)
+                self.assertEqual(paused.structuredContent["data"]["task"]["status"], "paused")
+
+                resumed = await session.call_tool("resume_agent_scheduled_task", {"task_id": scheduled_id})
+                self.assertFalse(resumed.isError)
+                self.assertEqual(resumed.structuredContent["data"]["task"]["status"], "active")
+
+                queued = await session.call_tool("run_agent_scheduled_task", {"task_id": scheduled_id})
+                self.assertFalse(queued.isError)
+                self.assertTrue(queued.structuredContent["ok"])
+                self.assertEqual(queued.structuredContent["data"]["scheduled_task"]["id"], scheduled_id)
+
+                deleted = await session.call_tool("delete_agent_scheduled_task", {"task_id": scheduled_id})
+                self.assertFalse(deleted.isError)
+                self.assertTrue(deleted.structuredContent["ok"])
+                self.assertTrue(deleted.structuredContent["data"]["deleted"])
 
     async def test_mcp_returns_structured_validation_errors(self) -> None:
         async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:

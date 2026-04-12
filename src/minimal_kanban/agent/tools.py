@@ -20,7 +20,8 @@ class AgentToolExecutor:
         self._board_api = board_api
         self._actor_name = actor_name
         self._automotive = AutomotiveLookupService()
-        self._external_request_budget = 5
+        self._external_request_budget_default = 5
+        self._external_request_budget = self._external_request_budget_default
         self._tools: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
             "ping_connector": self._ping_connector,
             "review_board": self._review_board,
@@ -215,12 +216,12 @@ class AgentToolExecutor:
             AgentToolDefinition(
                 "decode_dtc",
                 "Decode an OBD/DTC trouble code using trusted whitelisted sources.",
-                {"code": "required string", "limit": "optional int"},
+                {"code": "required string", "vehicle": "optional string/object", "vehicle_context": "optional object", "limit": "optional int"},
             ),
             AgentToolDefinition(
                 "search_fault_info",
                 "Search fault symptoms and repair notes with trusted whitelisted sources.",
-                {"query": "required string", "limit": "optional int"},
+                {"query": "required string", "vehicle": "optional string/object", "vehicle_context": "optional object", "limit": "optional int"},
             ),
             AgentToolDefinition(
                 "estimate_maintenance",
@@ -265,6 +266,9 @@ class AgentToolExecutor:
         if handler is None:
             raise KeyError(f"Unknown agent tool: {tool_name}")
         return handler(args or {})
+
+    def reset_task_budget(self) -> None:
+        self._external_request_budget = self._external_request_budget_default
 
     def _ping_connector(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.health()
@@ -453,6 +457,8 @@ class AgentToolExecutor:
         self._consume_external_request_budget()
         return self._automotive.decode_dtc(
             code=self._required_text(args, "code"),
+            vehicle_context=self._maybe_dict(args.get("vehicle_context")),
+            vehicle=self._vehicle_payload(args.get("vehicle")),
             limit=self._maybe_int(args.get("limit")) or 5,
         )
 
@@ -460,6 +466,8 @@ class AgentToolExecutor:
         self._consume_external_request_budget()
         return self._automotive.search_fault_info(
             query=self._required_text(args, "query"),
+            vehicle_context=self._maybe_dict(args.get("vehicle_context")),
+            vehicle=self._vehicle_payload(args.get("vehicle")),
             limit=self._maybe_int(args.get("limit")) or 5,
         )
 

@@ -801,6 +801,203 @@ def create_mcp_server(
         )
 
     @server.tool(
+        name="agent_status",
+        description=_scoped_description(
+            "Return current AI-agent runtime status for this AutoStop CRM board: availability, heartbeat, queue totals, and recent runs."
+        ),
+        annotations=_read_tool_annotations("Agent Status"),
+        structured_output=True,
+    )
+    def agent_status(run_limit: int = 10) -> JsonEnvelope:
+        return _relay_board_call("agent_status", lambda: board_api.agent_status(run_limit=run_limit))
+
+    @server.tool(
+        name="agent_runs",
+        description=_scoped_description("Return recent AI-agent runs for this AutoStop CRM board."),
+        annotations=_read_tool_annotations("Agent Runs"),
+        structured_output=True,
+    )
+    def agent_runs(limit: int = 20) -> JsonEnvelope:
+        return _relay_board_call("agent_runs", lambda: board_api.agent_runs(limit=limit))
+
+    @server.tool(
+        name="agent_actions",
+        description=_scoped_description(
+            "Return recent AI-agent actions and log events for this AutoStop CRM board. Optionally filter by run_id or task_id."
+        ),
+        annotations=_read_tool_annotations("Agent Actions"),
+        structured_output=True,
+    )
+    def agent_actions(limit: int = 100, run_id: str | None = None, task_id: str | None = None) -> JsonEnvelope:
+        return _relay_board_call(
+            "agent_actions",
+            lambda: board_api.agent_actions(limit=limit, run_id=run_id, task_id=task_id),
+        )
+
+    @server.tool(
+        name="agent_tasks",
+        description=_scoped_description(
+            "Return AI-agent queue tasks for this AutoStop CRM board. Optionally filter by task status such as pending, running, completed, or failed."
+        ),
+        annotations=_read_tool_annotations("Agent Tasks"),
+        structured_output=True,
+    )
+    def agent_tasks(limit: int = 50, status: str | None = None) -> JsonEnvelope:
+        return _relay_board_call("agent_tasks", lambda: board_api.agent_tasks(limit=limit, status=status))
+
+    @server.tool(
+        name="agent_scheduled_tasks",
+        description=_scoped_description("Return scheduled AI-agent tasks configured for this AutoStop CRM board."),
+        annotations=_read_tool_annotations("Agent Scheduled Tasks"),
+        structured_output=True,
+    )
+    def agent_scheduled_tasks() -> JsonEnvelope:
+        return _relay_board_call("agent_scheduled_tasks", board_api.agent_scheduled_tasks)
+
+    @server.tool(
+        name="agent_enqueue_task",
+        description=_scoped_description(
+            "Enqueue one manual AI-agent task for this AutoStop CRM board. Optionally bind it to a specific card context."
+        ),
+        annotations=_write_tool_annotations("Agent Enqueue Task"),
+        structured_output=True,
+    )
+    def agent_enqueue_task(
+        task_text: str,
+        mode: Literal["manual", "card_autofill"] = "manual",
+        card_id: str | None = None,
+        card_title: str | None = None,
+        requested_by: str | None = None,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        metadata: dict[str, Any] = {}
+        if requested_by:
+            metadata["requested_by"] = requested_by
+        if card_id:
+            metadata["context"] = {
+                "kind": "card",
+                "card_id": card_id,
+                "title": card_title or "",
+            }
+        return _relay_board_call(
+            "agent_enqueue_task",
+            lambda: board_api.agent_enqueue_task(
+                task_text=task_text,
+                mode=mode,
+                source="mcp_agent",
+                metadata=metadata or None,
+                actor_name=actor_name,
+            ),
+        )
+
+    @server.tool(
+        name="save_agent_scheduled_task",
+        description=_scoped_description(
+            "Create or update a scheduled AI-agent task for this AutoStop CRM board. Supports once, interval, and on_create modes with board/card scope."
+        ),
+        annotations=_write_tool_annotations("Save Agent Scheduled Task"),
+        structured_output=True,
+    )
+    def save_agent_scheduled_task(
+        name: str,
+        prompt: str,
+        task_id: str | None = None,
+        scope_type: Literal["all_cards", "column", "current_card"] = "all_cards",
+        scope_column: str | None = None,
+        scope_column_label: str | None = None,
+        scope_card_id: str | None = None,
+        scope_card_label: str | None = None,
+        schedule_type: Literal["once", "interval", "on_create"] = "once",
+        interval_value: int = 1,
+        interval_unit: Literal["minute", "hour"] = "minute",
+        active: bool = True,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "save_agent_scheduled_task",
+            lambda: board_api.save_agent_scheduled_task(
+                task_id=task_id,
+                name=name,
+                prompt=prompt,
+                scope_type=scope_type,
+                scope_column=scope_column,
+                scope_column_label=scope_column_label,
+                scope_card_id=scope_card_id,
+                scope_card_label=scope_card_label,
+                schedule_type=schedule_type,
+                interval_value=interval_value,
+                interval_unit=interval_unit,
+                active=active,
+            ),
+        )
+
+    @server.tool(
+        name="delete_agent_scheduled_task",
+        description=_scoped_description("Delete a scheduled AI-agent task from this AutoStop CRM board."),
+        annotations=_write_tool_annotations("Delete Agent Scheduled Task", destructive=True),
+        structured_output=True,
+    )
+    def delete_agent_scheduled_task(task_id: str) -> JsonEnvelope:
+        return _relay_board_call(
+            "delete_agent_scheduled_task",
+            lambda: board_api.delete_agent_scheduled_task(task_id=task_id),
+        )
+
+    @server.tool(
+        name="pause_agent_scheduled_task",
+        description=_scoped_description("Pause a scheduled AI-agent task on this AutoStop CRM board."),
+        annotations=_write_tool_annotations("Pause Agent Scheduled Task"),
+        structured_output=True,
+    )
+    def pause_agent_scheduled_task(task_id: str) -> JsonEnvelope:
+        return _relay_board_call(
+            "pause_agent_scheduled_task",
+            lambda: board_api.pause_agent_scheduled_task(task_id=task_id),
+        )
+
+    @server.tool(
+        name="resume_agent_scheduled_task",
+        description=_scoped_description("Resume a paused scheduled AI-agent task on this AutoStop CRM board."),
+        annotations=_write_tool_annotations("Resume Agent Scheduled Task"),
+        structured_output=True,
+    )
+    def resume_agent_scheduled_task(task_id: str) -> JsonEnvelope:
+        return _relay_board_call(
+            "resume_agent_scheduled_task",
+            lambda: board_api.resume_agent_scheduled_task(task_id=task_id),
+        )
+
+    @server.tool(
+        name="run_agent_scheduled_task",
+        description=_scoped_description("Enqueue an immediate run of one scheduled AI-agent task on this AutoStop CRM board."),
+        annotations=_write_tool_annotations("Run Agent Scheduled Task"),
+        structured_output=True,
+    )
+    def run_agent_scheduled_task(task_id: str) -> JsonEnvelope:
+        return _relay_board_call(
+            "run_agent_scheduled_task",
+            lambda: board_api.run_agent_scheduled_task(task_id=task_id),
+        )
+
+    @server.tool(
+        name="set_card_ai_autofill",
+        description=_scoped_description(
+            "Enable, disable, or update the 4-hour AI autofill follow-up mode for one card on this AutoStop CRM board."
+        ),
+        annotations=_write_tool_annotations("Set Card AI Autofill"),
+        structured_output=True,
+    )
+    def set_card_ai_autofill(
+        card_id: str,
+        enabled: bool | None = None,
+        prompt: str | None = None,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "set_card_ai_autofill",
+            lambda: board_api.set_card_ai_autofill(card_id=card_id, enabled=enabled, prompt=prompt, actor_name=actor_name),
+        )
+
+    @server.tool(
         name="list_columns",
         description=_scoped_description("List all columns of the current Minimal Kanban board."),
         annotations=_read_tool_annotations("List Columns"),
