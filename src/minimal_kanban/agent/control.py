@@ -100,11 +100,17 @@ class AgentControlService:
         schedules = self._storage.list_schedules()
         active_total = sum(1 for item in schedules if bool(item.get("active")))
         configured = bool(get_agent_openai_api_key())
+        heartbeat_at = parse_datetime(str(status.get("last_heartbeat", "") or "").strip())
+        heartbeat_fresh = False
+        if heartbeat_at is not None:
+            heartbeat_age_seconds = max(0.0, (utc_now() - heartbeat_at).total_seconds())
+            heartbeat_fresh = heartbeat_age_seconds <= max(30.0, float(get_agent_poll_interval_seconds()) * 10.0)
+        available = get_agent_enabled() and (configured or heartbeat_fresh)
         return {
             "agent": {
                 "name": get_agent_name(),
                 "enabled": get_agent_enabled(),
-                "available": get_agent_enabled() and configured,
+                "available": available,
                 "configured": configured,
                 "model": get_agent_openai_model(),
                 "board_api_url": get_agent_board_api_url() or "",
@@ -112,6 +118,7 @@ class AgentControlService:
             "worker": {
                 "embedded": True,
                 "running": bool(self._worker_thread and self._worker_thread.is_alive()),
+                "heartbeat_fresh": heartbeat_fresh,
             },
             "status": status,
             "queue": {

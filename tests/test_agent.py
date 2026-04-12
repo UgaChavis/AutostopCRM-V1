@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +22,7 @@ from minimal_kanban.agent.instructions import build_default_system_prompt
 from minimal_kanban.agent.runner import AgentRunner
 from minimal_kanban.agent.storage import AgentStorage
 from minimal_kanban.api.server import ApiServer
+from minimal_kanban.models import utc_now_iso
 from minimal_kanban.operator_auth import OperatorAuthService
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
@@ -149,6 +151,32 @@ class AgentStorageTests(unittest.TestCase):
                 [item["id"] for item in storage.list_actions(limit=10)],
                 ["action-5", "action-4", "action-3"],
             )
+
+
+class AgentControlStatusTests(unittest.TestCase):
+    def test_agent_status_uses_fresh_shared_heartbeat_for_external_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            "os.environ",
+            {
+                "MINIMAL_KANBAN_AGENT_ENABLED": "1",
+                "OPENAI_API_KEY": "",
+            },
+            clear=False,
+        ):
+            storage = AgentStorage(base_dir=Path(temp_dir))
+            storage.update_status(
+                running=False,
+                current_task_id=None,
+                current_run_id=None,
+                last_heartbeat=utc_now_iso(),
+                last_error="",
+            )
+            service = AgentControlService(storage)
+            payload = service.agent_status()
+            self.assertTrue(payload["agent"]["enabled"])
+            self.assertFalse(payload["agent"]["configured"])
+            self.assertTrue(payload["agent"]["available"])
+            self.assertTrue(payload["worker"]["heartbeat_fresh"])
 
 
 class AgentRunnerTests(unittest.TestCase):
