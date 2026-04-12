@@ -396,7 +396,7 @@ class AgentRunner:
                     ],
                 }
             )
-        if tool_name in {"search_part_numbers", "lookup_part_prices"}:
+        if tool_name in {"find_part_numbers", "search_part_numbers", "estimate_price_ru", "lookup_part_prices", "decode_dtc", "search_fault_info"}:
             results = compact.get("results") if isinstance(compact.get("results"), list) else []
             normalized_results: list[dict[str, Any]] = []
             for item in results[:6]:
@@ -449,15 +449,78 @@ class AgentRunner:
         requested_by = str(metadata.get("requested_by", "") or "").strip()
         if requested_by:
             lines.append(f"Requested by: {requested_by}")
+        scheduled_name = str(metadata.get("scheduled_task_name", "") or "").strip()
+        if scheduled_name:
+            lines.append(f"Scheduled task: {scheduled_name}")
         context = metadata.get("context") if isinstance(metadata.get("context"), dict) else {}
         if context:
             lines.append("Context metadata:")
             lines.append(json.dumps(context, ensure_ascii=False, indent=2))
             if str(context.get("kind", "")).strip().lower() == "card":
                 lines.append("This task was opened from a card. Work with this card first and inside this card first.")
+        scope_prompt = self._build_scope_prompt_block(metadata)
+        if scope_prompt:
+            lines.append(scope_prompt)
         lines.append("Task:")
         lines.append(str(task.get("task_text", "") or "").strip())
         return "\n".join(lines)
+
+    def _build_scope_prompt_block(self, metadata: dict[str, Any]) -> str:
+        scope = metadata.get("scope") if isinstance(metadata.get("scope"), dict) else {}
+        scope_type = str(scope.get("type", "") or "").strip().lower()
+        if scope_type not in {"all_cards", "column", "current_card"}:
+            return ""
+        scope_payload: dict[str, Any] = {
+            "type": scope_type,
+            "column": str(scope.get("column", "") or "").strip(),
+            "column_label": str(scope.get("column_label", "") or "").strip(),
+            "card_id": str(scope.get("card_id", "") or "").strip(),
+            "card_label": str(scope.get("card_label", "") or "").strip(),
+            "cards": [],
+        }
+        try:
+            if scope_type == "current_card" and scope_payload["card_id"]:
+                context_result = self._board_api.get_card_context(
+                    scope_payload["card_id"],
+                    event_limit=20,
+                    include_repair_order_text=True,
+                )
+                scope_payload["card"] = context_result.get("card") if isinstance(context_result, dict) else {}
+                scope_payload["events"] = (context_result.get("events") if isinstance(context_result, dict) else [])[:12]
+                return "Execution scope:\n" + json.dumps(scope_payload, ensure_ascii=False, indent=2)
+            if scope_type == "column" and scope_payload["column"]:
+                result = self._board_api.search_cards(
+                    query=None,
+                    include_archived=False,
+                    column=scope_payload["column"],
+                    tag=None,
+                    indicator=None,
+                    status=None,
+                    limit=40,
+                )
+                cards = result.get("cards") if isinstance(result, dict) else []
+            else:
+                snapshot = self._board_api.get_board_snapshot(archive_limit=0)
+                columns = snapshot.get("columns") if isinstance(snapshot, dict) else []
+                cards = []
+                for column in columns if isinstance(columns, list) else []:
+                    items = column.get("cards") if isinstance(column, dict) else []
+                    if isinstance(items, list):
+                        cards.extend(items)
+            scope_payload["cards"] = [
+                {
+                    "id": item.get("id"),
+                    "vehicle": item.get("vehicle"),
+                    "title": item.get("title"),
+                    "column": item.get("column"),
+                    "tags": item.get("tags"),
+                }
+                for item in (cards if isinstance(cards, list) else [])[:20]
+                if isinstance(item, dict)
+            ]
+        except Exception as exc:
+            scope_payload["error"] = str(exc)
+        return "Execution scope:\n" + json.dumps(scope_payload, ensure_ascii=False, indent=2)
 
     def _cleanup_card_id(self, metadata: dict[str, Any]) -> str:
         context = metadata.get("context") if isinstance(metadata.get("context"), dict) else {}

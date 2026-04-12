@@ -698,11 +698,23 @@ class Card:
     attachments: list[Attachment] = field(default_factory=list)
     is_unread: bool = False
     seen_by_users: dict[str, str] = field(default_factory=dict)
+    ai_autofill_active: bool = False
+    ai_autofill_until: str = ""
+    ai_next_run_at: str = ""
+    last_ai_run_at: str = ""
+    ai_run_count: int = 0
+    last_card_fingerprint: str = ""
 
     def __post_init__(self) -> None:
         self.tags = normalize_tags(self.tags)
         self.position = normalize_int(self.position, default=0, minimum=0)
         self.seen_by_users = normalize_seen_by_users(self.seen_by_users)
+        self.ai_autofill_active = normalize_bool(self.ai_autofill_active, default=False)
+        self.ai_autofill_until = normalize_text(self.ai_autofill_until, default="", limit=64)
+        self.ai_next_run_at = normalize_text(self.ai_next_run_at, default="", limit=64)
+        self.last_ai_run_at = normalize_text(self.last_ai_run_at, default="", limit=64)
+        self.ai_run_count = normalize_int(self.ai_run_count, default=0, minimum=0)
+        self.last_card_fingerprint = normalize_text(self.last_card_fingerprint, default="", limit=128)
 
     def deadline_datetime(self) -> datetime:
         deadline = parse_datetime(self.deadline_timestamp)
@@ -862,6 +874,12 @@ class Card:
             "events_count": max(0, int(events_count)),
             "is_unread": self.is_unread,
             "has_unseen_update": self.has_unseen_update_for(viewer_username),
+            "ai_autofill_active": self.ai_autofill_active,
+            "ai_autofill_until": self.ai_autofill_until,
+            "ai_next_run_at": self.ai_next_run_at,
+            "last_ai_run_at": self.last_ai_run_at,
+            "ai_run_count": self.ai_run_count,
+            "last_card_fingerprint": self.last_card_fingerprint,
         }
         if compact:
             payload["description"] = description_preview
@@ -897,6 +915,12 @@ class Card:
             "attachments": [attachment.to_dict() for attachment in self.attachments],
             "is_unread": self.is_unread,
             "seen_by_users": dict(self.seen_by_users),
+            "ai_autofill_active": self.ai_autofill_active,
+            "ai_autofill_until": self.ai_autofill_until,
+            "ai_next_run_at": self.ai_next_run_at,
+            "last_ai_run_at": self.last_ai_run_at,
+            "ai_run_count": self.ai_run_count,
+            "last_card_fingerprint": self.last_card_fingerprint,
         }
 
     @classmethod
@@ -964,6 +988,12 @@ class Card:
             attachments=attachments,
             is_unread=normalize_bool(payload.get("is_unread"), default=False),
             seen_by_users=normalize_seen_by_users(payload.get("seen_by_users")),
+            ai_autofill_active=normalize_bool(payload.get("ai_autofill_active"), default=False),
+            ai_autofill_until=normalize_text(payload.get("ai_autofill_until"), default="", limit=64),
+            ai_next_run_at=normalize_text(payload.get("ai_next_run_at"), default="", limit=64),
+            last_ai_run_at=normalize_text(payload.get("last_ai_run_at"), default="", limit=64),
+            ai_run_count=normalize_int(payload.get("ai_run_count"), default=0, minimum=0),
+            last_card_fingerprint=normalize_text(payload.get("last_card_fingerprint"), default="", limit=128),
         )
         card.title = title
         return card

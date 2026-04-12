@@ -20,6 +20,7 @@ class AgentToolExecutor:
         self._board_api = board_api
         self._actor_name = actor_name
         self._automotive = AutomotiveLookupService()
+        self._external_request_budget = 5
         self._tools: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
             "ping_connector": self._ping_connector,
             "review_board": self._review_board,
@@ -45,8 +46,12 @@ class AgentToolExecutor:
             "delete_cashbox": self._delete_cashbox,
             "create_cash_transaction": self._create_cash_transaction,
             "decode_vin": self._decode_vin,
+            "find_part_numbers": self._find_part_numbers,
             "search_part_numbers": self._search_part_numbers,
+            "estimate_price_ru": self._estimate_price_ru,
             "lookup_part_prices": self._lookup_part_prices,
+            "decode_dtc": self._decode_dtc,
+            "search_fault_info": self._search_fault_info,
             "estimate_maintenance": self._estimate_maintenance,
             "search_web": self._search_web,
             "fetch_page_excerpt": self._fetch_page_excerpt,
@@ -180,6 +185,11 @@ class AgentToolExecutor:
                 {"vin": "required string"},
             ),
             AgentToolDefinition(
+                "find_part_numbers",
+                "Find OEM/catalog part numbers with trusted whitelisted sources.",
+                {"query": "required string", "vehicle": "optional string/object", "limit": "optional int"},
+            ),
+            AgentToolDefinition(
                 "search_part_numbers",
                 "Search OEM/catalog part numbers for a vehicle and requested part.",
                 {
@@ -189,6 +199,11 @@ class AgentToolExecutor:
                 },
             ),
             AgentToolDefinition(
+                "estimate_price_ru",
+                "Estimate Russian-market part prices from trusted whitelisted sources.",
+                {"part_number": "required string", "vehicle": "optional string/object", "limit": "optional int"},
+            ),
+            AgentToolDefinition(
                 "lookup_part_prices",
                 "Search market prices for a part number or part query.",
                 {
@@ -196,6 +211,16 @@ class AgentToolExecutor:
                     "vehicle_context": "optional object",
                     "limit": "optional int",
                 },
+            ),
+            AgentToolDefinition(
+                "decode_dtc",
+                "Decode an OBD/DTC trouble code using trusted whitelisted sources.",
+                {"code": "required string", "limit": "optional int"},
+            ),
+            AgentToolDefinition(
+                "search_fault_info",
+                "Search fault symptoms and repair notes with trusted whitelisted sources.",
+                {"query": "required string", "limit": "optional int"},
             ),
             AgentToolDefinition(
                 "estimate_maintenance",
@@ -389,20 +414,53 @@ class AgentToolExecutor:
         )
 
     def _decode_vin(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._consume_external_request_budget()
         return self._automotive.decode_vin(self._required_text(args, "vin"))
 
+    def _find_part_numbers(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._consume_external_request_budget()
+        return self._automotive.find_part_numbers(
+            query=self._required_text(args, "query"),
+            vehicle=self._vehicle_payload(args.get("vehicle") or args.get("vehicle_context")),
+            limit=self._maybe_int(args.get("limit")) or 5,
+        )
+
     def _search_part_numbers(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._consume_external_request_budget()
         return self._automotive.search_part_numbers(
             vehicle_context=self._maybe_dict(args.get("vehicle_context")),
             part_query=self._required_text(args, "part_query"),
             limit=self._maybe_int(args.get("limit")) or 8,
         )
 
+    def _estimate_price_ru(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._consume_external_request_budget()
+        return self._automotive.estimate_price_ru(
+            part_number=self._required_text(args, "part_number"),
+            vehicle=self._vehicle_payload(args.get("vehicle") or args.get("vehicle_context")),
+            limit=self._maybe_int(args.get("limit")) or 5,
+        )
+
     def _lookup_part_prices(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._consume_external_request_budget()
         return self._automotive.lookup_part_prices(
             vehicle_context=self._maybe_dict(args.get("vehicle_context")),
             part_number_or_query=self._required_text(args, "part_number_or_query"),
             limit=self._maybe_int(args.get("limit")) or 8,
+        )
+
+    def _decode_dtc(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._consume_external_request_budget()
+        return self._automotive.decode_dtc(
+            code=self._required_text(args, "code"),
+            limit=self._maybe_int(args.get("limit")) or 5,
+        )
+
+    def _search_fault_info(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._consume_external_request_budget()
+        return self._automotive.search_fault_info(
+            query=self._required_text(args, "query"),
+            limit=self._maybe_int(args.get("limit")) or 5,
         )
 
     def _estimate_maintenance(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -412,6 +470,7 @@ class AgentToolExecutor:
         )
 
     def _search_web(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._consume_external_request_budget()
         return self._automotive.search_web(
             query=self._required_text(args, "query"),
             limit=self._maybe_int(args.get("limit")) or 5,
@@ -419,6 +478,7 @@ class AgentToolExecutor:
         )
 
     def _fetch_page_excerpt(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._consume_external_request_budget()
         return self._automotive.fetch_page_excerpt(
             url=self._required_text(args, "url"),
             max_chars=self._maybe_int(args.get("max_chars")) or 2500,
@@ -459,6 +519,17 @@ class AgentToolExecutor:
 
     def _maybe_list(self, value: Any) -> list[Any] | None:
         return value if isinstance(value, list) else None
+
+    def _vehicle_payload(self, value: Any) -> dict[str, Any] | None:
+        if isinstance(value, dict):
+            return value
+        text = self._maybe_text(value)
+        return {"vehicle": text} if text else None
+
+    def _consume_external_request_budget(self) -> None:
+        if self._external_request_budget <= 0:
+            raise ValueError("External web tool budget exceeded for this task.")
+        self._external_request_budget -= 1
 
     def _definition_allowed(self, tool_name: str, *, task_type: str | None, context_kind: str | None) -> bool:
         normalized_type = str(task_type or "").strip().lower()
@@ -501,8 +572,12 @@ class AgentToolExecutor:
         }
         automotive = {
             "decode_vin",
+            "find_part_numbers",
             "search_part_numbers",
+            "estimate_price_ru",
             "lookup_part_prices",
+            "decode_dtc",
+            "search_fault_info",
             "estimate_maintenance",
             "search_web",
             "fetch_page_excerpt",
@@ -517,8 +592,12 @@ class AgentToolExecutor:
         elif normalized_type == "parts_lookup":
             allowed = card_update | {"get_repair_order"} | {
                 "decode_vin",
+                "find_part_numbers",
                 "search_part_numbers",
+                "estimate_price_ru",
                 "lookup_part_prices",
+                "decode_dtc",
+                "search_fault_info",
                 "search_web",
                 "fetch_page_excerpt",
             }

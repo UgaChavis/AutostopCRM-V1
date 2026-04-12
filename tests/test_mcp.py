@@ -428,6 +428,13 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(created_cashbox.isError)
                 self.assertTrue(created_cashbox.structuredContent["ok"])
                 repair_order_cashbox = created_cashbox.structuredContent["data"]["cashbox"]
+                created_cash_cashbox = await session.call_tool(
+                    "create_cashbox",
+                    {"name": "Наличный доплата", "actor_name": "ОПЕРАТОР"},
+                )
+                self.assertFalse(created_cash_cashbox.isError)
+                self.assertTrue(created_cash_cashbox.structuredContent["ok"])
+                repair_order_cash_cashbox = created_cash_cashbox.structuredContent["data"]["cashbox"]
                 repair_order = await session.call_tool(
                     "update_repair_order",
                     {
@@ -536,6 +543,43 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertTrue(repair_orders.structuredContent["ok"])
                 self.assertTrue(any(item["card_id"] == card_id for item in repair_orders.structuredContent["data"]["repair_orders"]))
+
+                close_blocked = await session.call_tool(
+                    "set_repair_order_status",
+                    {"card_id": card_id, "status": "closed", "actor_name": "ОПЕРАТОР"},
+                )
+                self.assertFalse(close_blocked.structuredContent["ok"])
+                self.assertEqual(close_blocked.structuredContent["error"]["code"], "repair_order_payment_required")
+
+                fully_paid = await session.call_tool(
+                    "update_repair_order",
+                    {
+                        "card_id": card_id,
+                        "actor_name": "ОПЕРАТОР",
+                        "repair_order": {
+                            "payments": [
+                                {
+                                    "amount": "500",
+                                    "paid_at": "06.04.2026 10:00",
+                                    "note": "Аванс",
+                                    "payment_method": "cash",
+                                    "actor_name": "ОПЕРАТОР",
+                                    "cashbox_id": repair_order_cashbox["id"],
+                                },
+                                {
+                                    "amount": "2675",
+                                    "paid_at": "06.04.2026 13:30",
+                                    "note": "Доплата",
+                                    "payment_method": "cash",
+                                    "actor_name": "ОПЕРАТОР",
+                                    "cashbox_id": repair_order_cash_cashbox["id"],
+                                },
+                            ],
+                        },
+                    },
+                )
+                self.assertTrue(fully_paid.structuredContent["ok"])
+                self.assertEqual(fully_paid.structuredContent["data"]["repair_order"]["due_total"], "0")
 
                 closed_order = await session.call_tool(
                     "set_repair_order_status",

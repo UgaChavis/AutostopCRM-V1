@@ -67,6 +67,10 @@ def get_agent_tasks_file() -> Path:
     return get_agent_data_dir() / "tasks.json"
 
 
+def get_agent_schedules_file() -> Path:
+    return get_agent_data_dir() / "schedules.json"
+
+
 def get_agent_status_file() -> Path:
     return get_agent_data_dir() / "status.json"
 

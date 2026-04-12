@@ -4,6 +4,7 @@ import base64
 import binascii
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -258,6 +259,7 @@ class CardService:
         self._store = store
         self._logger = logger
         self._lock = threading.RLock()
+        self._agent_control: Any | None = None
         self._attachments_dir = attachments_dir or get_attachments_dir()
         self._attachments_dir.mkdir(parents=True, exist_ok=True)
         self._repair_orders_dir = repair_orders_dir or (self._store.base_dir / "repair-orders")
@@ -299,6 +301,9 @@ class CardService:
             events_for_card=self._events_for_card,
             fail=self._fail,
         )
+
+    def attach_agent_control(self, agent_control: Any | None) -> None:
+        self._agent_control = agent_control
 
     def create_card(self, payload: dict) -> dict:
         with self._lock:
@@ -364,7 +369,139 @@ class CardService:
                 actor_name,
                 source,
             )
+            self._notify_agent_card_created(card)
             return {"card": self._serialize_card(card, events, column_labels=column_labels)}
+
+    def set_card_ai_autofill(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            events = bundle["events"]
+            columns = bundle["columns"]
+            card = self._find_card(cards, payload.get("card_id"))
+            self._ensure_not_archived(card)
+            actor_name, source = self._audit_identity(payload, default_source="ui")
+            enabled = self._validated_optional_bool(payload, "enabled", default=True)
+            now = utc_now()
+            now_iso = now.isoformat()
+            card.ai_autofill_active = enabled
+            card.ai_autofill_until = (now + timedelta(hours=4)).isoformat() if enabled else ""
+            card.ai_next_run_at = now_iso if enabled else ""
+            if not enabled:
+                card.last_card_fingerprint = ""
+                card.ai_run_count = 0
+            launched_task_id = ""
+            if enabled:
+                fingerprint = self._card_ai_fingerprint(card)
+                card.last_card_fingerprint = fingerprint
+                if self._agent_control is not None:
+                    task = self._agent_control.enqueue_card_autofill_task(
+                        {
+                            "card_id": card.id,
+                            "card_heading": card.heading(),
+                            "title": card.title,
+                            "vehicle": card.vehicle_display(),
+                            "requested_by": actor_name,
+                        },
+                        source="ui_card_autofill",
+                        trigger="manual_activate",
+                    )
+                    if task is not None:
+                        launched_task_id = str(task.get("id", "") or "").strip()
+                        card.last_ai_run_at = str(task.get("created_at", "") or now_iso).strip() or now_iso
+                        card.ai_run_count = max(0, int(card.ai_run_count)) + 1
+                        card.ai_next_run_at = (now + timedelta(minutes=self._card_ai_next_interval_minutes(card, changed=True))).isoformat()
+            self._touch_card(card, actor_name)
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="card_ai_autofill_enabled" if enabled else "card_ai_autofill_disabled",
+                message=f"{actor_name} {'включил' if enabled else 'выключил'} автосопровождение карточки",
+                card_id=card.id,
+                details={
+                    "enabled": enabled,
+                    "ai_autofill_until": card.ai_autofill_until,
+                    "task_id": launched_task_id,
+                },
+            )
+            self._save_bundle(bundle, columns=columns, cards=cards, events=events)
+            return {
+                "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
+                "meta": {
+                    "enabled": enabled,
+                    "launched": bool(launched_task_id),
+                    "task_id": launched_task_id,
+                },
+            }
+
+    def trigger_due_ai_followups(self) -> dict:
+        with self._lock:
+            if self._agent_control is None:
+                return {"launched": [], "failed": []}
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            events = bundle["events"]
+            columns = bundle["columns"]
+            now = utc_now()
+            now_iso = now.isoformat()
+            launched: list[str] = []
+            failed: list[dict[str, str]] = []
+            changed_any = False
+            for card in cards:
+                if card.archived:
+                    if card.ai_autofill_active:
+                        card.ai_autofill_active = False
+                        card.ai_autofill_until = ""
+                        card.ai_next_run_at = ""
+                        changed_any = True
+                    continue
+                if not card.ai_autofill_active:
+                    continue
+                until_at = parse_datetime(card.ai_autofill_until)
+                if until_at is None or until_at <= now or card.ai_run_count >= 6:
+                    card.ai_autofill_active = False
+                    card.ai_autofill_until = ""
+                    card.ai_next_run_at = ""
+                    changed_any = True
+                    continue
+                next_run_at = parse_datetime(card.ai_next_run_at) or now
+                if next_run_at > now:
+                    continue
+                if self._agent_control.has_active_task_for_card(card.id, purpose="card_autofill"):
+                    continue
+                fingerprint = self._card_ai_fingerprint(card)
+                changed = fingerprint != str(card.last_card_fingerprint or "").strip()
+                if not changed:
+                    card.ai_next_run_at = (now + timedelta(minutes=self._card_ai_next_interval_minutes(card, changed=False))).isoformat()
+                    changed_any = True
+                    continue
+                try:
+                    task = self._agent_control.enqueue_card_autofill_task(
+                        {
+                            "card_id": card.id,
+                            "card_heading": card.heading(),
+                            "title": card.title,
+                            "vehicle": card.vehicle_display(),
+                            "requested_by": "scheduler",
+                        },
+                        source="agent_card_followup",
+                        trigger="adaptive_followup",
+                    )
+                    if task is None:
+                        continue
+                    launched.append(str(task.get("id", "") or "").strip())
+                    card.last_ai_run_at = str(task.get("created_at", "") or now_iso).strip() or now_iso
+                    card.ai_run_count = max(0, int(card.ai_run_count)) + 1
+                    card.last_card_fingerprint = fingerprint
+                    card.ai_next_run_at = (now + timedelta(minutes=self._card_ai_next_interval_minutes(card, changed=True))).isoformat()
+                    changed_any = True
+                except Exception as exc:
+                    failed.append({"card_id": card.id, "error": str(exc)})
+            if changed_any:
+                self._save_bundle(bundle, columns=columns, cards=cards, events=events)
+            return {"launched": launched, "failed": failed}
 
     def mark_card_seen(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -652,6 +789,8 @@ class CardService:
                 for card in sorted(cards, key=self._repair_order_sort_key, reverse=True)
                 if self._card_has_repair_order(card)
             ]
+            inconsistent_cards = [card for card in ranked_cards if self._card_has_inconsistent_repair_order_state(card)]
+            ranked_cards = [card for card in ranked_cards if not self._card_has_inconsistent_repair_order_state(card)]
             active_cards = [card for card in ranked_cards if card.repair_order.status != REPAIR_ORDER_STATUS_CLOSED]
             archived_cards = [card for card in ranked_cards if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED]
             if status_filter == "all":
@@ -680,6 +819,7 @@ class CardService:
                     "sort_dir": sort_dir,
                     "active_total": len(active_cards),
                     "archived_total": len(archived_cards),
+                    "inconsistent_total": len(inconsistent_cards),
                     "directory": str(self._repair_orders_dir),
                 },
             }
@@ -744,15 +884,40 @@ class CardService:
         with self._lock:
             payload = payload or {}
             bundle = self._store.read_bundle()
-            if self._synchronize_repair_order_numbers(bundle["cards"]):
-                self._save_bundle(bundle, columns=bundle["columns"], cards=bundle["cards"], events=bundle["events"])
-            card = self._find_card(bundle["cards"], payload.get("card_id"))
+            cards = bundle["cards"]
+            events = bundle["events"]
+            columns = bundle["columns"]
+            card = self._find_card(cards, payload.get("card_id"))
+            self._ensure_repair_order_state_supported(card)
+            actor_name, source = self._audit_identity(payload, default_source="ui")
+            created = self._ensure_repair_order_exists(
+                card,
+                cards,
+                events,
+                actor_name,
+                source,
+                cashboxes=bundle["cashboxes"],
+                cash_transactions=bundle["cash_transactions"],
+                settings=bundle["settings"],
+            )
+            numbering_changed = self._synchronize_repair_order_numbers(cards)
+            if created or numbering_changed:
+                self._save_bundle(
+                    bundle,
+                    columns=columns,
+                    cards=cards,
+                    cashboxes=bundle["cashboxes"],
+                    cash_transactions=bundle["cash_transactions"],
+                    events=events,
+                )
             return {
                 "card_id": card.id,
                 "heading": card.heading(),
+                "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
                 "repair_order": card.repair_order.to_dict(),
                 "meta": {
                     "has_any_data": self._card_has_repair_order(card),
+                    "created": created,
                 },
             }
 
@@ -905,7 +1070,9 @@ class CardService:
             events = bundle["events"]
             columns = bundle["columns"]
             card = self._find_card(cards, payload.get("card_id"))
+            self._ensure_repair_order_state_supported(card)
             self._ensure_not_archived(card)
+            self._ensure_repair_order_can_change_status(card, status)
             actor_name, source = self._audit_identity(payload, default_source="api")
             next_payload = card.repair_order.to_storage_dict()
             next_payload["status"] = status
@@ -1057,6 +1224,7 @@ class CardService:
             if self._synchronize_repair_order_numbers(bundle["cards"]):
                 self._save_bundle(bundle, columns=bundle["columns"], cards=bundle["cards"], events=bundle["events"])
             card = self._find_card(bundle["cards"], card_id)
+            self._ensure_repair_order_state_supported(card)
             if not self._card_has_repair_order(card):
                 self._fail(
                     "not_found",
@@ -1074,6 +1242,7 @@ class CardService:
             if self._synchronize_repair_order_numbers(bundle["cards"]):
                 self._save_bundle(bundle, columns=bundle["columns"], cards=bundle["cards"], events=bundle["events"])
             card = self._find_card(bundle["cards"], payload.get("card_id"))
+            self._ensure_repair_order_state_supported(card)
             if not self._card_has_repair_order(card):
                 self._fail(
                     "not_found",
@@ -1099,6 +1268,7 @@ class CardService:
             payload = payload or {}
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
+            self._ensure_repair_order_state_supported(card)
             preview_card = self._print_module_card(card, payload)
             try:
                 return self._print_module.workspace(preview_card, repair_order=preview_card.repair_order)
@@ -1658,6 +1828,9 @@ class CardService:
             self._ensure_card_can_be_archived(card)
             actor_name, source = self._audit_identity(payload, default_source="api")
             card.archived = True
+            card.ai_autofill_active = False
+            card.ai_autofill_until = ""
+            card.ai_next_run_at = ""
             self._touch_card(card, actor_name)
             self._append_event(
                 events,
@@ -3230,6 +3403,56 @@ class CardService:
         card.mark_seen(actor_name, seen_at=updated_at)
         return updated_at
 
+    def _notify_agent_card_created(self, card: Card) -> None:
+        if self._agent_control is None:
+            return
+        try:
+            self._agent_control.handle_card_created(
+                {
+                    "card_id": card.id,
+                    "column": card.column,
+                }
+            )
+        except Exception as exc:
+            self._logger.warning("agent_card_created_hook_failed card_id=%s error=%s", card.id, exc)
+
+    def _card_ai_fingerprint(self, card: Card) -> str:
+        payload = {
+            "title": card.title,
+            "vehicle": card.vehicle,
+            "description": card.description,
+            "updated_at": card.updated_at,
+            "vehicle_profile": card.vehicle_profile.to_storage_dict(),
+            "repair_order": card.repair_order.to_storage_dict(),
+            "tags": card.tag_labels(),
+        }
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:24]
+
+    def _card_ai_next_interval_minutes(self, card: Card, *, changed: bool) -> int:
+        haystack = " ".join(
+            filter(
+                None,
+                [
+                    str(card.title or ""),
+                    str(card.description or ""),
+                    str(card.vehicle or ""),
+                    str(card.repair_order.reason or ""),
+                    str(card.repair_order.comment or ""),
+                    str(card.repair_order.note or ""),
+                ],
+            )
+        ).casefold()
+        waiting = any(token in haystack for token in ("ожид", "в пути", "клиент дума", "согласован", "заказали", "ждем", "ждём"))
+        active = any(token in haystack for token in ("ошибк", "dtc", "vin", "запчаст", "пробег", "течь", "стук", "ремонт", "диагност"))
+        if not changed:
+            return 90 if waiting else 60
+        if waiting:
+            return 50
+        if active and int(card.ai_run_count or 0) <= 3:
+            return 25
+        return 40
+
     def _should_seed_demo(self, bundle: dict) -> bool:
         cards = bundle["cards"]
         stickies = bundle["stickies"]
@@ -4509,8 +4732,68 @@ class CardService:
     def _card_has_repair_order(self, card: Card) -> bool:
         return not card.repair_order.is_empty()
 
+    def _card_has_inconsistent_repair_order_state(self, card: Card) -> bool:
+        return card.archived and self._card_has_open_repair_order(card)
+
     def _card_has_open_repair_order(self, card: Card) -> bool:
         return self._card_has_repair_order(card) and card.repair_order.status != REPAIR_ORDER_STATUS_CLOSED
+
+    def _ensure_repair_order_state_supported(self, card: Card) -> None:
+        if not self._card_has_inconsistent_repair_order_state(card):
+            return
+        repair_order_number = str(card.repair_order.number or "").strip()
+        number_suffix = f" №{repair_order_number}" if repair_order_number else ""
+        self._fail(
+            "repair_order_archived_card_conflict",
+            f"Обнаружено неконсистентное состояние: архивная карточка содержит открытый заказ-наряд{number_suffix}. "
+            "Откройте рабочую карточку или закройте заказ-наряд перед дальнейшей работой.",
+            status_code=409,
+            details={"card_id": card.id, "repair_order_number": repair_order_number},
+        )
+
+    def _repair_order_seed_payload(self, card: Card) -> dict[str, Any]:
+        profile = card.vehicle_profile
+        mileage = str(profile.mileage) if profile.mileage is not None else ""
+        vehicle = normalize_text(card.vehicle, default="", limit=CARD_VEHICLE_LIMIT) or profile.display_name()
+        return {
+            "client": profile.customer_name,
+            "phone": profile.customer_phone,
+            "vehicle": vehicle,
+            "vin": profile.vin,
+            "mileage": mileage,
+            "reason": card.title,
+            "comment": card.description,
+        }
+
+    def _ensure_repair_order_exists(
+        self,
+        card: Card,
+        cards: list[Card],
+        events: list[AuditEvent],
+        actor_name: str,
+        source: str,
+        *,
+        cashboxes: list[CashBox] | None = None,
+        cash_transactions: list[CashTransaction] | None = None,
+        settings: dict[str, Any] | None = None,
+    ) -> bool:
+        if self._card_has_repair_order(card) or card.archived:
+            return False
+        changed = self._update_repair_order(
+            card,
+            cards,
+            self._repair_order_seed_payload(card),
+            events,
+            actor_name,
+            source,
+            cashboxes=cashboxes,
+            cash_transactions=cash_transactions,
+            settings=settings,
+        )
+        if changed:
+            self._touch_card(card, actor_name)
+            self._ensure_repair_order_text_file(card, force=True)
+        return changed
 
     def _ensure_card_can_be_archived(self, card: Card) -> None:
         if not self._card_has_open_repair_order(card):
@@ -4522,6 +4805,20 @@ class CardService:
             f"Нельзя отправить карточку в архив: по ней открыт заказ-наряд{number_suffix}. Сначала закройте заказ-наряд или снимите его с карточки.",
             status_code=409,
             details={"card_id": card.id, "repair_order_number": repair_order_number},
+        )
+
+    def _ensure_repair_order_can_change_status(self, card: Card, status: str) -> None:
+        if status != REPAIR_ORDER_STATUS_CLOSED or card.repair_order.is_paid():
+            return
+        self._fail(
+            "repair_order_payment_required",
+            "Для закрытия заказ-наряда необходимо выполнить оплату.",
+            status_code=409,
+            details={
+                "card_id": card.id,
+                "due_total": card.repair_order.due_total_amount(),
+                "payment_status": card.repair_order.payment_status(),
+            },
         )
 
     def _validated_repair_order_status(

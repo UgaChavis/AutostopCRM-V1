@@ -82,6 +82,10 @@ class AutomotiveLookupService:
             "source_group": [item.label for item in PARTS_CATALOG_SOURCES],
         }
 
+    def find_part_numbers(self, *, query: str, vehicle: dict[str, Any] | str | None = None, limit: int = 5) -> dict[str, Any]:
+        vehicle_context = vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()}
+        return self.search_part_numbers(vehicle_context=vehicle_context, part_query=query, limit=limit)
+
     def lookup_part_prices(
         self,
         *,
@@ -126,6 +130,17 @@ class AutomotiveLookupService:
             "results": enriched,
             "source_group": [item.label for item in PARTS_PRICE_SOURCES],
         }
+
+    def estimate_price_ru(self, *, part_number: str, vehicle: dict[str, Any] | str | None = None, limit: int = 5) -> dict[str, Any]:
+        vehicle_context = vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()}
+        payload = self.lookup_part_prices(
+            vehicle_context=vehicle_context,
+            part_number_or_query=part_number,
+            limit=limit,
+        )
+        payload["part_number"] = str(part_number or "").strip()
+        payload["market"] = "ru"
+        return payload
 
     def estimate_maintenance(
         self,
@@ -185,6 +200,23 @@ class AutomotiveLookupService:
         return {
             "query": str(query or "").strip(),
             "results": results,
+        }
+
+    def decode_dtc(self, *, code: str, limit: int = 5) -> dict[str, Any]:
+        normalized_code = self._required_query(code).upper()
+        query = f"{normalized_code} DTC code meaning"
+        return {
+            "code": normalized_code,
+            "results": [item.to_dict() for item in self._search.search(query, limit=limit, allowed_domains=trusted_domains(kind="dtc"))],
+            "source_group": ["DTC lookup"],
+        }
+
+    def search_fault_info(self, *, query: str, limit: int = 5) -> dict[str, Any]:
+        normalized_query = self._required_query(query)
+        return {
+            "query": normalized_query,
+            "results": [item.to_dict() for item in self._search.search(normalized_query, limit=limit, allowed_domains=trusted_domains(kind="fault"))],
+            "source_group": ["Fault search"],
         }
 
     def fetch_page_excerpt(self, *, url: str, max_chars: int = 2500) -> dict[str, Any]:

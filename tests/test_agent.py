@@ -451,6 +451,8 @@ class AgentApiTests(unittest.TestCase):
         )
         self.agent_storage = AgentStorage(base_dir=Path(self.temp_dir.name) / "agent")
         self.agent_service = AgentControlService(self.agent_storage)
+        self.service.attach_agent_control(self.agent_service)
+        self.agent_service.bind_board_service(self.service)
         self.port = reserve_port()
         self.server = ApiServer(
             self.service,
@@ -494,3 +496,95 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(queued["data"]["task"]["status"], "pending")
         status = self._request("/api/agent_status", method="GET", headers=headers)
         self.assertEqual(status["data"]["queue"]["pending_total"], 1)
+
+    def test_agent_schedule_routes_create_pause_resume_and_run_tasks(self) -> None:
+        login = self._request("/api/login_operator", {"username": "admin", "password": "admin"})
+        headers = {"X-Operator-Session": login["data"]["session"]["token"]}
+
+        saved = self._request(
+            "/api/save_agent_scheduled_task",
+            {
+                "name": "Проверка оплат",
+                "prompt": "Проверь неоплаченные заказ-наряды и обнови карточки через MCP.",
+                "scope_type": "all_cards",
+                "schedule_type": "interval",
+                "interval_value": 1,
+                "interval_unit": "hour",
+                "active": True,
+            },
+            headers=headers,
+        )
+        task_id = saved["data"]["task"]["id"]
+        self.assertEqual(saved["data"]["task"]["period"], "1h")
+        self.assertEqual(saved["data"]["task"]["status"], "active")
+
+        listed = self._request("/api/agent_scheduled_tasks", method="GET", headers=headers)
+        self.assertTrue(any(item["id"] == task_id for item in listed["data"]["tasks"]))
+
+        paused = self._request("/api/pause_agent_scheduled_task", {"task_id": task_id}, headers=headers)
+        self.assertEqual(paused["data"]["task"]["status"], "paused")
+
+        resumed = self._request("/api/resume_agent_scheduled_task", {"task_id": task_id}, headers=headers)
+        self.assertEqual(resumed["data"]["task"]["status"], "active")
+
+        queued = self._request("/api/run_agent_scheduled_task", {"task_id": task_id}, headers=headers)
+        self.assertEqual(queued["data"]["task"]["status"], "pending")
+        self.assertEqual(queued["data"]["scheduled_task"]["id"], task_id)
+
+    def test_agent_on_create_schedule_enqueues_single_task_for_matching_card(self) -> None:
+        login = self._request("/api/login_operator", {"username": "admin", "password": "admin"})
+        headers = {"X-Operator-Session": login["data"]["session"]["token"]}
+        default_column = self.service.list_columns()["columns"][0]["id"]
+        saved = self._request(
+            "/api/save_agent_scheduled_task",
+            {
+                "name": "On create inbox",
+                "prompt": "Inspect new inbox cards and enrich them through MCP.",
+                "scope_type": "column",
+                "scope_column": default_column,
+                "schedule_type": "on_create",
+                "active": True,
+            },
+            headers=headers,
+        )
+        task_id = saved["data"]["task"]["id"]
+        self.assertEqual(saved["data"]["task"]["period"], "on_create")
+
+        created = self.service.create_card(
+            {"vehicle": "KIA RIO", "title": "Fresh card", "column": default_column, "deadline": {"hours": 2}}
+        )
+        card_id = created["card"]["id"]
+        queued = self.agent_storage.list_tasks(limit=10)
+        self.assertEqual(len(queued), 1)
+        self.assertEqual(queued[0]["metadata"]["scheduled_task_id"], task_id)
+        self.assertEqual(queued[0]["metadata"]["purpose"], "scheduled_on_create")
+        self.assertEqual(queued[0]["metadata"]["context"]["card_id"], card_id)
+
+        duplicate = self.agent_service.handle_card_created({"card_id": card_id, "column": default_column})
+        self.assertEqual(duplicate["launched"], [])
+        self.assertEqual(len(self.agent_storage.list_tasks(limit=10)), 1)
+
+    def test_set_card_ai_autofill_route_enqueues_current_card_task(self) -> None:
+        created = self.service.create_card({"vehicle": "Toyota Corolla", "title": "AI follow-up", "deadline": {"hours": 2}})
+        card_id = created["card"]["id"]
+
+        enabled = self._request(
+            "/api/set_card_ai_autofill",
+            {
+                "card_id": card_id,
+                "enabled": True,
+                "actor_name": "AI",
+            },
+        )
+        self.assertTrue(enabled["data"]["meta"]["enabled"])
+        self.assertTrue(enabled["data"]["meta"]["launched"])
+        self.assertTrue(enabled["data"]["card"]["ai_autofill_active"])
+        self.assertEqual(enabled["data"]["card"]["ai_run_count"], 1)
+
+        queued = self.agent_storage.list_tasks(limit=10)
+        self.assertEqual(len(queued), 1)
+        task = queued[0]
+        self.assertEqual(task["mode"], "card_autofill")
+        self.assertEqual(task["metadata"]["scope"]["type"], "current_card")
+        self.assertEqual(task["metadata"]["scope"]["card_id"], card_id)
+        self.assertEqual(task["metadata"]["purpose"], "card_autofill")

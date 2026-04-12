@@ -149,6 +149,7 @@ class ApiServer:
             "/api/autofill_vehicle_data": service.autofill_vehicle_data,
             "/api/autofill_repair_order": service.autofill_repair_order,
             "/api/update_board_settings": service.update_board_settings,
+            "/api/set_card_ai_autofill": service.set_card_ai_autofill,
             "/api/get_card_log": service.get_card_log,
             "/api/search_cards": service.search_cards,
             "/api/list_repair_orders": service.list_repair_orders,
@@ -201,6 +202,7 @@ class ApiServer:
             "/api/autofill_vehicle_data",
             "/api/autofill_repair_order",
             "/api/update_board_settings",
+            "/api/set_card_ai_autofill",
             "/api/update_repair_order",
             "/api/set_repair_order_status",
             "/api/replace_repair_order_works",
@@ -248,6 +250,12 @@ class ApiServer:
                 "/api/agent_runs",
                 "/api/agent_actions",
                 "/api/agent_tasks",
+                "/api/agent_scheduled_tasks",
+                "/api/save_agent_scheduled_task",
+                "/api/delete_agent_scheduled_task",
+                "/api/run_agent_scheduled_task",
+                "/api/pause_agent_scheduled_task",
+                "/api/resume_agent_scheduled_task",
             }
             routes.update({route: getattr(agent_service, route.removeprefix("/api/")) for route in agent_routes})
         if operator_service is not None:
@@ -368,6 +376,7 @@ class ApiServer:
                             "/api/agent_runs",
                             "/api/agent_actions",
                             "/api/agent_tasks",
+                            "/api/agent_scheduled_tasks",
                         }
                     )
                 if route in readonly_routes:

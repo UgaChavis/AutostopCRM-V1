@@ -18,9 +18,39 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.models import CARD_DESCRIPTION_LIMIT, AuditEvent, Card, utc_now
+from minimal_kanban.repair_order import RepairOrder
 from minimal_kanban.services.card_service import CardService, ServiceError
 from minimal_kanban.storage.json_store import JsonStore
 from minimal_kanban.vehicle_profile import VehicleProfile
+
+
+class _FakeAgentControl:
+    def __init__(self) -> None:
+        self.created_payloads: list[dict[str, object]] = []
+        self.autofill_calls: list[dict[str, object]] = []
+        self.active_card_tasks: set[tuple[str, str | None]] = set()
+
+    def handle_card_created(self, payload: dict | None = None) -> dict:
+        payload = dict(payload or {})
+        self.created_payloads.append(payload)
+        return {"launched": [], "meta": {"matched": 0}}
+
+    def enqueue_card_autofill_task(
+        self,
+        payload: dict | None = None,
+        *,
+        source: str = "ui_card_autofill",
+        trigger: str = "manual",
+    ) -> dict | None:
+        payload = dict(payload or {})
+        self.autofill_calls.append({"payload": payload, "source": source, "trigger": trigger})
+        return {
+            "id": f"task-{len(self.autofill_calls)}",
+            "created_at": utc_now().isoformat(),
+        }
+
+    def has_active_task_for_card(self, card_id: str, *, purpose: str | None = None) -> bool:
+        return (card_id, purpose) in self.active_card_tasks
 
 
 class CardServiceTests(unittest.TestCase):
@@ -142,6 +172,179 @@ class CardServiceTests(unittest.TestCase):
         archived = self.service.archive_card({"card_id": card_id})
         self.assertTrue(archived["card"]["archived"])
 
+    def test_close_repair_order_requires_full_payment(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota Corolla",
+                "title": "Закрытие без оплаты",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Иван",
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+                },
+            }
+        )
+
+        with self.assertRaises(ServiceError) as raised:
+            self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+
+        self.assertEqual(raised.exception.code, "repair_order_payment_required")
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertIn("выполнить оплату", raised.exception.message.lower())
+
+    def test_create_card_does_not_materialize_repair_order_before_first_open(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota Corolla",
+                "title": "Ленивая карточка",
+                "description": "Пока без заказ-наряда",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+
+        listed_before = self.service.list_repair_orders()
+        self.assertEqual(listed_before["meta"]["total"], 0)
+
+        fetched = self.service.get_repair_order({"card_id": card_id, "actor_name": "UI", "source": "ui"})
+        self.assertTrue(fetched["meta"]["has_any_data"])
+        self.assertTrue(fetched["meta"]["created"])
+        self.assertEqual(fetched["repair_order"]["reason"], "Ленивая карточка")
+        self.assertEqual(fetched["repair_order"]["comment"], "Пока без заказ-наряда")
+        self.assertEqual(fetched["card"]["repair_order"]["number"], "1")
+
+        listed_after = self.service.list_repair_orders()
+        self.assertEqual(listed_after["meta"]["total"], 1)
+        self.assertEqual(listed_after["repair_orders"][0]["card_id"], card_id)
+
+    def test_set_card_ai_autofill_enqueues_initial_task_and_updates_metadata(self) -> None:
+        agent = _FakeAgentControl()
+        self.service.attach_agent_control(agent)
+        base = datetime(2026, 4, 12, 8, 0, 0, tzinfo=timezone.utc)
+        patches = self._patch_time(base)
+        with patches[0], patches[1], patches[2]:
+            created = self.service.create_card(
+                {
+                    "vehicle": "Toyota Corolla",
+                    "title": "Автосопровождение",
+                    "description": "Диагностика подвески",
+                    "deadline": {"hours": 2},
+                }
+            )
+            card_id = created["card"]["id"]
+            enabled = self.service.set_card_ai_autofill({"card_id": card_id, "enabled": True, "actor_name": "AI"})
+
+        self.assertTrue(enabled["meta"]["enabled"])
+        self.assertTrue(enabled["meta"]["launched"])
+        self.assertEqual(len(agent.autofill_calls), 1)
+        self.assertEqual(agent.autofill_calls[0]["payload"]["card_id"], card_id)
+        card = enabled["card"]
+        self.assertTrue(card["ai_autofill_active"])
+        self.assertEqual(card["ai_run_count"], 1)
+        self.assertTrue(card["ai_autofill_until"])
+        self.assertTrue(card["ai_next_run_at"])
+        self.assertTrue(card["last_ai_run_at"])
+        self.assertTrue(card["last_card_fingerprint"])
+
+    def test_trigger_due_ai_followups_skips_unchanged_then_enqueues_after_change(self) -> None:
+        agent = _FakeAgentControl()
+        self.service.attach_agent_control(agent)
+        base = datetime(2026, 4, 12, 8, 0, 0, tzinfo=timezone.utc)
+        patches = self._patch_time(base)
+        with patches[0], patches[1], patches[2]:
+            created = self.service.create_card(
+                {
+                    "vehicle": "Toyota Corolla",
+                    "title": "Контроль карточки",
+                    "description": "Первичный осмотр",
+                    "deadline": {"hours": 2},
+                }
+            )
+            card_id = created["card"]["id"]
+            self.service.set_card_ai_autofill({"card_id": card_id, "enabled": True, "actor_name": "AI"})
+
+        self.assertEqual(len(agent.autofill_calls), 1)
+        bundle = self.store.read_bundle()
+        card = next(item for item in bundle["cards"] if item.id == card_id)
+        initial_next_run = card.ai_next_run_at
+
+        unchanged_time = base + timedelta(minutes=41)
+        patches = self._patch_time(unchanged_time)
+        with patches[0], patches[1], patches[2]:
+            followup = self.service.trigger_due_ai_followups()
+        self.assertEqual(followup["launched"], [])
+        self.assertEqual(len(agent.autofill_calls), 1)
+
+        bundle = self.store.read_bundle()
+        card = next(item for item in bundle["cards"] if item.id == card_id)
+        self.assertNotEqual(card.ai_next_run_at, initial_next_run)
+        deferred_next_run = card.ai_next_run_at
+
+        change_time = base + timedelta(minutes=50)
+        patches = self._patch_time(change_time)
+        with patches[0], patches[1], patches[2]:
+            self.service.update_card({"card_id": card_id, "description": "Появился код ошибки P0300"})
+
+        due_time = base + timedelta(minutes=102)
+        patches = self._patch_time(due_time)
+        with patches[0], patches[1], patches[2]:
+            launched = self.service.trigger_due_ai_followups()
+        self.assertEqual(len(launched["launched"]), 1)
+        self.assertEqual(len(agent.autofill_calls), 2)
+        self.assertEqual(agent.autofill_calls[-1]["trigger"], "adaptive_followup")
+
+        bundle = self.store.read_bundle()
+        card = next(item for item in bundle["cards"] if item.id == card_id)
+        self.assertEqual(card.ai_run_count, 2)
+        self.assertNotEqual(card.ai_next_run_at, deferred_next_run)
+
+    def test_inconsistent_archived_card_with_open_repair_order_is_blocked_and_hidden(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota Corolla",
+                "title": "Неконсистентная карточка",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        bundle = self.store.read_bundle()
+        card = next(item for item in bundle["cards"] if item.id == card_id)
+        card.archived = True
+        card.repair_order = RepairOrder.from_dict(
+            {
+                "number": "5",
+                "status": "open",
+                "client": "Иван",
+                "vehicle": "Toyota Corolla",
+                "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+            }
+        )
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        listed = self.service.list_repair_orders()
+        self.assertEqual(listed["meta"]["inconsistent_total"], 1)
+        self.assertFalse(any(item["card_id"] == card_id for item in listed["repair_orders"]))
+
+        with self.assertRaises(ServiceError) as raised:
+            self.service.get_repair_order({"card_id": card_id})
+
+        self.assertEqual(raised.exception.code, "repair_order_archived_card_conflict")
+        self.assertEqual(raised.exception.status_code, 409)
+
     def test_closing_repair_order_accrues_employee_salary(self) -> None:
         employee = self.service.save_employee(
             {
@@ -169,6 +372,7 @@ class CardServiceTests(unittest.TestCase):
                     "status": "open",
                     "client": "Витя Покровский",
                     "vehicle": "Mitsubishi L200",
+                    "payments": [{"amount": "5000", "paid_at": "05.04.2026 10:00", "payment_method": "cash"}],
                     "works": [
                         {
                             "name": "Диагностика",
@@ -222,6 +426,7 @@ class CardServiceTests(unittest.TestCase):
                     "status": "open",
                     "client": "Витя Покровский",
                     "vehicle": "Mitsubishi L200",
+                    "payments": [{"amount": "5000", "paid_at": "05.04.2026 10:00", "payment_method": "cash"}],
                     "works": [
                         {
                             "name": "Диагностика",
@@ -1582,6 +1787,7 @@ class CardServiceTests(unittest.TestCase):
                 "card_id": second["card"]["id"],
                 "repair_order": {
                     "client": "Пётр",
+                    "payments": [{"amount": "2000", "paid_at": "06.04.2026 12:00", "payment_method": "cash"}],
                     "works": [{"name": "Ремонт", "quantity": "1", "price": "2000", "total": ""}],
                 },
             }

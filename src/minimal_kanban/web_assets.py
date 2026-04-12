@@ -180,6 +180,14 @@ BOARD_WEB_APP_HTML = "".join(
       color: var(--text);
       border-color: var(--line);
     }
+    #repairOrderCloseButton[data-close-available="false"],
+    #repairOrderCloseButton[data-close-available="false"]:hover {
+      color: rgba(200, 198, 187, 0.46);
+      border-color: rgba(255,255,255,0.08);
+      background: rgba(0,0,0,0.08);
+      box-shadow: none;
+      cursor: default;
+    }
     .gear-button {
       width: 40px;
       height: 40px;
@@ -895,6 +903,16 @@ BOARD_WEB_APP_HTML = "".join(
       font-size: 15px;
       letter-spacing: 0.07em;
     }
+    .dialog__head--repair-order .dialog__title-wrap {
+      gap: 6px;
+    }
+    .repair-order-headline {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+      flex-wrap: wrap;
+    }
     .tab-btn {
       border: 1px solid var(--line-soft);
       padding: 8px 10px;
@@ -1576,15 +1594,9 @@ BOARD_WEB_APP_HTML = "".join(
     .repair-order-toolbar {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-end;
       gap: 8px;
       flex-wrap: wrap;
-    }
-    .repair-order-toolbar__status {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 34px;
     }
     .repair-order-toolbar .btn {
       min-height: 34px;
@@ -1667,21 +1679,24 @@ BOARD_WEB_APP_HTML = "".join(
     .repair-order-status {
       display: inline-flex;
       align-items: center;
-      justify-self: start;
+      justify-content: center;
       min-height: 24px;
-      padding: 5px 10px;
-      border: 1px solid rgba(116, 126, 106, 0.24);
-      background: rgba(255, 255, 255, 0.02);
-      color: var(--text);
+      padding: 4px 10px;
+      border: 1px solid rgba(123, 166, 113, 0.36);
+      background: rgba(81, 122, 72, 0.18);
+      color: #e6f1db;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
       font-family: var(--mono);
       font-size: 10px;
       letter-spacing: 0.08em;
+      font-weight: 700;
       text-transform: uppercase;
+      white-space: nowrap;
     }
     .repair-order-status[data-status="closed"] {
-      border-color: rgba(170, 181, 139, 0.38);
-      background: rgba(170, 181, 139, 0.1);
-      color: #f3efde;
+      border-color: rgba(181, 109, 97, 0.4);
+      background: rgba(119, 50, 43, 0.18);
+      color: #f4dcd7;
     }
     .repair-order-section-bar {
       display: flex;
@@ -1989,11 +2004,84 @@ BOARD_WEB_APP_HTML = "".join(
         overflow-y: auto;
       }
       .agent-actions-row {
-        display: flex;
-        justify-content: flex-end;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: stretch;
+      }
+      .agent-tasks-launch {
+        min-height: 54px;
+        padding: 10px 12px;
+        border: 1px solid rgba(116, 126, 106, 0.24);
+        background: rgba(12, 16, 13, 0.5);
+        display: grid;
+        justify-items: start;
+        align-content: center;
+        gap: 4px;
+        text-align: left;
+      }
+      .agent-tasks-launch:hover {
+        border-color: rgba(182, 177, 116, 0.44);
+        background: rgba(43, 49, 33, 0.2);
+      }
+      .agent-tasks-launch__title {
+        font-family: var(--mono);
+        font-size: 13px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--text-strong);
+      }
+      .agent-tasks-launch__meta {
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .agent-autofill-panel {
+        min-height: 54px;
+        padding: 10px 12px;
+        border: 1px solid rgba(116, 126, 106, 0.24);
+        background: rgba(12, 16, 13, 0.5);
+        display: grid;
+        gap: 6px;
+      }
+      .agent-autofill-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .agent-autofill-status::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: rgba(129, 138, 123, 0.76);
+      }
+      .agent-autofill-status[data-state="online"]::before,
+      .agent-autofill-status[data-state="active"]::before { background: rgba(115, 182, 107, 0.92); }
+      .agent-autofill-status[data-state="waiting"]::before { background: rgba(214, 175, 55, 0.94); }
+      .agent-autofill-status[data-state="offline"]::before,
+      .agent-autofill-status[data-state="error"]::before { background: rgba(207, 91, 75, 0.94); }
+      .agent-autofill-button {
+        min-height: 34px;
+        width: 100%;
+      }
+      .agent-autofill-button[data-state="active"] {
+        border-color: rgba(115, 182, 107, 0.54);
+        background: rgba(52, 88, 48, 0.22);
+        color: #eef7e6;
+      }
+      .agent-autofill-button[data-state="inactive"][disabled] {
+        cursor: default;
+        opacity: 0.72;
       }
       .agent-actions-row .btn {
-        min-width: 124px;
+        min-width: 136px;
       }
       .agent-result {
         flex: 1 1 auto;
@@ -2170,6 +2258,230 @@ BOARD_WEB_APP_HTML = "".join(
         display: grid;
         gap: 6px;
         padding: 0 10px 10px;
+      }
+      .dialog--agent-tasks {
+        width: min(1180px, calc(100% - 28px));
+        max-height: min(86vh, 860px);
+        padding: 0;
+        gap: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .dialog--agent-tasks .dialog__head {
+        padding: 11px 12px 9px;
+        margin: 0;
+        border-bottom: 1px solid rgba(115, 126, 105, 0.18);
+        background: rgba(0, 0, 0, 0.08);
+      }
+      .agent-tasks-shell {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        padding: 12px;
+        display: grid;
+        grid-template-columns: 360px minmax(0, 1fr);
+        gap: 12px;
+      }
+      .agent-tasks-rail,
+      .agent-tasks-editor {
+        min-height: 0;
+        display: grid;
+        gap: 12px;
+        align-content: start;
+      }
+      .agent-tasks-rail {
+        grid-template-rows: auto minmax(0, 1fr);
+      }
+      .agent-tasks-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .agent-tasks-toolbar__copy {
+        display: grid;
+        gap: 6px;
+      }
+      .agent-tasks-list {
+        display: grid;
+        align-content: start;
+        gap: 8px;
+        min-height: 220px;
+        overflow: auto;
+        padding-right: 2px;
+      }
+      .agent-tasks-empty {
+        min-height: 220px;
+        border: 1px dashed rgba(116, 128, 111, 0.28);
+        background: rgba(0, 0, 0, 0.05);
+        display: grid;
+        align-content: center;
+        gap: 8px;
+        padding: 18px;
+      }
+      .agent-tasks-empty__title {
+        font-family: var(--mono);
+        font-size: 13px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--text-strong);
+      }
+      .agent-tasks-empty__text {
+        color: var(--muted);
+        line-height: 1.5;
+      }
+      .agent-task-row {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        background: rgba(24, 31, 25, 0.92);
+        cursor: pointer;
+      }
+      .agent-task-row:hover {
+        border-color: rgba(182, 177, 116, 0.44);
+        background: rgba(31, 38, 31, 0.94);
+      }
+      .agent-task-row[data-active="true"] {
+        border-color: rgba(182, 177, 116, 0.6);
+        box-shadow: inset 0 0 0 1px rgba(182, 177, 116, 0.12);
+      }
+      .agent-task-row[data-busy="true"] {
+        border-color: rgba(116, 146, 106, 0.34);
+      }
+      .agent-task-row__top,
+      .agent-task-row__footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+      .agent-task-row__main {
+        min-width: 0;
+        display: grid;
+        gap: 4px;
+      }
+      .agent-task-row__title {
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-strong);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .agent-task-row__meta {
+        font-size: 10.5px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .agent-task-row__prompt {
+        color: var(--text-soft);
+        line-height: 1.45;
+      }
+      .agent-task-row__chips {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .agent-task-row__timing {
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .agent-task-row__warning {
+        padding: 8px 9px;
+        border: 1px solid rgba(151, 92, 83, 0.26);
+        background: rgba(63, 36, 32, 0.2);
+        color: #e5b8ae;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+      .agent-task-chip {
+        min-width: 64px;
+        padding: 7px 9px;
+        border: 1px solid rgba(116, 128, 111, 0.34);
+        font-size: 10.5px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        text-align: center;
+        color: var(--muted-strong);
+        background: rgba(24, 31, 25, 0.88);
+      }
+      .agent-task-chip[data-status="active"] {
+        color: #b9d3b2;
+        border-color: rgba(115, 182, 107, 0.4);
+        background: rgba(47, 77, 45, 0.24);
+      }
+      .agent-task-chip[data-status="paused"] {
+        color: #d3c9aa;
+        border-color: rgba(176, 157, 101, 0.34);
+        background: rgba(73, 65, 39, 0.18);
+      }
+      .agent-task-actions {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .agent-task-actions .btn {
+        min-width: 36px;
+        padding: 6px 8px;
+      }
+      .agent-tasks-editor__head {
+        display: grid;
+        gap: 6px;
+      }
+      .agent-tasks-editor .field textarea {
+        min-height: 136px;
+        resize: vertical;
+      }
+      .agent-tasks-editor__row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 10px;
+      }
+      .agent-tasks-editor__row--schedule {
+        grid-template-columns: 140px 110px minmax(0, 1fr);
+        align-items: end;
+      }
+      .agent-tasks-editor__foot {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .agent-tasks-editor__actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .agent-tasks-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 34px;
+        padding: 0 2px;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted-strong);
+      }
+      .agent-tasks-meta {
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        line-height: 1.45;
       }
       .agent-action-row {
         padding: 8px 9px;
@@ -2519,13 +2831,14 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .dialog--repair-orders {
       --repair-orders-columns:
-        minmax(54px, 68px)
-        minmax(92px, 104px)
+        minmax(56px, 72px)
+        minmax(132px, 160px)
+        minmax(92px, 108px)
         minmax(108px, 124px)
-        minmax(138px, 168px)
-        minmax(126px, 144px)
-        minmax(138px, 168px)
-        minmax(380px, 3.2fr)
+        minmax(140px, 176px)
+        minmax(124px, 146px)
+        minmax(150px, 188px)
+        minmax(320px, 2.8fr)
         minmax(88px, 104px)
         minmax(88px, 104px);
     }
@@ -2608,6 +2921,22 @@ BOARD_WEB_APP_HTML = "".join(
     .repair-orders-row__closed {
       color: var(--text-soft);
       white-space: nowrap;
+    }
+    .repair-orders-row__dates {
+      display: grid;
+      gap: 4px;
+      align-content: center;
+      min-width: 0;
+    }
+    .repair-orders-row__date-meta {
+      color: var(--text-soft);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.2;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .repair-orders-row__client,
     .repair-orders-row__phone,
@@ -2942,9 +3271,28 @@ BOARD_WEB_APP_HTML = "".join(
       .repair-order-payment-row { grid-template-columns: 1fr auto; align-items: start; }
       .repair-order-payment-row__badge { grid-column: 1 / -1; justify-self: start; }
       .repair-order-payment-row__remove { width: 100%; }
+      .agent-tasks-shell,
+      .agent-tasks-editor__row,
+      .agent-tasks-editor__row--schedule { grid-template-columns: 1fr; }
+      .agent-actions-row { grid-template-columns: 1fr; }
+      .agent-actions-row .btn,
+      .agent-tasks-launch { width: 100%; }
+      .agent-task-row__top,
+      .agent-task-row__footer { flex-direction: column; align-items: stretch; }
+      .agent-task-actions { justify-content: flex-start; }
       .cashboxes-layout { grid-template-columns: 1fr; }
       .cashboxes-create-row { grid-template-columns: 1fr; }
       .cashbox-stats { grid-template-columns: 1fr; }
+      .employees-layout { grid-template-columns: 1fr; }
+      .employees-form-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+      .employees-field--mode { grid-column: span 6; width: 100%; }
+      .employees-field--salary,
+      .employees-field--percent,
+      .employees-field--active {
+        grid-column: span 2;
+        width: 100%;
+      }
+      .employees-field--active { padding-top: 0; }
       .signal-grid { grid-template-columns: repeat(2, 1fr); }
       .column { width: 336px; min-width: 336px; }
     }
@@ -3233,7 +3581,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .employees-layout {
       display: grid;
-      grid-template-columns: 224px minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr);
       gap: 12px;
       align-items: start;
     }
@@ -3369,14 +3717,37 @@ BOARD_WEB_APP_HTML = "".join(
       gap: 8px 10px;
       align-items: end;
     }
+    .employees-form-grid .field,
+    .employees-form-grid .employees-check {
+      min-width: 0;
+    }
     .employees-form-grid input[type="text"],
     .employees-form-grid select {
       min-height: 34px;
       padding: 7px 9px;
     }
+    .employees-field--span-2 { grid-column: span 2; }
     .employees-field--span-4 { grid-column: span 4; }
     .employees-field--span-6 { grid-column: span 6; }
     .employees-field--span-12 { grid-column: 1 / -1; }
+    .employees-field--compact {
+      justify-self: start;
+      width: min(100%, var(--employees-field-width, 100%));
+    }
+    .employees-field--mode {
+      --employees-field-width: 320px;
+    }
+    .employees-field--salary {
+      --employees-field-width: 176px;
+    }
+    .employees-field--percent {
+      --employees-field-width: 148px;
+    }
+    .employees-field--active {
+      justify-self: start;
+      width: auto;
+      padding-top: 20px;
+    }
     .employees-form-grid .field--secondary {
       opacity: 0.72;
     }
@@ -3697,7 +4068,8 @@ BOARD_WEB_APP_HTML = "".join(
       <div class="wall-meta" id="repairOrdersMeta">ЗАГРУЗКА СПИСКА...</div>
       <div class="repair-orders-table-head" id="repairOrdersTableHead">
         <div>Номер</div>
-        <div>Открыта</div>
+        <div>Даты</div>
+        <div>Статус</div>
         <div>Оплата</div>
         <div>Клиент</div>
         <div>Телефон</div>
@@ -3935,17 +4307,17 @@ BOARD_WEB_APP_HTML = "".join(
 
   <div class="modal" id="repairOrderModal">
     <div class="dialog dialog--repair-order">
-      <div class="dialog__head dialog__head--card">
+      <div class="dialog__head dialog__head--card dialog__head--repair-order">
         <div class="dialog__title-wrap">
-          <div class="dialog__title dialog__title--card" id="repairOrderModalTitle">ЗАКАЗ-НАРЯД</div>
+          <div class="repair-order-headline">
+            <div class="dialog__title dialog__title--card" id="repairOrderModalTitle">ЗАКАЗ-НАРЯД</div>
+            <div class="repair-order-status" id="repairOrderStatus">Открыт</div>
+          </div>
         </div>
         <button class="btn" data-close="repair-order">ЗАКРЫТЬ</button>
       </div>
       <div class="repair-order-shell">
         <div class="repair-order-toolbar">
-          <div class="repair-order-toolbar__status">
-            <div class="repair-order-status" id="repairOrderStatus">Открыт</div>
-          </div>
           <button class="btn btn--ghost" id="repairOrderAutofillButton" type="button">АВТОЗАПОЛНЕНИЕ</button>
         </div>
         <div class="repair-order-groups">
@@ -4206,6 +4578,13 @@ BOARD_WEB_APP_HTML = "".join(
       agentUiBound: false,
       agentContext: { kind: 'board' },
       agentRefreshTimer: null,
+      agentTasksUiBound: false,
+      agentTasksRefreshTimer: null,
+      agentScheduledTasks: [],
+      agentScheduledColumns: [],
+      agentScheduledActiveId: '',
+      agentTaskScopeCardId: '',
+      agentTaskScopeCardLabel: '',
       agentTaskId: '',
       agentTaskStatus: '',
       agentSyncedTaskId: '',
@@ -4350,6 +4729,14 @@ BOARD_WEB_APP_HTML = "".join(
                   + '<textarea id="agentTaskInput" maxlength="1600" placeholder="Сделай обзор доски"></textarea>'
                 + '</div>'
                 + '<div class="agent-actions-row">'
+                  + '<button class="btn agent-tasks-launch" id="agentTasksOpenButton" type="button">'
+                    + '<span class="agent-tasks-launch__title">ЗАДАЧИ</span>'
+                    + '<span class="agent-tasks-launch__meta">РАСПИСАНИЕ, ЗАПУСКИ И КОНТРОЛЬ</span>'
+                  + '</button>'
+                  + '<div class="agent-autofill-panel">'
+                    + '<button class="btn btn--ghost agent-autofill-button" id="agentAutofillButton" type="button">АВТОЗАПОЛНЕНИЕ</button>'
+                    + '<div class="agent-autofill-status" id="agentAutofillStatus" data-state="offline">SERVER AI OFFLINE</div>'
+                  + '</div>'
                   + '<button class="btn btn--accent" id="agentRunButton" type="button">ВЫПОЛНИТЬ</button>'
                 + '</div>'
                 + '<div class="agent-result" id="agentResultPanel" data-state="empty">Введите запрос.</div>'
@@ -4367,6 +4754,57 @@ BOARD_WEB_APP_HTML = "".join(
         );
       }
     }
+    function ensureAgentTasksUi() {
+      if (document.getElementById('agentTasksModal')) return;
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        '<div class="modal" id="agentTasksModal">'
+          + '<div class="dialog dialog--agent-tasks">'
+            + '<div class="dialog__head">'
+              + '<div class="dialog__title">ЗАДАЧИ</div>'
+              + '<button class="btn" data-close="agent-tasks">ЗАКРЫТЬ</button>'
+            + '</div>'
+            + '<div class="agent-tasks-shell">'
+              + '<div class="subpanel agent-tasks-rail">'
+                + '<div class="agent-tasks-toolbar">'
+                  + '<div class="agent-tasks-toolbar__copy">'
+                    + '<div class="panel-title">СПИСОК ЗАДАЧ</div>'
+                    + '<div class="agent-tasks-meta" id="agentTasksMeta">ЗАГРУЗКА ЗАДАЧ...</div>'
+                  + '</div>'
+                  + '<button class="btn btn--accent" id="agentTasksNewButton" type="button">НОВАЯ ЗАДАЧА</button>'
+                + '</div>'
+                + '<div class="agent-tasks-list" id="agentTasksList"></div>'
+              + '</div>'
+              + '<div class="subpanel agent-tasks-editor">'
+                + '<div class="agent-tasks-editor__head">'
+                  + '<div class="panel-title" id="agentTasksEditorTitle">НОВАЯ ЗАДАЧА</div>'
+                  + '<div class="agent-tasks-meta" id="agentTaskFormMeta">Текущая карточка, одна колонка или вся доска. Запуск вручную, по интервалу или при создании.</div>'
+                + '</div>'
+                + '<div class="field field--compact"><label for="agentTaskNameInput">НАЗВАНИЕ</label><input id="agentTaskNameInput" type="text" maxlength="80" placeholder="Проверка оплат"></div>'
+                + '<div class="field field--compact"><label for="agentTaskPromptInput">ЗАДАЧА</label><textarea id="agentTaskPromptInput" maxlength="8000" placeholder="Например: проверь неоплаченные заказ-наряды и кратко запиши результат в карточки"></textarea></div>'
+                + '<div class="agent-tasks-editor__row">'
+                + '<div class="field field--compact"><label for="agentTaskScopeTypeInput">ОХВАТ</label><select id="agentTaskScopeTypeInput"><option value="all_cards">ВСЕ КАРТОЧКИ</option><option value="column">ОДНА КОЛОНКА</option><option value="current_card">ТЕКУЩАЯ КАРТОЧКА</option></select></div>'
+                  + '<div class="field field--compact"><label for="agentTaskScopeColumnInput">КОЛОНКА</label><select id="agentTaskScopeColumnInput"></select></div>'
+                + '</div>'
+                + '<div class="agent-tasks-editor__row agent-tasks-editor__row--schedule">'
+                  + '<div class="field field--compact"><label for="agentTaskScheduleTypeInput">РЕЖИМ</label><select id="agentTaskScheduleTypeInput"><option value="once">ОДИН РАЗ</option><option value="interval">ИНТЕРВАЛ</option><option value="on_create">ПРИ СОЗДАНИИ</option></select></div>'
+                  + '<div class="field field--compact"><label for="agentTaskIntervalValueInput">ЧИСЛО</label><input id="agentTaskIntervalValueInput" type="number" min="1" max="999" step="1" value="1"></div>'
+                  + '<div class="field field--compact"><label for="agentTaskIntervalUnitInput">ЕДИНИЦА</label><select id="agentTaskIntervalUnitInput"><option value="minute">МИН</option><option value="hour">ЧАС</option></select></div>'
+                + '</div>'
+                + '<label class="agent-tasks-toggle"><input id="agentTaskActiveInput" type="checkbox" checked> ЗАДАЧА АКТИВНА</label>'
+                + '<div class="agent-tasks-editor__foot">'
+                  + '<div class="agent-tasks-editor__actions">'
+                    + '<button class="btn btn--accent" id="agentTaskSaveButton" type="button">СОХРАНИТЬ</button>'
+                    + '<button class="btn btn--ghost" id="agentTaskRunButton" type="button">ЗАПУСТИТЬ</button>'
+                  + '</div>'
+                  + '<button class="btn btn--ghost" id="agentTaskResetButton" type="button">НОВАЯ</button>'
+                + '</div>'
+              + '</div>'
+            + '</div>'
+          + '</div>'
+        + '</div>'
+      );
+    }
     function ensureCashboxesUi() {
       return;
     }
@@ -4383,31 +4821,16 @@ BOARD_WEB_APP_HTML = "".join(
                 + '<button class="btn" data-close="employees">ЗАКРЫТЬ</button>'
               + '</div>'
               + '<div class="employees-layout">'
-                + '<div class="subpanel employees-pane employees-pane--list">'
-                  + '<div class="panel-title">СПИСОК</div>'
-                  + '<div class="employees-list-tools">'
-                    + '<input class="repair-orders-search employees-search" id="employeesSearchInput" type="search" placeholder="Поиск">'
-                    + '<div class="employees-filterbar" id="employeesVisibilityFilters">'
-                      + '<button class="btn btn--ghost is-active" type="button" data-filter="active">АКТИВНЫЕ</button>'
-                      + '<button class="btn btn--ghost" type="button" data-filter="all">ВСЕ</button>'
-                    + '</div>'
-                    + '<div class="employees-actions">'
-                      + '<button class="btn" id="employeesCreateButton" type="button">+ СОТРУДНИК</button>'
-                      + '<div class="employees-list-meta" id="employeesListMeta">СПИСОК ПУСТ</div>'
-                    + '</div>'
-                  + '</div>'
-                  + '<div class="employees-list" id="employeesList"></div>'
-                + '</div>'
                 + '<div class="employees-pane">'
                   + '<div class="subpanel">'
                     + '<div class="employees-card-head"><div class="panel-title">ПРОФИЛЬ</div><div class="employees-card-mode" id="employeesCardMode">НОВЫЙ СОТРУДНИК</div></div>'
                     + '<div class="employees-form-grid">'
                       + '<div class="field employees-field--span-6"><label for="employeeNameInput">ИМЯ</label><input id="employeeNameInput" type="text" maxlength="80"></div>'
                       + '<div class="field employees-field--span-6"><label for="employeePositionInput">ДОЛЖНОСТЬ</label><input id="employeePositionInput" type="text" maxlength="80"></div>'
-                      + '<div class="field employees-field--span-4"><label for="employeeSalaryModeInput">СХЕМА</label><select id="employeeSalaryModeInput"><option value="salary_plus_percent">ОКЛАД + %</option><option value="percent_only">% ОТ РАБОТ</option><option value="salary_only">ТОЛЬКО ОКЛАД</option></select></div>'
-                      + '<div class="field employees-field--span-4"><label for="employeeBaseSalaryInput">ОКЛАД</label><input id="employeeBaseSalaryInput" type="text" inputmode="decimal" maxlength="40"></div>'
-                      + '<div class="field employees-field--span-4"><label for="employeeWorkPercentInput">ПРОЦЕНТ</label><input id="employeeWorkPercentInput" type="text" inputmode="decimal" maxlength="40"></div>'
-                      + '<label class="employees-check employees-field--span-4"><input id="employeeActiveInput" type="checkbox" checked> АКТИВЕН</label>'
+                      + '<div class="field employees-field--span-6 employees-field--compact employees-field--mode"><label for="employeeSalaryModeInput">СХЕМА</label><select id="employeeSalaryModeInput"><option value="salary_plus_percent">ОКЛАД + %</option><option value="percent_only">% ОТ РАБОТ</option><option value="salary_only">ТОЛЬКО ОКЛАД</option></select></div>'
+                      + '<div class="field employees-field--span-2 employees-field--compact employees-field--salary"><label for="employeeBaseSalaryInput">ОКЛАД</label><input id="employeeBaseSalaryInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
+                      + '<div class="field employees-field--span-2 employees-field--compact employees-field--percent"><label for="employeeWorkPercentInput">ПРОЦЕНТ</label><input id="employeeWorkPercentInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
+                      + '<label class="employees-check employees-field--span-2 employees-field--active"><input id="employeeActiveInput" type="checkbox" checked> АКТИВЕН</label>'
                     + '</div>'
                     + '<details class="employees-note-details" id="employeeNoteDetails"><summary>ЗАМЕТКА</summary><div class="field field--secondary"><input id="employeeNoteInput" type="text" maxlength="240"></div></details>'
                     + '<div class="employees-actions" style="margin-top:12px;">'
@@ -4539,12 +4962,31 @@ BOARD_WEB_APP_HTML = "".join(
       agentStatusLabel: document.getElementById('agentStatusLabel'),
       agentQuickActions: document.getElementById('agentQuickActions'),
       agentTaskInput: document.getElementById('agentTaskInput'),
+      agentAutofillButton: document.getElementById('agentAutofillButton'),
+      agentAutofillStatus: document.getElementById('agentAutofillStatus'),
       agentRunButton: document.getElementById('agentRunButton'),
       agentResultPanel: document.getElementById('agentResultPanel'),
       agentRunsDetails: document.getElementById('agentRunsDetails'),
       agentRunsList: document.getElementById('agentRunsList'),
       agentActionsList: document.getElementById('agentActionsList'),
       agentDetails: document.getElementById('agentDetails'),
+      agentTasksModal: document.getElementById('agentTasksModal'),
+      agentTasksMeta: document.getElementById('agentTasksMeta'),
+      agentTasksList: document.getElementById('agentTasksList'),
+      agentTasksNewButton: document.getElementById('agentTasksNewButton'),
+      agentTasksEditorTitle: document.getElementById('agentTasksEditorTitle'),
+      agentTaskNameInput: document.getElementById('agentTaskNameInput'),
+      agentTaskPromptInput: document.getElementById('agentTaskPromptInput'),
+      agentTaskScopeTypeInput: document.getElementById('agentTaskScopeTypeInput'),
+      agentTaskScopeColumnInput: document.getElementById('agentTaskScopeColumnInput'),
+      agentTaskScheduleTypeInput: document.getElementById('agentTaskScheduleTypeInput'),
+      agentTaskIntervalValueInput: document.getElementById('agentTaskIntervalValueInput'),
+      agentTaskIntervalUnitInput: document.getElementById('agentTaskIntervalUnitInput'),
+      agentTaskActiveInput: document.getElementById('agentTaskActiveInput'),
+      agentTaskFormMeta: document.getElementById('agentTaskFormMeta'),
+      agentTaskSaveButton: document.getElementById('agentTaskSaveButton'),
+      agentTaskRunButton: document.getElementById('agentTaskRunButton'),
+      agentTaskResetButton: document.getElementById('agentTaskResetButton'),
       cardModal: document.getElementById('cardModal'),
       cardModalTitle: document.getElementById('cardModalTitle'),
       cardModalCloseButtonTop: document.getElementById('cardModalCloseButtonTop'),
@@ -4682,7 +5124,10 @@ BOARD_WEB_APP_HTML = "".join(
       els.agentContextLabel = document.getElementById('agentContextLabel');
       els.agentStatusLabel = document.getElementById('agentStatusLabel');
       els.agentQuickActions = document.getElementById('agentQuickActions');
+      els.agentTasksOpenButton = document.getElementById('agentTasksOpenButton');
       els.agentTaskInput = document.getElementById('agentTaskInput');
+      els.agentAutofillButton = document.getElementById('agentAutofillButton');
+      els.agentAutofillStatus = document.getElementById('agentAutofillStatus');
       els.agentRunButton = document.getElementById('agentRunButton');
       els.agentResultPanel = document.getElementById('agentResultPanel');
       els.agentRunsDetails = document.getElementById('agentRunsDetails');
@@ -4691,10 +5136,32 @@ BOARD_WEB_APP_HTML = "".join(
       els.agentDetails = document.getElementById('agentDetails');
     }
 
+    function hydrateAgentTasksUiRefs() {
+      els.agentTasksModal = document.getElementById('agentTasksModal');
+      els.agentTasksMeta = document.getElementById('agentTasksMeta');
+      els.agentTasksList = document.getElementById('agentTasksList');
+      els.agentTasksNewButton = document.getElementById('agentTasksNewButton');
+      els.agentTasksEditorTitle = document.getElementById('agentTasksEditorTitle');
+      els.agentTaskNameInput = document.getElementById('agentTaskNameInput');
+      els.agentTaskPromptInput = document.getElementById('agentTaskPromptInput');
+      els.agentTaskScopeTypeInput = document.getElementById('agentTaskScopeTypeInput');
+      els.agentTaskScopeColumnInput = document.getElementById('agentTaskScopeColumnInput');
+      els.agentTaskScheduleTypeInput = document.getElementById('agentTaskScheduleTypeInput');
+      els.agentTaskIntervalValueInput = document.getElementById('agentTaskIntervalValueInput');
+      els.agentTaskIntervalUnitInput = document.getElementById('agentTaskIntervalUnitInput');
+      els.agentTaskActiveInput = document.getElementById('agentTaskActiveInput');
+      els.agentTaskFormMeta = document.getElementById('agentTaskFormMeta');
+      els.agentTaskSaveButton = document.getElementById('agentTaskSaveButton');
+      els.agentTaskRunButton = document.getElementById('agentTaskRunButton');
+      els.agentTaskResetButton = document.getElementById('agentTaskResetButton');
+    }
+
     function bindAgentUiEvents() {
       if (state.agentUiBound) return;
       hydrateAgentUiRefs();
       els.agentQuickActions?.addEventListener('click', handleAgentQuickActionClick);
+      els.agentTasksOpenButton?.addEventListener('click', openAgentTasksModal);
+      els.agentAutofillButton?.addEventListener('click', toggleAgentCardAutofill);
       els.agentRunsList?.addEventListener('click', handleAgentRunSelection);
       els.agentRunButton?.addEventListener('click', enqueueAgentTask);
       els.agentTaskInput?.addEventListener('input', syncAgentTaskInputHeight);
@@ -4707,6 +5174,19 @@ BOARD_WEB_APP_HTML = "".join(
       els.agentModal?.addEventListener('click', handleAgentModalOverlayClick);
       els.agentResultPanel?.addEventListener('click', handleAgentResultActionClick);
       state.agentUiBound = true;
+    }
+
+    function bindAgentTasksUiEvents() {
+      if (state.agentTasksUiBound) return;
+      hydrateAgentTasksUiRefs();
+      els.agentTasksNewButton?.addEventListener('click', resetAgentScheduledTaskForm);
+      els.agentTasksList?.addEventListener('click', handleAgentScheduledTasksListClick);
+      els.agentTaskScopeTypeInput?.addEventListener('change', syncAgentScheduledTaskFormUi);
+      els.agentTaskScheduleTypeInput?.addEventListener('change', syncAgentScheduledTaskFormUi);
+      els.agentTaskSaveButton?.addEventListener('click', saveAgentScheduledTask);
+      els.agentTaskRunButton?.addEventListener('click', runActiveAgentScheduledTask);
+      els.agentTaskResetButton?.addEventListener('click', resetAgentScheduledTaskForm);
+      state.agentTasksUiBound = true;
     }
 
     function bindEmployeesUiEvents() {
@@ -5102,6 +5582,7 @@ BOARD_WEB_APP_HTML = "".join(
           els.employeesModal?.classList.remove('is-open');
         },
         agent: () => closeAgentModal(),
+        'agent-tasks': () => closeAgentTasksModal(),
         wall: () => els.gptWallModal.classList.remove('is-open'),
         settings: () => els.boardSettingsModal.classList.remove('is-open'),
         sticky: () => closeStickyModal(),
@@ -5355,6 +5836,7 @@ BOARD_WEB_APP_HTML = "".join(
           els.employeesListMeta.textContent = 'ПОКАЗАНО ' + visibleEmployees.length + ' / ' + employees.length;
         }
       }
+      if (!els.employeesList) return;
       if (!employees.length) {
         els.employeesList.innerHTML = '<div class="cashboxes-empty">Нет сотрудников.</div>';
         return;
@@ -5847,6 +6329,72 @@ BOARD_WEB_APP_HTML = "".join(
         els.agentRunButton.disabled = busy;
         els.agentRunButton.textContent = busy ? 'ВЫПОЛНЯЕТСЯ' : 'ВЫПОЛНИТЬ';
       }
+      renderAgentAutofillControls(payload);
+    }
+
+    function renderAgentAutofillControls(statusPayload) {
+      const payload = statusPayload && typeof statusPayload === 'object' ? statusPayload : {};
+      const agentEnabled = Boolean(payload.agent?.enabled);
+      const card = currentAgentContextCard();
+      const active = Boolean(card?.ai_autofill_active);
+      const untilText = String(card?.ai_autofill_until || '').trim();
+      let buttonText = active ? 'АВТОСОПРОВОЖДЕНИЕ' : 'АВТОЗАПОЛНЕНИЕ';
+      let statusText = 'ОТКРОЙ КАРТОЧКУ';
+      let stateValue = 'offline';
+      let disabled = !String(card?.id || '').trim();
+      if (String(card?.id || '').trim()) {
+        if (!agentEnabled) {
+          statusText = 'SERVER AI OFFLINE';
+          stateValue = 'offline';
+          disabled = true;
+        } else if (active) {
+          statusText = untilText ? ('АКТИВНО ДО ' + formatDate(untilText)) : 'АВТОСОПРОВОЖДЕНИЕ АКТИВНО';
+          stateValue = 'active';
+          buttonText = 'ОСТАНОВИТЬ АВТО';
+          disabled = false;
+        } else {
+          statusText = 'SERVER AI READY';
+          stateValue = 'online';
+          disabled = false;
+        }
+      }
+      if (els.agentAutofillButton) {
+        els.agentAutofillButton.textContent = buttonText;
+        els.agentAutofillButton.disabled = disabled;
+        els.agentAutofillButton.dataset.state = active ? 'active' : 'inactive';
+      }
+      if (els.agentAutofillStatus) {
+        els.agentAutofillStatus.textContent = statusText;
+        els.agentAutofillStatus.dataset.state = stateValue;
+      }
+    }
+
+    async function toggleAgentCardAutofill() {
+      const card = currentAgentContextCard();
+      const cardId = String(card?.id || '').trim();
+      if (!cardId) return setStatus('ОТКРОЙ КАРТОЧКУ ДЛЯ АВТОЗАПОЛНЕНИЯ.', true);
+      const nextEnabled = !Boolean(card?.ai_autofill_active);
+      try {
+        if (els.agentAutofillButton) els.agentAutofillButton.disabled = true;
+        const data = await api('/api/set_card_ai_autofill', {
+          method: 'POST',
+          body: {
+            card_id: cardId,
+            enabled: nextEnabled,
+            actor_name: state.actor,
+          },
+        });
+        if (data?.card) {
+          state.activeCard = data.card;
+          if (els.cardModal?.classList.contains('is-open')) applyCardModalState(data.card);
+        }
+        renderAgentAutofillControls({ agent: { enabled: true } });
+        setStatus(nextEnabled ? 'АВТОСОПРОВОЖДЕНИЕ ВКЛЮЧЕНО НА 4 ЧАСА.' : 'АВТОСОПРОВОЖДЕНИЕ ОТКЛЮЧЕНО.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        renderAgentAutofillControls({ agent: { enabled: true } });
+      }
     }
 
     function renderAgentActions(actions) {
@@ -5872,8 +6420,326 @@ BOARD_WEB_APP_HTML = "".join(
       if (!els.agentQuickActions) return;
       const actions = quickAgentPrompts(context);
       els.agentQuickActions.innerHTML = actions.map((item) =>
-        '<button class="agent-shortcut" type="button" data-agent-prompt="' + escapeHtml(item.prompt) + '">' + escapeHtml(item.label) + '</button>'
+        '<button class="agent-shortcut" type="button"'
+          + (item.action ? ' data-agent-open="' + escapeHtml(item.action) + '"' : '')
+          + (item.prompt ? ' data-agent-prompt="' + escapeHtml(item.prompt) + '"' : '')
+          + '>' + escapeHtml(item.label) + '</button>'
       ).join('');
+    }
+
+    function scheduleAgentTasksRefresh(delay = 4000) {
+      if (state.agentTasksRefreshTimer) window.clearTimeout(state.agentTasksRefreshTimer);
+      if (!els.agentTasksModal?.classList.contains('is-open')) return;
+      state.agentTasksRefreshTimer = window.setTimeout(refreshAgentTasksModalState, delay);
+    }
+
+    function renderAgentScheduledColumns(columns) {
+      const items = Array.isArray(columns) ? columns : [];
+      const selected = String(els.agentTaskScopeColumnInput?.value || '').trim();
+      if (!els.agentTaskScopeColumnInput) return;
+      els.agentTaskScopeColumnInput.innerHTML = items.length
+        ? items.map((item) => '<option value="' + escapeHtml(item.id) + '"' + (item.id === selected ? ' selected' : '') + '>' + escapeHtml(item.label || item.id) + '</option>').join('')
+        : '<option value="">Колонок нет</option>';
+    }
+
+    function currentAgentContextCard() {
+      const context = state.agentContext && typeof state.agentContext === 'object' ? state.agentContext : { kind: 'board' };
+      if (String(context.kind || '').trim().toLowerCase() !== 'card') return null;
+      const activeCard = state.activeCard && typeof state.activeCard === 'object' ? state.activeCard : null;
+      if (activeCard && String(activeCard.id || '').trim()) return activeCard;
+      return {
+        id: String(context.card_id || state.editingId || '').trim(),
+        heading: String(context.card_heading || '').trim(),
+        title: String(context.card_title || '').trim(),
+      };
+    }
+
+    function defaultAgentScheduledScope() {
+      const card = currentAgentContextCard();
+      if (!card || !String(card.id || '').trim()) {
+        return {
+          scopeType: 'all_cards',
+          scopeCardId: '',
+          scopeCardLabel: '',
+          prompt: '',
+        };
+      }
+      return {
+        scopeType: 'current_card',
+        scopeCardId: String(card.id || '').trim(),
+        scopeCardLabel: String(card.heading || card.title || card.id || '').trim(),
+        prompt: String(els.agentTaskInput?.value || '').trim(),
+      };
+    }
+
+    function syncAgentScheduledTaskFormUi() {
+      const scopeType = String(els.agentTaskScopeTypeInput?.value || 'all_cards').trim().toLowerCase();
+      const scheduleType = String(els.agentTaskScheduleTypeInput?.value || 'once').trim().toLowerCase();
+      if (els.agentTaskScopeColumnInput) els.agentTaskScopeColumnInput.disabled = scopeType !== 'column';
+      if (els.agentTaskIntervalValueInput) els.agentTaskIntervalValueInput.disabled = scheduleType !== 'interval';
+      if (els.agentTaskIntervalUnitInput) els.agentTaskIntervalUnitInput.disabled = scheduleType !== 'interval';
+      if (scopeType === 'current_card') {
+        const defaults = defaultAgentScheduledScope();
+        state.agentTaskScopeCardId = defaults.scopeCardId;
+        state.agentTaskScopeCardLabel = defaults.scopeCardLabel;
+      }
+      if (els.agentTaskRunButton) els.agentTaskRunButton.disabled = !String(state.agentScheduledActiveId || '').trim();
+    }
+
+    function activeAgentScheduledTask() {
+      return (state.agentScheduledTasks || []).find((item) => String(item?.id || '') === String(state.agentScheduledActiveId || '')) || null;
+    }
+
+    function agentScheduledTaskStatusLabel(task) {
+      return Boolean(task?.active) ? 'ACTIVE' : 'PAUSED';
+    }
+
+    function agentScheduledTaskPeriodLabel(task) {
+      const scheduleType = String(task?.schedule_type || 'once').trim().toLowerCase();
+      if (scheduleType === 'on_create') return 'ON CREATE';
+      if (scheduleType !== 'interval') return 'ОДИН РАЗ';
+      const value = Math.max(1, Number(task?.interval_value || 1) || 1);
+      return value + ' ' + (String(task?.interval_unit || 'minute').trim().toLowerCase() === 'hour' ? 'Ч' : 'МИН');
+    }
+
+    function agentScheduledTaskScopeLabel(task) {
+      return String(
+        task?.scope_type === 'current_card'
+          ? (task?.scope_card_label || task?.scope_card_id || 'Текущая карточка')
+          : task?.scope_type === 'column'
+          ? (task?.scope_label || task?.scope_column || 'Колонка')
+          : 'Все карточки'
+      ).trim();
+    }
+
+    function agentScheduledTaskTimingLabel(task) {
+      const parts = [];
+      if (Boolean(task?.busy)) parts.push('В РАБОТЕ');
+      if (task?.next_run_at) parts.push('СЛЕДУЮЩИЙ: ' + formatDate(task.next_run_at));
+      else if (task?.last_enqueued_at) parts.push('ПОСЛЕДНИЙ: ' + formatDate(task.last_enqueued_at));
+      else parts.push('ЕЩЁ НЕ ЗАПУСКАЛАСЬ');
+      return parts.join(' · ');
+    }
+
+    function agentScheduledTaskFormMetaText(task) {
+      if (!task) return 'Один запрос, текущая карточка, одна колонка или вся доска. Запуск вручную, по интервалу или при создании.';
+      const parts = [
+        agentScheduledTaskStatusLabel(task),
+        agentScheduledTaskPeriodLabel(task),
+        'ОХВАТ: ' + agentScheduledTaskScopeLabel(task).toUpperCase(),
+      ];
+      if (Boolean(task?.busy)) parts.push('В РАБОТЕ');
+      if (task?.next_run_at) parts.push('СЛЕДУЮЩИЙ: ' + formatDate(task.next_run_at));
+      else if (task?.last_enqueued_at) parts.push('ПОСЛЕДНИЙ: ' + formatDate(task.last_enqueued_at));
+      return parts.join(' · ');
+    }
+
+    function resetAgentScheduledTaskForm() {
+      const defaults = defaultAgentScheduledScope();
+      state.agentScheduledActiveId = '';
+      state.agentTaskScopeCardId = defaults.scopeCardId;
+      state.agentTaskScopeCardLabel = defaults.scopeCardLabel;
+      if (els.agentTasksEditorTitle) els.agentTasksEditorTitle.textContent = 'НОВАЯ ЗАДАЧА';
+      if (els.agentTaskNameInput) els.agentTaskNameInput.value = '';
+      if (els.agentTaskPromptInput) els.agentTaskPromptInput.value = defaults.prompt || '';
+      if (els.agentTaskScopeTypeInput) els.agentTaskScopeTypeInput.value = defaults.scopeType;
+      renderAgentScheduledColumns(state.agentScheduledColumns || []);
+      if (els.agentTaskScheduleTypeInput) els.agentTaskScheduleTypeInput.value = 'once';
+      if (els.agentTaskIntervalValueInput) els.agentTaskIntervalValueInput.value = '1';
+      if (els.agentTaskIntervalUnitInput) els.agentTaskIntervalUnitInput.value = 'minute';
+      if (els.agentTaskActiveInput) els.agentTaskActiveInput.checked = true;
+      if (els.agentTaskFormMeta) els.agentTaskFormMeta.textContent = agentScheduledTaskFormMetaText(null);
+      syncAgentScheduledTaskFormUi();
+      renderAgentScheduledTasks(state.agentScheduledTasks || []);
+    }
+
+    function applyAgentScheduledTaskToForm(task) {
+      if (!task) {
+        resetAgentScheduledTaskForm();
+        return;
+      }
+      state.agentScheduledActiveId = String(task.id || '');
+      state.agentTaskScopeCardId = String(task.scope_card_id || '').trim();
+      state.agentTaskScopeCardLabel = String(task.scope_card_label || '').trim();
+      if (els.agentTasksEditorTitle) els.agentTasksEditorTitle.textContent = 'РЕДАКТИРОВАНИЕ';
+      if (els.agentTaskNameInput) els.agentTaskNameInput.value = String(task.name || '');
+      if (els.agentTaskPromptInput) els.agentTaskPromptInput.value = String(task.prompt || '');
+      if (els.agentTaskScopeTypeInput) els.agentTaskScopeTypeInput.value = String(task.scope_type || 'all_cards');
+      renderAgentScheduledColumns(state.agentScheduledColumns || []);
+      if (els.agentTaskScopeColumnInput) els.agentTaskScopeColumnInput.value = String(task.scope_column || '');
+      if (els.agentTaskScheduleTypeInput) els.agentTaskScheduleTypeInput.value = String(task.schedule_type || 'once');
+      if (els.agentTaskIntervalValueInput) els.agentTaskIntervalValueInput.value = String(task.interval_value || 1);
+      if (els.agentTaskIntervalUnitInput) els.agentTaskIntervalUnitInput.value = String(task.interval_unit || 'minute');
+      if (els.agentTaskActiveInput) els.agentTaskActiveInput.checked = Boolean(task.active);
+      if (els.agentTaskFormMeta) els.agentTaskFormMeta.textContent = agentScheduledTaskFormMetaText(task);
+      syncAgentScheduledTaskFormUi();
+      renderAgentScheduledTasks(state.agentScheduledTasks || []);
+    }
+
+    function renderAgentScheduledTasks(tasks) {
+      if (!els.agentTasksList) return;
+      const items = Array.isArray(tasks) ? tasks : [];
+      if (!items.length) {
+        els.agentTasksList.innerHTML = ''
+          + '<div class="agent-tasks-empty">'
+          + '<div class="agent-tasks-empty__title">Задач пока нет</div>'
+          + '<div class="agent-tasks-empty__text">Создай первую задачу справа: опиши цель, выбери всю доску или одну колонку и сохрани расписание.</div>'
+          + '</div>';
+        return;
+      }
+      els.agentTasksList.innerHTML = items.slice(0, 50).map((task) => {
+        const status = String(task.status || 'paused').trim().toLowerCase();
+        const scopeLabel = agentScheduledTaskScopeLabel(task);
+        const promptPreview = summarizeAgentText(String(task.prompt || ''), 148) || 'Без описания.';
+        const warning = summarizeAgentText(String(task.last_error || ''), 160);
+        return '<div class="agent-task-row" data-agent-scheduled-task-id="' + escapeHtml(task.id) + '" data-active="' + String(String(task.id) === String(state.agentScheduledActiveId || '')) + '" data-busy="' + String(Boolean(task.busy)) + '">'
+          + '<div class="agent-task-row__top">'
+            + '<div class="agent-task-row__main">'
+              + '<div class="agent-task-row__title">' + escapeHtml(task.name || 'Задача') + '</div>'
+              + '<div class="agent-task-row__meta">' + escapeHtml(scopeLabel.toUpperCase()) + '</div>'
+            + '</div>'
+            + '<div class="agent-task-actions">'
+              + '<button class="btn btn--ghost" type="button" data-agent-scheduled-action="run" data-task-id="' + escapeHtml(task.id) + '">▶</button>'
+              + '<button class="btn btn--ghost" type="button" data-agent-scheduled-action="' + escapeHtml(task.active ? 'pause' : 'resume') + '" data-task-id="' + escapeHtml(task.id) + '">' + escapeHtml(task.active ? '⏸' : '▶') + '</button>'
+              + '<button class="btn btn--ghost" type="button" data-agent-scheduled-action="delete" data-task-id="' + escapeHtml(task.id) + '">✕</button>'
+            + '</div>'
+          + '</div>'
+          + '<div class="agent-task-row__prompt">' + escapeHtml(promptPreview) + '</div>'
+          + '<div class="agent-task-row__footer">'
+            + '<div class="agent-task-row__chips">'
+              + '<div class="agent-task-chip" data-status="' + escapeHtml(status) + '">' + escapeHtml(agentScheduledTaskStatusLabel(task)) + '</div>'
+              + '<div class="agent-task-chip">' + escapeHtml(agentScheduledTaskPeriodLabel(task)) + '</div>'
+            + '</div>'
+            + '<div class="agent-task-row__timing">' + escapeHtml(agentScheduledTaskTimingLabel(task)) + '</div>'
+          + '</div>'
+          + (warning ? '<div class="agent-task-row__warning">' + escapeHtml(warning) + '</div>' : '')
+        + '</div>';
+      }).join('');
+    }
+
+    function readAgentScheduledTaskPayload() {
+      const scopeType = String(els.agentTaskScopeTypeInput?.value || 'all_cards').trim();
+      return {
+        task_id: String(state.agentScheduledActiveId || '').trim(),
+        name: String(els.agentTaskNameInput?.value || '').trim(),
+        prompt: String(els.agentTaskPromptInput?.value || '').trim(),
+        scope_type: scopeType,
+        scope_column: String(els.agentTaskScopeColumnInput?.value || '').trim(),
+        scope_column_label: String(els.agentTaskScopeColumnInput?.selectedOptions?.[0]?.textContent || '').trim(),
+        scope_card_id: scopeType === 'current_card' ? String(state.agentTaskScopeCardId || '').trim() : '',
+        scope_card_label: scopeType === 'current_card' ? String(state.agentTaskScopeCardLabel || '').trim() : '',
+        schedule_type: String(els.agentTaskScheduleTypeInput?.value || 'once').trim(),
+        interval_value: Number(els.agentTaskIntervalValueInput?.value || 1) || 1,
+        interval_unit: String(els.agentTaskIntervalUnitInput?.value || 'minute').trim(),
+        active: Boolean(els.agentTaskActiveInput?.checked),
+      };
+    }
+
+    async function refreshAgentTasksModalState() {
+      if (!els.agentTasksModal?.classList.contains('is-open')) return;
+      try {
+        const [tasksData, columnsData, statusData] = await Promise.all([
+          api('/api/agent_scheduled_tasks', { method: 'GET' }),
+          api('/api/list_columns', { method: 'GET' }),
+          api('/api/agent_status', { method: 'GET' }),
+        ]);
+        state.agentScheduledTasks = Array.isArray(tasksData?.tasks) ? tasksData.tasks : [];
+        state.agentScheduledColumns = Array.isArray(columnsData?.columns) ? columnsData.columns : (state.snapshot?.columns || []);
+        renderAgentScheduledColumns(state.agentScheduledColumns);
+        renderAgentScheduledTasks(state.agentScheduledTasks);
+        const activeTotal = Number(statusData?.scheduled?.active_total || 0);
+        const pausedTotal = Number(statusData?.scheduled?.paused_total || 0);
+        const total = state.agentScheduledTasks.length;
+        const busyTotal = state.agentScheduledTasks.filter((item) => Boolean(item?.busy)).length;
+        if (els.agentTasksMeta) {
+          els.agentTasksMeta.textContent = 'ВСЕГО ' + total + ' · АКТИВНЫХ ' + activeTotal + ' · ПАУЗА ' + pausedTotal + (busyTotal ? ' · В РАБОТЕ ' + busyTotal : '');
+        }
+        const activeTask = activeAgentScheduledTask();
+        if (activeTask) applyAgentScheduledTaskToForm(activeTask);
+        else resetAgentScheduledTaskForm();
+        scheduleAgentTasksRefresh(state.agentScheduledTasks.some((item) => item?.busy) ? 1800 : 4000);
+      } catch (error) {
+        if (els.agentTasksMeta) els.agentTasksMeta.textContent = String(error.message || 'Ошибка загрузки.').toUpperCase();
+        scheduleAgentTasksRefresh(5000);
+      }
+    }
+
+    function openAgentTasksModal() {
+      if (!requireOperatorSession()) return;
+      ensureAgentTasksUi();
+      bindAgentTasksUiEvents();
+      hydrateAgentTasksUiRefs();
+      els.agentTasksModal?.classList.add('is-open');
+      refreshAgentTasksModalState();
+    }
+
+    function closeAgentTasksModal() {
+      els.agentTasksModal?.classList.remove('is-open');
+      if (state.agentTasksRefreshTimer) {
+        window.clearTimeout(state.agentTasksRefreshTimer);
+        state.agentTasksRefreshTimer = null;
+      }
+    }
+
+    async function saveAgentScheduledTask() {
+      const payload = readAgentScheduledTaskPayload();
+      if (!payload.name) return setStatus('УКАЖИ НАЗВАНИЕ ЗАДАЧИ.', true);
+      if (!payload.prompt) return setStatus('ОПИШИ ЗАДАЧУ ДЛЯ АГЕНТА.', true);
+      if (payload.scope_type === 'column' && !payload.scope_column) return setStatus('ВЫБЕРИ КОЛОНКУ.', true);
+      if (payload.scope_type === 'current_card' && !payload.scope_card_id) return setStatus('ОТКРОЙ КАРТОЧКУ ИЛИ ВЫБЕРИ ДРУГОЙ ОХВАТ.', true);
+      try {
+        const data = await api('/api/save_agent_scheduled_task', { method: 'POST', body: payload });
+        state.agentScheduledActiveId = String(data?.task?.id || payload.task_id || '');
+        setStatus('ЗАДАЧА СОХРАНЕНА.', false);
+        await refreshAgentTasksModalState();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    async function runActiveAgentScheduledTask() {
+      const taskId = String(state.agentScheduledActiveId || '').trim();
+      if (!taskId) return setStatus('СНАЧАЛА ВЫБЕРИ ЗАДАЧУ.', true);
+      try {
+        const data = await api('/api/run_agent_scheduled_task', { method: 'POST', body: { task_id: taskId } });
+        setStatus(data?.meta?.already_running ? 'ЗАДАЧА УЖЕ ВЫПОЛНЯЕТСЯ.' : 'ЗАДАЧА ЗАПУЩЕНА.', Boolean(data?.meta?.already_running));
+        await refreshAgentTasksModalState();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    async function handleAgentScheduledTasksListClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const actionButton = target.closest('[data-agent-scheduled-action]');
+      if (actionButton instanceof HTMLElement) {
+        const taskId = String(actionButton.dataset.taskId || '').trim();
+        const action = String(actionButton.dataset.agentScheduledAction || '').trim();
+        if (!taskId || !action) return;
+        try {
+          if (action === 'delete') {
+            await api('/api/delete_agent_scheduled_task', { method: 'POST', body: { task_id: taskId } });
+            if (state.agentScheduledActiveId === taskId) resetAgentScheduledTaskForm();
+            setStatus('ЗАДАЧА УДАЛЕНА.', false);
+          } else if (action === 'run') {
+            const data = await api('/api/run_agent_scheduled_task', { method: 'POST', body: { task_id: taskId } });
+            setStatus(data?.meta?.already_running ? 'ЗАДАЧА УЖЕ ВЫПОЛНЯЕТСЯ.' : 'ЗАДАЧА ЗАПУЩЕНА.', Boolean(data?.meta?.already_running));
+          } else {
+            await api('/api/' + (action === 'pause' ? 'pause' : 'resume') + '_agent_scheduled_task', { method: 'POST', body: { task_id: taskId } });
+            setStatus(action === 'pause' ? 'ЗАДАЧА НА ПАУЗЕ.' : 'ЗАДАЧА АКТИВНА.', false);
+          }
+          await refreshAgentTasksModalState();
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+        return;
+      }
+      const row = target.closest('[data-agent-scheduled-task-id]');
+      if (!(row instanceof HTMLElement)) return;
+      const taskId = String(row.dataset.agentScheduledTaskId || '').trim();
+      const task = (state.agentScheduledTasks || []).find((item) => String(item?.id || '') === taskId);
+      if (task) applyAgentScheduledTaskToForm(task);
     }
 
     function renderAgentRuns(runs) {
@@ -6057,6 +6923,7 @@ BOARD_WEB_APP_HTML = "".join(
         delete els.agentResultPanel.dataset.tone;
         els.agentResultPanel.textContent = 'Короткий запрос по доске или этой карточке.';
       }
+      renderAgentAutofillControls({ agent: { enabled: false } });
       renderAgentActions([]);
       renderAgentRuns([]);
       if (els.agentRunsDetails) els.agentRunsDetails.open = false;
@@ -7505,6 +8372,31 @@ BOARD_WEB_APP_HTML = "".join(
       return String(status || '').trim().toLowerCase() === 'closed' ? 'Закрыт' : 'Открыт';
     }
 
+    function repairOrderCloseBlockedMessage() {
+      return 'Для закрытия заказ-наряда необходимо выполнить оплату.';
+    }
+
+    function repairOrderIsFullyPaid(order) {
+      const normalized = normalizeRepairOrder(order);
+      const subtotal = repairOrderRoundMoney(
+        repairOrderRowsTotalValue(normalized.works) + repairOrderRowsTotalValue(normalized.materials)
+      );
+      const taxes = repairOrderRoundMoney(
+        repairOrderCashlessPaymentsValue(normalized.payments) * repairOrderTaxRate('cashless')
+      );
+      const grandTotal = repairOrderRoundMoney(subtotal + taxes);
+      const paidTotal = repairOrderPaymentsTotalValue(normalized.payments);
+      return paidTotal >= grandTotal;
+    }
+
+    function syncRepairOrderCloseButtonState(order = null) {
+      const normalized = normalizeRepairOrder(order || readRepairOrderFromForm());
+      const closeAvailable = normalized.status === 'closed' || repairOrderIsFullyPaid(normalized);
+      els.repairOrderCloseButton.disabled = !closeAvailable;
+      els.repairOrderCloseButton.dataset.closeAvailable = closeAvailable ? 'true' : 'false';
+      els.repairOrderCloseButton.title = closeAvailable ? '' : repairOrderCloseBlockedMessage();
+    }
+
     function repairOrderCardDefaults(card) {
       const currentCard = card && typeof card === 'object' ? card : {};
       const profile = currentCard.vehicle_profile && typeof currentCard.vehicle_profile === 'object' ? currentCard.vehicle_profile : {};
@@ -7742,6 +8634,7 @@ BOARD_WEB_APP_HTML = "".join(
       document.querySelectorAll('[data-repair-order-total-block="taxes"]').forEach((node) => {
         node.classList.toggle('is-hidden', taxes === 0);
       });
+      syncRepairOrderCloseButtonState();
     }
 
     function renderRepairOrderPayments() {
@@ -7867,6 +8760,10 @@ BOARD_WEB_APP_HTML = "".join(
       els.repairOrderStatus.textContent = repairOrderStatusLabel(normalizedStatus);
       els.repairOrderStatus.dataset.status = normalizedStatus;
       els.repairOrderCloseButton.textContent = normalizedStatus === 'closed' ? 'ОТКРЫТЬ ЗАКАЗ-НАРЯД' : 'ЗАКРЫТЬ ЗАКАЗ-НАРЯД';
+      syncRepairOrderCloseButtonState({
+        ...readRepairOrderFromForm(),
+        status: normalizedStatus,
+      });
     }
 
     function applyRepairOrderToForm(order) {
@@ -7946,7 +8843,25 @@ BOARD_WEB_APP_HTML = "".join(
       } catch (error) {
         setStatus(error.message, true);
       }
-      const order = repairOrderCardDraft(state.activeCard, state.activeCard?.repair_order || {});
+      let order = repairOrderCardDraft(state.activeCard, state.activeCard?.repair_order || {});
+      const cardId = String(state.activeCard?.id || state.editingId || '').trim();
+      if (cardId) {
+        try {
+          const data = await api('/api/get_repair_order', {
+            method: 'POST',
+            body: {
+              card_id: cardId,
+              actor_name: state.actor,
+              source: 'ui',
+            },
+          });
+          const updatedCard = repairOrderResponseCard(data, order);
+          order = applyRepairOrderCardUpdate(updatedCard, data?.repair_order || order);
+        } catch (error) {
+          setStatus(error.message, true);
+          return;
+        }
+      }
       applyRepairOrderToForm(order);
       els.repairOrderModal.classList.add('is-open');
     }
@@ -8042,8 +8957,13 @@ BOARD_WEB_APP_HTML = "".join(
       try {
         const persisted = await persistRepairOrderRecord({ silent: true });
         if (!persisted) return;
-        const currentStatus = readRepairOrderFromForm().status;
+        const currentOrder = readRepairOrderFromForm();
+        const currentStatus = currentOrder.status;
         const nextStatus = currentStatus === 'closed' ? 'open' : 'closed';
+        if (nextStatus === 'closed' && !repairOrderIsFullyPaid(currentOrder)) {
+          setStatus(repairOrderCloseBlockedMessage(), true);
+          return;
+        }
         els.repairOrderCloseButton.disabled = true;
         const data = await api('/api/set_repair_order_status', {
           method: 'POST',
@@ -8061,7 +8981,7 @@ BOARD_WEB_APP_HTML = "".join(
       } catch (error) {
         setStatus(error.message, true);
       } finally {
-        els.repairOrderCloseButton.disabled = false;
+        syncRepairOrderCloseButtonState();
       }
     }
 
@@ -8504,7 +9424,7 @@ function renderCompactArchiveRows(cards) {
       const data = await api('/api/open_card', { method: 'POST', body: { card_id: normalizedCardId } });
       if (closeModalEl) closeModalEl.classList.remove('is-open');
       openCardModal(data.card);
-      if (openRepairOrder) openRepairOrderModal();
+      if (openRepairOrder) await openRepairOrderModal();
       return data.card;
     }
 
@@ -8528,27 +9448,14 @@ function renderCompactArchiveRows(cards) {
     }
 
     function repairOrdersColumnsValue(status = state.repairOrdersFilter) {
-      return repairOrdersIsClosedView(status)
-        ? 'minmax(54px, 68px) minmax(90px, 102px) minmax(90px, 102px) minmax(86px, 98px) minmax(108px, 122px) minmax(150px, 190px) minmax(132px, 152px) minmax(150px, 190px) minmax(280px, 2.5fr) minmax(88px, 104px) minmax(88px, 104px)'
-        : 'minmax(54px, 68px) minmax(92px, 104px) minmax(108px, 124px) minmax(138px, 168px) minmax(126px, 144px) minmax(138px, 168px) minmax(380px, 3.2fr) minmax(88px, 104px) minmax(88px, 104px)';
+      repairOrdersIsClosedView(status);
+      return 'minmax(56px, 72px) minmax(132px, 160px) minmax(92px, 108px) minmax(108px, 124px) minmax(140px, 176px) minmax(124px, 146px) minmax(150px, 188px) minmax(320px, 2.8fr) minmax(88px, 104px) minmax(88px, 104px)';
     }
 
     function repairOrdersTableHeadHtml(status = state.repairOrdersFilter) {
-      if (repairOrdersIsClosedView(status)) {
-        return '<div>Номер</div>'
-          + '<div>Открыта</div>'
-          + '<div>Закрыта</div>'
-          + '<div>Статус</div>'
-          + '<div>Оплата</div>'
-          + '<div>Клиент</div>'
-          + '<div>Телефон</div>'
-          + '<div>Автомобиль</div>'
-          + '<div>Смысл карточки</div>'
-          + '<div class="repair-orders-table-head__sum">Внесено</div>'
-          + '<div class="repair-orders-table-head__sum">Сумма</div>';
-      }
       return '<div>Номер</div>'
-        + '<div>Открыта</div>'
+        + '<div>Даты</div>'
+        + '<div>Статус</div>'
         + '<div>Оплата</div>'
         + '<div>Клиент</div>'
         + '<div>Телефон</div>'
@@ -8799,7 +9706,6 @@ function renderCompactArchiveRows(cards) {
     };
 
     renderRepairOrderListRows = function(items) {
-      const isClosedView = repairOrdersIsClosedView();
       return items.map((item) => {
         const number = item.number || '-';
         const openedAt = repairOrderListDateDisplayValue(item.opened_at || item.created_at || item.date || item.updated_at);
@@ -8816,20 +9722,19 @@ function renderCompactArchiveRows(cards) {
         const paymentStatusLabel = String(item.payment_status_label || '').trim() || (paymentStatus === 'paid' ? 'Оплачен' : 'Не оплачен');
         const status = item.status_label || repairOrderStatusLabel(item.status);
         const rawStatus = String(item.status || 'open').trim().toLowerCase() === 'closed' ? 'closed' : 'open';
+        const closedMeta = rawStatus === 'closed'
+          ? ('Закрыта: ' + (closedAt || '-'))
+          : 'Закрыта: -';
         const allTags = normalizeRepairOrderTags(item.tags || []);
         const previewTags = allTags.slice(0, 3);
         const extraTags = allTags.length - previewTags.length;
         const tagsHtml = previewTags.length
           ? '<div class="repair-orders-row__tags">' + previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '') + '</div>'
           : '';
-        const closedCell = isClosedView
-          ? '<div class="repair-orders-row__cell"><div class="repair-orders-row__closed">' + escapeHtml(closedAt || '-') + '</div></div>'
-          : '';
         return '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Open repair order">'
           + '<div class="repair-orders-row__cell"><div class="repair-orders-row__number">№ ' + escapeHtml(number) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__opened">' + escapeHtml(openedAt || '-') + '</div></div>'
-          + closedCell
-          + (isClosedView ? '<div class="repair-orders-row__cell"><div class="repair-orders-row__status" data-status="' + escapeHtml(rawStatus) + '">' + escapeHtml(status) + '</div></div>' : '')
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__dates"><div class="repair-orders-row__opened">' + escapeHtml(openedAt || '-') + '</div><div class="repair-orders-row__date-meta">' + escapeHtml(closedMeta) + '</div></div></div>'
+          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__status" data-status="' + escapeHtml(rawStatus) + '">' + escapeHtml(status) + '</div></div>'
           + '<div class="repair-orders-row__cell repair-orders-row__payment-cell"><div class="repair-orders-row__payment-status" data-payment-status="' + escapeHtml(paymentStatus) + '">' + escapeHtml(paymentStatusLabel) + '</div></div>'
           + '<div class="repair-orders-row__cell"><div class="repair-orders-row__client" title="' + escapeHtml(clientText) + '">' + escapeHtml(clientText) + '</div></div>'
           + '<div class="repair-orders-row__cell"><div class="repair-orders-row__phone" title="' + escapeHtml(phoneText) + '">' + escapeHtml(phoneText) + '</div></div>'
@@ -9259,6 +10164,7 @@ function renderCompactArchiveRows(cards) {
         els.cashboxesModal,
         els.employeesModal,
         els.agentModal,
+        els.agentTasksModal,
         els.gptWallModal,
         els.boardSettingsModal,
         els.stickyModal,
@@ -9990,6 +10896,11 @@ function renderCompactArchiveRows(cards) {
     function handleAgentQuickActionClick(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      const openButton = target.closest('[data-agent-open]');
+      if (openButton instanceof HTMLElement) {
+        if (String(openButton.dataset.agentOpen || '').trim() === 'tasks') openAgentTasksModal();
+        return;
+      }
       const button = target.closest('[data-agent-prompt]');
       if (!(button instanceof HTMLElement)) return;
       const prompt = String(button.dataset.agentPrompt || '').trim();

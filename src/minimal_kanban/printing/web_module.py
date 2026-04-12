@@ -396,6 +396,7 @@ _PRINTING_SCRIPT_PART1 = r"""
       previewByDocument: {},
       pageIndexByDocument: {},
       previewToken: 0,
+      isPrintRunning: false,
       zoomMode: 'fit',
       zoom: 1,
       inspectionSheetForm: null,
@@ -1124,6 +1125,7 @@ _PRINTING_SCRIPT_PART3 = r"""
       return new Promise((resolve, reject) => {
         const frame = document.createElement('iframe');
         let settled = false;
+        let printStarted = false;
         const cleanup = () => window.setTimeout(() => frame.remove(), 1500);
         frame.style.position = 'fixed';
         frame.style.right = '-12000px';
@@ -1133,6 +1135,9 @@ _PRINTING_SCRIPT_PART3 = r"""
         frame.style.border = '0';
         frame.setAttribute('aria-hidden', 'true');
         frame.onload = () => {
+          if (printStarted) return;
+          printStarted = true;
+          frame.onload = null;
           window.setTimeout(() => {
             try {
               const win = frame.contentWindow;
@@ -1186,6 +1191,9 @@ _PRINTING_SCRIPT_PART3 = r"""
     }
 
     async function runRepairOrderPrintJob() {
+      if (repairOrderPrintState.isPrintRunning) return;
+      repairOrderPrintState.isPrintRunning = true;
+      if (printEls.printButton) printEls.printButton.disabled = true;
       try {
         await runRepairOrderBrowserPrint();
         setStatus('Открыто системное окно печати браузера.', false);
@@ -1201,6 +1209,9 @@ _PRINTING_SCRIPT_PART3 = r"""
         } catch (fallbackError) {
           setStatus((fallbackError && fallbackError.message) || (error && error.message) || 'Не удалось запустить печать.', true);
         }
+      } finally {
+        repairOrderPrintState.isPrintRunning = false;
+        syncRepairOrderPrintPrinterState();
       }
     }
 

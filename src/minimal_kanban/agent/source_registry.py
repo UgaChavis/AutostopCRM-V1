@@ -77,6 +77,30 @@ PARTS_PRICE_SOURCES: tuple[SourceDefinition, ...] = (
     ),
 )
 
+DIAGNOSTIC_SOURCES: tuple[SourceDefinition, ...] = (
+    SourceDefinition(
+        key="obd_codes",
+        label="OBD-Codes",
+        kind="dtc",
+        domains=("obd-codes.com",),
+        note="Trouble code reference.",
+    ),
+    SourceDefinition(
+        key="dtcdecode",
+        label="DTCDecode",
+        kind="dtc",
+        domains=("dtcdecode.com",),
+        note="Trouble code lookup reference.",
+    ),
+    SourceDefinition(
+        key="carcarekiosk",
+        label="CarCareKiosk",
+        kind="fault",
+        domains=("carcarekiosk.com",),
+        note="Symptom and repair info.",
+    ),
+)
+
 GENERIC_WEB_SOURCES: tuple[SourceDefinition, ...] = (
     SourceDefinition(
         key="duckduckgo_html",
@@ -93,6 +117,8 @@ def trusted_domains(*, kind: str) -> list[str]:
         "vin": VIN_SOURCES,
         "catalog": PARTS_CATALOG_SOURCES,
         "price": PARTS_PRICE_SOURCES,
+        "dtc": DIAGNOSTIC_SOURCES,
+        "fault": DIAGNOSTIC_SOURCES,
         "search": GENERIC_WEB_SOURCES,
     }
     return [domain for item in registries.get(kind, ()) for domain in item.domains]

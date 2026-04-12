@@ -15,6 +15,7 @@ from .config import (
     get_agent_memory_file,
     get_agent_prompt_file,
     get_agent_runs_file,
+    get_agent_schedules_file,
     get_agent_status_file,
     get_agent_tasks_file,
 )
@@ -55,6 +56,7 @@ class AgentStorage:
         self._prompt_file = self._base_dir / get_agent_prompt_file().name
         self._memory_file = self._base_dir / get_agent_memory_file().name
         self._tasks_file = self._base_dir / get_agent_tasks_file().name
+        self._schedules_file = self._base_dir / get_agent_schedules_file().name
         self._status_file = self._base_dir / get_agent_status_file().name
         self._runs_file = self._base_dir / get_agent_runs_file().name
         self._actions_file = self._base_dir / get_agent_actions_file().name
@@ -62,6 +64,7 @@ class AgentStorage:
         self._process_lock = ProcessFileLock(self._lock_file)
         self._base_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_json_file(self._tasks_file, [])
+        self._ensure_json_file(self._schedules_file, [])
         self._ensure_json_file(self._status_file, DEFAULT_STATUS)
         self._ensure_text_file(self._prompt_file, "")
         self._ensure_text_file(self._memory_file, "")
@@ -147,6 +150,126 @@ class AgentStorage:
             tasks = [task for task in tasks if str(task.get("status", "")).strip() in statuses]
         tasks.sort(key=lambda item: (str(item.get("created_at", "")), str(item.get("id", ""))), reverse=True)
         return tasks[:limit]
+
+    def list_schedules(self) -> list[dict[str, Any]]:
+        with self._lock, self._process_lock.acquire():
+            payload = self._read_json(self._schedules_file, [])
+        items = payload if isinstance(payload, list) else []
+        items.sort(key=lambda item: (str(item.get("created_at", "")), str(item.get("id", ""))), reverse=True)
+        return items
+
+    def get_schedule(self, schedule_id: str) -> dict[str, Any] | None:
+        normalized_id = str(schedule_id or "").strip()
+        if not normalized_id:
+            return None
+        with self._lock, self._process_lock.acquire():
+            schedules = self._read_schedules_locked()
+            for item in schedules:
+                if str(item.get("id", "")).strip() == normalized_id:
+                    return dict(item)
+        return None
+
+    def upsert_schedule(self, payload: dict[str, Any]) -> dict[str, Any]:
+        schedule_id = str(payload.get("id", "") or "").strip()
+        with self._lock, self._process_lock.acquire():
+            schedules = self._read_schedules_locked()
+            updated = dict(payload)
+            if schedule_id:
+                for index, item in enumerate(schedules):
+                    if str(item.get("id", "")).strip() != schedule_id:
+                        continue
+                    schedules[index] = updated
+                    self._write_json(self._schedules_file, schedules)
+                    return updated
+            schedules.append(updated)
+            self._write_json(self._schedules_file, schedules)
+            return updated
+
+    def update_schedule(self, schedule_id: str, **updates: Any) -> dict[str, Any]:
+        normalized_id = str(schedule_id or "").strip()
+        if not normalized_id:
+            raise KeyError("Unknown schedule task: ")
+        with self._lock, self._process_lock.acquire():
+            schedules = self._read_schedules_locked()
+            for index, item in enumerate(schedules):
+                if str(item.get("id", "")).strip() != normalized_id:
+                    continue
+                updated = dict(item)
+                updated.update(updates)
+                schedules[index] = updated
+                self._write_json(self._schedules_file, schedules)
+                return updated
+        raise KeyError(f"Unknown schedule task: {normalized_id}")
+
+    def delete_schedule(self, schedule_id: str) -> bool:
+        normalized_id = str(schedule_id or "").strip()
+        if not normalized_id:
+            return False
+        with self._lock, self._process_lock.acquire():
+            schedules = self._read_schedules_locked()
+            kept = [item for item in schedules if str(item.get("id", "")).strip() != normalized_id]
+            if len(kept) == len(schedules):
+                return False
+            self._write_json(self._schedules_file, kept)
+            return True
+
+    def has_active_task_for_schedule(self, schedule_id: str) -> bool:
+        normalized_id = str(schedule_id or "").strip()
+        if not normalized_id:
+            return False
+        with self._lock, self._process_lock.acquire():
+            tasks = self._read_tasks_locked()
+        for task in tasks:
+            if str(task.get("status", "")).strip() not in {"pending", "running"}:
+                continue
+            metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+            if str(metadata.get("scheduled_task_id", "")).strip() == normalized_id:
+                return True
+        return False
+
+    def has_active_task_for_card(self, card_id: str, *, purpose: str | None = None) -> bool:
+        normalized_id = str(card_id or "").strip()
+        normalized_purpose = str(purpose or "").strip().lower()
+        if not normalized_id:
+            return False
+        with self._lock, self._process_lock.acquire():
+            tasks = self._read_tasks_locked()
+        for task in tasks:
+            if str(task.get("status", "")).strip() not in {"pending", "running"}:
+                continue
+            metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+            context = metadata.get("context") if isinstance(metadata.get("context"), dict) else {}
+            metadata_card_id = str(
+                context.get("card_id")
+                or metadata.get("card_id")
+                or ""
+            ).strip()
+            if metadata_card_id != normalized_id:
+                continue
+            if not normalized_purpose:
+                return True
+            task_purpose = str(metadata.get("purpose", "") or "").strip().lower()
+            if task_purpose == normalized_purpose:
+                return True
+        return False
+
+    def has_active_task_for_schedule_card(self, schedule_id: str, card_id: str) -> bool:
+        normalized_schedule_id = str(schedule_id or "").strip()
+        normalized_card_id = str(card_id or "").strip()
+        if not normalized_schedule_id or not normalized_card_id:
+            return False
+        with self._lock, self._process_lock.acquire():
+            tasks = self._read_tasks_locked()
+        for task in tasks:
+            if str(task.get("status", "")).strip() not in {"pending", "running"}:
+                continue
+            metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+            if str(metadata.get("scheduled_task_id", "")).strip() != normalized_schedule_id:
+                continue
+            context = metadata.get("context") if isinstance(metadata.get("context"), dict) else {}
+            if str(context.get("card_id", "")).strip() == normalized_card_id:
+                return True
+        return False
 
     def claim_next_task(self) -> dict[str, Any] | None:
         with self._lock, self._process_lock.acquire():
@@ -268,6 +391,10 @@ class AgentStorage:
 
     def _read_tasks_locked(self) -> list[dict[str, Any]]:
         payload = self._read_json(self._tasks_file, [])
+        return payload if isinstance(payload, list) else []
+
+    def _read_schedules_locked(self) -> list[dict[str, Any]]:
+        payload = self._read_json(self._schedules_file, [])
         return payload if isinstance(payload, list) else []
 
     def _compact_tasks_locked(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:

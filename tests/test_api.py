@@ -123,6 +123,33 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("remaining_seconds", created["data"]["card"])
         self.assertIn("deadline_timestamp", created["data"]["card"])
 
+    def test_get_repair_order_creates_it_lazily_on_first_open(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"vehicle": "KIA RIO", "title": "Ленивый заказ-наряд", "description": "Первый вход", "deadline": {"hours": 2}},
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        status, listed_before = self.request("/api/list_repair_orders", method="GET")
+        self.assertEqual(status, 200)
+        self.assertEqual(listed_before["data"]["meta"]["total"], 0)
+
+        status, fetched = self.request(
+            "/api/get_repair_order",
+            {"card_id": card_id},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(fetched["data"]["meta"]["has_any_data"])
+        self.assertTrue(fetched["data"]["meta"]["created"])
+        self.assertEqual(fetched["data"]["repair_order"]["reason"], "Ленивый заказ-наряд")
+        self.assertEqual(fetched["data"]["card"]["repair_order"]["number"], "1")
+
+        status, listed_after = self.request("/api/list_repair_orders", method="GET")
+        self.assertEqual(status, 200)
+        self.assertEqual(listed_after["data"]["meta"]["total"], 1)
+        self.assertTrue(any(item["card_id"] == card_id for item in listed_after["data"]["repair_orders"]))
+
     def test_head_root_and_health_are_supported(self) -> None:
         parsed = urlsplit(self.base_url)
         connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=5)
@@ -891,6 +918,7 @@ class ApiServerTests(unittest.TestCase):
                     "status": "open",
                     "client": "Клиент",
                     "vehicle": "Mitsubishi L200",
+                    "payments": [{"amount": "5000", "paid_at": "05.04.2026 10:00", "payment_method": "cash"}],
                     "works": [{"name": "Диагностика", "quantity": "1", "price": "5000", "executor_id": employee_id}],
                 },
             },
@@ -1540,6 +1568,7 @@ class ApiServerTests(unittest.TestCase):
                 "repair_order": {
                     "client": "Иван Иванов",
                     "phone": "+7 900 123-45-67",
+                    "payments": [{"amount": "1500", "paid_at": "06.04.2026 10:00", "payment_method": "cash"}],
                     "works": [{"name": "Диагностика", "quantity": "1", "price": "1500", "total": ""}],
                 },
             },
@@ -1565,6 +1594,37 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(archived["data"]["meta"]["status"], "closed")
         self.assertTrue(any(item["card_id"] == card_id for item in archived["data"]["repair_orders"]))
+
+    def test_repair_order_status_route_rejects_unpaid_close(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {
+                "vehicle": "Toyota Camry",
+                "title": "Неоплаченный наряд",
+                "deadline": {"hours": 4},
+            },
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        status, patched = self.request(
+            "/api/update_repair_order",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Иван Иванов",
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1500", "total": ""}],
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(patched["data"]["repair_order"]["payment_status"], "unpaid")
+
+        status, response = self.request("/api/set_repair_order_status", {"card_id": card_id, "status": "closed"})
+        self.assertEqual(status, 409)
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error"]["code"], "repair_order_payment_required")
+        self.assertIn("выполнить оплату", response["error"]["message"].lower())
 
     def test_repair_order_list_route_supports_query_sort_and_tags(self) -> None:
         status, first = self.request(
