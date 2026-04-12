@@ -71,6 +71,7 @@ class McpMainRunTests(unittest.TestCase):
         api_server = Mock()
         api_server.base_url = "http://127.0.0.1:41731"
         runtime = Mock()
+        agent_service = Mock()
 
         def fake_signal(_signum, handler):
             handler(None, None)
@@ -94,6 +95,8 @@ class McpMainRunTests(unittest.TestCase):
         ), patch(
             "minimal_kanban.mcp.main.OperatorAuthService"
         ), patch(
+            "minimal_kanban.mcp.main.AgentControlService", return_value=agent_service
+        ), patch(
             "minimal_kanban.mcp.main.ApiServer", return_value=api_server
         ), patch(
             "minimal_kanban.mcp.main.BoardApiClient"
@@ -112,6 +115,8 @@ class McpMainRunTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         card_service.ensure_demo_board.assert_called_once_with()
+        card_service.attach_agent_control.assert_called_once_with(agent_service)
+        agent_service.bind_board_service.assert_called_once_with(card_service)
         api_server.start.assert_called_once_with()
         runtime.start.assert_called_once_with()
         runtime.stop.assert_called_once_with()
