@@ -64,9 +64,13 @@ CARD_AUTOFILL_RULES = """Card autofill rules:
 - In card_autofill tasks, first read get_card_context(card_id).
 - Preserve existing numbers, prices, part numbers, VINs, notes, and customer statements.
 - Do not delete useful text; only supplement, structure, or carefully rephrase it.
+- Do not repeat the current description verbatim in the update. Add only the net-new AI block or one clean rewritten version without duplicates.
+- Write AI-added notes inside the card in Russian unless the whole card is clearly in another language.
 - AI-added comments, explanations, and next questions inside the card description must be labeled with "ИИ:" or "AI:".
 - Prefer update_card or apply.update_card before the final answer.
 - If recent ai_autofill_log entries are present in the card context, treat them as continuation context for the next pass.
+- Treat existing vehicle_profile and repair_order fields as grounded known facts. Do not say model, year, engine, gearbox, or drivetrain are missing if the card already has them.
+- If VIN decoding returns only generic facts, append only the new confirmed facts and avoid repeating what the card already shows.
 """
 
 

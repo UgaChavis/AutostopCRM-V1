@@ -240,6 +240,8 @@ class AgentRunnerTests(unittest.TestCase):
         self.assertIn("preserve all facts from the card", prompt)
         self.assertIn("apply confident changes with update_card", prompt)
         self.assertIn("card_autofill tasks", prompt)
+        self.assertIn("Do not repeat the current description verbatim", prompt)
+        self.assertIn("Treat existing vehicle_profile and repair_order fields as grounded known facts", prompt)
         self.assertIn('must be labeled with "ИИ:" or "AI:"', prompt)
 
     def test_runner_executes_tool_and_completes_task(self) -> None:
@@ -388,6 +390,51 @@ class AgentRunnerTests(unittest.TestCase):
             self.assertIn("Артикул ABC-123.", update_call[1]["description"])
             self.assertIn("ИИ:", update_call[1]["description"])
             self.assertIn("Проверить VIN и уточнить комплектацию.", update_call[1]["description"])
+
+    def test_runner_card_autofill_dedupes_repeated_description_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = AgentStorage(base_dir=Path(temp_dir))
+            storage.enqueue_task(
+                task_text="Добавь короткую ИИ-заметку без дублирования существующего текста.",
+                metadata={
+                    "purpose": "card_autofill",
+                    "trigger": "manual_activate",
+                    "context": {"kind": "card", "card_id": "card-1", "title": "Черновик"},
+                },
+            )
+            logger = logging.getLogger("test.agent.runner.autofill.dedupe")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            board_api = _FakeBoardApi()
+            current = board_api.cards["card-1"]["description"]
+            runner = AgentRunner(
+                storage=storage,
+                board_api=board_api,
+                model_client=_FakeModelClient(
+                    [
+                        {
+                            "type": "final",
+                            "summary": "Карточка дополнена",
+                            "result": "Добавлена ИИ-заметка.",
+                            "apply": {
+                                "type": "update_card",
+                                "card_id": "card-1",
+                                "payload": {
+                                    "description": current + "\n\n" + current + "\n\nAI: Подтвержден VIN и нужна проверка радиатора.",
+                                },
+                            },
+                        }
+                    ]
+                ),
+                logger=logger,
+            )
+            self.assertTrue(runner.run_once())
+            update_call = next(call for call in board_api.calls if call[0] == "update_card")
+            merged = update_call[1]["description"]
+            for line in [item.strip() for item in current.splitlines() if item.strip()]:
+                self.assertEqual(merged.count(line), 1)
+            self.assertIn("AI: Подтвержден VIN и нужна проверка радиатора.", merged)
 
     def test_runner_unwraps_wrapped_card_context_for_model(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

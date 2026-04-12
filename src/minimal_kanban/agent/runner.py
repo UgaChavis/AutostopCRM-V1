@@ -463,6 +463,11 @@ class AgentRunner:
         if tool_name == "get_card_context":
             card = data.get("card") if isinstance(data.get("card"), dict) else data
             vehicle_profile = card.get("vehicle_profile") if isinstance(card.get("vehicle_profile"), dict) else {}
+            vehicle_profile_compact = (
+                card.get("vehicle_profile_compact")
+                if isinstance(card.get("vehicle_profile_compact"), dict)
+                else vehicle_profile
+            )
             repair_order = card.get("repair_order") if isinstance(card.get("repair_order"), dict) else {}
             return self._preview_payload(
                 {
@@ -477,12 +482,24 @@ class AgentRunner:
                         "ai_autofill_log": (card.get("ai_autofill_log") or [])[-8:],
                         "vin": vehicle_profile.get("vin") or repair_order.get("vin"),
                     },
-                    "vehicle_profile": vehicle_profile,
+                    "known_vehicle_facts": {
+                        "vin": vehicle_profile_compact.get("vin") or vehicle_profile.get("vin"),
+                        "make": vehicle_profile_compact.get("make_display") or vehicle_profile.get("make_display"),
+                        "model": vehicle_profile_compact.get("model_display") or vehicle_profile.get("model_display"),
+                        "year": vehicle_profile_compact.get("production_year") or vehicle_profile.get("production_year"),
+                        "engine": vehicle_profile_compact.get("engine_model") or vehicle_profile.get("engine_model"),
+                        "gearbox": vehicle_profile_compact.get("gearbox_model") or vehicle_profile.get("gearbox_model"),
+                        "drivetrain": vehicle_profile_compact.get("drivetrain") or vehicle_profile.get("drivetrain"),
+                    },
+                    "vehicle_profile": vehicle_profile_compact,
                     "repair_order": {
                         "number": repair_order.get("number"),
                         "status": repair_order.get("status"),
                         "works_total": len(repair_order.get("works") or []),
                         "materials_total": len(repair_order.get("materials") or []),
+                        "reason": repair_order.get("reason"),
+                        "comment": repair_order.get("comment"),
+                        "note": repair_order.get("note"),
                     },
                     "events_total": len(data.get("events") or []),
                 }
@@ -669,16 +686,30 @@ class AgentRunner:
         if not proposed:
             return current
         if not current:
-            return proposed
+            return self._dedupe_card_autofill_paragraphs(proposed)
         current_normalized = " ".join(current.split())
         proposed_normalized = " ".join(proposed.split())
         if proposed_normalized == current_normalized or proposed_normalized in current_normalized:
             return current
-        if current_normalized and current_normalized in proposed:
-            return proposed
+        if current_normalized and current_normalized in proposed_normalized:
+            return self._dedupe_card_autofill_paragraphs(proposed)
         if "ИИ:" in proposed or "AI:" in proposed:
-            return f"{current}\n\n{proposed}"
+            return self._dedupe_card_autofill_paragraphs(f"{current}\n\n{proposed}")
         return f"{current}\n\nИИ:\n{proposed}"
+
+    def _dedupe_card_autofill_paragraphs(self, text: str) -> str:
+        paragraphs = [part.strip() for part in str(text or "").split("\n\n") if str(part or "").strip()]
+        if not paragraphs:
+            return ""
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for paragraph in paragraphs:
+            normalized = " ".join(paragraph.split()).casefold()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(paragraph)
+        return "\n\n".join(deduped)
 
     def _classify_task(self, task: dict[str, Any], metadata: dict[str, Any]) -> str:
         if str(metadata.get("purpose", "") or "").strip().lower() == "card_autofill":

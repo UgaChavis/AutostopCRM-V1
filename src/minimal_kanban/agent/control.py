@@ -653,7 +653,11 @@ class AgentControlService:
                 "Preserve all existing facts, numbers, prices, part numbers, notes, and customer statements.",
                 "Do not delete useful content just to make the text shorter.",
                 "Only supplement, structure, or carefully rephrase the card.",
+                "Do not repeat the current description verbatim. Return only the net-new AI note or one clean deduplicated rewrite.",
+                "Write the card update in Russian unless the whole card is clearly in another language.",
                 "Label AI-added notes, comments, or next questions with 'ИИ:' or 'AI:'.",
+                "Treat current vehicle_profile and repair_order fields as known facts. Do not say model, year, engine, gearbox, or drivetrain are missing if they are already filled in the card.",
+                "If VIN decoding gives only generic facts, append only the new confirmed facts and avoid repeating what the card already shows.",
                 "When you update the card, use update_card or apply.update_card.",
             ]
         )
