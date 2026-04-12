@@ -83,6 +83,60 @@ class _FakeBoardApi:
         }
 
 
+class _FakeWrappedBoardApi(_FakeBoardApi):
+    def review_board(self, **kwargs) -> dict:
+        raw = super().review_board(**kwargs)
+        return {"ok": True, "data": raw.get("data", {})}
+
+    def get_card(self, card_id: str) -> dict:
+        raw = super().get_card(card_id)
+        return {"ok": True, "data": raw}
+
+    def get_card_context(self, card_id: str, **kwargs) -> dict:
+        self.calls.append(("get_card_context", {"card_id": card_id, **kwargs}))
+        card = dict(self.cards.get(card_id, {"id": card_id, "description": ""}))
+        vehicle_profile = {"vin": "WBAPF71060A798127"}
+        repair_order = {"number": "", "status": "open", "works": [], "materials": [], "vin": ""}
+        return {
+            "ok": True,
+            "data": {
+                "card": {
+                    **card,
+                    "vehicle": "BMW 320I",
+                    "title": card.get("title", ""),
+                    "column": "inbox",
+                    "tags": [],
+                    "ai_autofill_prompt": "Добавь короткую ИИ-заметку.",
+                    "ai_autofill_log": [{"level": "RUN", "message": "Автосопровождение включено."}],
+                    "vehicle_profile": vehicle_profile,
+                    "repair_order": repair_order,
+                },
+                "events": [{"action": "card_created"}],
+            },
+        }
+
+    def search_cards(self, **kwargs) -> dict:
+        self.calls.append(("search_cards", kwargs))
+        return {
+            "ok": True,
+            "data": {
+                "cards": [
+                    {
+                        "id": "card-1",
+                        "vehicle": "BMW 320I",
+                        "title": "Черновик",
+                        "column": "inbox",
+                        "tags": [],
+                    }
+                ]
+            },
+        }
+
+    def update_card(self, **kwargs) -> dict:
+        raw = super().update_card(**kwargs)
+        return {"ok": True, "data": raw}
+
+
 class AgentStorageTests(unittest.TestCase):
     def test_queue_lifecycle(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -334,6 +388,90 @@ class AgentRunnerTests(unittest.TestCase):
             self.assertIn("Артикул ABC-123.", update_call[1]["description"])
             self.assertIn("ИИ:", update_call[1]["description"])
             self.assertIn("Проверить VIN и уточнить комплектацию.", update_call[1]["description"])
+
+    def test_runner_unwraps_wrapped_card_context_for_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = AgentStorage(base_dir=Path(temp_dir))
+            storage.enqueue_task(
+                task_text="Проверь карточку и при необходимости дополни её.",
+                metadata={
+                    "purpose": "card_autofill",
+                    "trigger": "manual_activate",
+                    "context": {"kind": "card", "card_id": "card-1", "title": "Черновик"},
+                },
+            )
+            logger = logging.getLogger("test.agent.runner.wrapped.context")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            model = _FakeModelClient(
+                [
+                    {
+                        "type": "tool",
+                        "tool": "get_card_context",
+                        "args": {"card_id": "card-1", "event_limit": 10, "include_repair_order_text": True},
+                        "reason": "Read current card context before autofill",
+                    },
+                    {"type": "final", "summary": "done", "result": "No safe changes were needed."},
+                ]
+            )
+            runner = AgentRunner(
+                storage=storage,
+                board_api=_FakeWrappedBoardApi(),
+                model_client=model,
+                logger=logger,
+            )
+            self.assertTrue(runner.run_once())
+            second_call = model.calls[1]
+            tool_result_message = second_call["messages"][-1]["content"]
+            self.assertIn("Исходный текст карточки.", tool_result_message)
+            self.assertIn("ABC-123", tool_result_message)
+            self.assertIn("WBAPF71060A798127", tool_result_message)
+
+    def test_runner_merges_card_autofill_description_with_wrapped_get_card_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = AgentStorage(base_dir=Path(temp_dir))
+            storage.enqueue_task(
+                task_text="Дополняй карточку только короткой ИИ-заметкой.",
+                metadata={
+                    "purpose": "card_autofill",
+                    "trigger": "manual_activate",
+                    "context": {"kind": "card", "card_id": "card-1", "title": "Черновик"},
+                },
+            )
+            logger = logging.getLogger("test.agent.runner.wrapped.apply")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            board_api = _FakeWrappedBoardApi()
+            runner = AgentRunner(
+                storage=storage,
+                board_api=board_api,
+                model_client=_FakeModelClient(
+                    [
+                        {
+                            "type": "final",
+                            "summary": "Карточка дополнена",
+                            "result": "Добавлены ИИ-комментарии.",
+                            "apply": {
+                                "type": "update_card",
+                                "card_id": "card-1",
+                                "payload": {
+                                    "description": "Подтвердить VIN и подготовить краткий список проверок.",
+                                },
+                            },
+                        }
+                    ]
+                ),
+                logger=logger,
+            )
+            self.assertTrue(runner.run_once())
+            update_call = next(call for call in board_api.calls if call[0] == "update_card")
+            self.assertIn("Исходный текст карточки.", update_call[1]["description"])
+            self.assertIn("Цена детали 5000.", update_call[1]["description"])
+            self.assertIn("Артикул ABC-123.", update_call[1]["description"])
+            self.assertIn("ИИ:", update_call[1]["description"])
+            self.assertIn("Подтвердить VIN и подготовить краткий список проверок.", update_call[1]["description"])
 
     def test_runner_includes_card_context_in_model_messages(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

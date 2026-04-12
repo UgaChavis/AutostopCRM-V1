@@ -348,6 +348,14 @@ class AgentRunner:
             return text
         return f"{text[: self._max_tool_result_chars]}... [truncated]"
 
+    def _response_data(self, payload: Any) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            return {}
+        data = payload.get("data")
+        if isinstance(data, dict):
+            return data
+        return payload
+
     def _record_action(
         self,
         *,
@@ -439,20 +447,21 @@ class AgentRunner:
 
     def _tool_result_for_model(self, tool_name: str, payload: dict[str, Any]) -> str:
         compact = payload if isinstance(payload, dict) else {}
+        data = self._response_data(compact)
         if tool_name == "review_board":
-            summary = compact.get("summary") if isinstance(compact.get("summary"), dict) else compact.get("data", {}).get("summary", {})
-            alerts = compact.get("alerts") if isinstance(compact.get("alerts"), list) else compact.get("data", {}).get("alerts", [])
-            priorities = compact.get("priority_cards") if isinstance(compact.get("priority_cards"), list) else compact.get("data", {}).get("priority_cards", [])
+            summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+            alerts = data.get("alerts") if isinstance(data.get("alerts"), list) else []
+            priorities = data.get("priority_cards") if isinstance(data.get("priority_cards"), list) else []
             return self._preview_payload(
                 {
                     "summary": summary,
                     "alerts": alerts[:5],
                     "priority_cards": priorities[:5],
-                    "text": compact.get("text", ""),
+                    "text": data.get("text", "") or compact.get("text", ""),
                 }
             )
         if tool_name == "get_card_context":
-            card = compact.get("card") if isinstance(compact.get("card"), dict) else compact
+            card = data.get("card") if isinstance(data.get("card"), dict) else data
             vehicle_profile = card.get("vehicle_profile") if isinstance(card.get("vehicle_profile"), dict) else {}
             repair_order = card.get("repair_order") if isinstance(card.get("repair_order"), dict) else {}
             return self._preview_payload(
@@ -475,11 +484,11 @@ class AgentRunner:
                         "works_total": len(repair_order.get("works") or []),
                         "materials_total": len(repair_order.get("materials") or []),
                     },
-                    "events_total": len(compact.get("events") or []),
+                    "events_total": len(data.get("events") or []),
                 }
             )
         if tool_name == "search_cards":
-            cards = compact.get("cards") if isinstance(compact.get("cards"), list) else []
+            cards = data.get("cards") if isinstance(data.get("cards"), list) else []
             return self._preview_payload(
                 {
                     "count": len(cards),
@@ -497,7 +506,7 @@ class AgentRunner:
                 }
             )
         if tool_name in {"find_part_numbers", "search_part_numbers", "estimate_price_ru", "lookup_part_prices", "decode_dtc", "search_fault_info"}:
-            results = compact.get("results") if isinstance(compact.get("results"), list) else []
+            results = data.get("results") if isinstance(data.get("results"), list) else []
             normalized_results: list[dict[str, Any]] = []
             for item in results[:6]:
                 if not isinstance(item, dict):
@@ -513,28 +522,28 @@ class AgentRunner:
                 )
             return self._preview_payload(
                 {
-                    "query": compact.get("part_query") or compact.get("query"),
-                    "vehicle_context": compact.get("vehicle_context"),
+                    "query": data.get("part_query") or data.get("query"),
+                    "vehicle_context": data.get("vehicle_context"),
                     "results": normalized_results,
                 }
             )
         if tool_name == "estimate_maintenance":
             return self._preview_payload(
                 {
-                    "service_type": compact.get("service_type"),
-                    "vehicle_context": compact.get("vehicle_context"),
-                    "works": compact.get("works"),
-                    "materials": compact.get("materials"),
-                    "notes": compact.get("notes"),
+                    "service_type": data.get("service_type"),
+                    "vehicle_context": data.get("vehicle_context"),
+                    "works": data.get("works"),
+                    "materials": data.get("materials"),
+                    "notes": data.get("notes"),
                 }
             )
         if tool_name == "update_card":
             return self._preview_payload(
                 {
-                    "card_id": compact.get("card_id") or compact.get("card", {}).get("id"),
-                    "changed": compact.get("changed"),
-                    "changed_fields": compact.get("meta", {}).get("changed_fields") if isinstance(compact.get("meta"), dict) else compact.get("changed"),
-                    "card": compact.get("card") if isinstance(compact.get("card"), dict) else {},
+                    "card_id": data.get("card_id") or (data.get("card") or {}).get("id"),
+                    "changed": data.get("changed"),
+                    "changed_fields": data.get("meta", {}).get("changed_fields") if isinstance(data.get("meta"), dict) else data.get("changed"),
+                    "card": data.get("card") if isinstance(data.get("card"), dict) else {},
                 }
             )
         return self._preview_payload(compact)
@@ -585,8 +594,9 @@ class AgentRunner:
                     event_limit=20,
                     include_repair_order_text=True,
                 )
-                scope_payload["card"] = context_result.get("card") if isinstance(context_result, dict) else {}
-                scope_payload["events"] = (context_result.get("events") if isinstance(context_result, dict) else [])[:12]
+                context_data = self._response_data(context_result)
+                scope_payload["card"] = context_data.get("card") if isinstance(context_data.get("card"), dict) else {}
+                scope_payload["events"] = (context_data.get("events") if isinstance(context_data.get("events"), list) else [])[:12]
                 return "Execution scope:\n" + json.dumps(scope_payload, ensure_ascii=False, indent=2)
             if scope_type == "column" and scope_payload["column"]:
                 result = self._board_api.search_cards(
@@ -598,10 +608,12 @@ class AgentRunner:
                     status=None,
                     limit=40,
                 )
-                cards = result.get("cards") if isinstance(result, dict) else []
+                search_data = self._response_data(result)
+                cards = search_data.get("cards") if isinstance(search_data.get("cards"), list) else []
             else:
                 snapshot = self._board_api.get_board_snapshot(archive_limit=0)
-                columns = snapshot.get("columns") if isinstance(snapshot, dict) else []
+                snapshot_data = self._response_data(snapshot)
+                columns = snapshot_data.get("columns") if isinstance(snapshot_data.get("columns"), list) else []
                 cards = []
                 for column in columns if isinstance(columns, list) else []:
                     items = column.get("cards") if isinstance(column, dict) else []
@@ -640,7 +652,8 @@ class AgentRunner:
             current_payload = self._board_api.get_card(card_id)
         except Exception:
             return args
-        current_card = current_payload.get("card") if isinstance(current_payload, dict) and isinstance(current_payload.get("card"), dict) else current_payload
+        current_data = self._response_data(current_payload)
+        current_card = current_data.get("card") if isinstance(current_data.get("card"), dict) else current_data
         current_description = str(current_card.get("description", "") if isinstance(current_card, dict) else "").strip()
         proposed_description = str(args.get("description", "") or "").strip()
         merged_description = self._merge_card_autofill_description(current_description, proposed_description)
@@ -771,9 +784,10 @@ class AgentRunner:
         return normalized_payload if len(normalized_payload) > 1 else None
 
     def _summarize_applied_update(self, args: dict[str, Any], result_payload: dict[str, Any]) -> list[str]:
-        changed_payload = result_payload.get("changed")
+        response_data = self._response_data(result_payload)
+        changed_payload = response_data.get("changed")
         if not isinstance(changed_payload, list):
-            meta = result_payload.get("meta") if isinstance(result_payload.get("meta"), dict) else {}
+            meta = response_data.get("meta") if isinstance(response_data.get("meta"), dict) else {}
             changed_payload = meta.get("changed_fields")
         changed_fields = (
             [str(item or "").strip() for item in changed_payload if str(item or "").strip()]
