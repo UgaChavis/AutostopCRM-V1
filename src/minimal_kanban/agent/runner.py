@@ -2024,6 +2024,24 @@ class AgentRunner:
             for item in scenarios
             if isinstance(item, dict) and str(item.get("label", "") or "").strip() and str(item.get("name", "") or "").strip().lower() != "normalization"
         ]
+        safe_labels = [label for label in labels if label and "Р" not in label]
+        if not safe_labels:
+            message = "План: карточка прочитана, подтвержденных внешних сценариев нет, будет только аккуратная нормализация."
+        else:
+            message = "План: " + " -> ".join(safe_labels + ["STRUCTURE"])
+        plan = facts.get("autofill_plan") if isinstance(facts.get("autofill_plan"), dict) else {}
+        skipped = plan.get("skipped") if isinstance(plan.get("skipped"), list) else []
+        gated = [
+            str(item.get("name", "") or "").strip()
+            for item in skipped
+            if isinstance(item, dict) and str(item.get("reason", "") or "").strip()
+        ][:3]
+        if gated:
+            message += " Gated: " + ", ".join(gated) + "."
+        related_cards = facts.get("related_cards") if isinstance(facts.get("related_cards"), list) else []
+        if related_cards:
+            message += f" Связанных карточек на доске: {len(related_cards)}."
+        return message
         if not labels:
             message = "План: карточка прочитана, подтверждённых внешних сценариев нет, будет только аккуратная нормализация."
         else:

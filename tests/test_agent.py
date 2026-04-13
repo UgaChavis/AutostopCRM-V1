@@ -642,6 +642,57 @@ class AgentRunnerTests(unittest.TestCase):
             self.assertNotIn("Ибрагимова", facts["symptom_query"])
             self.assertNotIn("+7", facts["symptom_query"])
 
+    def test_card_autofill_plan_normalizes_scenario_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runner = AgentRunner(
+                storage=AgentStorage(base_dir=Path(temp_dir)),
+                board_api=_FakeBoardApi(),
+                model_client=_FakeModelClient([]),
+                logger=logging.getLogger("test.agent.runner.plan.labels"),
+            )
+            facts = runner._analyze_card_autofill_context(
+                {
+                    "card": {
+                        "id": "card-1",
+                        "title": "BMW 320i",
+                        "vehicle": "BMW 320i",
+                        "description": "VIN: WBAPF71060A798127\nНужно найти радиатор и цену.\nDTC P0300.",
+                        "vehicle_profile": {},
+                        "repair_order": {},
+                    },
+                    "events": [],
+                    "repair_order_text": {"text": ""},
+                }
+            )
+            plan = runner._build_card_autofill_plan(facts)
+            labels = [item.get("label", "") for item in plan["scenarios"] if item.get("name") != "normalization"]
+            self.assertEqual(labels, ["VIN", "PARTS", "DTC"])
+
+    def test_card_autofill_plan_message_uses_clean_ascii_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runner = AgentRunner(
+                storage=AgentStorage(base_dir=Path(temp_dir)),
+                board_api=_FakeBoardApi(),
+                model_client=_FakeModelClient([]),
+                logger=logging.getLogger("test.agent.runner.plan.message"),
+            )
+            message = runner._build_card_autofill_plan_message(
+                [
+                    {"name": "vin_enrichment", "label": "VIN"},
+                    {"name": "parts_lookup", "label": "PARTS"},
+                    {"name": "normalization", "label": "STRUCTURE"},
+                ],
+                facts={
+                    "autofill_plan": {"skipped": [{"name": "maintenance_lookup", "reason": "no mileage"}]},
+                    "related_cards": [{"id": "card-2"}],
+                },
+            )
+            self.assertIn("План: VIN -> PARTS -> STRUCTURE", message)
+            self.assertIn("Gated: maintenance_lookup.", message)
+            self.assertIn("Связанных карточек на доске: 1.", message)
+            self.assertNotIn("Р ", message)
+            self.assertNotIn("вЂ", message)
+
     def test_runner_executes_tool_and_completes_task(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = AgentStorage(base_dir=Path(temp_dir))
