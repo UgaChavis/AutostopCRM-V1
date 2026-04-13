@@ -250,6 +250,7 @@ class SnapshotService:
         with self._lock:
             payload = payload or {}
             include_archived = self._validated_optional_bool(payload, "include_archived", default=False)
+            compact_cards = self._validated_optional_bool(payload, "compact", default=False)
             bundle = self._store.read_bundle()
             cards = self._visible_cards(bundle["cards"], include_archived=include_archived)
             viewer_username = self._viewer_username(payload)
@@ -265,6 +266,7 @@ class SnapshotService:
                     column_labels=column_labels,
                     event_counts=event_counts,
                     viewer_username=viewer_username,
+                    compact=compact_cards,
                 )
             }
 

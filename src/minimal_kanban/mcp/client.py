@@ -77,8 +77,8 @@ class BoardApiClient:
         payload: dict[str, object] = {"text": text, "x": x, "y": y, "deadline": deadline}
         return self._request_with_identity("/api/create_sticky", payload, actor_name=actor_name)
 
-    def get_cards(self, *, include_archived: bool = False) -> dict:
-        return self._request("/api/get_cards", {"include_archived": include_archived})
+    def get_cards(self, *, include_archived: bool = False, compact: bool = False) -> dict:
+        return self._request("/api/get_cards", {"include_archived": include_archived, "compact": compact})
 
     def get_card(self, card_id: str) -> dict:
         return self._request("/api/get_card", {"card_id": card_id})

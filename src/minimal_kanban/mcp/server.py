@@ -772,6 +772,7 @@ def create_mcp_server(
                 "recommended_write_flow": [
                     "bootstrap_context",
                     "confirm board_name and scope_rule",
+                    "for broad board scans prefer get_cards(compact=true) and switch to get_card_context only for cards that need full detail",
                     "call get_gpt_wall only when full card text or long event history is needed",
                     "for mass column migrations prefer bulk_move_cards over many sequential move_card calls",
                     "perform write tools by card_id, sticky_id, and column id only",
@@ -1070,15 +1071,15 @@ def create_mcp_server(
         name="get_cards",
         description=_scoped_description(
             "Return cards from the current Minimal Kanban board. Archived cards are excluded by default. "
-            "Each card includes the full vehicle_profile and a compact vehicle_profile_compact aligned with the 1.1 card UI."
+            "Use compact=true for MCP-safe board scans with lighter payloads and reduced sensitive fields; set compact=false only when full vehicle_profile, repair_order, attachments, and ai_autofill_log are explicitly needed."
         ),
         annotations=_read_tool_annotations("List Cards"),
         structured_output=True,
     )
-    def get_cards(include_archived: bool = False) -> JsonEnvelope:
+    def get_cards(include_archived: bool = False, compact: bool = True) -> JsonEnvelope:
         return _relay_board_call(
             "get_cards",
-            lambda: board_api.get_cards(include_archived=include_archived),
+            lambda: board_api.get_cards(include_archived=include_archived, compact=compact),
         )
 
     @server.tool(

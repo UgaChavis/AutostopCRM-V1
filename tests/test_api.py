@@ -616,6 +616,22 @@ class ApiServerTests(unittest.TestCase):
         self.assertNotIn("attachments", compact_card)
         self.assertTrue(snapshot["data"]["meta"]["revision"])
 
+    def test_get_cards_compact_query_omits_heavy_fields(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"vehicle": "BMW", "title": "Compact API cards", "description": "VIN test", "deadline": {"hours": 2}},
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        status, cards_payload = self.request("/api/get_cards?compact=1", method="GET")
+        self.assertEqual(status, 200)
+        compact_card = next(card for card in cards_payload["data"]["cards"] if card["id"] == card_id)
+        self.assertNotIn("repair_order", compact_card)
+        self.assertNotIn("vehicle_profile", compact_card)
+        self.assertNotIn("attachments", compact_card)
+        self.assertNotIn("ai_autofill_log", compact_card)
+
     def test_snapshot_can_skip_archive_payload_for_board_refresh(self) -> None:
         status, created = self.request(
             "/api/create_card",

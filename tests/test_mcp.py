@@ -775,6 +775,38 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(restored.structuredContent["ok"])
                 self.assertFalse(restored.structuredContent["data"]["card"]["archived"])
 
+    async def test_mcp_get_cards_defaults_to_compact_payload(self) -> None:
+        async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
+            async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
+                created_card = await session.call_tool(
+                    "create_card",
+                    {
+                        "vehicle": "BMW",
+                        "title": "MCP compact cards",
+                        "description": "Payload check",
+                        "deadline": {"hours": 1},
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(created_card.isError)
+                self.assertTrue(created_card.structuredContent["ok"])
+                card_id = created_card.structuredContent["data"]["card"]["id"]
+
+                compact_cards = await session.call_tool("get_cards", {})
+                self.assertFalse(compact_cards.isError)
+                compact_card = next(card for card in compact_cards.structuredContent["data"]["cards"] if card["id"] == card_id)
+                self.assertNotIn("repair_order", compact_card)
+                self.assertNotIn("vehicle_profile", compact_card)
+                self.assertNotIn("attachments", compact_card)
+                self.assertNotIn("ai_autofill_log", compact_card)
+
+                full_cards = await session.call_tool("get_cards", {"compact": False})
+                self.assertFalse(full_cards.isError)
+                full_card = next(card for card in full_cards.structuredContent["data"]["cards"] if card["id"] == card_id)
+                self.assertIn("repair_order", full_card)
+                self.assertIn("vehicle_profile", full_card)
+                self.assertIn("attachments", full_card)
+
     async def test_mcp_agent_tools_reach_backend(self) -> None:
         async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
