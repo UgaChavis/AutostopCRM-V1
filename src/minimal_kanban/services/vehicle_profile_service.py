@@ -68,9 +68,19 @@ _FUEL_PATTERNS: tuple[tuple[str, str], ...] = (
     ("electric", r"ЭЛЕКТРО|ELECTRIC|EV\b"),
 )
 
-_OIL_ENGINE_PATTERN = re.compile(r"(?:МОТОРНОЕ МАСЛО|МАСЛО ДВИГАТЕЛЯ|ENGINE OIL)[^0-9]{0,20}(\d+(?:[.,]\d+)?)", re.IGNORECASE)
-_OIL_GEARBOX_PATTERN = re.compile(r"(?:МАСЛО КОРОБКИ|ATF|GEARBOX OIL|TRANSMISSION OIL)[^0-9]{0,20}(\d+(?:[.,]\d+)?)", re.IGNORECASE)
-_COOLANT_PATTERN = re.compile(r"(?:ОХЛАЖДАЮЩАЯ ЖИДКОСТЬ|АНТИФРИЗ|COOLANT)[^0-9]{0,20}(\d+(?:[.,]\d+)?)", re.IGNORECASE)
+_CAPACITY_UNIT_PATTERN = r"(?:ЛИТР(?:А|ОВ)?|Л|L|LITER(?:S)?)\b"
+_OIL_ENGINE_PATTERN = re.compile(
+    rf"(?:МОТОРНОЕ МАСЛО|МАСЛО ДВИГАТЕЛЯ|ENGINE OIL)[^0-9]{{0,20}}(\d+(?:[.,]\d+)?)\s*{_CAPACITY_UNIT_PATTERN}",
+    re.IGNORECASE,
+)
+_OIL_GEARBOX_PATTERN = re.compile(
+    rf"(?:МАСЛО КОРОБКИ|ATF|GEARBOX OIL|TRANSMISSION OIL)[^0-9]{{0,20}}(\d+(?:[.,]\d+)?)\s*{_CAPACITY_UNIT_PATTERN}",
+    re.IGNORECASE,
+)
+_COOLANT_PATTERN = re.compile(
+    rf"(?:ОХЛАЖДАЮЩАЯ ЖИДКОСТЬ|АНТИФРИЗ|COOLANT)[^0-9]{{0,20}}(\d+(?:[.,]\d+)?)\s*{_CAPACITY_UNIT_PATTERN}",
+    re.IGNORECASE,
+)
 _POWER_PATTERN = re.compile(r"(\d{2,4})\s*(?:Л\.?\s*С\.?|HP|ЛС)\b", re.IGNORECASE)
 _DISPLACEMENT_PATTERN = re.compile(r"(\d(?:[.,]\d{1,2})?)\s*(?:Л|L)\b", re.IGNORECASE)
 _YEAR_PATTERN = re.compile(r"\b(19\d{2}|20\d{2}|21\d{2})\b")

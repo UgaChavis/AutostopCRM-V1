@@ -571,6 +571,42 @@ class AgentRunnerTests(unittest.TestCase):
             self.assertTrue(evidence["dtc_found"])
             self.assertFalse(evidence["fault_symptoms_found"])
 
+    def test_card_autofill_analysis_builds_clean_symptom_query(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runner = AgentRunner(
+                storage=AgentStorage(base_dir=Path(temp_dir)),
+                board_api=_FakeBoardApi(),
+                model_client=_FakeModelClient([]),
+                logger=logging.getLogger("test.agent.runner.scenario.symptom_query"),
+            )
+            facts = runner._analyze_card_autofill_context(
+                {
+                    "card": {
+                        "id": "card-1",
+                        "title": "Течь антифриза — BMW 320I 2017",
+                        "vehicle": "BMW 320I 2017",
+                        "description": (
+                            "Клиент: Ибрагимова Диана Евгеньевна\n"
+                            "Телефон: +7 (967) 609-76-79\n"
+                            "VIN: X4X8A594905J20193\n"
+                            "Течь антифриза"
+                        ),
+                        "vehicle_profile": {
+                            "make_display": "BMW",
+                            "model_display": "320I",
+                            "production_year": 2017,
+                            "vin": "X4X8A594905J20193",
+                        },
+                        "repair_order": {},
+                    },
+                    "events": [],
+                    "repair_order_text": {"text": ""},
+                }
+            )
+            self.assertIn("Течь антифриза", facts["symptom_query"])
+            self.assertNotIn("Ибрагимова", facts["symptom_query"])
+            self.assertNotIn("+7", facts["symptom_query"])
+
     def test_runner_executes_tool_and_completes_task(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = AgentStorage(base_dir=Path(temp_dir))
@@ -1051,6 +1087,36 @@ class AgentRunnerTests(unittest.TestCase):
             update_call = next(call for call in board_api.calls if call[0] == "update_card")
             self.assertIn("ТО", update_call[1]["description"])
             self.assertIn("Расходники", update_call[1]["description"])
+
+    def test_runner_verify_accepts_additive_description_merge(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = AgentStorage(base_dir=Path(temp_dir))
+            storage.enqueue_task(
+                task_text="Расшифруй VIN и добавь краткую полезную ИИ-заметку.",
+                metadata={
+                    "purpose": "card_autofill",
+                    "trigger": "manual_activate",
+                    "context": {"kind": "card", "card_id": "card-1", "title": "Черновик"},
+                },
+            )
+            logger = logging.getLogger("test.agent.runner.verify.additive")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            board_api = _FakeWrappedBoardApi()
+            board_api.cards["card-1"]["description"] = "Исходный текст карточки.\nНужно понять, что с машиной."
+            runner = AgentRunner(
+                storage=storage,
+                board_api=board_api,
+                model_client=_FakeModelClient([{"type": "final", "summary": "unused", "result": "unused"}]),
+                logger=logger,
+            )
+            runner._tools._automotive = _FakeAutomotiveService()
+            self.assertTrue(runner.run_once())
+            run = storage.list_runs(limit=1)[0]
+            verify = run["orchestration"]["verify"]
+            self.assertTrue(verify["applied_ok"])
+            self.assertNotIn("description verification mismatch", verify["warnings"])
 
     def test_runner_merges_card_autofill_description_with_wrapped_get_card_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

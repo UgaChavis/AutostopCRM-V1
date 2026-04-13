@@ -751,6 +751,18 @@ class CardServiceTests(unittest.TestCase):
         self.assertGreater(profile["source_confidence"], 0.0)
         self.assertEqual(profile["model_display"], "CX-5")
 
+    def test_autofill_vehicle_data_does_not_treat_model_digits_as_coolant_capacity(self) -> None:
+        with patch.object(self.service._vehicle_profiles, "_enrich_from_vin_decode", return_value=None):
+            autofilled = self.service.autofill_vehicle_data(
+                {
+                    "raw_text": "BMW 320I 2017\nТечь антифриза\nVIN X4X8A594905J20193",
+                }
+            )
+
+        profile = autofilled["vehicle_profile"]
+        self.assertEqual(profile["model_display"], "320I")
+        self.assertIsNone(profile["coolant_capacity_l"])
+
     def test_mcp_created_card_is_unread_until_marked_seen(self) -> None:
         created = self.service.create_card(
             {

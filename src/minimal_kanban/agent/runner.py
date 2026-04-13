@@ -1184,7 +1184,10 @@ class AgentRunner:
                     else:
                         warnings.append("vehicle_profile verification mismatch")
                     continue
-                if self._values_equal(after_card.get(field_name), expected_value):
+                actual_value = after_card.get(field_name)
+                if field_name == "description" and self._description_patch_applied(actual_value, expected_value):
+                    fields_changed.append(field_name)
+                elif self._values_equal(actual_value, expected_value):
                     fields_changed.append(field_name)
                 else:
                     warnings.append(f"{field_name} verification mismatch")
@@ -1226,6 +1229,15 @@ class AgentRunner:
             warnings=warnings,
             context_ref=f"verify:{card_id}",
         )
+
+    def _description_patch_applied(self, actual_value: Any, expected_value: Any) -> bool:
+        actual = " ".join(str(actual_value or "").split()).casefold()
+        expected = " ".join(str(expected_value or "").split()).casefold()
+        if not expected:
+            return not actual
+        if actual == expected:
+            return True
+        return expected in actual
 
     def _finalize_verify_result(self, *, plan: PlanResult, verify: VerifyResult, tool_results: list[ToolResult]) -> VerifyResult:
         missing_required = self._policy.missing_required_tools(plan, tool_results)
@@ -2255,6 +2267,81 @@ class AgentRunner:
             if len(lines) >= 3:
                 break
         return "; ".join(lines)[:280]
+
+    def _extract_autofill_symptom_query(self, source_text: str) -> str:
+        lines: list[str] = []
+        symptom_lines: list[str] = []
+        blocked_prefixes = (
+            "клиент",
+            "customer",
+            "телефон",
+            "phone",
+            "марка",
+            "make",
+            "модель",
+            "model",
+            "год",
+            "vin",
+            "гос. номер",
+            "госномер",
+            "license plate",
+            "пробег",
+            "mileage",
+        )
+        symptom_markers = (
+            "течь",
+            "антифриз",
+            "стук",
+            "вибрац",
+            "ошибк",
+            "неисправ",
+            "жалоб",
+            "симптом",
+            "перегрев",
+            "дым",
+            "шум",
+            "троит",
+            "coolant",
+            "leak",
+            "overheat",
+            "noise",
+            "fault",
+        )
+        for raw_line in str(source_text or "").splitlines():
+            line = " ".join(str(raw_line or "").strip().split())
+            if not line:
+                continue
+            lower = line.casefold()
+            if lower.startswith("vin") or lower.startswith("ии:") or lower.startswith("ai:"):
+                continue
+            if "артикул" in lower:
+                continue
+            if "цена" in lower and any(char.isdigit() for char in line):
+                continue
+            if any(lower.startswith(prefix) for prefix in blocked_prefixes):
+                continue
+            if self._looks_like_customer_line(lower):
+                continue
+            if any(marker in lower for marker in symptom_markers):
+                symptom_lines.append(line)
+                continue
+            lines.append(line)
+            if len(lines) >= 3 and len(symptom_lines) >= 2:
+                break
+        preferred = symptom_lines[:2] if symptom_lines else []
+        fallback = [line for line in lines if line not in preferred][:1]
+        return "; ".join(preferred + fallback)[:280]
+
+    def _looks_like_customer_line(self, lower_line: str) -> bool:
+        compact = " ".join(str(lower_line or "").split())
+        if not compact:
+            return False
+        if any(token in compact for token in ("+7", "8 (", "телефон", "phone")):
+            return True
+        words = [item for item in compact.replace(".", " ").split() if item]
+        if 2 <= len(words) <= 4 and all(word.isalpha() for word in words):
+            return True
+        return False
 
     def _profile_missing_fields(self, vehicle_profile: dict[str, Any]) -> list[str]:
         missing: list[str] = []
