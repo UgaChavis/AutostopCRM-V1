@@ -666,6 +666,108 @@ class AgentRunnerTests(unittest.TestCase):
             self.assertEqual(merged.count(line), 1)
         self.assertIn("AI: Подтвержден VIN и нужна проверка радиатора.", merged)
 
+    def test_runner_card_autofill_calls_external_decode_before_parts_lookup(self) -> None:
+        class _RecordingAutomotive(_FakeAutomotiveService):
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def decode_vin(self, vin: str) -> dict:
+                self.calls.append("decode_vin")
+                return super().decode_vin(vin)
+
+            def find_part_numbers(self, *, query: str, vehicle: dict[str, object] | str | None = None, limit: int = 5) -> dict:
+                self.calls.append("find_part_numbers")
+                return super().find_part_numbers(query=query, vehicle=vehicle, limit=limit)
+
+            def estimate_price_ru(self, *, part_number: str, vehicle: dict[str, object] | str | None = None, limit: int = 5) -> dict:
+                self.calls.append("estimate_price_ru")
+                return super().estimate_price_ru(part_number=part_number, vehicle=vehicle, limit=limit)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = AgentStorage(base_dir=Path(temp_dir))
+            storage.enqueue_task(
+                task_text="Автосопровождение карточки.",
+                metadata={
+                    "purpose": "card_autofill",
+                    "trigger": "manual_activate",
+                    "context": {"kind": "card", "card_id": "card-1", "title": "Радиатор"},
+                },
+            )
+            logger = logging.getLogger("test.agent.runner.autofill.vin.parts")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            board_api = _FakeWrappedBoardApi()
+            board_api.cards["card-1"]["description"] = (
+                "VIN: WBAPF71060A798127\n"
+                "Бежит антифриз.\n"
+                "Течет основной радиатор.\n"
+                "Нужно найти радиатор и сориентировать по цене."
+            )
+            automotive = _RecordingAutomotive()
+            runner = AgentRunner(
+                storage=storage,
+                board_api=board_api,
+                model_client=_FakeModelClient([{"type": "final", "summary": "unused", "result": "unused"}]),
+                logger=logger,
+            )
+            runner._tools._automotive = automotive
+            self.assertTrue(runner.run_once())
+            self.assertEqual(automotive.calls[:3], ["decode_vin", "find_part_numbers", "estimate_price_ru"])
+            update_call = next(call for call in board_api.calls if call[0] == "update_card")
+            self.assertIn("По VIN подтверждено: BMW, 320i, 2016", update_call[1]["description"])
+            self.assertIn("Радиатор: OEM 17118625431; аналоги: AVA BW2285.", update_call[1]["description"])
+            self.assertNotIn("уточнить модель", update_call[1]["description"].lower())
+            log_messages = [item.get("message", "") for item in storage.list_actions(limit=50) if item.get("kind") == "log"]
+            self.assertIn("VIN found.", log_messages)
+            self.assertIn("decode_vin requested.", log_messages)
+            self.assertIn("decode_vin success.", log_messages)
+            self.assertIn("parts lookup started.", log_messages)
+            self.assertIn("fields updated.", log_messages)
+
+    def test_runner_card_autofill_does_not_guess_vin_decode_when_external_result_is_insufficient(self) -> None:
+        class _InsufficientVinAutomotive(_FakeAutomotiveService):
+            def decode_vin(self, vin: str) -> dict:
+                return {
+                    "vin": vin,
+                    "make": "BMW",
+                    "plant_country": "Germany",
+                    "source_url": "https://example.test/vin",
+                }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = AgentStorage(base_dir=Path(temp_dir))
+            storage.enqueue_task(
+                task_text="Автосопровождение карточки.",
+                metadata={
+                    "purpose": "card_autofill",
+                    "trigger": "manual_activate",
+                    "context": {"kind": "card", "card_id": "card-1", "title": "VIN only"},
+                },
+            )
+            logger = logging.getLogger("test.agent.runner.autofill.vin.insufficient")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            board_api = _FakeWrappedBoardApi()
+            board_api.cards["card-1"]["description"] = "VIN: WBAPF71060A798127"
+            runner = AgentRunner(
+                storage=storage,
+                board_api=board_api,
+                model_client=_FakeModelClient([{"type": "final", "summary": "unused", "result": "unused"}]),
+                logger=logger,
+            )
+            runner._tools._automotive = _InsufficientVinAutomotive()
+            self.assertTrue(runner.run_once())
+            update_call = next(call for call in board_api.calls if call[0] == "update_card")
+            self.assertIn("выполнена внешняя расшифровка, но данных недостаточно", update_call[1]["description"])
+            self.assertNotIn("По VIN подтверждено: BMW", update_call[1]["description"])
+            self.assertFalse(update_call[1].get("vehicle_profile"))
+            self.assertFalse(update_call[1].get("vehicle"))
+            log_messages = [item.get("message", "") for item in storage.list_actions(limit=50) if item.get("kind") == "log"]
+            self.assertIn("decode_vin requested.", log_messages)
+            self.assertIn("decode_vin insufficient.", log_messages)
+
     def test_runner_unwraps_wrapped_card_context_for_deterministic_autofill(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = AgentStorage(base_dir=Path(temp_dir))

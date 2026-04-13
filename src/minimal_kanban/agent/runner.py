@@ -386,6 +386,15 @@ class AgentRunner:
         )
         context_data = self._response_data(context_payload)
         facts = self._analyze_card_autofill_context(context_data, task_text=str(task.get("task_text", "") or ""))
+        if facts.get("vin"):
+            self._record_log_action(
+                task_id=task["id"],
+                run_id=run_id,
+                step=tool_calls,
+                level="INFO",
+                phase="analysis",
+                message="VIN found.",
+            )
         if self._should_load_card_autofill_related_cards(facts):
             related_args = {
                 "query": self._related_cards_query(facts),
@@ -418,6 +427,15 @@ class AgentRunner:
                 )
         scenarios = self._select_card_autofill_scenarios(facts)
         facts["selected_scenarios"] = scenarios
+        if facts.get("vin") and not any(str(item.get("name", "") or "").strip().lower() == "parts_lookup" for item in scenarios):
+            self._record_log_action(
+                task_id=task["id"],
+                run_id=run_id,
+                step=tool_calls,
+                level="INFO",
+                phase="analysis",
+                message="parts lookup skipped.",
+            )
         self._record_log_action(
             task_id=task["id"],
             run_id=run_id,
@@ -430,6 +448,15 @@ class AgentRunner:
         for scenario in scenarios:
             scenario_name = str(scenario.get("name", "") or "").strip().lower()
             if scenario_name == "vin_enrichment":
+                facts["vin_decode_attempted"] = True
+                self._record_log_action(
+                    task_id=task["id"],
+                    run_id=run_id,
+                    step=tool_calls,
+                    level="RUN",
+                    phase="tool",
+                    message="decode_vin requested.",
+                )
                 vin_payload = self._run_autofill_tool(
                     task_id=task["id"],
                     run_id=run_id,
@@ -438,18 +465,39 @@ class AgentRunner:
                     args={"vin": facts["vin"]},
                     reason="Decode VIN first and reuse the confirmed vehicle facts in later lookup steps",
                 )
-                if vin_payload is not None:
+                if vin_payload is None:
+                    facts["vin_decode_status"] = "failed"
+                    self._record_log_action(
+                        task_id=task["id"],
+                        run_id=run_id,
+                        step=tool_calls + 1,
+                        level="WARN",
+                        phase="tool",
+                        message="decode_vin failed.",
+                    )
+                else:
                     tool_calls += 1
                     orchestration_results["decode_vin"] = self._response_data(vin_payload) or vin_payload
-                    facts["vehicle_context"] = self._merge_vehicle_context(
-                        facts["vehicle_context"],
-                        orchestration_results["decode_vin"],
-                    )
+                    vin_status = self._vin_decode_status(orchestration_results["decode_vin"])
+                    facts["vin_decode_status"] = vin_status
+                    if vin_status == "success":
+                        facts["vehicle_context"] = self._merge_vehicle_context(
+                            facts["vehicle_context"],
+                            orchestration_results["decode_vin"],
+                        )
                 continue
             if scenario_name == "parts_lookup":
                 part_query = str(scenario.get("query", "") or "").strip() or (facts["part_queries"][0] if facts["part_queries"] else "")
                 if not part_query:
                     continue
+                self._record_log_action(
+                    task_id=task["id"],
+                    run_id=run_id,
+                    step=tool_calls,
+                    level="RUN",
+                    phase="tool",
+                    message="parts lookup started.",
+                )
                 part_payload = self._run_autofill_tool(
                     task_id=task["id"],
                     run_id=run_id,
@@ -557,6 +605,15 @@ class AgentRunner:
                 reason="Apply deterministic autofill enrichment to the current card",
                 result_payload=update_result,
             )
+            if update_args.get("vehicle_profile") or update_args.get("vehicle"):
+                self._record_log_action(
+                    task_id=task["id"],
+                    run_id=run_id,
+                    step=tool_calls,
+                    level="INFO",
+                    phase="update",
+                    message="fields updated.",
+                )
         summary = self._autofill_result_summary(applied_updates, orchestration_results)
         display = {
             "emoji": "",
@@ -989,7 +1046,12 @@ class AgentRunner:
 
     def _autofill_tool_completion_message(self, tool_name: str, payload: dict[str, Any]) -> str:
         if tool_name == "decode_vin":
-            return "VIN расшифрован." if any(str(payload.get(key, "") or "").strip() for key in ("make", "model", "model_year", "engine_model")) else "VIN подтверждён, но новых фактов почти нет."
+            status = self._vin_decode_status(payload)
+            if status == "success":
+                return "decode_vin success."
+            if status == "insufficient":
+                return "decode_vin insufficient."
+            return "decode_vin failed."
         if tool_name == "find_part_numbers":
             part_numbers = payload.get("part_numbers") if isinstance(payload.get("part_numbers"), list) else []
             return "Найдены кандидаты OEM/каталожных номеров." if part_numbers else "Точный OEM не найден, нужен более точный контекст."
@@ -1058,7 +1120,7 @@ class AgentRunner:
         scenario_evidence = {
             "vin_enrichment": {
                 "trigger_found": bool(vin),
-                "confidence_enough": bool(vin) and (bool(missing_vehicle_fields) or force_vin_decode),
+                "confidence_enough": bool(vin),
             },
             "parts_lookup": {
                 "trigger_found": bool(part_queries),
@@ -1243,6 +1305,15 @@ class AgentRunner:
             "confidence_enough": bool(evidence.get("confidence_enough")),
         }
 
+    def _vin_decode_status(self, payload: dict[str, Any] | None) -> str:
+        if not isinstance(payload, dict):
+            return "failed"
+        if any(str(payload.get(key, "") or "").strip() for key in ("model", "model_year", "engine_model", "transmission", "drive_type")):
+            return "success"
+        if any(str(payload.get(key, "") or "").strip() for key in ("make", "plant_country", "vin")):
+            return "insufficient"
+        return "failed"
+
     def _extract_existing_ai_notes(self, description_text: str) -> list[str]:
         notes: list[str] = []
         inside_ai_block = False
@@ -1407,11 +1478,12 @@ class AgentRunner:
     ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
         card = facts["card"]
         current_description = str(card.get("description", "") or "").strip()
-        vehicle_patch = self._autofill_vehicle_patch(facts=facts, decoded_vin=orchestration_results.get("decode_vin"))
-        vehicle_label_patch = self._autofill_vehicle_label_patch(facts=facts, decoded_vin=orchestration_results.get("decode_vin"))
-        ai_lines: list[str] = []
         decoded_vin = orchestration_results.get("decode_vin")
-        if isinstance(decoded_vin, dict):
+        vin_decode_status = str(facts.get("vin_decode_status", "") or "").strip().lower()
+        vehicle_patch = self._autofill_vehicle_patch(facts=facts, decoded_vin=decoded_vin, vin_decode_status=vin_decode_status)
+        vehicle_label_patch = self._autofill_vehicle_label_patch(facts=facts, decoded_vin=decoded_vin, vin_decode_status=vin_decode_status)
+        ai_lines: list[str] = []
+        if vin_decode_status == "success" and isinstance(decoded_vin, dict):
             vin_bits: list[str] = []
             if decoded_vin.get("make"):
                 vin_bits.append(str(decoded_vin.get("make", "") or "").strip())
@@ -1429,6 +1501,11 @@ class AgentRunner:
                 vin_bits.append(f"сборка: {decoded_vin.get('plant_country')}")
             if vin_bits:
                 ai_lines.append("По VIN подтверждено: " + ", ".join(vin_bits) + ".")
+        elif facts.get("vin") and facts.get("vin_decode_attempted"):
+            if vin_decode_status == "insufficient":
+                ai_lines.append("Найден VIN, выполнена внешняя расшифровка, но данных недостаточно для уверенного заполнения модели и агрегатов.")
+            elif vin_decode_status == "failed":
+                ai_lines.append("Найден VIN, выполнена попытка внешней расшифровки, но сервис не вернул пригодный результат.")
         part_lookup = orchestration_results.get("find_part_numbers")
         if isinstance(part_lookup, dict) and facts["part_queries"]:
             primary_part, analog_parts = self._summarize_part_matches(part_lookup)
@@ -1528,7 +1605,9 @@ class AgentRunner:
             display_sections.append({"title": "Добавлено в карточку", "body": "", "items": filtered_ai_lines[:6]})
         return update_args, display_sections
 
-    def _autofill_vehicle_label_patch(self, *, facts: dict[str, Any], decoded_vin: dict[str, Any] | None) -> str:
+    def _autofill_vehicle_label_patch(self, *, facts: dict[str, Any], decoded_vin: dict[str, Any] | None, vin_decode_status: str = "") -> str:
+        if vin_decode_status != "success":
+            return ""
         current_vehicle = str(facts["card"].get("vehicle", "") or "").strip()
         context = facts.get("vehicle_context") if isinstance(facts.get("vehicle_context"), dict) else {}
         candidate = " ".join(
@@ -1556,8 +1635,8 @@ class AgentRunner:
             return ""
         return candidate
 
-    def _autofill_vehicle_patch(self, *, facts: dict[str, Any], decoded_vin: dict[str, Any] | None) -> dict[str, Any]:
-        if not isinstance(decoded_vin, dict):
+    def _autofill_vehicle_patch(self, *, facts: dict[str, Any], decoded_vin: dict[str, Any] | None, vin_decode_status: str = "") -> dict[str, Any]:
+        if not isinstance(decoded_vin, dict) or vin_decode_status != "success":
             return {}
         patch: dict[str, Any] = {}
         existing = facts["vehicle_profile"]
