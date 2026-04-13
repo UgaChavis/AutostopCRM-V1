@@ -129,6 +129,8 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertIn("Then call bootstrap_context.", text)
         self.assertIn("call get_runtime_status", text)
         self.assertIn("Prefer canonical short tool paths like /AutoStopCRM/tool_name", text)
+        self.assertIn("call get_card_context first for the focused read", text)
+        self.assertIn("get_board_snapshot(compact=true)", text)
         self.assertIn("primarily from the card body: vehicle, title, description, and optional raw_text", text)
         self.assertIn("vehicle must hold only make/model", text)
         self.assertIn("title must hold only the short essence of the card, issue, or task", text)

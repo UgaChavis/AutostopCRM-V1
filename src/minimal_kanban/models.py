@@ -917,6 +917,7 @@ class Card:
         }
         if compact:
             payload["description"] = description_preview
+            payload["vehicle_profile_compact"] = self.vehicle_profile.to_compact_dict()
             return payload
 
         payload.update(

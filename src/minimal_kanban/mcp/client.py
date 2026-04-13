@@ -99,8 +99,23 @@ class BoardApiClient:
             },
         )
 
-    def get_board_snapshot(self, *, archive_limit: int | None = None) -> dict:
-        return self._request_optional_scalar_filter("/api/get_board_snapshot", key="archive_limit", value=archive_limit)
+    def get_board_snapshot(
+        self,
+        *,
+        archive_limit: int | None = None,
+        compact: bool | None = None,
+        include_archive: bool | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {}
+        if archive_limit is not None:
+            payload["archive_limit"] = archive_limit
+        if compact is not None:
+            payload["compact"] = compact
+        if include_archive is not None:
+            payload["include_archive"] = include_archive
+        if not payload:
+            return self._request("/api/get_board_snapshot", method="GET")
+        return self._request("/api/get_board_snapshot", payload, method="POST")
 
     def get_board_context(self) -> dict:
         return self._request("/api/get_board_context", method="GET")
@@ -332,8 +347,11 @@ class BoardApiClient:
         payload: dict[str, object] = {"card_id": card_id, "overwrite": overwrite}
         return self._request_with_identity("/api/autofill_repair_order", payload, actor_name=actor_name)
 
-    def get_card_log(self, card_id: str) -> dict:
-        return self._request("/api/get_card_log", {"card_id": card_id})
+    def get_card_log(self, card_id: str, *, limit: int | None = None) -> dict:
+        payload: dict[str, object] = {"card_id": card_id}
+        if limit is not None:
+            payload["limit"] = limit
+        return self._request("/api/get_card_log", payload)
 
     def get_repair_order(self, card_id: str) -> dict:
         return self._request("/api/get_repair_order", {"card_id": card_id})
@@ -341,8 +359,15 @@ class BoardApiClient:
     def get_repair_order_text(self, card_id: str) -> dict:
         return self._request("/api/get_repair_order_text", {"card_id": card_id})
 
-    def list_archived_cards(self, *, limit: int | None = None) -> dict:
-        return self._request_optional_scalar_filter("/api/list_archived_cards", key="limit", value=limit)
+    def list_archived_cards(self, *, limit: int | None = None, compact: bool | None = None) -> dict:
+        payload: dict[str, object] = {}
+        if limit is not None:
+            payload["limit"] = limit
+        if compact is not None:
+            payload["compact"] = compact
+        if not payload:
+            return self._request("/api/list_archived_cards", method="GET")
+        return self._request("/api/list_archived_cards", payload, method="POST")
 
     def list_repair_orders(
         self,

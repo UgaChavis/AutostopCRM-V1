@@ -424,7 +424,7 @@ class CardService:
                 self._append_card_ai_log(card, level="RUN", message="Автосопровождение включено.")
                 for level, message in self._card_ai_context_messages(card):
                     self._append_card_ai_log(card, level=level, message=message)
-                if self._agent_control is not None and server_available:
+                if self._agent_control is not None:
                     task = self._agent_control.enqueue_card_autofill_task(
                         {
                             "card_id": card.id,
@@ -616,12 +616,15 @@ class CardService:
             bundle = self._store.read_bundle()
             cashboxes = bundle["cashboxes"]
             transactions = bundle["cash_transactions"]
+            serialized_cashboxes = [self._serialize_cashbox(cashbox, transactions) for cashbox in cashboxes[:limit]]
             return {
-                "cashboxes": [self._serialize_cashbox(cashbox, transactions) for cashbox in cashboxes[:limit]],
+                "cashboxes": serialized_cashboxes,
                 "meta": {
                     "total": len(cashboxes),
                     "transactions_total": len(transactions),
                     "limit": limit,
+                    "returned": len(serialized_cashboxes),
+                    "has_more": len(cashboxes) > len(serialized_cashboxes),
                 },
             }
 
@@ -877,6 +880,8 @@ class CardService:
                 "meta": {
                     "limit": limit,
                     "total": len(sorted_cards),
+                    "returned": min(len(sorted_cards), limit),
+                    "has_more": len(sorted_cards) > limit,
                     "status": status_filter,
                     "query": query,
                     "sort_by": sort_by,
@@ -931,7 +936,9 @@ class CardService:
                 },
                 "meta": {
                     "event_limit": event_limit,
+                    "events_total": len(card_events),
                     "events_returned": len(events),
+                    "has_more_events": len(card_events) > len(events),
                     "attachments_total": len(active_attachments),
                     "removed_attachments_total": len(removed_attachments),
                     "has_repair_order": has_repair_order,

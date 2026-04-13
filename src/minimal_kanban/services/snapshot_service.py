@@ -259,15 +259,23 @@ class SnapshotService:
                 columns=bundle["columns"],
                 events=bundle["events"],
             )
+            serialized_cards = self._serialize_cards_payload(
+                cards,
+                events=bundle["events"],
+                column_labels=column_labels,
+                event_counts=event_counts,
+                viewer_username=viewer_username,
+                compact=compact_cards,
+            )
             return {
-                "cards": self._serialize_cards_payload(
-                    cards,
-                    events=bundle["events"],
-                    column_labels=column_labels,
-                    event_counts=event_counts,
-                    viewer_username=viewer_username,
-                    compact=compact_cards,
-                )
+                "cards": serialized_cards,
+                "meta": {
+                    "include_archived": include_archived,
+                    "compact": compact_cards,
+                    "total": len(cards),
+                    "returned": len(serialized_cards),
+                    "has_more": False,
+                },
             }
 
     def get_board_snapshot(self, payload: dict | None = None) -> dict:
@@ -330,6 +338,10 @@ class SnapshotService:
                     "compact_cards": compact_cards,
                     "include_archive": include_archive,
                     "archived_cards_total": archived_cards_total,
+                    "cards_returned": len(serialized_cards),
+                    "archive_returned": len(serialized_archive),
+                    "has_more_archive": include_archive and archived_cards_total > len(serialized_archive),
+                    "stickies_returned": len(serialized_stickies),
                     "stickies_total": len(stickies),
                     "revision": revision,
                 },
@@ -350,6 +362,7 @@ class SnapshotService:
                 "text": context_payload["text"],
                 "meta": {
                     "generated_at": utc_now_iso(),
+                    "view_mode": "summary",
                     "columns": context_payload["context"]["columns_total"],
                     "active_cards": context_payload["context"]["active_cards_total"],
                     "archived_cards": context_payload["context"]["archived_cards_total"],
@@ -514,8 +527,11 @@ class SnapshotService:
                 "active_cards": board_context_counts["active_cards_total"],
                 "archived_cards": board_context_counts["archived_cards_total"],
                 "stickies": len(wall_stickies),
+                "cards_returned": len(wall_cards),
+                "stickies_returned": len(wall_stickies),
                 "events_total": len(events),
                 "events_returned": len(wall_events),
+                "has_more_events": len(events) > len(wall_events),
                 "event_limit": event_limit,
                 "include_archived": include_archived,
             }
@@ -566,6 +582,7 @@ class SnapshotService:
             limit = self._validated_limit(payload.get("limit"), default=ARCHIVE_PREVIEW_LIMIT, maximum=100)
             compact_cards = self._validated_optional_bool(payload, "compact", default=False)
             bundle = self._store.read_bundle()
+            archived_total = sum(1 for card in bundle["cards"] if card.archived)
             archived = self._archived_cards(bundle["cards"], limit=limit)
             viewer_username = self._viewer_username(payload)
             column_labels, event_counts = self._card_serialization_context(
@@ -581,7 +598,14 @@ class SnapshotService:
                     event_counts=event_counts,
                     viewer_username=viewer_username,
                     compact=compact_cards,
-                )
+                ),
+                "meta": {
+                    "limit": limit,
+                    "compact": compact_cards,
+                    "total": archived_total,
+                    "returned": len(archived),
+                    "has_more": archived_total > len(archived),
+                },
             }
 
     def search_cards(self, payload: dict | None = None) -> dict:
@@ -657,6 +681,7 @@ class SnapshotService:
                     "limit": limit,
                     "total_matches": len(matches),
                     "returned": len(cards_payload),
+                    "has_more": len(matches) > len(cards_payload),
                     "include_archived": include_archived,
                     "filters": {
                         "column": column,
@@ -714,11 +739,27 @@ class SnapshotService:
 
     def get_card_log(self, payload: dict) -> dict:
         with self._lock:
+            payload = payload or {}
+            limit_raw = payload.get("limit")
+            limit = (
+                self._validated_limit(limit_raw, default=100, maximum=1000)
+                if limit_raw is not None
+                else None
+            )
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             _ = card
-            events = [event.to_dict() for event in self._events_for_card(bundle["events"], card.id)]
-            return {"events": events}
+            card_events = self._events_for_card(bundle["events"], card.id)
+            events = [event.to_dict() for event in (card_events[:limit] if limit is not None else card_events)]
+            return {
+                "events": events,
+                "meta": {
+                    "limit": limit,
+                    "events_total": len(card_events),
+                    "events_returned": len(events),
+                    "has_more": len(card_events) > len(events),
+                },
+            }
 
     def _latest_event_by_card(self, events: list[AuditEvent]) -> dict[str, AuditEvent]:
         latest: dict[str, AuditEvent] = {}

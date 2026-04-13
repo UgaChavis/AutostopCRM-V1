@@ -1851,10 +1851,15 @@ class ApiServerTests(unittest.TestCase):
         self.assertTrue(any(card["id"] == card_id for card in snapshot["data"]["cards"]))
         self.assertTrue(any(sticky["id"] == sticky_id for sticky in snapshot["data"]["stickies"]))
         self.assertGreater(snapshot["data"]["meta"]["stickies_total"], 0)
+        self.assertIn("cards_returned", snapshot["data"]["meta"])
+        self.assertIn("archive_returned", snapshot["data"]["meta"])
 
-        status, log = self.request(f"/api/get_card_log?card_id={card_id}", method="GET")
+        status, log = self.request(f"/api/get_card_log?card_id={card_id}&limit=1", method="GET")
         self.assertEqual(status, 200)
         self.assertEqual(log["data"]["events"][0]["actor_name"], "ИНСПЕКТОР")
+        self.assertEqual(log["data"]["meta"]["limit"], 1)
+        self.assertEqual(log["data"]["meta"]["events_returned"], 1)
+        self.assertIn("has_more", log["data"]["meta"])
 
         status, archived = self.request("/api/archive_card", {"card_id": card_id})
         self.assertEqual(status, 200)
@@ -1863,6 +1868,8 @@ class ApiServerTests(unittest.TestCase):
         status, archive_list = self.request("/api/list_archived_cards", method="GET")
         self.assertEqual(status, 200)
         self.assertTrue(any(card["id"] == card_id for card in archive_list["data"]["cards"]))
+        self.assertGreaterEqual(archive_list["data"]["meta"]["total"], 1)
+        self.assertGreaterEqual(archive_list["data"]["meta"]["returned"], 1)
 
         status, restored = self.request("/api/restore_card", {"card_id": card_id, "column": column_id})
         self.assertEqual(status, 200)
@@ -1874,6 +1881,7 @@ class ApiServerTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(searched["data"]["meta"]["total_matches"], 1)
+        self.assertFalse(searched["data"]["meta"]["has_more"])
         self.assertEqual(searched["data"]["cards"][0]["id"], card_id)
 
         status, searched_by_short_id = self.request("/api/search_cards", {"query": card_short_id, "limit": 5})

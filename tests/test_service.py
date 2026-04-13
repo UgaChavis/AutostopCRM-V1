@@ -1138,6 +1138,9 @@ class CardServiceTests(unittest.TestCase):
         archived = self.service.list_archived_cards()
 
         self.assertEqual(archived["cards"], [])
+        self.assertEqual(archived["meta"]["total"], 0)
+        self.assertEqual(archived["meta"]["returned"], 0)
+        self.assertFalse(archived["meta"]["has_more"])
         self.assertEqual(snapshot_service._column_labels.call_count, 0)
         self.assertEqual(snapshot_service._event_counts.call_count, 0)
 
@@ -1403,9 +1406,13 @@ class CardServiceTests(unittest.TestCase):
         snapshot_service._column_labels = Mock(wraps=snapshot_service._column_labels)
         snapshot_service._event_counts = Mock(wraps=snapshot_service._event_counts)
 
-        cards = self.service.get_cards()["cards"]
+        cards_payload = self.service.get_cards()
+        cards = cards_payload["cards"]
 
         self.assertEqual(cards, [])
+        self.assertEqual(cards_payload["meta"]["total"], 0)
+        self.assertEqual(cards_payload["meta"]["returned"], 0)
+        self.assertFalse(cards_payload["meta"]["has_more"])
         self.assertEqual(snapshot_service._column_labels.call_count, 0)
         self.assertEqual(snapshot_service._event_counts.call_count, 0)
 
@@ -1443,6 +1450,7 @@ class CardServiceTests(unittest.TestCase):
             }
         )
         self.assertEqual(found["meta"]["total_matches"], 1)
+        self.assertFalse(found["meta"]["has_more"])
         self.assertEqual(found["cards"][0]["id"], active["card"]["id"])
         self.assertEqual(found["cards"][0]["column_label"], "ЭЛЕКТРИКИ")
         self.assertEqual(found["cards"][0]["heading"], "KIA RIO / ПЛАВАЕТ ХОЛОСТОЙ ХОД")
@@ -1455,6 +1463,42 @@ class CardServiceTests(unittest.TestCase):
         with self.assertRaises(ServiceError) as empty_search:
             self.service.search_cards({})
         self.assertEqual(empty_search.exception.code, "validation_error")
+
+    def test_get_card_log_supports_limit_and_meta(self) -> None:
+        created = self.service.create_card(
+            {
+                "title": "ЛОГ КАРТОЧКИ",
+                "description": "Проверка limit",
+                "deadline": {"hours": 2},
+                "actor_name": "МАСТЕР",
+                "source": "api",
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "description": "Первое изменение",
+                "actor_name": "МАСТЕР",
+                "source": "api",
+            }
+        )
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "description": "Второе изменение",
+                "actor_name": "МАСТЕР",
+                "source": "api",
+            }
+        )
+
+        log = self.service.get_card_log({"card_id": card_id, "limit": 2})
+
+        self.assertEqual(log["meta"]["limit"], 2)
+        self.assertEqual(log["meta"]["events_returned"], 2)
+        self.assertGreaterEqual(log["meta"]["events_total"], 3)
+        self.assertTrue(log["meta"]["has_more"])
+        self.assertEqual(len(log["events"]), 2)
 
     def test_search_cards_skips_event_count_build_when_no_matches(self) -> None:
         self.service.create_card(

@@ -449,9 +449,13 @@ def create_mcp_server(
         fetcher: Callable[[], dict[str, Any]],
         *,
         error_code: str = "board_api_unreachable",
+        params: dict[str, Any] | None = None,
+        transform: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> JsonEnvelope:
+        started_at = perf_counter()
+        applied_params = {key: value for key, value in (params or {}).items() if value is not None}
         try:
-            return _relay(tool_name, fetcher())
+            response = dict(fetcher())
         except BoardApiTransportError as exc:
             return _relay_error(
                 tool_name,
@@ -459,7 +463,77 @@ def create_mcp_server(
                     "code": error_code,
                     "message": str(exc),
                 },
+                meta=_timed_meta(
+                    tool_name,
+                    started_at,
+                    meta={"applied_params": applied_params} if applied_params else None,
+                ),
             )
+        if transform is not None:
+            response = transform(response)
+        response["meta"] = _timed_meta(tool_name, started_at, meta=dict(response.get("meta") or {}))
+        if applied_params:
+            response["meta"].setdefault("applied_params", applied_params)
+        return _relay(tool_name, response)
+
+    def _with_data_meta(
+        response: dict[str, Any],
+        **fields: Any,
+    ) -> dict[str, Any]:
+        if not response.get("ok") or not isinstance(response.get("data"), dict):
+            return response
+        data = dict(response["data"])
+        meta = dict(data.get("meta") or {})
+        meta.setdefault("schema_version", CONNECTOR_SCHEMA_VERSION)
+        for key, value in fields.items():
+            if value is not None:
+                meta[key] = value
+        data["meta"] = meta
+        data.setdefault("schema_version", CONNECTOR_SCHEMA_VERSION)
+        return {**response, "data": data}
+
+    def _with_cards_list_meta(
+        response: dict[str, Any],
+        *,
+        include_archived: bool,
+        compact: bool,
+        response_mode: str,
+    ) -> dict[str, Any]:
+        if not response.get("ok") or not isinstance(response.get("data"), dict):
+            return response
+        data = dict(response["data"])
+        cards = data.get("cards") if isinstance(data.get("cards"), list) else []
+        return _with_data_meta(
+            {**response, "data": data},
+            response_mode=response_mode,
+            view_mode="compact" if compact else "full",
+            include_archived=include_archived,
+            compact=compact,
+            returned=len(cards),
+            has_more=bool((data.get("meta") or {}).get("has_more", False)),
+        )
+
+    def _with_text_section_meta(
+        response: dict[str, Any],
+        *,
+        response_mode: str,
+        view_mode: str,
+        text_key: str = "text",
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not response.get("ok") or not isinstance(response.get("data"), dict):
+            return response
+        data = dict(response["data"])
+        payload = {
+            "response_mode": response_mode,
+            "view_mode": view_mode,
+        }
+        if text_key in data:
+            payload["text_encoding"] = "utf-8"
+            payload["text_present"] = bool(str(data.get(text_key) or "").strip())
+        if extra:
+            payload.update({key: value for key, value in extra.items() if value is not None})
+        return _with_data_meta({**response, "data": data}, **payload)
 
     def _identity_text() -> str:
         return (
@@ -788,7 +862,7 @@ def create_mcp_server(
                     "message: pong\n"
                 ),
             },
-            meta=_timed_meta("ping_connector", started_at),
+            meta=_timed_meta("ping_connector", started_at, meta={"response_mode": "ping"}),
         )
 
     @server.tool(
@@ -814,7 +888,14 @@ def create_mcp_server(
                     "identity": dict(connector_identity),
                     "preferred_bootstrap_tools": list(preferred_bootstrap_tools),
                 },
-                meta=_timed_meta("bootstrap_context", started_at),
+                meta=_timed_meta(
+                    "bootstrap_context",
+                    started_at,
+                    meta={
+                        "applied_params": {"include_archived": include_archived, "event_limit": event_limit},
+                        "response_mode": "summary_bootstrap",
+                    },
+                ),
             )
 
         board_context_payload = None
@@ -860,7 +941,14 @@ def create_mcp_server(
                 ],
                 "text": bootstrap_text,
             },
-            meta=_timed_meta("bootstrap_context", started_at),
+            meta=_timed_meta(
+                "bootstrap_context",
+                started_at,
+                meta={
+                    "applied_params": {"include_archived": include_archived, "event_limit": event_limit},
+                    "response_mode": "summary_bootstrap",
+                },
+            ),
         )
 
     @server.tool(
@@ -886,7 +974,7 @@ def create_mcp_server(
                 "full_board_context_tool": "get_board_context",
                 "text": _runtime_status_text(runtime_status),
             },
-            meta=_timed_meta("get_runtime_status", started_at),
+            meta=_timed_meta("get_runtime_status", started_at, meta={"response_mode": "diagnostics"}),
         )
 
     @server.tool(
@@ -898,7 +986,11 @@ def create_mcp_server(
         structured_output=True,
     )
     def agent_status(run_limit: int = 10) -> JsonEnvelope:
-        return _relay_board_call("agent_status", lambda: board_api.agent_status(run_limit=run_limit))
+        return _relay_board_call(
+            "agent_status",
+            lambda: board_api.agent_status(run_limit=run_limit),
+            params={"run_limit": run_limit},
+        )
 
     @server.tool(
         name="agent_runs",
@@ -907,7 +999,7 @@ def create_mcp_server(
         structured_output=True,
     )
     def agent_runs(limit: int = 20) -> JsonEnvelope:
-        return _relay_board_call("agent_runs", lambda: board_api.agent_runs(limit=limit))
+        return _relay_board_call("agent_runs", lambda: board_api.agent_runs(limit=limit), params={"limit": limit})
 
     @server.tool(
         name="agent_actions",
@@ -921,6 +1013,7 @@ def create_mcp_server(
         return _relay_board_call(
             "agent_actions",
             lambda: board_api.agent_actions(limit=limit, run_id=run_id, task_id=task_id),
+            params={"limit": limit, "run_id": run_id, "task_id": task_id},
         )
 
     @server.tool(
@@ -932,7 +1025,11 @@ def create_mcp_server(
         structured_output=True,
     )
     def agent_tasks(limit: int = 50, status: str | None = None) -> JsonEnvelope:
-        return _relay_board_call("agent_tasks", lambda: board_api.agent_tasks(limit=limit, status=status))
+        return _relay_board_call(
+            "agent_tasks",
+            lambda: board_api.agent_tasks(limit=limit, status=status),
+            params={"limit": limit, "status": status},
+        )
 
     @server.tool(
         name="agent_scheduled_tasks",
@@ -1168,6 +1265,13 @@ def create_mcp_server(
         return _relay_board_call(
             "get_cards",
             lambda: board_api.get_cards(include_archived=include_archived, compact=compact),
+            params={"include_archived": include_archived, "compact": compact},
+            transform=lambda response: _with_cards_list_meta(
+                response,
+                include_archived=include_archived,
+                compact=compact,
+                response_mode="list",
+            ),
         )
 
     @server.tool(
@@ -1184,7 +1288,8 @@ def create_mcp_server(
     @server.tool(
         name="get_card_context",
         description=_scoped_description(
-            "Return the focused operational context of one card from the current Minimal Kanban board: card data, recent card events, attachment summaries, board context, and repair-order text when available."
+            "Return the focused operational context of one card from the current Minimal Kanban board: card data, recent card events, attachment summaries, board context, and repair-order text when available. "
+            "Use view_mode=agent for the default GPT workflow and view_mode=full when a human-style full read is needed."
         ),
         annotations=_read_tool_annotations("Card Context"),
         structured_output=True,
@@ -1193,6 +1298,7 @@ def create_mcp_server(
         card_id: str,
         event_limit: int = 20,
         include_repair_order_text: bool = True,
+        view_mode: Literal["agent", "full"] = "agent",
     ) -> JsonEnvelope:
         return _relay_board_call(
             "get_card_context",
@@ -1201,21 +1307,58 @@ def create_mcp_server(
                 event_limit=event_limit,
                 include_repair_order_text=include_repair_order_text,
             ),
+            params={
+                "card_id": card_id,
+                "event_limit": event_limit,
+                "include_repair_order_text": include_repair_order_text,
+                "view_mode": view_mode,
+            },
+            transform=lambda response: _with_text_section_meta(
+                response,
+                response_mode="agent_context" if view_mode == "agent" else "full",
+                view_mode=view_mode,
+                extra={
+                    "event_limit": event_limit,
+                    "include_repair_order_text": include_repair_order_text,
+                },
+            ),
         )
 
     @server.tool(
         name="get_board_snapshot",
         description=_scoped_description(
             "Return a structured snapshot of the current Minimal Kanban board: columns, active cards, archived tail, stickies, and settings. "
-            "Cards in the snapshot include vehicle_profile_compact for the 1.1 vehicle card view."
+            "Cards in the snapshot include vehicle_profile_compact for the 1.1 vehicle card view. "
+            "Use compact=true for lighter GPT scans and include_archive=false when the archived tail is not needed."
         ),
         annotations=_read_tool_annotations("Board Snapshot"),
         structured_output=True,
     )
-    def get_board_snapshot(archive_limit: int = 10) -> JsonEnvelope:
+    def get_board_snapshot(
+        archive_limit: int = 10,
+        compact: bool = False,
+        include_archive: bool = True,
+    ) -> JsonEnvelope:
         return _relay_board_call(
             "get_board_snapshot",
-            lambda: board_api.get_board_snapshot(archive_limit=archive_limit),
+            lambda: board_api.get_board_snapshot(
+                archive_limit=archive_limit,
+                compact=compact,
+                include_archive=include_archive,
+            ),
+            params={
+                "archive_limit": archive_limit,
+                "compact": compact,
+                "include_archive": include_archive,
+            },
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="snapshot",
+                view_mode="compact" if compact else "full",
+                archive_limit=archive_limit,
+                include_archive=include_archive,
+                compact=compact,
+            ),
         )
 
     @server.tool(
@@ -1227,7 +1370,20 @@ def create_mcp_server(
         structured_output=True,
     )
     def get_board_context() -> JsonEnvelope:
-        return _relay_board_call("get_board_context", board_api.get_board_context)
+        return _relay_board_call(
+            "get_board_context",
+            board_api.get_board_context,
+            transform=lambda response: _with_text_section_meta(
+                response,
+                response_mode="summary",
+                view_mode="summary",
+                extra={
+                    "full_snapshot_tool": "get_board_snapshot",
+                    "content_tool": "get_board_content",
+                    "events_tool": "get_board_events",
+                },
+            ),
+        )
 
     @server.tool(
         name="review_board",
@@ -1267,6 +1423,12 @@ def create_mcp_server(
             "list_cashboxes",
             lambda: board_api.list_cashboxes(limit=limit),
             error_code="cashboxes_unreachable",
+            params={"limit": limit},
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="list",
+                view_mode="compact",
+            ),
         )
 
     @server.tool(
@@ -1356,64 +1518,140 @@ def create_mcp_server(
     @server.tool(
         name="get_board_content",
         description=_scoped_description(
-            "Return the current textual board content for the current Minimal Kanban board only: card content, optional archived card content, sticky notes, and board context, without the event journal."
+            "Return the current textual board content for the current Minimal Kanban board only: card content, optional archived card content, sticky notes, and board context, without the event journal. "
+            "Use view_mode=agent for a lighter GPT-oriented read and view_mode=full for a broader export-style dump."
         ),
         annotations=_read_tool_annotations("Board Content"),
         structured_output=True,
     )
-    def get_board_content(include_archived: bool = True) -> JsonEnvelope:
+    def get_board_content(
+        include_archived: bool = True,
+        view_mode: Literal["agent", "full"] = "agent",
+    ) -> JsonEnvelope:
+        wall_event_limit = 20 if view_mode == "agent" else 100
         return _relay_board_call(
             "get_board_content",
             lambda: _extract_gpt_wall_section_response(
-                board_api.get_gpt_wall(include_archived=include_archived, event_limit=100),
+                board_api.get_gpt_wall(include_archived=include_archived, event_limit=wall_event_limit),
                 section_key="board_content",
             ),
             error_code="board_content_unreachable",
+            params={
+                "include_archived": include_archived,
+                "view_mode": view_mode,
+                "event_limit": wall_event_limit,
+            },
+            transform=lambda response: _with_text_section_meta(
+                response,
+                response_mode="agent_context" if view_mode == "agent" else "export",
+                view_mode=view_mode,
+                extra={
+                    "include_archived": include_archived,
+                    "section_kind": "board_content",
+                },
+            ),
         )
 
     @server.tool(
         name="get_board_events",
         description=_scoped_description(
-            "Return the chronological event journal of the current Minimal Kanban board only: what happened, when, by whom, and which card it affected when available."
+            "Return the chronological event journal of the current Minimal Kanban board only: what happened, when, by whom, and which card it affected when available. "
+            "Use include_archived to control whether archived-card events stay in the journal slice."
         ),
         annotations=_read_tool_annotations("Board Events"),
         structured_output=True,
     )
-    def get_board_events(event_limit: int = 100) -> JsonEnvelope:
+    def get_board_events(
+        event_limit: int = 100,
+        include_archived: bool = True,
+        view_mode: Literal["audit", "full"] = "audit",
+    ) -> JsonEnvelope:
         return _relay_board_call(
             "get_board_events",
             lambda: _extract_gpt_wall_section_response(
-                board_api.get_gpt_wall(include_archived=True, event_limit=event_limit),
+                board_api.get_gpt_wall(include_archived=include_archived, event_limit=event_limit),
                 section_key="event_log",
             ),
             error_code="board_events_unreachable",
+            params={
+                "event_limit": event_limit,
+                "include_archived": include_archived,
+                "view_mode": view_mode,
+            },
+            transform=lambda response: _with_text_section_meta(
+                response,
+                response_mode="audit",
+                view_mode=view_mode,
+                extra={
+                    "event_limit": event_limit,
+                    "include_archived": include_archived,
+                    "section_kind": "event_log",
+                    "event_order": "newest_first",
+                },
+            ),
         )
 
     @server.tool(
         name="get_gpt_wall",
         description=_scoped_description(
-            "Return the hidden GPT wall for the current Minimal Kanban board: full card text, structured board state, recent events, compact 1.1 vehicle profile summaries for each card, and separated board_content / event_log sections."
+            "Return the hidden GPT wall for the current Minimal Kanban board: full card text, structured board state, recent events, compact 1.1 vehicle profile summaries for each card, and separated board_content / event_log sections. "
+            "Use view_mode=agent for the normal GPT context flow and view_mode=full for wide diagnostics or exports."
         ),
         annotations=_read_tool_annotations("GPT Wall"),
         structured_output=True,
     )
-    def get_gpt_wall(include_archived: bool = True, event_limit: int = 100) -> JsonEnvelope:
+    def get_gpt_wall(
+        include_archived: bool = True,
+        event_limit: int = 100,
+        view_mode: Literal["agent", "full"] = "agent",
+    ) -> JsonEnvelope:
         return _relay_board_call(
             "get_gpt_wall",
             lambda: _enrich_gpt_wall_response(
                 board_api.get_gpt_wall(include_archived=include_archived, event_limit=event_limit)
             ),
             error_code="gpt_wall_unreachable",
+            params={
+                "include_archived": include_archived,
+                "event_limit": event_limit,
+                "view_mode": view_mode,
+            },
+            transform=lambda response: _with_text_section_meta(
+                response,
+                response_mode="agent_context" if view_mode == "agent" else "full",
+                view_mode=view_mode,
+                extra={
+                    "include_archived": include_archived,
+                    "event_limit": event_limit,
+                    "section_kind": "gpt_wall",
+                },
+            ),
         )
 
     @server.tool(
         name="get_card_log",
-        description=_scoped_description("Return the audit log of one card from the current Minimal Kanban board."),
+        description=_scoped_description(
+            "Return the audit log of one card from the current Minimal Kanban board. Use limit to keep the journal slice compact for GPT."
+        ),
         annotations=_read_tool_annotations("Card Log"),
         structured_output=True,
     )
-    def get_card_log(card_id: str) -> JsonEnvelope:
-        return _relay_board_call("get_card_log", lambda: board_api.get_card_log(card_id))
+    def get_card_log(
+        card_id: str,
+        limit: int | None = None,
+        view_mode: Literal["audit", "full"] = "audit",
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "get_card_log",
+            lambda: board_api.get_card_log(card_id, limit=limit),
+            params={"card_id": card_id, "limit": limit, "view_mode": view_mode},
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="audit",
+                view_mode=view_mode,
+                text_encoding="utf-8",
+            ),
+        )
 
     @server.tool(
         name="list_repair_orders",
@@ -1438,6 +1676,18 @@ def create_mcp_server(
                 query=query,
                 sort_by=sort_by,
                 sort_dir=sort_dir,
+            ),
+            params={
+                "limit": limit,
+                "status": status,
+                "query": query,
+                "sort_by": sort_by,
+                "sort_dir": sort_dir,
+            },
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="list",
+                view_mode="compact",
             ),
         )
 
@@ -1472,10 +1722,17 @@ def create_mcp_server(
         annotations=_read_tool_annotations("Archived Cards"),
         structured_output=True,
     )
-    def list_archived_cards(limit: int = 10) -> JsonEnvelope:
+    def list_archived_cards(limit: int = 10, compact: bool = False) -> JsonEnvelope:
         return _relay_board_call(
             "list_archived_cards",
-            lambda: board_api.list_archived_cards(limit=limit),
+            lambda: board_api.list_archived_cards(limit=limit, compact=compact),
+            params={"limit": limit, "compact": compact},
+            transform=lambda response: _with_cards_list_meta(
+                response,
+                include_archived=True,
+                compact=compact,
+                response_mode="archive_list",
+            ),
         )
 
     @server.tool(
@@ -1505,6 +1762,20 @@ def create_mcp_server(
                 indicator=indicator,
                 status=status,
                 limit=limit,
+            ),
+            params={
+                "query": query,
+                "include_archived": include_archived,
+                "column": column,
+                "tag": tag,
+                "indicator": indicator,
+                "status": status,
+                "limit": limit,
+            },
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="search",
+                view_mode="compact",
             ),
         )
 

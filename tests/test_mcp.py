@@ -240,6 +240,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("request_id", ping.structuredContent["meta"])
                 self.assertIn("timestamp", ping.structuredContent["meta"])
                 self.assertIn("latency_ms", ping.structuredContent["meta"])
+                self.assertEqual(ping.structuredContent["meta"]["response_mode"], "ping")
                 self.assertEqual(ping.structuredContent["meta"]["canonical_tool_path"], "/AutoStopCRM/ping_connector")
 
                 bootstrap = await session.call_tool("bootstrap_context", {"include_archived": True, "event_limit": 20})
@@ -262,6 +263,11 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertIn("request_id", bootstrap.structuredContent["meta"])
                 self.assertIn("latency_ms", bootstrap.structuredContent["meta"])
+                self.assertEqual(bootstrap.structuredContent["meta"]["response_mode"], "summary_bootstrap")
+                self.assertEqual(
+                    bootstrap.structuredContent["meta"]["applied_params"],
+                    {"include_archived": True, "event_limit": 20},
+                )
 
                 identity = await session.call_tool("get_connector_identity", {})
                 self.assertFalse(identity.isError)
@@ -281,6 +287,8 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     "Current AutoStop CRM Board",
                 )
                 self.assertIn("[BOARD CONTEXT]", board_context.structuredContent["data"]["text"])
+                self.assertEqual(board_context.structuredContent["data"]["meta"]["response_mode"], "summary")
+                self.assertEqual(board_context.structuredContent["data"]["meta"]["view_mode"], "summary")
 
                 review = await session.call_tool("review_board", {})
                 self.assertFalse(review.isError)
@@ -291,6 +299,12 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("priority_cards", review.structuredContent["data"])
                 self.assertIn("recent_events", review.structuredContent["data"])
                 self.assertIn("[BOARD REVIEW]", review.structuredContent["data"]["text"])
+
+                cards = await session.call_tool("get_cards", {"include_archived": False, "compact": True})
+                self.assertTrue(cards.structuredContent["ok"])
+                self.assertTrue(cards.structuredContent["data"]["meta"]["compact"])
+                self.assertEqual(cards.structuredContent["data"]["meta"]["response_mode"], "list")
+                self.assertEqual(cards.structuredContent["data"]["meta"]["view_mode"], "compact")
 
                 created_cashbox = await session.call_tool("create_cashbox", {"name": "Наличный", "actor_name": "ОПЕРАТОР"})
                 self.assertFalse(created_cashbox.isError)
@@ -315,6 +329,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(cashboxes.isError)
                 self.assertTrue(cashboxes.structuredContent["ok"])
                 self.assertTrue(any(item["id"] == cashbox["id"] for item in cashboxes.structuredContent["data"]["cashboxes"]))
+                self.assertEqual(cashboxes.structuredContent["data"]["meta"]["response_mode"], "list")
 
                 cashbox_details = await session.call_tool("get_cashbox", {"cashbox_id": cashbox["short_id"], "transaction_limit": 20})
                 self.assertFalse(cashbox_details.isError)
@@ -338,6 +353,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     runtime_status.structuredContent["data"]["full_board_context_tool"],
                     "get_board_context",
                 )
+                self.assertEqual(runtime_status.structuredContent["meta"]["response_mode"], "diagnostics")
                 self.assertIn("[RUNTIME STATUS]", runtime_status.structuredContent["data"]["text"])
                 self.assertIn("request_id", runtime_status.structuredContent["meta"])
                 self.assertIn("latency_ms", runtime_status.structuredContent["meta"])
@@ -679,15 +695,17 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(updated_settings.structuredContent["ok"])
                 self.assertEqual(updated_settings.structuredContent["data"]["settings"]["board_scale"], 1.25)
 
-                snapshot = await session.call_tool("get_board_snapshot", {"archive_limit": 5})
+                snapshot = await session.call_tool("get_board_snapshot", {"archive_limit": 5, "compact": True})
                 self.assertTrue(snapshot.structuredContent["ok"])
                 self.assertTrue(any(item["id"] == card_id for item in snapshot.structuredContent["data"]["cards"]))
                 snapshot_card = next(item for item in snapshot.structuredContent["data"]["cards"] if item["id"] == card_id)
                 self.assertIn("vehicle_profile_compact", snapshot_card)
                 self.assertTrue(any(item["id"] == sticky_id for item in snapshot.structuredContent["data"]["stickies"]))
                 self.assertEqual(snapshot.structuredContent["data"]["settings"]["board_scale"], 1.25)
+                self.assertEqual(snapshot.structuredContent["data"]["meta"]["response_mode"], "snapshot")
+                self.assertTrue(snapshot.structuredContent["data"]["meta"]["compact"])
 
-                wall = await session.call_tool("get_gpt_wall", {"include_archived": True, "event_limit": 50})
+                wall = await session.call_tool("get_gpt_wall", {"include_archived": True, "event_limit": 50, "view_mode": "agent"})
                 self.assertTrue(wall.structuredContent["ok"])
                 self.assertIn(card_short_id, wall.structuredContent["data"]["text"])
                 self.assertTrue(any(item["id"] == card_id for item in wall.structuredContent["data"]["cards"]))
@@ -703,19 +721,27 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(any(item["id"] == sticky_id for item in wall.structuredContent["data"]["stickies"]))
                 self.assertIn(card_short_id, wall.structuredContent["data"]["sections"]["board_content"]["text"])
                 self.assertTrue(any(item["card_id"] == card_id for item in wall.structuredContent["data"]["sections"]["event_log"]["events"]))
+                self.assertEqual(wall.structuredContent["data"]["meta"]["response_mode"], "agent_context")
+                self.assertEqual(wall.structuredContent["data"]["meta"]["view_mode"], "agent")
+                self.assertTrue(wall.structuredContent["data"]["meta"]["text_present"])
 
-                board_content = await session.call_tool("get_board_content", {"include_archived": True})
+                board_content = await session.call_tool("get_board_content", {"include_archived": True, "view_mode": "agent"})
                 self.assertTrue(board_content.structuredContent["ok"])
                 self.assertIn(card_short_id, board_content.structuredContent["data"]["text"])
                 self.assertTrue(any(item["id"] == card_id for item in board_content.structuredContent["data"]["cards"]))
                 self.assertIn("board_context", board_content.structuredContent["data"])
                 self.assertIn("connector_identity", board_content.structuredContent["data"])
+                self.assertEqual(board_content.structuredContent["data"]["meta"]["response_mode"], "agent_context")
+                self.assertEqual(board_content.structuredContent["data"]["meta"]["section_kind"], "board_content")
 
-                board_events = await session.call_tool("get_board_events", {"event_limit": 50})
+                board_events = await session.call_tool("get_board_events", {"event_limit": 50, "include_archived": True})
                 self.assertTrue(board_events.structuredContent["ok"])
                 self.assertTrue(any(item["card_id"] == card_id for item in board_events.structuredContent["data"]["events"]))
                 self.assertIn(card_short_id, board_events.structuredContent["data"]["text"])
                 self.assertIn("connector_identity", board_events.structuredContent["data"])
+                self.assertEqual(board_events.structuredContent["data"]["meta"]["response_mode"], "audit")
+                self.assertEqual(board_events.structuredContent["data"]["meta"]["section_kind"], "event_log")
+                self.assertEqual(board_events.structuredContent["data"]["meta"]["event_order"], "newest_first")
 
                 search = await session.call_tool(
                     "search_cards",
@@ -723,6 +749,8 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertTrue(search.structuredContent["ok"])
                 self.assertEqual(search.structuredContent["data"]["meta"]["total_matches"], 1)
+                self.assertFalse(search.structuredContent["data"]["meta"]["has_more"])
+                self.assertEqual(search.structuredContent["data"]["meta"]["response_mode"], "search")
                 self.assertEqual(search.structuredContent["data"]["cards"][0]["id"], card_id)
 
                 moved = await session.call_tool(
@@ -784,9 +812,11 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(red.structuredContent["ok"])
                 self.assertEqual(red.structuredContent["data"]["card"]["status"], "expired")
 
-                log = await session.call_tool("get_card_log", {"card_id": card_id})
+                log = await session.call_tool("get_card_log", {"card_id": card_id, "limit": 2})
                 self.assertTrue(log.structuredContent["ok"])
                 self.assertEqual(log.structuredContent["data"]["events"][0]["source"], "mcp")
+                self.assertEqual(log.structuredContent["data"]["meta"]["limit"], 2)
+                self.assertEqual(log.structuredContent["data"]["meta"]["response_mode"], "audit")
 
                 overdue = await session.call_tool("list_overdue_cards", {})
                 self.assertTrue(overdue.structuredContent["ok"])
@@ -796,9 +826,11 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(archived.structuredContent["ok"])
                 self.assertTrue(archived.structuredContent["data"]["card"]["archived"])
 
-                archived_list = await session.call_tool("list_archived_cards", {"limit": 10})
+                archived_list = await session.call_tool("list_archived_cards", {"limit": 10, "compact": True})
                 self.assertTrue(archived_list.structuredContent["ok"])
                 self.assertTrue(any(item["id"] == card_id for item in archived_list.structuredContent["data"]["cards"]))
+                self.assertEqual(archived_list.structuredContent["data"]["meta"]["response_mode"], "archive_list")
+                self.assertTrue(archived_list.structuredContent["data"]["meta"]["compact"])
 
                 restored = await session.call_tool(
                     "restore_card",
@@ -826,6 +858,8 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
 
                 compact_cards = await session.call_tool("get_cards", {})
                 self.assertFalse(compact_cards.isError)
+                self.assertTrue(compact_cards.structuredContent["data"]["meta"]["compact"])
+                self.assertEqual(compact_cards.structuredContent["data"]["meta"]["view_mode"], "compact")
                 compact_card = next(card for card in compact_cards.structuredContent["data"]["cards"] if card["id"] == card_id)
                 self.assertNotIn("repair_order", compact_card)
                 self.assertNotIn("vehicle_profile", compact_card)
@@ -834,6 +868,8 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
 
                 full_cards = await session.call_tool("get_cards", {"compact": False})
                 self.assertFalse(full_cards.isError)
+                self.assertFalse(full_cards.structuredContent["data"]["meta"]["compact"])
+                self.assertEqual(full_cards.structuredContent["data"]["meta"]["view_mode"], "full")
                 full_card = next(card for card in full_cards.structuredContent["data"]["cards"] if card["id"] == card_id)
                 self.assertIn("repair_order", full_card)
                 self.assertIn("vehicle_profile", full_card)
