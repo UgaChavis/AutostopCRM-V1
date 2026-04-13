@@ -5,13 +5,15 @@ import binascii
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
+from io import BytesIO
 import json
-from pathlib import Path
+from pathlib import Path, PurePath
 import re
 import shutil
 import threading
 import time
 import uuid
+import zipfile
 from logging import Logger
 from typing import Any
 
@@ -240,6 +242,121 @@ _MOJIBAKE_HINT_CHARS = frozenset("РСЃЌљњўќџ °±²ієїґ†‡‰‹
 GPT_WALL_TEXT_LINE_LIMIT = 3000
 REPAIR_ORDER_SORT_FIELDS = {"number", "opened_at", "closed_at"}
 REPAIR_ORDER_SORT_DIRECTIONS = {"asc", "desc"}
+_ALLOWED_ATTACHMENT_EXTENSIONS = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".gif",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".txt",
+    ".pdf",
+)
+_ALLOWED_ATTACHMENT_TYPES_LABEL = "PNG, JPG, JPEG, WEBP, GIF, DOC, DOCX, XLS, XLSX, TXT, PDF"
+_ATTACHMENT_GENERIC_MIME_TYPES = frozenset({"", "application/octet-stream"})
+_ATTACHMENT_DANGEROUS_INTERMEDIATE_EXTENSIONS = frozenset(
+    {
+        ".bat",
+        ".cmd",
+        ".com",
+        ".dll",
+        ".exe",
+        ".js",
+        ".jse",
+        ".msi",
+        ".ps1",
+        ".scr",
+        ".sh",
+        ".vbs",
+    }
+)
+_ATTACHMENT_TYPE_SPECS: dict[str, dict[str, Any]] = {
+    "png": {
+        "extensions": {".png"},
+        "canonical_extension": ".png",
+        "canonical_mime": "image/png",
+        "mime_types": {"image/png"},
+    },
+    "jpeg": {
+        "extensions": {".jpg", ".jpeg"},
+        "canonical_extension": ".jpg",
+        "canonical_mime": "image/jpeg",
+        "mime_types": {"image/jpeg", "image/jpg", "image/pjpeg"},
+    },
+    "webp": {
+        "extensions": {".webp"},
+        "canonical_extension": ".webp",
+        "canonical_mime": "image/webp",
+        "mime_types": {"image/webp"},
+    },
+    "gif": {
+        "extensions": {".gif"},
+        "canonical_extension": ".gif",
+        "canonical_mime": "image/gif",
+        "mime_types": {"image/gif"},
+    },
+    "doc": {
+        "extensions": {".doc"},
+        "canonical_extension": ".doc",
+        "canonical_mime": "application/msword",
+        "mime_types": {
+            "application/doc",
+            "application/msword",
+            "application/vnd.ms-word",
+            "application/x-ole-storage",
+        },
+    },
+    "docx": {
+        "extensions": {".docx"},
+        "canonical_extension": ".docx",
+        "canonical_mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "mime_types": {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/zip",
+        },
+    },
+    "xls": {
+        "extensions": {".xls"},
+        "canonical_extension": ".xls",
+        "canonical_mime": "application/vnd.ms-excel",
+        "mime_types": {
+            "application/msexcel",
+            "application/vnd.ms-excel",
+            "application/x-msexcel",
+            "application/x-ole-storage",
+        },
+    },
+    "xlsx": {
+        "extensions": {".xlsx"},
+        "canonical_extension": ".xlsx",
+        "canonical_mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "mime_types": {
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/zip",
+        },
+    },
+    "txt": {
+        "extensions": {".txt"},
+        "canonical_extension": ".txt",
+        "canonical_mime": "text/plain",
+        "mime_types": {"text/plain"},
+    },
+    "pdf": {
+        "extensions": {".pdf"},
+        "canonical_extension": ".pdf",
+        "canonical_mime": "application/pdf",
+        "mime_types": {"application/pdf", "application/x-pdf"},
+    },
+}
+_ATTACHMENT_EXTENSION_TO_TYPE = {
+    extension: type_name
+    for type_name, spec in _ATTACHMENT_TYPE_SPECS.items()
+    for extension in spec["extensions"]
+}
+_OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
 
 class ServiceError(Exception):
@@ -2228,12 +2345,14 @@ class CardService:
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_not_archived(card)
             actor_name, source = self._audit_identity(payload, default_source="api")
-            file_name = self._validated_attachment_name(payload.get("file_name"))
-            mime_type = normalize_text(payload.get("mime_type"), default="application/octet-stream", limit=120)
             file_bytes = self._validated_attachment_content(payload.get("content_base64"))
+            file_name, mime_type, stored_extension = self._validated_attachment_upload(
+                payload.get("file_name"),
+                payload.get("mime_type"),
+                file_bytes,
+            )
             attachment_id = str(uuid.uuid4())
-            suffix = Path(file_name).suffix[:16]
-            stored_name = f"{attachment_id}{suffix}"
+            stored_name = f"{attachment_id}{stored_extension}"
             self._write_attachment_file(card.id, stored_name, file_bytes)
             attachment = Attachment(
                 id=attachment_id,
@@ -2324,6 +2443,9 @@ class CardService:
                     details={"attachment_id": attachment.id},
                 )
             attachment_path = self._require_attachment_file(card.id, attachment)
+            attachment_path, repaired = self._repair_attachment_metadata(card.id, attachment, attachment_path)
+            if repaired:
+                self._save_bundle(bundle, columns=bundle["columns"], cards=bundle["cards"], events=bundle["events"])
             return attachment_path, attachment
 
     def get_onboarding_seen(self) -> bool:
@@ -5751,6 +5873,246 @@ class CardService:
                 details={"field": "file_name"},
             )
         return file_name
+
+    def _validated_attachment_upload(self, file_name_value, mime_type_value, content: bytes) -> tuple[str, str, str]:
+        detected_type = self._detect_attachment_type(content)
+        if not detected_type:
+            self._fail(
+                "validation_error",
+                f"Разрешены только {_ALLOWED_ATTACHMENT_TYPES_LABEL}. Файл повреждён или его формат не распознан.",
+                details={
+                    "field": "content_base64",
+                    "allowed_extensions": list(_ALLOWED_ATTACHMENT_EXTENSIONS),
+                },
+            )
+        spec = _ATTACHMENT_TYPE_SPECS[detected_type]
+        file_name = normalize_file_name(file_name_value)
+        if file_name:
+            self._ensure_safe_attachment_name(file_name)
+            requested_extension = self._attachment_extension(file_name)
+            if not requested_extension:
+                requested_extension = spec["canonical_extension"]
+                file_name = self._attachment_name_with_extension(file_name, requested_extension)
+            elif requested_extension not in _ATTACHMENT_EXTENSION_TO_TYPE:
+                if requested_extension in _ATTACHMENT_DANGEROUS_INTERMEDIATE_EXTENSIONS:
+                    self._fail(
+                        "validation_error",
+                        f"Разрешены только {_ALLOWED_ATTACHMENT_TYPES_LABEL}.",
+                        details={
+                            "field": "file_name",
+                            "file_name": file_name,
+                            "allowed_extensions": list(_ALLOWED_ATTACHMENT_EXTENSIONS),
+                        },
+                    )
+                requested_extension = spec["canonical_extension"]
+                file_name = self._append_attachment_extension(file_name, requested_extension)
+            elif _ATTACHMENT_EXTENSION_TO_TYPE[requested_extension] != detected_type:
+                self._fail(
+                    "validation_error",
+                    "Расширение файла не соответствует его содержимому.",
+                    details={
+                        "field": "file_name",
+                        "file_name": file_name,
+                        "expected_extensions": sorted(spec["extensions"]),
+                    },
+                )
+        else:
+            requested_extension = spec["canonical_extension"]
+            file_name = self._generated_attachment_name(requested_extension)
+
+        normalized_mime_type = self._normalized_attachment_mime_type(mime_type_value)
+        if normalized_mime_type not in _ATTACHMENT_GENERIC_MIME_TYPES and normalized_mime_type not in spec["mime_types"]:
+            self._fail(
+                "validation_error",
+                "MIME-тип файла не соответствует его расширению и содержимому.",
+                details={
+                    "field": "mime_type",
+                    "file_name": file_name,
+                    "mime_type": normalized_mime_type,
+                    "expected_mime_types": sorted(spec["mime_types"]),
+                },
+            )
+        file_name = self._attachment_name_with_extension(file_name, requested_extension)
+        return file_name, spec["canonical_mime"], requested_extension
+
+    def _repair_attachment_metadata(self, card_id: str, attachment: Attachment, attachment_path: Path) -> tuple[Path, bool]:
+        content = attachment_path.read_bytes()
+        detected_type = self._detect_attachment_type(content)
+        if not detected_type:
+            self._fail(
+                "validation_error",
+                "Сохранённый файл повреждён или его формат больше не поддерживается.",
+                details={
+                    "attachment_id": attachment.id,
+                    "file_name": attachment.file_name,
+                },
+            )
+        spec = _ATTACHMENT_TYPE_SPECS[detected_type]
+        repaired = False
+
+        normalized_name = normalize_file_name(attachment.file_name)
+        if normalized_name:
+            try:
+                self._ensure_safe_attachment_name(normalized_name)
+            except ServiceError:
+                normalized_name = ""
+        if not normalized_name:
+            normalized_name = self._generated_attachment_name(spec["canonical_extension"])
+        else:
+            current_extension = self._attachment_extension(normalized_name)
+            if current_extension not in spec["extensions"]:
+                if current_extension in _ATTACHMENT_EXTENSION_TO_TYPE or current_extension in _ATTACHMENT_DANGEROUS_INTERMEDIATE_EXTENSIONS:
+                    normalized_name = self._attachment_name_with_extension(
+                        self._attachment_stem(normalized_name) or "attachment",
+                        spec["canonical_extension"],
+                    )
+                else:
+                    normalized_name = self._append_attachment_extension(normalized_name, spec["canonical_extension"])
+        if attachment.file_name != normalized_name:
+            attachment.file_name = normalized_name
+            repaired = True
+
+        if attachment.mime_type != spec["canonical_mime"]:
+            attachment.mime_type = spec["canonical_mime"]
+            repaired = True
+
+        preferred_extension = self._preferred_storage_extension(attachment.file_name, spec)
+        preferred_stored_name = f"{attachment.id}{preferred_extension}"
+        if attachment.stored_name != preferred_stored_name:
+            target_path = self._attachment_path(card_id, preferred_stored_name)
+            if target_path != attachment_path and not target_path.exists():
+                attachment_path.rename(target_path)
+                attachment_path = target_path
+                attachment.stored_name = preferred_stored_name
+                repaired = True
+        return attachment_path, repaired
+
+    def _ensure_safe_attachment_name(self, file_name: str) -> None:
+        suffixes = [suffix.lower() for suffix in PurePath(file_name).suffixes]
+        dangerous_suffixes = [suffix for suffix in suffixes[:-1] if suffix in _ATTACHMENT_DANGEROUS_INTERMEDIATE_EXTENSIONS]
+        if dangerous_suffixes:
+            self._fail(
+                "validation_error",
+                "Имя файла содержит опасное двойное расширение.",
+                details={
+                    "field": "file_name",
+                    "file_name": file_name,
+                    "blocked_extensions": dangerous_suffixes,
+                },
+            )
+
+    def _generated_attachment_name(self, extension: str) -> str:
+        stamp = utc_now().strftime("%Y%m%d-%H%M%S")
+        return f"attachment-{stamp}{extension}"
+
+    def _attachment_extension(self, file_name: str) -> str:
+        return PurePath(str(file_name or "")).suffix.lower()
+
+    def _attachment_stem(self, file_name: str) -> str:
+        normalized_name = normalize_file_name(file_name)
+        if not normalized_name:
+            return ""
+        suffix = PurePath(normalized_name).suffix
+        if not suffix:
+            return normalized_name
+        return normalized_name[: -len(suffix)].rstrip(" .")
+
+    def _attachment_name_with_extension(self, file_name: str, extension: str) -> str:
+        normalized_name = normalize_file_name(file_name)
+        stem = self._attachment_stem(normalized_name) if normalized_name else ""
+        stem = stem or "attachment"
+        return normalize_file_name(f"{stem}{extension}") or f"attachment{extension}"
+
+    def _append_attachment_extension(self, file_name: str, extension: str) -> str:
+        normalized_name = normalize_file_name(file_name)
+        normalized_name = normalized_name or "attachment"
+        return normalize_file_name(f"{normalized_name}{extension}") or f"attachment{extension}"
+
+    def _preferred_storage_extension(self, file_name: str, spec: dict[str, Any]) -> str:
+        extension = self._attachment_extension(file_name)
+        if extension in spec["extensions"]:
+            return extension
+        return spec["canonical_extension"]
+
+    def _normalized_attachment_mime_type(self, value) -> str:
+        mime_type = normalize_text(value, default="", limit=160).lower()
+        if not mime_type:
+            return ""
+        return mime_type.split(";", 1)[0].strip()
+
+    def _detect_attachment_type(self, content: bytes) -> str | None:
+        if content.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "png"
+        if content.startswith(b"\xff\xd8\xff"):
+            return "jpeg"
+        if content.startswith((b"GIF87a", b"GIF89a")):
+            return "gif"
+        if len(content) >= 12 and content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+            return "webp"
+        if content.startswith(b"%PDF-"):
+            return "pdf"
+        if content.startswith(_OLE_MAGIC):
+            return self._detect_ole_attachment_type(content)
+        if content.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
+            return self._detect_openxml_attachment_type(content)
+        if self._looks_like_text_content(content):
+            return "txt"
+        return None
+
+    def _detect_openxml_attachment_type(self, content: bytes) -> str | None:
+        try:
+            with zipfile.ZipFile(BytesIO(content)) as archive:
+                names = set(archive.namelist())
+        except (OSError, zipfile.BadZipFile):
+            return None
+        if "[Content_Types].xml" not in names:
+            return None
+        if any(name.startswith("word/") for name in names):
+            return "docx"
+        if any(name.startswith("xl/") for name in names):
+            return "xlsx"
+        return None
+
+    def _detect_ole_attachment_type(self, content: bytes) -> str | None:
+        if b"WordDocument" in content or b"W\x00o\x00r\x00d\x00D\x00o\x00c\x00u\x00m\x00e\x00n\x00t\x00" in content:
+            return "doc"
+        if (
+            b"Workbook" in content
+            or b"W\x00o\x00r\x00k\x00b\x00o\x00o\x00k\x00" in content
+            or b"Book" in content
+            or b"B\x00o\x00o\x00k\x00" in content
+        ):
+            return "xls"
+        return None
+
+    def _looks_like_text_content(self, content: bytes) -> bool:
+        sample = content[:8192]
+        if not sample:
+            return True
+        if sample.startswith((b"\xff\xfe", b"\xfe\xff")):
+            return self._looks_like_decoded_text(sample, ("utf-16", "utf-16-le", "utf-16-be"))
+        if b"\x00" in sample:
+            return False
+        control_bytes = sum(1 for byte in sample if byte < 32 and byte not in (9, 10, 13))
+        if control_bytes / max(1, len(sample)) > 0.05:
+            return False
+        return self._looks_like_decoded_text(sample, ("utf-8-sig", "utf-8", "cp1251"))
+
+    def _looks_like_decoded_text(self, content: bytes, encodings: tuple[str, ...]) -> bool:
+        for encoding in encodings:
+            try:
+                decoded = content.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+            if self._printable_text_ratio(decoded) >= 0.85:
+                return True
+        return False
+
+    def _printable_text_ratio(self, value: str) -> float:
+        if not value:
+            return 1.0
+        printable_chars = sum(1 for char in value if char.isprintable() or char in "\r\n\t")
+        return printable_chars / len(value)
 
     def _validated_attachment_content(self, value) -> bytes:
         raw_value = normalize_text(value, default="")

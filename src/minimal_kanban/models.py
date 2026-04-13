@@ -44,7 +44,7 @@ TAG_LABEL_LIMIT = 24
 STICKY_TEXT_LIMIT = 1000
 STICKY_DEFAULT_TOTAL_SECONDS = 24 * 3600
 ACTOR_NAME_LIMIT = 40
-ATTACHMENT_FILE_NAME_LIMIT = 120
+ATTACHMENT_FILE_NAME_LIMIT = 240
 CASHBOX_NAME_LIMIT = 80
 CASHTRANSACTION_NOTE_LIMIT = 240
 ARCHIVE_PREVIEW_LIMIT = 30
@@ -292,7 +292,7 @@ def normalize_tags(value) -> list[CardTag]:
 
 
 def normalize_file_name(value) -> str:
-    raw_name = normalize_text(value, limit=ATTACHMENT_FILE_NAME_LIMIT)
+    raw_name = normalize_text(value)
     if not raw_name:
         return ""
     safe_name = PurePath(raw_name).name
@@ -301,6 +301,15 @@ def normalize_file_name(value) -> str:
     safe_name = re.sub(r"\s+", " ", safe_name).strip(" .")
     if not safe_name:
         return ""
+    if len(safe_name) <= ATTACHMENT_FILE_NAME_LIMIT:
+        return safe_name.rstrip(" .")
+    suffix = PurePath(safe_name).suffix
+    if suffix and len(suffix) < ATTACHMENT_FILE_NAME_LIMIT:
+        stem_limit = ATTACHMENT_FILE_NAME_LIMIT - len(suffix)
+        stem = safe_name[: -len(suffix)].rstrip(" .")
+        stem = stem[:stem_limit].rstrip(" .")
+        if stem:
+            return f"{stem}{suffix}".rstrip(" .")
     return safe_name[:ATTACHMENT_FILE_NAME_LIMIT].rstrip(" .")
 
 

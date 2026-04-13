@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import PurePath
+import re
 import threading
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -50,6 +53,22 @@ def _json_response(
 
 def _success_log_level(route: str) -> int:
     return logging.DEBUG if route in QUIET_SUCCESS_ROUTES else logging.INFO
+
+
+def _ascii_download_name(file_name: str, *, fallback: str = "attachment") -> str:
+    suffix = PurePath(str(file_name or "")).suffix
+    stem = str(file_name or "")
+    if suffix:
+        stem = stem[: -len(suffix)]
+    ascii_stem = unicodedata.normalize("NFKD", stem).encode("ascii", "ignore").decode("ascii")
+    ascii_stem = re.sub(r"[^A-Za-z0-9!#$&+.^_`|~-]+", "_", ascii_stem).strip("._") or fallback
+    ascii_suffix = re.sub(r"[^A-Za-z0-9.]+", "", suffix) or ""
+    return f"{ascii_stem}{ascii_suffix}"
+
+
+def _content_disposition_header(file_name: str, *, disposition: str) -> str:
+    fallback_name = _ascii_download_name(file_name)
+    return f'{disposition}; filename="{fallback_name}"; filename*=UTF-8\'\'{quote(file_name, safe="")}'
 
 
 class ApiServer:
@@ -459,9 +478,10 @@ class ApiServer:
                     self.send_header("Content-Length", str(len(body)))
                     self.send_header(
                         "Content-Disposition",
-                        f"attachment; filename*=UTF-8''{quote(attachment.file_name)}",
+                        _content_disposition_header(attachment.file_name, disposition="attachment"),
                     )
                     self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
                     self.end_headers()
                     self.wfile.write(body)
                 except ServiceError as exc:
@@ -483,9 +503,10 @@ class ApiServer:
                     self.send_header("Content-Length", str(len(body)))
                     self.send_header(
                         "Content-Disposition",
-                        f"inline; filename*=UTF-8''{quote(file_name)}",
+                        _content_disposition_header(file_name, disposition="inline"),
                     )
                     self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
                     self.end_headers()
                     self.wfile.write(body)
                 except ServiceError as exc:

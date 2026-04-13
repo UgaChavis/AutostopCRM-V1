@@ -10,7 +10,7 @@ import http.client
 import unittest
 import urllib.error
 import urllib.request
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -18,9 +18,20 @@ from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+TESTS = ROOT / "tests"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+if str(TESTS) not in sys.path:
+    sys.path.insert(0, str(TESTS))
 
+from attachment_samples import (
+    JPEG_1X1_BYTES,
+    PNG_1X1_BYTES,
+    minimal_docx_bytes,
+    minimal_pdf_bytes,
+    minimal_text_bytes,
+    minimal_xlsx_bytes,
+)
 from minimal_kanban.api.server import ApiServer
 from minimal_kanban.api.server import _success_log_level
 from minimal_kanban.models import AuditEvent, utc_now
@@ -2010,6 +2021,84 @@ class ApiServerAuthTests(unittest.TestCase):
         with urllib.request.urlopen(request, timeout=5) as response:
             self.assertEqual(response.status, 200)
             self.assertEqual(response.read(), b"hello")
+
+    def test_attachment_api_roundtrip_preserves_headers_for_required_formats(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"title": "Attachment headers", "deadline": {"hours": 2}},
+            token="secret-token",
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+        samples = [
+            ("фото клиента.png", "image/png", PNG_1X1_BYTES),
+            ("фото клиента.jpg", "image/jpeg", JPEG_1X1_BYTES),
+            ("отчёт клиента.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", minimal_docx_bytes()),
+            ("смета клиента.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", minimal_xlsx_bytes()),
+            ("заметки клиента.txt", "text/plain", minimal_text_bytes()),
+            ("договор.final.pdf", "application/pdf", minimal_pdf_bytes()),
+        ]
+
+        for file_name, mime_type, payload in samples:
+            with self.subTest(file_name=file_name):
+                status, upload = self.request(
+                    "/api/add_card_attachment",
+                    {
+                        "card_id": card_id,
+                        "file_name": file_name,
+                        "mime_type": mime_type,
+                        "content_base64": base64.b64encode(payload).decode("ascii"),
+                    },
+                    token="secret-token",
+                )
+                self.assertEqual(status, 200)
+                attachment_id = upload["data"]["attachment"]["id"]
+
+                request = urllib.request.Request(
+                    f"{self.base_url}/api/attachment?card_id={card_id}&attachment_id={attachment_id}",
+                    headers={"Authorization": "Bearer secret-token"},
+                    method="GET",
+                )
+                with urllib.request.urlopen(request, timeout=5) as response:
+                    header = response.headers["Content-Disposition"]
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(response.read(), payload)
+                    self.assertEqual(response.headers.get_content_type(), mime_type)
+                    self.assertIn('filename="', header)
+                    self.assertIn("filename*=", header)
+                    self.assertIn(quote(file_name, safe=""), header)
+                    self.assertIn("X-Content-Type-Options", response.headers)
+
+    def test_attachment_api_rejects_disallowed_and_mismatched_files(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"title": "Attachment validation", "deadline": {"hours": 2}},
+            token="secret-token",
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+        cases = [
+            ("malware.exe", "application/x-msdownload", b"MZ\x90\x00"),
+            ("script.js", "application/javascript", b"alert(1);"),
+            ("report.exe.pdf", "application/pdf", minimal_pdf_bytes()),
+            ("report.pdf", "application/pdf", b"MZ\x00\x02\x03\x00"),
+        ]
+
+        for file_name, mime_type, payload in cases:
+            with self.subTest(file_name=file_name):
+                status, response = self.request(
+                    "/api/add_card_attachment",
+                    {
+                        "card_id": card_id,
+                        "file_name": file_name,
+                        "mime_type": mime_type,
+                        "content_base64": base64.b64encode(payload).decode("ascii"),
+                    },
+                    token="secret-token",
+                )
+                self.assertEqual(status, 400)
+                self.assertFalse(response["ok"])
+                self.assertEqual(response["error"]["code"], "validation_error")
 
     def test_board_context_route_describes_single_board_scope(self) -> None:
         status, created_column = self.request("/api/create_column", {"label": "КЛИЕНТСКИЙ ЗАЛ"}, token="secret-token")

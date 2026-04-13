@@ -4441,10 +4441,10 @@ BOARD_WEB_APP_HTML = "".join(
       </section>
       <section data-panel="files" class="hidden">
         <div class="subpanel file-zone-panel">
-          <div class="file-dropzone" id="fileDropzone" tabindex="0" contenteditable="plaintext-only" spellcheck="false" data-title="ПЕРЕНЕСИТЕ ИЛИ ВСТАВЬТЕ ФАЙЛ" data-hint="Ctrl+V, правый клик -> Вставить, drag-and-drop или клик для выбора. TXT, PDF, Word, Excel." aria-label="Поле для вставки и переноса файлов"></div>
+          <div class="file-dropzone" id="fileDropzone" tabindex="0" contenteditable="plaintext-only" spellcheck="false" data-title="ПЕРЕНЕСИТЕ ИЛИ ВСТАВЬТЕ ФАЙЛ" data-hint="Ctrl+V, правый клик -> Вставить, drag-and-drop или клик для выбора. PNG, JPG, JPEG, WEBP, GIF, TXT, PDF, Word, Excel." aria-label="Поле для вставки и переноса файлов"></div>
           <div class="file-dropzone__meta" id="fileDropMeta">Сначала сохраните карточку, затем добавляйте вложения.</div>
           <div class="file-upload-legacy" hidden>
-          <input id="fileInput" type="file" multiple hidden accept=".txt,.pdf,.doc,.docx,.xls,.xlsx,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+          <input id="fileInput" type="file" multiple hidden accept=".png,.jpg,.jpeg,.webp,.gif,.txt,.pdf,.doc,.docx,.xls,.xlsx,image/png,image/jpeg,image/webp,image/gif,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
             <button class="btn" id="uploadButton">ЗАГРУЗИТЬ</button>
           </div>
           <div id="fileList"></div>
@@ -8183,6 +8183,50 @@ BOARD_WEB_APP_HTML = "".join(
       addRepairOrderTag();
     }
 
+    const ATTACHMENT_ALLOWED_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.pdf']);
+    const ATTACHMENT_ALLOWED_LABEL = 'PNG, JPG, JPEG, WEBP, GIF, DOC, DOCX, XLS, XLSX, TXT, PDF';
+    const ATTACHMENT_MAX_SIZE_BYTES = 15 * 1024 * 1024;
+    const ATTACHMENT_EXTENSION_TO_MIME = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
+      '.gif': 'image/gif',
+      '.doc': 'application/msword',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.xls': 'application/vnd.ms-excel',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.txt': 'text/plain',
+      '.pdf': 'application/pdf',
+    };
+    const ATTACHMENT_EXTENSION_TO_ALLOWED_MIMES = {
+      '.png': ['image/png'],
+      '.jpg': ['image/jpeg', 'image/jpg', 'image/pjpeg'],
+      '.jpeg': ['image/jpeg', 'image/jpg', 'image/pjpeg'],
+      '.webp': ['image/webp'],
+      '.gif': ['image/gif'],
+      '.doc': ['application/msword'],
+      '.docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip'],
+      '.xls': ['application/vnd.ms-excel'],
+      '.xlsx': ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/zip'],
+      '.txt': ['text/plain'],
+      '.pdf': ['application/pdf'],
+    };
+    const ATTACHMENT_MIME_TO_EXTENSION = {
+      'image/png': '.png',
+      'image/jpeg': '.jpg',
+      'image/jpg': '.jpg',
+      'image/pjpeg': '.jpg',
+      'image/webp': '.webp',
+      'image/gif': '.gif',
+      'application/msword': '.doc',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+      'application/vnd.ms-excel': '.xls',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+      'text/plain': '.txt',
+      'application/pdf': '.pdf',
+    };
+
     function arrayBufferToBase64(buffer) {
       const bytes = new Uint8Array(buffer);
       const chunkSize = 0x8000;
@@ -8194,9 +8238,72 @@ BOARD_WEB_APP_HTML = "".join(
       return btoa(binary);
     }
 
-    function clipboardTextAttachmentName() {
+    function attachmentStamp() {
       const stamp = new Date().toISOString().replace(/[.]\\d+Z$/, 'Z').replace(/[:T]/g, '-');
-      return 'clipboard-' + stamp + '.txt';
+      return stamp;
+    }
+
+    function clipboardAttachmentName(prefix, extension) {
+      return prefix + '-' + attachmentStamp() + extension;
+    }
+
+    function clipboardTextAttachmentName() {
+      return clipboardAttachmentName('clipboard', '.txt');
+    }
+
+    function normalizeAttachmentMimeType(mimeType) {
+      return String(mimeType || '').split(';', 1)[0].trim().toLowerCase();
+    }
+
+    function attachmentExtension(fileName) {
+      const normalizedName = String(fileName || '').trim();
+      const dotIndex = normalizedName.lastIndexOf('.');
+      if (dotIndex < 0) return '';
+      return normalizedName.slice(dotIndex).toLowerCase();
+    }
+
+    function attachmentMimeTypeFromExtension(extension) {
+      return ATTACHMENT_EXTENSION_TO_MIME[String(extension || '').toLowerCase()] || '';
+    }
+
+    function attachmentValidationMessage() {
+      return 'РАЗРЕШЕНЫ ТОЛЬКО ' + ATTACHMENT_ALLOWED_LABEL + '.';
+    }
+
+    function normalizeUploadableAttachmentFile(file) {
+      if (!(file instanceof File)) {
+        throw new Error('НЕ УДАЛОСЬ ПРОЧИТАТЬ ФАЙЛ ДЛЯ ЗАГРУЗКИ.');
+      }
+      const normalizedMime = normalizeAttachmentMimeType(file.type);
+      let fileName = String(file.name || '').trim();
+      let extension = attachmentExtension(fileName);
+      if (!fileName && ATTACHMENT_MIME_TO_EXTENSION[normalizedMime]) {
+        const prefix = normalizedMime.startsWith('image/') ? 'clipboard-image' : 'attachment';
+        fileName = clipboardAttachmentName(prefix, ATTACHMENT_MIME_TO_EXTENSION[normalizedMime]);
+        extension = attachmentExtension(fileName);
+      }
+      if (!fileName) {
+        throw new Error('НЕ УДАЛОСЬ ОПРЕДЕЛИТЬ ИМЯ ФАЙЛА ДЛЯ ЗАГРУЗКИ.');
+      }
+      if (!extension && ATTACHMENT_MIME_TO_EXTENSION[normalizedMime]) {
+        fileName += ATTACHMENT_MIME_TO_EXTENSION[normalizedMime];
+        extension = attachmentExtension(fileName);
+      }
+      if (!extension || !ATTACHMENT_ALLOWED_EXTENSIONS.has(extension)) {
+        throw new Error(attachmentValidationMessage());
+      }
+      if (file.size > ATTACHMENT_MAX_SIZE_BYTES) {
+        throw new Error('ФАЙЛ СЛИШКОМ БОЛЬШОЙ. ЛИМИТ 15 МБ.');
+      }
+      const allowedMimeTypes = ATTACHMENT_EXTENSION_TO_ALLOWED_MIMES[extension] || [];
+      if (normalizedMime && normalizedMime !== 'application/octet-stream' && !allowedMimeTypes.includes(normalizedMime)) {
+        throw new Error('MIME-ТИП ФАЙЛА НЕ СООТВЕТСТВУЕТ ЕГО РАСШИРЕНИЮ.');
+      }
+      const finalMimeType = normalizedMime || attachmentMimeTypeFromExtension(extension) || 'application/octet-stream';
+      if (fileName === file.name && finalMimeType === (file.type || '')) {
+        return file;
+      }
+      return new File([file], fileName, { type: finalMimeType, lastModified: file.lastModified || Date.now() });
     }
 
     function collectClipboardAttachmentFiles(event) {
@@ -8205,12 +8312,20 @@ BOARD_WEB_APP_HTML = "".join(
       items.forEach((item) => {
         if (item.kind !== 'file') return;
         const file = item.getAsFile();
-        if (file) files.push(file);
+        if (!file) return;
+        const normalizedMime = normalizeAttachmentMimeType(file.type);
+        if (!String(file.name || '').trim() && ATTACHMENT_MIME_TO_EXTENSION[normalizedMime]) {
+          const prefix = normalizedMime.startsWith('image/') ? 'clipboard-image' : 'attachment';
+          const generatedName = clipboardAttachmentName(prefix, ATTACHMENT_MIME_TO_EXTENSION[normalizedMime]);
+          files.push(new File([file], generatedName, { type: file.type || attachmentMimeTypeFromExtension(ATTACHMENT_MIME_TO_EXTENSION[normalizedMime]), lastModified: Date.now() }));
+          return;
+        }
+        files.push(file);
       });
       if (files.length) return files;
       const text = event.clipboardData?.getData('text/plain') || '';
       if (!text.trim()) return [];
-      return [new File([text], clipboardTextAttachmentName(), { type: 'text/plain;charset=utf-8' })];
+      return [new File([text], clipboardTextAttachmentName(), { type: 'text/plain' })];
     }
 
     function vehicleInputId(fieldName) {
@@ -9716,7 +9831,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.fileDropzone.setAttribute('contenteditable', canUpload ? 'plaintext-only' : 'false');
       els.fileDropzone.dataset.title = canUpload ? 'ПЕРЕНЕСИТЕ ИЛИ ВСТАВЬТЕ ФАЙЛ' : 'СНАЧАЛА СОХРАНИТЕ КАРТОЧКУ';
       els.fileDropzone.dataset.hint = canUpload
-        ? 'Ctrl+V, правый клик -> Вставить, drag-and-drop или клик для выбора. TXT, PDF, Word, Excel.'
+        ? 'Ctrl+V, правый клик -> Вставить, drag-and-drop или клик для выбора. PNG, JPG, JPEG, WEBP, GIF, TXT, PDF, Word, Excel.'
         : 'Без сохранённой карточки вложения не принимаются.';
       els.fileDropzone.textContent = '';
     }
@@ -11613,14 +11728,15 @@ function renderCompactArchiveRows(cards) {
     }
 
     async function uploadProvidedFiles(files) {
-      const normalizedFiles = Array.from(files || []).filter(Boolean);
-      if (!normalizedFiles.length) return;
+      const selectedFiles = Array.from(files || []).filter(Boolean);
+      if (!selectedFiles.length) return;
       if (!requireSavedCardForFiles({ syncDropzone: true })) return;
       try {
+        const normalizedFiles = selectedFiles.map((file) => normalizeUploadableAttachmentFile(file));
         for (const file of normalizedFiles) {
           const buffer = await file.arrayBuffer();
           const base64 = arrayBufferToBase64(buffer);
-          await api('/api/add_card_attachment', { method: 'POST', body: { card_id: state.editingId, actor_name: state.actor, source: 'ui', file_name: file.name, mime_type: file.type || 'application/octet-stream', content_base64: base64 } });
+          await api('/api/add_card_attachment', { method: 'POST', body: { card_id: state.editingId, actor_name: state.actor, source: 'ui', file_name: file.name, mime_type: normalizeAttachmentMimeType(file.type) || attachmentMimeTypeFromExtension(attachmentExtension(file.name)) || 'application/octet-stream', content_base64: base64 } });
         }
         await refreshActiveCardFiles();
         setStatus(normalizedFiles.length > 1 ? 'ФАЙЛЫ ЗАГРУЖЕНЫ.' : 'ФАЙЛ ЗАГРУЖЕН.', false);

@@ -14,9 +14,21 @@ from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+TESTS = ROOT / "tests"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+if str(TESTS) not in sys.path:
+    sys.path.insert(0, str(TESTS))
 
+from attachment_samples import (
+    GIF_1X1_BYTES,
+    JPEG_1X1_BYTES,
+    PNG_1X1_BYTES,
+    minimal_docx_bytes,
+    minimal_pdf_bytes,
+    minimal_text_bytes,
+    minimal_xlsx_bytes,
+)
 from minimal_kanban.models import CARD_DESCRIPTION_LIMIT, AuditEvent, Card, utc_now
 from minimal_kanban.agent.config import get_agent_name
 from minimal_kanban.repair_order import RepairOrder
@@ -71,6 +83,14 @@ class CardServiceTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
+
+    def _build_service(self) -> CardService:
+        return CardService(
+            self.store,
+            self.logger,
+            attachments_dir=Path(self.temp_dir.name) / "attachments",
+            repair_orders_dir=Path(self.temp_dir.name) / "repair-orders",
+        )
 
     def _patch_time(self, moment: datetime):
         return (
@@ -2119,6 +2139,168 @@ class CardServiceTests(unittest.TestCase):
         self.assertFalse(file_path.exists())
         self.assertFalse(file_path.parent.exists())
         self.assertEqual(removed["card"]["attachment_count"], 0)
+
+    def test_allowed_attachment_roundtrip_preserves_name_mime_and_bytes(self) -> None:
+        service = self._build_service()
+        created = service.create_card({"vehicle": "KIA RIO", "title": "Attachment roundtrip", "deadline": {"hours": 2}})
+        card_id = created["card"]["id"]
+        samples = [
+            ("клиент фото.png", "image/png", PNG_1X1_BYTES),
+            ("клиент фото.jpg", "image/jpeg", JPEG_1X1_BYTES),
+            ("клиент фото.jpeg", "image/jpeg", JPEG_1X1_BYTES),
+            ("preview.gif", "image/gif", GIF_1X1_BYTES),
+            ("report.final.v1.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", minimal_docx_bytes()),
+            ("report.final.v1.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", minimal_xlsx_bytes()),
+            ("диагностика финал.txt", "text/plain", minimal_text_bytes()),
+            ("счёт.final copy.pdf", "application/pdf", minimal_pdf_bytes()),
+        ]
+
+        for file_name, mime_type, payload in samples:
+            with self.subTest(file_name=file_name):
+                added = service.add_card_attachment(
+                    {
+                        "card_id": card_id,
+                        "file_name": file_name,
+                        "mime_type": mime_type,
+                        "content_base64": base64.b64encode(payload).decode("ascii"),
+                    }
+                )
+                attachment_id = added["attachment"]["id"]
+                file_path, attachment = service.get_attachment_download(card_id, attachment_id)
+
+                self.assertEqual(attachment.file_name, file_name)
+                self.assertEqual(attachment.mime_type, mime_type)
+                self.assertEqual(attachment.size_bytes, len(payload))
+                self.assertEqual(file_path.suffix.lower(), Path(file_name).suffix.lower())
+                self.assertEqual(file_path.read_bytes(), payload)
+
+    def test_attachment_upload_generates_safe_name_for_missing_clipboard_image_name(self) -> None:
+        service = self._build_service()
+        created = service.create_card({"vehicle": "BMW", "title": "Clipboard image", "deadline": {"hours": 2}})
+        card_id = created["card"]["id"]
+
+        added = service.add_card_attachment(
+            {
+                "card_id": card_id,
+                "file_name": "",
+                "mime_type": "image/png",
+                "content_base64": base64.b64encode(PNG_1X1_BYTES).decode("ascii"),
+            }
+        )
+
+        attachment = added["attachment"]
+        self.assertTrue(attachment["file_name"].startswith("attachment-"))
+        self.assertTrue(attachment["file_name"].endswith(".png"))
+        self.assertEqual(attachment["mime_type"], "image/png")
+
+    def test_attachment_long_file_name_keeps_pdf_extension_after_truncation(self) -> None:
+        service = self._build_service()
+        created = service.create_card({"vehicle": "BMW", "title": "Long attachment name", "deadline": {"hours": 2}})
+        card_id = created["card"]["id"]
+        long_file_name = ("очень длинное имя файла." * 20) + "pdf"
+
+        added = service.add_card_attachment(
+            {
+                "card_id": card_id,
+                "file_name": long_file_name,
+                "mime_type": "application/pdf",
+                "content_base64": base64.b64encode(minimal_pdf_bytes()).decode("ascii"),
+            }
+        )
+
+        attachment = added["attachment"]
+        self.assertLessEqual(len(attachment["file_name"]), 240)
+        self.assertTrue(attachment["file_name"].endswith(".pdf"))
+
+    def test_attachment_upload_rejects_disallowed_extensions_double_extensions_and_fake_mime(self) -> None:
+        service = self._build_service()
+        created = service.create_card({"vehicle": "KIA RIO", "title": "Attachment validation", "deadline": {"hours": 2}})
+        card_id = created["card"]["id"]
+        cases = [
+            ("payload.exe", "application/x-msdownload", b"MZ\x90\x00", "Разрешены только"),
+            ("payload.js", "application/javascript", b"alert(1);", "Разрешены только"),
+            ("payload.exe.pdf", "application/pdf", minimal_pdf_bytes(), "двойное расширение"),
+            ("payload.pdf", "application/pdf", b"MZ\x00\x02\x03\x00\x00", "не распознан"),
+        ]
+
+        for file_name, mime_type, payload, message_part in cases:
+            with self.subTest(file_name=file_name):
+                with self.assertRaises(ServiceError) as exc:
+                    service.add_card_attachment(
+                        {
+                            "card_id": card_id,
+                            "file_name": file_name,
+                            "mime_type": mime_type,
+                            "content_base64": base64.b64encode(payload).decode("ascii"),
+                        }
+                    )
+                self.assertEqual(exc.exception.code, "validation_error")
+                self.assertIn(message_part, exc.exception.message)
+
+    def test_attachment_download_repairs_legacy_extension_mime_and_storage_name(self) -> None:
+        service = self._build_service()
+        created = service.create_card({"vehicle": "AUDI", "title": "Legacy attachment", "deadline": {"hours": 2}})
+        card_id = created["card"]["id"]
+        payload = minimal_pdf_bytes()
+        added = service.add_card_attachment(
+            {
+                "card_id": card_id,
+                "file_name": "Отчёт клиента.final.pdf",
+                "mime_type": "application/pdf",
+                "content_base64": base64.b64encode(payload).decode("ascii"),
+            }
+        )
+        attachment_id = added["attachment"]["id"]
+        current_path, _ = service.get_attachment_download(card_id, attachment_id)
+        legacy_path = current_path.with_name(attachment_id)
+        current_path.rename(legacy_path)
+
+        bundle = self.store.read_bundle()
+        card = next(item for item in bundle["cards"] if item.id == card_id)
+        attachment = next(item for item in card.attachments if item.id == attachment_id)
+        attachment.file_name = "Отчёт клиента.final"
+        attachment.mime_type = "application/octet-stream"
+        attachment.stored_name = attachment_id
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        repaired_path, repaired_attachment = service.get_attachment_download(card_id, attachment_id)
+
+        self.assertEqual(repaired_attachment.file_name, "Отчёт клиента.final.pdf")
+        self.assertEqual(repaired_attachment.mime_type, "application/pdf")
+        self.assertEqual(repaired_path.name, f"{attachment_id}.pdf")
+        self.assertEqual(repaired_path.read_bytes(), payload)
+
+    def test_attachment_persistence_survives_service_restart(self) -> None:
+        service = self._build_service()
+        created = service.create_card({"vehicle": "VW", "title": "Attachment persistence", "deadline": {"hours": 2}})
+        card_id = created["card"]["id"]
+        payload = minimal_docx_bytes("Persistence check")
+        added = service.add_card_attachment(
+            {
+                "card_id": card_id,
+                "file_name": "Persistence финал.docx",
+                "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "content_base64": base64.b64encode(payload).decode("ascii"),
+            }
+        )
+
+        restarted = self._build_service()
+        card = restarted.get_card({"card_id": card_id})["card"]
+        attachment = card["attachments"][0]
+        repaired_path, repaired_attachment = restarted.get_attachment_download(card_id, added["attachment"]["id"])
+
+        self.assertEqual(attachment["file_name"], "Persistence финал.docx")
+        self.assertEqual(attachment["mime_type"], "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        self.assertEqual(repaired_attachment.file_name, "Persistence финал.docx")
+        self.assertEqual(repaired_path.read_bytes(), payload)
 
     def test_get_card_context_returns_repair_order_text_and_board_context(self) -> None:
         created = self.service.create_card(
