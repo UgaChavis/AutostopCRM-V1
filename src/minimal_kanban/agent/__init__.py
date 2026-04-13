@@ -9,6 +9,7 @@ __all__ = [
     "openai_client",
     "policy",
     "runner",
+    "scenarios",
     "source_registry",
     "storage",
     "tools",

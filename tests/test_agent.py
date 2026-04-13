@@ -487,6 +487,41 @@ class AgentRunnerTests(unittest.TestCase):
             )
             scenario_names = [item["name"] for item in runner._select_card_autofill_scenarios(facts)]
             self.assertEqual(scenario_names, ["maintenance_lookup", "normalization"])
+
+    def test_build_orchestration_evidence_includes_structured_fact_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runner = AgentRunner(
+                storage=AgentStorage(base_dir=Path(temp_dir)),
+                board_api=_FakeBoardApi(),
+                model_client=_FakeModelClient([]),
+                logger=logging.getLogger("test.agent.runner.evidence"),
+            )
+            context_data = {
+                "card": {
+                    "id": "card-1",
+                    "title": "BMW 320i",
+                    "vehicle": "BMW 320i",
+                    "description": "VIN: WBAPF71060A798127\nP0420\nТечь антифриза.",
+                    "vehicle_profile": {"mileage": "123000"},
+                    "repair_order": {},
+                },
+                "events": [],
+                "repair_order_text": {"text": ""},
+            }
+            evidence, facts = runner._build_orchestration_evidence(
+                task={"id": "task-1", "task_text": "Проверь карточку"},
+                metadata={"context": {"card_id": "card-1"}},
+                task_type="card_cleanup",
+                context_kind="card",
+                context_data=context_data,
+                raw_context_ref="ctx:test",
+            )
+            self.assertIn("vin", evidence.fact_evidence)
+            self.assertEqual(evidence.fact_evidence["vin"].status, "confirmed")
+            self.assertEqual(evidence.fact_evidence["part_queries"].status, "absent")
+            self.assertEqual(evidence.fact_evidence["waiting_state"].status, "absent")
+            self.assertEqual(evidence.fact_evidence["vehicle_context"].source, "card_context_aggregate")
+            self.assertEqual(facts["vin"], "WBAPF71060A798127")
             self.assertFalse(facts["scenario_evidence"]["parts_lookup"]["confidence_enough"])
 
     def test_card_autofill_scenario_selection_runs_dtc_only_from_explicit_code(self) -> None:
@@ -662,6 +697,8 @@ class AgentRunnerTests(unittest.TestCase):
             orchestration = run.get("orchestration") if isinstance(run.get("orchestration"), dict) else {}
             self.assertEqual(orchestration.get("version"), "agent_orchestrator_v1")
             self.assertEqual(orchestration.get("plan", {}).get("scenario_id"), "board_review")
+            self.assertIn("confidence_mode", orchestration.get("plan", {}))
+            self.assertIn("write_mode", orchestration.get("plan", {}))
             self.assertTrue(orchestration.get("verify", {}).get("scenario_completed"))
 
     def test_runner_policy_gate_requires_vin_tool_before_final(self) -> None:
@@ -738,6 +775,7 @@ class AgentRunnerTests(unittest.TestCase):
             self.assertTrue(verify["applied_ok"])
             self.assertTrue(verify["scenario_completed"])
             self.assertFalse(verify["needs_followup"])
+            self.assertEqual(verify["outcome_state"], "completed_confirmed")
             self.assertNotIn("missing required tools: decode_vin", verify["warnings"])
 
     def test_runner_persists_structured_display_payload(self) -> None:
@@ -971,6 +1009,12 @@ class AgentRunnerTests(unittest.TestCase):
             log_messages = [item.get("message", "") for item in storage.list_actions(limit=50) if item.get("kind") == "log"]
             self.assertIn("decode_vin requested.", log_messages)
             self.assertIn("decode_vin insufficient.", log_messages)
+            run = storage.list_runs(limit=1)[0]
+            verify = run["orchestration"]["verify"]
+            self.assertEqual(verify["outcome_state"], "blocked_missing_source_data")
+            self.assertEqual(verify["followup_reason"], "vin_decode_insufficient")
+            fact_evidence = run["orchestration"]["evidence"]["fact_evidence"]
+            self.assertIn("vin_fallback_context", fact_evidence)
 
     def test_runner_card_autofill_skips_blind_parts_lookup_after_failed_vin_gate(self) -> None:
         class _BlankVehicleWrappedBoardApi(_FakeWrappedBoardApi):

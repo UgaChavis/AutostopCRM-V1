@@ -5,10 +5,33 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class FactEvidence:
+    name: str
+    value: Any = None
+    status: str = "absent"
+    source: str = "unknown"
+    confidence: float = 0.0
+    conflicts: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "value": self.value,
+            "status": str(self.status or "absent"),
+            "source": str(self.source or "unknown"),
+            "confidence": float(self.confidence),
+            "conflicts": list(self.conflicts),
+            "notes": list(self.notes),
+        }
+
+
+@dataclass(frozen=True)
 class EvidenceResult:
     context_kind: str
     card_id: str = ""
     confirmed_facts: dict[str, Any] = field(default_factory=dict)
+    fact_evidence: dict[str, FactEvidence] = field(default_factory=dict)
     missing_data: list[str] = field(default_factory=list)
     scenario_signals: dict[str, dict[str, bool]] = field(default_factory=dict)
     sensitive_fields: list[str] = field(default_factory=list)
@@ -21,6 +44,11 @@ class EvidenceResult:
             "context_kind": self.context_kind,
             "card_id": self.card_id,
             "confirmed_facts": dict(self.confirmed_facts),
+            "fact_evidence": {
+                str(name): value.to_dict()
+                for name, value in self.fact_evidence.items()
+                if isinstance(value, FactEvidence)
+            },
             "missing_data": list(self.missing_data),
             "scenario_signals": {
                 str(name): {
@@ -50,6 +78,8 @@ class PlanResult:
     forbidden_write_targets: list[str] = field(default_factory=list)
     stop_conditions: list[str] = field(default_factory=list)
     followup_policy: dict[str, Any] = field(default_factory=dict)
+    confidence_mode: str = "standard"
+    write_mode: str = "patch_only"
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -65,6 +95,8 @@ class PlanResult:
             "forbidden_write_targets": list(self.forbidden_write_targets),
             "stop_conditions": list(self.stop_conditions),
             "followup_policy": dict(self.followup_policy),
+            "confidence_mode": self.confidence_mode,
+            "write_mode": self.write_mode,
             "notes": list(self.notes),
         }
 
@@ -133,6 +165,7 @@ class VerifyResult:
     manual_fields_preserved: bool = True
     scenario_completed: bool = False
     needs_followup: bool = False
+    outcome_state: str = "unknown"
     warnings: list[str] = field(default_factory=list)
     context_ref: str = ""
     followup_reason: str = ""
@@ -144,6 +177,7 @@ class VerifyResult:
             "manual_fields_preserved": bool(self.manual_fields_preserved),
             "scenario_completed": bool(self.scenario_completed),
             "needs_followup": bool(self.needs_followup),
+            "outcome_state": self.outcome_state,
             "warnings": list(self.warnings),
             "context_ref": self.context_ref,
             "followup_reason": self.followup_reason,

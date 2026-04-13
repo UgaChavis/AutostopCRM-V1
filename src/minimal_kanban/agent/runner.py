@@ -18,10 +18,11 @@ from .config import (
     get_agent_openai_model,
     get_agent_poll_interval_seconds,
 )
-from .contracts import EvidenceResult, OrchestrationTrace, PatchResult, PlanResult, ToolResult, VerifyResult
+from .contracts import EvidenceResult, FactEvidence, OrchestrationTrace, PatchResult, PlanResult, ToolResult, VerifyResult
 from .instructions import build_default_system_prompt
 from .openai_client import AgentModelError, OpenAIJsonAgentClient
 from .policy import ToolPolicyEngine
+from .scenarios import ScenarioContext, build_default_scenario_registry
 from .storage import AgentStorage
 from .tools import AgentToolExecutor
 
@@ -117,6 +118,7 @@ class AgentRunner:
         self._max_tool_result_chars = max_tool_result_chars or get_agent_max_tool_result_chars()
         self._tools = AgentToolExecutor(board_api, actor_name=self._actor_name)
         self._policy = ToolPolicyEngine()
+        self._scenario_registry = build_default_scenario_registry()
 
     def run_once(self) -> bool:
         task = self._storage.claim_next_task()
@@ -311,6 +313,7 @@ class AgentRunner:
                 preloaded_context=context_payload,
             )
         tool_calls += delta
+        evidence_result = self._enrich_evidence_with_runtime_facts(evidence_result, facts=facts)
         trace = OrchestrationTrace(
             version="agent_orchestrator_v1",
             trigger={
@@ -377,6 +380,7 @@ class AgentRunner:
                 context_kind=context_kind,
                 card_id=self._cleanup_card_id(metadata),
                 confirmed_facts=confirmed_facts,
+                fact_evidence=self._build_card_fact_evidence(facts, confirmed_facts=confirmed_facts),
                 missing_data=list(facts.get("missing_vehicle_fields") or []),
                 scenario_signals=dict(facts.get("scenario_evidence") or {}),
                 sensitive_fields=["prices", "part_numbers", "customer_notes", "manual_vehicle_fields"],
@@ -389,6 +393,7 @@ class AgentRunner:
         evidence_result = EvidenceResult(
             context_kind=context_kind or "board",
             confirmed_facts={"task_type": task_type, "mode": str(task.get("mode", "") or "").strip()},
+            fact_evidence=self._build_generic_fact_evidence(task_type=task_type, context_kind=context_kind, task=task),
             missing_data=[],
             scenario_signals={},
             sensitive_fields=["cash_amounts", "manual_notes"],
@@ -397,6 +402,141 @@ class AgentRunner:
             raw_context_ref=raw_context_ref,
         )
         return evidence_result, generic_facts
+
+    def _build_card_fact_evidence(
+        self,
+        facts: dict[str, Any],
+        *,
+        confirmed_facts: dict[str, Any],
+    ) -> dict[str, FactEvidence]:
+        vehicle_context = confirmed_facts.get("vehicle_context") if isinstance(confirmed_facts.get("vehicle_context"), dict) else {}
+        missing_vehicle_fields = list(facts.get("missing_vehicle_fields") or [])
+        evidence_model = facts.get("evidence_model") if isinstance(facts.get("evidence_model"), dict) else {}
+        part_queries = list(confirmed_facts.get("part_queries") or [])
+        return {
+            "vin": FactEvidence(
+                name="vin",
+                value=confirmed_facts.get("vin", ""),
+                status="confirmed" if confirmed_facts.get("vin") else "absent",
+                source="card_context",
+                confidence=1.0 if confirmed_facts.get("vin") else 0.0,
+            ),
+            "mileage": FactEvidence(
+                name="mileage",
+                value=confirmed_facts.get("mileage", ""),
+                status="confirmed" if confirmed_facts.get("mileage") else "absent",
+                source="vehicle_profile_or_repair_order",
+                confidence=0.9 if confirmed_facts.get("mileage") else 0.0,
+            ),
+            "dtc_codes": FactEvidence(
+                name="dtc_codes",
+                value=list(confirmed_facts.get("dtc_codes") or []),
+                status="confirmed" if confirmed_facts.get("dtc_codes") else "absent",
+                source="card_context",
+                confidence=0.95 if confirmed_facts.get("dtc_codes") else 0.0,
+            ),
+            "part_queries": FactEvidence(
+                name="part_queries",
+                value=part_queries,
+                status="inferred" if part_queries else "absent",
+                source="heuristic_text_extraction",
+                confidence=0.7 if part_queries else 0.0,
+                notes=["Derived from symptom and card text analysis."] if part_queries else [],
+            ),
+            "waiting_state": FactEvidence(
+                name="waiting_state",
+                value=bool(confirmed_facts.get("waiting_state")),
+                status="weak_signal" if confirmed_facts.get("waiting_state") else "absent",
+                source="heuristic_text_extraction",
+                confidence=0.6 if confirmed_facts.get("waiting_state") else 0.0,
+            ),
+            "vehicle_context": FactEvidence(
+                name="vehicle_context",
+                value=dict(vehicle_context),
+                status="confirmed" if vehicle_context else "absent",
+                source="card_context_aggregate",
+                confidence=0.85 if vehicle_context else 0.0,
+                conflicts=["missing:" + field_name for field_name in missing_vehicle_fields[:4]],
+            ),
+            "external_result_sufficient": FactEvidence(
+                name="external_result_sufficient",
+                value=bool(evidence_model.get("external_result_sufficient")),
+                status="confirmed" if evidence_model.get("external_result_sufficient") else "absent",
+                source="external_tool_results",
+                confidence=1.0 if evidence_model.get("external_result_sufficient") else 0.0,
+            ),
+        }
+
+    def _build_generic_fact_evidence(
+        self,
+        *,
+        task_type: str,
+        context_kind: str,
+        task: dict[str, Any],
+    ) -> dict[str, FactEvidence]:
+        return {
+            "task_type": FactEvidence(
+                name="task_type",
+                value=task_type,
+                status="confirmed",
+                source="task_metadata",
+                confidence=1.0,
+            ),
+            "mode": FactEvidence(
+                name="mode",
+                value=str(task.get("mode", "") or "").strip(),
+                status="confirmed" if str(task.get("mode", "") or "").strip() else "absent",
+                source="task_metadata",
+                confidence=1.0 if str(task.get("mode", "") or "").strip() else 0.0,
+            ),
+            "context_kind": FactEvidence(
+                name="context_kind",
+                value=context_kind or "board",
+                status="confirmed",
+                source="task_metadata",
+                confidence=1.0,
+            ),
+        }
+
+    def _enrich_evidence_with_runtime_facts(self, evidence: EvidenceResult, *, facts: dict[str, Any]) -> EvidenceResult:
+        fact_evidence = dict(evidence.fact_evidence)
+        related_cards = facts.get("related_cards") if isinstance(facts.get("related_cards"), list) else []
+        if related_cards:
+            fact_evidence["related_cards"] = FactEvidence(
+                name="related_cards",
+                value=[str(item.get("id", "") or "").strip() for item in related_cards[:6] if isinstance(item, dict)],
+                status="inferred",
+                source="board_search",
+                confidence=min(0.85, 0.45 + 0.05 * len(related_cards)),
+                notes=[f"Found {len(related_cards)} related cards during runtime context expansion."],
+            )
+        vin_status = str(facts.get("vin_decode_status", "") or "").strip().lower()
+        if vin_status in {"insufficient", "failed"} and isinstance(facts.get("vehicle_context"), dict):
+            fact_evidence["vin_fallback_context"] = FactEvidence(
+                name="vin_fallback_context",
+                value=dict(facts.get("vehicle_context") or {}),
+                status="inferred" if self._has_enough_vehicle_context(
+                    dict(facts.get("vehicle_context") or {}),
+                    missing_vehicle_fields=list(facts.get("missing_vehicle_fields") or []),
+                ) else "weak_signal",
+                source="card_context_fallback",
+                confidence=0.55 if vin_status == "insufficient" else 0.35,
+                notes=["Used because VIN decoding did not return enough confirmed vehicle facts."],
+            )
+        if fact_evidence == evidence.fact_evidence:
+            return evidence
+        return EvidenceResult(
+            context_kind=evidence.context_kind,
+            card_id=evidence.card_id,
+            confirmed_facts=dict(evidence.confirmed_facts),
+            fact_evidence=fact_evidence,
+            missing_data=list(evidence.missing_data),
+            scenario_signals=dict(evidence.scenario_signals),
+            sensitive_fields=list(evidence.sensitive_fields),
+            allowed_write_targets=list(evidence.allowed_write_targets),
+            summary=evidence.summary,
+            raw_context_ref=evidence.raw_context_ref,
+        )
 
     def _build_orchestration_plan(
         self,
@@ -723,247 +863,27 @@ class AgentRunner:
         orchestration_results: dict[str, Any] = {}
         for scenario in scenarios:
             scenario_name = str(scenario.get("name", "") or "").strip().lower()
-            if scenario_name == "vin_enrichment":
-                facts["vin_decode_attempted"] = True
-                self._record_log_action(
-                    task_id=task["id"],
-                    run_id=run_id,
-                    step=tool_calls,
-                    level="RUN",
-                    phase="tool",
-                    message="decode_vin requested.",
-                )
-                vin_payload = self._run_autofill_tool(
-                    task_id=task["id"],
-                    run_id=run_id,
-                    step=tool_calls + 1,
-                    tool_name="decode_vin",
-                    args={"vin": facts["vin"]},
-                    reason="Decode VIN first and reuse the confirmed vehicle facts in later lookup steps",
-                )
-                if vin_payload is None:
-                    facts["vin_decode_status"] = "failed"
-                    self._record_log_action(
-                        task_id=task["id"],
-                        run_id=run_id,
-                        step=tool_calls + 1,
-                        level="WARN",
-                        phase="tool",
-                        message="decode_vin failed.",
-                    )
-                else:
-                    tool_calls += 1
-                    orchestration_results["decode_vin"] = self._response_data(vin_payload) or vin_payload
-                    tool_results.append(
-                        self._build_tool_result(
-                            "decode_vin",
-                            vin_payload,
-                            status="success",
-                            reason="Decode VIN first and reuse the confirmed vehicle facts in later lookup steps",
-                            scenario_id="vin_enrichment",
-                            evidence_ref="vin",
-                        )
-                    )
-                    vin_status = self._vin_decode_status(orchestration_results["decode_vin"])
-                    facts["vin_decode_status"] = vin_status
-                    if isinstance(facts.get("evidence_model"), dict):
-                        facts["evidence_model"]["external_result_sufficient"] = vin_status == "success"
-                    if vin_status == "success":
-                        facts["vehicle_context"] = self._merge_vehicle_context(
-                            facts["vehicle_context"],
-                            orchestration_results["decode_vin"],
-                        )
+            executor = self._scenario_registry.get(scenario_name)
+            if executor is None:
                 continue
-            if scenario_name == "parts_lookup":
-                part_query = str(scenario.get("query", "") or "").strip() or (facts["part_queries"][0] if facts["part_queries"] else "")
-                if not part_query:
-                    continue
-                if not self._card_autofill_can_run_parts_lookup(facts):
-                    self._record_log_action(
-                        task_id=task["id"],
-                        run_id=run_id,
-                        step=tool_calls,
-                        level="INFO",
-                        phase="tool",
-                        message="parts lookup skipped: no trusted vehicle context after VIN gate.",
-                    )
-                    continue
-                self._record_log_action(
-                    task_id=task["id"],
+            scenario_result = executor.execute(
+                ScenarioContext(
+                    scenario_id=scenario_name,
+                    task_id=str(task["id"]),
                     run_id=run_id,
-                    step=tool_calls,
-                    level="RUN",
-                    phase="tool",
-                    message="parts lookup started.",
+                    metadata=metadata,
+                    facts=facts,
+                    scenario_payload=scenario if isinstance(scenario, dict) else {},
+                    runtime=self,
                 )
-                part_payload = self._run_autofill_tool(
-                    task_id=task["id"],
-                    run_id=run_id,
-                    step=tool_calls + 1,
-                    tool_name="find_part_numbers",
-                    args={
-                        "query": part_query,
-                        "vehicle": facts["vehicle_context"],
-                        "limit": 5,
-                    },
-                    reason="Find OEM and analog part numbers for the main detected part request",
-                )
-                if part_payload is None:
-                    continue
-                tool_calls += 1
-                orchestration_results["find_part_numbers"] = self._response_data(part_payload) or part_payload
-                tool_results.append(
-                    self._build_tool_result(
-                        "find_part_numbers",
-                        part_payload,
-                        status="success",
-                        reason="Find OEM and analog part numbers for the main detected part request",
-                        scenario_id="parts_lookup",
-                        evidence_ref="part_queries",
-                    )
-                )
-                if isinstance(facts.get("evidence_model"), dict):
-                    facts["evidence_model"]["external_result_sufficient"] = True
-                if not bool(scenario.get("with_price")):
-                    continue
-                best_part_number = self._pick_best_part_number(orchestration_results["find_part_numbers"])
-                if not best_part_number:
-                    continue
-                price_payload = self._run_autofill_tool(
-                    task_id=task["id"],
-                    run_id=run_id,
-                    step=tool_calls + 1,
-                    tool_name="estimate_price_ru",
-                    args={
-                        "part_number": best_part_number,
-                        "vehicle": facts["vehicle_context"],
-                        "limit": 5,
-                    },
-                    reason="Estimate Russian-market price for the strongest matched part number",
-                )
-                if price_payload is not None:
-                    tool_calls += 1
-                    orchestration_results["estimate_price_ru"] = self._response_data(price_payload) or price_payload
-                    tool_results.append(
-                        self._build_tool_result(
-                            "estimate_price_ru",
-                            price_payload,
-                            status="success",
-                            reason="Estimate Russian-market price for the strongest matched part number",
-                            scenario_id="parts_lookup",
-                            evidence_ref="part_queries",
-                        )
-                    )
-                continue
-            if scenario_name == "maintenance_lookup":
-                self._record_log_action(
-                    task_id=task["id"],
-                    run_id=run_id,
-                    step=tool_calls,
-                    level="RUN",
-                    phase="tool",
-                    message="maintenance lookup started.",
-                )
-                maintenance_payload = self._run_autofill_tool(
-                    task_id=task["id"],
-                    run_id=run_id,
-                    step=tool_calls + 1,
-                    tool_name="estimate_maintenance",
-                    args={
-                        "service_type": facts["maintenance_query"],
-                        "vehicle_context": facts["vehicle_context"],
-                    },
-                    reason="Build a compact maintenance plan for the current mileage and vehicle context",
-                )
-                if maintenance_payload is not None:
-                    tool_calls += 1
-                    orchestration_results["estimate_maintenance"] = self._response_data(maintenance_payload) or maintenance_payload
-                    tool_results.append(
-                        self._build_tool_result(
-                            "estimate_maintenance",
-                            maintenance_payload,
-                            status="success",
-                            reason="Build a compact maintenance plan for the current mileage and vehicle context",
-                            scenario_id="maintenance_lookup",
-                            evidence_ref="mileage",
-                        )
-                    )
-                continue
-            if scenario_name == "dtc_lookup":
-                dtc_code = str(scenario.get("code", "") or "").strip() or (facts["dtc_codes"][0] if facts["dtc_codes"] else "")
-                if not dtc_code:
-                    continue
-                self._record_log_action(
-                    task_id=task["id"],
-                    run_id=run_id,
-                    step=tool_calls,
-                    level="RUN",
-                    phase="tool",
-                    message="dtc lookup started.",
-                )
-                dtc_payload = self._run_autofill_tool(
-                    task_id=task["id"],
-                    run_id=run_id,
-                    step=tool_calls + 1,
-                    tool_name="decode_dtc",
-                    args={
-                        "code": dtc_code,
-                        "vehicle_context": facts["vehicle_context"],
-                    },
-                    reason="Decode the highest-priority detected DTC code",
-                )
-                if dtc_payload is not None:
-                    tool_calls += 1
-                    orchestration_results["decode_dtc"] = self._response_data(dtc_payload) or dtc_payload
-                    tool_results.append(
-                        self._build_tool_result(
-                            "decode_dtc",
-                            dtc_payload,
-                            status="success",
-                            reason="Decode the highest-priority detected DTC code",
-                            scenario_id="dtc_lookup",
-                            evidence_ref="dtc_codes",
-                        )
-                    )
-                    if isinstance(facts.get("evidence_model"), dict):
-                        facts["evidence_model"]["external_result_sufficient"] = True
-                continue
-            if scenario_name == "fault_research":
-                self._record_log_action(
-                    task_id=task["id"],
-                    run_id=run_id,
-                    step=tool_calls,
-                    level="RUN",
-                    phase="tool",
-                    message="fault research started.",
-                )
-                fault_payload = self._run_autofill_tool(
-                    task_id=task["id"],
-                    run_id=run_id,
-                    step=tool_calls + 1,
-                    tool_name="search_fault_info",
-                    args={
-                        "query": facts["symptom_query"],
-                        "vehicle": facts["vehicle_context"],
-                        "limit": 5,
-                    },
-                    reason="Search short symptom context and typical causes for the current complaint",
-                )
-                if fault_payload is not None:
-                    tool_calls += 1
-                    orchestration_results["search_fault_info"] = self._response_data(fault_payload) or fault_payload
-                    tool_results.append(
-                        self._build_tool_result(
-                            "search_fault_info",
-                            fault_payload,
-                            status="success",
-                            reason="Search short symptom context and typical causes for the current complaint",
-                            scenario_id="fault_research",
-                            evidence_ref="symptom_query",
-                        )
-                    )
-                    if isinstance(facts.get("evidence_model"), dict):
-                        facts["evidence_model"]["external_result_sufficient"] = True
+            )
+            tool_calls += int(scenario_result.tool_calls_used)
+            if scenario_result.orchestration_updates:
+                orchestration_results.update(scenario_result.orchestration_updates)
+            if scenario_result.facts_updates:
+                facts.update(scenario_result.facts_updates)
+            if scenario_result.tool_results:
+                tool_results.extend(scenario_result.tool_results)
         update_args, display_sections = self._compose_card_autofill_update(
             card_id=card_id,
             facts=facts,
@@ -1021,6 +941,12 @@ class AgentRunner:
             "actions": [],
         }
         verify_result = self._finalize_verify_result(plan=plan, verify=verify_result, tool_results=tool_results)
+        verify_result = self._verify_card_autofill_goal(
+            plan=plan,
+            verify=verify_result,
+            facts=facts,
+            orchestration_results=orchestration_results,
+        )
         self._record_log_action(
             task_id=task["id"],
             run_id=run_id,
@@ -1037,6 +963,8 @@ class AgentRunner:
             f"- execution_mode: {plan.execution_mode}",
             f"- scenario_id: {plan.scenario_id}",
             f"- scenario_chain: {', '.join(plan.scenario_chain) if plan.scenario_chain else 'none'}",
+            f"- confidence_mode: {plan.confidence_mode}",
+            f"- write_mode: {plan.write_mode}",
             f"- required_tools: {', '.join(plan.required_tools) if plan.required_tools else 'none'}",
             f"- optional_tools: {', '.join(plan.optional_tools) if plan.optional_tools else 'none'}",
             f"- allowed_write_targets: {', '.join(plan.allowed_write_targets) if plan.allowed_write_targets else 'none'}",
@@ -1226,6 +1154,7 @@ class AgentRunner:
             manual_fields_preserved=manual_fields_preserved,
             scenario_completed=scenario_completed,
             needs_followup=False,
+            outcome_state="write_applied" if fields_changed else "write_unverified",
             warnings=warnings,
             context_ref=f"verify:{card_id}",
         )
@@ -1251,12 +1180,69 @@ class AgentRunner:
         if not scenario_completed and not plan.allowed_write_targets and not missing_required:
             scenario_completed = True
         needs_followup = bool(plan.followup_policy.get("enabled")) and (bool(missing_required) or not scenario_completed)
+        if missing_required:
+            outcome_state = "blocked_missing_required_tools"
+        elif scenario_completed and verify.applied_ok:
+            outcome_state = "completed_confirmed"
+        elif scenario_completed:
+            outcome_state = "completed_no_write"
+        elif not verify.manual_fields_preserved:
+            outcome_state = "needs_human_review"
+        elif verify.applied_ok:
+            outcome_state = "completed_partial"
+        else:
+            outcome_state = "blocked_no_progress"
         return VerifyResult(
             applied_ok=bool(verify.applied_ok),
             fields_changed=list(verify.fields_changed),
             manual_fields_preserved=bool(verify.manual_fields_preserved),
             scenario_completed=scenario_completed,
             needs_followup=needs_followup,
+            outcome_state=outcome_state,
+            warnings=warnings,
+            context_ref=verify.context_ref,
+            followup_reason=followup_reason,
+        )
+
+    def _verify_card_autofill_goal(
+        self,
+        *,
+        plan: PlanResult,
+        verify: VerifyResult,
+        facts: dict[str, Any],
+        orchestration_results: dict[str, Any],
+    ) -> VerifyResult:
+        warnings = list(verify.warnings)
+        followup_reason = str(verify.followup_reason or "").strip()
+        outcome_state = str(verify.outcome_state or "").strip() or "unknown"
+        scenario_completed = bool(verify.scenario_completed)
+        needs_followup = bool(verify.needs_followup)
+        primary = str(plan.scenario_id or "").strip().lower()
+        if primary == "vin_enrichment" and str(facts.get("vin", "") or "").strip():
+            vin_status = str(facts.get("vin_decode_status", "") or "").strip().lower()
+            if vin_status == "insufficient":
+                warnings.append("vin enrichment blocked by sparse decoder output")
+                scenario_completed = False
+                needs_followup = bool(plan.followup_policy.get("enabled"))
+                followup_reason = followup_reason or "vin_decode_insufficient"
+                outcome_state = "blocked_missing_source_data"
+            elif vin_status == "failed":
+                warnings.append("vin enrichment failed before confirmed vehicle facts were produced")
+                scenario_completed = False
+                needs_followup = bool(plan.followup_policy.get("enabled"))
+                followup_reason = followup_reason or "vin_decode_failed"
+                outcome_state = "blocked_missing_source_data"
+        if primary == "parts_lookup" and orchestration_results.get("find_part_numbers") and outcome_state == "completed_no_write":
+            outcome_state = "completed_partial"
+        if primary == "fault_research" and orchestration_results.get("search_fault_info") and outcome_state == "completed_no_write":
+            outcome_state = "completed_partial"
+        return VerifyResult(
+            applied_ok=bool(verify.applied_ok),
+            fields_changed=list(verify.fields_changed),
+            manual_fields_preserved=bool(verify.manual_fields_preserved),
+            scenario_completed=scenario_completed,
+            needs_followup=needs_followup,
+            outcome_state=outcome_state,
             warnings=warnings,
             context_ref=verify.context_ref,
             followup_reason=followup_reason,
@@ -1900,7 +1886,67 @@ class AgentRunner:
         plan = self._build_card_autofill_plan(facts)
         return plan["scenarios"]
 
+    def _build_card_autofill_eligibility(self, facts: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        result: dict[str, dict[str, Any]] = {}
+        for scenario_name in ("vin_enrichment", "parts_lookup", "maintenance_lookup", "dtc_lookup", "fault_research"):
+            evidence = self._scenario_evidence(facts, scenario_name)
+            result[scenario_name] = {
+                "eligible": bool(evidence["trigger_found"] and evidence["confidence_enough"]),
+                "trigger_found": bool(evidence["trigger_found"]),
+                "confidence_enough": bool(evidence["confidence_enough"]),
+                "reason": self._scenario_skip_reason(scenario_name, facts),
+            }
+        return result
+
+    def _build_card_autofill_strategy(
+        self,
+        facts: dict[str, Any],
+        *,
+        eligibility: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
+        budget = 5
+        scenarios: list[dict[str, Any]] = []
+        skipped: list[dict[str, str]] = []
+        if bool(eligibility.get("vin_enrichment", {}).get("eligible")) and budget >= 1:
+            scenarios.append({"name": "vin_enrichment", "label": "VIN", "cost": 1})
+            budget -= 1
+        else:
+            skipped.append({"name": "vin_enrichment", "reason": self._scenario_skip_reason("vin_enrichment", facts)})
+        if bool(eligibility.get("parts_lookup", {}).get("eligible")) and budget >= 1:
+            with_price = budget >= 2
+            scenarios.append(
+                {
+                    "name": "parts_lookup",
+                    "label": "Р—РђРџР§РђРЎРўР",
+                    "cost": 2 if with_price else 1,
+                    "query": facts["part_queries"][0],
+                    "with_price": with_price,
+                    "vin_gate_required": bool(facts.get("vin")),
+                }
+            )
+            budget -= 2 if with_price else 1
+        else:
+            skipped.append({"name": "parts_lookup", "reason": self._scenario_skip_reason("parts_lookup", facts)})
+        if bool(eligibility.get("maintenance_lookup", {}).get("eligible")) and budget >= 1:
+            scenarios.append({"name": "maintenance_lookup", "label": "РўРћ", "cost": 1})
+            budget -= 1
+        else:
+            skipped.append({"name": "maintenance_lookup", "reason": self._scenario_skip_reason("maintenance_lookup", facts)})
+        if bool(eligibility.get("dtc_lookup", {}).get("eligible")) and budget >= 1:
+            scenarios.append({"name": "dtc_lookup", "label": "DTC", "cost": 1, "code": facts["dtc_codes"][0]})
+            budget -= 1
+        else:
+            skipped.append({"name": "dtc_lookup", "reason": self._scenario_skip_reason("dtc_lookup", facts)})
+        if bool(eligibility.get("fault_research", {}).get("eligible")) and not facts["waiting_state"] and budget >= 1:
+            scenarios.append({"name": "fault_research", "label": "РЎРРњРџРўРћРњР«", "cost": 1})
+        scenarios.append({"name": "normalization", "label": "РЎРўР РЈРљРўРЈР Рђ", "cost": 0})
+        return {"scenarios": scenarios, "skipped": skipped, "budget_left": budget}
+
     def _build_card_autofill_plan(self, facts: dict[str, Any]) -> dict[str, Any]:
+        eligibility = self._build_card_autofill_eligibility(facts)
+        facts["planning_eligibility"] = eligibility
+        return self._build_card_autofill_strategy(facts, eligibility=eligibility)
+
         budget = 5
         scenarios: list[dict[str, Any]] = []
         skipped: list[dict[str, str]] = []

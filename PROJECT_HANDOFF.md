@@ -186,6 +186,15 @@ Current important scenario families:
 - card normalization
 - repair-order assistance
 
+New structural status on top of the original orchestration core:
+
+- deterministic autofill tool scenarios now have a dedicated `agent/scenarios` package and registry
+- orchestration evidence now carries structured `fact_evidence` entries with `status`, `source`, and `confidence`
+- planning is being split into deterministic eligibility and scenario strategy
+- verification now records explicit outcome states such as `completed_confirmed` and `blocked_missing_source_data`
+- card autofill adds a goal-level verifier on top of write verification
+- weak VIN decode can now leave explicit fallback context evidence in the run trace instead of only a vague final note
+
 Important files for AI work:
 
 - `src/minimal_kanban/agent/runner.py`
@@ -193,7 +202,10 @@ Important files for AI work:
 - `src/minimal_kanban/agent/policy.py`
 - `src/minimal_kanban/agent/tools.py`
 - `src/minimal_kanban/agent/control.py`
+- `src/minimal_kanban/agent/scenarios`
 - `GPT_AGENT_11_AGENT_AUTOFILL_ORCHESTRATION.md`
+- `AI_AGENT_AUDIT_2026-04-14.md`
+- `AI_AGENT_MODERNIZATION_PLAN.md`
 
 ## 6. Most Recent Development State
 
@@ -210,6 +222,13 @@ Most recent important commits in the current line:
 
 - `9b4553d` `Unify server agent orchestration core`
 - `fd891d9` `Stabilize agent verification and deploy smoke`
+- current working tree also contains the next modernization wave for the AI agent:
+  - scenario registry and scenario executors
+  - structured fact evidence
+  - planning eligibility separation
+  - explicit verify outcome states
+  - goal-level autofill verification
+  - VIN fallback evidence
 
 What `fd891d9` represents in practice:
 

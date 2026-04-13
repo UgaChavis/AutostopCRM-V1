@@ -122,6 +122,14 @@ class ToolPolicyEngine:
             "owner": "card_service" if followup_enabled else "",
             "mode": "adaptive_followup" if followup_enabled else "none",
         }
+        confidence_mode = "standard"
+        write_mode = "patch_only"
+        if execution_mode == "structured_card":
+            write_mode = "patch_only_additive"
+        if any(item in {"vin_enrichment", "dtc_lookup"} for item in normalized_chain):
+            confidence_mode = "confirmed_only"
+        elif any(item in {"parts_lookup", "fault_research", "maintenance_lookup"} for item in normalized_chain):
+            confidence_mode = "evidence_guided"
         return PlanResult(
             scenario_id=primary,
             scenario_chain=normalized_chain,
@@ -134,6 +142,8 @@ class ToolPolicyEngine:
             forbidden_write_targets=forbidden_unique,
             stop_conditions=stop_conditions,
             followup_policy=followup_policy,
+            confidence_mode=confidence_mode,
+            write_mode=write_mode,
             notes=list(notes or []),
         )
 
