@@ -249,6 +249,7 @@ The production compose stack currently has two services:
 
 С чего начать:
 
+- [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md): current developer handoff, architecture snapshot, and latest development state
 - [README.md](README.md): current project overview
 - [AUTOSTOPCRM_FULL_INSTRUCTION.txt](AUTOSTOPCRM_FULL_INSTRUCTION.txt): server and deployment operations
 - [API_GUIDE.md](API_GUIDE.md): local API contract
