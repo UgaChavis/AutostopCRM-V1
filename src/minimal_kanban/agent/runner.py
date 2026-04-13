@@ -1945,7 +1945,35 @@ class AgentRunner:
     def _build_card_autofill_plan(self, facts: dict[str, Any]) -> dict[str, Any]:
         eligibility = self._build_card_autofill_eligibility(facts)
         facts["planning_eligibility"] = eligibility
-        return self._build_card_autofill_strategy(facts, eligibility=eligibility)
+        return self._normalize_card_autofill_plan_labels(
+            self._build_card_autofill_strategy(facts, eligibility=eligibility)
+        )
+
+    def _normalize_card_autofill_plan_labels(self, plan: dict[str, Any]) -> dict[str, Any]:
+        scenarios = plan.get("scenarios") if isinstance(plan.get("scenarios"), list) else []
+        normalized: list[dict[str, Any]] = []
+        fallback_labels = {
+            "vin_enrichment": "VIN",
+            "parts_lookup": "PARTS",
+            "maintenance_lookup": "MAINT",
+            "dtc_lookup": "DTC",
+            "fault_research": "SYMPTOMS",
+            "normalization": "STRUCTURE",
+        }
+        for item in scenarios:
+            if not isinstance(item, dict):
+                continue
+            row = dict(item)
+            name = str(row.get("name", "") or "").strip().lower()
+            label = str(row.get("label", "") or "").strip()
+            if not label or "Р" in label:
+                row["label"] = fallback_labels.get(name, label or name.upper())
+            normalized.append(row)
+        return {
+            "scenarios": normalized,
+            "skipped": list(plan.get("skipped") or []),
+            "budget_left": int(plan.get("budget_left", 0) or 0),
+        }
 
         budget = 5
         scenarios: list[dict[str, Any]] = []
@@ -2296,7 +2324,7 @@ class AgentRunner:
                 notes.append(line.lstrip("- ").strip())
         return [item for item in notes if item]
 
-    def _extract_autofill_symptom_query(self, source_text: str) -> str:
+    def _extract_autofill_symptom_query_legacy_unused(self, source_text: str) -> str:
         lines: list[str] = []
         for raw_line in str(source_text or "").splitlines():
             line = " ".join(str(raw_line or "").strip().split())
