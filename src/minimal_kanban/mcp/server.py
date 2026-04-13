@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from logging import Logger
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Callable, Literal
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
@@ -165,6 +168,11 @@ class ConnectorIdentityEnvelope(BaseModel):
     meta: dict[str, Any] | None = None
 
 
+CONNECTOR_SCHEMA_VERSION = "2026-04-13"
+CONNECTOR_VERSION = "autostopcrm-mcp-2026-04-13"
+_CANONICAL_TOOL_PATH_PREFIX = "/AutoStopCRM"
+
+
 def _base_url_from_endpoint(url: str | None) -> str | None:
     if not url:
         return None
@@ -179,6 +187,22 @@ def _connector_name_from_url(url: str) -> str:
     sanitized = "".join(char if char.isalnum() else "-" for char in host).strip("-")
     sanitized = sanitized or "local"
     return f"minimal-kanban-this-board-only-{sanitized}"
+
+
+def _canonical_tool_path(tool_name: str) -> str:
+    normalized_tool = str(tool_name or "").strip().strip("/")
+    if not normalized_tool:
+        return _CANONICAL_TOOL_PATH_PREFIX
+    return f"{_CANONICAL_TOOL_PATH_PREFIX}/{normalized_tool}"
+
+
+def _normalize_tool_path_alias(path: str | None) -> str:
+    parts = [segment for segment in str(path or "").split("/") if segment]
+    if len(parts) >= 3 and parts[0].casefold() == "autostopcrm" and parts[1].startswith("link_"):
+        parts = [parts[0]] + parts[2:]
+    if not parts:
+        return ""
+    return "/" + "/".join(parts)
 
 
 def _external_product_text(text: str) -> str:
@@ -350,6 +374,24 @@ def create_mcp_server(
         )
         return JsonEnvelope.model_validate(response)
 
+    def _timed_meta(
+        tool_name: str,
+        started_at: float,
+        *,
+        meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload = dict(meta or {})
+        payload.setdefault("tool", tool_name)
+        payload.setdefault("request_id", uuid4().hex)
+        payload.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+        payload.setdefault("latency_ms", round(max(perf_counter() - started_at, 0.0) * 1000, 3))
+        payload.setdefault("schema_version", CONNECTOR_SCHEMA_VERSION)
+        payload.setdefault("connector_version", CONNECTOR_VERSION)
+        payload.setdefault("canonical_tool_path", _canonical_tool_path(tool_name))
+        payload.setdefault("normalized_canonical_tool_path", _normalize_tool_path_alias(_canonical_tool_path(tool_name)))
+        payload.setdefault("path_alias_rule", "/AutoStopCRM/link_<alias>/<tool> -> /AutoStopCRM/<tool>")
+        return payload
+
     def _relay_data(
         tool_name: str,
         data: dict[str, Any],
@@ -466,12 +508,23 @@ def create_mcp_server(
     def _runtime_status_payload() -> dict[str, Any]:
         health_response = _safe_health()
         board_context_response = _safe_board_context()
+        board_context_payload = board_context_response.get("data") if board_context_response.get("ok") else None
+        board_context_data = board_context_payload if isinstance(board_context_payload, dict) else {}
+        context = board_context_data.get("context") if isinstance(board_context_data.get("context"), dict) else {}
         runtime_status = {
             "connector_identity": dict(connector_identity),
             "preferred_bootstrap_tools": list(preferred_bootstrap_tools),
             "api_health": health_response.get("data") if health_response.get("ok") else None,
             "api_health_error": health_response.get("error") if not health_response.get("ok") else None,
-            "board_context": board_context_response.get("data") if board_context_response.get("ok") else None,
+            "board_context": board_context_payload,
+            "board_context_summary": {
+                "board_name": context.get("board_name", connector_identity["board_name"]),
+                "columns_total": context.get("columns_total", 0),
+                "active_cards_total": context.get("active_cards_total", 0),
+                "archived_cards_total": context.get("archived_cards_total", 0),
+                "stickies_total": context.get("stickies_total", 0),
+            },
+            "board_context_available_via": "get_board_context",
             "board_context_error": board_context_response.get("error") if not board_context_response.get("ok") else None,
             "resource_visibility": "public_https" if connector_identity["resource_url"].startswith("https://") else "local_only",
             "resource_configured": bool(connector_identity["resource_url"]),
@@ -515,6 +568,7 @@ def create_mcp_server(
         else:
             error = runtime_status.get("board_context_error") or {}
             lines.append(f"board_context_error: {error.get('message', 'unknown')}")
+        lines.append("full_board_context_tool: get_board_context")
         lines.append(
             "recommended_bootstrap: bootstrap_context -> get_runtime_status (only if diagnostics are needed) -> writes"
         )
@@ -577,9 +631,12 @@ def create_mcp_server(
         cards = wall_data.get("cards") if isinstance(wall_data.get("cards"), list) else []
         events = wall_data.get("events") if isinstance(wall_data.get("events"), list) else []
         stickies = wall_data.get("stickies") if isinstance(wall_data.get("stickies"), list) else []
+        cards_preview_limit = 8
+        events_preview_limit = 12
+        stickies_preview_limit = 5
         preview_cards: list[dict[str, Any]] = []
         attention_cards: list[dict[str, Any]] = []
-        for card in cards[:8]:
+        for card in cards[:cards_preview_limit]:
             if not isinstance(card, dict):
                 continue
             preview = {
@@ -598,7 +655,7 @@ def create_mcp_server(
                 attention_cards.append(preview)
 
         preview_events: list[dict[str, Any]] = []
-        for event in events[:12]:
+        for event in events[:events_preview_limit]:
             if not isinstance(event, dict):
                 continue
             preview_events.append(
@@ -611,7 +668,7 @@ def create_mcp_server(
             )
 
         preview_stickies: list[dict[str, Any]] = []
-        for sticky in stickies[:5]:
+        for sticky in stickies[:stickies_preview_limit]:
             if not isinstance(sticky, dict):
                 continue
             preview_stickies.append(
@@ -625,9 +682,18 @@ def create_mcp_server(
         return {
             "meta": dict(wall_data.get("meta") or {}),
             "cards_preview": preview_cards,
+            "cards_preview_total": len(cards),
+            "cards_preview_limit": cards_preview_limit,
+            "cards_preview_truncated": len(cards) > cards_preview_limit,
             "attention_cards": attention_cards[:5],
             "events_preview": preview_events,
+            "events_preview_total": len(events),
+            "events_preview_limit": events_preview_limit,
+            "events_preview_truncated": len(events) > events_preview_limit,
             "stickies_preview": preview_stickies,
+            "stickies_preview_total": len(stickies),
+            "stickies_preview_limit": stickies_preview_limit,
+            "stickies_preview_truncated": len(stickies) > stickies_preview_limit,
             "review_tool": "review_board",
             "board_content_tool": "get_board_content",
             "event_log_tool": "get_board_events",
@@ -705,6 +771,7 @@ def create_mcp_server(
         structured_output=True,
     )
     def ping_connector() -> JsonEnvelope:
+        started_at = perf_counter()
         return _relay_data(
             "ping_connector",
             {
@@ -712,13 +779,16 @@ def create_mcp_server(
                 "resource_url": connector_identity["resource_url"],
                 "board_scope": connector_identity["board_scope"],
                 "message": "pong",
+                "schema_version": CONNECTOR_SCHEMA_VERSION,
                 "text": (
                     "[CONNECTOR PING]\n"
                     f"connector_name: {connector_identity['connector_name']}\n"
                     f"resource_url: {connector_identity['resource_url']}\n"
+                    f"canonical_tool_path: {_canonical_tool_path('ping_connector')}\n"
                     "message: pong\n"
                 ),
             },
+            meta=_timed_meta("ping_connector", started_at),
         )
 
     @server.tool(
@@ -730,6 +800,7 @@ def create_mcp_server(
         structured_output=True,
     )
     def bootstrap_context(include_archived: bool = False, event_limit: int = 25) -> JsonEnvelope:
+        started_at = perf_counter()
         wall_response = _safe_gpt_wall(include_archived=include_archived, event_limit=event_limit)
         board_context_response = _safe_board_context()
         if not wall_response.get("ok"):
@@ -743,7 +814,7 @@ def create_mcp_server(
                     "identity": dict(connector_identity),
                     "preferred_bootstrap_tools": list(preferred_bootstrap_tools),
                 },
-                meta={"tool": "bootstrap_context"},
+                meta=_timed_meta("bootstrap_context", started_at),
             )
 
         board_context_payload = None
@@ -765,10 +836,20 @@ def create_mcp_server(
         return _relay_data(
             "bootstrap_context",
             {
+                "schema_version": CONNECTOR_SCHEMA_VERSION,
                 "identity": dict(connector_identity),
                 "board_context": board_context_payload,
                 "gpt_wall_preview": wall_preview,
                 "preferred_bootstrap_tools": list(preferred_bootstrap_tools),
+                "canonical_tool_paths": {
+                    tool_name: _canonical_tool_path(tool_name)
+                    for tool_name in ("ping_connector", "bootstrap_context", "get_runtime_status")
+                },
+                "tool_path_policy": {
+                    "prefer_canonical_short_path": True,
+                    "normalize_link_alias_to_canonical": True,
+                    "alias_example": f"/AutoStopCRM/link_alias/bootstrap_context -> {_canonical_tool_path('bootstrap_context')}",
+                },
                 "recommended_write_flow": [
                     "bootstrap_context",
                     "confirm board_name and scope_rule",
@@ -779,7 +860,7 @@ def create_mcp_server(
                 ],
                 "text": bootstrap_text,
             },
-            meta={"tool": "bootstrap_context"},
+            meta=_timed_meta("bootstrap_context", started_at),
         )
 
     @server.tool(
@@ -791,14 +872,21 @@ def create_mcp_server(
         structured_output=True,
     )
     def get_runtime_status() -> JsonEnvelope:
+        started_at = perf_counter()
         runtime_status = _runtime_status_payload()
         return _relay_data(
             "get_runtime_status",
             {
+                "schema_version": CONNECTOR_SCHEMA_VERSION,
                 "runtime_status": runtime_status,
+                "canonical_tool_paths": {
+                    tool_name: _canonical_tool_path(tool_name)
+                    for tool_name in ("ping_connector", "bootstrap_context", "get_runtime_status")
+                },
+                "full_board_context_tool": "get_board_context",
                 "text": _runtime_status_text(runtime_status),
             },
-            meta={"tool": "get_runtime_status"},
+            meta=_timed_meta("get_runtime_status", started_at),
         )
 
     @server.tool(

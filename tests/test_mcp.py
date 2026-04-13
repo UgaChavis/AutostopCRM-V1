@@ -31,7 +31,7 @@ from minimal_kanban.agent.control import AgentControlService
 from minimal_kanban.agent.storage import AgentStorage
 from minimal_kanban.mcp.client import BoardApiClient, BoardApiTransportError
 from minimal_kanban.mcp.runtime import McpServerRuntime
-from minimal_kanban.mcp.server import create_mcp_server
+from minimal_kanban.mcp.server import _normalize_tool_path_alias, create_mcp_server
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
 
@@ -133,6 +133,16 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         self.runtime = McpServerRuntime(mcp_server, self.logger)
         self.runtime.start()
 
+    def test_tool_path_alias_normalization_prefers_canonical_short_path(self) -> None:
+        self.assertEqual(
+            _normalize_tool_path_alias("/AutoStopCRM/link_abc123/bootstrap_context"),
+            "/AutoStopCRM/bootstrap_context",
+        )
+        self.assertEqual(
+            _normalize_tool_path_alias("/AutoStopCRM/get_runtime_status"),
+            "/AutoStopCRM/get_runtime_status",
+        )
+
     async def asyncTearDown(self) -> None:
         self.runtime.stop()
         self.api_server.stop()
@@ -225,7 +235,12 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(ping.isError)
                 self.assertTrue(ping.structuredContent["ok"])
                 self.assertEqual(ping.structuredContent["data"]["message"], "pong")
+                self.assertEqual(ping.structuredContent["data"]["schema_version"], "2026-04-13")
                 self.assertIn("[CONNECTOR PING]", ping.structuredContent["data"]["text"])
+                self.assertIn("request_id", ping.structuredContent["meta"])
+                self.assertIn("timestamp", ping.structuredContent["meta"])
+                self.assertIn("latency_ms", ping.structuredContent["meta"])
+                self.assertEqual(ping.structuredContent["meta"]["canonical_tool_path"], "/AutoStopCRM/ping_connector")
 
                 bootstrap = await session.call_tool("bootstrap_context", {"include_archived": True, "event_limit": 20})
                 self.assertFalse(bootstrap.isError)
@@ -238,6 +253,15 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("[BOOTSTRAP CONTEXT]", bootstrap.structuredContent["data"]["text"])
                 self.assertIn("gpt_wall_preview", bootstrap.structuredContent["data"])
                 self.assertNotIn("gpt_wall", bootstrap.structuredContent["data"])
+                self.assertEqual(bootstrap.structuredContent["data"]["schema_version"], "2026-04-13")
+                self.assertIn("cards_preview_truncated", bootstrap.structuredContent["data"]["gpt_wall_preview"])
+                self.assertIn("events_preview_truncated", bootstrap.structuredContent["data"]["gpt_wall_preview"])
+                self.assertEqual(
+                    bootstrap.structuredContent["data"]["canonical_tool_paths"]["bootstrap_context"],
+                    "/AutoStopCRM/bootstrap_context",
+                )
+                self.assertIn("request_id", bootstrap.structuredContent["meta"])
+                self.assertIn("latency_ms", bootstrap.structuredContent["meta"])
 
                 identity = await session.call_tool("get_connector_identity", {})
                 self.assertFalse(identity.isError)
@@ -308,7 +332,15 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     runtime_status.structuredContent["data"]["runtime_status"]["api_health"]["status"],
                     "ok",
                 )
+                self.assertIn("board_context_summary", runtime_status.structuredContent["data"]["runtime_status"])
+                self.assertEqual(runtime_status.structuredContent["data"]["schema_version"], "2026-04-13")
+                self.assertEqual(
+                    runtime_status.structuredContent["data"]["full_board_context_tool"],
+                    "get_board_context",
+                )
                 self.assertIn("[RUNTIME STATUS]", runtime_status.structuredContent["data"]["text"])
+                self.assertIn("request_id", runtime_status.structuredContent["meta"])
+                self.assertIn("latency_ms", runtime_status.structuredContent["meta"])
 
                 created_column = await session.call_tool("create_column", {"label": "ChatGPT", "actor_name": "РћРџР•Р РђРўРћР "})
                 self.assertFalse(created_column.isError)
