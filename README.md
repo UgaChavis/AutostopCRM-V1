@@ -1,330 +1,267 @@
-# Minimal Kanban
+# AutoStop CRM
 
-Локальная минималистичная kanban-доска для Windows с тёмным интерфейсом, локальным JSON API и отдельным MCP server для будущего и текущего управления из ChatGPT.
+AutoStop CRM is the current working product on branch `autostopCRM`.
 
-Проект решает две задачи:
+The repository still contains legacy technical names from the earlier `Minimal Kanban` stage. They are still valid and expected:
 
-1. Даёт обычное локальное приложение-доску для ежедневной работы.
-2. Даёт отдельный tool-based слой для ChatGPT: ChatGPT -> MCP -> локальный API доски -> изменение карточек и столбцов.
+- Python package: `minimal_kanban`
+- local data directory: `%APPDATA%\Minimal Kanban`
+- portable executable: `Start Kanban.exe`
+- some connector and MCP texts still use the `Minimal Kanban` name for backward compatibility
 
-## Что умеет программа
+## What This Branch Contains
 
-- карточки и столбцы
-- динамические столбцы
-- дедлайны с обратным отсчётом
-- автоматическая лампочка состояния `green / yellow / red`
-- архивирование карточек
-- локальное хранение состояния между перезапусками
-- локальный JSON API
-- отдельный MCP server для подключения к ChatGPT / Responses API / Apps SDK
+- desktop CRM application for workshop operators
+- kanban board with cards, custom columns, sticky notes, archive, unread and updated markers
+- local HTTP API for the UI, reverse proxy, and automation
+- MCP server for ChatGPT / OpenAI tools / connector workflows
+- separate AI agent runtime with task queue and scheduler
+- vehicle profiles and card autofill
+- repair orders with works, materials, payments, status flow, and text export
+- print module for repair-order documents and inspection sheets
+- operator authentication and admin user management
+- cashboxes, cash transactions, employees, and payroll reports
 
-## Архитектура
+## Runtime Modes
 
-Слои разделены и не дублируют друг друга:
+- Desktop application: [main.py](main.py)
+- MCP server only: [main_mcp.py](main_mcp.py)
+- Agent worker only: [main_agent.py](main_agent.py)
+- Containerized deployment: [docker-compose.yml](docker-compose.yml)
 
-- UI: [main_window.py](src/minimal_kanban/ui/main_window.py)
-- бизнес-логика: [card_service.py](src/minimal_kanban/services/card_service.py)
-- хранение: [json_store.py](src/minimal_kanban/storage/json_store.py)
-- локальный API: [server.py](src/minimal_kanban/api/server.py)
-- MCP adapter: [server.py](src/minimal_kanban/mcp/server.py), [client.py](src/minimal_kanban/mcp/client.py), [main.py](src/minimal_kanban/mcp/main.py)
+## Architecture
 
-Рабочая схема:
+The project is split into layered runtimes instead of mixing business logic into the UI.
 
 ```text
-ChatGPT / Responses API / Apps SDK
+Desktop UI / Browser UI
         ->
-remote MCP server
+local HTTP API
         ->
-локальный JSON API доски
+CardService + focused domain services
         ->
-CardService
+JsonStore / local state files
+
+ChatGPT / OpenAI / external MCP client
         ->
-JsonStore / state.json
+MCP server
         ->
-UI приложения видит актуальное состояние
+local HTTP API
+        ->
+same CardService and storage
+
+Agent scheduler / worker
+        ->
+local HTTP API and board context
+        ->
+safe tool execution and card updates
 ```
 
-## Стек
+## Code Map
 
-- Python 3.13
-- PySide6
-- PyInstaller
-- FastMCP / `mcp` Python SDK
-- стандартный `ThreadingHTTPServer` для локального API
-- JSON-файл состояния в `%APPDATA%\\Minimal Kanban`
+Core entrypoints and runtime assembly:
 
-## Структура проекта
+- [src/minimal_kanban/app.py](src/minimal_kanban/app.py): desktop bootstrap, splash screen, API startup, auth service, embedded agent worker, settings, MCP and tunnel controllers
+- [src/minimal_kanban/config.py](src/minimal_kanban/config.py): paths, ports, environment variables
+- [src/minimal_kanban/logging_setup.py](src/minimal_kanban/logging_setup.py): runtime logging
 
-- [main.py](main.py) — запуск обычного UI-приложения
-- [main_mcp.py](main_mcp.py) — запуск MCP server без UI
-- [scripts/run_mcp_server.ps1](scripts/run_mcp_server.ps1) — удобный Windows-запуск MCP server
-- [scripts/run_quality_pass.ps1](scripts/run_quality_pass.ps1) — полный локальный quality pass
-- [scripts/prepare_release.ps1](scripts/prepare_release.ps1) — подготовка portable release
-- [release/Start Kanban.exe](release/Start%20Kanban.exe) — portable-приложение
+Domain and storage:
 
-## Как запускать dev-режим
+- [src/minimal_kanban/models.py](src/minimal_kanban/models.py): cards, tags, attachments, stickies, cashboxes, employees, audit models
+- [src/minimal_kanban/vehicle_profile.py](src/minimal_kanban/vehicle_profile.py): vehicle profile schema and normalization
+- [src/minimal_kanban/repair_order.py](src/minimal_kanban/repair_order.py): repair-order domain model
+- [src/minimal_kanban/storage/json_store.py](src/minimal_kanban/storage/json_store.py): persistent JSON bundle storage
 
-Обычное приложение:
+Business logic:
 
-1. Откройте PowerShell в корне проекта.
-2. Выполните:
+- [src/minimal_kanban/services/card_service.py](src/minimal_kanban/services/card_service.py): main orchestration service
+- [src/minimal_kanban/services/column_service.py](src/minimal_kanban/services/column_service.py): column operations
+- [src/minimal_kanban/services/snapshot_service.py](src/minimal_kanban/services/snapshot_service.py): board snapshots, GPT wall, search, compact reads
+- [src/minimal_kanban/services/vehicle_profile_service.py](src/minimal_kanban/services/vehicle_profile_service.py): vehicle autofill normalization
+
+API and access control:
+
+- [src/minimal_kanban/api/server.py](src/minimal_kanban/api/server.py): local HTTP API, operator session gates, proxy-aware write protection
+- [src/minimal_kanban/operator_auth.py](src/minimal_kanban/operator_auth.py): operator login, admin users, session handling
+
+MCP layer:
+
+- [src/minimal_kanban/mcp/server.py](src/minimal_kanban/mcp/server.py): MCP tool surface
+- [src/minimal_kanban/mcp/client.py](src/minimal_kanban/mcp/client.py): HTTP client to local API
+- [src/minimal_kanban/mcp/runtime.py](src/minimal_kanban/mcp/runtime.py): MCP server runtime
+- [src/minimal_kanban/mcp/oauth_provider.py](src/minimal_kanban/mcp/oauth_provider.py): embedded OAuth metadata and provider logic
+
+Agent layer:
+
+- [src/minimal_kanban/agent/control.py](src/minimal_kanban/agent/control.py): task queue, scheduler, status, on-create handlers
+- [src/minimal_kanban/agent/runner.py](src/minimal_kanban/agent/runner.py): unified orchestration core, model loop, deterministic autofill executor, patch writer, verify stage
+- [src/minimal_kanban/agent/contracts.py](src/minimal_kanban/agent/contracts.py): evidence, plan, tool, patch, verify, and orchestration trace contracts
+- [src/minimal_kanban/agent/policy.py](src/minimal_kanban/agent/policy.py): scenario tool policy, required-tool gates, write-target rules
+- [src/minimal_kanban/agent/tools.py](src/minimal_kanban/agent/tools.py): bounded tool execution
+- [src/minimal_kanban/agent/automotive_tools.py](src/minimal_kanban/agent/automotive_tools.py): automotive research helpers
+- [src/minimal_kanban/agent/storage.py](src/minimal_kanban/agent/storage.py): queue, runs, actions, schedule persistence
+
+Printing and documents:
+
+- [src/minimal_kanban/printing/service.py](src/minimal_kanban/printing/service.py): print workspace, templates, preview, export
+- [src/minimal_kanban/printing/pdf.py](src/minimal_kanban/printing/pdf.py): PDF generation
+- [src/minimal_kanban/printing/template_engine.py](src/minimal_kanban/printing/template_engine.py): document rendering
+
+UI:
+
+- [src/minimal_kanban/ui/main_window.py](src/minimal_kanban/ui/main_window.py): desktop shell and operator workspace
+- [src/minimal_kanban/ui/settings_window.py](src/minimal_kanban/ui/settings_window.py): integration, MCP, auth, diagnostics settings
+- [src/minimal_kanban/web_assets.py](src/minimal_kanban/web_assets.py): browser-facing board UI HTML, CSS, and JS
+
+## Main API Capability Groups
+
+The local API is broader than the original board-only stage. Current route groups include:
+
+- board and card operations
+- compact board snapshots and GPT wall
+- repair-order CRUD and status transitions
+- inspection sheet forms
+- print preview, PDF export, and template management
+- cashboxes and cash transactions
+- employees and payroll
+- operator auth and user management
+- agent status, runs, tasks, and schedules
+
+The main API implementation lives in [src/minimal_kanban/api/server.py](src/minimal_kanban/api/server.py). Detailed payload docs are in [API_GUIDE.md](API_GUIDE.md).
+
+## MCP Capability Groups
+
+The MCP server exposes the current AutoStop CRM board and services as tools over the local API. In addition to board operations, the current tool surface includes:
+
+- bootstrap and runtime diagnostics
+- board review and GPT wall
+- cashbox access
+- repair-order access and updates
+- agent queue and schedule control
+- autofill toggles and bounded data-enrichment actions
+
+See [MCP_GUIDE.md](MCP_GUIDE.md) and [src/minimal_kanban/mcp/server.py](src/minimal_kanban/mcp/server.py).
+
+## AI Agent
+
+The AI agent is a bounded operational worker, not a free-form UI bot.
+
+Current server behavior is built around one orchestration framework:
+
+- `read -> evidence -> plan -> tools -> patch -> write -> verify`
+- one shared run trace in agent runs
+- policy-gated required tools for VIN / parts / DTC / maintenance scenarios
+- patch-only writes through the runner contract layer
+- read-after-write verification before success is recorded
+- follow-up ownership kept in the server autofill flow and `CardService`
+
+It supports:
+
+- manual queue tasks
+- scheduled tasks
+- on-create automations
+- card autofill orchestration with explicit scenario selection
+- model-loop tasks that now still run through the same evidence / plan / policy / verify contract
+- controlled use of automotive web tools and card updates
+
+Relevant docs:
+
+- [GPT_AGENT_04_SERVER_AGENT_API_AND_COMMANDS.txt](GPT_AGENT_04_SERVER_AGENT_API_AND_COMMANDS.txt)
+- [GPT_AGENT_09_MCP_COMMAND_CATALOG.md](GPT_AGENT_09_MCP_COMMAND_CATALOG.md)
+- [GPT_AGENT_10_MCP_OPERATION_FLOWS.md](GPT_AGENT_10_MCP_OPERATION_FLOWS.md)
+- [GPT_AGENT_11_AGENT_AUTOFILL_ORCHESTRATION.md](GPT_AGENT_11_AGENT_AUTOFILL_ORCHESTRATION.md)
+
+## Local Development
+
+Desktop app:
 
 ```powershell
 .\scripts\run_dev.ps1
 ```
 
-MCP server без UI:
-
-1. Откройте PowerShell в корне проекта.
-2. Выполните:
+MCP server only:
 
 ```powershell
 .\scripts\run_mcp_server.ps1
 ```
 
-Поведение MCP server:
-
-- сначала он пытается найти уже запущенный локальный API доски
-- если API уже работает, MCP использует его
-- если API не найден, MCP server сам поднимает скрытый backend на той же логике и том же хранилище
-
-## Как собирать production build
+Agent only:
 
 ```powershell
-.\scripts\build_app.ps1
+.\.venv\Scripts\python.exe main_agent.py
 ```
 
-Результат появляется в `dist\MinimalKanban`.
+## Tests and Verification
 
-## Как собирать portable release
+Main regression run:
 
 ```powershell
-.\scripts\prepare_release.ps1
+.\.venv\Scripts\python.exe -m unittest discover -s .\tests -v
 ```
 
-Главный пользовательский файл после сборки:
-
-- [Start Kanban.exe](release/Start%20Kanban.exe)
-
-## Где хранятся данные
-
-По умолчанию:
-
-- `%APPDATA%\Minimal Kanban\state.json`
-- `%APPDATA%\Minimal Kanban\logs\minimal-kanban.log`
-
-Важно:
-
-- карточки, столбцы, дедлайны и архив сохраняются между перезапусками
-- для повышения устойчивости добавлен межпроцессный lock-файл `state.lock`
-
-## Как устроен локальный API
-
-Локальный API работает на `127.0.0.1` и по умолчанию стартует с порта `41731`.
-
-Основные endpoint-ы:
-
-- `create_card`
-- `get_cards`
-- `get_card`
-- `update_card`
-- `set_card_deadline`
-- `set_card_indicator`
-- `move_card`
-- `archive_card`
-- `list_columns`
-- `create_column`
-- `list_overdue_cards`
-
-Подробности: [API_GUIDE.md](API_GUIDE.md)
-
-## Как устроен MCP server
-
-MCP server поднимает удалённые инструменты поверх текущего backend-а и не содержит внутри себя отдельной логики доски.
-
-Доступные MCP tools:
-
-- `list_columns`
-- `create_column`
-- `get_cards`
-- `get_card`
-- `create_card`
-- `update_card`
-- `move_card`
-- `archive_card`
-- `set_card_indicator`
-- `set_card_deadline`
-- `list_overdue_cards`
-
-Подробности:
-
-- [MCP_GUIDE.md](MCP_GUIDE.md)
-- [CHATGPT_CONNECT_GUIDE.md](CHATGPT_CONNECT_GUIDE.md)
-- [mcp-tools-example.json](mcp-tools-example.json)
-
-## Подготовка к будущей интеграции с ChatGPT
-
-Проект уже подготовлен к tool-based управлению:
-
-- используется отдельный remote MCP layer
-- tool names короткие и предсказуемые
-- backend не зашит в UI
-- есть отдельный JSON API и отдельный MCP adapter
-- есть примеры для OpenAI / Responses API
-
-Полезные ссылки по актуальному стеку OpenAI:
-
-- OpenAI MCP guide: [developers.openai.com/api/docs/mcp](https://developers.openai.com/api/docs/mcp)
-- OpenAI MCP and connectors guide: [developers.openai.com/api/docs/guides/tools-connectors-mcp](https://developers.openai.com/api/docs/guides/tools-connectors-mcp)
-
-Что уже реализовано под этот этап:
-
-- remote MCP server на FastMCP
-- tool mapping на существующий backend
-- bearer token для локального API
-- bearer token для MCP server
-- подробные инструкции по tunnel и подключению из ChatGPT
-
-Что пока не реализовано:
-
-- полноценный OAuth provider для ChatGPT app auth
-
-Важно:
-
-- OpenAI в актуальных документах рекомендует OAuth и dynamic client registration для публичных remote MCP server
-- текущая реализация уже годится для локальной разработки, тестов, Responses API и dev tunnel-сценариев
-- следующим этапом для production-grade подключения в ChatGPT workspace должен стать OAuth flow
-
-## Полезные переменные окружения
-
-Локальный API:
-
-- `MINIMAL_KANBAN_API_HOST`
-- `MINIMAL_KANBAN_API_PORT`
-- `MINIMAL_KANBAN_API_PORT_FALLBACK_LIMIT`
-- `MINIMAL_KANBAN_API_BEARER_TOKEN`
-
-MCP server:
-
-- `MINIMAL_KANBAN_MCP_HOST`
-- `MINIMAL_KANBAN_MCP_PORT`
-- `MINIMAL_KANBAN_MCP_PORT_FALLBACK_LIMIT`
-- `MINIMAL_KANBAN_MCP_PATH`
-- `MINIMAL_KANBAN_MCP_BEARER_TOKEN`
-- `MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL`
-- `MINIMAL_KANBAN_BOARD_API_URL`
-
-## Настройки интеграции
-
-В приложении появился отдельный settings-layer для ChatGPT / OpenAI / MCP. Он не смешан с `state.json` карточек и вынесен в отдельные слои:
-
-- модель настроек: `src/minimal_kanban/settings_models.py`
-- хранение настроек: `src/minimal_kanban/settings_store.py`
-- сервис настроек: `src/minimal_kanban/settings_service.py`
-- окно настроек: `src/minimal_kanban/ui/settings_window.py`
-
-Главная кнопка настроек находится в правом верхнем углу главного окна и выглядит как неброская шестерёнка.
-
-Что можно настраивать:
-
-- включение интеграции
-- использование локального API
-- host и port локального API
-- bearer token локального API
-- provider, model, base URL, organization ID, project ID и timeout для OpenAI-совместимого API
-- включение MCP
-- host, port и path MCP
-- локальный MCP endpoint
-- публичный HTTPS-адрес или адрес туннеля
-- bearer token MCP
-- авто-подключение при запуске
-- тестовый режим
-
-Файл настроек:
-
-- `%APPDATA%\Minimal Kanban\settings.json`
-
-Рядом с ним могут появляться:
-
-- `%APPDATA%\Minimal Kanban\settings.lock`
-- `%APPDATA%\Minimal Kanban\settings.corrupted.json`
-
-Поведение:
-
-- `settings.json` сохраняется отдельно от `state.json`
-- при повреждении `settings.json` приложение не падает и возвращается к безопасным значениям по умолчанию
-- секреты скрыты в интерфейсе по умолчанию
-- секреты не логируются открытым текстом
-- текущий запущенный локальный API не перенастраивается "на лету"; изменения host, port и токенов применяются к следующим запускам и внешним подключениям
-
-## Test connection
-
-В окне настроек доступны отдельные кнопки:
-
-- `Проверить локальный API`
-- `Проверить MCP`
-- `Проверить внешний endpoint`
-- `Проверить OpenAI`
-- `Проверить всё`
-
-Они проверяют:
-
-- локальный API доски через `/api/health`
-- локальный MCP через реальное MCP-подключение и `tools/list`
-- внешний MCP endpoint через реальное MCP-подключение и `tools/list`
-- OpenAI-совместимый endpoint через запрос к `/models`
-
-Результаты проверки сохраняются в секции `Диагностика / Status` внутри окна настроек. В конфигурации хранится время последней проверки и отдельные статусы для локального API, локального MCP, внешнего endpoint и OpenAI-compatible endpoint.
-
-## Ограничения безопасности настроек
-
-На текущем этапе:
-
-- `OpenAI API key` и bearer token-ы сохраняются в `settings.json` без системного шифрования
-- полноценный OAuth flow ещё не реализован
-- интеграция с Windows Credential Manager и DPAPI только подготовлена архитектурно, но пока не включена
-- при необходимости жёстких требований к безопасности следующий этап должен вынести секреты из `settings.json` в системное secure storage
-
-## Проверка качества
-
-Быстрый локальный прогон:
+Full quality pass:
 
 ```powershell
 .\scripts\run_quality_pass.ps1
 ```
 
-Что проверяется:
+Important test areas:
 
-- unit tests
-- UI smoke tests
-- API tests
-- MCP integration tests
-- portable build
-- post-build verification
+- API: [tests/test_api.py](tests/test_api.py)
+- service layer: [tests/test_service.py](tests/test_service.py)
+- MCP: [tests/test_mcp.py](tests/test_mcp.py), [tests/test_mcp_main.py](tests/test_mcp_main.py)
+- agent: [tests/test_agent.py](tests/test_agent.py)
+- printing: [tests/test_printing_service.py](tests/test_printing_service.py)
+- settings and UI: [tests/test_settings_service.py](tests/test_settings_service.py), [tests/test_settings_ui.py](tests/test_settings_ui.py), [tests/test_ui_smoke.py](tests/test_ui_smoke.py)
 
-Отчёт по последнему этапу: [TEST_REPORT.md](TEST_REPORT.md)
+## Data Paths
 
-## Подключение к GPT-агенту
+Desktop and local runtime:
 
-Для текущего этапа в проект добавлено полноценное окно `Настройки интеграции` с явными полями для:
-
-- локального API;
-- MCP host / port / path;
-- public HTTPS URL;
-- tunnel URL;
-- полного MCP URL;
-- auth mode;
-- bearer token локального API;
-- bearer token MCP;
-- access token;
-- OpenAI API key;
-- provider / model / base URL / organization / project / timeout.
-
-Все критичные URL и токены видны из интерфейса и копируются отдельной кнопкой. Настройки хранятся отдельно от карточек:
-
+- `%APPDATA%\Minimal Kanban\state.json`
 - `%APPDATA%\Minimal Kanban\settings.json`
+- `%APPDATA%\Minimal Kanban\attachments`
+- `%APPDATA%\Minimal Kanban\repair-orders`
+- `%APPDATA%\Minimal Kanban\logs\minimal-kanban.log`
 
-Подробная пошаговая инструкция по выводу программы в интернет и подключению GPT-агента находится в:
+Docker deployment:
 
-- [CONNECT_GPT_AGENT.md](CONNECT_GPT_AGENT.md)
-- [INTERNET_PUBLISH_GUIDE.md](INTERNET_PUBLISH_GUIDE.md)
+- host data directory: `./data`
+- container data directory: `/root/.minimal-kanban`
+
+## Deployment
+
+Server deployment is centered around branch `autostopCRM`.
+
+Main files:
+
+- [deploy.sh](deploy.sh)
+- [docker-compose.yml](docker-compose.yml)
+- [Dockerfile](Dockerfile)
+- [AUTOSTOPCRM_FULL_INSTRUCTION.txt](AUTOSTOPCRM_FULL_INSTRUCTION.txt)
+
+The production compose stack currently has two services:
+
+- `autostopcrm`: main app, local API, MCP
+- `autostopcrm-agent`: separate agent worker
+
+## Documentation Map
+
+С чего начать:
+
+- [README.md](README.md): current project overview
+- [AUTOSTOPCRM_FULL_INSTRUCTION.txt](AUTOSTOPCRM_FULL_INSTRUCTION.txt): server and deployment operations
+- [API_GUIDE.md](API_GUIDE.md): local API contract
+- [MCP_GUIDE.md](MCP_GUIDE.md): MCP architecture and runtime behavior
+- [README_SETTINGS.md](README_SETTINGS.md): integration settings model
+
+Additional focused docs:
+
+- `CHATGPT_*`, `CONNECT_GPT_AGENT.md`, `GPT_AGENT_*`
+- these files describe connector behavior, operator workflows, and agent playbooks
+- some of them still use the legacy `Minimal Kanban` connector name because the connector and local storage names were kept compatible
+
+## Current Branch Policy
+
+- working branch: `autostopCRM`
+- `autostopCRM-V2` is a separate line and is not the active production branch for this repository state

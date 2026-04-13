@@ -18,8 +18,10 @@ from .config import (
     get_agent_openai_model,
     get_agent_poll_interval_seconds,
 )
+from .contracts import EvidenceResult, OrchestrationTrace, PatchResult, PlanResult, ToolResult, VerifyResult
 from .instructions import build_default_system_prompt
 from .openai_client import AgentModelError, OpenAIJsonAgentClient
+from .policy import ToolPolicyEngine
 from .storage import AgentStorage
 from .tools import AgentToolExecutor
 
@@ -114,6 +116,7 @@ class AgentRunner:
         self._max_steps = max_steps or get_agent_max_steps()
         self._max_tool_result_chars = max_tool_result_chars or get_agent_max_tool_result_chars()
         self._tools = AgentToolExecutor(board_api, actor_name=self._actor_name)
+        self._policy = ToolPolicyEngine()
 
     def run_once(self) -> bool:
         task = self._storage.claim_next_task()
@@ -132,7 +135,7 @@ class AgentRunner:
         tool_calls = 0
         started_at = utc_now_iso()
         try:
-            summary, result, display, tool_calls = self._execute_task(task, run_id=run_id)
+            summary, result, display, tool_calls, orchestration = self._execute_task(task, run_id=run_id)
             completed = self._storage.complete_task(
                 task_id=task["id"],
                 run_id=run_id,
@@ -157,6 +160,7 @@ class AgentRunner:
                     "tool_calls": tool_calls,
                     "model": self._model_client.model,
                     "metadata": task.get("metadata", {}),
+                    "orchestration": orchestration,
                 }
             )
             self._storage.update_status(
@@ -213,39 +217,35 @@ class AgentRunner:
             self._logger.exception("agent_task_failed task_id=%s run_id=%s error=%s", task["id"], run_id, exc)
             return True
 
-    def _execute_task(self, task: dict[str, Any], *, run_id: str) -> tuple[str, str, dict[str, Any], int]:
+    def _execute_task(self, task: dict[str, Any], *, run_id: str) -> tuple[str, str, dict[str, Any], int, dict[str, Any]]:
         metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
-        autofill_task = str(metadata.get("purpose", "") or "").strip().lower() == "card_autofill"
         self._tools.reset_task_budget()
-        if autofill_task:
-            return self._execute_card_autofill_task(task, run_id=run_id, metadata=metadata)
-        prompt_override = self._storage.read_prompt_text().strip()
-        memory_text = self._storage.read_memory_text().strip()
-        system_prompt = DEFAULT_SYSTEM_PROMPT
-        if prompt_override and prompt_override != DEFAULT_SYSTEM_PROMPT:
-            system_prompt = f"{system_prompt}\n\nLocal instructions:\n{prompt_override}"
-        if memory_text:
-            system_prompt = f"{system_prompt}\n\nPersistent memory:\n{memory_text}"
         task_type = self._classify_task(task, metadata)
         context_kind = self._context_kind(metadata)
-        system_prompt = (
-            f"{system_prompt}\n\nAvailable tools:\n"
-            f"{self._tools.describe_for_prompt(task_type=task_type, context_kind=context_kind)}"
+        return self._execute_orchestrated_task(
+            task,
+            run_id=run_id,
+            metadata=metadata,
+            task_type=task_type,
+            context_kind=context_kind,
         )
-        cleanup_task = task_type == "card_cleanup"
-        cleanup_card_id = self._cleanup_card_id(metadata)
-        cleanup_update_applied = False
-        cleanup_apply_prompt_sent = False
-        applied_updates: list[str] = []
-        messages: list[dict[str, str]] = [
-            {
-                "role": "user",
-                "content": self._build_user_task_message(task, metadata, task_type=task_type),
-            }
-        ]
+
+    def _execute_orchestrated_task(
+        self,
+        task: dict[str, Any],
+        *,
+        run_id: str,
+        metadata: dict[str, Any],
+        task_type: str,
+        context_kind: str,
+    ) -> tuple[str, str, dict[str, Any], int, dict[str, Any]]:
+        task_id = str(task.get("id", "") or "").strip()
         tool_calls = 0
+        context_payload: dict[str, Any] = {}
+        context_data: dict[str, Any] = {}
+        context_snapshot_id = f"ctx:{task_id}:board"
         self._record_log_action(
-            task_id=task["id"],
+            task_id=task_id,
             run_id=run_id,
             step=0,
             level="RUN",
@@ -253,13 +253,270 @@ class AgentRunner:
             message=self._task_started_message(metadata),
         )
         self._record_log_action(
-            task_id=task["id"],
+            task_id=task_id,
             run_id=run_id,
             step=0,
             level="INFO",
             phase="analysis",
             message=self._task_analysis_message(metadata),
         )
+        if self._should_preload_context(task_type=task_type, metadata=metadata, context_kind=context_kind):
+            card_id = self._cleanup_card_id(metadata) or str(metadata.get("card_id", "") or "").strip()
+            context_args = {"card_id": card_id, "event_limit": 20, "include_repair_order_text": True}
+            context_tool_name, context_payload = self._load_card_autofill_context(card_id=card_id, context_args=context_args)
+            context_data = self._response_data(context_payload)
+            context_snapshot_id = self._build_context_snapshot_id(task_id=task_id, card_id=card_id, context_tool_name=context_tool_name)
+            tool_calls += 1
+            self._record_action(
+                task_id=task_id,
+                run_id=run_id,
+                step=tool_calls,
+                tool_name=context_tool_name,
+                args=context_args if context_tool_name == "get_card_context" else {"card_id": card_id},
+                reason="Read focused context before evidence extraction and planning",
+                result_payload=context_payload,
+            )
+        evidence_result, facts = self._build_orchestration_evidence(
+            task=task,
+            metadata=metadata,
+            task_type=task_type,
+            context_kind=context_kind,
+            context_data=context_data,
+            raw_context_ref=context_snapshot_id,
+        )
+        plan = self._build_orchestration_plan(
+            metadata=metadata,
+            task_type=task_type,
+            context_kind=context_kind,
+            evidence=evidence_result,
+            facts=facts,
+        )
+        if plan.execution_mode == "structured_card":
+            summary, result, display, delta, tool_results, patch_result, verify_result = self._execute_card_autofill_task(
+                task,
+                run_id=run_id,
+                metadata=metadata,
+                facts=facts,
+                plan=plan,
+            )
+        else:
+            summary, result, display, delta, tool_results, patch_result, verify_result = self._execute_decision_loop_task(
+                task,
+                run_id=run_id,
+                metadata=metadata,
+                task_type=task_type,
+                context_kind=context_kind,
+                evidence=evidence_result,
+                plan=plan,
+                preloaded_context=context_payload,
+            )
+        tool_calls += delta
+        trace = OrchestrationTrace(
+            version="agent_orchestrator_v1",
+            trigger={
+                "task_id": task_id,
+                "source": str(task.get("source", "") or "").strip(),
+                "mode": str(task.get("mode", "") or "").strip(),
+                "purpose": str(metadata.get("purpose", "") or "").strip(),
+                "task_type": task_type,
+                "requested_by": str(metadata.get("requested_by", "") or "").strip(),
+            },
+            context_snapshot_id=context_snapshot_id,
+            evidence=evidence_result,
+            plan=plan,
+            tool_results=tool_results,
+            patch=patch_result,
+            verify=verify_result,
+        )
+        return summary, result, display, tool_calls, trace.to_dict()
+
+    def _should_preload_context(self, *, task_type: str, metadata: dict[str, Any], context_kind: str) -> bool:
+        if str(metadata.get("purpose", "") or "").strip().lower() == "card_autofill":
+            return True
+        if context_kind == "card":
+            return True
+        return task_type in {"card_cleanup", "vin_decode", "parts_lookup", "maintenance_estimate", "dtc_lookup", "repair_order_assist"}
+
+    def _build_context_snapshot_id(self, *, task_id: str, card_id: str, context_tool_name: str) -> str:
+        normalized_card_id = str(card_id or "").strip() or "board"
+        return f"ctx:{task_id}:{normalized_card_id}:{context_tool_name}"
+
+    def _build_orchestration_evidence(
+        self,
+        *,
+        task: dict[str, Any],
+        metadata: dict[str, Any],
+        task_type: str,
+        context_kind: str,
+        context_data: dict[str, Any],
+        raw_context_ref: str,
+    ) -> tuple[EvidenceResult, dict[str, Any]]:
+        allowed_write_targets = self._suggest_allowed_write_targets(task_type=task_type, context_kind=context_kind)
+        if context_kind == "card" and context_data:
+            facts = self._analyze_card_autofill_context(context_data, task_text=str(task.get("task_text", "") or ""))
+            facts["task_type"] = task_type
+            facts["context_kind"] = context_kind
+            autofill_plan = self._build_card_autofill_plan(facts)
+            facts["autofill_plan"] = autofill_plan
+            facts["selected_scenarios"] = autofill_plan.get("scenarios", [])
+            confirmed_facts = {
+                "vin": str(facts.get("vin", "") or "").strip(),
+                "mileage": str(facts.get("mileage", "") or "").strip(),
+                "dtc_codes": list(facts.get("dtc_codes") or [])[:3],
+                "part_queries": list(facts.get("part_queries") or [])[:3],
+                "waiting_state": bool(facts.get("waiting_state")),
+                "vehicle_context": dict(facts.get("vehicle_context") or {}),
+            }
+            summary_bits = [
+                f"task_type={task_type}",
+                f"vin={'yes' if confirmed_facts['vin'] else 'no'}",
+                f"dtc={len(confirmed_facts['dtc_codes'])}",
+                f"parts={len(confirmed_facts['part_queries'])}",
+            ]
+            evidence_result = EvidenceResult(
+                context_kind=context_kind,
+                card_id=self._cleanup_card_id(metadata),
+                confirmed_facts=confirmed_facts,
+                missing_data=list(facts.get("missing_vehicle_fields") or []),
+                scenario_signals=dict(facts.get("scenario_evidence") or {}),
+                sensitive_fields=["prices", "part_numbers", "customer_notes", "manual_vehicle_fields"],
+                allowed_write_targets=allowed_write_targets,
+                summary=", ".join(summary_bits),
+                raw_context_ref=raw_context_ref,
+            )
+            return evidence_result, facts
+        generic_facts = {"task_type": task_type, "context_kind": context_kind}
+        evidence_result = EvidenceResult(
+            context_kind=context_kind or "board",
+            confirmed_facts={"task_type": task_type, "mode": str(task.get("mode", "") or "").strip()},
+            missing_data=[],
+            scenario_signals={},
+            sensitive_fields=["cash_amounts", "manual_notes"],
+            allowed_write_targets=allowed_write_targets,
+            summary=f"task_type={task_type}, context={context_kind or 'board'}",
+            raw_context_ref=raw_context_ref,
+        )
+        return evidence_result, generic_facts
+
+    def _build_orchestration_plan(
+        self,
+        *,
+        metadata: dict[str, Any],
+        task_type: str,
+        context_kind: str,
+        evidence: EvidenceResult,
+        facts: dict[str, Any],
+    ) -> PlanResult:
+        scenario_chain = self._scenario_chain_for_task(
+            metadata=metadata,
+            task_type=task_type,
+            context_kind=context_kind,
+            facts=facts,
+        )
+        notes: list[str] = []
+        if evidence.missing_data:
+            notes.append("missing_data:" + ", ".join(evidence.missing_data[:4]))
+        if str(metadata.get("purpose", "") or "").strip().lower() == "card_autofill":
+            notes.append("followup_owner=card_service")
+            execution_mode = "structured_card"
+        else:
+            execution_mode = "model_loop"
+        return self._policy.build_plan(
+            scenario_chain=scenario_chain,
+            execution_mode=execution_mode,
+            followup_enabled=bool(str(metadata.get("purpose", "") or "").strip().lower() == "card_autofill"),
+            notes=notes,
+        )
+
+    def _scenario_chain_for_task(
+        self,
+        *,
+        metadata: dict[str, Any],
+        task_type: str,
+        context_kind: str,
+        facts: dict[str, Any],
+    ) -> list[str]:
+        purpose = str(metadata.get("purpose", "") or "").strip().lower()
+        autofill_plan = facts.get("autofill_plan") if isinstance(facts.get("autofill_plan"), dict) else {}
+        autofill_scenarios = [
+            str(item.get("name", "") or "").strip().lower()
+            for item in (autofill_plan.get("scenarios") if isinstance(autofill_plan.get("scenarios"), list) else [])
+            if isinstance(item, dict) and str(item.get("name", "") or "").strip()
+        ]
+        if purpose == "card_autofill":
+            return autofill_scenarios or ["normalization"]
+        if task_type == "board_review":
+            return ["board_review"]
+        if task_type == "cash_review":
+            return ["cash_review"]
+        if task_type == "repair_order_assist":
+            return ["repair_order_assistance"]
+        if context_kind == "card":
+            if task_type == "vin_decode":
+                return [item for item in autofill_scenarios if item in {"vin_enrichment", "normalization"}] or ["vin_enrichment", "normalization"]
+            if task_type == "parts_lookup":
+                return [item for item in autofill_scenarios if item in {"vin_enrichment", "parts_lookup", "normalization"}] or ["parts_lookup", "normalization"]
+            if task_type == "maintenance_estimate":
+                return [item for item in autofill_scenarios if item in {"vin_enrichment", "maintenance_lookup", "normalization"}] or ["maintenance_lookup", "normalization"]
+            if task_type == "dtc_lookup":
+                return [item for item in autofill_scenarios if item in {"dtc_lookup", "fault_research", "normalization"}] or ["dtc_lookup", "normalization"]
+            if task_type == "card_cleanup":
+                return autofill_scenarios or ["normalization"]
+        return ["freeform_manual"]
+
+    def _suggest_allowed_write_targets(self, *, task_type: str, context_kind: str) -> list[str]:
+        if context_kind == "card":
+            if task_type == "repair_order_assist":
+                return ["description", "repair_order", "repair_order_works", "repair_order_materials"]
+            return ["title", "description", "tags", "vehicle", "vehicle_profile"]
+        return []
+
+    def _execute_decision_loop_task(
+        self,
+        task: dict[str, Any],
+        *,
+        run_id: str,
+        metadata: dict[str, Any],
+        task_type: str,
+        context_kind: str,
+        evidence: EvidenceResult,
+        plan: PlanResult,
+        preloaded_context: dict[str, Any] | None = None,
+    ) -> tuple[str, str, dict[str, Any], int, list[ToolResult], PatchResult, VerifyResult]:
+        prompt_override = self._storage.read_prompt_text().strip()
+        memory_text = self._storage.read_memory_text().strip()
+        system_prompt = DEFAULT_SYSTEM_PROMPT
+        if prompt_override and prompt_override != DEFAULT_SYSTEM_PROMPT:
+            system_prompt = f"{system_prompt}\n\nLocal instructions:\n{prompt_override}"
+        if memory_text:
+            system_prompt = f"{system_prompt}\n\nPersistent memory:\n{memory_text}"
+        system_prompt = (
+            f"{system_prompt}\n\nAvailable tools:\n"
+            f"{self._tools.describe_for_prompt(task_type=task_type, context_kind=context_kind)}"
+        )
+        system_prompt = f"{system_prompt}\n\n{self._contract_prompt_block(plan=plan, evidence=evidence)}"
+        cleanup_task = task_type == "card_cleanup"
+        cleanup_card_id = self._cleanup_card_id(metadata)
+        cleanup_update_applied = False
+        cleanup_apply_prompt_sent = False
+        applied_updates: list[str] = []
+        tool_results: list[ToolResult] = []
+        patch_result = PatchResult()
+        verify_result = VerifyResult(applied_ok=False)
+        messages: list[dict[str, str]] = [
+            {
+                "role": "user",
+                "content": self._build_user_task_message(task, metadata, task_type=task_type),
+            }
+        ]
+        if preloaded_context:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"READ CONTEXT SNAPSHOT:\n{self._tool_result_for_model('get_card_context', preloaded_context)}",
+                }
+            )
+        tool_calls = 0
         for step in range(1, self._max_steps + 1):
             self._storage.heartbeat(task_id=task["id"], run_id=run_id)
             decision = self._model_client.next_step(system_prompt=system_prompt, messages=messages)
@@ -267,12 +524,26 @@ class AgentRunner:
             if decision_type == "final":
                 apply_args = self._extract_card_update_apply(decision, cleanup_card_id=cleanup_card_id)
                 if apply_args is not None:
-                    if autofill_task:
-                        apply_args = self._normalize_card_autofill_update(apply_args)
                     tool_calls += 1
-                    apply_result = self._tools.execute("update_card", apply_args)
+                    apply_args, apply_result, current_patch, verify_result = self._execute_contract_write_tool(
+                        tool_name="update_card",
+                        args=apply_args,
+                        plan=plan,
+                        cleanup_card_id=cleanup_card_id,
+                    )
+                    patch_result = self._merge_patch_results(patch_result, current_patch)
                     cleanup_update_applied = True
                     applied_updates.extend(self._summarize_applied_update(apply_args, apply_result))
+                    tool_results.append(
+                        self._build_tool_result(
+                            "update_card",
+                            apply_result,
+                            status="success",
+                            reason="Runner applied structured card update from final response",
+                            scenario_id=plan.scenario_id,
+                            evidence_ref=evidence.raw_context_ref,
+                        )
+                    )
                     self._record_action(
                         task_id=task["id"],
                         run_id=run_id,
@@ -291,6 +562,19 @@ class AgentRunner:
                     )
                     cleanup_apply_prompt_sent = True
                     continue
+                missing_required = self._policy.missing_required_tools(plan, tool_results)
+                if missing_required:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Policy gate: before the final answer you must execute the required tools for the current scenario: "
+                                + ", ".join(missing_required)
+                                + "."
+                            ),
+                        }
+                    )
+                    continue
                 summary = str(decision.get("summary", "") or "").strip() or "Task completed."
                 result = str(decision.get("result", "") or "").strip() or summary
                 display = self._normalize_display_payload(decision, summary=summary, result=result)
@@ -303,7 +587,8 @@ class AgentRunner:
                     phase="completed",
                     message=self._task_completed_message(metadata, summary=summary, applied_updates=applied_updates),
                 )
-                return summary, result, display, tool_calls
+                verify_result = self._finalize_verify_result(plan=plan, verify=verify_result, tool_results=tool_results)
+                return summary, result, display, tool_calls, tool_results, patch_result, verify_result
             if decision_type != "tool":
                 raise AgentModelError("Agent model returned neither a tool call nor a final answer.")
             tool_name = str(decision.get("tool", "") or "").strip()
@@ -312,12 +597,29 @@ class AgentRunner:
                 args = {}
             reason = str(decision.get("reason", "") or "").strip()
             tool_calls += 1
-            if autofill_task and tool_name == "update_card":
-                args = self._normalize_card_autofill_update(args)
-            result_payload = self._tools.execute(tool_name, args)
+            if tool_name in {"update_card", "update_repair_order", "replace_repair_order_works", "replace_repair_order_materials"}:
+                args, result_payload, current_patch, verify_result = self._execute_contract_write_tool(
+                    tool_name=tool_name,
+                    args=args,
+                    plan=plan,
+                    cleanup_card_id=cleanup_card_id,
+                )
+                patch_result = self._merge_patch_results(patch_result, current_patch)
+            else:
+                result_payload = self._tools.execute(tool_name, args)
             if cleanup_task and tool_name == "update_card" and str(args.get("card_id", "") or "").strip() == cleanup_card_id:
                 cleanup_update_applied = True
                 applied_updates.extend(self._summarize_applied_update(args, result_payload))
+            tool_results.append(
+                self._build_tool_result(
+                    tool_name,
+                    result_payload,
+                    status="success",
+                    reason=reason,
+                    scenario_id=plan.scenario_id,
+                    evidence_ref=evidence.raw_context_ref,
+                )
+            )
             self._record_action(
                 task_id=task["id"],
                 run_id=run_id,
@@ -350,42 +652,15 @@ class AgentRunner:
         *,
         run_id: str,
         metadata: dict[str, Any],
-    ) -> tuple[str, str, dict[str, Any], int]:
+        facts: dict[str, Any],
+        plan: PlanResult,
+    ) -> tuple[str, str, dict[str, Any], int, list[ToolResult], PatchResult, VerifyResult]:
         card_id = self._cleanup_card_id(metadata) or str(metadata.get("card_id", "") or "").strip()
         if not card_id:
             raise AgentModelError("card_autofill task requires metadata.context.card_id.")
         tool_calls = 0
         applied_updates: list[str] = []
-        self._record_log_action(
-            task_id=task["id"],
-            run_id=run_id,
-            step=0,
-            level="RUN",
-            phase="start",
-            message=self._task_started_message(metadata),
-        )
-        self._record_log_action(
-            task_id=task["id"],
-            run_id=run_id,
-            step=0,
-            level="INFO",
-            phase="analysis",
-            message=self._task_analysis_message(metadata),
-        )
-        context_args = {"card_id": card_id, "event_limit": 20, "include_repair_order_text": True}
-        context_tool_name, context_payload = self._load_card_autofill_context(card_id=card_id, context_args=context_args)
-        tool_calls += 1
-        self._record_action(
-            task_id=task["id"],
-            run_id=run_id,
-            step=tool_calls,
-            tool_name=context_tool_name,
-            args=context_args if context_tool_name == "get_card_context" else {"card_id": card_id},
-            reason="Read current card context for deterministic autofill orchestration",
-            result_payload=context_payload,
-        )
-        context_data = self._response_data(context_payload)
-        facts = self._analyze_card_autofill_context(context_data, task_text=str(task.get("task_text", "") or ""))
+        tool_results: list[ToolResult] = []
         if facts.get("vin"):
             self._record_log_action(
                 task_id=task["id"],
@@ -425,10 +700,12 @@ class AgentRunner:
                     phase="analysis",
                     message=f"Контекст доски: найдено связанных карточек — {len(facts['related_cards'])}.",
                 )
-        plan = self._build_card_autofill_plan(facts)
-        scenarios = plan["scenarios"]
-        facts["selected_scenarios"] = scenarios
-        facts["autofill_plan"] = plan
+        plan_payload = facts.get("autofill_plan") if isinstance(facts.get("autofill_plan"), dict) else {}
+        scenarios = plan_payload.get("scenarios") if isinstance(plan_payload.get("scenarios"), list) else []
+        if not scenarios:
+            scenarios = [{"name": name, "label": str(name or "").upper(), "cost": 0} for name in plan.scenario_chain]
+            facts["selected_scenarios"] = scenarios
+            facts["autofill_plan"] = {"scenarios": scenarios, "skipped": [], "budget_left": 0}
         self._record_log_action(
             task_id=task["id"],
             run_id=run_id,
@@ -477,6 +754,16 @@ class AgentRunner:
                 else:
                     tool_calls += 1
                     orchestration_results["decode_vin"] = self._response_data(vin_payload) or vin_payload
+                    tool_results.append(
+                        self._build_tool_result(
+                            "decode_vin",
+                            vin_payload,
+                            status="success",
+                            reason="Decode VIN first and reuse the confirmed vehicle facts in later lookup steps",
+                            scenario_id="vin_enrichment",
+                            evidence_ref="vin",
+                        )
+                    )
                     vin_status = self._vin_decode_status(orchestration_results["decode_vin"])
                     facts["vin_decode_status"] = vin_status
                     if isinstance(facts.get("evidence_model"), dict):
@@ -525,6 +812,16 @@ class AgentRunner:
                     continue
                 tool_calls += 1
                 orchestration_results["find_part_numbers"] = self._response_data(part_payload) or part_payload
+                tool_results.append(
+                    self._build_tool_result(
+                        "find_part_numbers",
+                        part_payload,
+                        status="success",
+                        reason="Find OEM and analog part numbers for the main detected part request",
+                        scenario_id="parts_lookup",
+                        evidence_ref="part_queries",
+                    )
+                )
                 if isinstance(facts.get("evidence_model"), dict):
                     facts["evidence_model"]["external_result_sufficient"] = True
                 if not bool(scenario.get("with_price")):
@@ -547,6 +844,16 @@ class AgentRunner:
                 if price_payload is not None:
                     tool_calls += 1
                     orchestration_results["estimate_price_ru"] = self._response_data(price_payload) or price_payload
+                    tool_results.append(
+                        self._build_tool_result(
+                            "estimate_price_ru",
+                            price_payload,
+                            status="success",
+                            reason="Estimate Russian-market price for the strongest matched part number",
+                            scenario_id="parts_lookup",
+                            evidence_ref="part_queries",
+                        )
+                    )
                 continue
             if scenario_name == "maintenance_lookup":
                 self._record_log_action(
@@ -571,6 +878,16 @@ class AgentRunner:
                 if maintenance_payload is not None:
                     tool_calls += 1
                     orchestration_results["estimate_maintenance"] = self._response_data(maintenance_payload) or maintenance_payload
+                    tool_results.append(
+                        self._build_tool_result(
+                            "estimate_maintenance",
+                            maintenance_payload,
+                            status="success",
+                            reason="Build a compact maintenance plan for the current mileage and vehicle context",
+                            scenario_id="maintenance_lookup",
+                            evidence_ref="mileage",
+                        )
+                    )
                 continue
             if scenario_name == "dtc_lookup":
                 dtc_code = str(scenario.get("code", "") or "").strip() or (facts["dtc_codes"][0] if facts["dtc_codes"] else "")
@@ -598,6 +915,16 @@ class AgentRunner:
                 if dtc_payload is not None:
                     tool_calls += 1
                     orchestration_results["decode_dtc"] = self._response_data(dtc_payload) or dtc_payload
+                    tool_results.append(
+                        self._build_tool_result(
+                            "decode_dtc",
+                            dtc_payload,
+                            status="success",
+                            reason="Decode the highest-priority detected DTC code",
+                            scenario_id="dtc_lookup",
+                            evidence_ref="dtc_codes",
+                        )
+                    )
                     if isinstance(facts.get("evidence_model"), dict):
                         facts["evidence_model"]["external_result_sufficient"] = True
                 continue
@@ -625,6 +952,16 @@ class AgentRunner:
                 if fault_payload is not None:
                     tool_calls += 1
                     orchestration_results["search_fault_info"] = self._response_data(fault_payload) or fault_payload
+                    tool_results.append(
+                        self._build_tool_result(
+                            "search_fault_info",
+                            fault_payload,
+                            status="success",
+                            reason="Search short symptom context and typical causes for the current complaint",
+                            scenario_id="fault_research",
+                            evidence_ref="symptom_query",
+                        )
+                    )
                     if isinstance(facts.get("evidence_model"), dict):
                         facts["evidence_model"]["external_result_sufficient"] = True
         update_args, display_sections = self._compose_card_autofill_update(
@@ -632,11 +969,28 @@ class AgentRunner:
             facts=facts,
             orchestration_results=orchestration_results,
         )
+        patch_result = PatchResult(card_patch={})
+        verify_result = VerifyResult(applied_ok=False)
         if update_args is not None:
-            update_args = self._normalize_card_autofill_update(update_args)
-            update_result = self._tools.execute("update_card", update_args)
+            update_args, update_result, current_patch, verify_result = self._execute_contract_write_tool(
+                tool_name="update_card",
+                args=update_args,
+                plan=plan,
+                cleanup_card_id=card_id,
+            )
+            patch_result = self._merge_patch_results(patch_result, current_patch)
             tool_calls += 1
             applied_updates.extend(self._summarize_applied_update(update_args, update_result))
+            tool_results.append(
+                self._build_tool_result(
+                    "update_card",
+                    update_result,
+                    status="success",
+                    reason="Apply deterministic autofill enrichment to the current card",
+                    scenario_id=plan.scenario_id,
+                    evidence_ref="card_patch",
+                )
+            )
             self._record_action(
                 task_id=task["id"],
                 run_id=run_id,
@@ -655,6 +1009,8 @@ class AgentRunner:
                     phase="update",
                     message="fields updated.",
                 )
+        else:
+            verify_result = self._finalize_verify_result(plan=plan, verify=verify_result, tool_results=tool_results)
         summary = self._autofill_result_summary(applied_updates, orchestration_results, facts=facts)
         display = {
             "emoji": "",
@@ -664,6 +1020,7 @@ class AgentRunner:
             "sections": display_sections[:5],
             "actions": [],
         }
+        verify_result = self._finalize_verify_result(plan=plan, verify=verify_result, tool_results=tool_results)
         self._record_log_action(
             task_id=task["id"],
             run_id=run_id,
@@ -672,7 +1029,326 @@ class AgentRunner:
             phase="completed",
             message=self._task_completed_message(metadata, summary=summary, applied_updates=applied_updates),
         )
-        return summary, summary, display, tool_calls
+        return summary, summary, display, tool_calls, tool_results, patch_result, verify_result
+
+    def _contract_prompt_block(self, *, plan: PlanResult, evidence: EvidenceResult) -> str:
+        lines = [
+            "Contract orchestration:",
+            f"- execution_mode: {plan.execution_mode}",
+            f"- scenario_id: {plan.scenario_id}",
+            f"- scenario_chain: {', '.join(plan.scenario_chain) if plan.scenario_chain else 'none'}",
+            f"- required_tools: {', '.join(plan.required_tools) if plan.required_tools else 'none'}",
+            f"- optional_tools: {', '.join(plan.optional_tools) if plan.optional_tools else 'none'}",
+            f"- allowed_write_targets: {', '.join(plan.allowed_write_targets) if plan.allowed_write_targets else 'none'}",
+            f"- evidence_summary: {evidence.summary or 'n/a'}",
+        ]
+        if evidence.missing_data:
+            lines.append("- missing_data: " + ", ".join(evidence.missing_data[:5]))
+        lines.extend(
+            [
+                "- Follow the server contract: read -> evidence -> plan -> tools -> patch -> write -> verify.",
+                "- Do not finish a scenario without its required tools.",
+                "- Write only to the allowed targets and preserve manual data outside those targets.",
+                "- If no safe write is needed, return a final answer without a write tool.",
+            ]
+        )
+        return "\n".join(lines)
+
+    def _execute_contract_write_tool(
+        self,
+        *,
+        tool_name: str,
+        args: dict[str, Any],
+        plan: PlanResult,
+        cleanup_card_id: str,
+    ) -> tuple[dict[str, Any], dict[str, Any], PatchResult, VerifyResult]:
+        normalized_tool = str(tool_name or "").strip()
+        if normalized_tool == "update_card":
+            card_id = str(args.get("card_id", "") or cleanup_card_id or "").strip()
+            if not card_id:
+                raise AgentModelError("update_card requires card_id in contract writer.")
+            patch = PatchResult(
+                card_patch={
+                    key: value
+                    for key, value in args.items()
+                    if key in {"title", "description", "tags", "vehicle", "vehicle_profile"}
+                }
+            )
+            filtered_patch = self._policy.filter_patch(plan, patch)
+            if not filtered_patch.card_patch:
+                raise AgentModelError("Contract policy rejected card write outside allowed targets.")
+            write_args = {"card_id": card_id, **filtered_patch.card_patch}
+            if plan.execution_mode == "structured_card":
+                write_args = self._normalize_card_autofill_update(write_args)
+            before_state = self._read_verification_state(card_id)
+            result_payload = self._tools.execute("update_card", write_args)
+            verify = self._verify_contract_write(
+                tool_name=normalized_tool,
+                card_id=card_id,
+                before_state=before_state,
+                patch=filtered_patch,
+                plan=plan,
+            )
+            return write_args, result_payload, filtered_patch, verify
+        if normalized_tool == "update_repair_order":
+            card_id = str(args.get("card_id", "") or cleanup_card_id or "").strip()
+            if not card_id:
+                raise AgentModelError("update_repair_order requires card_id in contract writer.")
+            patch = PatchResult(repair_order_patch=dict(args.get("repair_order") or {}))
+            filtered_patch = self._policy.filter_patch(plan, patch)
+            if not filtered_patch.repair_order_patch:
+                raise AgentModelError("Contract policy rejected repair order write outside allowed targets.")
+            before_state = self._read_verification_state(card_id)
+            current_repair_order = before_state.get("repair_order") if isinstance(before_state.get("repair_order"), dict) else {}
+            merged_repair_order = dict(current_repair_order)
+            merged_repair_order.update(filtered_patch.repair_order_patch)
+            write_args = {"card_id": card_id, "repair_order": merged_repair_order}
+            result_payload = self._tools.execute("update_repair_order", write_args)
+            verify = self._verify_contract_write(
+                tool_name=normalized_tool,
+                card_id=card_id,
+                before_state=before_state,
+                patch=filtered_patch,
+                plan=plan,
+            )
+            return write_args, result_payload, filtered_patch, verify
+        if normalized_tool in {"replace_repair_order_works", "replace_repair_order_materials"}:
+            card_id = str(args.get("card_id", "") or cleanup_card_id or "").strip()
+            if not card_id:
+                raise AgentModelError(f"{normalized_tool} requires card_id in contract writer.")
+            rows = [dict(item) for item in (args.get("rows") if isinstance(args.get("rows"), list) else []) if isinstance(item, dict)]
+            patch = PatchResult(
+                repair_order_works=rows if normalized_tool == "replace_repair_order_works" else [],
+                repair_order_materials=rows if normalized_tool == "replace_repair_order_materials" else [],
+            )
+            filtered_patch = self._policy.filter_patch(plan, patch)
+            expected_rows = filtered_patch.repair_order_works if normalized_tool == "replace_repair_order_works" else filtered_patch.repair_order_materials
+            if not expected_rows:
+                raise AgentModelError("Contract policy rejected repair order rows write outside allowed targets.")
+            before_state = self._read_verification_state(card_id)
+            write_args = {"card_id": card_id, "rows": expected_rows}
+            result_payload = self._tools.execute(normalized_tool, write_args)
+            verify = self._verify_contract_write(
+                tool_name=normalized_tool,
+                card_id=card_id,
+                before_state=before_state,
+                patch=filtered_patch,
+                plan=plan,
+            )
+            return write_args, result_payload, filtered_patch, verify
+        result_payload = self._tools.execute(normalized_tool, args)
+        return args, result_payload, PatchResult(), VerifyResult(applied_ok=False)
+
+    def _read_verification_state(self, card_id: str) -> dict[str, Any]:
+        state: dict[str, Any] = {}
+        try:
+            context_payload = self._board_api.get_card_context(card_id, event_limit=5, include_repair_order_text=True)
+            state = self._response_data(context_payload)
+        except Exception:
+            try:
+                card_payload = self._board_api.get_card(card_id)
+                state = self._response_data(card_payload)
+            except Exception:
+                state = {}
+        if "card" not in state:
+            state = {"card": state} if isinstance(state, dict) else {}
+        card = state.get("card") if isinstance(state.get("card"), dict) else {}
+        if "repair_order" not in state and isinstance(card, dict) and isinstance(card.get("repair_order"), dict):
+            state["repair_order"] = dict(card.get("repair_order") or {})
+        return state
+
+    def _verify_contract_write(
+        self,
+        *,
+        tool_name: str,
+        card_id: str,
+        before_state: dict[str, Any],
+        patch: PatchResult,
+        plan: PlanResult,
+    ) -> VerifyResult:
+        after_state = self._read_verification_state(card_id)
+        warnings: list[str] = []
+        fields_changed: list[str] = []
+        manual_fields_preserved = True
+        scenario_completed = False
+        before_card = before_state.get("card") if isinstance(before_state.get("card"), dict) else {}
+        after_card = after_state.get("card") if isinstance(after_state.get("card"), dict) else {}
+        before_repair_order = before_state.get("repair_order") if isinstance(before_state.get("repair_order"), dict) else {}
+        after_repair_order = after_state.get("repair_order") if isinstance(after_state.get("repair_order"), dict) else {}
+        if tool_name == "update_card":
+            for field_name, expected_value in patch.card_patch.items():
+                if field_name == "vehicle_profile" and isinstance(expected_value, dict):
+                    actual_profile = after_card.get("vehicle_profile") if isinstance(after_card.get("vehicle_profile"), dict) else {}
+                    if all(self._values_equal(actual_profile.get(key), value) for key, value in expected_value.items()):
+                        fields_changed.append("vehicle_profile")
+                    else:
+                        warnings.append("vehicle_profile verification mismatch")
+                    continue
+                if self._values_equal(after_card.get(field_name), expected_value):
+                    fields_changed.append(field_name)
+                else:
+                    warnings.append(f"{field_name} verification mismatch")
+            if "description" not in patch.card_patch:
+                previous_description = str(before_card.get("description", "") or "").strip()
+                current_description = str(after_card.get("description", "") or "").strip()
+                if previous_description != current_description:
+                    manual_fields_preserved = False
+                    warnings.append("description changed outside planned patch")
+            scenario_completed = bool(fields_changed) or patch.is_empty()
+        elif tool_name == "update_repair_order":
+            for field_name, expected_value in patch.repair_order_patch.items():
+                if self._values_equal(after_repair_order.get(field_name), expected_value):
+                    fields_changed.append(field_name)
+                else:
+                    warnings.append(f"repair_order.{field_name} verification mismatch")
+            scenario_completed = bool(fields_changed)
+        elif tool_name in {"replace_repair_order_works", "replace_repair_order_materials"}:
+            expected_rows = patch.repair_order_works if tool_name == "replace_repair_order_works" else patch.repair_order_materials
+            actual_rows = after_repair_order.get("works" if tool_name == "replace_repair_order_works" else "materials")
+            if isinstance(actual_rows, list) and len(actual_rows) == len(expected_rows):
+                fields_changed.append("repair_order_works" if tool_name == "replace_repair_order_works" else "repair_order_materials")
+            else:
+                warnings.append(f"{tool_name} verification mismatch")
+            scenario_completed = bool(fields_changed)
+        else:
+            scenario_completed = False
+        non_target_card_fields = {"title", "description", "tags", "vehicle"} - set(patch.card_patch)
+        for field_name in non_target_card_fields:
+            if field_name and not self._values_equal(before_card.get(field_name), after_card.get(field_name)):
+                manual_fields_preserved = False
+                warnings.append(f"{field_name} changed outside planned patch")
+        return self._finalize_verify_result(
+            plan=plan,
+            verify=VerifyResult(
+                applied_ok=bool(fields_changed),
+                fields_changed=fields_changed,
+                manual_fields_preserved=manual_fields_preserved,
+                scenario_completed=scenario_completed,
+                needs_followup=False,
+                warnings=warnings,
+                context_ref=f"verify:{card_id}",
+            ),
+            tool_results=[],
+        )
+
+    def _finalize_verify_result(self, *, plan: PlanResult, verify: VerifyResult, tool_results: list[ToolResult]) -> VerifyResult:
+        missing_required = self._policy.missing_required_tools(plan, tool_results)
+        warnings = list(verify.warnings)
+        followup_reason = str(verify.followup_reason or "").strip()
+        if missing_required:
+            warnings.append("missing required tools: " + ", ".join(missing_required))
+            if not followup_reason:
+                followup_reason = "missing_required_tools"
+        scenario_completed = bool(verify.scenario_completed and not missing_required) or (not plan.required_tools and verify.applied_ok)
+        if not scenario_completed and not plan.allowed_write_targets and not missing_required:
+            scenario_completed = True
+        needs_followup = bool(plan.followup_policy.get("enabled")) and (bool(missing_required) or not scenario_completed)
+        return VerifyResult(
+            applied_ok=bool(verify.applied_ok),
+            fields_changed=list(verify.fields_changed),
+            manual_fields_preserved=bool(verify.manual_fields_preserved),
+            scenario_completed=scenario_completed,
+            needs_followup=needs_followup,
+            warnings=warnings,
+            context_ref=verify.context_ref,
+            followup_reason=followup_reason,
+        )
+
+    def _build_tool_result(
+        self,
+        tool_name: str,
+        payload: dict[str, Any],
+        *,
+        status: str,
+        reason: str,
+        scenario_id: str,
+        evidence_ref: str,
+    ) -> ToolResult:
+        return ToolResult(
+            tool_name=str(tool_name or "").strip(),
+            status=str(status or "success").strip().lower(),
+            source_type=self._policy.tool_source_type(tool_name, scenario_id=scenario_id),
+            confidence=self._tool_confidence(tool_name, payload),
+            data=self._tool_contract_data(tool_name, payload),
+            raw_ref=f"{scenario_id}:{tool_name}",
+            evidence_ref=str(evidence_ref or "").strip(),
+            reason=str(reason or "").strip(),
+        )
+
+    def _tool_confidence(self, tool_name: str, payload: dict[str, Any]) -> float:
+        data = self._response_data(payload)
+        normalized_tool = str(tool_name or "").strip().lower()
+        if normalized_tool == "decode_vin":
+            status = self._vin_decode_status(data)
+            return 0.92 if status == "success" else (0.45 if status == "insufficient" else 0.05)
+        if normalized_tool in {"find_part_numbers", "search_part_numbers"}:
+            return 0.82 if list(data.get("part_numbers") or []) else 0.25
+        if normalized_tool in {"estimate_price_ru", "lookup_part_prices"}:
+            return 0.78 if isinstance(data.get("price_summary"), dict) else 0.22
+        if normalized_tool == "decode_dtc":
+            return 0.84 if list(data.get("results") or []) else 0.25
+        if normalized_tool == "search_fault_info":
+            return 0.7 if list(data.get("results") or []) else 0.2
+        if normalized_tool == "estimate_maintenance":
+            return 0.74 if list(data.get("works") or []) else 0.25
+        if normalized_tool.startswith("update_") or normalized_tool.startswith("replace_"):
+            return 1.0
+        return 0.65
+
+    def _tool_contract_data(self, tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        data = self._response_data(payload)
+        if tool_name == "update_card":
+            return {
+                "changed": data.get("changed"),
+                "changed_fields": data.get("meta", {}).get("changed_fields") if isinstance(data.get("meta"), dict) else data.get("changed"),
+            }
+        if tool_name in {"update_repair_order", "replace_repair_order_works", "replace_repair_order_materials"}:
+            return {"ok": bool(payload.get("ok", True)), "card_id": data.get("card_id") or payload.get("card_id")}
+        if tool_name in {"find_part_numbers", "search_part_numbers"}:
+            return {
+                "part_numbers": list(data.get("part_numbers") or [])[:5],
+                "vehicle_context": data.get("vehicle_context"),
+            }
+        if tool_name in {"estimate_price_ru", "lookup_part_prices"}:
+            return {"price_summary": data.get("price_summary"), "results_total": len(data.get("results") or [])}
+        if tool_name in {"decode_dtc", "search_fault_info"}:
+            return {"results_total": len(data.get("results") or []), "query": data.get("query") or data.get("code")}
+        if tool_name == "decode_vin":
+            return {
+                "vin": data.get("vin"),
+                "make": data.get("make"),
+                "model": data.get("model"),
+                "model_year": data.get("model_year"),
+            }
+        if tool_name == "estimate_maintenance":
+            return {
+                "service_type": data.get("service_type"),
+                "works_total": len(data.get("works") or []),
+                "materials_total": len(data.get("materials") or []),
+            }
+        return data if isinstance(data, dict) else {}
+
+    def _values_equal(self, left: Any, right: Any) -> bool:
+        if isinstance(left, dict) and isinstance(right, dict):
+            return json.dumps(left, ensure_ascii=False, sort_keys=True) == json.dumps(right, ensure_ascii=False, sort_keys=True)
+        if isinstance(left, list) and isinstance(right, list):
+            return json.dumps(left, ensure_ascii=False, sort_keys=True) == json.dumps(right, ensure_ascii=False, sort_keys=True)
+        return left == right
+
+    def _merge_patch_results(self, left: PatchResult, right: PatchResult) -> PatchResult:
+        merged_card_patch = dict(left.card_patch)
+        merged_card_patch.update(right.card_patch)
+        merged_repair_order_patch = dict(left.repair_order_patch)
+        merged_repair_order_patch.update(right.repair_order_patch)
+        return PatchResult(
+            card_patch=merged_card_patch,
+            repair_order_patch=merged_repair_order_patch,
+            repair_order_works=[*left.repair_order_works, *right.repair_order_works],
+            repair_order_materials=[*left.repair_order_materials, *right.repair_order_materials],
+            append_only_notes=[*left.append_only_notes, *right.append_only_notes],
+            warnings=[*left.warnings, *right.warnings],
+            human_review_needed=bool(left.human_review_needed or right.human_review_needed),
+        )
 
     def _load_card_autofill_context(
         self,
@@ -2097,15 +2773,19 @@ class AgentRunner:
         text = self._normalized_task_text(str(task.get("task_text", "") or ""))
         if self._is_card_cleanup_task(task, metadata):
             return "card_cleanup"
-        if "vin" in text or "расшифру" in text:
+        if "vin" in text or "расшифру" in text or "decode vin" in text:
             return "vin_decode"
+        if "dtc" in text or _AUTOFILL_DTC_PATTERN.search(text.upper()):
+            return "dtc_lookup"
         if "запчаст" in text or "каталож" in text or "part number" in text or "oem" in text:
             return "parts_lookup"
         if "техобслуж" in text or "maintenance" in text or "service" in text or "процени то" in text or "то на" in text:
             return "maintenance_estimate"
+        if "заказ-наряд" in text or "repair order" in text or "work order" in text:
+            return "repair_order_assist"
         if "касс" in text or "оплат" in text or "cash" in text or "payment" in text:
             return "cash_review"
-        if "обзор" in text or "просроч" in text or "review board" in text:
+        if "обзор" in text or "просроч" in text or "review board" in text or "review the board" in text:
             return "board_review"
         return "general"
 

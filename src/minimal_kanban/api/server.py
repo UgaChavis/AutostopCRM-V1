@@ -411,8 +411,6 @@ class ApiServer:
                 if route not in self.ROUTES:
                     self._not_found(request_id)
                     return
-                if not self._authenticate(request_id):
-                    return
                 try:
                     content_length = int(self.headers.get("Content-Length", "0") or "0")
                 except ValueError:
@@ -422,6 +420,9 @@ class ApiServer:
                         "validation_error",
                         "Заголовок Content-Length имеет некорректное значение.",
                     )
+                    return
+                if not self._authenticate(request_id):
+                    self._drain_request_body(content_length)
                     return
                 raw_body = self.rfile.read(content_length) if content_length > 0 else b"{}"
                 try:
@@ -443,6 +444,17 @@ class ApiServer:
                     )
                     return
                 self._dispatch(route, request_id, payload)
+
+            def _drain_request_body(self, content_length: int) -> None:
+                remaining = max(0, int(content_length))
+                while remaining > 0:
+                    try:
+                        chunk = self.rfile.read(min(65536, remaining))
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
 
             def _query_payload(self, query_string: str) -> dict:
                 parsed = parse_qs(query_string, keep_blank_values=True)

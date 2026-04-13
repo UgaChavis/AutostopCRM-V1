@@ -566,6 +566,63 @@ class AgentRunnerTests(unittest.TestCase):
             self.assertEqual(actions[1]["kind"], "tool")
             self.assertEqual(actions[-1]["message"], "Задача агента запущена.")
 
+    def test_runner_persists_orchestration_trace_in_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = AgentStorage(base_dir=Path(temp_dir))
+            storage.enqueue_task(task_text="Review the board.")
+            logger = logging.getLogger("test.agent.runner.trace.board")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            runner = AgentRunner(
+                storage=storage,
+                board_api=_FakeBoardApi(),
+                model_client=_FakeModelClient(
+                    [
+                        {"type": "tool", "tool": "review_board", "args": {"priority_limit": 3}, "reason": "Need board state"},
+                        {"type": "final", "summary": "Board reviewed", "result": "No blocking issues."},
+                    ]
+                ),
+                logger=logger,
+            )
+            self.assertTrue(runner.run_once())
+            run = storage.list_runs(limit=1)[0]
+            orchestration = run.get("orchestration") if isinstance(run.get("orchestration"), dict) else {}
+            self.assertEqual(orchestration.get("version"), "agent_orchestrator_v1")
+            self.assertEqual(orchestration.get("plan", {}).get("scenario_id"), "board_review")
+            self.assertTrue(orchestration.get("verify", {}).get("scenario_completed"))
+
+    def test_runner_policy_gate_requires_vin_tool_before_final(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = AgentStorage(base_dir=Path(temp_dir))
+            storage.enqueue_task(
+                task_text="Расшифруй VIN по этой карточке.",
+                metadata={"context": {"kind": "card", "card_id": "card-1", "title": "Диагностика"}},
+            )
+            logger = logging.getLogger("test.agent.runner.policy.vin")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            model = _FakeModelClient(
+                [
+                    {"type": "final", "summary": "Готово", "result": "VIN вроде понятен."},
+                    {"type": "tool", "tool": "decode_vin", "args": {"vin": "WBAPF71060A798127"}, "reason": "Need required VIN decode"},
+                    {"type": "final", "summary": "VIN decoded", "result": "Confirmed via tool."},
+                ]
+            )
+            runner = AgentRunner(
+                storage=storage,
+                board_api=_FakeWrappedBoardApi(),
+                model_client=model,
+                logger=logger,
+            )
+            runner._tools._automotive = _FakeAutomotiveService()
+            self.assertTrue(runner.run_once())
+            self.assertEqual(len(model.calls), 3)
+            self.assertIn("Policy gate", model.calls[1]["messages"][-1]["content"])
+            run = storage.list_runs(limit=1)[0]
+            self.assertIn("decode_vin", run["orchestration"]["plan"]["required_tools"])
+
     def test_runner_persists_structured_display_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = AgentStorage(base_dir=Path(temp_dir))
@@ -1081,6 +1138,10 @@ class AgentRunnerTests(unittest.TestCase):
             applied_section = task["display"]["sections"][0]
             self.assertEqual(applied_section["title"], "Применено")
             self.assertTrue(any("краткая суть" in item for item in applied_section["items"]))
+            run = storage.list_runs(limit=1)[0]
+            verify = run["orchestration"]["verify"]
+            self.assertTrue(verify["applied_ok"])
+            self.assertIn("title", verify["fields_changed"])
 
     def test_tool_executor_exposes_automotive_internet_tools(self) -> None:
         executor = AgentRunner(

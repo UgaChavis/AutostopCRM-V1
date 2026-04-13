@@ -30,6 +30,16 @@ Response schema:
 """
 
 
+ORCHESTRATION_RULES = """Orchestration rules:
+- Think in explicit stages: read -> evidence -> plan -> tools -> patch -> write -> verify.
+- Base every scenario on current card facts and tool results, not on generic workflow habits.
+- Distinguish confirmed facts, heuristics, and missing data.
+- Do not finish VIN, parts, DTC, or other external-fact scenarios without the required tools.
+- Treat every write as a bounded patch, not as an unrestricted rewrite.
+- After every write, verify the result against the current CRM state before declaring success.
+"""
+
+
 CONTEXT_RULES = """Context rules:
 - If metadata.context.kind == "card", first use get_card_context(card_id) unless the task already contains enough current card data.
 - In card context, assume "this car", "this card", "this order" refer to the current card.
@@ -88,6 +98,7 @@ def build_default_system_prompt() -> str:
         part.strip()
         for part in (
             BASE_SYSTEM_PROMPT,
+            ORCHESTRATION_RULES,
             CONTEXT_RULES,
             AUTOMOTIVE_RULES,
             CARD_CLEANUP_RULES,

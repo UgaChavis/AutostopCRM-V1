@@ -68,17 +68,17 @@ Card autofill toggle example
 
 Windows local commands
 - app:
-  C:\Users\9860606\Desktop\Работы CODEX\.venv\Scripts\python.exe main.py
+  .\.venv\Scripts\python.exe main.py
 - MCP:
-  C:\Users\9860606\Desktop\Работы CODEX\.venv\Scripts\python.exe main_mcp.py
+  .\.venv\Scripts\python.exe main_mcp.py
 - server agent:
-  C:\Users\9860606\Desktop\Работы CODEX\.venv\Scripts\python.exe main_agent.py
+  .\.venv\Scripts\python.exe main_agent.py
 - isolated tests:
-  C:\Users\9860606\Desktop\Работы CODEX\.venv\Scripts\python.exe scripts\run_isolated_tests.py
+  .\.venv\Scripts\python.exe scripts\run_isolated_tests.py
 - full unittest:
-  C:\Users\9860606\Desktop\Работы CODEX\.venv\Scripts\python.exe -m unittest discover -s tests -v
+  .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 - MCP regression:
-  C:\Users\9860606\Desktop\Работы CODEX\.venv\Scripts\python.exe -m unittest tests.test_mcp -v
+  .\.venv\Scripts\python.exe -m unittest tests.test_mcp -v
 
 Server commands
 - deploy:

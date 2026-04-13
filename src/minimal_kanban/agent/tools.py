@@ -616,6 +616,15 @@ class AgentToolExecutor:
                 "lookup_part_prices",
                 "decode_vin",
             }
+        elif normalized_type == "dtc_lookup":
+            allowed = card_update | {"get_repair_order"} | {
+                "decode_dtc",
+                "search_fault_info",
+                "search_web",
+                "fetch_page_excerpt",
+            }
+        elif normalized_type == "repair_order_assist":
+            allowed = card_update | repair_order | automotive
         elif normalized_type == "cash_review":
             allowed = core_board | cashboxes
         else:
