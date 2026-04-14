@@ -6318,6 +6318,16 @@ BOARD_WEB_APP_HTML = "".join(
       return message;
     }
 
+    function focusAiChatWindowInput() {
+      hydrateAiChatWindowUiRefs();
+      if (!els.aiChatWindowInput) return;
+      try {
+        els.aiChatWindowInput.focus({ preventScroll: true });
+      } catch (error) {
+        els.aiChatWindowInput.focus();
+      }
+    }
+
     function handleAiChatWindowSend() {
       hydrateAiChatWindowUiRefs();
       const input = String(els.aiChatWindowInput?.value || '').trim();
@@ -6326,6 +6336,7 @@ BOARD_WEB_APP_HTML = "".join(
       if (els.aiChatWindowInput) els.aiChatWindowInput.value = '';
       const response = aiChatBuildAssistantResponse(input);
       appendAiChatWindowMessage('assistant', response, { kind: 'scoped_runtime', source: 'ai_chat', topic: 'reply' });
+      focusAiChatWindowInput();
     }
 
     function handleAiChatWindowInputKeydown(event) {
@@ -7645,10 +7656,12 @@ BOARD_WEB_APP_HTML = "".join(
       state.aiChatWindowContext = buildAiChatWindowContext();
       state.aiSurfaceContext = state.aiChatWindowContext;
       state.aiSurfaceSelectedScenario = 'ai_chat';
+      state.aiChatWindowSettingsOpen = false;
       state.aiChatWindowHistoryContext = aiChatHistoryContextSnapshot();
       ensureAiChatWindowHistory();
       renderAiChatWindow(state.aiSurfaceStatusPayload || state.agentStatusPayload || {});
       els.aiChatWindow?.classList.add('is-open');
+      focusAiChatWindowInput();
       refreshAgentModalState();
     }
 
