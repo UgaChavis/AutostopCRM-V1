@@ -2163,6 +2163,14 @@ BOARD_WEB_APP_HTML = "".join(
         text-transform: uppercase;
         color: var(--text);
       }
+      .ai-chat-window__context {
+        font-family: var(--mono);
+        font-size: 10px;
+        line-height: 1.35;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
       .ai-chat-window__subtitle {
         font-size: 11px;
         line-height: 1.45;
@@ -4602,6 +4610,7 @@ BOARD_WEB_APP_HTML = "".join(
           <header class="dialog__head ai-chat-window__head">
             <div class="ai-chat-window__title-block">
               <div class="dialog__title" id="aiChatWindowTitle">AI / ЧАТ</div>
+              <div class="ai-chat-window__context" id="aiChatWindowContextLabel">КОНТЕКСТ: AI-ЧАТ · СВОБОДНАЯ СЕССИЯ</div>
               <div class="ai-chat-window__subtitle" id="aiChatWindowSubtitle">Отдельный рабочий путь для будущего большого чата.</div>
             </div>
             <div class="ai-chat-window__controls">
@@ -5752,6 +5761,7 @@ BOARD_WEB_APP_HTML = "".join(
       aiSurfaceLegacyButton: document.getElementById('aiSurfaceLegacyButton'),
       aiChatWindow: document.getElementById('aiChatWindow'),
       aiChatWindowTitle: document.getElementById('aiChatWindowTitle'),
+      aiChatWindowContextLabel: document.getElementById('aiChatWindowContextLabel'),
       aiChatWindowSubtitle: document.getElementById('aiChatWindowSubtitle'),
       aiChatWindowStatusLabel: document.getElementById('aiChatWindowStatusLabel'),
       aiChatWindowMessages: document.getElementById('aiChatWindowMessages'),
@@ -5965,6 +5975,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.aiSurfaceLegacyButton = document.getElementById('aiSurfaceLegacyButton');
       els.aiChatWindow = document.getElementById('aiChatWindow');
       els.aiChatWindowTitle = document.getElementById('aiChatWindowTitle');
+      els.aiChatWindowContextLabel = document.getElementById('aiChatWindowContextLabel');
       els.aiChatWindowSubtitle = document.getElementById('aiChatWindowSubtitle');
       els.aiChatWindowStatusLabel = document.getElementById('aiChatWindowStatusLabel');
       els.aiChatWindowMessages = document.getElementById('aiChatWindowMessages');
@@ -5981,6 +5992,7 @@ BOARD_WEB_APP_HTML = "".join(
     function hydrateAiChatWindowUiRefs() {
       els.aiChatWindow = document.getElementById('aiChatWindow');
       els.aiChatWindowTitle = document.getElementById('aiChatWindowTitle');
+      els.aiChatWindowContextLabel = document.getElementById('aiChatWindowContextLabel');
       els.aiChatWindowSubtitle = document.getElementById('aiChatWindowSubtitle');
       els.aiChatWindowStatusLabel = document.getElementById('aiChatWindowStatusLabel');
       els.aiChatWindowMessages = document.getElementById('aiChatWindowMessages');
@@ -6005,6 +6017,9 @@ BOARD_WEB_APP_HTML = "".join(
         card_id: String(source.card_id || '').trim(),
         repair_order_id: String(source.repair_order_id || '').trim(),
         source_kind: String(source.kind || 'chat').trim().toLowerCase() || 'chat',
+        card_label: String(source.card_label || '').trim(),
+        repair_order_label: String(source.repair_order_label || '').trim(),
+        context_label: String(source.context_label || '').trim(),
         prompt_profile_kind: 'ai_chat',
         prompt_profile_user_tune: String(profile.user_tune || '').trim(),
       };
@@ -6057,6 +6072,68 @@ BOARD_WEB_APP_HTML = "".join(
         state.aiChatWindowPromptProfile.user_tune = '';
       }
       return state.aiChatWindowPromptProfile;
+    }
+
+    function aiChatContextCardLabel(card = state.activeCard) {
+      const payload = currentCardPayload();
+      const cardId = String(card?.id || state.editingId || payload?.id || '').trim();
+      const cardTitle = String(payload?.title || card?.title || '').trim();
+      const cardVehicle = String(payload?.vehicle || card?.vehicle || '').trim();
+      if (!cardId && !cardTitle && !cardVehicle) return 'AI-ЧАТ · СВОБОДНАЯ СЕССИЯ';
+      const parts = ['AI-ЧАТ', 'КАРТОЧКА' + (cardId ? ' #' + cardId : '')];
+      if (cardVehicle) parts.push(cardVehicle);
+      if (cardTitle) parts.push(cardTitle);
+      return parts.join(' · ');
+    }
+
+    function aiChatContextRepairOrderLabel(repairOrder = null) {
+      const order = repairOrder && typeof repairOrder === 'object' ? repairOrder : {};
+      const repairOrderNumber = String(order?.number || order?.id || '').trim();
+      const statusLabel = String(order?.status_label || order?.status || '').trim();
+      const source = repairOrder && typeof repairOrder === 'object' ? repairOrder : {};
+      if (!repairOrderNumber && !statusLabel) return '';
+      const parts = ['ЗАКАЗ-НАРЯД' + (repairOrderNumber ? ' #' + repairOrderNumber : '')];
+      if (statusLabel) parts.push(statusLabel);
+      return parts.join(' · ');
+    }
+
+    function aiChatActiveRepairOrderScope() {
+      const currentCard = state.activeCard && typeof state.activeCard === 'object' ? state.activeCard : null;
+      if (!currentCard) return null;
+      const cardDraft = repairOrderCardDraft(currentCard, currentCard?.repair_order || {});
+      if (els.repairOrderModal?.classList.contains('is-open')) {
+        return readRepairOrderFromForm();
+      }
+      return cardDraft;
+    }
+
+    function buildAiChatWindowContext() {
+      const card = state.activeCard && typeof state.activeCard === 'object' ? state.activeCard : null;
+      const currentCard = card ? {
+        id: String(card.id || '').trim(),
+        title: String(card.title || '').trim(),
+        vehicle: String(card.vehicle || '').trim(),
+        column: String(card.column || '').trim(),
+        status: String(card.status || '').trim(),
+      } : null;
+      const repairOrder = aiChatActiveRepairOrderScope();
+      const repairOrderId = String(repairOrder?.id || repairOrder?.number || '').trim();
+      const cardLabel = aiChatContextCardLabel(card);
+      const repairOrderLabel = aiChatContextRepairOrderLabel(repairOrder);
+      return {
+        kind: 'chat',
+        surface: 'ai_chat',
+        source_kind: currentCard ? 'card' : 'workspace',
+        card_id: String(currentCard?.id || '').trim(),
+        card_label: cardLabel,
+        card_scope: currentCard,
+        repair_order_id: repairOrderId,
+        repair_order_label: repairOrderLabel,
+        repair_order_scope: repairOrder && typeof repairOrder === 'object' ? repairOrder : null,
+        context_label: repairOrderLabel ? cardLabel + ' · ' + repairOrderLabel : cardLabel,
+        has_card_scope: Boolean(currentCard?.id),
+        has_repair_order_scope: Boolean(repairOrderId),
+      };
     }
 
     function aiChatMessageTone(role, message) {
@@ -6196,6 +6273,8 @@ BOARD_WEB_APP_HTML = "".join(
         const metaLine = [];
         if (message?.created_at) metaLine.push(escapeHtml(String(message.created_at)));
         if (message?.context?.kind) metaLine.push(escapeHtml(String(message.context.kind)));
+        if (message?.context?.card_label) metaLine.push(escapeHtml(String(message.context.card_label)));
+        if (message?.context?.repair_order_label) metaLine.push(escapeHtml(String(message.context.repair_order_label)));
         if (message?.source) metaLine.push(escapeHtml(String(message.source)));
         return '<article class="ai-chat-window__message" data-role="' + escapeHtml(normalizedRole) + '" data-tone="' + escapeHtml(tone) + '" data-message-id="' + escapeHtml(message?.id || '') + '">' +
           '<div class="ai-chat-window__message-title">' + title + '</div>' +
@@ -6267,6 +6346,28 @@ BOARD_WEB_APP_HTML = "".join(
       }
       if (els.aiChatWindowPromptProfileInput && els.aiChatWindowPromptProfileInput.value !== profile.user_tune) {
         els.aiChatWindowPromptProfileInput.value = profile.user_tune;
+      }
+    }
+
+    function renderAiChatWindowContext() {
+      hydrateAiChatWindowUiRefs();
+      const context = state.aiChatWindowContext && typeof state.aiChatWindowContext === 'object'
+        ? state.aiChatWindowContext
+        : buildAiChatWindowContext();
+      const label = String(context.context_label || aiChatContextCardLabel()).trim();
+      const repairOrderLabel = String(context.repair_order_label || '').trim();
+      const sourceKind = String(context.source_kind || 'workspace').trim().toLowerCase();
+      const subtitleParts = [
+        'Отдельный рабочий AI surface для будущего чата.',
+        context.card_id ? 'Card #' + context.card_id : 'Без карточки',
+        repairOrderLabel ? repairOrderLabel : 'Без заказа-наряда',
+      ].filter(Boolean);
+      if (els.aiChatWindowContextLabel) {
+        els.aiChatWindowContextLabel.textContent = label;
+        els.aiChatWindowContextLabel.dataset.kind = sourceKind;
+      }
+      if (els.aiChatWindowSubtitle) {
+        els.aiChatWindowSubtitle.textContent = subtitleParts.join(' · ');
       }
     }
 
@@ -7496,6 +7597,7 @@ BOARD_WEB_APP_HTML = "".join(
         els.aiChatWindowStatusLabel.textContent = label;
         els.aiChatWindowStatusLabel.dataset.state = tone;
       }
+      renderAiChatWindowContext();
       renderAiChatWindowSettings();
       if (els.aiChatWindowMessages) {
         els.aiChatWindowMessages.dataset.state = exposureState;
@@ -7518,7 +7620,7 @@ BOARD_WEB_APP_HTML = "".join(
       bindAiChatWindowUiEvents();
       closeAiSurface();
       closeAgentModal();
-      state.aiChatWindowContext = buildAiSurfaceContext('chat');
+      state.aiChatWindowContext = buildAiChatWindowContext();
       state.aiSurfaceContext = state.aiChatWindowContext;
       state.aiSurfaceSelectedScenario = 'ai_chat';
       state.aiChatWindowHistoryContext = aiChatHistoryContextSnapshot();
