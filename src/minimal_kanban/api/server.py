@@ -159,6 +159,7 @@ class ApiServer:
             "/api/list_employees": service.list_employees,
             "/api/save_employee": service.save_employee,
             "/api/toggle_employee": service.toggle_employee,
+            "/api/delete_employee": service.delete_employee,
             "/api/get_payroll_report": service.get_payroll_report,
             "/api/get_cashbox": service.get_cashbox,
             "/api/create_cashbox": service.create_cashbox,

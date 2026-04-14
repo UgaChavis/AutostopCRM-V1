@@ -586,6 +586,27 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(reopened_row["salary_amount"], "")
         self.assertEqual(reopened_row["salary_accrued_at"], "")
 
+    def test_employee_create_multiple_and_delete_keeps_distinct_records(self) -> None:
+        first = self.service.save_employee({"name": "Иван", "position": "Мастер"})["employee"]
+        second = self.service.save_employee({"name": "Пётр", "position": "Приёмщик"})["employee"]
+        third = self.service.save_employee({"name": "Сергей", "position": "Диагност"})["employee"]
+
+        self.assertNotEqual(first["id"], second["id"])
+        self.assertNotEqual(second["id"], third["id"])
+
+        listed = self.service.list_employees()
+        self.assertEqual(len(listed["employees"]), 3)
+        self.assertEqual({item["id"] for item in listed["employees"]}, {first["id"], second["id"], third["id"]})
+
+        deleted = self.service.delete_employee({"employee_id": second["id"], "actor_name": "ADMIN"})
+        self.assertTrue(deleted["deleted"])
+        self.assertEqual(deleted["employee_id"], second["id"])
+        self.assertEqual({item["id"] for item in deleted["employees"]}, {first["id"], third["id"]})
+
+        listed_after = self.service.list_employees()
+        self.assertEqual(len(listed_after["employees"]), 2)
+        self.assertFalse(any(item["id"] == second["id"] for item in listed_after["employees"]))
+
     def test_supports_large_card_description(self) -> None:
         large_description = "А" * 12000
 
@@ -1688,7 +1709,15 @@ class CardServiceTests(unittest.TestCase):
                     ],
                     "client_information": "Кратко объяснить клиенту объём работ и следующие шаги",
                     "works": [{"name": "Замена масла", "quantity": "1", "price": "2500", "total": ""}],
-                    "materials": [{"name": "Масло 5W-30", "quantity": "4", "price": "700", "total": "9999"}],
+                    "materials": [
+                        {
+                            "name": "Масло 5W-30",
+                            "catalog_number": "08880-12345",
+                            "quantity": "4",
+                            "price": "700",
+                            "total": "9999",
+                        }
+                    ],
                 },
             }
         )
@@ -1701,6 +1730,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(order["client_information"], order["comment"])
         self.assertEqual(order["works"][0]["name"], "Замена масла")
         self.assertEqual(order["works"][0]["total"], "2500")
+        self.assertEqual(order["materials"][0]["catalog_number"], "08880-12345")
         self.assertEqual(order["materials"][0]["total"], "2800")
         self.assertEqual(order["payment_method"], "cashless")
         self.assertTrue(order["payment_method_label"])
@@ -1729,6 +1759,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(stored["license_plate"], "А123АА124")
         self.assertEqual(stored["client_information"], "Кратко объяснить клиенту объём работ и следующие шаги")
         self.assertEqual(stored["works"][0]["quantity"], "1")
+        self.assertEqual(stored["materials"][0]["catalog_number"], "08880-12345")
         self.assertEqual(stored["payment_method"], "cashless")
         self.assertTrue(stored["payment_method_label"])
         self.assertEqual(stored["prepayment"], "1000")

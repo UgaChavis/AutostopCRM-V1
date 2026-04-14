@@ -966,6 +966,29 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(reopened_row["salary_amount"], "")
         self.assertEqual(reopened_row["salary_accrued_at"], "")
 
+    def test_employee_routes_create_multiple_and_delete(self) -> None:
+        status, first = self.request("/api/save_employee", {"name": "Иван", "position": "Мастер"})
+        self.assertEqual(status, 200)
+        self.assertTrue(first["data"]["created"])
+
+        status, second = self.request("/api/save_employee", {"name": "Пётр", "position": "Приёмщик"})
+        self.assertEqual(status, 200)
+        self.assertTrue(second["data"]["created"])
+        self.assertNotEqual(first["data"]["employee"]["id"], second["data"]["employee"]["id"])
+
+        status, listed = self.request("/api/list_employees", method="GET")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(listed["data"]["employees"]), 2)
+
+        status, deleted = self.request("/api/delete_employee", {"employee_id": second["data"]["employee"]["id"]})
+        self.assertEqual(status, 200)
+        self.assertTrue(deleted["data"]["deleted"])
+
+        status, listed_after = self.request("/api/list_employees", method="GET")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(listed_after["data"]["employees"]), 1)
+        self.assertEqual(listed_after["data"]["employees"][0]["id"], first["data"]["employee"]["id"])
+
     def test_save_employee_requires_name(self) -> None:
         status, response = self.request(
             "/api/save_employee",
@@ -1187,6 +1210,20 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(patched["data"]["repair_order"]["client"], "Иван Иванов")
         self.assertEqual(patched["data"]["repair_order"]["comment"], "Согласовать дальнейшую диагностику")
 
+        status, materials = self.request(
+            "/api/update_repair_order",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "materials": [
+                        {"name": "Радиатор", "catalog_number": "1300A123", "quantity": "1", "price": "12000", "total": ""}
+                    ]
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(materials["data"]["repair_order"]["materials"][0]["catalog_number"], "1300A123")
+
         status, works = self.request(
             "/api/replace_repair_order_works",
             {
@@ -1200,6 +1237,7 @@ class ApiServerTests(unittest.TestCase):
         status, order = self.request("/api/get_repair_order", {"card_id": card_id})
         self.assertEqual(status, 200)
         self.assertEqual(order["data"]["repair_order"]["license_plate"], "В003НК124")
+        self.assertEqual(order["data"]["repair_order"]["materials"][0]["catalog_number"], "1300A123")
 
         status, context = self.request(
             "/api/get_card_context",
@@ -1213,9 +1251,9 @@ class ApiServerTests(unittest.TestCase):
         status, text_payload = self.request("/api/get_repair_order_text", {"card_id": card_id})
         self.assertEqual(status, 200)
         self.assertEqual(text_payload["data"]["card_id"], card_id)
-        self.assertIn("Стоимость заказ-наряда: 2000", text_payload["data"]["text"])
-        self.assertIn("Итого по заказ-наряду: 2000", text_payload["data"]["text"])
-        self.assertIn("К доплате: 2000", text_payload["data"]["text"])
+        self.assertIn("Стоимость заказ-наряда: 14000", text_payload["data"]["text"])
+        self.assertIn("Итого по заказ-наряду: 14000", text_payload["data"]["text"])
+        self.assertIn("К доплате: 14000", text_payload["data"]["text"])
 
     def test_repair_order_print_module_routes_preview_export_and_template_crud(self) -> None:
         status, created = self.request(

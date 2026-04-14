@@ -142,6 +142,7 @@ def _round_money(value: Decimal) -> Decimal:
 @dataclass(slots=True)
 class RepairOrderRow:
     name: str = ""
+    catalog_number: str = ""
     quantity: str = ""
     price: str = ""
     total: str = ""
@@ -155,6 +156,7 @@ class RepairOrderRow:
 
     def __post_init__(self) -> None:
         self.name = _normalize_single_line(self.name, limit=REPAIR_ORDER_ROW_NAME_LIMIT)
+        self.catalog_number = _normalize_single_line(self.catalog_number, limit=REPAIR_ORDER_FIELD_LIMIT)
         self.quantity = _normalize_single_line(self.quantity, limit=REPAIR_ORDER_ROW_VALUE_LIMIT)
         self.price = _normalize_single_line(self.price, limit=REPAIR_ORDER_ROW_VALUE_LIMIT)
         normalized_total = _normalize_single_line(self.total, limit=REPAIR_ORDER_ROW_VALUE_LIMIT)
@@ -169,11 +171,12 @@ class RepairOrderRow:
         self.salary_accrued_at = _normalize_single_line(self.salary_accrued_at, limit=REPAIR_ORDER_DATE_LIMIT)
 
     def is_empty(self) -> bool:
-        return not any([self.name, self.quantity, self.price, self.total])
+        return not any([self.name, self.catalog_number, self.quantity, self.price, self.total])
 
     def to_dict(self) -> dict[str, str]:
         return {
             "name": self.name,
+            "catalog_number": self.catalog_number,
             "quantity": self.quantity,
             "price": self.price,
             "total": self.total,
@@ -208,6 +211,10 @@ class RepairOrderRow:
             return cls()
         return cls(
             name=payload.get("name", ""),
+            catalog_number=payload.get(
+                "catalog_number",
+                payload.get("catalogNumber", payload.get("part_number", payload.get("partNumber", payload.get("catalog", "")))),
+            ),
             quantity=payload.get("quantity", payload.get("qty", "")),
             price=payload.get("price", ""),
             total=payload.get("total", payload.get("sum", "")),

@@ -1852,6 +1852,22 @@ BOARD_WEB_APP_HTML = "".join(
       font-variant-numeric: tabular-nums;
       line-height: 1.1;
     }
+    .repair-order-total--cashless {
+      padding: 5px 8px;
+      border: 1px solid rgba(116, 126, 106, 0.16);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .repair-order-total--cashless strong {
+      font-size: 14px;
+    }
+    .repair-order-total--cash {
+      padding: 6px 9px;
+      border: 1px solid rgba(116, 126, 106, 0.2);
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .repair-order-total--cash strong {
+      font-size: 18px;
+    }
     .repair-order-total--summary {
       padding: 6px 9px;
       border: 1px solid rgba(116, 126, 106, 0.2);
@@ -4613,7 +4629,8 @@ BOARD_WEB_APP_HTML = "".join(
             <table class="repair-order-table">
               <thead>
                 <tr>
-                  <th style="width:55%;">Наименование</th>
+                  <th style="width:38%;">Наименование</th>
+                  <th style="width:17%;">Кат. №</th>
                   <th class="repair-order-table__numeric" style="width:10%;">Кол-во</th>
                   <th class="repair-order-table__numeric" style="width:15%;">Цена</th>
                   <th class="repair-order-table__numeric" style="width:16%;">Сумма</th>
@@ -4628,8 +4645,12 @@ BOARD_WEB_APP_HTML = "".join(
       </div>
         <div class="dialog__foot repair-order-footer">
           <div class="repair-order-footer__totals">
-            <div class="repair-order-total">
-              <span>СТОИМОСТЬ НАРЯДА</span>
+            <div class="repair-order-total repair-order-total--cashless">
+              <span>БЕЗНАЛ 15%</span>
+              <strong data-repair-order-total="cashless">0,00</strong>
+            </div>
+            <div class="repair-order-total repair-order-total--cash">
+              <span>НАЛИЧНЫЕ</span>
               <strong data-repair-order-total="subtotal">0,00</strong>
             </div>
             <div class="repair-order-total is-hidden" data-repair-order-total-block="taxes">
@@ -5016,7 +5037,9 @@ BOARD_WEB_APP_HTML = "".join(
                     + '<div class="employees-actions" style="margin-top:12px;">'
                       + '<div class="employees-profile-meta" id="employeesMeta">НОВЫЙ СОТРУДНИК</div>'
                       + '<div style="display:flex; gap:8px;">'
+                        + '<button class="btn btn--ghost" id="employeesCreateButton" type="button">НОВЫЙ</button>'
                         + '<button class="btn" id="employeeSaveButton" type="button">СОХРАНИТЬ</button>'
+                        + '<button class="btn btn--ghost" id="employeeDeleteButton" type="button">УДАЛИТЬ</button>'
                       + '</div>'
                     + '</div>'
                     + '<div class="employees-summary-strip" id="employeesSummaryStrip"></div>'
@@ -5111,6 +5134,7 @@ BOARD_WEB_APP_HTML = "".join(
       employeeNoteInput: document.getElementById('employeeNoteInput'),
       employeeActiveInput: document.getElementById('employeeActiveInput'),
       employeeSaveButton: document.getElementById('employeeSaveButton'),
+      employeeDeleteButton: document.getElementById('employeeDeleteButton'),
       cashboxesMeta: document.getElementById('cashboxesMeta'),
       cashboxesList: document.getElementById('cashboxesList'),
       cashboxNameInput: document.getElementById('cashboxNameInput'),
@@ -5271,6 +5295,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeeNoteInput = document.getElementById('employeeNoteInput');
       els.employeeActiveInput = document.getElementById('employeeActiveInput');
       els.employeeSaveButton = document.getElementById('employeeSaveButton');
+      els.employeeDeleteButton = document.getElementById('employeeDeleteButton');
     }
 
     function hydrateRepairOrderPaymentsUiRefs() {
@@ -5387,6 +5412,7 @@ BOARD_WEB_APP_HTML = "".join(
       hydrateEmployeesUiRefs();
       els.employeesCreateButton?.addEventListener('click', resetEmployeeForm);
       els.employeeSaveButton?.addEventListener('click', saveEmployee);
+      els.employeeDeleteButton?.addEventListener('click', deleteEmployee);
       els.employeeSalaryModeInput?.addEventListener('change', syncEmployeeSalaryModeUi);
       els.employeesMonthInput?.addEventListener('change', () => loadEmployeesWorkspace(false).catch((error) => setStatus(error.message, true)));
       els.employeesSearchInput?.addEventListener('input', handleEmployeesSearchInput);
@@ -5998,6 +6024,9 @@ BOARD_WEB_APP_HTML = "".join(
       if (els.employeeNoteDetails) {
         els.employeeNoteDetails.open = Boolean(String(current?.note || '').trim());
       }
+      if (els.employeeDeleteButton) {
+        els.employeeDeleteButton.disabled = !current;
+      }
       state.employeeFormBaseline = employeeComparableSnapshot(current);
       syncEmployeeSalaryModeUi();
     }
@@ -6216,7 +6245,36 @@ BOARD_WEB_APP_HTML = "".join(
         await loadPayrollReport();
         renderEmployeesWorkspace();
         refreshRepairOrderEmployeeSelects();
-        setStatus('СОТРУДНИК СОХРАНЕН.', false);
+        setStatus(data?.created ? 'СОТРУДНИК ДОБАВЛЕН.' : 'СОТРУДНИК СОХРАНЕН.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    async function deleteEmployee() {
+      const employee = selectedEmployeeRecord();
+      if (!employee) {
+        setStatus('ВЫБЕРИ СОТРУДНИКА ДЛЯ УДАЛЕНИЯ.', true);
+        return;
+      }
+      if (!window.confirm('Удалить сотрудника "' + String(employee.name || 'Сотрудник') + '"?')) return;
+      try {
+        const data = await api('/api/delete_employee', {
+          method: 'POST',
+          body: {
+            employee_id: employee.id,
+            actor_name: state.actor,
+            source: 'ui',
+          },
+        });
+        state.employees = Array.isArray(data?.employees) ? data.employees : [];
+        if (String(state.activeEmployeeId || '') === String(employee.id || '')) {
+          state.activeEmployeeId = '';
+        }
+        await loadPayrollReport();
+        renderEmployeesWorkspace();
+        refreshRepairOrderEmployeeSelects();
+        setStatus('СОТРУДНИК УДАЛЕН.', false);
       } catch (error) {
         setStatus(error.message, true);
       }
@@ -8878,7 +8936,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function repairOrderRowHasAnyData(row) {
-      return ['name', 'quantity', 'price', 'total'].some((fieldName) => String(row?.[fieldName] ?? '').trim());
+      return ['name', 'catalog_number', 'quantity', 'price', 'total'].some((fieldName) => String(row?.[fieldName] ?? '').trim());
     }
 
     function repairOrderResolvedRowTotalValue(row) {
@@ -8908,6 +8966,7 @@ BOARD_WEB_APP_HTML = "".join(
       });
       return {
         name: String(source.name ?? '').trim(),
+        catalog_number: String(source.catalog_number ?? source.part_number ?? source.catalogNumber ?? source.partNumber ?? '').trim(),
         quantity: String(source.quantity ?? '').trim(),
         price: String(source.price ?? '').trim(),
         total: totalValue === null ? fallbackTotal : repairOrderNumberToRaw(totalValue),
@@ -9218,11 +9277,15 @@ BOARD_WEB_APP_HTML = "".join(
       const normalized = normalizeRepairOrderRow(row);
       const totalValue = repairOrderResolvedRowTotalValue(normalized);
       const hasDisplayTotal = totalValue !== null || Boolean(normalized.total);
+      const catalogCell = section === 'materials'
+        ? ('<td>' + repairOrderRowInputHtml('catalog_number', normalized.catalog_number, 'Артикул / OEM') + '</td>')
+        : '';
       const executorCell = section === 'works'
         ? '<td><select class="repair-order-table__select" data-repair-order-cell="executor_id">' + repairOrderExecutorOptionsHtml(normalized.executor_id, normalized.executor_name) + '</select></td>'
         : '';
       return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '">' +
         '<td>' + repairOrderRowInputHtml('name', normalized.name, 'Наименование') + '</td>' +
+        catalogCell +
         executorCell +
         '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('quantity', normalized.quantity, '1') + '</td>' +
         '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('price', normalized.price, '0') + '</td>' +
@@ -9242,6 +9305,7 @@ BOARD_WEB_APP_HTML = "".join(
       const selectedOption = executorSelect instanceof HTMLSelectElement ? executorSelect.options[executorSelect.selectedIndex] : null;
       return normalizeRepairOrderRow({
         name: row.querySelector('[data-repair-order-cell="name"]')?.value,
+        catalog_number: row.querySelector('[data-repair-order-cell="catalog_number"]')?.value,
         quantity: row.querySelector('[data-repair-order-cell="quantity"]')?.value,
         price: row.querySelector('[data-repair-order-cell="price"]')?.value,
         total: row.dataset.repairOrderTotalRaw || '',
@@ -9286,6 +9350,7 @@ BOARD_WEB_APP_HTML = "".join(
       const worksTotal = syncRepairOrderSectionTotals('works');
       const materialsTotal = syncRepairOrderSectionTotals('materials');
       const subtotal = repairOrderRoundMoney(worksTotal + materialsTotal);
+      const cashlessInfo = repairOrderRoundMoney(subtotal * 1.15);
       const taxes = repairOrderRoundMoney(repairOrderCashlessPaymentsValue(state.repairOrderPayments) * repairOrderTaxRate('cashless'));
       const grandTotal = repairOrderRoundMoney(subtotal + taxes);
       const prepayment = repairOrderPaymentsTotalValue(state.repairOrderPayments);
@@ -9295,6 +9360,9 @@ BOARD_WEB_APP_HTML = "".join(
       const dueTotal = repairOrderRoundMoney(grandTotal - prepayment);
       document.querySelectorAll('[data-repair-order-total="subtotal"]').forEach((node) => {
         node.textContent = repairOrderFormatMoney(subtotal);
+      });
+      document.querySelectorAll('[data-repair-order-total="cashless"]').forEach((node) => {
+        node.textContent = repairOrderFormatMoney(cashlessInfo);
       });
       document.querySelectorAll('[data-repair-order-total="taxes"]').forEach((node) => {
         node.textContent = repairOrderFormatMoney(taxes);

@@ -131,6 +131,20 @@ def _repair_row_dict(row: RepairOrderRow, *, section: str, index: int) -> dict[s
     }
 
 
+def _print_safe_repair_order_dict(order: RepairOrder) -> dict[str, Any]:
+    payload = order.to_dict()
+    for field_name in ("works", "materials"):
+        rows = payload.get(field_name)
+        if not isinstance(rows, list):
+            continue
+        payload[field_name] = [
+            {key: value for key, value in row.items() if key != "catalog_number"}
+            for row in rows
+            if isinstance(row, dict)
+        ]
+    return payload
+
+
 class PrintModuleService:
     """Storage-backed printing module for repair-order documents."""
 
@@ -870,6 +884,7 @@ class PrintModuleService:
     ) -> dict[str, Any]:
         works = [_repair_row_dict(row, section="works", index=index) for index, row in enumerate(order.works)]
         materials = [_repair_row_dict(row, section="materials", index=index) for index, row in enumerate(order.materials)]
+        repair_order_payload = _print_safe_repair_order_dict(order)
         line_items = works + materials
         inspection_form = self._load_inspection_sheet_form(card, order)
         findings = self._bullet_points(order.note, fallback_source=order.comment)
@@ -922,13 +937,13 @@ class PrintModuleService:
                 "description": _display(card.description),
             },
             "repair_order": {
-                **order.to_dict(),
+                **repair_order_payload,
                 "number_display": _display(order.number),
                 "date_display": _date_display(order.date),
                 "opened_at_display": _date_display(order.opened_at),
                 "closed_at_display": _date_display(order.closed_at),
                 "status_label": "Закрыт" if str(order.status).strip().lower() == "closed" else "Открыт",
-                "payment_method_label": _display(order.to_dict().get("payment_method_label")),
+                "payment_method_label": _display(repair_order_payload.get("payment_method_label")),
                 "prepayment_display": _money_display(order.prepayment_amount()),
                 "reason_display": _display(order.reason),
                 "reason_html": _line_breaks_html(order.reason),

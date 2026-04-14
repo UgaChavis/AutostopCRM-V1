@@ -52,7 +52,7 @@ def build_card() -> Card:
                     {"name": "Замена масла АКПП", "quantity": "1", "price": "3500", "total": ""},
                 ],
                 "materials": [
-                    {"name": "ATF", "quantity": "6", "price": "950", "total": ""},
+                    {"name": "ATF", "catalog_number": "08886-81210", "quantity": "6", "price": "950", "total": ""},
                     {"name": "Фильтр АКПП", "quantity": "1", "price": "2100", "total": ""},
                 ],
             },
@@ -111,6 +111,22 @@ class PrintingServiceTests(unittest.TestCase):
             self.assertGreaterEqual(document["page_count"], 1)
             self.assertIn("<!doctype html>", document["pages"][0]["html"].lower())
             self.assertIn(document["label"], document["pages"][0]["html"])
+
+    def test_print_context_omits_material_catalog_number(self) -> None:
+        context = self.service._build_document_context(
+            self.card,
+            self.card.repair_order,
+            document=self.service._document_definition("repair_order"),
+            settings=self.service._read_settings(),
+        )
+        self.assertNotIn("catalog_number", context["repair_order"]["materials"][0])
+
+        preview = self.service.preview_documents(
+            self.card,
+            selected_document_ids=["repair_order"],
+            active_document_id="repair_order",
+        )
+        self.assertNotIn("08886-81210", preview["documents"][0]["pages"][0]["html"])
 
     def test_inspection_sheet_form_roundtrip_updates_preview(self) -> None:
         initial = self.service.get_inspection_sheet_form(self.card)

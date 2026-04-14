@@ -1331,6 +1331,7 @@ class CardService:
             employees = self._employees_from_settings(settings)
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
             existing = next((item for item in employees if item["id"] == employee_id), None)
+            created = existing is None
             employee = self._validated_employee_payload(payload, existing=existing)
             next_employees = [item for item in employees if item["id"] != employee["id"]]
             next_employees.append(employee)
@@ -1354,7 +1355,7 @@ class CardService:
                 events=bundle["events"],
                 settings=settings,
             )
-            return {"employee": employee, "employees": next_employees}
+            return {"employee": employee, "employees": next_employees, "created": created}
 
     def toggle_employee(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -1391,6 +1392,41 @@ class CardService:
                 settings=settings,
             )
             return {"employee": target, "employees": employees}
+
+    def delete_employee(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            settings = dict(bundle["settings"])
+            employees = self._employees_from_settings(settings)
+            employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
+            if not employee_id:
+                self._fail("validation_error", "РќСѓР¶РЅРѕ РїРµСЂРµРґР°С‚СЊ employee_id.", details={"field": "employee_id"})
+            target = next((item for item in employees if item["id"] == employee_id), None)
+            if target is None:
+                self._fail("not_found", "РЎРѕС‚СЂСѓРґРЅРёРє РЅРµ РЅР°Р№РґРµРЅ.", status_code=404, details={"employee_id": employee_id})
+            next_employees = [item for item in employees if item["id"] != employee_id]
+            settings[EMPLOYEES_SETTING_KEY] = next_employees
+            self._append_event(
+                bundle["events"],
+                actor_name=actor_name,
+                source=source,
+                action="employee_deleted",
+                message=f"{actor_name} СѓРґР°Р»РёР» СЃРѕС‚СЂСѓРґРЅРёРєР°",
+                card_id=None,
+                details={"employee_id": employee_id, "name": target["name"]},
+            )
+            self._save_bundle(
+                bundle,
+                columns=bundle["columns"],
+                cards=bundle["cards"],
+                cashboxes=bundle["cashboxes"],
+                cash_transactions=bundle["cash_transactions"],
+                events=bundle["events"],
+                settings=settings,
+            )
+            return {"deleted": True, "employee_id": employee_id, "employees": next_employees}
 
     def get_payroll_report(self, payload: dict | None = None) -> dict:
         with self._lock:
