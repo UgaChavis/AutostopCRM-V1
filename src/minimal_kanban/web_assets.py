@@ -2134,7 +2134,7 @@ BOARD_WEB_APP_HTML = "".join(
       }
       .ai-chat-window__layout {
         display: grid;
-        grid-template-rows: auto minmax(0, 1fr) auto;
+        grid-template-rows: auto auto minmax(0, 1fr) auto;
         min-height: 0;
         flex: 1 1 auto;
         height: 100%;
@@ -2174,6 +2174,75 @@ BOARD_WEB_APP_HTML = "".join(
         gap: 8px;
         flex-wrap: wrap;
         justify-content: flex-end;
+      }
+      .ai-chat-window__settings {
+        min-height: 0;
+        border-bottom: 1px solid rgba(115, 126, 105, 0.16);
+        background: rgba(0, 0, 0, 0.05);
+        padding: 12px 14px 14px;
+        display: none;
+        gap: 10px;
+      }
+      .ai-chat-window__settings.is-open {
+        display: grid;
+      }
+      .ai-chat-window__settings-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .ai-chat-window__settings-title {
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-soft);
+      }
+      .ai-chat-window__settings-note {
+        font-size: 11px;
+        line-height: 1.45;
+        color: var(--text-soft);
+      }
+      .ai-chat-window__settings-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .ai-chat-window__profile-card {
+        border: 1px solid rgba(116, 126, 106, 0.18);
+        background: rgba(0, 0, 0, 0.08);
+        border-radius: 10px;
+        padding: 10px 12px;
+        display: grid;
+        gap: 6px;
+        min-width: 0;
+      }
+      .ai-chat-window__profile-label {
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-soft);
+      }
+      .ai-chat-window__profile-value {
+        font-size: 11px;
+        line-height: 1.45;
+        color: var(--text);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .ai-chat-window__profile-card--editable {
+        grid-column: span 1;
+      }
+      .ai-chat-window__profile-card--wide {
+        grid-column: span 2;
+      }
+      .ai-chat-window__profile-input {
+        min-height: 110px;
+        resize: vertical;
+        width: 100%;
       }
       .ai-chat-window__body {
         min-height: 0;
@@ -4537,10 +4606,30 @@ BOARD_WEB_APP_HTML = "".join(
             </div>
             <div class="ai-chat-window__controls">
               <div class="agent-status" id="aiChatWindowStatusLabel" data-state="idle">HIDDEN</div>
-              <button class="btn btn--ghost" id="aiChatWindowSettingsButton" type="button" disabled title="Настройки будут подключены позже">НАСТРОЙКИ</button>
+              <button class="btn btn--ghost" id="aiChatWindowSettingsButton" type="button" title="Профиль чата">НАСТРОЙКИ</button>
               <button class="btn" data-close="ai-chat">ЗАКРЫТЬ</button>
             </div>
           </header>
+          <section class="ai-chat-window__settings" id="aiChatWindowSettingsPane" aria-label="Профиль чата" hidden>
+            <div class="ai-chat-window__settings-head">
+              <div class="ai-chat-window__settings-title">PROMPT PROFILE</div>
+              <div class="ai-chat-window__settings-note">Локальный профиль принадлежит только `ai_chat` и не смешивается с legacy modal flow.</div>
+            </div>
+            <div class="ai-chat-window__settings-grid">
+              <div class="ai-chat-window__profile-card">
+                <div class="ai-chat-window__profile-label">BASE SYSTEM INSTRUCTION</div>
+                <div class="ai-chat-window__profile-value" id="aiChatWindowPromptSystem">Чат отвечает как отдельный рабочий AI surface AutoStop CRM.</div>
+              </div>
+              <div class="ai-chat-window__profile-card">
+                <div class="ai-chat-window__profile-label">RESPONSE PROFILE</div>
+                <div class="ai-chat-window__profile-value" id="aiChatWindowPromptResponse">Кратко, структурно, с читаемыми блоками и без лишнего шума.</div>
+              </div>
+              <label class="ai-chat-window__profile-card ai-chat-window__profile-card--editable ai-chat-window__profile-card--wide" for="aiChatWindowPromptProfileInput">
+                <div class="ai-chat-window__profile-label">USER TUNE</div>
+                <textarea class="input ai-chat-window__profile-input" id="aiChatWindowPromptProfileInput" rows="4" placeholder="Добавь пользовательскую настройку для AI-чата..."></textarea>
+              </label>
+            </div>
+          </section>
           <section class="ai-chat-window__messages-pane" aria-label="История сообщений">
             <div class="ai-chat-window__messages" id="aiChatWindowMessages" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false"></div>
           </section>
@@ -5223,6 +5312,12 @@ BOARD_WEB_APP_HTML = "".join(
       aiChatWindowHistory: [],
       aiChatWindowHistoryContext: null,
       aiChatWindowMessageSeq: 0,
+      aiChatWindowSettingsOpen: false,
+      aiChatWindowPromptProfile: {
+        system_instruction: 'Чат отвечает как отдельный рабочий AI surface AutoStop CRM.',
+        response_profile: 'Кратко, структурно, с читаемыми блоками и без лишнего шума.',
+        user_tune: '',
+      },
       agentRefreshTimer: null,
       agentAutofillCountdownTimer: null,
       agentAutofillPromptOpen: false,
@@ -5661,6 +5756,10 @@ BOARD_WEB_APP_HTML = "".join(
       aiChatWindowStatusLabel: document.getElementById('aiChatWindowStatusLabel'),
       aiChatWindowMessages: document.getElementById('aiChatWindowMessages'),
       aiChatWindowInput: document.getElementById('aiChatWindowInput'),
+      aiChatWindowSettingsPane: document.getElementById('aiChatWindowSettingsPane'),
+      aiChatWindowPromptSystem: document.getElementById('aiChatWindowPromptSystem'),
+      aiChatWindowPromptResponse: document.getElementById('aiChatWindowPromptResponse'),
+      aiChatWindowPromptProfileInput: document.getElementById('aiChatWindowPromptProfileInput'),
       aiChatWindowSettingsButton: document.getElementById('aiChatWindowSettingsButton'),
       aiChatWindowSendButton: document.getElementById('aiChatWindowSendButton'),
       agentModal: document.getElementById('agentModal'),
@@ -5870,6 +5969,10 @@ BOARD_WEB_APP_HTML = "".join(
       els.aiChatWindowStatusLabel = document.getElementById('aiChatWindowStatusLabel');
       els.aiChatWindowMessages = document.getElementById('aiChatWindowMessages');
       els.aiChatWindowInput = document.getElementById('aiChatWindowInput');
+      els.aiChatWindowSettingsPane = document.getElementById('aiChatWindowSettingsPane');
+      els.aiChatWindowPromptSystem = document.getElementById('aiChatWindowPromptSystem');
+      els.aiChatWindowPromptResponse = document.getElementById('aiChatWindowPromptResponse');
+      els.aiChatWindowPromptProfileInput = document.getElementById('aiChatWindowPromptProfileInput');
       els.aiChatWindowSettingsButton = document.getElementById('aiChatWindowSettingsButton');
       els.aiChatWindowSendButton = document.getElementById('aiChatWindowSendButton');
       els.aiChatButton = document.getElementById('aiChatButton');
@@ -5896,11 +5999,14 @@ BOARD_WEB_APP_HTML = "".join(
       const source = state.aiChatWindowContext && typeof state.aiChatWindowContext === 'object'
         ? state.aiChatWindowContext
         : { kind: 'chat' };
+      const profile = ensureAiChatWindowPromptProfile();
       return {
         kind: String(source.kind || 'chat').trim().toLowerCase() || 'chat',
         card_id: String(source.card_id || '').trim(),
         repair_order_id: String(source.repair_order_id || '').trim(),
         source_kind: String(source.kind || 'chat').trim().toLowerCase() || 'chat',
+        prompt_profile_kind: 'ai_chat',
+        prompt_profile_user_tune: String(profile.user_tune || '').trim(),
       };
     }
 
@@ -5931,6 +6037,26 @@ BOARD_WEB_APP_HTML = "".join(
         createAiChatMessage('assistant', 'Это рабочий shell нового AI-чата. Пользовательские сообщения уже сохраняются в локальную историю.', { kind: 'shell', source: 'shell' })
       );
       return state.aiChatWindowHistory;
+    }
+
+    function ensureAiChatWindowPromptProfile() {
+      if (!state.aiChatWindowPromptProfile || typeof state.aiChatWindowPromptProfile !== 'object') {
+        state.aiChatWindowPromptProfile = {
+          system_instruction: 'Чат отвечает как отдельный рабочий AI surface AutoStop CRM.',
+          response_profile: 'Кратко, структурно, с читаемыми блоками и без лишнего шума.',
+          user_tune: '',
+        };
+      }
+      if (typeof state.aiChatWindowPromptProfile.system_instruction !== 'string') {
+        state.aiChatWindowPromptProfile.system_instruction = 'Чат отвечает как отдельный рабочий AI surface AutoStop CRM.';
+      }
+      if (typeof state.aiChatWindowPromptProfile.response_profile !== 'string') {
+        state.aiChatWindowPromptProfile.response_profile = 'Кратко, структурно, с читаемыми блоками и без лишнего шума.';
+      }
+      if (typeof state.aiChatWindowPromptProfile.user_tune !== 'string') {
+        state.aiChatWindowPromptProfile.user_tune = '';
+      }
+      return state.aiChatWindowPromptProfile;
     }
 
     function aiChatMessageTone(role, message) {
@@ -6107,11 +6233,50 @@ BOARD_WEB_APP_HTML = "".join(
       handleAiChatWindowSend();
     }
 
+    function handleAiChatWindowPromptProfileInput(event) {
+      const profile = ensureAiChatWindowPromptProfile();
+      profile.user_tune = String(event?.target?.value || '').replace(/\r\n/g, '\n');
+      state.aiChatWindowPromptProfile = profile;
+      state.aiChatWindowHistoryContext = aiChatHistoryContextSnapshot();
+    }
+
+    function handleAiChatWindowSettingsToggle() {
+      state.aiChatWindowSettingsOpen = !Boolean(state.aiChatWindowSettingsOpen);
+      renderAiChatWindowSettings();
+    }
+
+    function renderAiChatWindowSettings() {
+      hydrateAiChatWindowUiRefs();
+      const profile = ensureAiChatWindowPromptProfile();
+      const isOpen = Boolean(state.aiChatWindowSettingsOpen);
+      if (els.aiChatWindowSettingsPane) {
+        els.aiChatWindowSettingsPane.hidden = !isOpen;
+        els.aiChatWindowSettingsPane.classList.toggle('is-open', isOpen);
+      }
+      if (els.aiChatWindowSettingsButton) {
+        els.aiChatWindowSettingsButton.disabled = false;
+        els.aiChatWindowSettingsButton.dataset.state = isOpen ? 'open' : 'closed';
+        els.aiChatWindowSettingsButton.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        els.aiChatWindowSettingsButton.textContent = isOpen ? 'НАСТРОЙКИ ×' : 'НАСТРОЙКИ';
+      }
+      if (els.aiChatWindowPromptSystem) {
+        els.aiChatWindowPromptSystem.textContent = profile.system_instruction;
+      }
+      if (els.aiChatWindowPromptResponse) {
+        els.aiChatWindowPromptResponse.textContent = profile.response_profile;
+      }
+      if (els.aiChatWindowPromptProfileInput && els.aiChatWindowPromptProfileInput.value !== profile.user_tune) {
+        els.aiChatWindowPromptProfileInput.value = profile.user_tune;
+      }
+    }
+
     function bindAiChatWindowUiEvents() {
       if (state.aiChatWindowUiBound) return;
       hydrateAiChatWindowUiRefs();
+      els.aiChatWindowSettingsButton?.addEventListener('click', handleAiChatWindowSettingsToggle);
       els.aiChatWindowSendButton?.addEventListener('click', handleAiChatWindowSend);
       els.aiChatWindowInput?.addEventListener('keydown', handleAiChatWindowInputKeydown);
+      els.aiChatWindowPromptProfileInput?.addEventListener('input', handleAiChatWindowPromptProfileInput);
       state.aiChatWindowUiBound = true;
     }
 
@@ -7331,6 +7496,7 @@ BOARD_WEB_APP_HTML = "".join(
         els.aiChatWindowStatusLabel.textContent = label;
         els.aiChatWindowStatusLabel.dataset.state = tone;
       }
+      renderAiChatWindowSettings();
       if (els.aiChatWindowMessages) {
         els.aiChatWindowMessages.dataset.state = exposureState;
       }
