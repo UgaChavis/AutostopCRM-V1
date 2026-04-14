@@ -565,7 +565,7 @@ class AutomotiveLookupService:
 
     def _normalize_service_type(self, value: str) -> str:
         text = str(value or "").strip()
-        if text in {"РўРћ", "Ð¢Ðž"}:
+        if text in {"ТО", "РўРћ", "Ð¢Ðž"}:
             return "ТО"
         return text or _DEFAULT_SERVICE_TYPE
 

@@ -1719,6 +1719,14 @@ class AutomotiveLookupServiceTests(unittest.TestCase):
         self.assertIn("Тормозная жидкость", {item["name"] for item in result["materials"]})
         self.assertTrue(any("VIN доступен" in note for note in result["notes"]))
 
+    def test_estimate_maintenance_normalizes_common_mojibake_service_type(self) -> None:
+        service = AutomotiveLookupService()
+        result = service.estimate_maintenance(
+            vehicle_context={"make": "BMW", "model": "320i"},
+            service_type="Ð¢Ðž",
+        )
+        self.assertEqual(result["service_type"], "ТО")
+
     def test_lookup_part_prices_extracts_price_from_snippet_before_fetch(self) -> None:
         service = AutomotiveLookupService()
         service._search = self._FakeSearch(
