@@ -395,12 +395,12 @@ BOARD_WEB_APP_HTML = "".join(
       position: relative;
       z-index: 1;
     }
+    .column[draggable="true"] { cursor: grab; }
+    .column[draggable="true"]:active { cursor: grabbing; }
     .column.is-drop-target { outline: 1px solid var(--accent); }
     .column.is-column-drop-target { outline: 1px dashed rgba(167, 178, 132, 0.92); outline-offset: 2px; }
     .column.is-column-dragging { opacity: 0.72; }
     .column__head { display: flex; justify-content: space-between; align-items: center; gap: calc(10px * var(--board-scale)); }
-    .column__head[draggable="true"] { cursor: grab; }
-    .column__head[draggable="true"]:active { cursor: grabbing; }
     .column__head-actions {
       display: inline-flex;
       align-items: center;
@@ -10803,7 +10803,7 @@ function renderCompactArchiveRows(cards) {
         : (snapshot.columns.length <= 1 ? 'Последний столбец нельзя удалить' : 'Удалить пустой столбец');
       const renameTitle = 'Переименовать столбец';
       const deleteAttrs = isDeleteBlocked ? ' disabled' : '';
-      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '"><div class="column__head" draggable="true" data-drag-column-handle="1"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '">&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>×</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '<div class="empty">ЗДЕСЬ ПОКА ПУСТО.</div>') + '</div><button class="btn" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
+      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '" draggable="true"><div class="column__head" data-drag-column-handle="1"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '">&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>×</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '<div class="empty">ЗДЕСЬ ПОКА ПУСТО.</div>') + '</div><button class="btn" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
     }
 
     function renderBoardColumnById(columnId, cardsByColumn = null) {
@@ -12230,9 +12230,9 @@ function renderCompactArchiveRows(cards) {
     function handleBoardColumnDragStart(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      const handle = target.closest('[data-drag-column-handle]');
-      if (!(handle instanceof HTMLElement)) return;
-      const column = handle.closest('.column');
+      if (target.closest('.card')) return;
+      if (target.closest('button, input, textarea, select, a, label')) return;
+      const column = target.closest('.column');
       if (!(column instanceof HTMLElement)) return;
       state.boardDragColumnId = column.dataset.columnId || '';
       column.classList.add('is-column-dragging');

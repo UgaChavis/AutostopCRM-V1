@@ -74,8 +74,11 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_columns_support_drag_and_drop_reordering(self) -> None:
         self.assertIn('data-drag-column-handle="1"', BOARD_WEB_APP_HTML)
-        self.assertIn('draggable="true"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-column-id="', BOARD_WEB_APP_HTML)
+        self.assertIn('" draggable="true"><div class="column__head"', BOARD_WEB_APP_HTML)
         self.assertIn("function handleBoardColumnDragStart(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("if (target.closest('.card')) return;", BOARD_WEB_APP_HTML)
+        self.assertIn("if (target.closest('button, input, textarea, select, a, label')) return;", BOARD_WEB_APP_HTML)
         self.assertIn("function handleBoardColumnDragOver(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleBoardColumnDragLeave(event)", BOARD_WEB_APP_HTML)
         self.assertIn("async function handleBoardColumnDrop(event)", BOARD_WEB_APP_HTML)
@@ -85,7 +88,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("document.addEventListener('drop', handleBoardColumnDrop);", BOARD_WEB_APP_HTML)
         self.assertIn("document.addEventListener('dragend', finishBoardDrag);", BOARD_WEB_APP_HTML)
         self.assertIn(".column.is-column-drop-target {", BOARD_WEB_APP_HTML)
-        self.assertIn(".column__head[draggable=\"true\"] {", BOARD_WEB_APP_HTML)
+        self.assertIn(".column[draggable=\"true\"] {", BOARD_WEB_APP_HTML)
 
     def test_board_snapshot_polling_is_throttled_and_visibility_aware(self) -> None:
         self.assertIn("refreshInFlight: null", BOARD_WEB_APP_HTML)
