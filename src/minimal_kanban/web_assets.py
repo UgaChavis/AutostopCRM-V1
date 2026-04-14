@@ -6760,6 +6760,17 @@ BOARD_WEB_APP_HTML = "".join(
       return nonGoals.map((item) => String(item || '').trim()).filter(Boolean).join(' · ');
     }
 
+    function aiSurfaceLegacyFallbackVisible(statusPayload, selectedExposureState) {
+      const payload = statusPayload && typeof statusPayload === 'object' ? statusPayload : {};
+      const aiRemodel = payload.ai_remodel && typeof payload.ai_remodel === 'object' ? payload.ai_remodel : {};
+      const effectiveMode = aiRemodel.effective_mode && typeof aiRemodel.effective_mode === 'object' ? aiRemodel.effective_mode : {};
+      const entryExposureMap = effectiveMode.entry_exposure && typeof effectiveMode.entry_exposure === 'object' ? effectiveMode.entry_exposure : {};
+      const selectedState = String(selectedExposureState || '').trim().toLowerCase();
+      const legacyEnabled = Boolean(aiRemodel.legacy_ux_enabled ?? effectiveMode.legacy_ux_enabled ?? true);
+      const legacyPromptState = String(entryExposureMap.agent_manual_prompt?.exposure_state || entryExposureMap.quick_prompts?.exposure_state || 'hidden').trim().toLowerCase();
+      return legacyEnabled && legacyPromptState === 'legacy_only' && selectedState === 'legacy_only';
+    }
+
     function formatAgentContextLabel(context) {
       const normalized = context && typeof context === 'object' ? context : { kind: 'board' };
       if (String(normalized.kind || '').trim().toLowerCase() === 'card') {
@@ -6806,6 +6817,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function handleAiSurfaceLegacyClick() {
+      if (!aiSurfaceLegacyFallbackVisible(state.aiSurfaceStatusPayload || {}, state.aiSurfaceSelectedScenario)) return;
       closeAiSurface();
       openAgentModal(String(state.aiSurfaceContext?.kind || '').trim().toLowerCase() === 'card' ? 'card' : 'board');
     }
@@ -6864,7 +6876,8 @@ BOARD_WEB_APP_HTML = "".join(
       if (els.aiSurfaceSummary) {
         const primaryPath = String(effectiveMode.primary_interactive_path || 'legacy_agent_modal_manual_tasks').trim();
         const available = Array.isArray(effectiveMode.available_scenarios) ? effectiveMode.available_scenarios.join(' · ') : '';
-        els.aiSurfaceSummary.textContent = 'Текущий путь: ' + primaryPath + '. Legacy UX ' + (legacyEnabled ? 'временно активен' : 'выключен') + '. Доступные сценарии: ' + (available || 'нет');
+        const legacyFallbackVisible = aiSurfaceLegacyFallbackVisible(payload, selectedExposureState);
+        els.aiSurfaceSummary.textContent = 'Текущий путь: ' + primaryPath + '. Legacy UX ' + (legacyFallbackVisible ? 'доступен только как gated fallback' : 'скрыт по умолчанию') + '. Доступные сценарии: ' + (available || 'нет');
       }
       const buttonStateMap = {
         aiChatButton: entryExposureMap.future_ai_chat_window,
@@ -6883,7 +6896,8 @@ BOARD_WEB_APP_HTML = "".join(
         button.setAttribute('aria-label', button.title);
       });
       if (els.aiSurfaceLegacyButton) {
-        els.aiSurfaceLegacyButton.hidden = !legacyEnabled;
+        els.aiSurfaceLegacyButton.hidden = !aiSurfaceLegacyFallbackVisible(payload, selectedExposureState);
+        els.aiSurfaceLegacyButton.dataset.state = els.aiSurfaceLegacyButton.hidden ? 'hidden' : 'legacy';
       }
       if (els.aiSurfaceScenarioGrid) {
         els.aiSurfaceScenarioGrid.innerHTML = AI_SURFACE_SCENARIO_IDS.map((scenarioId) => {
