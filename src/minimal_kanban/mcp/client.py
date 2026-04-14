@@ -614,24 +614,26 @@ class BoardApiClient:
         )
         try:
             with urllib.request.urlopen(request, timeout=self._timeout_seconds) as response:
-                try:
-                    parsed = json.loads(response.read().decode("utf-8"))
-                except json.JSONDecodeError as json_error:
-                    raise BoardApiTransportError(f"Локальный API вернул некорректный JSON для {path}.") from json_error
+                parsed = self._parse_json_payload(response.read(), path=path)
                 self._log("board_api_request path=%s status=%s", path, response.status)
                 return parsed
         except urllib.error.HTTPError as exc:
             try:
-                payload = json.loads(exc.read().decode("utf-8"))
-            except json.JSONDecodeError as json_error:  # pragma: no cover
-                raise BoardApiTransportError(f"Локальный API вернул некорректный JSON для {path}.") from json_error
-            self._log("board_api_request path=%s status=%s error=%s", path, exc.code, payload.get("error"))
-            try:
+                payload = self._parse_json_payload(exc.read(), path=path)
+                self._log("board_api_request path=%s status=%s error=%s", path, exc.code, payload.get("error"))
                 return payload
             finally:
                 exc.close()
         except (urllib.error.URLError, TimeoutError) as exc:
             raise BoardApiTransportError(f"Не удалось подключиться к локальному API по адресу {self.base_url}.") from exc
+
+    def _parse_json_payload(self, raw: bytes, *, path: str) -> dict:
+        try:
+            decoded = raw.decode("utf-8")
+            parsed = json.loads(decoded)
+        except (UnicodeDecodeError, json.JSONDecodeError) as parse_error:
+            raise BoardApiTransportError(f"Локальный API вернул некорректный JSON для {path}.") from parse_error
+        return parsed
 
     def _log(self, message: str, *args) -> None:
         if self._logger is not None:

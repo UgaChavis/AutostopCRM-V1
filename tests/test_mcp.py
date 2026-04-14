@@ -9,6 +9,7 @@ import socket
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
 from contextlib import asynccontextmanager, suppress
@@ -1572,6 +1573,47 @@ class McpServerRuntimeTests(unittest.TestCase):
                 client.health()
         self.assertIn("Локальный API вернул некорректный JSON", str(error.exception))
         self.assertNotIn("Р›Рѕ", str(error.exception))
+
+    def test_request_raises_transport_error_on_invalid_success_utf8(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        class BrokenResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self) -> bytes:
+                return b"\xff\xfe\xfd"
+
+        with patch("urllib.request.urlopen", return_value=BrokenResponse()):
+            with self.assertRaises(BoardApiTransportError) as error:
+                client.health()
+        self.assertIn("Локальный API вернул некорректный JSON", str(error.exception))
+
+    def test_request_raises_transport_error_on_invalid_error_utf8(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        class BrokenHttpError(urllib.error.HTTPError):
+            def __init__(self) -> None:
+                super().__init__(
+                    url="https://board.example/api/health",
+                    code=500,
+                    msg="Internal Server Error",
+                    hdrs=None,
+                    fp=None,
+                )
+
+            def read(self) -> bytes:
+                return b"\xff\xfe\xfd"
+
+        with patch("urllib.request.urlopen", side_effect=BrokenHttpError()):
+            with self.assertRaises(BoardApiTransportError) as error:
+                client.health()
+        self.assertIn("Локальный API вернул некорректный JSON", str(error.exception))
 
 
 if __name__ == "__main__":
