@@ -15,6 +15,7 @@ from .config import (
     get_agent_openai_model,
     get_agent_poll_interval_seconds,
 )
+from .remodel import get_ai_remodel_status_payload
 from .storage import AgentStorage
 
 
@@ -127,6 +128,7 @@ class AgentControlService:
                 "model": get_agent_openai_model(),
                 "board_api_url": get_agent_board_api_url() or "",
             },
+            "ai_remodel": get_ai_remodel_status_payload(),
             "worker": {
                 "embedded": True,
                 "running": worker_running,

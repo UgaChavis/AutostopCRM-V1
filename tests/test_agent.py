@@ -441,6 +441,30 @@ class AgentControlStatusTests(unittest.TestCase):
             self.assertTrue(payload["scheduler"]["last_success_at"])
             self.assertEqual(payload["scheduler"]["last_error"], "")
 
+    def test_agent_status_exposes_ai_remodel_skeleton_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            "os.environ",
+            {
+                "MINIMAL_KANBAN_AGENT_ENABLED": "1",
+                "OPENAI_API_KEY": "",
+                "MINIMAL_KANBAN_AI_CHAT_ENABLED": "1",
+            },
+            clear=False,
+        ):
+            storage = AgentStorage(base_dir=Path(temp_dir))
+            service = AgentControlService(storage)
+            payload = service.agent_status()
+            self.assertIn("ai_remodel", payload)
+            self.assertEqual(payload["ai_remodel"]["phase"], "module_1_3_entry_deactivation")
+            self.assertTrue(payload["ai_remodel"]["feature_flags"]["legacy_ux_enabled"])
+            self.assertTrue(payload["ai_remodel"]["feature_flags"]["ai_chat_enabled"])
+            self.assertIn("ai_chat", payload["ai_remodel"]["scenario_registry"])
+            self.assertIn("full_card_enrichment", payload["ai_remodel"]["scenario_registry"])
+            self.assertIn("board_control", payload["ai_remodel"]["scenario_registry"])
+            self.assertIn("entry_surface_registry", payload["ai_remodel"])
+            self.assertIn("legacy_deactivation_map", payload["ai_remodel"])
+            self.assertIn("entry_exposure", payload["ai_remodel"])
+
     def test_agent_status_accepts_invalid_run_limit_without_crashing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
             "os.environ",

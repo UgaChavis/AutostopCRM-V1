@@ -8,6 +8,7 @@ __all__ = [
     "instructions",
     "openai_client",
     "policy",
+    "remodel",
     "runner",
     "scenarios",
     "source_registry",
