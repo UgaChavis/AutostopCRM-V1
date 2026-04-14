@@ -57,6 +57,24 @@ class KnowledgeLayerTests(unittest.TestCase):
         self.assertTrue(any(item["document_id"] == "master_plan" for item in documents))
         self.assertTrue(any(item["source_path"].endswith("MASTER-PLAN.md") for item in documents))
 
+    def test_knowledge_packet_defaults_to_crm_when_not_requested(self) -> None:
+        packet = build_ai_chat_knowledge_packet(
+            prompt="Привет, что видно по карточке?",
+            context={
+                "kind": "compact_context",
+                "surface": "ai_chat",
+                "card_label": "CARD-1 · KIA RIO",
+                "context_label": "CARD-1 · KIA RIO",
+            },
+            lookup_service=_FakeLookupService(),
+        )
+
+        self.assertEqual(packet["source_labels"], ["CRM"])
+        self.assertFalse(packet["documents"]["requested"])
+        self.assertFalse(packet["documents"]["used"])
+        self.assertFalse(packet["internet"]["requested"])
+        self.assertFalse(packet["internet"]["used"])
+
     def test_knowledge_packet_combines_crm_documents_and_internet(self) -> None:
         packet = build_ai_chat_knowledge_packet(
             prompt="master plan settings api guide vin lookup",
@@ -163,4 +181,3 @@ class KnowledgeApiRouteTests(unittest.TestCase):
         self.assertTrue(data["internet"]["used"])
         self.assertGreater(len(data["documents"]["items"]), 0)
         self.assertGreater(len(data["internet"]["items"]), 0)
-
