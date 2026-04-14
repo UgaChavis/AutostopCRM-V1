@@ -407,6 +407,51 @@ class CardServiceTests(unittest.TestCase):
         messages = [entry["message"] for entry in self.service.get_card({"card_id": card_id})["card"]["ai_autofill_log"]]
         self.assertIn("Предыдущий проход завершился ошибкой. Запущен безопасный повтор.", messages)
 
+    def test_trigger_due_ai_followups_allows_more_passes_for_active_diagnostic_cards(self) -> None:
+        agent = _FakeAgentControl()
+        self.service.attach_agent_control(agent)
+        base = datetime(2026, 4, 12, 8, 0, 0, tzinfo=timezone.utc)
+        patches = self._patch_time(base)
+        with patches[0], patches[1], patches[2]:
+            created = self.service.create_card(
+                {
+                    "vehicle": "BMW X5",
+                    "title": "Диагностика DTC",
+                    "description": "VIN: WBAPF71060A798127\nОшибка P0300\nТечь антифриза",
+                    "deadline": {"hours": 2},
+                }
+            )
+            card_id = created["card"]["id"]
+            self.service.set_card_ai_autofill({"card_id": card_id, "enabled": True, "actor_name": "AI"})
+
+        bundle = self.store.read_bundle()
+        card = next(item for item in bundle["cards"] if item.id == card_id)
+        card.ai_run_count = 6
+        card.ai_next_run_at = (base + timedelta(minutes=41)).isoformat()
+        card.ai_autofill_until = (base + timedelta(hours=4)).isoformat()
+        card.last_card_fingerprint = "stale-fingerprint"
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+        )
+
+        due_time = base + timedelta(minutes=41)
+        patches = self._patch_time(due_time)
+        with patches[0], patches[1], patches[2]:
+            launched = self.service.trigger_due_ai_followups()
+
+        self.assertEqual(len(launched["launched"]), 1)
+        bundle = self.store.read_bundle()
+        card = next(item for item in bundle["cards"] if item.id == card_id)
+        self.assertTrue(card.ai_autofill_active)
+        self.assertEqual(card.ai_run_count, 7)
+        messages = [entry["message"] for entry in card.ai_autofill_log]
+        self.assertIn("Обнаружены изменения. Запущен повторный проход.", messages)
+
     def test_agent_originated_update_refreshes_autofill_fingerprint(self) -> None:
         agent = _FakeAgentControl()
         self.service.attach_agent_control(agent)

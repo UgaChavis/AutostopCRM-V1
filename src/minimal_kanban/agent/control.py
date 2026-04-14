@@ -107,19 +107,29 @@ class AgentControlService:
         if heartbeat_at is not None:
             heartbeat_age_seconds = max(0.0, (utc_now() - heartbeat_at).total_seconds())
             heartbeat_fresh = heartbeat_age_seconds <= max(30.0, float(get_agent_poll_interval_seconds()) * 10.0)
+        worker_running = bool(self._worker_thread and self._worker_thread.is_alive())
         available = get_agent_enabled() and (configured or heartbeat_fresh)
+        ready = get_agent_enabled() and (worker_running or heartbeat_fresh)
+        availability_reason = self._agent_availability_reason(
+            enabled=get_agent_enabled(),
+            configured=configured,
+            worker_running=worker_running,
+            heartbeat_fresh=heartbeat_fresh,
+        )
         return {
             "agent": {
                 "name": get_agent_name(),
                 "enabled": get_agent_enabled(),
                 "available": available,
+                "ready": ready,
+                "availability_reason": availability_reason,
                 "configured": configured,
                 "model": get_agent_openai_model(),
                 "board_api_url": get_agent_board_api_url() or "",
             },
             "worker": {
                 "embedded": True,
-                "running": bool(self._worker_thread and self._worker_thread.is_alive()),
+                "running": worker_running,
                 "heartbeat_fresh": heartbeat_fresh,
             },
             "status": status,
@@ -345,8 +355,27 @@ class AgentControlService:
         while not self._scheduler_stop.wait(self._scheduler_interval_seconds):
             try:
                 self.trigger_scheduled_tasks(force=True)
-            except Exception:
+            except Exception as exc:
+                self._storage.update_status(last_heartbeat=utc_now_iso(), last_error=f"scheduler: {exc}")
                 continue
+
+    def _agent_availability_reason(
+        self,
+        *,
+        enabled: bool,
+        configured: bool,
+        worker_running: bool,
+        heartbeat_fresh: bool,
+    ) -> str:
+        if not enabled:
+            return "disabled"
+        if worker_running:
+            return "worker_running"
+        if heartbeat_fresh:
+            return "heartbeat_fresh"
+        if configured:
+            return "configured_but_worker_idle"
+        return "missing_api_key"
 
     def _worker_loop(self, logger: Any, board_api_url: str) -> None:
         from ..mcp.client import BoardApiClient

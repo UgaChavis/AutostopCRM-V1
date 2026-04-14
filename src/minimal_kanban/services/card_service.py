@@ -621,11 +621,16 @@ class CardService:
                 if not card.ai_autofill_active:
                     continue
                 until_at = parse_datetime(card.ai_autofill_until)
-                if until_at is None or until_at <= now or card.ai_run_count >= 6:
+                max_runs = self._card_ai_max_runs(card)
+                if until_at is None or until_at <= now or card.ai_run_count >= max_runs:
                     card.ai_autofill_active = False
                     card.ai_autofill_until = ""
                     card.ai_next_run_at = ""
-                    self._append_card_ai_log(card, level="DONE", message="Автосопровождение завершено.")
+                    if until_at is None or until_at <= now:
+                        done_message = "Автосопровождение завершено: вышло время окна автосопровождения."
+                    else:
+                        done_message = f"Автосопровождение завершено: достигнут лимит проходов ({max_runs})."
+                    self._append_card_ai_log(card, level="DONE", message=done_message)
                     changed_any = True
                     continue
                 next_run_at = parse_datetime(card.ai_next_run_at) or now
@@ -3684,6 +3689,12 @@ class CardService:
         if active and int(card.ai_run_count or 0) <= 3:
             return 25
         return 40
+
+    def _card_ai_max_runs(self, card: Card) -> int:
+        haystack = self._card_ai_source_text(card).casefold()
+        if any(token in haystack for token in ("ошибк", "dtc", "vin", "запчаст", "ремонт", "диагност", "течь", "стук")):
+            return 10
+        return 8
 
     def _append_card_ai_log(self, card: Card, *, level: str, message: str, task_id: str = "") -> None:
         normalized_level = str(level or "INFO").strip().upper()

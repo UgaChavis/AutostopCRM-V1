@@ -395,6 +395,31 @@ class AgentControlStatusTests(unittest.TestCase):
             service.agent_status()
             self.assertEqual(board.calls, 1)
 
+    def test_agent_status_exposes_ready_and_reason_without_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            "os.environ",
+            {
+                "MINIMAL_KANBAN_AGENT_ENABLED": "1",
+                "OPENAI_API_KEY": "test-key",
+            },
+            clear=False,
+        ):
+            storage = AgentStorage(base_dir=Path(temp_dir))
+            storage.update_status(
+                running=False,
+                current_task_id=None,
+                current_run_id=None,
+                last_heartbeat="",
+                last_error="",
+            )
+            service = AgentControlService(storage)
+            payload = service.agent_status()
+            self.assertTrue(payload["agent"]["available"])
+            self.assertFalse(payload["agent"]["ready"])
+            self.assertEqual(payload["agent"]["availability_reason"], "configured_but_worker_idle")
+            self.assertFalse(payload["worker"]["running"])
+            self.assertFalse(payload["worker"]["heartbeat_fresh"])
+
 
 class AgentRunnerTests(unittest.TestCase):
     def test_default_prompt_includes_card_cleanup_rules(self) -> None:
