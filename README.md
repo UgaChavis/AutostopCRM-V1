@@ -249,6 +249,7 @@ The production compose stack currently has two services:
 
 С чего начать:
 
+- [00_START_HERE_AUTOSTOP_CRM.md](00_START_HERE_AUTOSTOP_CRM.md): visible root-level onboarding file for the next developer or agent
 - [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md): current developer handoff, architecture snapshot, and latest development state
 - [README.md](README.md): current project overview
 - [AUTOSTOPCRM_FULL_INSTRUCTION.txt](AUTOSTOPCRM_FULL_INSTRUCTION.txt): server and deployment operations
@@ -256,11 +257,24 @@ The production compose stack currently has two services:
 - [MCP_GUIDE.md](MCP_GUIDE.md): MCP architecture and runtime behavior
 - [README_SETTINGS.md](README_SETTINGS.md): integration settings model
 
-Additional focused docs:
+Active agent and operations docs kept in the root:
 
-- `CHATGPT_*`, `CONNECT_GPT_AGENT.md`, `GPT_AGENT_*`
-- these files describe connector behavior, operator workflows, and agent playbooks
-- some of them still use the legacy `Minimal Kanban` connector name because the connector and local storage names were kept compatible
+- `GPT_AGENT_01_VERIFIED_MCP_TOOLS.txt`
+- `GPT_AGENT_02_OPERATING_PLAYBOOK.txt`
+- `GPT_AGENT_03_SERVER_AGENT_SETTINGS.txt`
+- `GPT_AGENT_04_SERVER_AGENT_API_AND_COMMANDS.txt`
+- `GPT_AGENT_05_SERVER_AGENT_WORKFLOW.txt`
+- `GPT_AGENT_06_BOARD_CONTROL_PLAYBOOK.txt`
+- `GPT_AGENT_07_REPAIR_ORDER_AND_PAYMENTS_PLAYBOOK.txt`
+- `GPT_AGENT_08_TASKS_AUTOFILL_AND_INTERNET_TOOLS.txt`
+- `GPT_AGENT_09_MCP_COMMAND_CATALOG.md`
+- `GPT_AGENT_10_MCP_OPERATION_FLOWS.md`
+- `GPT_AGENT_11_AGENT_AUTOFILL_ORCHESTRATION.md`
+- `CHATGPT_CONNECTOR_SETUP.md` remains in the root because the runtime and tests reference that exact path
+
+Устаревшие заметки по коннектору и операторским сценариям перенесены в:
+
+- `docs/archive/legacy_root_docs`
 
 ## Current Branch Policy
 

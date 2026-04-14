@@ -41,11 +41,10 @@ Not the active line for current production work:
 
 - `autostopCRM-V2`
 
-Known current environment alignment at the time of this update:
+Known current environment rule:
 
-- local repo: `8c479fe`
-- GitHub `autostopCRM`: `8c479fe`
-- working production server `crm.autostopcrm.ru`: `8c479fe`
+- local repo, GitHub `autostopCRM`, and working production should stay aligned on the same branch head
+- after any meaningful change, verify all three explicitly instead of relying on stale notes in this file
 
 Working production DNS:
 
@@ -59,7 +58,7 @@ Working server repository path:
 
 Important operational note:
 
-- production still currently accepts default admin credentials `admin/admin`
+- production still currently accepts the default admin account
 - this is a real security risk and should be changed in a dedicated pass
 
 ## 3. Runtime Architecture
@@ -225,20 +224,16 @@ Most recent important commits in the current line:
 
 - `9b4553d` `Unify server agent orchestration core`
 - `fd891d9` `Stabilize agent verification and deploy smoke`
-- current working tree also contains the next modernization wave for the AI agent:
-  - scenario registry and scenario executors
-  - structured fact evidence
-  - planning eligibility separation
-  - explicit verify outcome states
-  - goal-level autofill verification
-  - VIN fallback evidence
+- `2b62588` `Record agent scenario feedback in traces`
+- `425350a` `Route quick card agent prompts through structured pipeline`
+- `00_START_HERE_AUTOSTOP_CRM.md` was added as the visible root-level onboarding file for the next developer or agent
 
-What `fd891d9` represents in practice:
+Most recent applied AI-agent improvements in practice:
 
-- local repo, GitHub, and working production were re-aligned
-- agent verification bug was fixed
-- server deploy smoke was stabilized
-- production `crm.autostopcrm.ru` was verified as live with MCP and agent runtime responding
+- orchestration traces now store per-scenario feedback with `status`, `notes`, `warnings`, and `followup_reason`
+- quick card prompts from the UI now carry `quick_template`
+- quick `VIN`, `ЗАПЧАСТИ`, `ТО`, and `ПОРЯДОК` prompts now route through the structured card pipeline instead of the weaker free-form loop
+- production `crm.autostopcrm.ru` was redeployed and reverified after these changes
 
 ## 7. Production Verification Snapshot
 
@@ -271,7 +266,7 @@ Main local regression command:
 
 Current known baseline:
 
-- `348/348 OK`
+- `363/363 OK`
 
 Main test areas:
 
@@ -319,8 +314,7 @@ docker compose exec -T autostopcrm python scripts/check_agent_runtime.py --local
 
 Known risks:
 
-- default admin credentials are still enabled in production
-- server working tree contains unrelated untracked `amnezia` files on the production host
+- production still currently accepts the default admin account
 - some docs still carry older naming and operational assumptions
 - MCP tests are green but still noisy because of stream cleanup warnings
 
@@ -333,13 +327,14 @@ Current cleanup policy:
 
 ## 11. Recommended First Read Order For A New Agent
 
-1. `PROJECT_HANDOFF.md`
-2. `README.md`
-3. `AUTOSTOPCRM_FULL_INSTRUCTION.txt`
-4. `API_GUIDE.md`
-5. `MCP_GUIDE.md`
-6. `src/minimal_kanban/agent/runner.py`
-7. `src/minimal_kanban/services/card_service.py`
+1. `00_START_HERE_AUTOSTOP_CRM.md`
+2. `PROJECT_HANDOFF.md`
+3. `README.md`
+4. `AUTOSTOPCRM_FULL_INSTRUCTION.txt`
+5. `API_GUIDE.md`
+6. `MCP_GUIDE.md`
+7. `src/minimal_kanban/agent/runner.py`
+8. `src/minimal_kanban/services/card_service.py`
 
 ## 12. Maintenance Rule For This File
 
