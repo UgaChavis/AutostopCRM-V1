@@ -6028,8 +6028,12 @@ BOARD_WEB_APP_HTML = "".join(
         wall_view: String(source.wall_context?.view || '').trim(),
         wall_available: Boolean(source.wall_context?.has_wall),
         attachments_ready: Boolean(source.attachments_intake?.ready),
+        attachments_label: String(source.attachments_intake?.label || '').trim(),
         attachments_card_count: String(source.attachments_intake?.card_attachment_count ?? '').trim(),
         attachments_repair_order_count: String(source.attachments_intake?.repair_order_attachment_count ?? '').trim(),
+        attachments_total_count: String(source.attachments_intake?.total_attachment_count ?? '').trim(),
+        attachments_card_ids: Array.isArray(source.attachments_intake?.card_attachment_ids) ? source.attachments_intake.card_attachment_ids.slice(0, 12) : [],
+        attachments_repair_order_ids: Array.isArray(source.attachments_intake?.repair_order_attachment_ids) ? source.attachments_intake.repair_order_attachment_ids.slice(0, 12) : [],
         compact_context_kind: String(source.kind || 'chat').trim().toLowerCase() || 'chat',
         prompt_profile_kind: 'ai_chat',
         prompt_profile_user_tune: String(profile.user_tune || '').trim(),
@@ -6424,6 +6428,87 @@ BOARD_WEB_APP_HTML = "".join(
       };
     }
 
+    function buildAiAttachmentIntakePacket(card = state.activeCard, repairOrder = aiChatActiveRepairOrderScope(), wallDigest = null) {
+      const sourceCard = card && typeof card === 'object' ? card : null;
+      const sourceRepairOrder = repairOrder && typeof repairOrder === 'object' ? repairOrder : null;
+      const digest = wallDigest && typeof wallDigest === 'object'
+        ? wallDigest
+        : (state.aiCompactContext?.wall_digest && typeof state.aiCompactContext.wall_digest === 'object'
+          ? state.aiCompactContext.wall_digest
+          : buildAiWallDigestPacket());
+      const cardAttachments = Array.isArray(sourceCard?.attachments) ? sourceCard.attachments : [];
+      const repairOrderAttachments = Array.isArray(sourceRepairOrder?.attachments) ? sourceRepairOrder.attachments : [];
+      const sourceAttachments = [];
+      cardAttachments.forEach((attachment) => {
+        if (!attachment || typeof attachment !== 'object' || attachment.removed) return;
+        sourceAttachments.push({
+          source_kind: 'card',
+          source_id: String(sourceCard?.id || '').trim(),
+          attachment: attachment,
+        });
+      });
+      repairOrderAttachments.forEach((attachment) => {
+        if (!attachment || typeof attachment !== 'object' || attachment.removed) return;
+        sourceAttachments.push({
+          source_kind: 'repair_order',
+          source_id: String(sourceRepairOrder?.id || sourceRepairOrder?.number || '').trim(),
+          attachment: attachment,
+        });
+      });
+      const normalizedItems = sourceAttachments.slice(0, 12).map((item) => {
+        const attachment = item.attachment && typeof item.attachment === 'object' ? item.attachment : {};
+        const fileName = String(attachment.file_name || attachment.name || '').trim();
+        const mimeType = normalizeAttachmentMimeType(attachment.mime_type || attachment.type || '');
+        const fileExtension = attachmentExtension(fileName);
+        const fileTypeLabel = mimeType
+          ? mimeType
+          : (fileExtension ? attachmentMimeTypeFromExtension(fileExtension) : '');
+        const contentHint = [
+          fileExtension ? fileExtension.replace(/^\\./, '').toUpperCase() : '',
+          mimeType.startsWith('image/') ? 'IMAGE' : '',
+          mimeType === 'application/pdf' ? 'PDF' : '',
+          attachment.size_bytes !== undefined ? formatBytes(Number(attachment.size_bytes || 0)) : '',
+        ].filter(Boolean).join(' · ');
+        const aiReady = Boolean(fileName || fileTypeLabel || attachment.size_bytes !== undefined);
+        return {
+          attachment_id: String(attachment.id || '').trim(),
+          source_kind: item.source_kind,
+          source_id: item.source_id,
+          file_name: fileName,
+          file_type: fileTypeLabel || mimeType || 'application/octet-stream',
+          file_extension: fileExtension,
+          content_hint: contentHint || (aiReady ? 'AI-READY' : 'NOT READY'),
+          ai_ready: aiReady,
+          has_text_hint: Boolean(fileExtension && ['.txt', '.doc', '.docx', '.pdf'].includes(fileExtension.toLowerCase()) || String(fileName || '').toLowerCase().includes('scan') || String(fileName || '').toLowerCase().includes('photo')),
+          size_bytes: Number(attachment.size_bytes ?? 0) || 0,
+          created_at: String(attachment.created_at || attachment.created || '').trim(),
+        };
+      });
+      const cardCount = cardAttachments.filter((attachment) => attachment && typeof attachment === 'object' && !attachment.removed).length;
+      const repairOrderCount = repairOrderAttachments.filter((attachment) => attachment && typeof attachment === 'object' && !attachment.removed).length;
+      const label = normalizedItems.length
+        ? 'ВЛОЖЕНИЯ · ' + normalizedItems.length + ' ГОТОВЫ'
+        : 'ВЛОЖЕНИЯ · НЕ ДОСТУПНЫ';
+      return {
+        kind: 'attachments_intake',
+        source_kind: sourceAttachments.length ? (sourceCard?.id ? 'card' : 'repair_order') : 'workspace',
+        ready: Boolean(sourceAttachments.length),
+        card_attachment_count: cardCount,
+        repair_order_attachment_count: repairOrderCount,
+        total_attachment_count: normalizedItems.length,
+        label,
+        summary_label: label,
+        items: normalizedItems,
+        card_attachment_ids: normalizedItems.filter((item) => item.source_kind === 'card').map((item) => item.attachment_id).filter(Boolean),
+        repair_order_attachment_ids: normalizedItems.filter((item) => item.source_kind === 'repair_order').map((item) => item.attachment_id).filter(Boolean),
+        attachment_sources: {
+          card: cardCount,
+          repair_order: repairOrderCount,
+        },
+        wall_digest_label: String(digest?.summary_label || digest?.label || '').trim(),
+      };
+    }
+
     function buildAiCompactContextPacket() {
       const card = state.activeCard && typeof state.activeCard === 'object' ? state.activeCard : null;
       const currentCard = card ? {
@@ -6441,13 +6526,12 @@ BOARD_WEB_APP_HTML = "".join(
       const wallDigest = buildAiWallDigestPacket(wall);
       const cardContext = buildAiCardContextPacket(card, repairOrder, wallDigest);
       const repairOrderContext = buildAiRepairOrderContextPacket(repairOrder, card, wallDigest);
+      const attachmentsIntake = buildAiAttachmentIntakePacket(card, repairOrder, wallDigest);
       const wallView = normalizeGptWallView(state.gptWallView);
       const wallMeta = wall?.meta && typeof wall.meta === 'object' ? wall.meta : {};
-      const cardAttachmentCount = Number(card?.attachment_count ?? currentCard?.attachment_count ?? 0) || 0;
-      const repairOrderAttachmentCount = Number(
-        repairOrder?.attachment_count ?? (Array.isArray(repairOrder?.attachments) ? repairOrder.attachments.length : 0)
-      ) || 0;
-      const attachmentReady = Boolean(currentCard?.id || repairOrderId);
+      const cardAttachmentCount = Number(attachmentsIntake?.card_attachment_count ?? card?.attachment_count ?? currentCard?.attachment_count ?? 0) || 0;
+      const repairOrderAttachmentCount = Number(attachmentsIntake?.repair_order_attachment_count ?? repairOrder?.attachment_count ?? (Array.isArray(repairOrder?.attachments) ? repairOrder.attachments.length : 0)) || 0;
+      const attachmentReady = Boolean(attachmentsIntake?.ready);
       const wallLabel = wall
         ? 'СТЕНА · ' + (wallView === 'event_log' ? 'ЖУРНАЛ СОБЫТИЙ' : 'СОДЕРЖАНИЕ ДОСКИ')
         : 'СТЕНА · НЕ ЗАГРУЖЕНА';
@@ -6474,16 +6558,7 @@ BOARD_WEB_APP_HTML = "".join(
           label: wallLabel,
         },
         wall_digest: wallDigest,
-        attachments_intake: {
-          kind: 'attachments_intake',
-          source_kind: attachmentReady ? (currentCard?.id ? 'card' : 'repair_order') : 'workspace',
-          ready: attachmentReady,
-          card_attachment_count: cardAttachmentCount,
-          repair_order_attachment_count: repairOrderAttachmentCount,
-          label: attachmentReady
-            ? 'ВЛОЖЕНИЯ · ' + cardAttachmentCount + ' / ' + repairOrderAttachmentCount
-            : 'ВЛОЖЕНИЯ · НЕ ДОСТУПНЫ',
-        },
+        attachments_intake: attachmentsIntake,
         context_label: repairOrderLabel ? cardLabel + ' · ' + repairOrderLabel : cardLabel,
         has_card_scope: Boolean(currentCard?.id),
         has_repair_order_scope: Boolean(repairOrderId),
@@ -6511,6 +6586,7 @@ BOARD_WEB_APP_HTML = "".join(
         packet.wall_digest?.key_facts?.length ? packet.wall_digest.key_facts.slice(0, 3).join(' · ') : '',
         packet.wall_digest?.notable_changes?.length ? packet.wall_digest.notable_changes.slice(0, 2).join(' · ') : '',
         packet.attachments_intake?.label || 'ВЛОЖЕНИЯ · НЕ ДОСТУПНЫ',
+        packet.attachments_intake?.items?.length ? 'Вложения AI: ' + packet.attachments_intake.items.slice(0, 3).map((item) => item.file_name || item.content_hint || item.attachment_id || 'attachment').join(' · ') : '',
       ];
       return lines.join('\n');
     }
@@ -6672,6 +6748,7 @@ BOARD_WEB_APP_HTML = "".join(
         context.wall_digest?.key_facts?.length ? 'Ключевые факты стены: ' + context.wall_digest.key_facts.slice(0, 3).join(' · ') : '',
         context.wall_digest?.notable_changes?.length ? 'Последние изменения: ' + context.wall_digest.notable_changes.slice(0, 2).join(' · ') : '',
         context.attachments_intake?.label ? 'Вложенная зона: ' + context.attachments_intake.label : '',
+        context.attachments_intake?.items?.length ? 'Вложения AI: ' + context.attachments_intake.items.slice(0, 3).map((item) => item.file_name || item.content_hint || item.attachment_id || 'attachment').join(' · ') : '',
         'Compact context: ' + aiChatCompactContextSummary(context).replace(/\n/g, ' · '),
         profile.user_tune ? 'Пользовательская настройка: ' + profile.user_tune : '',
         'Сейчас доступен только scoped runtime без документов, интернета и полного knowledge layer.',
@@ -6681,6 +6758,7 @@ BOARD_WEB_APP_HTML = "".join(
         context.repair_order_context?.repair_order_id ? '- repair order context available' : '- repair order context unavailable',
         context.wall_digest?.has_wall ? '- wall digest available' : '- wall digest unavailable',
         context.attachments_intake?.ready ? '- attachments intake ready' : '- attachments intake unavailable',
+        context.attachments_intake?.items?.length ? '- attachment items available' : '- attachment items unavailable',
       ];
       return responseParts.join('\n') + '\n\n' + bulletLine.join('\n');
     }
