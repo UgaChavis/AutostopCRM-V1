@@ -273,6 +273,9 @@ class AgentToolExecutor:
 
     def reset_task_budget(self) -> None:
         self._external_request_budget = self._external_request_budget_default
+        reset_cache = getattr(self._automotive, "reset_task_cache", None)
+        if callable(reset_cache):
+            reset_cache()
 
     def _ping_connector(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.health()

@@ -643,8 +643,13 @@ class CardService:
                 fingerprint = self._card_ai_fingerprint(card)
                 changed = fingerprint != str(card.last_card_fingerprint or "").strip()
                 if not changed and not retry_after_failure:
-                    card.ai_next_run_at = (now + timedelta(minutes=self._card_ai_next_interval_minutes(card, changed=False))).isoformat()
-                    self._append_card_ai_log(card, level="WAIT", message="Изменений не обнаружено. Повторная проверка отложена.")
+                    next_interval_minutes = self._card_ai_next_interval_minutes(card, changed=False)
+                    card.ai_next_run_at = (now + timedelta(minutes=next_interval_minutes)).isoformat()
+                    self._append_card_ai_log(
+                        card,
+                        level="WAIT",
+                        message=f"Изменений не обнаружено. Повторная проверка отложена на {next_interval_minutes} мин.",
+                    )
                     changed_any = True
                     continue
                 followup_trigger = "retry_after_error" if retry_after_failure and not changed else "adaptive_followup"
@@ -3681,6 +3686,10 @@ class CardService:
         waiting = any(token in haystack for token in ("ожид", "в пути", "клиент дума", "согласован", "заказали", "ждем", "ждём"))
         active = any(token in haystack for token in ("ошибк", "dtc", "vin", "запчаст", "пробег", "течь", "стук", "ремонт", "диагност"))
         if not changed:
+            if int(card.ai_run_count or 0) >= 5:
+                return 240 if waiting else 180
+            if int(card.ai_run_count or 0) >= 3:
+                return 120 if waiting else 90
             return 90 if waiting else 60
         if waiting:
             return 50

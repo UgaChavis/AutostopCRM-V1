@@ -9,6 +9,7 @@ from typing import Any
 
 from ..mcp.client import BoardApiClient, BoardApiTransportError, discover_board_api
 from ..models import utc_now_iso
+from ..vehicle_profile import normalize_vehicle_notes
 from .config import (
     get_agent_board_api_url,
     get_agent_enabled,
@@ -2833,6 +2834,13 @@ class AgentRunner:
             snippet = self._first_search_snippet(fault_result)
             if snippet:
                 ai_lines.append(f"По симптомам: {snippet}")
+        oem_notes_patch = self._compose_vehicle_profile_oem_notes(
+            facts=facts,
+            orchestration_results=orchestration_results,
+            current_oem_notes=str(facts["vehicle_profile"].get("oem_notes", "") or ""),
+        )
+        if oem_notes_patch:
+            vehicle_patch["oem_notes"] = oem_notes_patch
         ai_lines.extend(self._compose_card_autofill_follow_up_lines(facts=facts, orchestration_results=orchestration_results))
         filtered_ai_lines = [line for line in ai_lines if self._line_has_new_information(current_description, line)]
         if not filtered_ai_lines and not vehicle_patch and not vehicle_label_patch:
@@ -2947,6 +2955,86 @@ class AgentRunner:
         patch["source_links_or_refs"] = [item for item in source_refs if item]
         patch["data_completion_state"] = "mostly_autofilled" if len(autofilled_fields) >= 3 else "partially_autofilled"
         return patch
+
+    def _compose_vehicle_profile_oem_notes(
+        self,
+        *,
+        facts: dict[str, Any],
+        orchestration_results: dict[str, Any],
+        current_oem_notes: str,
+    ) -> str:
+        notes: list[str] = []
+        decoded_vin = orchestration_results.get("decode_vin")
+        vin_decode_status = str(facts.get("vin_decode_status", "") or "").strip().lower()
+        if vin_decode_status == "success" and isinstance(decoded_vin, dict):
+            vin_bits: list[str] = []
+            for label, key in (
+                ("марка", "make"),
+                ("модель", "model"),
+                ("год", "model_year"),
+                ("двигатель", "engine_model"),
+                ("КПП", "transmission"),
+                ("привод", "drive_type"),
+            ):
+                value = str(decoded_vin.get(key, "") or "").strip()
+                if value:
+                    vin_bits.append(f"{label}: {value}")
+            if vin_bits:
+                notes.append("VIN decode: " + "; ".join(vin_bits[:5]) + ".")
+        part_lookup = orchestration_results.get("find_part_numbers")
+        if isinstance(part_lookup, dict) and facts.get("part_queries"):
+            primary_part, analog_parts = self._summarize_part_matches(part_lookup)
+            if primary_part:
+                part_line = f"Запчасть {facts['part_queries'][0]}: OEM {primary_part}"
+                if analog_parts:
+                    part_line += f"; аналоги: {analog_parts}."
+                else:
+                    part_line += "."
+                price_lookup = orchestration_results.get("estimate_price_ru")
+                if isinstance(price_lookup, dict):
+                    price_line = self._summarize_price_summary(price_lookup)
+                    if price_line:
+                        part_line += f" {price_line}"
+                notes.append(part_line)
+        maintenance = orchestration_results.get("estimate_maintenance")
+        if isinstance(maintenance, dict):
+            works = maintenance.get("works") if isinstance(maintenance.get("works"), list) else []
+            materials = maintenance.get("materials") if isinstance(maintenance.get("materials"), list) else []
+            works_preview = ", ".join(
+                str(item.get("name", "") or "").strip()
+                for item in works[:3]
+                if isinstance(item, dict) and str(item.get("name", "") or "").strip()
+            )
+            materials_preview = ", ".join(
+                str(item.get("name", "") or "").strip()
+                for item in materials[:4]
+                if isinstance(item, dict) and str(item.get("name", "") or "").strip()
+            )
+            service_type_label = str(maintenance.get("service_type", "ТО") or "ТО").strip()
+            origin = str(facts.get("maintenance_result_origin", "") or "").strip().lower()
+            prefix = f"Сервисная подсказка по {service_type_label}" if origin == "local_heuristic" else service_type_label
+            line = f"{prefix}:"
+            if works_preview:
+                line += f" работы — {works_preview}."
+            if materials_preview:
+                line += f" расходники — {materials_preview}."
+            if line.strip() != f"{prefix}:":
+                notes.append(line)
+        dtc_result = orchestration_results.get("decode_dtc")
+        if isinstance(dtc_result, dict) and facts["dtc_codes"]:
+            snippet = self._first_search_snippet(dtc_result)
+            if snippet:
+                notes.append(f"DTC {facts['dtc_codes'][0]}: {snippet}")
+        fault_result = orchestration_results.get("search_fault_info")
+        if isinstance(fault_result, dict):
+            snippet = self._first_search_snippet(fault_result)
+            if snippet:
+                notes.append(f"Симптомы: {snippet}")
+        unique_notes = [line for line in notes if self._line_has_new_information(current_oem_notes, line)]
+        if not unique_notes:
+            return ""
+        merged_notes = "\n".join(part for part in [current_oem_notes.strip(), *unique_notes] if part)
+        return normalize_vehicle_notes(merged_notes, limit=1200)
 
     def _humanize_missing_vehicle_fields(self, fields: list[str]) -> str:
         mapping = {

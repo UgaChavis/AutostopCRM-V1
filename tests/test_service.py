@@ -366,8 +366,50 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(card.ai_run_count, 2)
         self.assertNotEqual(card.ai_next_run_at, deferred_next_run)
         messages = [entry["message"] for entry in card.ai_autofill_log]
-        self.assertIn("Изменений не обнаружено. Повторная проверка отложена.", messages)
+        self.assertTrue(any(message.startswith("Изменений не обнаружено. Повторная проверка отложена на ") for message in messages))
         self.assertIn("Обнаружены изменения. Запущен повторный проход.", messages)
+
+    def test_trigger_due_ai_followups_slows_down_repeated_noop_passes(self) -> None:
+        agent = _FakeAgentControl()
+        self.service.attach_agent_control(agent)
+        base = datetime(2026, 4, 12, 8, 0, 0, tzinfo=timezone.utc)
+        patches = self._patch_time(base)
+        with patches[0], patches[1], patches[2]:
+            created = self.service.create_card(
+                {
+                    "vehicle": "Toyota Corolla",
+                    "title": "Контроль карточки",
+                    "description": "Первичный осмотр",
+                    "deadline": {"hours": 2},
+                }
+            )
+            card_id = created["card"]["id"]
+            self.service.set_card_ai_autofill({"card_id": card_id, "enabled": True, "actor_name": "AI"})
+
+        bundle = self.store.read_bundle()
+        card = next(item for item in bundle["cards"] if item.id == card_id)
+        card.ai_run_count = 5
+        card.ai_next_run_at = base.isoformat()
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        due_time = base + timedelta(minutes=1)
+        patches = self._patch_time(due_time)
+        with patches[0], patches[1], patches[2]:
+            launched = self.service.trigger_due_ai_followups()
+
+        self.assertEqual(launched["launched"], [])
+        bundle = self.store.read_bundle()
+        card = next(item for item in bundle["cards"] if item.id == card_id)
+        self.assertEqual(card.ai_next_run_at, (due_time + timedelta(minutes=180)).isoformat())
+        self.assertTrue(any("Повторная проверка отложена на 180 мин." in entry["message"] for entry in card.ai_autofill_log))
 
     def test_trigger_due_ai_followups_retries_after_failed_pass(self) -> None:
         agent = _FakeAgentControl()

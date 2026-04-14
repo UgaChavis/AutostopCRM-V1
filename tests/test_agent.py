@@ -1162,6 +1162,8 @@ class AgentRunnerTests(unittest.TestCase):
             self.assertEqual(update_call[1]["vehicle"], "BMW 320i 2016")
             self.assertIsInstance(update_call[1]["vehicle_profile"], dict)
             self.assertEqual(update_call[1]["vehicle_profile"]["make_display"], "BMW")
+            self.assertIn("VIN decode: марка: BMW; модель: 320i; год: 2016;", update_call[1]["vehicle_profile"]["oem_notes"])
+            self.assertIn("Запчасть радиатор: OEM 17118625431; аналоги: AVA BW2285.", update_call[1]["vehicle_profile"]["oem_notes"])
 
     def test_runner_card_autofill_dedupes_repeated_description_blocks(self) -> None:
         runner = AgentRunner(
@@ -1924,6 +1926,64 @@ class AutomotiveLookupServiceTests(unittest.TestCase):
         self.assertNotIn("RADIATOR", values)
         self.assertNotIn("EXTERIOR", values)
         self.assertNotIn("17-20", values)
+
+    def test_search_part_numbers_uses_per_run_cache_for_repeated_queries(self) -> None:
+        calls: list[str] = []
+        outer = self
+
+        class _CountingSearch(self._FakeSearch):
+            def search(self, query: str, *, limit: int = 5, allowed_domains: list[str] | None = None) -> list:
+                calls.append(query)
+                return [outer._FakeResult(title="OEM 17118625431", url="https://example.test/part", snippet="OEM 17118625431", domain="example.test")]
+
+        service = AutomotiveLookupService()
+        service._search = _CountingSearch()
+        first = service.search_part_numbers(
+            vehicle_context={"make": "BMW", "model": "320i", "year": "2016", "vin": "WBAPF71060A798127"},
+            part_query="радиатор",
+            limit=3,
+        )
+        first_call_count = len(calls)
+        second = service.search_part_numbers(
+            vehicle_context={"make": "BMW", "model": "320i", "year": "2016", "vin": "WBAPF71060A798127"},
+            part_query="радиатор",
+            limit=3,
+        )
+        self.assertEqual(first, second)
+        self.assertEqual(len(calls), first_call_count)
+
+    def test_reset_task_budget_clears_automotive_cache(self) -> None:
+        calls: list[str] = []
+        outer = self
+
+        class _CountingSearch(self._FakeSearch):
+            def search(self, query: str, *, limit: int = 5, allowed_domains: list[str] | None = None) -> list:
+                calls.append(query)
+                return [outer._FakeResult(title="OEM 17118625431", url="https://example.test/part", snippet="OEM 17118625431", domain="example.test")]
+
+        service = AutomotiveLookupService()
+        service._search = _CountingSearch()
+        tool_executor = AgentRunner(
+            storage=AgentStorage(base_dir=Path(tempfile.mkdtemp())),
+            board_api=_FakeBoardApi(),
+            model_client=_FakeModelClient([{"type": "final", "summary": "done", "result": "ok"}]),
+            logger=logging.getLogger("test.agent.runner.cache.reset"),
+        )._tools
+        tool_executor._automotive = service
+        tool_executor.reset_task_budget()
+        tool_executor._automotive.search_part_numbers(
+            vehicle_context={"make": "BMW", "model": "320i", "year": "2016", "vin": "WBAPF71060A798127"},
+            part_query="радиатор",
+            limit=3,
+        )
+        first_call_count = len(calls)
+        tool_executor.reset_task_budget()
+        tool_executor._automotive.search_part_numbers(
+            vehicle_context={"make": "BMW", "model": "320i", "year": "2016", "vin": "WBAPF71060A798127"},
+            part_query="радиатор",
+            limit=3,
+        )
+        self.assertGreater(len(calls), first_call_count)
 
 
 class AgentApiTests(unittest.TestCase):
