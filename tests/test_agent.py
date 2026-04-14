@@ -18,6 +18,7 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.agent.control import AgentControlService
 from minimal_kanban.agent.automotive_tools import AutomotiveLookupService
+from minimal_kanban.agent.contracts import ToolResult, VerifyResult
 from minimal_kanban.agent.instructions import build_default_system_prompt
 from minimal_kanban.agent.runner import AgentRunner
 from minimal_kanban.agent.storage import AgentStorage
@@ -826,8 +827,48 @@ class AgentRunnerTests(unittest.TestCase):
             self.assertTrue(verify["applied_ok"])
             self.assertTrue(verify["scenario_completed"])
             self.assertFalse(verify["needs_followup"])
-            self.assertEqual(verify["outcome_state"], "completed_confirmed")
+            self.assertEqual(verify["outcome_state"], "needs_human_review")
             self.assertNotIn("missing required tools: decode_vin", verify["warnings"])
+
+    def test_finalize_verify_result_escalates_manual_field_drift_to_human_review(self) -> None:
+        runner = AgentRunner(
+            storage=AgentStorage(base_dir=Path(tempfile.mkdtemp())),
+            board_api=_FakeBoardApi(),
+            model_client=_FakeModelClient([]),
+            logger=logging.getLogger("test.agent.runner.verify.manual_drift"),
+        )
+        plan = runner._policy.build_plan(
+            scenario_chain=["vin_enrichment"],
+            execution_mode="structured_card",
+            followup_enabled=True,
+        )
+        verify = VerifyResult(
+            applied_ok=True,
+            fields_changed=["vehicle_profile"],
+            manual_fields_preserved=False,
+            scenario_completed=True,
+            needs_followup=False,
+            outcome_state="write_applied",
+            warnings=["title changed outside planned patch"],
+            context_ref="verify:card-1",
+        )
+        tool_results = [
+            ToolResult(
+                tool_name="decode_vin",
+                status="success",
+                source_type="external_vin",
+                confidence=0.92,
+                data={"vin": "WBAPF71060A798127"},
+                raw_ref="vin_enrichment:decode_vin",
+                evidence_ref="vin",
+                reason="VIN decode completed",
+            )
+        ]
+        final = runner._finalize_verify_result(plan=plan, verify=verify, tool_results=tool_results)
+        self.assertEqual(final.outcome_state, "needs_human_review")
+        self.assertTrue(final.scenario_completed)
+        self.assertFalse(final.manual_fields_preserved)
+        self.assertFalse(final.needs_followup)
 
     def test_runner_persists_structured_display_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

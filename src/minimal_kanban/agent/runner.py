@@ -1182,12 +1182,12 @@ class AgentRunner:
         needs_followup = bool(plan.followup_policy.get("enabled")) and (bool(missing_required) or not scenario_completed)
         if missing_required:
             outcome_state = "blocked_missing_required_tools"
+        elif not verify.manual_fields_preserved:
+            outcome_state = "needs_human_review"
         elif scenario_completed and verify.applied_ok:
             outcome_state = "completed_confirmed"
         elif scenario_completed:
             outcome_state = "completed_no_write"
-        elif not verify.manual_fields_preserved:
-            outcome_state = "needs_human_review"
         elif verify.applied_ok:
             outcome_state = "completed_partial"
         else:
