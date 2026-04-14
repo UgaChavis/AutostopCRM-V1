@@ -43,9 +43,9 @@ Not the active line for current production work:
 
 Known current environment alignment at the time of this update:
 
-- local repo: `d8dd67c`
-- GitHub `autostopCRM`: `d8dd67c`
-- working production server `crm.autostopcrm.ru`: `d8dd67c`
+- local repo: `8c479fe`
+- GitHub `autostopCRM`: `8c479fe`
+- working production server `crm.autostopcrm.ru`: `8c479fe`
 
 Working production DNS:
 
