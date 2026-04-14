@@ -4262,7 +4262,7 @@ BOARD_WEB_APP_HTML = "".join(
         <button class="btn" id="cashboxesButton">КАССЫ</button>
         <button class="btn" id="employeesButton">СОТРУДНИКИ</button>
         <button class="btn btn--ghost" id="gptWallButton">СТЕНА</button>
-        <button class="btn btn--ghost ai-chat-button" id="aiChatButton" type="button" aria-label="AI чат" title="AI чат">AI ЧАТ</button>
+        <button class="btn btn--ghost ai-chat-button" id="aiChatButton" type="button" aria-label="AI чат" title="AI чат" data-entry-surface="ai_chat">AI ЧАТ</button>
         <button class="btn" id="columnButton">+ СТОЛБЕЦ</button>
         <button class="btn btn--accent" id="cardButton">+ КАРТОЧКА</button>
       </div>
@@ -6822,6 +6822,10 @@ BOARD_WEB_APP_HTML = "".join(
       openAgentModal(String(state.aiSurfaceContext?.kind || '').trim().toLowerCase() === 'card' ? 'card' : 'board');
     }
 
+    function openAiChatEntry() {
+      openAiSurface('chat');
+    }
+
     function handleAiSurfaceModalOverlayClick(event) {
       return;
     }
@@ -6892,6 +6896,7 @@ BOARD_WEB_APP_HTML = "".join(
         const tone = aiSurfaceExposureTone(exposureState);
         button.dataset.state = tone;
         button.dataset.exposure = exposureState;
+        if (key === 'aiChatButton') button.dataset.entrySurface = 'ai_chat';
         button.title = (key === 'cardAgentButton' ? 'AI карточки' : key === 'aiChatButton' ? 'AI чат' : 'AI вход') + ' · ' + label;
         button.setAttribute('aria-label', button.title);
       });
@@ -12927,7 +12932,7 @@ function renderCompactArchiveRows(cards) {
     els.boardScaleReset.addEventListener('click', resetBoardScaleToDefault);
     els.columnButton.addEventListener('click', createColumnFromTopbar);
     els.cardButton.addEventListener('click', openDefaultNewCard);
-    els.aiChatButton?.addEventListener('click', () => openAiSurface('chat'));
+    els.aiChatButton?.addEventListener('click', openAiChatEntry);
     els.agentDockButton?.addEventListener('click', () => openAiSurface('board'));
     [els.signalDays, els.signalHours].forEach((input) => {
       input.addEventListener('input', renderSignalPreview);
