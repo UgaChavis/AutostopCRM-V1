@@ -6219,6 +6219,7 @@ BOARD_WEB_APP_HTML = "".join(
         source_kind: source ? 'gpt_wall' : 'none',
         has_wall: Boolean(source),
         label: summaryLabel,
+        summary_label: summaryLabel,
         generated_at: String(meta.generated_at || '').trim(),
         view: normalizeGptWallView(state.gptWallView),
         board_label: String(boardContext?.board_name || boardContext?.label || '').trim(),
@@ -6239,6 +6240,71 @@ BOARD_WEB_APP_HTML = "".join(
       };
     }
 
+    function buildAiCardContextPacket(card = state.activeCard, repairOrder = null, wallDigest = null) {
+      const sourceCard = card && typeof card === 'object' ? card : null;
+      const payload = currentCardPayload();
+      const activeRepairOrder = repairOrder && typeof repairOrder === 'object' ? repairOrder : aiChatActiveRepairOrderScope();
+      const digest = wallDigest && typeof wallDigest === 'object' ? wallDigest : (state.aiCompactContext?.wall_digest && typeof state.aiCompactContext.wall_digest === 'object' ? state.aiCompactContext.wall_digest : buildAiWallDigestPacket());
+      const cardId = String(sourceCard?.id || state.editingId || payload?.id || '').trim();
+      const cardShortId = String(sourceCard?.short_id || cardId || '').trim();
+      const cardTitle = String(payload?.title || sourceCard?.title || '').trim();
+      const cardVehicle = String(payload?.vehicle || sourceCard?.vehicle || '').trim();
+      const cardColumn = String(payload?.column || sourceCard?.column || '').trim();
+      const columnLabel = String(sourceCard?.column_label || '').trim();
+      const status = String(sourceCard?.status || '').trim();
+      const description = aiWallDigestShortText(payload?.description || sourceCard?.description || '', payload?.description || sourceCard?.description || '');
+      const vehicleProfile = payload?.vehicle_profile && typeof payload.vehicle_profile === 'object'
+        ? payload.vehicle_profile
+        : (sourceCard?.vehicle_profile && typeof sourceCard.vehicle_profile === 'object' ? sourceCard.vehicle_profile : {});
+      const repairOrderLabel = aiChatContextRepairOrderLabel(activeRepairOrder);
+      const keyFields = [
+        cardVehicle ? { key: 'vehicle', label: 'Машина', value: cardVehicle } : null,
+        cardTitle ? { key: 'title', label: 'Краткая суть', value: cardTitle } : null,
+        status ? { key: 'status', label: 'Статус', value: status } : null,
+        cardColumn || columnLabel ? { key: 'column', label: 'Колонка', value: columnLabel || cardColumn } : null,
+        description ? { key: 'description', label: 'Описание', value: description } : null,
+        sourceCard?.attachment_count !== undefined ? { key: 'attachments', label: 'Вложения', value: String(sourceCard.attachment_count) } : null,
+        sourceCard?.events_count !== undefined ? { key: 'events', label: 'События', value: String(sourceCard.events_count) } : null,
+      ].filter(Boolean);
+      const aiRelevantFacts = {
+        client: String(activeRepairOrder?.client || '').trim(),
+        machine: String(activeRepairOrder?.vehicle || cardVehicle || vehicleProfile?.display_name?.() || '').trim(),
+        symptoms: String(activeRepairOrder?.reason || payload?.description || '').trim(),
+        works: Array.isArray(activeRepairOrder?.works)
+          ? activeRepairOrder.works.slice(0, 5).map((row) => aiWallDigestShortText(row?.name || row?.title || row?.work_name || row?.description || '', row?.name || row?.title || row?.work_name || row?.description || '')).filter(Boolean)
+          : [],
+        notes: [
+          String(activeRepairOrder?.comment || '').trim(),
+          String(activeRepairOrder?.note || '').trim(),
+          String(activeRepairOrder?.prepayment_display || '').trim(),
+        ].filter(Boolean),
+      };
+      return {
+        kind: 'card_context',
+        source_kind: sourceCard ? 'card' : 'workspace',
+        card_id: cardId,
+        card_short_id: cardShortId,
+        title: cardTitle,
+        summary_label: [cardShortId || cardId || 'CARD', cardVehicle, cardTitle].filter(Boolean).join(' · '),
+        status,
+        column: cardColumn,
+        column_label: columnLabel,
+        key_fields: keyFields,
+        ai_relevant_facts: aiRelevantFacts,
+        repair_order_label: repairOrderLabel,
+        wall_digest_label: String(digest?.label || '').trim(),
+        wall_digest_summary: String(digest?.summary_text || '').trim(),
+        wall_digest_key_facts: Array.isArray(digest?.key_facts) ? digest.key_facts.slice(0, 5) : [],
+        wall_digest_notable_changes: Array.isArray(digest?.notable_changes) ? digest.notable_changes.slice(0, 5) : [],
+        wall_digest_available: Boolean(digest?.has_wall),
+        attachment_count: Number(sourceCard?.attachment_count ?? 0) || 0,
+        events_count: Number(sourceCard?.events_count ?? 0) || 0,
+        vehicle_profile_compact: payload?.vehicle_profile_compact && typeof payload.vehicle_profile_compact === 'object'
+          ? payload.vehicle_profile_compact
+          : null,
+      };
+    }
+
     function buildAiCompactContextPacket() {
       const card = state.activeCard && typeof state.activeCard === 'object' ? state.activeCard : null;
       const currentCard = card ? {
@@ -6254,6 +6320,7 @@ BOARD_WEB_APP_HTML = "".join(
       const repairOrderLabel = aiChatContextRepairOrderLabel(repairOrder);
       const wall = state.gptWall && typeof state.gptWall === 'object' ? state.gptWall : null;
       const wallDigest = buildAiWallDigestPacket(wall);
+      const cardContext = buildAiCardContextPacket(card, repairOrder, wallDigest);
       const wallView = normalizeGptWallView(state.gptWallView);
       const wallMeta = wall?.meta && typeof wall.meta === 'object' ? wall.meta : {};
       const cardAttachmentCount = Number(card?.attachment_count ?? currentCard?.attachment_count ?? 0) || 0;
@@ -6274,6 +6341,7 @@ BOARD_WEB_APP_HTML = "".join(
         repair_order_id: repairOrderId,
         repair_order_label: repairOrderLabel,
         repair_order_scope: repairOrder && typeof repairOrder === 'object' ? repairOrder : null,
+        card_context: cardContext,
         wall_context: {
           kind: 'wall',
           source_kind: wall ? 'gpt_wall' : 'none',
@@ -6311,7 +6379,11 @@ BOARD_WEB_APP_HTML = "".join(
     function aiChatCompactContextSummary(context = state.aiCompactContext) {
       const packet = context && typeof context === 'object' ? context : buildAiCompactContextPacket();
       const lines = [
-        packet.card_label || 'AI-ЧАТ · СВОБОДНАЯ СЕССИЯ',
+        packet.card_context?.summary_label || packet.card_label || 'AI-ЧАТ · СВОБОДНАЯ СЕССИЯ',
+        packet.card_context?.key_fields?.length ? packet.card_context.key_fields.slice(0, 3).map((item) => item.value).join(' · ') : '',
+        packet.card_context?.ai_relevant_facts?.client ? 'Клиент: ' + packet.card_context.ai_relevant_facts.client : '',
+        packet.card_context?.ai_relevant_facts?.machine ? 'Машина: ' + packet.card_context.ai_relevant_facts.machine : '',
+        packet.card_context?.ai_relevant_facts?.symptoms ? 'Симптомы: ' + packet.card_context.ai_relevant_facts.symptoms : '',
         packet.repair_order_label ? 'Заказ-наряд: ' + packet.repair_order_label : 'Заказ-наряд: не привязан.',
         packet.wall_digest?.label || packet.wall_context?.label || 'СТЕНА · НЕ ЗАГРУЖЕНА',
         packet.wall_digest?.key_facts?.length ? packet.wall_digest.key_facts.slice(0, 3).join(' · ') : '',
@@ -6462,7 +6534,12 @@ BOARD_WEB_APP_HTML = "".join(
       const responseParts = [
         'Принял запрос для AI-чата.',
         prompt ? 'Запрос: ' + prompt : 'Запрос пустой.',
-        context.card_label ? 'Карточка: ' + context.card_label : 'Карточка: нет активного scope.',
+        context.card_context?.summary_label ? 'Карточка: ' + context.card_context.summary_label : (context.card_label ? 'Карточка: ' + context.card_label : 'Карточка: нет активного scope.'),
+        context.card_context?.ai_relevant_facts?.client ? 'Клиент: ' + context.card_context.ai_relevant_facts.client : '',
+        context.card_context?.ai_relevant_facts?.machine ? 'Машина: ' + context.card_context.ai_relevant_facts.machine : '',
+        context.card_context?.ai_relevant_facts?.symptoms ? 'Симптомы: ' + context.card_context.ai_relevant_facts.symptoms : '',
+        context.card_context?.ai_relevant_facts?.works?.length ? 'Работы: ' + context.card_context.ai_relevant_facts.works.slice(0, 3).join(' · ') : '',
+        context.card_context?.ai_relevant_facts?.notes?.length ? 'Заметки: ' + context.card_context.ai_relevant_facts.notes.slice(0, 2).join(' · ') : '',
         context.repair_order_label ? 'Заказ-наряд: ' + context.repair_order_label : 'Заказ-наряд: не привязан.',
         context.wall_digest?.label ? 'Контекст стены: ' + context.wall_digest.label : (context.wall_context?.label ? 'Контекст стены: ' + context.wall_context.label : ''),
         context.wall_digest?.key_facts?.length ? 'Ключевые факты стены: ' + context.wall_digest.key_facts.slice(0, 3).join(' · ') : '',
@@ -6473,7 +6550,7 @@ BOARD_WEB_APP_HTML = "".join(
         'Сейчас доступен только scoped runtime без документов, интернета и полного knowledge layer.',
       ].filter(Boolean);
       const bulletLine = [
-        context.has_card_scope ? '- card scope available' : '- card scope unavailable',
+        context.card_context?.card_id ? '- card context available' : '- card context unavailable',
         context.has_repair_order_scope ? '- repair order scope available' : '- repair order scope unavailable',
         context.wall_digest?.has_wall ? '- wall digest available' : '- wall digest unavailable',
         context.attachments_intake?.ready ? '- attachments intake ready' : '- attachments intake unavailable',
@@ -6600,6 +6677,8 @@ BOARD_WEB_APP_HTML = "".join(
       }
       if (els.aiChatWindowSubtitle) {
         const compactTail = [
+          context.card_context?.summary_label || context.card_label || '',
+          context.card_context?.ai_relevant_facts?.client || '',
           context.wall_digest?.label || context.wall_context?.label || '',
           context.wall_digest?.key_facts?.slice(0, 2).join(' · ') || '',
           context.attachments_intake?.label || '',
