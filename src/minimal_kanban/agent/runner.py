@@ -1309,7 +1309,14 @@ class AgentRunner:
                 outcome_state = "blocked_missing_source_data"
         if "parts_lookup" in scenario_chain:
             part_lookup = orchestration_results.get("find_part_numbers")
-            if isinstance(part_lookup, dict) and not self._part_lookup_has_useful_result(part_lookup):
+            parts_evidence = self._scenario_evidence(facts, "parts_lookup")
+            if parts_evidence["trigger_found"] and not isinstance(part_lookup, dict):
+                warnings.append("parts lookup did not produce an external result")
+                scenario_completed = False
+                needs_followup = bool(plan.followup_policy.get("enabled"))
+                followup_reason = followup_reason or "parts_lookup_failed"
+                outcome_state = "completed_partial" if verify.applied_ok else "blocked_missing_source_data"
+            elif isinstance(part_lookup, dict) and not self._part_lookup_has_useful_result(part_lookup):
                 warnings.append("parts lookup completed without reliable candidate parts")
                 scenario_completed = False
                 needs_followup = bool(plan.followup_policy.get("enabled"))
@@ -1319,7 +1326,14 @@ class AgentRunner:
             outcome_state = "completed_partial"
         if "dtc_lookup" in scenario_chain:
             dtc_lookup = orchestration_results.get("decode_dtc")
-            if isinstance(dtc_lookup, dict) and not self._search_payload_has_useful_result(dtc_lookup):
+            dtc_evidence = self._scenario_evidence(facts, "dtc_lookup")
+            if dtc_evidence["trigger_found"] and not isinstance(dtc_lookup, dict):
+                warnings.append("dtc lookup did not produce an external result")
+                scenario_completed = False
+                needs_followup = bool(plan.followup_policy.get("enabled"))
+                followup_reason = followup_reason or "dtc_lookup_failed"
+                outcome_state = "completed_partial" if verify.applied_ok else "blocked_missing_source_data"
+            elif isinstance(dtc_lookup, dict) and not self._search_payload_has_useful_result(dtc_lookup):
                 warnings.append("dtc lookup completed without a reliable diagnostic excerpt")
                 scenario_completed = False
                 needs_followup = bool(plan.followup_policy.get("enabled"))
@@ -1327,7 +1341,14 @@ class AgentRunner:
                 outcome_state = "completed_partial" if verify.applied_ok else "blocked_missing_source_data"
         if "fault_research" in scenario_chain:
             fault_lookup = orchestration_results.get("search_fault_info")
-            if isinstance(fault_lookup, dict) and not self._search_payload_has_useful_result(fault_lookup):
+            fault_evidence = self._scenario_evidence(facts, "fault_research")
+            if fault_evidence["trigger_found"] and fault_evidence["confidence_enough"] and not isinstance(fault_lookup, dict) and not facts.get("waiting_state"):
+                warnings.append("fault research did not produce an external result")
+                scenario_completed = False
+                needs_followup = bool(plan.followup_policy.get("enabled"))
+                followup_reason = followup_reason or "fault_research_failed"
+                outcome_state = "completed_partial" if verify.applied_ok else "blocked_missing_source_data"
+            elif isinstance(fault_lookup, dict) and not self._search_payload_has_useful_result(fault_lookup):
                 warnings.append("fault research completed without a reliable symptom result")
                 scenario_completed = False
                 needs_followup = bool(plan.followup_policy.get("enabled"))
@@ -1335,7 +1356,14 @@ class AgentRunner:
                 outcome_state = "completed_partial" if verify.applied_ok else "blocked_missing_source_data"
         if "maintenance_lookup" in scenario_chain:
             maintenance_lookup = orchestration_results.get("estimate_maintenance")
-            if isinstance(maintenance_lookup, dict) and not self._maintenance_lookup_has_useful_result(maintenance_lookup):
+            maintenance_evidence = self._scenario_evidence(facts, "maintenance_lookup")
+            if maintenance_evidence["trigger_found"] and not isinstance(maintenance_lookup, dict):
+                warnings.append("maintenance lookup did not produce an external result")
+                scenario_completed = False
+                needs_followup = bool(plan.followup_policy.get("enabled"))
+                followup_reason = followup_reason or "maintenance_lookup_failed"
+                outcome_state = "completed_partial" if verify.applied_ok else "blocked_missing_source_data"
+            elif isinstance(maintenance_lookup, dict) and not self._maintenance_lookup_has_useful_result(maintenance_lookup):
                 warnings.append("maintenance lookup completed without a usable service plan")
                 scenario_completed = False
                 needs_followup = bool(plan.followup_policy.get("enabled"))

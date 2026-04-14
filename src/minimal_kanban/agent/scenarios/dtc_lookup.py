@@ -42,7 +42,13 @@ class DtcLookupScenarioExecutor:
             reason="Decode the highest-priority detected DTC code",
         )
         if payload is None:
-            return ScenarioExecutionResult(scenario_id=self.scenario_id, status="failed")
+            return ScenarioExecutionResult(
+                scenario_id=self.scenario_id,
+                status="failed",
+                warnings=["dtc lookup request failed"],
+                needs_followup=True,
+                followup_reason="dtc_lookup_failed",
+            )
         if isinstance(facts.get("evidence_model"), dict):
             facts["evidence_model"]["external_result_sufficient"] = True
         orchestration_payload = runtime._response_data(payload) or payload
@@ -61,4 +67,7 @@ class DtcLookupScenarioExecutor:
                     evidence_ref="dtc_codes",
                 )
             ],
+            warnings=["dtc lookup returned no reliable diagnostic excerpt"] if not runtime._search_payload_has_useful_result(orchestration_payload) else [],
+            needs_followup=not runtime._search_payload_has_useful_result(orchestration_payload),
+            followup_reason="dtc_lookup_insufficient" if not runtime._search_payload_has_useful_result(orchestration_payload) else "",
         )

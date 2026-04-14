@@ -35,6 +35,9 @@ class PartsLookupScenarioExecutor:
                 scenario_id=self.scenario_id,
                 status="skipped",
                 notes=["parts lookup skipped after VIN gate"],
+                warnings=["parts lookup is waiting for trusted vehicle context"],
+                needs_followup=True,
+                followup_reason="parts_lookup_waiting_vehicle_context",
             )
         runtime._record_log_action(
             task_id=context.task_id,
@@ -57,7 +60,13 @@ class PartsLookupScenarioExecutor:
             reason="Find OEM and analog part numbers for the main detected part request",
         )
         if part_payload is None:
-            return ScenarioExecutionResult(scenario_id=self.scenario_id, status="failed")
+            return ScenarioExecutionResult(
+                scenario_id=self.scenario_id,
+                status="failed",
+                warnings=["parts lookup request failed"],
+                needs_followup=True,
+                followup_reason="parts_lookup_failed",
+            )
         orchestration_updates = {"find_part_numbers": runtime._response_data(part_payload) or part_payload}
         tool_results = [
             runtime._build_tool_result(
@@ -106,4 +115,7 @@ class PartsLookupScenarioExecutor:
             tool_calls_used=tool_calls_used,
             tool_results=tool_results,
             orchestration_updates=orchestration_updates,
+            warnings=["parts lookup returned no reliable candidate parts"] if not runtime._part_lookup_has_useful_result(orchestration_updates["find_part_numbers"]) else [],
+            needs_followup=not runtime._part_lookup_has_useful_result(orchestration_updates["find_part_numbers"]),
+            followup_reason="parts_lookup_insufficient" if not runtime._part_lookup_has_useful_result(orchestration_updates["find_part_numbers"]) else "",
         )

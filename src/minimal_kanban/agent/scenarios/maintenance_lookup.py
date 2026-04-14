@@ -34,7 +34,13 @@ class MaintenanceLookupScenarioExecutor:
             reason="Build a compact maintenance plan for the current mileage and vehicle context",
         )
         if payload is None:
-            return ScenarioExecutionResult(scenario_id=self.scenario_id, status="failed")
+            return ScenarioExecutionResult(
+                scenario_id=self.scenario_id,
+                status="failed",
+                warnings=["maintenance lookup request failed"],
+                needs_followup=True,
+                followup_reason="maintenance_lookup_failed",
+            )
         orchestration_payload = runtime._response_data(payload) or payload
         return ScenarioExecutionResult(
             scenario_id=self.scenario_id,
@@ -51,4 +57,7 @@ class MaintenanceLookupScenarioExecutor:
                     evidence_ref="mileage",
                 )
             ],
+            warnings=["maintenance lookup returned no usable service plan"] if not runtime._maintenance_lookup_has_useful_result(orchestration_payload) else [],
+            needs_followup=not runtime._maintenance_lookup_has_useful_result(orchestration_payload),
+            followup_reason="maintenance_lookup_insufficient" if not runtime._maintenance_lookup_has_useful_result(orchestration_payload) else "",
         )

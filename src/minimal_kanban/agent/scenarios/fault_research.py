@@ -35,7 +35,13 @@ class FaultResearchScenarioExecutor:
             reason="Search short symptom context and typical causes for the current complaint",
         )
         if payload is None:
-            return ScenarioExecutionResult(scenario_id=self.scenario_id, status="failed")
+            return ScenarioExecutionResult(
+                scenario_id=self.scenario_id,
+                status="failed",
+                warnings=["fault research request failed"],
+                needs_followup=True,
+                followup_reason="fault_research_failed",
+            )
         if isinstance(facts.get("evidence_model"), dict):
             facts["evidence_model"]["external_result_sufficient"] = True
         orchestration_payload = runtime._response_data(payload) or payload
@@ -54,4 +60,7 @@ class FaultResearchScenarioExecutor:
                     evidence_ref="symptom_query",
                 )
             ],
+            warnings=["fault research returned no reliable symptom result"] if not runtime._search_payload_has_useful_result(orchestration_payload) else [],
+            needs_followup=not runtime._search_payload_has_useful_result(orchestration_payload),
+            followup_reason="fault_research_insufficient" if not runtime._search_payload_has_useful_result(orchestration_payload) else "",
         )

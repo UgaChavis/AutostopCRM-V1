@@ -45,6 +45,9 @@ class VinEnrichmentScenarioExecutor:
                 scenario_id=self.scenario_id,
                 status="failed",
                 facts_updates={"vin_decode_status": "failed"},
+                warnings=["vin decode request failed"],
+                needs_followup=True,
+                followup_reason="vin_decode_failed",
             )
         orchestration_payload = runtime._response_data(vin_payload) or vin_payload
         vin_status = runtime._vin_decode_status(orchestration_payload)
@@ -75,4 +78,7 @@ class VinEnrichmentScenarioExecutor:
                 "vin_decode_status": vin_status,
                 "vehicle_context": dict(facts.get("vehicle_context") or {}),
             },
+            warnings=["vin decode returned sparse data"] if vin_status == "insufficient" else [],
+            needs_followup=vin_status in {"insufficient", "failed"},
+            followup_reason="vin_decode_insufficient" if vin_status == "insufficient" else ("vin_decode_failed" if vin_status == "failed" else ""),
         )
