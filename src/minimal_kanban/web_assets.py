@@ -5318,6 +5318,7 @@ BOARD_WEB_APP_HTML = "".join(
       aiSurfaceContext: { kind: 'chat' },
       aiSurfaceSelectedScenario: 'ai_chat',
       aiCompactContext: { kind: 'compact_context' },
+      aiCompactContextCache: { signature: '', packet: null },
       aiChatWindowContext: { kind: 'chat' },
       aiChatWindowHistory: [],
       aiChatWindowHistoryContext: null,
@@ -6129,6 +6130,76 @@ BOARD_WEB_APP_HTML = "".join(
       return value.slice(0, 157).replace(/[,.;:-]+$/, '') + '…';
     }
 
+    const AI_COMPACT_CONTEXT_LIMITS = Object.freeze({
+      wall_key_facts: 4,
+      wall_notable_changes: 3,
+      wall_important_notes: 5,
+      wall_vehicle_signals: 4,
+      wall_client_signals: 4,
+      wall_work_signals: 4,
+      wall_symptom_signals: 4,
+      wall_agreement_signals: 4,
+      card_key_fields: 6,
+      card_ai_facts: 6,
+      repair_key_fields: 6,
+      repair_ai_facts: 8,
+      repair_work_summary: 4,
+      repair_material_summary: 4,
+      attachment_items: 8,
+      attachment_label: 96,
+    });
+
+    function aiCompactTrimList(list, limit = 0) {
+      if (!Array.isArray(list)) return [];
+      const normalizedLimit = Number(limit || 0);
+      if (!Number.isFinite(normalizedLimit) || normalizedLimit <= 0) return list.slice();
+      return list.slice(0, normalizedLimit);
+    }
+
+    function aiCompactTrimText(source, fallback = '', limit = 160) {
+      const value = aiWallDigestShortText(source, fallback);
+      const normalizedLimit = Number(limit || 0);
+      if (!Number.isFinite(normalizedLimit) || normalizedLimit <= 0 || value.length <= normalizedLimit) return value;
+      return value.slice(0, Math.max(0, normalizedLimit - 1)).replace(/[,.;:-]+$/, '') + '…';
+    }
+
+    function aiCompactPickFields(source, fields = []) {
+      const payload = source && typeof source === 'object' ? source : {};
+      return fields.reduce((result, fieldName) => {
+        if (fieldName in payload && payload[fieldName] !== undefined && payload[fieldName] !== null) {
+          result[fieldName] = payload[fieldName];
+        }
+        return result;
+      }, {});
+    }
+
+    function aiCompactContextPacketSignature(packet) {
+      const source = packet && typeof packet === 'object' ? packet : {};
+      const card = source.card_context && typeof source.card_context === 'object' ? source.card_context : {};
+      const repairOrder = source.repair_order_context && typeof source.repair_order_context === 'object' ? source.repair_order_context : {};
+      const wallDigest = source.wall_digest && typeof source.wall_digest === 'object' ? source.wall_digest : {};
+      const attachments = source.attachments_intake && typeof source.attachments_intake === 'object' ? source.attachments_intake : {};
+      return [
+        String(source.kind || '').trim(),
+        String(source.surface || '').trim(),
+        String(source.card_id || '').trim(),
+        String(source.repair_order_id || '').trim(),
+        String(card.summary_label || '').trim(),
+        String(card.card_id || '').trim(),
+        String(repairOrder.summary_label || '').trim(),
+        String(repairOrder.repair_order_id || '').trim(),
+        String(wallDigest.generated_at || '').trim(),
+        String(wallDigest.summary_label || wallDigest.label || '').trim(),
+        String(wallDigest.view || '').trim(),
+        String(attachments.label || '').trim(),
+        String(attachments.total_attachment_count || '').trim(),
+        String(attachments.card_attachment_count || '').trim(),
+        String(attachments.repair_order_attachment_count || '').trim(),
+        String(attachments.items?.[0]?.attachment_id || '').trim(),
+        String(state.aiChatWindowPromptProfile?.user_tune || '').trim(),
+      ].join('::');
+    }
+
     function aiWallDigestEventSummary(event) {
       if (!event || typeof event !== 'object') return '';
       const parts = [];
@@ -6179,7 +6250,7 @@ BOARD_WEB_APP_HTML = "".join(
         const rightKey = String(left?.updated_at || left?.created_at || left?.id || '').trim();
         return leftKey.localeCompare(rightKey);
       });
-      const priorityCards = orderedCards.slice(0, 5);
+      const priorityCards = aiCompactTrimList(orderedCards, 5);
       const keyFacts = [
         meta.columns !== undefined ? 'Колонок: ' + meta.columns : '',
         meta.active_cards !== undefined ? 'Активных карточек: ' + meta.active_cards : '',
@@ -6187,10 +6258,10 @@ BOARD_WEB_APP_HTML = "".join(
         meta.stickies !== undefined ? 'Стикеров: ' + meta.stickies : '',
         meta.events_total !== undefined ? 'Событий: ' + meta.events_total : '',
       ].filter(Boolean);
-      const notableChanges = events.slice(0, 5).map((event) => aiWallDigestEventSummary(event)).filter(Boolean);
+      const notableChanges = aiCompactTrimList(events, AI_COMPACT_CONTEXT_LIMITS.wall_notable_changes).map((event) => aiWallDigestEventSummary(event)).filter(Boolean);
       const importantNotes = [];
-      for (const sticky of stickies.slice(0, 4)) {
-        const stickyText = aiWallDigestShortText(sticky?.text || sticky?.content || sticky?.message || '');
+      for (const sticky of aiCompactTrimList(stickies, AI_COMPACT_CONTEXT_LIMITS.wall_important_notes)) {
+        const stickyText = aiCompactTrimText(sticky?.text || sticky?.content || sticky?.message || '');
         if (stickyText) importantNotes.push(stickyText);
       }
       for (const card of priorityCards) {
@@ -6207,13 +6278,13 @@ BOARD_WEB_APP_HTML = "".join(
         const cardLabel = String(card?.short_id || card?.id || '').trim();
         const vehicle = String(card?.vehicle || repairOrder?.vehicle || '').trim();
         if (vehicle) vehicleSignals.push((cardLabel ? cardLabel + ': ' : '') + vehicle);
-        if (repairOrder.client) clientSignals.push((cardLabel ? cardLabel + ': ' : '') + aiWallDigestShortText(repairOrder.client, repairOrder.client));
+        if (repairOrder.client) clientSignals.push((cardLabel ? cardLabel + ': ' : '') + aiCompactTrimText(repairOrder.client, repairOrder.client));
         if (repairOrder.works?.length || repairOrder.materials?.length) {
           workSignals.push((cardLabel ? cardLabel + ': ' : '') + 'работы ' + (repairOrder.works?.length || 0) + ' / материалы ' + (repairOrder.materials?.length || 0));
         }
-        if (repairOrder.reason || card?.description) symptomSignals.push((cardLabel ? cardLabel + ': ' : '') + aiWallDigestShortText(repairOrder.reason || card?.description || '', repairOrder.reason || card?.description || ''));
+        if (repairOrder.reason || card?.description) symptomSignals.push((cardLabel ? cardLabel + ': ' : '') + aiCompactTrimText(repairOrder.reason || card?.description || '', repairOrder.reason || card?.description || ''));
         if (repairOrder.comment || repairOrder.note || repairOrder.prepayment_display) {
-          agreementSignals.push((cardLabel ? cardLabel + ': ' : '') + aiWallDigestShortText(repairOrder.comment || repairOrder.note || repairOrder.prepayment_display || '', repairOrder.comment || repairOrder.note || repairOrder.prepayment_display || ''));
+          agreementSignals.push((cardLabel ? cardLabel + ': ' : '') + aiCompactTrimText(repairOrder.comment || repairOrder.note || repairOrder.prepayment_display || '', repairOrder.comment || repairOrder.note || repairOrder.prepayment_display || ''));
         }
       }
       const summaryLabel = source
@@ -6228,19 +6299,19 @@ BOARD_WEB_APP_HTML = "".join(
         generated_at: String(meta.generated_at || '').trim(),
         view: normalizeGptWallView(state.gptWallView),
         board_label: String(boardContext?.board_name || boardContext?.label || '').trim(),
-        key_facts,
-        notable_changes,
-        important_notes,
-        vehicle_signals: vehicleSignals,
-        client_signals: clientSignals,
-        work_signals: workSignals,
-        symptom_signals: symptomSignals,
-        agreement_signals: agreementSignals,
+        key_facts: aiCompactTrimList(keyFacts, AI_COMPACT_CONTEXT_LIMITS.wall_key_facts),
+        notable_changes: aiCompactTrimList(notableChanges, AI_COMPACT_CONTEXT_LIMITS.wall_notable_changes),
+        important_notes: aiCompactTrimList(importantNotes, AI_COMPACT_CONTEXT_LIMITS.wall_important_notes),
+        vehicle_signals: aiCompactTrimList(vehicleSignals, AI_COMPACT_CONTEXT_LIMITS.wall_vehicle_signals),
+        client_signals: aiCompactTrimList(clientSignals, AI_COMPACT_CONTEXT_LIMITS.wall_client_signals),
+        work_signals: aiCompactTrimList(workSignals, AI_COMPACT_CONTEXT_LIMITS.wall_work_signals),
+        symptom_signals: aiCompactTrimList(symptomSignals, AI_COMPACT_CONTEXT_LIMITS.wall_symptom_signals),
+        agreement_signals: aiCompactTrimList(agreementSignals, AI_COMPACT_CONTEXT_LIMITS.wall_agreement_signals),
         summary_text: [
           summaryLabel,
-          key_facts.join(' · '),
-          notableChanges.slice(0, 3).join(' · '),
-          importantNotes.slice(0, 5).join(' · '),
+          aiCompactTrimList(keyFacts, AI_COMPACT_CONTEXT_LIMITS.wall_key_facts).join(' · '),
+          aiCompactTrimList(notableChanges, AI_COMPACT_CONTEXT_LIMITS.wall_notable_changes).join(' · '),
+          aiCompactTrimList(importantNotes, AI_COMPACT_CONTEXT_LIMITS.wall_important_notes).join(' · '),
         ].filter(Boolean).join('\n'),
       };
     }
@@ -6261,6 +6332,27 @@ BOARD_WEB_APP_HTML = "".join(
       const vehicleProfile = payload?.vehicle_profile && typeof payload.vehicle_profile === 'object'
         ? payload.vehicle_profile
         : (sourceCard?.vehicle_profile && typeof sourceCard.vehicle_profile === 'object' ? sourceCard.vehicle_profile : {});
+      const vehicleProfileCompact = payload?.vehicle_profile_compact && typeof payload.vehicle_profile_compact === 'object'
+        ? aiCompactPickFields(payload.vehicle_profile_compact, [
+          'make_display',
+          'model_display',
+          'production_year',
+          'mileage',
+          'vin',
+          'engine_model',
+          'gearbox_model',
+          'drivetrain',
+          'display_name',
+          'has_any_data',
+          'source_summary',
+          'source_confidence',
+          'data_completion_state',
+          'manual_fields',
+          'autofilled_fields',
+          'tentative_fields',
+          'warnings',
+        ])
+        : null;
       const repairOrderLabel = aiChatContextRepairOrderLabel(activeRepairOrder);
       const keyFields = [
         cardVehicle ? { key: 'vehicle', label: 'Машина', value: cardVehicle } : null,
@@ -6273,7 +6365,7 @@ BOARD_WEB_APP_HTML = "".join(
       ].filter(Boolean);
       const aiRelevantFacts = {
         client: String(activeRepairOrder?.client || '').trim(),
-        machine: String(activeRepairOrder?.vehicle || cardVehicle || vehicleProfile?.display_name?.() || '').trim(),
+        machine: String(activeRepairOrder?.vehicle || cardVehicle || vehicleProfile?.display_name || '').trim(),
         symptoms: String(activeRepairOrder?.reason || payload?.description || '').trim(),
         works: Array.isArray(activeRepairOrder?.works)
           ? activeRepairOrder.works.slice(0, 5).map((row) => aiWallDigestShortText(row?.name || row?.title || row?.work_name || row?.description || '', row?.name || row?.title || row?.work_name || row?.description || '')).filter(Boolean)
@@ -6294,19 +6386,37 @@ BOARD_WEB_APP_HTML = "".join(
         status,
         column: cardColumn,
         column_label: columnLabel,
-        key_fields: keyFields,
+        key_fields: aiCompactTrimList(keyFields, AI_COMPACT_CONTEXT_LIMITS.card_key_fields),
         ai_relevant_facts: aiRelevantFacts,
         repair_order_label: repairOrderLabel,
         wall_digest_label: String(digest?.label || '').trim(),
-        wall_digest_summary: String(digest?.summary_text || '').trim(),
-        wall_digest_key_facts: Array.isArray(digest?.key_facts) ? digest.key_facts.slice(0, 5) : [],
-        wall_digest_notable_changes: Array.isArray(digest?.notable_changes) ? digest.notable_changes.slice(0, 5) : [],
+        wall_digest_summary: aiCompactTrimText(digest?.summary_text || '', digest?.summary_text || '', 360),
+        wall_digest_key_facts: aiCompactTrimList(Array.isArray(digest?.key_facts) ? digest.key_facts : [], 4),
+        wall_digest_notable_changes: aiCompactTrimList(Array.isArray(digest?.notable_changes) ? digest.notable_changes : [], 3),
         wall_digest_available: Boolean(digest?.has_wall),
         attachment_count: Number(sourceCard?.attachment_count ?? 0) || 0,
         events_count: Number(sourceCard?.events_count ?? 0) || 0,
-        vehicle_profile_compact: payload?.vehicle_profile_compact && typeof payload.vehicle_profile_compact === 'object'
-          ? payload.vehicle_profile_compact
-          : null,
+        vehicle_profile_compact: vehicleProfileCompact || (vehicleProfile && typeof vehicleProfile === 'object'
+          ? aiCompactPickFields(vehicleProfile, [
+            'make_display',
+            'model_display',
+            'production_year',
+            'mileage',
+            'vin',
+            'engine_model',
+            'gearbox_model',
+            'drivetrain',
+            'display_name',
+            'has_any_data',
+            'source_summary',
+            'source_confidence',
+            'data_completion_state',
+            'manual_fields',
+            'autofilled_fields',
+            'tentative_fields',
+            'warnings',
+          ])
+          : null),
       };
     }
 
@@ -6400,11 +6510,11 @@ BOARD_WEB_APP_HTML = "".join(
         repair_order_status: status,
         repair_order_status_label: statusLabel,
         summary_label: summaryLabel,
-        key_fields: keyFields,
+        key_fields: aiCompactTrimList(keyFields, AI_COMPACT_CONTEXT_LIMITS.repair_key_fields),
         ai_relevant_facts: aiRelevantFacts,
-        work_summary: workSummary,
-        material_summary: materialSummary,
-        notes_summary: [reason, comment, note].filter(Boolean),
+        work_summary: aiCompactTrimList(workSummary, AI_COMPACT_CONTEXT_LIMITS.repair_work_summary),
+        material_summary: aiCompactTrimList(materialSummary, AI_COMPACT_CONTEXT_LIMITS.repair_material_summary),
+        notes_summary: aiCompactTrimList([reason, comment, note].filter(Boolean), 3),
         payment_summary: {
           payment_method: paymentMethod,
           payment_method_label: paymentMethodLabel,
@@ -6423,8 +6533,8 @@ BOARD_WEB_APP_HTML = "".join(
         attached_card_id: String(sourceCard?.id || '').trim(),
         wall_digest_label: String(digest?.summary_label || digest?.label || '').trim(),
         wall_digest_summary: String(digest?.summary_text || '').trim(),
-        wall_digest_key_facts: Array.isArray(digest?.key_facts) ? digest.key_facts.slice(0, 5) : [],
-        wall_digest_notable_changes: Array.isArray(digest?.notable_changes) ? digest.notable_changes.slice(0, 5) : [],
+        wall_digest_key_facts: aiCompactTrimList(Array.isArray(digest?.key_facts) ? digest.key_facts : [], 4),
+        wall_digest_notable_changes: aiCompactTrimList(Array.isArray(digest?.notable_changes) ? digest.notable_changes : [], 3),
       };
     }
 
@@ -6455,7 +6565,7 @@ BOARD_WEB_APP_HTML = "".join(
           attachment: attachment,
         });
       });
-      const normalizedItems = sourceAttachments.slice(0, 12).map((item) => {
+      const normalizedItems = sourceAttachments.slice(0, AI_COMPACT_CONTEXT_LIMITS.attachment_items).map((item) => {
         const attachment = item.attachment && typeof item.attachment === 'object' ? item.attachment : {};
         const fileName = String(attachment.file_name || attachment.name || '').trim();
         const mimeType = normalizeAttachmentMimeType(attachment.mime_type || attachment.type || '');
@@ -6463,12 +6573,12 @@ BOARD_WEB_APP_HTML = "".join(
         const fileTypeLabel = mimeType
           ? mimeType
           : (fileExtension ? attachmentMimeTypeFromExtension(fileExtension) : '');
-        const contentHint = [
+        const contentHint = aiCompactTrimText([
           fileExtension ? fileExtension.replace(/^\\./, '').toUpperCase() : '',
           mimeType.startsWith('image/') ? 'IMAGE' : '',
           mimeType === 'application/pdf' ? 'PDF' : '',
           attachment.size_bytes !== undefined ? formatBytes(Number(attachment.size_bytes || 0)) : '',
-        ].filter(Boolean).join(' · ');
+        ].filter(Boolean).join(' · '), '', AI_COMPACT_CONTEXT_LIMITS.attachment_label);
         const aiReady = Boolean(fileName || fileTypeLabel || attachment.size_bytes !== undefined);
         return {
           attachment_id: String(attachment.id || '').trim(),
@@ -6496,11 +6606,11 @@ BOARD_WEB_APP_HTML = "".join(
         card_attachment_count: cardCount,
         repair_order_attachment_count: repairOrderCount,
         total_attachment_count: normalizedItems.length,
-        label,
-        summary_label: label,
+        label: aiCompactTrimText(label, label, AI_COMPACT_CONTEXT_LIMITS.attachment_label),
+        summary_label: aiCompactTrimText(label, label, AI_COMPACT_CONTEXT_LIMITS.attachment_label),
         items: normalizedItems,
-        card_attachment_ids: normalizedItems.filter((item) => item.source_kind === 'card').map((item) => item.attachment_id).filter(Boolean),
-        repair_order_attachment_ids: normalizedItems.filter((item) => item.source_kind === 'repair_order').map((item) => item.attachment_id).filter(Boolean),
+        card_attachment_ids: aiCompactTrimList(normalizedItems.filter((item) => item.source_kind === 'card').map((item) => item.attachment_id).filter(Boolean), AI_COMPACT_CONTEXT_LIMITS.attachment_ids),
+        repair_order_attachment_ids: aiCompactTrimList(normalizedItems.filter((item) => item.source_kind === 'repair_order').map((item) => item.attachment_id).filter(Boolean), AI_COMPACT_CONTEXT_LIMITS.attachment_ids),
         attachment_sources: {
           card: cardCount,
           repair_order: repairOrderCount,
@@ -6529,13 +6639,10 @@ BOARD_WEB_APP_HTML = "".join(
       const attachmentsIntake = buildAiAttachmentIntakePacket(card, repairOrder, wallDigest);
       const wallView = normalizeGptWallView(state.gptWallView);
       const wallMeta = wall?.meta && typeof wall.meta === 'object' ? wall.meta : {};
-      const cardAttachmentCount = Number(attachmentsIntake?.card_attachment_count ?? card?.attachment_count ?? currentCard?.attachment_count ?? 0) || 0;
-      const repairOrderAttachmentCount = Number(attachmentsIntake?.repair_order_attachment_count ?? repairOrder?.attachment_count ?? (Array.isArray(repairOrder?.attachments) ? repairOrder.attachments.length : 0)) || 0;
-      const attachmentReady = Boolean(attachmentsIntake?.ready);
       const wallLabel = wall
         ? 'СТЕНА · ' + (wallView === 'event_log' ? 'ЖУРНАЛ СОБЫТИЙ' : 'СОДЕРЖАНИЕ ДОСКИ')
         : 'СТЕНА · НЕ ЗАГРУЖЕНА';
-      return {
+      const packetDraft = {
         kind: 'compact_context',
         surface: 'ai_chat',
         source_kind: currentCard ? 'card' : 'workspace',
@@ -6545,9 +6652,9 @@ BOARD_WEB_APP_HTML = "".join(
         repair_order_id: repairOrderId,
         repair_order_label: repairOrderLabel,
         repair_order_scope: repairOrder && typeof repairOrder === 'object' ? repairOrder : null,
-        repair_order_context_label: String(repairOrderContext?.summary_label || repairOrderLabel || '').trim(),
         card_context: cardContext,
         repair_order_context: repairOrderContext,
+        repair_order_context_label: String(repairOrderContext?.summary_label || repairOrderLabel || '').trim(),
         wall_context: {
           kind: 'wall',
           source_kind: wall ? 'gpt_wall' : 'none',
@@ -6563,6 +6670,15 @@ BOARD_WEB_APP_HTML = "".join(
         has_card_scope: Boolean(currentCard?.id),
         has_repair_order_scope: Boolean(repairOrderId),
       };
+      const cache = state.aiCompactContextCache && typeof state.aiCompactContextCache === 'object'
+        ? state.aiCompactContextCache
+        : { signature: '', packet: null };
+      const signature = aiCompactContextPacketSignature(packetDraft);
+      if (cache.signature === signature && cache.packet && typeof cache.packet === 'object') {
+        return cache.packet;
+      }
+      state.aiCompactContextCache = { signature, packet: packetDraft };
+      return packetDraft;
     }
 
     function buildAiChatWindowContext() {
