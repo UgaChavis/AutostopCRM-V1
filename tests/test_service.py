@@ -733,6 +733,46 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(len(listed_after["employees"]), 2)
         self.assertFalse(any(item["id"] == second["id"] for item in listed_after["employees"]))
 
+    def test_employee_supports_up_to_fifteen_records_without_overwrite(self) -> None:
+        checkpoints = {1, 2, 3, 10, 15}
+        created_ids: list[str] = []
+        expected_modes: dict[str, tuple[str, str, str]] = {}
+        modes = ("salary_only", "percent_only", "salary_plus_percent")
+
+        for index in range(15):
+            result = self.service.save_employee(
+                {
+                    "name": f"Сотрудник {index + 1}",
+                    "position": f"Пост {index + 1}",
+                    "salary_mode": modes[index % len(modes)],
+                    "base_salary": str((index + 1) * 1000),
+                    "work_percent": str(index + 5),
+                }
+            )["employee"]
+            created_ids.append(result["id"])
+            expected_modes[result["id"]] = (result["salary_mode"], result["base_salary"], result["work_percent"])
+            if (index + 1) in checkpoints:
+                listed = self.service.list_employees()["employees"]
+                self.assertEqual(len(listed), index + 1)
+                self.assertEqual(len({item["id"] for item in listed}), index + 1)
+
+        listed = self.service.list_employees()["employees"]
+        self.assertEqual(len(listed), 15)
+        self.assertEqual(set(item["id"] for item in listed), set(created_ids))
+        for item in listed:
+            salary_mode, base_salary, work_percent = expected_modes[item["id"]]
+            self.assertEqual(item["salary_mode"], salary_mode)
+            self.assertEqual(item["base_salary"], base_salary)
+            self.assertEqual(item["work_percent"], work_percent)
+
+    def test_employee_creation_rejects_more_than_fifteen_records(self) -> None:
+        for index in range(15):
+            self.service.save_employee({"name": f"Сотрудник {index + 1}"})
+        with self.assertRaises(ServiceError) as ctx:
+            self.service.save_employee({"name": "Сотрудник 16"})
+        self.assertEqual(ctx.exception.code, "validation_error")
+        self.assertIn("15", str(ctx.exception))
+
     def test_supports_large_card_description(self) -> None:
         large_description = "А" * 12000
 

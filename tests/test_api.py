@@ -999,6 +999,38 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(len(listed_after["data"]["employees"]), 1)
         self.assertEqual(listed_after["data"]["employees"][0]["id"], first["data"]["employee"]["id"])
 
+    def test_employee_routes_support_up_to_fifteen_and_reject_sixteenth(self) -> None:
+        checkpoints = {1, 2, 3, 10, 15}
+        seen_ids: set[str] = set()
+        for index in range(15):
+            status, saved = self.request(
+                "/api/save_employee",
+                {
+                    "name": f"Сотрудник {index + 1}",
+                    "position": f"Пост {index + 1}",
+                    "salary_mode": "salary_plus_percent",
+                    "base_salary": str((index + 1) * 1000),
+                    "work_percent": str(index + 3),
+                },
+            )
+            self.assertEqual(status, 200)
+            seen_ids.add(saved["data"]["employee"]["id"])
+            if (index + 1) in checkpoints:
+                status, listed = self.request("/api/list_employees", method="GET")
+                self.assertEqual(status, 200)
+                self.assertEqual(len(listed["data"]["employees"]), index + 1)
+                self.assertEqual(len({item["id"] for item in listed["data"]["employees"]}), index + 1)
+
+        status, listed = self.request("/api/list_employees", method="GET")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(listed["data"]["employees"]), 15)
+        self.assertEqual({item["id"] for item in listed["data"]["employees"]}, seen_ids)
+
+        status, overflow = self.request("/api/save_employee", {"name": "Сотрудник 16"})
+        self.assertEqual(status, 400)
+        self.assertEqual(overflow["error"]["code"], "validation_error")
+        self.assertIn("15", overflow["error"]["message"])
+
     def test_save_employee_requires_name(self) -> None:
         status, response = self.request(
             "/api/save_employee",

@@ -153,6 +153,7 @@ Rules:
 - vin_or_plate may contain both VIN and license plate in one short string.
 """
 EMPLOYEES_SETTING_KEY = "employees"
+EMPLOYEES_MAX_COUNT = 15
 PAYROLL_MODE_SALARY_ONLY = "salary_only"
 PAYROLL_MODE_PERCENT_ONLY = "percent_only"
 PAYROLL_MODE_SALARY_PLUS_PERCENT = "salary_plus_percent"
@@ -1340,6 +1341,12 @@ class CardService:
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
             existing = next((item for item in employees if item["id"] == employee_id), None)
             created = existing is None
+            if created and len(employees) >= EMPLOYEES_MAX_COUNT:
+                self._fail(
+                    "validation_error",
+                    f"Можно сохранить не более {EMPLOYEES_MAX_COUNT} сотрудников.",
+                    details={"field": EMPLOYEES_SETTING_KEY, "max_count": EMPLOYEES_MAX_COUNT},
+                )
             employee = self._validated_employee_payload(payload, existing=existing)
             next_employees = [item for item in employees if item["id"] != employee["id"]]
             next_employees.append(employee)

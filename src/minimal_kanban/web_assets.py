@@ -4748,6 +4748,7 @@ BOARD_WEB_APP_HTML = "".join(
       cashboxDirectionFilter: 'all',
       employees: [],
       activeEmployeeId: '',
+      employeeCreateMode: false,
       employeesQuery: '',
       employeesVisibilityFilter: 'active',
       employeeFormBaseline: null,
@@ -5022,6 +5023,19 @@ BOARD_WEB_APP_HTML = "".join(
                 + '<button class="btn" data-close="employees">ЗАКРЫТЬ</button>'
               + '</div>'
               + '<div class="employees-layout">'
+                + '<div class="employees-pane employees-pane--list">'
+                  + '<div class="subpanel">'
+                    + '<div class="employees-panel-head"><div class="panel-title">СПИСОК СОТРУДНИКОВ</div><div class="employees-list-meta" id="employeesListMeta">СПИСОК ПУСТ</div></div>'
+                    + '<div class="employees-list-tools">'
+                      + '<input class="repair-orders-search employees-search" id="employeesSearchInput" type="search" maxlength="80" placeholder="Поиск по имени или должности">'
+                      + '<div class="employees-filterbar" id="employeesVisibilityFilters">'
+                        + '<button class="btn is-active" type="button" data-filter="active">АКТИВНЫЕ</button>'
+                        + '<button class="btn btn--ghost" type="button" data-filter="all">ВСЕ</button>'
+                      + '</div>'
+                    + '</div>'
+                    + '<div class="employees-list" id="employeesList"></div>'
+                  + '</div>'
+                + '</div>'
                 + '<div class="employees-pane">'
                   + '<div class="subpanel">'
                     + '<div class="employees-card-head"><div class="panel-title">ПРОФИЛЬ</div><div class="employees-card-mode" id="employeesCardMode">НОВЫЙ СОТРУДНИК</div></div>'
@@ -6033,7 +6047,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     function readEmployeeFormPayload() {
       return {
-        employee_id: state.activeEmployeeId || '',
+        employee_id: state.employeeCreateMode ? '' : (state.activeEmployeeId || ''),
         name: els.employeeNameInput.value,
         position: els.employeePositionInput.value,
         salary_mode: els.employeeSalaryModeInput.value,
@@ -6147,11 +6161,15 @@ BOARD_WEB_APP_HTML = "".join(
 
     function renderEmployeesWorkspace() {
       const employees = Array.isArray(state.employees) ? state.employees : [];
-      if (!state.activeEmployeeId && employees.length) {
+      if (!state.employeeCreateMode && !state.activeEmployeeId && employees.length) {
         state.activeEmployeeId = employees[0].id;
       }
       if (state.activeEmployeeId && !employees.some((item) => item.id === state.activeEmployeeId)) {
         state.activeEmployeeId = employees[0]?.id || '';
+      }
+      if (!employees.length) {
+        state.activeEmployeeId = '';
+        state.employeeCreateMode = true;
       }
       if (els.employeesMonthInput) {
         els.employeesMonthInput.value = state.payrollMonth || currentPayrollMonthValue();
@@ -6159,7 +6177,7 @@ BOARD_WEB_APP_HTML = "".join(
       if (els.employeesSearchInput) {
         els.employeesSearchInput.value = state.employeesQuery || '';
       }
-      fillEmployeeForm(selectedEmployeeRecord());
+      fillEmployeeForm(state.employeeCreateMode ? null : selectedEmployeeRecord());
       renderEmployeesList();
       renderEmployeesSummary();
       renderEmployeesSummaryStrip();
@@ -6176,8 +6194,11 @@ BOARD_WEB_APP_HTML = "".join(
       const month = state.payrollMonth || currentPayrollMonthValue();
       const data = await api('/api/list_employees?month=' + encodeURIComponent(month));
       state.employees = Array.isArray(data?.employees) ? data.employees : [];
-      if (!state.activeEmployeeId && state.employees.length) {
+      if (!state.employeeCreateMode && !state.activeEmployeeId && state.employees.length) {
         state.activeEmployeeId = state.employees[0].id;
+      }
+      if (!state.employees.length) {
+        state.employeeCreateMode = true;
       }
       return data;
     }
@@ -6206,6 +6227,7 @@ BOARD_WEB_APP_HTML = "".join(
       if (!confirmDiscardEmployeeChanges()) return;
       state.employeesQuery = '';
       state.activeEmployeeId = '';
+      state.employeeCreateMode = true;
       if (els.employeesSearchInput) els.employeesSearchInput.value = '';
       fillEmployeeForm(null);
       renderEmployeesList();
@@ -6236,6 +6258,7 @@ BOARD_WEB_APP_HTML = "".join(
       try {
         const data = await api('/api/save_employee', { method: 'POST', body: readEmployeeFormPayload() });
         state.employees = Array.isArray(data?.employees) ? data.employees : [];
+        state.employeeCreateMode = false;
         state.activeEmployeeId = data?.employee?.id || state.activeEmployeeId;
         state.employeesQuery = '';
         if (els.employeesSearchInput) els.employeesSearchInput.value = '';
@@ -6271,6 +6294,7 @@ BOARD_WEB_APP_HTML = "".join(
         if (String(state.activeEmployeeId || '') === String(employee.id || '')) {
           state.activeEmployeeId = '';
         }
+        state.employeeCreateMode = !state.employees.length;
         await loadPayrollReport();
         renderEmployeesWorkspace();
         refreshRepairOrderEmployeeSelects();
@@ -6288,6 +6312,7 @@ BOARD_WEB_APP_HTML = "".join(
       const nextEmployeeId = String(row.dataset.employeeId || '').trim();
       if (!nextEmployeeId || nextEmployeeId === state.activeEmployeeId) return;
       if (!confirmDiscardEmployeeChanges()) return;
+      state.employeeCreateMode = false;
       state.activeEmployeeId = nextEmployeeId;
       renderEmployeesWorkspace();
     }
