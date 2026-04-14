@@ -12,6 +12,8 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.agent.remodel import (
+    AiBackendComponentKind,
+    AiBackendReuseCategory,
     AiActorMode,
     AiEntryExposureState,
     AiRolloutState,
@@ -19,6 +21,7 @@ from minimal_kanban.agent.remodel import (
     AiScopeKind,
     AiTriggerKind,
     get_ai_effective_mode,
+    get_ai_backend_component_registry,
     get_ai_backend_reuse_map,
     get_ai_entry_exposure_map,
     get_ai_entry_surface_map,
@@ -41,7 +44,7 @@ class AiRemodelTests(unittest.TestCase):
 
     def test_status_payload_exposes_canonical_new_scenarios(self) -> None:
         payload = get_ai_remodel_status_payload()
-        self.assertEqual(payload["phase"], "module_1_3_entry_deactivation")
+        self.assertEqual(payload["phase"], "module_1_4_backend_reuse")
         self.assertEqual(
             sorted(payload["scenario_registry"].keys()),
             sorted(item.value for item in AiScenarioId),
@@ -55,7 +58,11 @@ class AiRemodelTests(unittest.TestCase):
         self.assertEqual(payload["feature_flags"]["legacy_ux_enabled"], True)
         self.assertEqual(payload["feature_flags"]["ai_chat_enabled"], False)
         self.assertIn("board_dock_button", payload["legacy_entry_points"])
+        self.assertIn("backend_component_registry", payload)
+        self.assertIn("backend_legacy_only", payload)
         self.assertIn("reuse_as_is", payload["backend_reuse"])
+        self.assertIn("reuse_with_adaptation", payload["backend_reuse"])
+        self.assertIn("legacy_only_or_retire_later", payload["backend_reuse"])
         self.assertEqual(payload["effective_mode"]["primary_interactive_path"], "legacy_agent_modal_manual_tasks")
         self.assertIn("ai_chat", payload["effective_mode"]["hidden"])
         self.assertIn("board_control", payload["effective_mode"]["background_only"])
@@ -65,6 +72,12 @@ class AiRemodelTests(unittest.TestCase):
         self.assertEqual(payload["entry_exposure"]["card_agent_button"]["exposure_state"], AiEntryExposureState.LEGACY_ONLY.value)
         self.assertEqual(payload["entry_exposure"]["agent_enqueue_task_api"]["exposure_state"], AiEntryExposureState.ACTIVE.value)
         self.assertEqual(payload["entry_exposure"]["agent_tasks_modal"]["exposure_state"], AiEntryExposureState.LEGACY_ONLY.value)
+        self.assertEqual(payload["backend_component_registry"]["card_service"]["reuse_category"], AiBackendReuseCategory.REUSE_AS_IS.value)
+        self.assertEqual(payload["backend_component_registry"]["runner_model_loop"]["reuse_category"], AiBackendReuseCategory.REUSE_WITH_ADAPTATION.value)
+        self.assertEqual(payload["backend_component_registry"]["manual_prompt_bridge"]["reuse_category"], AiBackendReuseCategory.LEGACY_ONLY_OR_RETIRE_LATER.value)
+        self.assertEqual(payload["backend_component_registry"]["card_service"]["component_kind"], AiBackendComponentKind.SERVICE_BOUNDARY.value)
+        self.assertIn("full_card_enrichment", payload["backend_component_registry"]["card_service"]["future_targets"])
+        self.assertIn("manual_prompt_bridge", payload["backend_legacy_only"])
 
     def test_canonical_registry_maps_have_three_scenarios(self) -> None:
         scenario_map = get_ai_scenario_map()
@@ -76,9 +89,12 @@ class AiRemodelTests(unittest.TestCase):
     def test_legacy_and_reuse_maps_are_present(self) -> None:
         legacy_map = get_ai_legacy_entry_point_map()
         reuse_map = get_ai_backend_reuse_map()
+        component_registry = get_ai_backend_component_registry()
         self.assertIn("card_agent_button", legacy_map)
-        self.assertIn("runner", reuse_map["reuse_with_adaptation"])
-        self.assertIn("agent_modal_ux", reuse_map["legacy_only"])
+        self.assertIn("runner_model_loop", reuse_map["reuse_with_adaptation"])
+        self.assertIn("manual_prompt_bridge", reuse_map["legacy_only_or_retire_later"])
+        self.assertIn("card_service", component_registry)
+        self.assertEqual(component_registry["openai_client"]["reuse_category"], AiBackendReuseCategory.REUSE_AS_IS.value)
 
     def test_effective_mode_resolver_is_conservative_by_default(self) -> None:
         payload = get_ai_effective_mode()

@@ -324,27 +324,250 @@ LEGACY_AI_ENTRY_POINTS: dict[str, dict[str, Any]] = {
     },
 }
 
-AI_BACKEND_REUSE_MAP: dict[str, dict[str, Any]] = {
-    "reuse_as_is": {
-        "card_service": "source_of_truth",
-        "local_api": "read_write_boundary",
-        "contracts": "read_evidence_plan_tools_patch_write_verify",
-        "policy": "required_tool_gates_and_scenario_policy",
-        "bounded_tools": "automotive_and_web_lookup_dispatch",
-        "wall_snapshot_card_repair_order_context": "core_context_primitives",
-    },
-    "reuse_with_adaptation": {
-        "runner": "scenario registry + future scenario dispatch",
-        "control": "status exposure + feature flag surfacing",
-        "scenario_executors": "legacy card autofill remains foundation for future split",
-        "web_assets_glue": "current triggers become replacement targets later",
-    },
-    "legacy_only": {
-        "agent_modal_ux": "current mixed manual/autofill task surface",
-        "quick_prompt_shortcuts": "legacy shortcut surface",
-        "tasks_modal": "mixed task and schedule shell",
-    },
-}
+class AiBackendComponentKind(str, Enum):
+    SERVICE_BOUNDARY = "service_boundary"
+    API_SURFACE = "api_surface"
+    RUNTIME_CORE = "runtime_core"
+    POLICY_ENGINE = "policy_engine"
+    STORAGE = "storage"
+    CONTEXT_PRIMITIVE = "context_primitive"
+    TOOLING = "tooling"
+    MODEL_ADAPTER = "model_adapter"
+    EXECUTOR = "executor"
+    SCHEDULER = "scheduler"
+    LEGACY_GLUE = "legacy_glue"
+    STATUS_SURFACE = "status_surface"
+
+
+class AiBackendReuseCategory(str, Enum):
+    REUSE_AS_IS = "reuse_as_is"
+    REUSE_WITH_ADAPTATION = "reuse_with_adaptation"
+    LEGACY_ONLY_OR_RETIRE_LATER = "legacy_only_or_retire_later"
+
+
+@dataclass(frozen=True)
+class AiBackendComponentDefinition:
+    component_id: str
+    component_kind: AiBackendComponentKind
+    current_role: str
+    reuse_category: AiBackendReuseCategory
+    future_targets: tuple[AiScenarioId, ...]
+    notes: tuple[str, ...] = ()
+    do_not_break: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "component_id": self.component_id,
+            "component_kind": self.component_kind.value,
+            "current_role": self.current_role,
+            "reuse_category": self.reuse_category.value,
+            "future_targets": [item.value for item in self.future_targets],
+            "notes": list(self.notes),
+            "do_not_break": list(self.do_not_break),
+        }
+
+
+@dataclass(frozen=True)
+class AiBackendReuseRegistry:
+    components: tuple[AiBackendComponentDefinition, ...]
+    by_id: dict[str, AiBackendComponentDefinition] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "by_id", {item.component_id: item for item in self.components})
+
+    def get(self, component_id: str) -> AiBackendComponentDefinition | None:
+        return self.by_id.get(str(component_id or "").strip().lower())
+
+    def ids(self) -> list[str]:
+        return [item.component_id for item in self.components]
+
+    def grouped_by_category(self) -> dict[str, dict[str, Any]]:
+        grouped: dict[str, dict[str, Any]] = {item.value: {} for item in AiBackendReuseCategory}
+        for item in self.components:
+            grouped[item.reuse_category.value][item.component_id] = item.to_dict()
+        return grouped
+
+    def to_dict(self) -> dict[str, dict[str, Any]]:
+        return {item.component_id: item.to_dict() for item in self.components}
+
+
+BACKEND_COMPONENT_DEFINITIONS: tuple[AiBackendComponentDefinition, ...] = (
+    AiBackendComponentDefinition(
+        component_id="card_service",
+        component_kind=AiBackendComponentKind.SERVICE_BOUNDARY,
+        current_role="source_of_truth for cards, repair orders, attachments, and domain writes",
+        reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
+        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        notes=("Keep business writes in CardService.",),
+        do_not_break=("do_not_move_domain_logic_to_agent_layer", "preserve_existing_validation_rules"),
+    ),
+    AiBackendComponentDefinition(
+        component_id="local_api",
+        component_kind=AiBackendComponentKind.API_SURFACE,
+        current_role="read/write boundary exposed to UI, MCP, and agent runtime",
+        reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
+        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        notes=("This is the internal boundary for all AI writes.",),
+        do_not_break=("keep_card_service_as_source_of_truth", "preserve_auth_and_operator_checks"),
+    ),
+    AiBackendComponentDefinition(
+        component_id="orchestration_contracts",
+        component_kind=AiBackendComponentKind.RUNTIME_CORE,
+        current_role="read -> evidence -> plan -> tools -> patch -> write -> verify contracts",
+        reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
+        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        notes=("Scenario modules should depend on these contracts instead of ad hoc dict shapes.",),
+        do_not_break=("preserve_patch_write_verify_discipline", "keep_backward_serialization_helpers_stable"),
+    ),
+    AiBackendComponentDefinition(
+        component_id="policy_engine",
+        component_kind=AiBackendComponentKind.POLICY_ENGINE,
+        current_role="required tool gates, scenario policy, and patch filtering",
+        reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
+        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        notes=("Future modules should extend policy inputs, not bypass the gate.",),
+        do_not_break=("preserve_required_tool_checks", "do_not_allow_unbounded_writes"),
+    ),
+    AiBackendComponentDefinition(
+        component_id="snapshot_service",
+        component_kind=AiBackendComponentKind.CONTEXT_PRIMITIVE,
+        current_role="compact board/card/wall snapshot and digest assembly",
+        reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
+        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        notes=("Foundation for wall digest and delta-oriented reads.",),
+        do_not_break=("preserve_revision_signatures", "keep_compact_payload_paths_stable"),
+    ),
+    AiBackendComponentDefinition(
+        component_id="agent_storage",
+        component_kind=AiBackendComponentKind.STORAGE,
+        current_role="tasks, schedules, runs, actions, status, prompt, and memory persistence",
+        reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
+        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        notes=("Persistence layer stays in place for new scenario states and traces.",),
+        do_not_break=("preserve_file_locking", "preserve_json_payload_shapes_for_current_runtime"),
+    ),
+    AiBackendComponentDefinition(
+        component_id="agent_runtime_api",
+        component_kind=AiBackendComponentKind.API_SURFACE,
+        current_role="agent_status, runs, actions, tasks, and enqueue route registration",
+        reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
+        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        notes=("Runtime exposure stays stable while new scenario entry points are added later.",),
+        do_not_break=("keep_agent_status_contract_stable", "preserve_operator_session_checks"),
+    ),
+    AiBackendComponentDefinition(
+        component_id="runner_model_loop",
+        component_kind=AiBackendComponentKind.RUNTIME_CORE,
+        current_role="claim, read, evidence, plan, tools, patch, write, verify execution loop",
+        reuse_category=AiBackendReuseCategory.REUSE_WITH_ADAPTATION,
+        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        notes=("Will be adapted into scenario dispatch rather than replaced outright.",),
+        do_not_break=("keep_tool_call_accounting", "preserve_trace_and_verification_flow"),
+    ),
+    AiBackendComponentDefinition(
+        component_id="runner_autofill_executors",
+        component_kind=AiBackendComponentKind.EXECUTOR,
+        current_role="legacy autofill scenario executors and follow-up passes",
+        reuse_category=AiBackendReuseCategory.REUSE_WITH_ADAPTATION,
+        future_targets=(AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        notes=("Current autofill logic is the closest foundation for full_card_enrichment.",),
+        do_not_break=("preserve_current_autofill_verification_semantics", "keep_partial_result_reporting"),
+    ),
+    AiBackendComponentDefinition(
+        component_id="control_scheduler",
+        component_kind=AiBackendComponentKind.SCHEDULER,
+        current_role="worker, scheduler, heartbeat, and task claim orchestration",
+        reuse_category=AiBackendReuseCategory.REUSE_WITH_ADAPTATION,
+        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        notes=("Will continue to own runtime supervision, but with later board_control specialization.",),
+        do_not_break=("preserve_heartbeat_semantics", "keep_throttle_and_claim_logic_stable"),
+    ),
+    AiBackendComponentDefinition(
+        component_id="automotive_tools",
+        component_kind=AiBackendComponentKind.TOOLING,
+        current_role="VIN, parts, DTC, fault, and maintenance lookup helpers",
+        reuse_category=AiBackendReuseCategory.REUSE_WITH_ADAPTATION,
+        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT),
+        notes=("Useful foundation for future enrichment and read-heavy chat answers.",),
+        do_not_break=("keep_lookup_budgeting", "preserve_source_whitelist_behavior"),
+    ),
+    AiBackendComponentDefinition(
+        component_id="web_tools",
+        component_kind=AiBackendComponentKind.TOOLING,
+        current_role="internet search and fetch helpers used by bounded research",
+        reuse_category=AiBackendReuseCategory.REUSE_WITH_ADAPTATION,
+        future_targets=(AiScenarioId.AI_CHAT,),
+        notes=("Will be reused by the chat path under stronger policy gates.",),
+        do_not_break=("preserve_domain_whitelist_support", "keep_web_budget_limits"),
+    ),
+    AiBackendComponentDefinition(
+        component_id="openai_client",
+        component_kind=AiBackendComponentKind.MODEL_ADAPTER,
+        current_role="LLM API client used by the worker runtime",
+        reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
+        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        notes=("Generic model transport should stay stable across the remodel.",),
+        do_not_break=("preserve_model_selection", "preserve_timeout_and_retry_behavior"),
+    ),
+    AiBackendComponentDefinition(
+        component_id="instructions",
+        component_kind=AiBackendComponentKind.MODEL_ADAPTER,
+        current_role="system prompt and task prompt assembly",
+        reuse_category=AiBackendReuseCategory.REUSE_WITH_ADAPTATION,
+        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        notes=("Prompt assembly will be split by scenario in later modules.",),
+        do_not_break=("preserve_current_instruction_fallbacks", "keep_task_prompt_templates_callable"),
+    ),
+    AiBackendComponentDefinition(
+        component_id="source_registry",
+        component_kind=AiBackendComponentKind.TOOLING,
+        current_role="allowed source registry and source metadata for web/automotive lookups",
+        reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
+        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT),
+        notes=("This is a stable allow-list foundation for controlled research.",),
+        do_not_break=("preserve_source_whitelist_contract", "preserve_source_metadata_shape"),
+    ),
+    AiBackendComponentDefinition(
+        component_id="manual_prompt_bridge",
+        component_kind=AiBackendComponentKind.LEGACY_GLUE,
+        current_role="freeform textarea -> agent_enqueue_task translation",
+        reuse_category=AiBackendReuseCategory.LEGACY_ONLY_OR_RETIRE_LATER,
+        future_targets=(AiScenarioId.AI_CHAT,),
+        notes=("This bridge is tied to the old manual modal UX and should shrink later.",),
+        do_not_break=("keep_legacy_compatibility_until_ai_chat_exists",),
+    ),
+    AiBackendComponentDefinition(
+        component_id="quick_prompt_bridge",
+        component_kind=AiBackendComponentKind.LEGACY_GLUE,
+        current_role="canned quick prompt preprocessing and prompt injection",
+        reuse_category=AiBackendReuseCategory.LEGACY_ONLY_OR_RETIRE_LATER,
+        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT),
+        notes=("This is a convenience shim over the old modal flow.",),
+        do_not_break=("keep_quick_prompt_shortcuts_stable_until_replacement_exists",),
+    ),
+    AiBackendComponentDefinition(
+        component_id="autofill_bridge",
+        component_kind=AiBackendComponentKind.LEGACY_GLUE,
+        current_role="set_card_ai_autofill and on-create trigger plumbing",
+        reuse_category=AiBackendReuseCategory.LEGACY_ONLY_OR_RETIRE_LATER,
+        future_targets=(AiScenarioId.FULL_CARD_ENRICHMENT,),
+        notes=("This is the current card-autofill seam and will be replaced later.",),
+        do_not_break=("preserve_existing_autofill_for_backward_compatibility",),
+    ),
+    AiBackendComponentDefinition(
+        component_id="scheduler_task_bridge",
+        component_kind=AiBackendComponentKind.LEGACY_GLUE,
+        current_role="scheduled task CRUD and run/pause/resume bridge",
+        reuse_category=AiBackendReuseCategory.REUSE_WITH_ADAPTATION,
+        future_targets=(AiScenarioId.BOARD_CONTROL,),
+        notes=("Schedule persistence remains useful, but the UX surface will change.",),
+        do_not_break=("keep_existing_schedule_storage_valid", "preserve_run_pause_resume_semantics_until_replacement"),
+    ),
+)
+
+
+def build_ai_backend_reuse_registry() -> AiBackendReuseRegistry:
+    return AiBackendReuseRegistry(BACKEND_COMPONENT_DEFINITIONS)
 
 
 class AiEntrySurfaceKind(str, Enum):
@@ -822,14 +1045,19 @@ def get_ai_legacy_entry_point_map() -> dict[str, dict[str, Any]]:
     return {key: dict(value) for key, value in LEGACY_AI_ENTRY_POINTS.items()}
 
 
+def get_ai_backend_component_registry() -> dict[str, dict[str, Any]]:
+    return build_ai_backend_reuse_registry().to_dict()
+
+
 def get_ai_backend_reuse_map() -> dict[str, dict[str, Any]]:
-    return {key: dict(value) for key, value in AI_BACKEND_REUSE_MAP.items()}
+    return build_ai_backend_reuse_registry().grouped_by_category()
 
 
 def get_ai_remodel_status_payload() -> dict[str, Any]:
     flags = get_ai_feature_flags()
+    backend_component_registry = get_ai_backend_component_registry()
     return {
-        "phase": "module_1_3_entry_deactivation",
+        "phase": "module_1_4_backend_reuse",
         "legacy_ux_enabled": bool(flags.legacy_ux_enabled),
         "feature_flags": flags.to_dict(),
         "mode_config": get_ai_mode_config(flags).to_dict(),
@@ -839,6 +1067,12 @@ def get_ai_remodel_status_payload() -> dict[str, Any]:
         "entry_exposure": get_ai_entry_exposure_map(flags, get_ai_mode_config(flags)),
         "legacy_deactivation_map": get_ai_legacy_deactivation_map(),
         "legacy_entry_points": get_ai_legacy_entry_point_map(),
+        "backend_component_registry": backend_component_registry,
         "backend_reuse": get_ai_backend_reuse_map(),
+        "backend_legacy_only": {
+            key: value
+            for key, value in backend_component_registry.items()
+            if str(value.get("reuse_category")) == AiBackendReuseCategory.LEGACY_ONLY_OR_RETIRE_LATER.value
+        },
         "legacy_scenario_names": list(LEGACY_SCENARIO_NAMES),
     }

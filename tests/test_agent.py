@@ -455,7 +455,7 @@ class AgentControlStatusTests(unittest.TestCase):
             service = AgentControlService(storage)
             payload = service.agent_status()
             self.assertIn("ai_remodel", payload)
-            self.assertEqual(payload["ai_remodel"]["phase"], "module_1_3_entry_deactivation")
+            self.assertEqual(payload["ai_remodel"]["phase"], "module_1_4_backend_reuse")
             self.assertTrue(payload["ai_remodel"]["feature_flags"]["legacy_ux_enabled"])
             self.assertTrue(payload["ai_remodel"]["feature_flags"]["ai_chat_enabled"])
             self.assertIn("ai_chat", payload["ai_remodel"]["scenario_registry"])
@@ -464,6 +464,8 @@ class AgentControlStatusTests(unittest.TestCase):
             self.assertIn("entry_surface_registry", payload["ai_remodel"])
             self.assertIn("legacy_deactivation_map", payload["ai_remodel"])
             self.assertIn("entry_exposure", payload["ai_remodel"])
+            self.assertIn("backend_component_registry", payload["ai_remodel"])
+            self.assertIn("backend_legacy_only", payload["ai_remodel"])
 
     def test_agent_status_accepts_invalid_run_limit_without_crashing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
