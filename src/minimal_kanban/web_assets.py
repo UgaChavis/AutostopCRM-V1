@@ -2230,9 +2230,64 @@ BOARD_WEB_APP_HTML = "".join(
         font-size: 12px;
         line-height: 1.55;
         color: var(--text);
-        white-space: pre-wrap;
+        white-space: normal;
         word-break: break-word;
         overflow-wrap: anywhere;
+        user-select: text;
+        -webkit-user-select: text;
+      }
+      .ai-chat-window__message-text p {
+        margin: 0 0 8px;
+      }
+      .ai-chat-window__message-text p:last-child {
+        margin-bottom: 0;
+      }
+      .ai-chat-window__message-text ul,
+      .ai-chat-window__message-text ol {
+        margin: 0 0 8px 18px;
+        padding: 0;
+      }
+      .ai-chat-window__message-text li {
+        margin: 0 0 4px;
+      }
+      .ai-chat-window__message-text code {
+        padding: 1px 4px;
+        border: 1px solid rgba(116, 126, 106, 0.22);
+        border-radius: 5px;
+        background: rgba(0, 0, 0, 0.14);
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+      .ai-chat-window__message-text pre {
+        margin: 0 0 8px;
+        padding: 10px 12px;
+        border: 1px solid rgba(116, 126, 106, 0.22);
+        border-radius: 10px;
+        background: rgba(0, 0, 0, 0.16);
+        overflow: auto;
+        white-space: pre;
+        user-select: text;
+        -webkit-user-select: text;
+      }
+      .ai-chat-window__message-text pre code {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        font-size: 11px;
+        line-height: 1.5;
+        white-space: pre;
+      }
+      .ai-chat-window__message-text a {
+        color: var(--accent);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      .ai-chat-window__message-text strong {
+        font-weight: 700;
+        color: var(--text);
+      }
+      .ai-chat-window__message-text em {
+        font-style: italic;
       }
       .ai-chat-window__message-meta {
         font-family: var(--mono);
@@ -5894,6 +5949,115 @@ BOARD_WEB_APP_HTML = "".join(
       return 'YOU';
     }
 
+    function aiChatRenderInlineMarkdown(source) {
+      const escaped = escapeHtml(String(source || ''));
+      return escaped
+        .replace(/\\*\\*([^*]+?)\\*\\*/g, '<strong>$1</strong>')
+        .replace(/(^|[^*])\\*([^*\\n]+?)\\*(?!\\*)/g, '$1<em>$2</em>')
+        .replace(/`([^`]+?)`/g, '<code>$1</code>')
+        .replace(/\\[([^\\]]+?)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+    }
+
+    function aiChatRenderPlainText(source) {
+      return '<p>' + escapeHtml(String(source || '').trim()).replace(/\\n/g, '<br>') + '</p>';
+    }
+
+    function aiChatRenderMarkdown(source) {
+      const input = String(source || '').replace(/\\r\\n/g, '\\n');
+      const lines = input.split('\\n');
+      const blocks = [];
+      let paragraph = [];
+      let listItems = [];
+      let listType = '';
+      let codeLines = [];
+      let inCode = false;
+
+      function flushParagraph() {
+        if (!paragraph.length) return;
+        blocks.push('<p>' + aiChatRenderInlineMarkdown(paragraph.join(' ').trim()) + '</p>');
+        paragraph = [];
+      }
+
+      function flushList() {
+        if (!listItems.length) return;
+        const tag = listType === 'ol' ? 'ol' : 'ul';
+        blocks.push('<' + tag + '>' + listItems.map((item) => '<li>' + aiChatRenderInlineMarkdown(item) + '</li>').join('') + '</' + tag + '>');
+        listItems = [];
+        listType = '';
+      }
+
+      function flushCode() {
+        if (!codeLines.length) return;
+        blocks.push('<pre><code>' + escapeHtml(codeLines.join('\n')) + '</code></pre>');
+        codeLines = [];
+      }
+
+      function flushAllText() {
+        flushParagraph();
+        flushList();
+        flushCode();
+      }
+
+      for (const rawLine of lines) {
+        const line = String(rawLine || '');
+        const trimmed = line.trim();
+        if (trimmed.startsWith('```')) {
+          if (inCode) {
+            flushCode();
+            inCode = false;
+          } else {
+            flushParagraph();
+            flushList();
+            inCode = true;
+          }
+          continue;
+        }
+        if (inCode) {
+          codeLines.push(line);
+          continue;
+        }
+        if (!trimmed) {
+          flushAllText();
+          continue;
+        }
+        const bulletMatch = line.match(/^\\s*[-*]\\s+(.+)$/);
+        if (bulletMatch) {
+          flushParagraph();
+          if (listType && listType !== 'ul') flushList();
+          listType = 'ul';
+          listItems.push(bulletMatch[1]);
+          continue;
+        }
+        const orderedMatch = line.match(/^\\s*\\d+\\.\\s+(.+)$/);
+        if (orderedMatch) {
+          flushParagraph();
+          if (listType && listType !== 'ol') flushList();
+          listType = 'ol';
+          listItems.push(orderedMatch[1]);
+          continue;
+        }
+        flushList();
+        paragraph.push(line);
+      }
+
+      if (inCode) flushCode();
+      flushAllText();
+      if (!blocks.length) {
+        return aiChatRenderPlainText(input);
+      }
+      return blocks.join('');
+    }
+
+    function aiChatRenderMessageBody(message) {
+      const normalizedRole = normalizeAiChatMessageRole(message?.role);
+      const content = String(message?.text || '').trim();
+      if (!content) return '<p>...</p>';
+      if (normalizedRole === 'assistant' || normalizedRole === 'system' || normalizedRole === 'status') {
+        return aiChatRenderMarkdown(content);
+      }
+      return aiChatRenderPlainText(content);
+    }
+
     function renderAiChatWindowHistory() {
       hydrateAiChatWindowUiRefs();
       ensureAiChatWindowHistory();
@@ -5902,7 +6066,7 @@ BOARD_WEB_APP_HTML = "".join(
         const normalizedRole = normalizeAiChatMessageRole(message?.role);
         const tone = aiChatMessageTone(normalizedRole, message);
         const title = aiChatMessageTitle(normalizedRole);
-        const text = escapeHtml(String(message?.text || '').trim() || '...');
+        const text = aiChatRenderMessageBody(message);
         const metaLine = [];
         if (message?.created_at) metaLine.push(escapeHtml(String(message.created_at)));
         if (message?.context?.kind) metaLine.push(escapeHtml(String(message.context.kind)));
