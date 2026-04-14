@@ -1,15 +1,15 @@
 # AutoStop CRM Project Handoff
 
-This file is the primary developer handoff document for branch `autostopCRM`.
+This is the primary developer handoff document for branch `autostopCRM`.
 
-Use it as the first read when a new agent or developer joins the project. It is meant to answer four questions fast:
+Use it as the first operational overview after reading `00_START_HERE_AUTOSTOP_CRM.md`.
+
+It should answer four questions fast:
 
 1. What the product is right now.
 2. How the codebase is structured.
 3. What changed most recently.
 4. What must stay stable during the next iteration.
-
-This file should be updated whenever meaningful code is pushed to GitHub or deployed to the working production server.
 
 ## 1. Product Snapshot
 
@@ -17,7 +17,8 @@ AutoStop CRM is a production-oriented CRM for an auto workshop built around a ka
 
 Current product scope:
 
-- kanban board with cards, custom columns, archive, sticky notes, unread and updated markers
+- kanban board with cards, custom columns, archive, stickies, unread markers, and update markers
+- drag-and-drop for cards and board columns
 - vehicle profile handling and card autofill
 - repair orders with works, materials, payments, status flow, exports, and printing
 - operator authentication and admin user management
@@ -41,9 +42,10 @@ Not the active line for current production work:
 
 - `autostopCRM-V2`
 
-Known current environment rule:
+Environment rule:
 
 - local repo, GitHub `autostopCRM`, and working production should stay aligned on the same branch head
+- current synced HEAD at last verification: `1796ec9` `Fix board column drag capture area`
 - after any meaningful change, verify all three explicitly instead of relying on stale notes in this file
 
 Working production DNS:
@@ -59,7 +61,7 @@ Working server repository path:
 Important operational note:
 
 - production still currently accepts the default admin account
-- this is a real security risk and should be changed in a dedicated pass
+- this is a real risk, but it has not been rotated in the current line yet
 
 ## 3. Runtime Architecture
 
@@ -119,7 +121,7 @@ Core rule:
 ### Service layer
 
 - `src/minimal_kanban/services/card_service.py`: main orchestration service for board and a large part of business behavior
-- `src/minimal_kanban/services/column_service.py`: column operations
+- `src/minimal_kanban/services/column_service.py`: column ordering and column operations
 - `src/minimal_kanban/services/snapshot_service.py`: snapshots, wall, compact reads, search
 - `src/minimal_kanban/services/vehicle_profile_service.py`: profile enrichment and normalization
 
@@ -139,7 +141,7 @@ Core rule:
 
 - `src/minimal_kanban/agent/control.py`: queue, schedules, status, heartbeat, autofill triggers
 - `src/minimal_kanban/agent/runner.py`: main orchestration core
-- `src/minimal_kanban/agent/contracts.py`: formal orchestration contracts
+- `src/minimal_kanban/agent/contracts.py`: orchestration contracts
 - `src/minimal_kanban/agent/policy.py`: scenario policy and required-tool gates
 - `src/minimal_kanban/agent/tools.py`: bounded tool dispatch
 - `src/minimal_kanban/agent/storage.py`: tasks, runs, schedules, actions persistence
@@ -162,13 +164,11 @@ Core rule:
 
 ## 5. AI Agent Status
 
-The current server AI is no longer split into a free-form task loop on one side and a disconnected autofill pipeline on the other. The reasoning layer was unified into one orchestration framework.
-
-Current core contract:
+The current server AI is built around one contract:
 
 - `read -> evidence -> plan -> tools -> patch -> write -> verify`
 
-Current agent design rules:
+Current design rules:
 
 - required external tools are enforced by policy for key scenarios
 - writes are patch-oriented and additive
@@ -185,14 +185,15 @@ Current important scenario families:
 - card normalization
 - repair-order assistance
 
-New structural status on top of the original orchestration core:
+Recent practical agent changes:
 
-- deterministic autofill tool scenarios now have a dedicated `agent/scenarios` package and registry
-- orchestration evidence now carries structured `fact_evidence` entries with `status`, `source`, and `confidence`
-- planning is being split into deterministic eligibility and scenario strategy
-- verification now records explicit outcome states such as `completed_confirmed` and `blocked_missing_source_data`
-- card autofill adds a goal-level verifier on top of write verification
-- weak VIN decode can now leave explicit fallback context evidence in the run trace instead of only a vague final note
+- follow-up limits were relaxed and made more context-aware
+- `agent_status` became more honest about readiness and availability reasons
+- scheduler status now exposes more diagnostics
+- follow-up no-op passes became quieter and back off more cleanly
+- per-run cache was added for repeated automotive lookup calls
+- MCP client read-path became more resilient on invalid JSON and transient read errors
+- mixed MCP test runs no longer rely on noisy `ResourceWarning` behavior
 
 Important files for AI work:
 
@@ -202,59 +203,53 @@ Important files for AI work:
 - `src/minimal_kanban/agent/tools.py`
 - `src/minimal_kanban/agent/control.py`
 - `src/minimal_kanban/agent/scenarios`
-- `GPT_AGENT_11_AGENT_AUTOFILL_ORCHESTRATION.md`
 - `AI_AGENT_AUDIT_2026-04-14.md`
 - `AI_AGENT_MODERNIZATION_PLAN.md`
 
 ## 6. Most Recent Development State
 
-Latest completed development wave:
+Latest completed wave, in practical terms:
 
-- unified orchestration core for the server AI agent
-- formalized evidence / plan / tool / patch / verify contracts
-- added policy-gated required tools
-- made write verification rely on completed tool results correctly
-- tightened verify outcome handling so manual-field drift escalates to `needs_human_review`
-- made post-write verification merge `get_card_context` with `get_card` so stale wrapped payloads do not hide real card state
-- changed contract write verification to require full target-patch confirmation instead of treating one matched field as a fully confirmed write
-- fixed deploy smoke behavior so server-side checks do not fail only because public URL is not reachable from inside the container
-- refreshed project overview docs
+- employee creation was fixed so stale IDs no longer overwrite existing staff records
+- employees module now supports up to `15` employees
+- employees UI was rebuilt into a clearer master-detail workspace
+- board column reordering was added with native HTML5 drag-and-drop
+- column drag capture was widened from a narrow header handle to the whole column shell
+- AI follow-up became quieter and less wasteful on repeated no-op cycles
+- MCP and server-agent test/runtime paths were cleaned up and hardened
 
 Most recent important commits in the current line:
 
-- `9b4553d` `Unify server agent orchestration core`
-- `fd891d9` `Stabilize agent verification and deploy smoke`
-- `2b62588` `Record agent scenario feedback in traces`
-- `425350a` `Route quick card agent prompts through structured pipeline`
-- `00_START_HERE_AUTOSTOP_CRM.md` was added as the visible root-level onboarding file for the next developer or agent
+- `1796ec9` `Fix board column drag capture area`
+- `04d3cd9` `Add board column drag and drop reordering`
+- `ca8a725` `Fix employees create mode overwrite path`
+- `cccfd83` `Modernize employees module workspace UI`
+- `1309577` `Fix employees create mode and support up to fifteen`
+- `c157434` `Improve agent follow-up caching and backoff`
+- `d4693b0` `Refine agent follow-up and MCP read resilience`
+- `cfe7f9a` `Improve agent follow-up limits and status visibility`
 
-Most recent applied AI-agent improvements in practice:
+Current stability note:
 
-- orchestration traces now store per-scenario feedback with `status`, `notes`, `warnings`, and `followup_reason`
-- quick card prompts from the UI now carry `quick_template`
-- quick `VIN`, `ЗАПЧАСТИ`, `ТО`, and `ПОРЯДОК` prompts now route through the structured card pipeline instead of the weaker free-form loop
-- production `crm.autostopcrm.ru` was redeployed and reverified after these changes
+- this branch is still an incremental production line, not a refactor branch
+- recent work favored local fixes, targeted regression coverage, and production-safe behavior
 
 ## 7. Production Verification Snapshot
 
-At the time of this document update, the working production server reported:
-
-- board columns: `18`
-- active cards: `47`
-- archived cards: `46`
-- stickies: `1`
-- repair orders: `22`
-- MCP tool count: `60`
-- agent runtime model: `gpt-5.4-mini`
-
-Production verification that was already run:
+At the last verification after `1796ec9`, production reported:
 
 - site returns `200 OK`
-- local API returns board and auth responses correctly
-- anonymous public write attempts are blocked
-- MCP endpoint is live and tool list is reachable
-- agent runtime heartbeat is live
-- local full regression suite passes
+- MCP live check passes
+- agent runtime check returns `ok`
+- `autostopcrm` container is healthy
+- `autostopcrm-agent` container is up
+- MCP tool count is still `60`
+- agent runtime model is `gpt-5.4-mini`
+
+Operational reality:
+
+- production is currently healthy enough for continued iterative work
+- the main workflow risk is accidental drift between local, GitHub, and server state
 
 ## 8. Test And Verification Baseline
 
@@ -264,9 +259,13 @@ Main local regression command:
 .\.venv\Scripts\python.exe -m unittest discover -s .\tests -v
 ```
 
-Current known baseline:
+Current known verification baseline:
 
-- `363/363 OK`
+- last known full-suite baseline before the latest UI/employee work was green
+- latest targeted regressions for `tests.test_service`, `tests.test_api`, and `tests.test_web_assets` are green
+- latest targeted mixed `tests.test_agent`, `tests.test_mcp`, `tests.test_mcp_main`, and `tests.test_api` runs are green
+- MCP tests now pass cleanly even with `-W error::ResourceWarning`
+- import smoke for `main.py`, `main_mcp.py`, and `main_agent.py` is green
 
 Main test areas:
 
@@ -279,11 +278,7 @@ Main test areas:
 - `tests/test_settings_service.py`
 - `tests/test_settings_ui.py`
 - `tests/test_ui_smoke.py`
-
-Known residual noise:
-
-- some MCP tests still emit `anyio` `ResourceWarning` lines for unclosed memory receive streams
-- suite is green, but this remains a cleanup candidate
+- `tests/test_web_assets.py`
 
 ## 9. Deployment Workflow
 
@@ -315,8 +310,8 @@ docker compose exec -T autostopcrm python scripts/check_agent_runtime.py --local
 Known risks:
 
 - production still currently accepts the default admin account
-- some docs still carry older naming and operational assumptions
-- MCP tests are green but still noisy because of stream cleanup warnings
+- some docs still carry older naming and historical assumptions
+- board column drag currently relies on native HTML5 DnD and should be rechecked on touch-oriented setups
 
 Current cleanup policy:
 
@@ -335,6 +330,7 @@ Current cleanup policy:
 6. `MCP_GUIDE.md`
 7. `src/minimal_kanban/agent/runner.py`
 8. `src/minimal_kanban/services/card_service.py`
+9. `src/minimal_kanban/web_assets.py`
 
 ## 12. Maintenance Rule For This File
 

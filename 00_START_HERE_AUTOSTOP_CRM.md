@@ -5,6 +5,7 @@ This is the first file a new developer or agent should read in branch `autostopC
 ## Current Truth
 
 - branch: `autostopCRM`
+- current synced HEAD at last verification: `1796ec9` `Fix board column drag capture area`
 - local, GitHub, and production should be kept aligned on the same `autostopCRM` HEAD
 - production CRM: `https://crm.autostopcrm.ru`
 - production MCP: `https://crm.autostopcrm.ru/mcp`
@@ -16,6 +17,7 @@ This is the first file a new developer or agent should read in branch `autostopC
 AutoStop CRM is an auto-workshop CRM built around:
 
 - kanban board and card workflow
+- drag-and-drop card movement and column reordering
 - vehicle profile enrichment
 - repair orders, works, materials, payments, printing
 - operator authentication and admin users
@@ -33,6 +35,7 @@ AutoStop CRM is an auto-workshop CRM built around:
 6. `MCP_GUIDE.md`
 7. `src/minimal_kanban/agent/runner.py`
 8. `src/minimal_kanban/services/card_service.py`
+9. `src/minimal_kanban/web_assets.py`
 
 ## Main Runtime Layers
 
@@ -61,6 +64,7 @@ Server AI worker
 - `main_agent.py`: agent worker entry
 - `src/minimal_kanban/api/server.py`: API surface
 - `src/minimal_kanban/services/card_service.py`: business core
+- `src/minimal_kanban/services/column_service.py`: column ordering and column operations
 - `src/minimal_kanban/agent/control.py`: queue and schedules
 - `src/minimal_kanban/agent/runner.py`: AI orchestration core
 - `src/minimal_kanban/agent/contracts.py`: evidence / plan / patch / verify contracts
@@ -77,18 +81,29 @@ The server AI is now built around one contract:
 Important current behavior:
 
 - card autofill uses structured deterministic orchestration
-- quick card prompts such as `VIN`, `ЗАПЧАСТИ`, `ТО`, `ПОРЯДОК` now carry `quick_template` metadata
-- those quick prompts route into the same structured card pipeline instead of the weaker free-form loop
+- quick card prompts from the UI route into the same structured card pipeline instead of a weaker free-form loop
 - orchestration traces include per-scenario feedback, warnings, notes, and follow-up reasons
+- agent follow-up now uses per-run cache and quieter backoff for repeated no-op passes
+- MCP read-path and mixed MCP test runs were recently stabilized
 
 Known remaining limitation:
 
 - if the external VIN source returns sparse data, the agent can still end with a partial VIN result
 - the next likely improvement is a second VIN fallback source for weak European VIN decodes
 
+## Recent Practical Changes
+
+- employees module now supports up to `15` employees without stale-ID overwrite on create
+- employees workspace was rebuilt into a clearer master-detail layout
+- board columns can now be reordered left-to-right with native drag-and-drop
+- column drag capture now starts from the whole column, not only a narrow header area
+
 ## Current Verification Baseline
 
-- full regression: `363/363 OK`
+- last known full-suite baseline before this update cycle was green
+- latest targeted local regressions for `service + api + web_assets` are green
+- latest targeted mixed `agent + MCP + API` runs are green
+- MCP tests now pass cleanly even with `ResourceWarning` escalated to error
 - production site: `200 OK`
 - production MCP: `ok`, `60` tools
 - production agent runtime: `ok`
@@ -115,7 +130,7 @@ Archived legacy docs are kept under:
 ## Current Risks
 
 - production still uses the default admin account and needs a separate credential rotation pass
-- MCP tests are green but still emit `anyio` `ResourceWarning` noise
+- board column drag is based on native HTML5 DnD and should still be rechecked on touch-heavy or unusual browser setups
 
 ## Rule For Future Updates
 
