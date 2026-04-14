@@ -49,6 +49,7 @@ def reserve_port() -> int:
 class ApiServerTests(unittest.TestCase):
     def test_snapshot_success_route_uses_debug_log_level(self) -> None:
         self.assertEqual(_success_log_level("/api/get_board_snapshot"), logging.DEBUG)
+        self.assertEqual(_success_log_level("/api/health"), logging.DEBUG)
         self.assertEqual(_success_log_level("/api/create_card"), logging.INFO)
 
     def setUp(self) -> None:

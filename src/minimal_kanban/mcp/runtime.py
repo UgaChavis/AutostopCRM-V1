@@ -42,7 +42,10 @@ class McpServerRuntime:
 
     @property
     def base_url(self) -> str:
-        return f"http://{self.host}:{self.port}{self.path}"
+        host = self._probe_host()
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        return f"http://{host}:{self.port}{self.path}"
 
     def start(self) -> None:
         if self._thread is not None:
@@ -191,9 +194,18 @@ class McpServerRuntime:
         self._uvicorn_server = None
 
     def _is_port_open(self) -> bool:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.settimeout(0.5)
-            return sock.connect_ex((self.host, self.port)) == 0
+        try:
+            with socket.create_connection((self._probe_host(), self.port), timeout=0.5):
+                return True
+        except OSError:
+            return False
+
+    def _probe_host(self) -> str:
+        if self.host == "0.0.0.0":
+            return "127.0.0.1"
+        if self.host in {"::", "[::]"}:
+            return "::1"
+        return self.host
 
     def _configure_uvicorn_loggers(self) -> str:
         try:

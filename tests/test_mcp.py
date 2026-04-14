@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from contextlib import asynccontextmanager
 from contextlib import suppress
 from urllib.parse import parse_qs, urlsplit
@@ -1462,6 +1463,29 @@ class BoardApiClientTests(unittest.TestCase):
                 ),
             ],
         )
+
+
+class McpServerRuntimeTests(unittest.TestCase):
+    def _runtime(self, host: str, *, port: int = 41831, path: str = "/mcp") -> McpServerRuntime:
+        logger = logging.getLogger(f"test.mcp.runtime.{self._testMethodName}")
+        logger.handlers.clear()
+        logger.addHandler(logging.NullHandler())
+        logger.propagate = False
+        server = SimpleNamespace(settings=SimpleNamespace(host=host, port=port, streamable_http_path=path))
+        return McpServerRuntime(server, logger)
+
+    def test_base_url_uses_loopback_for_wildcard_ipv4_host(self) -> None:
+        runtime = self._runtime("0.0.0.0")
+        self.assertEqual(runtime.base_url, "http://127.0.0.1:41831/mcp")
+
+    def test_is_port_open_probes_loopback_for_wildcard_ipv4_host(self) -> None:
+        runtime = self._runtime("0.0.0.0", port=43123, path="/bridge")
+        mock_socket = unittest.mock.MagicMock()
+        mock_socket.__enter__.return_value = mock_socket
+        mock_socket.__exit__.return_value = None
+        with patch("minimal_kanban.mcp.runtime.socket.create_connection", return_value=mock_socket) as create_connection:
+            self.assertTrue(runtime._is_port_open())
+        create_connection.assert_called_once_with(("127.0.0.1", 43123), timeout=0.5)
 
     def test_request_with_identity_enriches_payload_for_write_methods(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")

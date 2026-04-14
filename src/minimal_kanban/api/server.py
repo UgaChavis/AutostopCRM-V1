@@ -26,6 +26,7 @@ from ..web_assets import BOARD_WEB_APP_HTML
 
 QUIET_SUCCESS_ROUTES = frozenset(
     {
+        "/api/health",
         "/api/get_board_snapshot",
         "/api/mark_card_seen",
     }
