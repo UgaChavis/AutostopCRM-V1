@@ -203,8 +203,6 @@ Important files for AI work:
 - `src/minimal_kanban/agent/tools.py`
 - `src/minimal_kanban/agent/control.py`
 - `src/minimal_kanban/agent/scenarios`
-- `AI_AGENT_AUDIT_2026-04-14.md`
-- `AI_AGENT_MODERNIZATION_PLAN.md`
 
 ## 6. Most Recent Development State
 

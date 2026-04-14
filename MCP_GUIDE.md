@@ -197,8 +197,6 @@ python -m unittest discover -s .\tests -v
 - `list_overdue_cards`
 - структурированные ошибки для невалидных случаев
 
-Regression coverage now lives in the current test suite, primarily `tests/test_mcp.py` and `tests/test_mcp_main.py`, instead of a frozen standalone test-report file.
-
 ## Ограничения текущей реализации
 
 - для прямого подключения в ChatGPT app production-grade вариантом всё ещё остаётся OAuth

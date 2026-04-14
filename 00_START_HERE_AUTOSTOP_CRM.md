@@ -122,8 +122,6 @@ Primary active docs kept in the repo root:
 - `API_GUIDE.md`
 - `MCP_GUIDE.md`
 - `README_SETTINGS.md`
-- `AI_AGENT_AUDIT_2026-04-14.md`
-- `AI_AGENT_MODERNIZATION_PLAN.md`
 
 Obsolete root-level release docs and duplicated doc bundles were removed during the April 2026 cleanup pass.
 
