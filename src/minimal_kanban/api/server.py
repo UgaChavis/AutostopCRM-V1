@@ -156,6 +156,7 @@ class ApiServer:
             "/api/get_cards": service.get_cards,
             "/api/get_card": service.get_card,
             "/api/get_card_context": service.get_card_context,
+            "/api/get_ai_chat_knowledge": service.get_ai_chat_knowledge,
             "/api/get_board_snapshot": service.get_board_snapshot,
             "/api/get_board_context": service.get_board_context,
             "/api/review_board": service.review_board,

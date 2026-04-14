@@ -5349,6 +5349,7 @@ BOARD_WEB_APP_HTML = "".join(
         response_profile: 'Кратко, структурно, с читаемыми блоками и без лишнего шума.',
         user_tune: '',
       },
+      aiChatWindowKnowledge: null,
       agentRefreshTimer: null,
       agentAutofillCountdownTimer: null,
       agentAutofillPromptOpen: false,
@@ -6040,6 +6041,9 @@ BOARD_WEB_APP_HTML = "".join(
           ? state.aiChatWindowContext
           : buildAiCompactContextPacket());
       const profile = ensureAiChatWindowPromptProfile();
+      const knowledge = state.aiChatWindowKnowledge && typeof state.aiChatWindowKnowledge === 'object'
+        ? state.aiChatWindowKnowledge
+        : null;
       return {
         kind: String(source.kind || 'chat').trim().toLowerCase() || 'chat',
         card_id: String(source.card_id || '').trim(),
@@ -6059,6 +6063,7 @@ BOARD_WEB_APP_HTML = "".join(
         attachments_total_count: String(source.attachments_intake?.total_attachment_count ?? '').trim(),
         attachments_card_ids: Array.isArray(source.attachments_intake?.card_attachment_ids) ? source.attachments_intake.card_attachment_ids.slice(0, 12) : [],
         attachments_repair_order_ids: Array.isArray(source.attachments_intake?.repair_order_attachment_ids) ? source.attachments_intake.repair_order_attachment_ids.slice(0, 12) : [],
+        knowledge_source_labels: Array.isArray(knowledge?.source_labels) ? knowledge.source_labels.slice(0, 6) : [],
         compact_context_kind: String(source.kind || 'chat').trim().toLowerCase() || 'chat',
         prompt_profile_kind: 'ai_chat',
         prompt_profile_user_tune: String(profile.user_tune || '').trim(),
@@ -6081,6 +6086,9 @@ BOARD_WEB_APP_HTML = "".join(
       if (source.kind) entry.kind = String(source.kind || '').trim().toLowerCase();
       if (source.topic) entry.topic = String(source.topic || '').trim();
       if (source.hint) entry.hint = String(source.hint || '').trim();
+      if (Array.isArray(source.knowledge_source_labels)) {
+        entry.knowledge_source_labels = source.knowledge_source_labels.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 6);
+      }
       return entry;
     }
 
@@ -6773,6 +6781,63 @@ BOARD_WEB_APP_HTML = "".join(
       return 'YOU';
     }
 
+    function aiChatKnowledgeSourceLabels(knowledge = state.aiChatWindowKnowledge) {
+      const packet = knowledge && typeof knowledge === 'object' ? knowledge : null;
+      const labels = Array.isArray(packet?.source_labels) ? packet.source_labels.map((item) => String(item || '').trim()).filter(Boolean) : [];
+      if (!labels.length) labels.push('CRM');
+      return labels;
+    }
+
+    async function resolveAiChatKnowledge(input, context = state.aiCompactContext) {
+      const prompt = String(input || '').trim();
+      const payloadContext = context && typeof context === 'object' ? context : buildAiCompactContextPacket();
+      const promptProfile = ensureAiChatWindowPromptProfile();
+      try {
+        const knowledge = await api('/api/get_ai_chat_knowledge', {
+          method: 'POST',
+          body: {
+            prompt,
+            context: payloadContext,
+            prompt_profile: promptProfile,
+            source: 'ai_chat',
+          },
+        });
+        if (knowledge && typeof knowledge === 'object') return knowledge;
+      } catch (error) {
+        console.warn('ai_chat knowledge lookup failed:', error);
+      }
+      return {
+        kind: 'ai_chat_knowledge',
+        prompt,
+        source_labels: ['CRM'],
+        crm: {
+          kind: 'compact_context',
+          source_kind: 'fallback',
+        },
+        documents: {
+          available: false,
+          requested: false,
+          used: false,
+          count: 0,
+          items: [],
+        },
+        internet: {
+          available: false,
+          requested: false,
+          used: false,
+          count: 0,
+          query: prompt,
+          allowed_domains: [],
+          items: [],
+        },
+        policy: {
+          external_knowledge_used: false,
+          external_knowledge_allowed: false,
+          fallback: true,
+        },
+      };
+    }
+
     function aiChatRenderInlineMarkdown(source) {
       const escaped = escapeHtml(String(source || ''));
       return escaped
@@ -6882,15 +6947,25 @@ BOARD_WEB_APP_HTML = "".join(
       return aiChatRenderPlainText(content);
     }
 
-    function aiChatBuildAssistantResponse(input) {
+    async function aiChatBuildAssistantResponse(input) {
       const context = state.aiCompactContext && typeof state.aiCompactContext === 'object'
         ? state.aiCompactContext
         : buildAiCompactContextPacket();
       const profile = ensureAiChatWindowPromptProfile();
       const prompt = String(input || '').trim();
+      const knowledge = await resolveAiChatKnowledge(prompt, context);
+      state.aiChatWindowKnowledge = knowledge;
+      const sourceLabels = aiChatKnowledgeSourceLabels(knowledge);
+      const documentTitles = Array.isArray(knowledge?.documents?.items)
+        ? knowledge.documents.items.slice(0, 3).map((item) => String(item?.title || item?.document_id || 'document').trim()).filter(Boolean)
+        : [];
+      const internetTitles = Array.isArray(knowledge?.internet?.items)
+        ? knowledge.internet.items.slice(0, 3).map((item) => String(item?.title || item?.domain || item?.url || 'internet result').trim()).filter(Boolean)
+        : [];
       const responseParts = [
         'Принял запрос для AI-чата.',
         prompt ? 'Запрос: ' + prompt : 'Запрос пустой.',
+        'Источники: ' + sourceLabels.join(' · '),
         context.card_context?.summary_label ? 'Карточка: ' + context.card_context.summary_label : (context.card_label ? 'Карточка: ' + context.card_label : 'Карточка: нет активного scope.'),
         context.card_context?.ai_relevant_facts?.client ? 'Клиент: ' + context.card_context.ai_relevant_facts.client : '',
         context.card_context?.ai_relevant_facts?.machine ? 'Машина: ' + context.card_context.ai_relevant_facts.machine : '',
@@ -6908,9 +6983,10 @@ BOARD_WEB_APP_HTML = "".join(
         context.wall_digest?.notable_changes?.length ? 'Последние изменения: ' + context.wall_digest.notable_changes.slice(0, 2).join(' · ') : '',
         context.attachments_intake?.label ? 'Вложенная зона: ' + context.attachments_intake.label : '',
         context.attachments_intake?.items?.length ? 'Вложения AI: ' + context.attachments_intake.items.slice(0, 3).map((item) => item.file_name || item.content_hint || item.attachment_id || 'attachment').join(' · ') : '',
+        documentTitles.length ? 'Документы: ' + documentTitles.join(' · ') : '',
+        internetTitles.length ? 'Интернет: ' + internetTitles.join(' · ') : '',
         'Compact context: ' + aiChatCompactContextSummary(context).replace(/\n/g, ' · '),
         profile.user_tune ? 'Пользовательская настройка: ' + profile.user_tune : '',
-        'Сейчас доступен только scoped runtime без документов, интернета и полного knowledge layer.',
       ].filter(Boolean);
       const bulletLine = [
         context.card_context?.card_id ? '- card context available' : '- card context unavailable',
@@ -6918,6 +6994,8 @@ BOARD_WEB_APP_HTML = "".join(
         context.wall_digest?.has_wall ? '- wall digest available' : '- wall digest unavailable',
         context.attachments_intake?.ready ? '- attachments intake ready' : '- attachments intake unavailable',
         context.attachments_intake?.items?.length ? '- attachment items available' : '- attachment items unavailable',
+        knowledge?.documents?.used ? '- documents lookup used' : '- documents lookup skipped',
+        knowledge?.internet?.used ? '- internet lookup used' : '- internet lookup skipped',
       ];
       return responseParts.join('\n') + '\n\n' + bulletLine.join('\n');
     }
@@ -6937,6 +7015,10 @@ BOARD_WEB_APP_HTML = "".join(
         if (message?.context?.card_label) metaLine.push(escapeHtml(String(message.context.card_label)));
         if (message?.context?.repair_order_label) metaLine.push(escapeHtml(String(message.context.repair_order_label)));
         if (message?.context?.repair_order_context_label) metaLine.push(escapeHtml(String(message.context.repair_order_context_label)));
+        const knowledgeSourceLabels = Array.isArray(message?.context?.knowledge_source_labels) && message.context.knowledge_source_labels.length
+          ? message.context.knowledge_source_labels
+          : (Array.isArray(message?.knowledge_source_labels) ? message.knowledge_source_labels : []);
+        if (knowledgeSourceLabels.length) metaLine.push(escapeHtml('Источники: ' + knowledgeSourceLabels.join(' · ')));
         if (message?.source) metaLine.push(escapeHtml(String(message.source)));
         return '<article class="ai-chat-window__message" data-role="' + escapeHtml(normalizedRole) + '" data-tone="' + escapeHtml(tone) + '" data-message-id="' + escapeHtml(message?.id || '') + '">' +
           '<div class="ai-chat-window__message-title">' + title + '</div>' +
@@ -6969,21 +7051,37 @@ BOARD_WEB_APP_HTML = "".join(
       }
     }
 
-    function handleAiChatWindowSend() {
+    async function handleAiChatWindowSend() {
       hydrateAiChatWindowUiRefs();
       const input = String(els.aiChatWindowInput?.value || '').trim();
       if (!input) return;
+      state.aiChatWindowKnowledge = null;
       appendAiChatWindowMessage('user', input, { kind: 'user_input', source: 'composer' });
       if (els.aiChatWindowInput) els.aiChatWindowInput.value = '';
-      const response = aiChatBuildAssistantResponse(input);
-      appendAiChatWindowMessage('assistant', response, { kind: 'scoped_runtime', source: 'ai_chat', topic: 'reply' });
-      focusAiChatWindowInput();
+      try {
+        const response = await aiChatBuildAssistantResponse(input);
+        appendAiChatWindowMessage('assistant', response, {
+          kind: 'scoped_runtime',
+          source: 'ai_chat',
+          topic: 'reply',
+          knowledge_source_labels: aiChatKnowledgeSourceLabels(),
+        });
+      } catch (error) {
+        appendAiChatWindowMessage('status', 'Ошибка knowledge/chat слоя: ' + String(error?.message || error || 'неизвестная ошибка'), {
+          kind: 'error',
+          source: 'ai_chat',
+          state: 'error',
+        });
+      } finally {
+        state.aiChatWindowHistoryContext = aiChatHistoryContextSnapshot();
+        focusAiChatWindowInput();
+      }
     }
 
     function handleAiChatWindowInputKeydown(event) {
       if (!(event.ctrlKey || event.metaKey) || event.key !== 'Enter') return;
       event.preventDefault();
-      handleAiChatWindowSend();
+      void handleAiChatWindowSend();
     }
 
     function handleAiChatWindowPromptProfileInput(event) {

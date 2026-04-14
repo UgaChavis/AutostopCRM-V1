@@ -73,6 +73,7 @@ from ..vehicle_profile import (
 )
 from ..agent.openai_client import AgentModelError, OpenAIJsonAgentClient
 from ..agent.config import get_agent_name
+from ..agent.knowledge import build_ai_chat_knowledge_packet
 from ..printing.service import PrintModuleError, PrintModuleService
 from .column_service import ColumnService
 from .snapshot_service import SnapshotService
@@ -1173,6 +1174,17 @@ class CardService:
                     "has_repair_order": has_repair_order,
                 },
             }
+
+    def get_ai_chat_knowledge(self, payload: dict | None = None) -> dict:
+        payload = payload or {}
+        prompt = str(payload.get("prompt") or "").strip()
+        context = payload.get("context") if isinstance(payload.get("context"), dict) else None
+        prompt_profile = payload.get("prompt_profile") if isinstance(payload.get("prompt_profile"), dict) else None
+        return build_ai_chat_knowledge_packet(
+            prompt=prompt,
+            context=context,
+            prompt_profile=prompt_profile,
+        )
 
     def get_card(self, payload: dict) -> dict:
         return self._snapshot_service.get_card(payload)
