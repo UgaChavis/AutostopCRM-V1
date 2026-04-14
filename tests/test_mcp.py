@@ -121,6 +121,10 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         self.runtime = McpServerRuntime(mcp_server, self.logger)
         self.runtime.start()
 
+    async def asyncSetUp(self) -> None:
+        loop = asyncio.get_running_loop()
+        loop.set_debug(False)
+
     def test_tool_path_alias_normalization_prefers_canonical_short_path(self) -> None:
         self.assertEqual(
             _normalize_tool_path_alias("/AutoStopCRM/link_abc123/bootstrap_context"),
