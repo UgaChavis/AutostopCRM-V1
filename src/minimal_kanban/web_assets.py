@@ -301,15 +301,18 @@ BOARD_WEB_APP_HTML = "".join(
       .agent-dock__button[data-state="busy"]::after { background: rgba(214, 175, 55, 0.94); }
       .agent-dock__button[data-state="error"]::after { background: rgba(207, 91, 75, 0.94); }
       .card-agent-button {
-        min-width: 94px;
-        padding: 7px 12px;
+        width: 42px;
+        min-width: 42px;
+        height: 34px;
+        padding: 0;
         position: relative;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: 6px;
         font-family: var(--mono);
-        letter-spacing: 0.08em;
+        font-size: 0;
+        line-height: 0;
+        letter-spacing: 0;
         color: var(--text);
         border-color: rgba(167, 178, 132, 0.42);
         background:
@@ -318,8 +321,8 @@ BOARD_WEB_APP_HTML = "".join(
       }
       .card-agent-button::before {
         content: "";
-        width: 7px;
-        height: 7px;
+        width: 8px;
+        height: 8px;
         border-radius: 999px;
         background: rgba(144, 155, 121, 0.56);
         box-shadow: 0 0 0 1px rgba(0,0,0,0.18);
@@ -4676,7 +4679,7 @@ BOARD_WEB_APP_HTML = "".join(
         </div>
         <div class="dialog__foot-group dialog__foot-group--main">
           <button class="btn" id="cardModalCloseButtonBottom" data-close="card" onclick="window.__closeCardModal && window.__closeCardModal(); return false;">ОТМЕНА</button>
-          <button class="btn btn--ghost card-agent-button" id="cardAgentButton" type="button" title="AI карточки" aria-label="AI карточки">AI</button>
+          <button class="btn btn--ghost card-agent-button" id="cardAgentButton" type="button" title="AI карточки" aria-label="AI карточки"></button>
           <button class="btn btn--accent" id="saveCardButton">СОХРАНИТЬ</button>
         </div>
       </div>
@@ -7125,8 +7128,6 @@ BOARD_WEB_APP_HTML = "".join(
         els.agentStatusLabel.textContent = pendingTotal > 0 ? (stateLabel + ' · ' + pendingTotal) : stateLabel;
         els.agentStatusLabel.dataset.state = stateValue;
       }
-      if (els.agentDockButton) els.agentDockButton.dataset.state = stateValue;
-      if (els.cardAgentButton) els.cardAgentButton.dataset.state = stateValue;
       if (els.agentRunButton) {
         const busy = Boolean(status.running);
         els.agentRunButton.disabled = busy;
