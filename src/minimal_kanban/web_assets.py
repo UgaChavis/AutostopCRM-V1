@@ -6261,6 +6261,27 @@ BOARD_WEB_APP_HTML = "".join(
       return aiChatRenderPlainText(content);
     }
 
+    function aiChatBuildAssistantResponse(input) {
+      const context = state.aiChatWindowContext && typeof state.aiChatWindowContext === 'object'
+        ? state.aiChatWindowContext
+        : buildAiChatWindowContext();
+      const profile = ensureAiChatWindowPromptProfile();
+      const prompt = String(input || '').trim();
+      const responseParts = [
+        'Принял запрос для AI-чата.',
+        prompt ? 'Запрос: ' + prompt : 'Запрос пустой.',
+        context.card_label ? 'Карточка: ' + context.card_label : 'Карточка: нет активного scope.',
+        context.repair_order_label ? 'Заказ-наряд: ' + context.repair_order_label : 'Заказ-наряд: не привязан.',
+        profile.user_tune ? 'Пользовательская настройка: ' + profile.user_tune : '',
+        'Сейчас доступен только scoped runtime без документов, интернета и полного knowledge layer.',
+      ].filter(Boolean);
+      const bulletLine = [
+        context.has_card_scope ? '- card scope available' : '- card scope unavailable',
+        context.has_repair_order_scope ? '- repair order scope available' : '- repair order scope unavailable',
+      ];
+      return responseParts.join('\n') + '\n\n' + bulletLine.join('\n');
+    }
+
     function renderAiChatWindowHistory() {
       hydrateAiChatWindowUiRefs();
       ensureAiChatWindowHistory();
@@ -6303,7 +6324,8 @@ BOARD_WEB_APP_HTML = "".join(
       if (!input) return;
       appendAiChatWindowMessage('user', input, { kind: 'user_input', source: 'composer' });
       if (els.aiChatWindowInput) els.aiChatWindowInput.value = '';
-      appendAiChatWindowMessage('assistant', 'Runtime чата ещё не подключён. Сообщение сохранено в истории.', { kind: 'stub_response', source: 'placeholder' });
+      const response = aiChatBuildAssistantResponse(input);
+      appendAiChatWindowMessage('assistant', response, { kind: 'scoped_runtime', source: 'ai_chat', topic: 'reply' });
     }
 
     function handleAiChatWindowInputKeydown(event) {
