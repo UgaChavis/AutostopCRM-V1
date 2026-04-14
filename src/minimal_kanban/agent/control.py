@@ -290,6 +290,7 @@ class AgentControlService:
         metadata = {
             "requested_by": str(payload.get("requested_by", "") or "autofill").strip() or "autofill",
             "purpose": "card_autofill",
+            "scenario_id": str(payload.get("scenario_id", "") or "").strip().lower() or "full_card_enrichment",
             "trigger": str(trigger or "manual").strip() or "manual",
             "context": {
                 "kind": "card",
@@ -306,6 +307,9 @@ class AgentControlService:
                 "vehicle": str(payload.get("vehicle", "") or "").strip(),
             },
         }
+        scenario_context = payload.get("context_packet") if isinstance(payload.get("context_packet"), dict) else None
+        if scenario_context:
+            metadata["scenario_context"] = scenario_context
         return self._storage.enqueue_task(
             task_text=task_text,
             source=source,
@@ -700,6 +704,7 @@ class AgentControlService:
         return True
 
     def _build_card_autofill_prompt(self, payload: dict[str, Any]) -> str:
+        scenario_id = str(payload.get("scenario_id", "") or "").strip().lower()
         heading = str(payload.get("card_heading", "") or payload.get("title", "") or "").strip()
         vehicle = str(payload.get("vehicle", "") or "").strip()
         mini_prompt = str(payload.get("prompt", "") or payload.get("ai_autofill_prompt", "") or "").strip()
@@ -731,6 +736,15 @@ class AgentControlService:
                 "When you update the card, use update_card or apply.update_card.",
             ]
         )
+        if scenario_id == "full_card_enrichment":
+            lines[0] = "Выполни bounded сценарий полного обогащения карточки автосервиса."
+            lines.extend(
+                [
+                    "Follow the bounded contract: read -> evidence -> plan -> tools -> patch -> write -> verify.",
+                    "Do not behave like a free agent, a chat, or a menu of actions.",
+                    "If data is weak or conflicting, keep it out of the main write targets.",
+                ]
+            )
         if mini_prompt:
             lines.append(f"User mini-prompt: {mini_prompt}")
         if ai_log_tail:

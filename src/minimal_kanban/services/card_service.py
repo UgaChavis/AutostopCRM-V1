@@ -597,6 +597,83 @@ class CardService:
                 },
             }
 
+    def run_full_card_enrichment(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            events = bundle["events"]
+            columns = bundle["columns"]
+            card = self._find_card(cards, payload.get("card_id"))
+            self._ensure_not_archived(card)
+            actor_name, source = self._audit_identity(payload, default_source="ui")
+            server_available = self._agent_control is not None
+            launched_task_id = ""
+            already_running = False
+            if self._agent_control is not None:
+                try:
+                    status_payload = self._agent_control.agent_status()
+                    server_available = bool(status_payload.get("agent", {}).get("available"))
+                except Exception:
+                    server_available = True
+            scenario_context = payload.get("context_packet") if isinstance(payload.get("context_packet"), dict) else None
+            if self._agent_control is not None:
+                task = self._agent_control.enqueue_card_autofill_task(
+                    {
+                        "card_id": card.id,
+                        "card_heading": card.heading(),
+                        "title": card.title,
+                        "vehicle": card.vehicle_display(),
+                        "requested_by": actor_name,
+                        "ai_autofill_prompt": normalize_text(payload.get("prompt", card.ai_autofill_prompt), default=card.ai_autofill_prompt, limit=800),
+                        "ai_log_tail": list(card.ai_autofill_log[-8:]),
+                        "scenario_id": "full_card_enrichment",
+                        "context_packet": scenario_context,
+                    },
+                    source="ui_full_card_enrichment",
+                    trigger="manual_enrichment",
+                )
+                if task is not None:
+                    launched_task_id = str(task.get("id", "") or "").strip()
+                    card.last_ai_run_at = str(task.get("created_at", "") or utc_now_iso()).strip() or utc_now_iso()
+                    card.ai_run_count = max(0, int(card.ai_run_count)) + 1
+                    self._append_card_ai_log(card, level="RUN", message="AI-обогащение карточки запущено.", task_id=launched_task_id)
+                    for level, message in self._card_ai_context_messages(card):
+                        self._append_card_ai_log(card, level=level, message=message, task_id=launched_task_id)
+                else:
+                    already_running = True
+                    latest_task = self._agent_control.latest_task_for_card(card.id, purpose="card_autofill")
+                    launched_task_id = str((latest_task or {}).get("id", "") or "").strip()
+                    self._append_card_ai_log(card, level="WAIT", message="AI-обогащение карточки уже выполняется.", task_id=launched_task_id)
+            else:
+                self._append_card_ai_log(card, level="WARN", message="Server AI недоступен.")
+            self._touch_card(card, actor_name)
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="card_full_enrichment_requested",
+                message=f"{actor_name} запустил bounded AI-обогащение карточки",
+                card_id=card.id,
+                details={
+                    "task_id": launched_task_id,
+                    "server_available": server_available,
+                    "already_running": already_running,
+                    "scenario_id": "full_card_enrichment",
+                },
+            )
+            self._save_bundle(bundle, columns=columns, cards=cards, events=events)
+            return {
+                "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
+                "meta": {
+                    "launched": bool(launched_task_id) and not already_running,
+                    "already_running": already_running,
+                    "task_id": launched_task_id,
+                    "server_available": server_available,
+                    "scenario_id": "full_card_enrichment",
+                },
+            }
+
     def trigger_due_ai_followups(self) -> dict:
         with self._lock:
             if self._agent_control is None:

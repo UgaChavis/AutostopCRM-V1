@@ -314,6 +314,30 @@ class CardServiceTests(unittest.TestCase):
         self.assertTrue(prompt_events)
         self.assertIn("обновил mini-prompt", prompt_events[-1]["message"])
 
+    def test_run_full_card_enrichment_enqueues_bounded_task_without_enabling_followup_mode(self) -> None:
+        agent = _FakeAgentControl()
+        self.service.attach_agent_control(agent)
+        created = self.service.create_card({"vehicle": "BMW X5", "title": "Enrichment", "deadline": {"hours": 2}})
+        card_id = created["card"]["id"]
+
+        result = self.service.run_full_card_enrichment(
+            {
+                "card_id": card_id,
+                "actor_name": "AI",
+                "context_packet": {"kind": "compact_context", "scenario_id": "full_card_enrichment"},
+            }
+        )
+
+        self.assertTrue(result["meta"]["launched"])
+        self.assertEqual(result["meta"]["scenario_id"], "full_card_enrichment")
+        self.assertFalse(result["card"]["ai_autofill_active"])
+        self.assertEqual(len(agent.autofill_calls), 1)
+        call = agent.autofill_calls[0]
+        self.assertEqual(call["source"], "ui_full_card_enrichment")
+        self.assertEqual(call["trigger"], "manual_enrichment")
+        self.assertEqual(call["payload"]["scenario_id"], "full_card_enrichment")
+        self.assertEqual(call["payload"]["context_packet"]["scenario_id"], "full_card_enrichment")
+
     def test_trigger_due_ai_followups_skips_unchanged_then_enqueues_after_change(self) -> None:
         agent = _FakeAgentControl()
         self.service.attach_agent_control(agent)

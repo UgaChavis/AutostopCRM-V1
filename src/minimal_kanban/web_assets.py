@@ -8157,6 +8157,28 @@ BOARD_WEB_APP_HTML = "".join(
       };
     }
 
+    function activeAiTaskContext() {
+      if (els.aiSurfaceModal?.classList.contains('is-open') && state.aiSurfaceContext && typeof state.aiSurfaceContext === 'object') {
+        return state.aiSurfaceContext;
+      }
+      if (els.agentModal?.classList.contains('is-open') && state.agentContext && typeof state.agentContext === 'object') {
+        return state.agentContext;
+      }
+      if (els.aiChatWindow?.classList.contains('is-open') && state.aiChatWindowContext && typeof state.aiChatWindowContext === 'object') {
+        return state.aiChatWindowContext;
+      }
+      if (state.aiSurfaceContext && typeof state.aiSurfaceContext === 'object') {
+        return state.aiSurfaceContext;
+      }
+      if (state.agentContext && typeof state.agentContext === 'object') {
+        return state.agentContext;
+      }
+      if (state.aiChatWindowContext && typeof state.aiChatWindowContext === 'object') {
+        return state.aiChatWindowContext;
+      }
+      return { kind: 'board' };
+    }
+
     function formatAiSurfaceContextLabel(context) {
       const normalized = context && typeof context === 'object' ? context : { kind: 'chat' };
       if (String(normalized.kind || '').trim().toLowerCase() === 'card') {
@@ -8167,6 +8189,18 @@ BOARD_WEB_APP_HTML = "".join(
         return 'КОНТЕКСТ: AI-ДОСКА';
       }
       return 'КОНТЕКСТ: AI-ЧАТ';
+    }
+
+    function buildFullCardEnrichmentRequestPayload() {
+      const card = state.activeCard && typeof state.activeCard === 'object' ? state.activeCard : null;
+      const cardId = String(card?.id || state.editingId || '').trim();
+      return {
+        card_id: cardId,
+        actor_name: state.actor,
+        scenario_id: 'full_card_enrichment',
+        prompt: String(card?.ai_autofill_prompt || '').trim(),
+        context_packet: buildAiFullCardEnrichmentContextPacket(),
+      };
     }
 
     function aiSurfaceScenarioEntryId(scenarioId) {
@@ -8229,6 +8263,34 @@ BOARD_WEB_APP_HTML = "".join(
       return legacyEnabled && legacyPromptState === 'legacy_only' && selectedState === 'legacy_only';
     }
 
+    function isFullCardEnrichmentTask(task) {
+      const metadata = task?.metadata && typeof task.metadata === 'object' ? task.metadata : {};
+      const scenarioId = String(metadata.scenario_id || '').trim().toLowerCase();
+      const source = String(task?.source || '').trim().toLowerCase();
+      const trigger = String(metadata.trigger || '').trim().toLowerCase();
+      return scenarioId === 'full_card_enrichment'
+        || source === 'ui_full_card_enrichment'
+        || trigger === 'manual_enrichment';
+    }
+
+    function currentCardEnrichmentTask(tasks, options = {}) {
+      const items = Array.isArray(tasks) ? tasks : [];
+      const includeTerminal = Boolean(options.includeTerminal);
+      const card = currentAgentContextCard();
+      const cardId = String(card?.id || '').trim();
+      if (!cardId) return null;
+      return items.find((item) => {
+        const metadata = item?.metadata && typeof item.metadata === 'object' ? item.metadata : {};
+        const context = metadata.context && typeof metadata.context === 'object' ? metadata.context : {};
+        const status = String(item?.status || '').trim().toLowerCase();
+        if (String(metadata.purpose || '').trim().toLowerCase() !== 'card_autofill') return false;
+        if (String(context.card_id || '').trim() !== cardId) return false;
+        if (!isFullCardEnrichmentTask(item)) return false;
+        if (includeTerminal) return true;
+        return status === 'pending' || status === 'running';
+      }) || null;
+    }
+
     function applyAiSurfaceEntryState(button, exposureRecord, options = {}) {
       if (!(button instanceof HTMLElement)) return;
       const keepVisibleWhenHidden = Boolean(options.keepVisibleWhenHidden);
@@ -8247,6 +8309,109 @@ BOARD_WEB_APP_HTML = "".join(
       } else {
         button.dataset.visible = 'true';
       }
+    }
+
+    function renderFullCardEnrichmentEntryState(statusPayload) {
+      if (!(els.cardAgentButton instanceof HTMLElement)) return;
+      const payload = statusPayload && typeof statusPayload === 'object' ? statusPayload : {};
+      const effectiveMode = payload.ai_remodel?.effective_mode && typeof payload.ai_remodel.effective_mode === 'object'
+        ? payload.ai_remodel.effective_mode
+        : {};
+      const entryExposure = effectiveMode.entry_exposure?.future_card_enrichment_trigger && typeof effectiveMode.entry_exposure.future_card_enrichment_trigger === 'object'
+        ? effectiveMode.entry_exposure.future_card_enrichment_trigger
+        : {};
+      const exposureState = String(entryExposure.exposure_state || '').trim().toLowerCase();
+      const latestTask = currentCardEnrichmentTask(state.agentLatestTasks, { includeTerminal: true });
+      const latestStatus = String(latestTask?.status || '').trim().toLowerCase();
+      const agentReady = Boolean(payload.agent?.ready ?? payload.agent?.available ?? payload.agent?.enabled);
+      let uiState = 'idle';
+      let title = 'AI карточки';
+      if (latestStatus === 'pending' || latestStatus === 'running') {
+        uiState = 'busy';
+        title = 'AI карточки · идёт обогащение';
+      } else if (latestStatus === 'failed') {
+        uiState = 'error';
+        title = 'AI карточки · ошибка обогащения';
+      } else if (agentReady && exposureState !== 'hidden' && exposureState !== 'replaced' && currentAgentContextCard()?.id) {
+        uiState = 'online';
+        title = 'AI карточки · готово к обогащению';
+      }
+      els.cardAgentButton.dataset.state = uiState;
+      els.cardAgentButton.title = title;
+      els.cardAgentButton.setAttribute('aria-label', title);
+    }
+
+    function renderFullCardEnrichmentResult(statusPayload, scenario, selectedExposureLabel) {
+      const payload = statusPayload && typeof statusPayload === 'object' ? statusPayload : {};
+      const card = currentAgentContextCard();
+      const cardId = String(card?.id || '').trim();
+      const contextPacket = buildAiFullCardEnrichmentContextPacket();
+      const task = currentCardEnrichmentTask(state.agentLatestTasks, { includeTerminal: true });
+      const status = String(task?.status || '').trim().toLowerCase();
+      if (!cardId) {
+        return {
+          state: 'empty',
+          tone: '',
+          html: '<div class="agent-result__fallback">Открой карточку, чтобы запустить AI-обогащение.</div>',
+        };
+      }
+      if (status === 'pending' || status === 'running') {
+        const summaryParts = [
+          contextPacket.card_context?.summary_label || contextPacket.card_label || 'Карточка',
+          contextPacket.repair_order_context?.summary_label || contextPacket.repair_order_label || '',
+          contextPacket.wall_digest?.label || '',
+          contextPacket.attachments_intake?.label || '',
+        ].filter(Boolean);
+        return {
+          state: 'active',
+          tone: 'warning',
+          html: '<div class="agent-result__fallback"><strong>AI-обогащение выполняется.</strong><br>'
+            + escapeHtml(summaryParts.join(' · ') || 'Идёт bounded pipeline full_card_enrichment.')
+            + (task?.id ? '<br><br>Task: ' + escapeHtml(String(task.id || '')) : '')
+            + '</div>',
+        };
+      }
+      if (status === 'failed') {
+        return {
+          state: 'error',
+          tone: 'error',
+          html: '<div class="agent-result__fallback"><strong>AI-обогащение завершилось с ошибкой.</strong><br>'
+            + escapeHtml(formatAgentErrorMessage(task?.error || 'Не удалось выполнить bounded enrichment.'))
+            + '</div>',
+        };
+      }
+      if (status === 'completed') {
+        const display = normalizeAgentDisplay(task);
+        const auditBits = [
+          selectedExposureLabel ? 'СТАТУС: ' + selectedExposureLabel : '',
+          contextPacket.card_context?.summary_label ? 'КАРТОЧКА: ' + contextPacket.card_context.summary_label : '',
+          contextPacket.repair_order_context?.summary_label ? 'ЗН: ' + contextPacket.repair_order_context.summary_label : '',
+          contextPacket.wall_digest?.label ? 'СТЕНА: ' + contextPacket.wall_digest.label : '',
+        ].filter(Boolean);
+        return {
+          state: 'filled',
+          tone: display.tone || 'success',
+          html: (display.title || display.summary || display.sections.length || display.actions.length)
+            ? renderAgentDisplay(display) + (auditBits.length ? '<div class="agent-result__fallback">' + escapeHtml(auditBits.join(' · ')) + '</div>' : '')
+            : '<div class="agent-result__fallback">' + escapeHtml(String(task?.summary || task?.result || 'AI-обогащение завершено.').trim()) + '</div>',
+        };
+      }
+      const sourceList = Array.isArray(scenario?.context_sources) ? scenario.context_sources.map((item) => String(item || '').trim()).filter(Boolean).join(' · ') : '';
+      const readyParts = [
+        contextPacket.card_context?.summary_label || contextPacket.card_label || 'Карточка',
+        contextPacket.repair_order_context?.summary_label || contextPacket.repair_order_label || '',
+        contextPacket.wall_digest?.label || '',
+        contextPacket.attachments_intake?.label || '',
+      ].filter(Boolean);
+      return {
+        state: 'empty',
+        tone: '',
+        html: '<div class="agent-result__fallback"><strong>Full Card Enrichment</strong><br>'
+          + escapeHtml(readyParts.join(' · ') || 'Контекст карточки готов.')
+          + '<br><br>Источники: ' + escapeHtml(sourceList || 'card_context · repair_order_context · wall_digest · attachments')
+          + '<br>Trigger: card-scoped bounded pipeline with verify.'
+          + '</div>',
+      };
     }
 
     function renderAiChatWindow(statusPayload) {
@@ -8380,6 +8545,68 @@ BOARD_WEB_APP_HTML = "".join(
       openAiChatWindow();
     }
 
+    async function runFullCardEnrichment() {
+      if (!requireOperatorSession()) return;
+      const payload = buildFullCardEnrichmentRequestPayload();
+      if (!String(payload.card_id || '').trim()) {
+        return setStatus('ОТКРОЙ КАРТОЧКУ ДЛЯ AI-ОБОГАЩЕНИЯ.', true);
+      }
+      hydrateAiSurfaceUiRefs();
+      bindAiSurfaceUiEvents();
+      closeAiChatWindow();
+      closeAgentModal();
+      state.aiSurfaceContext = buildAiSurfaceContext('card');
+      state.aiSurfaceSelectedScenario = 'full_card_enrichment';
+      els.aiSurfaceModal?.classList.add('is-open');
+      renderAiEntrySurface(state.aiSurfaceStatusPayload || state.agentStatusPayload || {});
+      const activeTask = currentCardEnrichmentTask(state.agentLatestTasks);
+      if (activeTask) {
+        state.agentTaskId = String(activeTask.id || '').trim();
+        setStatus('AI-обогащение уже выполняется.', true);
+        await refreshAgentModalState();
+        return;
+      }
+      try {
+        const data = await api('/api/run_full_card_enrichment', {
+          method: 'POST',
+          body: payload,
+        });
+        if (data?.card) {
+          state.activeCard = data.card;
+          if (els.cardModal?.classList.contains('is-open')) applyCardModalState(data.card);
+        }
+        const taskId = String(data?.meta?.task_id || '').trim();
+        if (taskId) {
+          state.agentTaskId = taskId;
+          state.agentLatestTasks = [
+            {
+              id: taskId,
+              source: 'ui_full_card_enrichment',
+              status: data?.meta?.already_running ? 'running' : 'pending',
+              metadata: {
+                purpose: 'card_autofill',
+                scenario_id: 'full_card_enrichment',
+                trigger: 'manual_enrichment',
+                context: { kind: 'card', card_id: String(payload.card_id || '').trim() },
+              },
+            },
+            ...((Array.isArray(state.agentLatestTasks) ? state.agentLatestTasks : []).filter((item) => String(item?.id || '').trim() !== taskId)),
+          ];
+        }
+        renderAiEntrySurface(state.aiSurfaceStatusPayload || state.agentStatusPayload || {});
+        setStatus(
+          data?.meta?.already_running
+            ? 'AI-обогащение уже выполняется.'
+            : (data?.meta?.launched ? 'AI-обогащение запущено.' : 'AI-обогащение не запущено.'),
+          Boolean(data?.meta?.already_running || !data?.meta?.server_available),
+        );
+        await refreshAgentModalState();
+      } catch (error) {
+        renderAiEntrySurface(state.aiSurfaceStatusPayload || state.agentStatusPayload || {});
+        setStatus(error.message, true);
+      }
+    }
+
     function handleAiSurfaceModalOverlayClick(event) {
       return;
     }
@@ -8440,6 +8667,7 @@ BOARD_WEB_APP_HTML = "".join(
       applyAiSurfaceEntryState(els.aiChatButton, entryExposureMap.future_ai_chat_window, { label: 'AI чат', keepVisibleWhenHidden: true });
       applyAiSurfaceEntryState(els.cardAgentButton, entryExposureMap.future_card_enrichment_trigger, { label: 'AI карточки', keepVisibleWhenHidden: true });
       applyAiSurfaceEntryState(els.agentDockButton, entryExposureMap.future_board_control_toggle, { label: 'AI вход', keepVisibleWhenHidden: false });
+      renderFullCardEnrichmentEntryState(payload);
       if (els.aiSurfaceLegacyButton) {
         els.aiSurfaceLegacyButton.hidden = !aiSurfaceLegacyFallbackVisible(payload, selectedExposureState);
         els.aiSurfaceLegacyButton.dataset.state = els.aiSurfaceLegacyButton.hidden ? 'hidden' : 'legacy';
@@ -8491,6 +8719,14 @@ BOARD_WEB_APP_HTML = "".join(
         const boundaryList = Array.isArray(scenario.boundaries) ? scenario.boundaries.map((item) => String(item || '').trim()).filter(Boolean).join(' · ') : '';
         const nonGoalList = Array.isArray(scenario.non_goals) ? scenario.non_goals.map((item) => String(item || '').trim()).filter(Boolean).join(' · ') : '';
         const entrySurfaces = Array.isArray(scenario.allowed_entry_surfaces) ? scenario.allowed_entry_surfaces.map((item) => String(item || '').trim()).filter(Boolean).join(' · ') : '';
+        if (selectedScenario === 'full_card_enrichment') {
+          const enrichmentResult = renderFullCardEnrichmentResult(payload, scenario, selectedExposureLabel);
+          els.aiSurfaceResult.dataset.state = enrichmentResult.state;
+          if (enrichmentResult.tone) els.aiSurfaceResult.dataset.tone = enrichmentResult.tone;
+          else delete els.aiSurfaceResult.dataset.tone;
+          els.aiSurfaceResult.innerHTML = enrichmentResult.html;
+          return;
+        }
         const detailParts = [
           '<strong>' + escapeHtml(String(scenario.display_intent || selectedScenario).trim()) + '</strong>',
           'СТАТУС: ' + escapeHtml(selectedExposureLabel) + ' · ' + escapeHtml(String(scenarioMode.rollout_state || entryExposure?.exposure_state || 'hidden').toUpperCase()),
@@ -8919,7 +9155,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function currentAgentContextCard() {
-      const context = state.agentContext && typeof state.agentContext === 'object' ? state.agentContext : { kind: 'board' };
+      const context = activeAiTaskContext();
       if (String(context.kind || '').trim().toLowerCase() !== 'card') return null;
       const activeCard = state.activeCard && typeof state.activeCard === 'object' ? state.activeCard : null;
       if (activeCard && String(activeCard.id || '').trim()) return activeCard;
@@ -9221,7 +9457,7 @@ BOARD_WEB_APP_HTML = "".join(
     function renderAgentRuns(runs) {
       if (!els.agentRunsList) return;
       const items = Array.isArray(runs) ? runs : [];
-      const context = state.agentContext && typeof state.agentContext === 'object' ? state.agentContext : { kind: 'board' };
+      const context = activeAiTaskContext();
       const cardId = String(context?.card_id || '').trim();
       const filtered = cardId
         ? items.filter((item) => String(item?.metadata?.context?.card_id || '').trim() === cardId)
@@ -9300,13 +9536,14 @@ BOARD_WEB_APP_HTML = "".join(
         const status = String(item?.status || '').trim().toLowerCase();
         return String(metadata.purpose || '').trim().toLowerCase() === 'card_autofill'
           && String(context.card_id || '').trim() === cardId
+          && !isFullCardEnrichmentTask(item)
           && (status === 'pending' || status === 'running');
       }) || null;
     }
 
     function relevantAgentConsoleTasks(tasks) {
       const items = Array.isArray(tasks) ? tasks : [];
-      const context = state.agentContext && typeof state.agentContext === 'object' ? state.agentContext : { kind: 'board' };
+      const context = activeAiTaskContext();
       const kind = String(context.kind || 'board').trim().toLowerCase();
       const cardId = String(context.card_id || '').trim();
       return items.filter((item) => {
@@ -9505,7 +9742,7 @@ BOARD_WEB_APP_HTML = "".join(
         const exact = items.find((item) => item?.id === state.agentTaskId);
         if (exact) return exact;
       }
-      const context = state.agentContext && typeof state.agentContext === 'object' ? state.agentContext : { kind: 'board' };
+      const context = activeAiTaskContext();
       const contextKind = String(context.kind || 'board').trim().toLowerCase();
       const contextCardId = String(context.card_id || '').trim();
       const matchesContext = (item) => {
@@ -14488,7 +14725,7 @@ function renderCompactArchiveRows(cards) {
     els.tagInput.addEventListener('keydown', handleTagInputKeydown);
     configureVehicleAutofillUi();
     els.cardDescription.addEventListener('input', syncCardDescriptionHeight);
-    els.cardAgentButton?.addEventListener('click', () => openAiSurface('card'));
+    els.cardAgentButton?.addEventListener('click', runFullCardEnrichment);
     els.vehicleAutofillButton.addEventListener('click', autofillVehicleProfile);
     els.repairOrderAddWorkRowButton.addEventListener('click', (event) => addRepairOrderRowFromButton('works', event));
     els.repairOrderAddMaterialRowButton.addEventListener('click', (event) => addRepairOrderRowFromButton('materials', event));

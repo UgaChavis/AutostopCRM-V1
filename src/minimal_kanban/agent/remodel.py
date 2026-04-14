@@ -111,7 +111,7 @@ class AiScenarioDefinition:
 class AiFeatureFlags:
     legacy_ux_enabled: bool = True
     ai_chat_enabled: bool = False
-    full_card_enrichment_enabled: bool = False
+    full_card_enrichment_enabled: bool = True
     board_control_enabled: bool = False
 
     def to_dict(self) -> dict[str, bool]:
@@ -254,11 +254,12 @@ SCENARIO_DEFINITIONS: tuple[AiScenarioDefinition, ...] = (
         ),
         tool_classes=("read", "bounded_research", "normalize", "patch", "verify"),
         write_policy=AiWritePolicy.BOUNDED_WRITE,
-        allowed_entry_surfaces=("card_indicator",),
+        allowed_entry_surfaces=("future_card_enrichment_trigger", "card_indicator"),
         legacy_replacement_scope="legacy_card_agent_button_and_card_autofill_menu",
         future_module_owner="Module 1.3 Card Enrichment Pipeline",
         boundaries=("not_open_ended_chat", "not_board_scope", "not_menu_of_actions"),
         non_goals=("no freeform assistant mode", "no hidden scheduling", "no broad board-level writes"),
+        default_enabled=True,
     ),
     AiScenarioDefinition(
         scenario_id=AiScenarioId.BOARD_CONTROL,
@@ -912,6 +913,8 @@ def _entry_rollout_state(entry: AiEntrySurfaceDefinition, flags: AiFeatureFlags,
             return AiEntryExposureState.LEGACY_ONLY if flags.legacy_ux_enabled else AiEntryExposureState.HIDDEN
         return AiEntryExposureState.ACTIVE
     if entry.surface_kind == AiEntrySurfaceKind.FUTURE:
+        if entry.entry_id == "future_card_enrichment_trigger" and replacement_enabled:
+            return AiEntryExposureState.ACTIVE
         if replacement_enabled or replacement_primary:
             return AiEntryExposureState.GATED
         return AiEntryExposureState.HIDDEN
@@ -981,7 +984,7 @@ def get_ai_feature_flags() -> AiFeatureFlags:
     return AiFeatureFlags(
         legacy_ux_enabled=_env_flag("MINIMAL_KANBAN_AI_LEGACY_UX_ENABLED", default=True),
         ai_chat_enabled=_env_flag("MINIMAL_KANBAN_AI_CHAT_ENABLED", default=False),
-        full_card_enrichment_enabled=_env_flag("MINIMAL_KANBAN_FULL_CARD_ENRICHMENT_ENABLED", default=False),
+        full_card_enrichment_enabled=_env_flag("MINIMAL_KANBAN_FULL_CARD_ENRICHMENT_ENABLED", default=True),
         board_control_enabled=_env_flag("MINIMAL_KANBAN_BOARD_CONTROL_ENABLED", default=False),
     )
 

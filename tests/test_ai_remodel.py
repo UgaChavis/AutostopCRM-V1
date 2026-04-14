@@ -39,7 +39,7 @@ class AiRemodelTests(unittest.TestCase):
             flags = get_ai_feature_flags()
             self.assertTrue(flags.legacy_ux_enabled)
             self.assertFalse(flags.ai_chat_enabled)
-            self.assertFalse(flags.full_card_enrichment_enabled)
+            self.assertTrue(flags.full_card_enrichment_enabled)
             self.assertFalse(flags.board_control_enabled)
 
     def test_status_payload_exposes_canonical_new_scenarios(self) -> None:
@@ -83,6 +83,7 @@ class AiRemodelTests(unittest.TestCase):
         scenario_map = get_ai_scenario_map()
         self.assertEqual(set(scenario_map.keys()), {item.value for item in AiScenarioId})
         self.assertEqual(scenario_map["full_card_enrichment"]["scope_kind"], AiScopeKind.CARD.value)
+        self.assertEqual(scenario_map["full_card_enrichment"]["rollout_state"], AiRolloutState.AVAILABLE.value)
         self.assertEqual(scenario_map["board_control"]["trigger_kind"], AiTriggerKind.SCHEDULED.value)
         self.assertEqual(scenario_map["ai_chat"]["rollout_state"], AiRolloutState.HIDDEN.value)
 
@@ -100,12 +101,13 @@ class AiRemodelTests(unittest.TestCase):
         payload = get_ai_effective_mode()
         self.assertTrue(payload["legacy_ux_enabled"])
         self.assertIn("ai_chat", payload["hidden"])
-        self.assertIn("full_card_enrichment", payload["hidden"])
         self.assertIn("board_control", payload["hidden"])
         self.assertEqual(payload["primary_interactive_path"], "legacy_agent_modal_manual_tasks")
+        self.assertIn("full_card_enrichment", payload["available_scenarios"])
         self.assertIn("entry_exposure", payload)
         self.assertEqual(payload["entry_exposure"]["board_dock_button"]["exposure_state"], AiEntryExposureState.LEGACY_ONLY.value)
         self.assertEqual(payload["entry_exposure"]["future_ai_chat_window"]["exposure_state"], AiEntryExposureState.HIDDEN.value)
+        self.assertEqual(payload["entry_exposure"]["future_card_enrichment_trigger"]["exposure_state"], AiEntryExposureState.ACTIVE.value)
 
     def test_entry_surface_registry_and_deactivation_map_are_available(self) -> None:
         surface_map = get_ai_entry_surface_map()
@@ -116,6 +118,7 @@ class AiRemodelTests(unittest.TestCase):
         self.assertIn("card_autofill_toggle", exposure_map)
         self.assertEqual(exposure_map["future_board_control_toggle"]["exposure_state"], AiEntryExposureState.HIDDEN.value)
         self.assertEqual(exposure_map["card_autofill_toggle"]["exposure_state"], AiEntryExposureState.LEGACY_ONLY.value)
+        self.assertEqual(exposure_map["future_card_enrichment_trigger"]["exposure_state"], AiEntryExposureState.ACTIVE.value)
 
 
 if __name__ == "__main__":

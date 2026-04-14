@@ -2225,3 +2225,27 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(task["metadata"]["scope"]["type"], "current_card")
         self.assertEqual(task["metadata"]["scope"]["card_id"], card_id)
         self.assertEqual(task["metadata"]["purpose"], "card_autofill")
+
+    def test_run_full_card_enrichment_route_enqueues_current_card_task(self) -> None:
+        created = self.service.create_card({"vehicle": "BMW X5", "title": "AI enrichment", "deadline": {"hours": 2}})
+        card_id = created["card"]["id"]
+
+        response = self._request(
+            "/api/run_full_card_enrichment",
+            {
+                "card_id": card_id,
+                "actor_name": "AI",
+                "context_packet": {"kind": "compact_context", "scenario_id": "full_card_enrichment"},
+            },
+        )
+        self.assertTrue(response["data"]["meta"]["launched"])
+        self.assertEqual(response["data"]["meta"]["scenario_id"], "full_card_enrichment")
+        self.assertFalse(response["data"]["card"]["ai_autofill_active"])
+
+        queued = self.agent_storage.list_tasks(limit=10)
+        self.assertEqual(len(queued), 1)
+        task = queued[0]
+        self.assertEqual(task["mode"], "card_autofill")
+        self.assertEqual(task["source"], "ui_full_card_enrichment")
+        self.assertEqual(task["metadata"]["scenario_id"], "full_card_enrichment")
+        self.assertEqual(task["metadata"]["scenario_context"]["scenario_id"], "full_card_enrichment")
