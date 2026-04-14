@@ -6200,6 +6200,33 @@ BOARD_WEB_APP_HTML = "".join(
       ].join('::');
     }
 
+    function buildAiScenarioContextPacket(scenarioId = 'ai_chat') {
+      const packet = buildAiCompactContextPacket();
+      const normalizedScenarioId = String(scenarioId || 'ai_chat').trim().toLowerCase() || 'ai_chat';
+      return {
+        ...packet,
+        kind: 'compact_context',
+        scenario_id: normalizedScenarioId,
+        scenario_kind: normalizedScenarioId,
+        scenario_context_kind: normalizedScenarioId,
+      };
+    }
+
+    function buildAiFullCardEnrichmentContextPacket() {
+      return buildAiScenarioContextPacket('full_card_enrichment');
+    }
+
+    function buildAiChatWindowContext() {
+      const packet = buildAiCompactContextPacket();
+      return {
+        ...packet,
+        kind: 'chat',
+        scenario_id: 'ai_chat',
+        scenario_kind: 'ai_chat',
+        scenario_context_kind: 'ai_chat',
+      };
+    }
+
     function aiWallDigestEventSummary(event) {
       if (!event || typeof event !== 'object') return '';
       const parts = [];
@@ -6681,14 +6708,6 @@ BOARD_WEB_APP_HTML = "".join(
       return packetDraft;
     }
 
-    function buildAiChatWindowContext() {
-      const packet = buildAiCompactContextPacket();
-      return {
-        ...packet,
-        kind: 'chat',
-      };
-    }
-
     function aiChatCompactContextSummary(context = state.aiCompactContext) {
       const packet = context && typeof context === 'object' ? context : buildAiCompactContextPacket();
       const lines = [
@@ -6709,8 +6728,8 @@ BOARD_WEB_APP_HTML = "".join(
 
     function refreshAiCompactContextPacket() {
       state.aiCompactContext = buildAiCompactContextPacket();
-      state.aiChatWindowContext = state.aiCompactContext;
-      state.aiSurfaceContext = state.aiCompactContext;
+      state.aiChatWindowContext = buildAiChatWindowContext();
+      state.aiSurfaceContext = state.aiChatWindowContext;
       return state.aiCompactContext;
     }
 
@@ -8110,10 +8129,32 @@ BOARD_WEB_APP_HTML = "".join(
       const normalizedKind = String(kind || '').trim().toLowerCase();
       if (normalizedKind === 'card') {
         const context = cardAgentContext();
-        return { ...context, kind: 'card', surface: 'ai_entry' };
+        return {
+          ...context,
+          kind: 'card',
+          surface: 'ai_entry',
+          scenario_id: 'full_card_enrichment',
+          scenario_context: buildAiFullCardEnrichmentContextPacket(),
+        };
       }
-      const context = boardAgentContext();
-      return { ...context, kind: normalizedKind === 'board' ? 'board' : 'chat', surface: 'ai_entry' };
+      if (normalizedKind === 'board') {
+        const context = boardAgentContext();
+        return {
+          ...context,
+          kind: 'board',
+          surface: 'ai_entry',
+          scenario_id: 'board_control',
+          scenario_context: buildAiScenarioContextPacket('board_control'),
+        };
+      }
+      const context = buildAiChatWindowContext();
+      return {
+        ...context,
+        kind: 'chat',
+        surface: 'ai_entry',
+        scenario_id: 'ai_chat',
+        scenario_context: context,
+      };
     }
 
     function formatAiSurfaceContextLabel(context) {
@@ -8263,7 +8304,7 @@ BOARD_WEB_APP_HTML = "".join(
       closeAgentModal();
       refreshAiCompactContextPacket();
       state.aiChatWindowContext = buildAiChatWindowContext();
-      state.aiSurfaceContext = state.aiCompactContext;
+      state.aiSurfaceContext = state.aiChatWindowContext;
       state.aiSurfaceSelectedScenario = 'ai_chat';
       state.aiChatWindowSettingsOpen = false;
       state.aiChatWindowHistoryContext = aiChatHistoryContextSnapshot();
