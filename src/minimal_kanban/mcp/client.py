@@ -599,7 +599,7 @@ class BoardApiClient:
             return {"days": 1, "hours": 0, "minutes": 0, "seconds": 0}
         return normalized
 
-    def _request(self, path: str, payload: dict | None = None, *, method: str = "POST") -> dict:
+    def _request(self, path: str, payload: dict | None = None, *, method: str = "POST", _allow_retry: bool = True) -> dict:
         data = None
         if payload is not None:
             data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -625,6 +625,9 @@ class BoardApiClient:
             finally:
                 exc.close()
         except (urllib.error.URLError, TimeoutError) as exc:
+            if str(method or "POST").strip().upper() == "GET" and _allow_retry:
+                self._log("board_api_request path=%s retry_after_transport_error=%s", path, exc)
+                return self._request(path, payload, method=method, _allow_retry=False)
             raise BoardApiTransportError(f"Не удалось подключиться к локальному API по адресу {self.base_url}.") from exc
 
     def _parse_json_payload(self, raw: bytes, *, path: str) -> dict:

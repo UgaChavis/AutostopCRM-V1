@@ -29,6 +29,9 @@ DEFAULT_STATUS = {
     "last_run_started_at": "",
     "last_run_finished_at": "",
     "last_error": "",
+    "last_scheduler_run_at": "",
+    "last_scheduler_success_at": "",
+    "last_scheduler_error": "",
 }
 
 DEFAULT_MAX_FINISHED_TASKS = 300

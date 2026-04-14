@@ -49,9 +49,30 @@ class DtcLookupScenarioExecutor:
                 needs_followup=True,
                 followup_reason="dtc_lookup_failed",
             )
-        if isinstance(facts.get("evidence_model"), dict):
-            facts["evidence_model"]["external_result_sufficient"] = True
         orchestration_payload = runtime._response_data(payload) or payload
+        if runtime._is_partial_tool_payload(payload):
+            return ScenarioExecutionResult(
+                scenario_id=self.scenario_id,
+                status="partial",
+                tool_calls_used=1,
+                orchestration_updates={"decode_dtc": orchestration_payload},
+                tool_results=[
+                    runtime._build_tool_result(
+                        "decode_dtc",
+                        payload,
+                        status="partial",
+                        reason="Decode the highest-priority detected DTC code",
+                        scenario_id=self.scenario_id,
+                        evidence_ref="dtc_codes",
+                    )
+                ],
+                warnings=["dtc lookup deferred: external budget exceeded"] if runtime._is_budget_exceeded_payload(payload) else ["dtc lookup returned partial result"],
+                needs_followup=True,
+                followup_reason="dtc_lookup_budget_deferred" if runtime._is_budget_exceeded_payload(payload) else "dtc_lookup_partial",
+            )
+        has_useful_result = runtime._search_payload_has_useful_result(orchestration_payload)
+        if isinstance(facts.get("evidence_model"), dict) and has_useful_result:
+            facts["evidence_model"]["external_result_sufficient"] = True
         return ScenarioExecutionResult(
             scenario_id=self.scenario_id,
             status="success",
@@ -67,7 +88,7 @@ class DtcLookupScenarioExecutor:
                     evidence_ref="dtc_codes",
                 )
             ],
-            warnings=["dtc lookup returned no reliable diagnostic excerpt"] if not runtime._search_payload_has_useful_result(orchestration_payload) else [],
-            needs_followup=not runtime._search_payload_has_useful_result(orchestration_payload),
-            followup_reason="dtc_lookup_insufficient" if not runtime._search_payload_has_useful_result(orchestration_payload) else "",
+            warnings=["dtc lookup returned no reliable diagnostic excerpt"] if not has_useful_result else [],
+            needs_followup=not has_useful_result,
+            followup_reason="dtc_lookup_insufficient" if not has_useful_result else "",
         )

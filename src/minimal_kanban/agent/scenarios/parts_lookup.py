@@ -68,6 +68,26 @@ class PartsLookupScenarioExecutor:
                 followup_reason="parts_lookup_failed",
             )
         orchestration_updates = {"find_part_numbers": runtime._response_data(part_payload) or part_payload}
+        if runtime._is_partial_tool_payload(part_payload):
+            return ScenarioExecutionResult(
+                scenario_id=self.scenario_id,
+                status="partial",
+                tool_calls_used=1,
+                tool_results=[
+                    runtime._build_tool_result(
+                        "find_part_numbers",
+                        part_payload,
+                        status="partial",
+                        reason="Find OEM and analog part numbers for the main detected part request",
+                        scenario_id=self.scenario_id,
+                        evidence_ref="part_queries",
+                    )
+                ],
+                orchestration_updates=orchestration_updates,
+                warnings=["parts lookup deferred: external budget exceeded"] if runtime._is_budget_exceeded_payload(part_payload) else ["parts lookup returned partial result"],
+                needs_followup=True,
+                followup_reason="parts_lookup_budget_deferred" if runtime._is_budget_exceeded_payload(part_payload) else "parts_lookup_partial",
+            )
         tool_results = [
             runtime._build_tool_result(
                 "find_part_numbers",
@@ -79,7 +99,8 @@ class PartsLookupScenarioExecutor:
             )
         ]
         tool_calls_used = 1
-        if isinstance(facts.get("evidence_model"), dict):
+        has_useful_parts = runtime._part_lookup_has_useful_result(orchestration_updates["find_part_numbers"])
+        if isinstance(facts.get("evidence_model"), dict) and has_useful_parts:
             facts["evidence_model"]["external_result_sufficient"] = True
         if bool(scenario.get("with_price")):
             best_part_number = runtime._pick_best_part_number(orchestration_updates["find_part_numbers"])
@@ -109,13 +130,26 @@ class PartsLookupScenarioExecutor:
                             evidence_ref="part_queries",
                         )
                     )
+        warnings: list[str] = []
+        needs_followup = False
+        followup_reason = ""
+        if not has_useful_parts:
+            warnings.append("parts lookup returned no reliable candidate parts")
+            needs_followup = True
+            followup_reason = "parts_lookup_insufficient"
+        price_payload = orchestration_updates.get("estimate_price_ru")
+        if isinstance(price_payload, dict) and runtime._is_budget_exceeded_payload(price_payload):
+            warnings.append("price lookup deferred: external budget exceeded")
+            needs_followup = True
+            if not followup_reason:
+                followup_reason = "price_lookup_budget_deferred"
         return ScenarioExecutionResult(
             scenario_id=self.scenario_id,
             status="success",
             tool_calls_used=tool_calls_used,
             tool_results=tool_results,
             orchestration_updates=orchestration_updates,
-            warnings=["parts lookup returned no reliable candidate parts"] if not runtime._part_lookup_has_useful_result(orchestration_updates["find_part_numbers"]) else [],
-            needs_followup=not runtime._part_lookup_has_useful_result(orchestration_updates["find_part_numbers"]),
-            followup_reason="parts_lookup_insufficient" if not runtime._part_lookup_has_useful_result(orchestration_updates["find_part_numbers"]) else "",
+            warnings=warnings,
+            needs_followup=needs_followup,
+            followup_reason=followup_reason,
         )

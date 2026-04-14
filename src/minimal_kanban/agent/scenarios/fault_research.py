@@ -42,9 +42,30 @@ class FaultResearchScenarioExecutor:
                 needs_followup=True,
                 followup_reason="fault_research_failed",
             )
-        if isinstance(facts.get("evidence_model"), dict):
-            facts["evidence_model"]["external_result_sufficient"] = True
         orchestration_payload = runtime._response_data(payload) or payload
+        if runtime._is_partial_tool_payload(payload):
+            return ScenarioExecutionResult(
+                scenario_id=self.scenario_id,
+                status="partial",
+                tool_calls_used=1,
+                orchestration_updates={"search_fault_info": orchestration_payload},
+                tool_results=[
+                    runtime._build_tool_result(
+                        "search_fault_info",
+                        payload,
+                        status="partial",
+                        reason="Search short symptom context and typical causes for the current complaint",
+                        scenario_id=self.scenario_id,
+                        evidence_ref="symptom_query",
+                    )
+                ],
+                warnings=["fault research deferred: external budget exceeded"] if runtime._is_budget_exceeded_payload(payload) else ["fault research returned partial result"],
+                needs_followup=True,
+                followup_reason="fault_research_budget_deferred" if runtime._is_budget_exceeded_payload(payload) else "fault_research_partial",
+            )
+        has_useful_result = runtime._search_payload_has_useful_result(orchestration_payload)
+        if isinstance(facts.get("evidence_model"), dict) and has_useful_result:
+            facts["evidence_model"]["external_result_sufficient"] = True
         return ScenarioExecutionResult(
             scenario_id=self.scenario_id,
             status="success",
@@ -60,7 +81,7 @@ class FaultResearchScenarioExecutor:
                     evidence_ref="symptom_query",
                 )
             ],
-            warnings=["fault research returned no reliable symptom result"] if not runtime._search_payload_has_useful_result(orchestration_payload) else [],
-            needs_followup=not runtime._search_payload_has_useful_result(orchestration_payload),
-            followup_reason="fault_research_insufficient" if not runtime._search_payload_has_useful_result(orchestration_payload) else "",
+            warnings=["fault research returned no reliable symptom result"] if not has_useful_result else [],
+            needs_followup=not has_useful_result,
+            followup_reason="fault_research_insufficient" if not has_useful_result else "",
         )

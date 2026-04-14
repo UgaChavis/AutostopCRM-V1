@@ -6549,12 +6549,16 @@ BOARD_WEB_APP_HTML = "".join(
       const recentRuns = Array.isArray(payload.recent_runs) ? payload.recent_runs : [];
       const latestRun = recentRuns.length ? recentRuns[0] : null;
       const latestRunStatus = String(latestRun?.status || '').trim().toLowerCase();
-      const agentAvailable = Boolean(payload.agent?.available ?? payload.agent?.enabled);
+      const agentReady = Boolean(payload.agent?.ready ?? payload.agent?.available ?? payload.agent?.enabled);
+      const availabilityReason = String(payload.agent?.availability_reason || '').trim().toLowerCase();
       let stateLabel = 'ОФЛАЙН';
       let stateValue = 'idle';
-      if (agentAvailable) {
+      if (agentReady) {
         stateLabel = 'ГОТОВ';
         stateValue = 'online';
+      } else if (availabilityReason === 'configured_but_worker_idle') {
+        stateLabel = 'ЗАПУСК';
+        stateValue = 'waiting';
       }
       if (status.running) {
         stateLabel = 'В РАБОТЕ';
@@ -6586,7 +6590,8 @@ BOARD_WEB_APP_HTML = "".join(
 
     function renderAgentAutofillControls(statusPayload) {
       const payload = statusPayload && typeof statusPayload === 'object' ? statusPayload : {};
-      const agentEnabled = Boolean(payload.agent?.available ?? payload.agent?.enabled);
+      const agentReady = Boolean(payload.agent?.ready ?? payload.agent?.available ?? payload.agent?.enabled);
+      const availabilityReason = String(payload.agent?.availability_reason || '').trim().toLowerCase();
       const card = currentAgentContextCard();
       const activeTask = currentCardAutofillTask(state.agentLatestTasks);
       const active = Boolean(card?.ai_autofill_active);
@@ -6609,7 +6614,11 @@ BOARD_WEB_APP_HTML = "".join(
           stateValue = 'waiting';
           buttonLabel = 'АВТО';
           disabled = false;
-        } else if (!agentEnabled) {
+        } else if (!agentReady && availabilityReason === 'configured_but_worker_idle') {
+          statusText = 'SERVER AI STARTING';
+          stateValue = 'waiting';
+          disabled = true;
+        } else if (!agentReady) {
           statusText = 'SERVER AI OFFLINE';
           stateValue = 'offline';
           disabled = true;
@@ -6728,11 +6737,16 @@ BOARD_WEB_APP_HTML = "".join(
         if (data?.meta && Object.prototype.hasOwnProperty.call(data.meta, 'server_available')) {
           const payload = state.agentStatusPayload && typeof state.agentStatusPayload === 'object' ? state.agentStatusPayload : {};
           const agent = payload.agent && typeof payload.agent === 'object' ? payload.agent : {};
+          const serverAvailable = Boolean(data.meta.server_available);
           state.agentStatusPayload = {
             ...payload,
             agent: {
               ...agent,
-              available: Boolean(data.meta.server_available),
+              available: serverAvailable,
+              ready: serverAvailable ? Boolean(agent.ready ?? true) : Boolean(agent.ready ?? false),
+              availability_reason: serverAvailable
+                ? String(agent.availability_reason || 'worker_running')
+                : String(agent.availability_reason || 'configured_but_worker_idle'),
             },
           };
         }

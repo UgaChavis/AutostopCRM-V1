@@ -452,6 +452,45 @@ class CardServiceTests(unittest.TestCase):
         messages = [entry["message"] for entry in card.ai_autofill_log]
         self.assertIn("Обнаружены изменения. Запущен повторный проход.", messages)
 
+    def test_trigger_due_ai_followups_does_not_append_wait_log_when_task_already_running(self) -> None:
+        agent = _FakeAgentControl()
+        self.service.attach_agent_control(agent)
+        base = datetime(2026, 4, 12, 8, 0, 0, tzinfo=timezone.utc)
+        patches = self._patch_time(base)
+        with patches[0], patches[1], patches[2]:
+            created = self.service.create_card(
+                {
+                    "vehicle": "BMW 320I",
+                    "title": "Радиатор",
+                    "description": "VIN: WBAPF71060A798127\nТечет радиатор",
+                    "deadline": {"hours": 2},
+                }
+            )
+            card_id = created["card"]["id"]
+            self.service.set_card_ai_autofill({"card_id": card_id, "enabled": True, "actor_name": "AI"})
+        bundle = self.store.read_bundle()
+        card = next(item for item in bundle["cards"] if item.id == card_id)
+        card.ai_next_run_at = (base + timedelta(minutes=41)).isoformat()
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+        before_log = list(card.ai_autofill_log)
+        agent.active_card_tasks.add((card_id, "card_autofill"))
+        due_time = base + timedelta(minutes=41)
+        patches = self._patch_time(due_time)
+        with patches[0], patches[1], patches[2]:
+            launched = self.service.trigger_due_ai_followups()
+        self.assertEqual(launched["launched"], [])
+        bundle = self.store.read_bundle()
+        card = next(item for item in bundle["cards"] if item.id == card_id)
+        self.assertEqual(card.ai_autofill_log, before_log)
+
     def test_agent_originated_update_refreshes_autofill_fingerprint(self) -> None:
         agent = _FakeAgentControl()
         self.service.attach_agent_control(agent)

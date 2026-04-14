@@ -24,7 +24,7 @@ from .openai_client import AgentModelError, OpenAIJsonAgentClient
 from .policy import ToolPolicyEngine
 from .scenarios import ScenarioContext, build_default_scenario_registry
 from .storage import AgentStorage
-from .tools import AgentToolExecutor
+from .tools import AgentToolExecutor, ExternalToolBudgetExceeded
 
 
 DEFAULT_SYSTEM_PROMPT = build_default_system_prompt()
@@ -1620,6 +1620,39 @@ class AgentRunner:
     ) -> dict[str, Any] | None:
         try:
             payload = self._tools.execute(tool_name, args)
+        except ExternalToolBudgetExceeded as exc:
+            payload = {
+                "ok": False,
+                "error": str(exc),
+                "data": {
+                    "partial": True,
+                    "error_code": "external_budget_exceeded",
+                    "tool_name": tool_name,
+                },
+                "meta": {
+                    "partial": True,
+                    "error_code": "external_budget_exceeded",
+                    "tool_name": tool_name,
+                },
+            }
+            self._record_action(
+                task_id=task_id,
+                run_id=run_id,
+                step=step,
+                tool_name=tool_name,
+                args=args,
+                reason=reason,
+                result_payload=payload,
+            )
+            self._record_log_action(
+                task_id=task_id,
+                run_id=run_id,
+                step=step,
+                level="WARN",
+                phase="tool",
+                message=f"{tool_name}: external web budget exhausted; scenario left partial.",
+            )
+            return payload
         except Exception as exc:
             self._record_log_action(
                 task_id=task_id,
@@ -1733,6 +1766,27 @@ class AgentRunner:
         if isinstance(data, dict):
             return data
         return payload
+
+    def _response_meta(self, payload: Any) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            return {}
+        meta = payload.get("meta")
+        return meta if isinstance(meta, dict) else {}
+
+    def _tool_payload_error_code(self, payload: Any) -> str:
+        data = self._response_data(payload)
+        meta = self._response_meta(payload)
+        return str(meta.get("error_code") or data.get("error_code") or "").strip().lower()
+
+    def _is_partial_tool_payload(self, payload: Any) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        data = self._response_data(payload)
+        meta = self._response_meta(payload)
+        return bool(meta.get("partial") or data.get("partial"))
+
+    def _is_budget_exceeded_payload(self, payload: Any) -> bool:
+        return self._tool_payload_error_code(payload) == "external_budget_exceeded"
 
     def _record_action(
         self,
@@ -2752,7 +2806,11 @@ class AgentRunner:
                 for item in materials[:4]
                 if isinstance(item, dict) and str(item.get("name", "") or "").strip()
             )
-            line = f"{str(maintenance.get('service_type', 'ТО') or 'ТО').strip()}:"
+            service_type_label = str(maintenance.get("service_type", "ТО") or "ТО").strip()
+            if str(facts.get("maintenance_result_origin", "") or "").strip().lower() == "local_heuristic":
+                line = f"Сервисная подсказка по {service_type_label}:"
+            else:
+                line = f"{service_type_label}:"
             if works_preview:
                 line += f" работы — {works_preview}."
             if materials_preview:
@@ -2965,7 +3023,10 @@ class AgentRunner:
         maintenance_evidence = self._scenario_evidence(facts, "maintenance_lookup")
         dtc_evidence = self._scenario_evidence(facts, "dtc_lookup")
         fault_evidence = self._scenario_evidence(facts, "fault_research")
-        if parts_evidence["trigger_found"] and not isinstance(orchestration_results.get("find_part_numbers"), dict):
+        part_payload = orchestration_results.get("find_part_numbers")
+        dtc_payload = orchestration_results.get("decode_dtc")
+        fault_payload = orchestration_results.get("search_fault_info")
+        if parts_evidence["trigger_found"] and (not isinstance(part_payload, dict) or self._is_partial_tool_payload(part_payload)):
             missing_bits = self._humanize_missing_vehicle_fields(facts["missing_vehicle_fields"])
             if missing_bits:
                 lines.append(f"Следующему исполнителю: для точного подбора {facts['part_queries'][0]} уточнить {missing_bits}.")
@@ -2973,10 +3034,12 @@ class AgentRunner:
                 lines.append(f"Следующему исполнителю: для точного подбора {facts['part_queries'][0]} нужен VIN или точный номер снятой детали.")
         if maintenance_evidence["trigger_found"] and not facts["mileage"]:
             lines.append("Следующему исполнителю: уточнить пробег, чтобы подтвердить состав ТО и расходники.")
-        if dtc_evidence["trigger_found"] and not isinstance(orchestration_results.get("decode_dtc"), dict):
+        if dtc_evidence["trigger_found"] and (not isinstance(dtc_payload, dict) or self._is_partial_tool_payload(dtc_payload)):
             lines.append(f"Следующему исполнителю: повторно проверить код {facts['dtc_codes'][0]} и приложить скрин диагностики.")
-        if fault_evidence["trigger_found"] and fault_evidence["confidence_enough"] and not isinstance(orchestration_results.get("search_fault_info"), dict) and not facts["waiting_state"]:
+        if fault_evidence["trigger_found"] and fault_evidence["confidence_enough"] and (not isinstance(fault_payload, dict) or self._is_partial_tool_payload(fault_payload)) and not facts["waiting_state"]:
             lines.append("Следующему исполнителю: зафиксировать симптомы точнее — когда проявляется, на холодную или на горячую, под нагрузкой или на месте.")
+        if any(self._is_budget_exceeded_payload(payload) for payload in orchestration_results.values() if isinstance(payload, dict)):
+            lines.append("ИИ: внешний поиск упёрся в лимит запросов этого прохода; повторный проход продолжит поиск автоматически.")
         return lines[:2]
 
     def _autofill_result_summary(self, applied_updates: list[str], orchestration_results: dict[str, Any], *, facts: dict[str, Any]) -> str:
@@ -3001,6 +3064,8 @@ class AgentRunner:
                 return "Внешняя VIN-расшифровка выполнена, но данных недостаточно для уверенного обновления."
             if vin_status == "failed":
                 return "Внешняя VIN-расшифровка не вернула пригодный результат."
+        if any(self._is_budget_exceeded_payload(payload) for payload in orchestration_results.values() if isinstance(payload, dict)):
+            return "Внешний поиск частично отложен: исчерпан лимит запросов текущего прохода."
         if "find_part_numbers" in orchestration_results:
             return "Внешний поиск деталей выполнен, но новых надёжных полей для карточки не найдено."
         if "decode_dtc" in orchestration_results or "search_fault_info" in orchestration_results:

@@ -132,6 +132,11 @@ class AgentControlService:
                 "running": worker_running,
                 "heartbeat_fresh": heartbeat_fresh,
             },
+            "scheduler": {
+                "last_run_at": str(status.get("last_scheduler_run_at", "") or "").strip(),
+                "last_success_at": str(status.get("last_scheduler_success_at", "") or "").strip(),
+                "last_error": str(status.get("last_scheduler_error", "") or "").strip(),
+            },
             "status": status,
             "queue": {
                 "pending_total": pending_total,
@@ -316,39 +321,45 @@ class AgentControlService:
             return {"launched": [], "failed": [], "throttled": True}
         self._last_scheduler_tick_monotonic = now_monotonic
         now_text = utc_now_iso()
+        self._storage.update_status(last_scheduler_run_at=now_text)
         launched: list[str] = []
         failed: list[dict[str, str]] = []
-        for scheduled in self._storage.list_schedules():
-            if not bool(scheduled.get("active")):
-                continue
-            if str(scheduled.get("schedule_type", "once") or "once").strip().lower() == "on_create":
-                continue
-            next_run_at = str(scheduled.get("next_run_at", "") or "").strip()
-            if next_run_at and next_run_at > now_text:
-                continue
-            task_id = str(scheduled.get("id", "") or "").strip()
-            if not task_id or self._storage.has_active_task_for_schedule(task_id):
-                continue
-            try:
-                self._enqueue_scheduled_task(scheduled, source="agent_scheduler")
-                launched.append(task_id)
-            except Exception as exc:
-                failed.append({"task_id": task_id, "error": str(exc)})
-                self._storage.update_schedule(
-                    task_id,
-                    last_error=str(exc),
-                    updated_at=utc_now_iso(),
-                    next_run_at=self._next_run_at(scheduled, from_now=True),
-                )
-        if self._board_service is not None:
-            try:
-                payload = self._board_service.trigger_due_ai_followups()
-                launched.extend([str(item) for item in payload.get("launched", []) if str(item or "").strip()])
-                for item in payload.get("failed", []):
-                    if isinstance(item, dict):
-                        failed.append({"task_id": str(item.get("card_id", "") or "").strip(), "error": str(item.get("error", "") or "").strip()})
-            except Exception as exc:
-                failed.append({"task_id": "card_autofill", "error": str(exc)})
+        try:
+            for scheduled in self._storage.list_schedules():
+                if not bool(scheduled.get("active")):
+                    continue
+                if str(scheduled.get("schedule_type", "once") or "once").strip().lower() == "on_create":
+                    continue
+                next_run_at = str(scheduled.get("next_run_at", "") or "").strip()
+                if next_run_at and next_run_at > now_text:
+                    continue
+                task_id = str(scheduled.get("id", "") or "").strip()
+                if not task_id or self._storage.has_active_task_for_schedule(task_id):
+                    continue
+                try:
+                    self._enqueue_scheduled_task(scheduled, source="agent_scheduler")
+                    launched.append(task_id)
+                except Exception as exc:
+                    failed.append({"task_id": task_id, "error": str(exc)})
+                    self._storage.update_schedule(
+                        task_id,
+                        last_error=str(exc),
+                        updated_at=utc_now_iso(),
+                        next_run_at=self._next_run_at(scheduled, from_now=True),
+                    )
+            if self._board_service is not None:
+                try:
+                    payload = self._board_service.trigger_due_ai_followups()
+                    launched.extend([str(item) for item in payload.get("launched", []) if str(item or "").strip()])
+                    for item in payload.get("failed", []):
+                        if isinstance(item, dict):
+                            failed.append({"task_id": str(item.get("card_id", "") or "").strip(), "error": str(item.get("error", "") or "").strip()})
+                except Exception as exc:
+                    failed.append({"task_id": "card_autofill", "error": str(exc)})
+        except Exception as exc:
+            self._storage.update_status(last_scheduler_error=str(exc))
+            raise
+        self._storage.update_status(last_scheduler_success_at=utc_now_iso(), last_scheduler_error="")
         return {"launched": launched, "failed": failed, "throttled": False}
 
     def _scheduler_loop(self) -> None:

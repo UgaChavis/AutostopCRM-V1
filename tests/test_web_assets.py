@@ -179,6 +179,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function refreshAgentTasksModalState()", BOARD_WEB_APP_HTML)
         self.assertIn("function renderAgentAutofillControls(statusPayload)", BOARD_WEB_APP_HTML)
         self.assertIn("const displayActive = Boolean(active || activeTask);", BOARD_WEB_APP_HTML)
+        self.assertIn("const agentReady = Boolean(payload.agent?.ready ?? payload.agent?.available ?? payload.agent?.enabled);", BOARD_WEB_APP_HTML)
+        self.assertIn("const availabilityReason = String(payload.agent?.availability_reason || '').trim().toLowerCase();", BOARD_WEB_APP_HTML)
         self.assertIn("function syncAgentAutofillPromptPanel(card)", BOARD_WEB_APP_HTML)
         self.assertIn("function toggleAgentAutofillPromptPanel()", BOARD_WEB_APP_HTML)
         self.assertIn("async function saveAgentAutofillPrompt()", BOARD_WEB_APP_HTML)
@@ -186,6 +188,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function toggleAgentCardAutofill()", BOARD_WEB_APP_HTML)
         self.assertIn("const nextEnabled = !(Boolean(card?.ai_autofill_active) || Boolean(currentCardAutofillTask(state.agentLatestTasks)));", BOARD_WEB_APP_HTML)
         self.assertIn("Object.prototype.hasOwnProperty.call(data.meta, 'server_available')", BOARD_WEB_APP_HTML)
+        self.assertIn("statusText = 'SERVER AI STARTING';", BOARD_WEB_APP_HTML)
         self.assertNotIn("renderAgentAutofillControls({ agent: { enabled: true } });", BOARD_WEB_APP_HTML)
         self.assertIn("function formatAgentCountdown(untilText)", BOARD_WEB_APP_HTML)
         self.assertIn("function currentCardAutofillTask(tasks)", BOARD_WEB_APP_HTML)
@@ -246,7 +249,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("statusText = nextRunText ? ('ОЖИДАНИЕ · ' + nextRunText) : 'АВТОСОПРОВОЖДЕНИЕ АКТИВНО';", BOARD_WEB_APP_HTML)
         self.assertLess(
             BOARD_WEB_APP_HTML.index("if (activeTask) {"),
-            BOARD_WEB_APP_HTML.index("} else if (!agentEnabled) {"),
+            BOARD_WEB_APP_HTML.index("} else if (!agentReady && availabilityReason === 'configured_but_worker_idle') {"),
         )
         self.assertNotIn("АКТИВНО ДО ", BOARD_WEB_APP_HTML)
         self.assertIn('data-agent-follow-up="', BOARD_WEB_APP_HTML)

@@ -1615,6 +1615,29 @@ class McpServerRuntimeTests(unittest.TestCase):
                 client.health()
         self.assertIn("Локальный API вернул некорректный JSON", str(error.exception))
 
+    def test_request_retries_once_for_safe_get_transport_error(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        class HealthyResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self) -> bytes:
+                return b'{\"ok\": true, \"data\": {\"status\": \"ok\"}}'
+
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=[urllib.error.URLError("temporary"), HealthyResponse()],
+        ) as open_mock:
+            payload = client.health()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(open_mock.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

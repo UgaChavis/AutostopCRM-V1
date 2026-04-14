@@ -15,6 +15,10 @@ class AgentToolDefinition:
     args_schema: dict[str, Any]
 
 
+class ExternalToolBudgetExceeded(ValueError):
+    pass
+
+
 class AgentToolExecutor:
     def __init__(self, board_api: BoardApiClient, *, actor_name: str = "SERVER_AGENT") -> None:
         self._board_api = board_api
@@ -536,7 +540,7 @@ class AgentToolExecutor:
 
     def _consume_external_request_budget(self) -> None:
         if self._external_request_budget <= 0:
-            raise ValueError("External web tool budget exceeded for this task.")
+            raise ExternalToolBudgetExceeded("External web tool budget exceeded for this task.")
         self._external_request_budget -= 1
 
     def _definition_allowed(self, tool_name: str, *, task_type: str | None, context_kind: str | None) -> bool:

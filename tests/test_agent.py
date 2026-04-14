@@ -419,6 +419,27 @@ class AgentControlStatusTests(unittest.TestCase):
             self.assertEqual(payload["agent"]["availability_reason"], "configured_but_worker_idle")
             self.assertFalse(payload["worker"]["running"])
             self.assertFalse(payload["worker"]["heartbeat_fresh"])
+            self.assertIn("scheduler", payload)
+            self.assertTrue(payload["scheduler"]["last_run_at"])
+            self.assertTrue(payload["scheduler"]["last_success_at"])
+            self.assertEqual(payload["scheduler"]["last_error"], "")
+
+    def test_agent_status_exposes_scheduler_status_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            "os.environ",
+            {
+                "MINIMAL_KANBAN_AGENT_ENABLED": "1",
+                "OPENAI_API_KEY": "",
+            },
+            clear=False,
+        ):
+            storage = AgentStorage(base_dir=Path(temp_dir))
+            service = AgentControlService(storage)
+            service.trigger_scheduled_tasks(force=True)
+            payload = service.agent_status()
+            self.assertTrue(payload["scheduler"]["last_run_at"])
+            self.assertTrue(payload["scheduler"]["last_success_at"])
+            self.assertEqual(payload["scheduler"]["last_error"], "")
 
 
 class AgentRunnerTests(unittest.TestCase):
@@ -1413,6 +1434,48 @@ class AgentRunnerTests(unittest.TestCase):
             feedback = run["orchestration"]["scenario_feedback"]
             self.assertTrue(any(item.get("scenario_id") == "vin_enrichment" and item.get("status") == "success" for item in feedback))
             self.assertTrue(any(item.get("scenario_id") == "parts_lookup" and item.get("followup_reason") == "parts_lookup_failed" for item in feedback))
+
+    def test_runner_card_autofill_marks_budget_exhausted_parts_lookup_as_partial_followup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = AgentStorage(base_dir=Path(temp_dir))
+            storage.enqueue_task(
+                task_text="Автосопровождение карточки.",
+                metadata={
+                    "purpose": "card_autofill",
+                    "trigger": "manual_activate",
+                    "context": {"kind": "card", "card_id": "card-1", "title": "Радиатор"},
+                },
+            )
+            logger = logging.getLogger("test.agent.runner.autofill.parts.budget")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            board_api = _FakeWrappedBoardApi()
+            board_api.cards["card-1"]["description"] = (
+                "VIN: WBAPF71060A798127\n"
+                "Течет основной радиатор.\n"
+                "Нужно найти радиатор и сориентировать по цене."
+            )
+            runner = AgentRunner(
+                storage=storage,
+                board_api=board_api,
+                model_client=_FakeModelClient([{"type": "final", "summary": "unused", "result": "unused"}]),
+                logger=logger,
+            )
+            runner._tools._automotive = _FakeAutomotiveService()
+            runner._tools._external_request_budget_default = 1
+            runner._tools.reset_task_budget()
+            self.assertTrue(runner.run_once())
+            run = storage.list_runs(limit=1)[0]
+            verify = run["orchestration"]["verify"]
+            self.assertTrue(verify["applied_ok"])
+            self.assertFalse(verify["scenario_completed"])
+            self.assertTrue(verify["needs_followup"])
+            self.assertEqual(verify["outcome_state"], "completed_partial")
+            self.assertEqual(verify["followup_reason"], "parts_lookup_budget_deferred")
+            self.assertIn("parts lookup deferred: external budget exceeded", verify["warnings"])
+            log_messages = [item.get("message", "") for item in storage.list_actions(limit=80) if item.get("kind") == "log"]
+            self.assertIn("find_part_numbers: external web budget exhausted; scenario left partial.", log_messages)
 
     def test_runner_unwraps_wrapped_card_context_for_deterministic_autofill(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

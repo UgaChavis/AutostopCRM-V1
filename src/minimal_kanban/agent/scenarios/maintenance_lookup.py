@@ -47,6 +47,7 @@ class MaintenanceLookupScenarioExecutor:
             status="success",
             tool_calls_used=1,
             orchestration_updates={"estimate_maintenance": orchestration_payload},
+            facts_updates={"maintenance_result_origin": "local_heuristic"},
             tool_results=[
                 runtime._build_tool_result(
                     "estimate_maintenance",

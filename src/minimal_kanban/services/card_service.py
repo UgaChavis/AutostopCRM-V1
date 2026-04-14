@@ -637,8 +637,6 @@ class CardService:
                 if next_run_at > now:
                     continue
                 if self._agent_control.has_active_task_for_card(card.id, purpose="card_autofill"):
-                    self._append_card_ai_log(card, level="WAIT", message="Проход уже выполняется.")
-                    changed_any = True
                     continue
                 latest_task = self._agent_control.latest_task_for_card(card.id, purpose="card_autofill")
                 retry_after_failure = str(latest_task.get("status", "") if isinstance(latest_task, dict) else "").strip().lower() == "failed"
