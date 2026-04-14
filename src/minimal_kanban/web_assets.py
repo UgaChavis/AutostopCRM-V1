@@ -2234,6 +2234,14 @@ BOARD_WEB_APP_HTML = "".join(
         word-break: break-word;
         overflow-wrap: anywhere;
       }
+      .ai-chat-window__message-meta {
+        font-family: var(--mono);
+        font-size: 10px;
+        line-height: 1.35;
+        letter-spacing: 0.04em;
+        color: var(--text-soft);
+        opacity: 0.8;
+      }
       .ai-chat-window__composer-pane {
         min-height: 0;
         flex: 0 0 auto;
@@ -2257,6 +2265,7 @@ BOARD_WEB_APP_HTML = "".join(
         min-height: 96px;
         resize: vertical;
         width: 100%;
+        max-height: 30vh;
       }
       .ai-chat-window__composer-foot {
         display: flex;
@@ -4478,16 +4487,7 @@ BOARD_WEB_APP_HTML = "".join(
             </div>
           </header>
           <section class="ai-chat-window__messages-pane" aria-label="История сообщений">
-            <div class="ai-chat-window__messages" id="aiChatWindowMessages" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false">
-              <div class="ai-chat-window__message" data-role="assistant">
-                <div class="ai-chat-window__message-title">AI</div>
-                <div class="ai-chat-window__message-text">Чат-окно готово как отдельный surface. Здесь позже появятся история, markdown, context wiring и полноценный runtime.</div>
-              </div>
-              <div class="ai-chat-window__message" data-role="system">
-                <div class="ai-chat-window__message-title">SYSTEM</div>
-                <div class="ai-chat-window__message-text">Это не старый agent modal и не popup-menu. Input area уже выделена отдельно под будущий multiline composer.</div>
-              </div>
-            </div>
+            <div class="ai-chat-window__messages" id="aiChatWindowMessages" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false"></div>
           </section>
           <section class="ai-chat-window__composer-pane" aria-label="Поле ввода">
             <div class="ai-chat-window__composer">
@@ -5165,6 +5165,9 @@ BOARD_WEB_APP_HTML = "".join(
       aiSurfaceContext: { kind: 'chat' },
       aiSurfaceSelectedScenario: 'ai_chat',
       aiChatWindowContext: { kind: 'chat' },
+      aiChatWindowHistory: [],
+      aiChatWindowHistoryContext: null,
+      aiChatWindowMessageSeq: 0,
       agentRefreshTimer: null,
       agentAutofillCountdownTimer: null,
       agentAutofillPromptOpen: false,
@@ -5826,6 +5829,126 @@ BOARD_WEB_APP_HTML = "".join(
       els.aiChatWindowInput = document.getElementById('aiChatWindowInput');
       els.aiChatWindowSettingsButton = document.getElementById('aiChatWindowSettingsButton');
       els.aiChatWindowSendButton = document.getElementById('aiChatWindowSendButton');
+    }
+
+    function normalizeAiChatMessageRole(role) {
+      const normalized = String(role || '').trim().toLowerCase();
+      if (normalized === 'assistant' || normalized === 'system' || normalized === 'status') return normalized;
+      return 'user';
+    }
+
+    function aiChatHistoryContextSnapshot() {
+      const source = state.aiChatWindowContext && typeof state.aiChatWindowContext === 'object'
+        ? state.aiChatWindowContext
+        : { kind: 'chat' };
+      return {
+        kind: String(source.kind || 'chat').trim().toLowerCase() || 'chat',
+        card_id: String(source.card_id || '').trim(),
+        repair_order_id: String(source.repair_order_id || '').trim(),
+        source_kind: String(source.kind || 'chat').trim().toLowerCase() || 'chat',
+      };
+    }
+
+    function createAiChatMessage(role, text, meta = {}) {
+      const normalizedRole = normalizeAiChatMessageRole(role);
+      const entry = {
+        id: 'ai-chat-' + (++state.aiChatWindowMessageSeq),
+        role: normalizedRole,
+        text: String(text || '').trim(),
+        tone: normalizedRole === 'system' || normalizedRole === 'status' ? 'idle' : normalizedRole,
+        created_at: new Date().toISOString(),
+        context: aiChatHistoryContextSnapshot(),
+      };
+      const source = meta && typeof meta === 'object' ? meta : {};
+      if (source.source) entry.source = String(source.source || '').trim();
+      if (source.state) entry.state = String(source.state || '').trim().toLowerCase();
+      if (source.kind) entry.kind = String(source.kind || '').trim().toLowerCase();
+      if (source.topic) entry.topic = String(source.topic || '').trim();
+      if (source.hint) entry.hint = String(source.hint || '').trim();
+      return entry;
+    }
+
+    function ensureAiChatWindowHistory() {
+      if (!Array.isArray(state.aiChatWindowHistory)) state.aiChatWindowHistory = [];
+      if (state.aiChatWindowHistory.length > 0) return state.aiChatWindowHistory;
+      state.aiChatWindowHistory.push(
+        createAiChatMessage('system', 'Чат-окно готово как отдельный surface. Здесь позже появятся полноценный runtime, markdown и context wiring.', { kind: 'shell', source: 'shell' }),
+        createAiChatMessage('assistant', 'Это рабочий shell нового AI-чата. Пользовательские сообщения уже сохраняются в локальную историю.', { kind: 'shell', source: 'shell' })
+      );
+      return state.aiChatWindowHistory;
+    }
+
+    function aiChatMessageTone(role, message) {
+      if (message && typeof message === 'object' && String(message.state || '').trim()) {
+        return String(message.state).trim().toLowerCase();
+      }
+      if (role === 'assistant') return 'online';
+      if (role === 'system' || role === 'status') return 'idle';
+      return 'online';
+    }
+
+    function aiChatMessageTitle(role) {
+      if (role === 'assistant') return 'AI';
+      if (role === 'system') return 'SYSTEM';
+      if (role === 'status') return 'STATUS';
+      return 'YOU';
+    }
+
+    function renderAiChatWindowHistory() {
+      hydrateAiChatWindowUiRefs();
+      ensureAiChatWindowHistory();
+      if (!els.aiChatWindowMessages) return;
+      els.aiChatWindowMessages.innerHTML = state.aiChatWindowHistory.map((message) => {
+        const normalizedRole = normalizeAiChatMessageRole(message?.role);
+        const tone = aiChatMessageTone(normalizedRole, message);
+        const title = aiChatMessageTitle(normalizedRole);
+        const text = escapeHtml(String(message?.text || '').trim() || '...');
+        const metaLine = [];
+        if (message?.created_at) metaLine.push(escapeHtml(String(message.created_at)));
+        if (message?.context?.kind) metaLine.push(escapeHtml(String(message.context.kind)));
+        if (message?.source) metaLine.push(escapeHtml(String(message.source)));
+        return '<article class="ai-chat-window__message" data-role="' + escapeHtml(normalizedRole) + '" data-tone="' + escapeHtml(tone) + '" data-message-id="' + escapeHtml(message?.id || '') + '">' +
+          '<div class="ai-chat-window__message-title">' + title + '</div>' +
+          '<div class="ai-chat-window__message-text">' + text + '</div>' +
+          (metaLine.length ? '<div class="ai-chat-window__message-meta">' + metaLine.join(' · ') + '</div>' : '') +
+        '</article>';
+      }).join('');
+      requestAnimationFrame(() => {
+        if (els.aiChatWindowMessages) {
+          els.aiChatWindowMessages.scrollTop = els.aiChatWindowMessages.scrollHeight;
+        }
+      });
+    }
+
+    function appendAiChatWindowMessage(role, text, meta = {}) {
+      ensureAiChatWindowHistory();
+      const message = createAiChatMessage(role, text, meta);
+      state.aiChatWindowHistory.push(message);
+      renderAiChatWindowHistory();
+      return message;
+    }
+
+    function handleAiChatWindowSend() {
+      hydrateAiChatWindowUiRefs();
+      const input = String(els.aiChatWindowInput?.value || '').trim();
+      if (!input) return;
+      appendAiChatWindowMessage('user', input, { kind: 'user_input', source: 'composer' });
+      if (els.aiChatWindowInput) els.aiChatWindowInput.value = '';
+      appendAiChatWindowMessage('assistant', 'Runtime чата ещё не подключён. Сообщение сохранено в истории.', { kind: 'stub_response', source: 'placeholder' });
+    }
+
+    function handleAiChatWindowInputKeydown(event) {
+      if (!(event.ctrlKey || event.metaKey) || event.key !== 'Enter') return;
+      event.preventDefault();
+      handleAiChatWindowSend();
+    }
+
+    function bindAiChatWindowUiEvents() {
+      if (state.aiChatWindowUiBound) return;
+      hydrateAiChatWindowUiRefs();
+      els.aiChatWindowSendButton?.addEventListener('click', handleAiChatWindowSend);
+      els.aiChatWindowInput?.addEventListener('keydown', handleAiChatWindowInputKeydown);
+      state.aiChatWindowUiBound = true;
     }
 
     function hydrateAgentTasksUiRefs() {
@@ -7053,18 +7176,23 @@ BOARD_WEB_APP_HTML = "".join(
           : 'Напиши сообщение для AI-чата...';
       }
       if (els.aiChatWindowSendButton) {
-        els.aiChatWindowSendButton.disabled = true;
+        els.aiChatWindowSendButton.disabled = false;
       }
+      state.aiChatWindowHistoryContext = aiChatHistoryContextSnapshot();
+      renderAiChatWindowHistory();
     }
 
     function openAiChatWindow() {
       if (!requireOperatorSession()) return;
       hydrateAiChatWindowUiRefs();
+      bindAiChatWindowUiEvents();
       closeAiSurface();
       closeAgentModal();
       state.aiChatWindowContext = buildAiSurfaceContext('chat');
       state.aiSurfaceContext = state.aiChatWindowContext;
       state.aiSurfaceSelectedScenario = 'ai_chat';
+      state.aiChatWindowHistoryContext = aiChatHistoryContextSnapshot();
+      ensureAiChatWindowHistory();
       renderAiChatWindow(state.aiSurfaceStatusPayload || state.agentStatusPayload || {});
       els.aiChatWindow?.classList.add('is-open');
       refreshAgentModalState();
