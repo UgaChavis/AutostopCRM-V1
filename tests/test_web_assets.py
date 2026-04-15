@@ -261,9 +261,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("parts.push(CARD_TITLE_FIELD_LABEL + ': ' + title);", BOARD_WEB_APP_HTML)
         self.assertIn("configureCardFieldSemantics();", BOARD_WEB_APP_HTML)
 
-    def test_board_cards_show_eight_lines_of_description_preview(self) -> None:
+    def test_board_cards_show_five_lines_of_description_preview(self) -> None:
         self.assertIn(".card__desc {", BOARD_WEB_APP_HTML)
-        self.assertIn("-webkit-line-clamp: 8;", BOARD_WEB_APP_HTML)
+        self.assertIn("font-size: calc(13px * var(--board-scale));", BOARD_WEB_APP_HTML)
+        self.assertIn("-webkit-line-clamp: 5;", BOARD_WEB_APP_HTML)
         self.assertIn("function boardCardDescription(card)", BOARD_WEB_APP_HTML)
         self.assertIn("card?.description_preview || card?.description", BOARD_WEB_APP_HTML)
 
@@ -399,20 +400,32 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function renderBoardCardHtml(card)", BOARD_WEB_APP_HTML)
         self.assertIn("cards.map(renderBoardCardHtml).join('')", BOARD_WEB_APP_HTML)
 
-    def test_card_timer_panel_uses_compact_number_fields(self) -> None:
+    def test_card_timer_panel_uses_compact_stepper_fields(self) -> None:
         self.assertIn('<div class="panel-title">ОБРАТНЫЙ ОТСЧЁТ</div>', BOARD_WEB_APP_HTML)
         self.assertIn(".signal-grid--timer {", BOARD_WEB_APP_HTML)
         self.assertIn(".signal-grid--timer > .signal-cell:not(.signal-cell--timer) {", BOARD_WEB_APP_HTML)
-        self.assertIn(".signal-input {", BOARD_WEB_APP_HTML)
-        self.assertIn(".signal-input__field {", BOARD_WEB_APP_HTML)
-        self.assertIn(".signal-input__unit {", BOARD_WEB_APP_HTML)
+        self.assertIn(".signal-stepper {", BOARD_WEB_APP_HTML)
+        self.assertIn(".signal-stepper__button {", BOARD_WEB_APP_HTML)
+        self.assertIn(".signal-stepper__value {", BOARD_WEB_APP_HTML)
+        self.assertIn(".signal-stepper__unit {", BOARD_WEB_APP_HTML)
+        self.assertIn(".signal-input--hidden {", BOARD_WEB_APP_HTML)
         self.assertIn('class="signal-grid signal-grid--timer"', BOARD_WEB_APP_HTML)
         self.assertIn('class="signal-cell signal-cell--timer"', BOARD_WEB_APP_HTML)
-        self.assertIn('class="signal-input__field" id="signalDaysStyled"', BOARD_WEB_APP_HTML)
-        self.assertIn('class="signal-input__field" id="signalHoursStyled"', BOARD_WEB_APP_HTML)
-        self.assertIn('inputmode="numeric"', BOARD_WEB_APP_HTML)
-        self.assertIn("document.getElementById('signalDaysStyled') || document.getElementById('signalDays')", BOARD_WEB_APP_HTML)
-        self.assertIn("document.getElementById('signalHoursStyled') || document.getElementById('signalHours')", BOARD_WEB_APP_HTML)
+        self.assertIn('id="signalDaysDecrementButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="signalDaysDisplay"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="signalDaysIncrementButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="signalHoursDecrementButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="signalHoursDisplay"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="signalHoursIncrementButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="signalDays" type="number" min="0" max="365"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="signalHours" type="number" min="0" max="23"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('signalDaysStyled', BOARD_WEB_APP_HTML)
+        self.assertNotIn('signalHoursStyled', BOARD_WEB_APP_HTML)
+
+    def test_card_preview_clamps_to_five_description_lines(self) -> None:
+        self.assertIn(".card__desc {", BOARD_WEB_APP_HTML)
+        self.assertIn("font-size: calc(13px * var(--board-scale));", BOARD_WEB_APP_HTML)
+        self.assertIn("-webkit-line-clamp: 5;", BOARD_WEB_APP_HTML)
 
     def test_card_preview_uses_readable_russian_meta_labels(self) -> None:
         self.assertIn("БЕЗ МЕТОК", BOARD_WEB_APP_HTML)

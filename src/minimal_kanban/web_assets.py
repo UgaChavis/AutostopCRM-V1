@@ -712,10 +712,10 @@ BOARD_WEB_APP_HTML = "".join(
         0 0 calc(8px * var(--board-scale)) rgba(168, 126, 21, 0.2);
     }
     .card__desc {
-      font-size: calc(12px * var(--board-scale));
-      line-height: 1.22;
+      font-size: calc(13px * var(--board-scale));
+      line-height: 1.28;
       display: -webkit-box;
-      -webkit-line-clamp: 8;
+      -webkit-line-clamp: 5;
       -webkit-box-orient: vertical;
       overflow: hidden;
       white-space: pre-wrap;
@@ -1101,41 +1101,49 @@ BOARD_WEB_APP_HTML = "".join(
       text-transform: uppercase;
       color: var(--text-soft);
     }
-    .signal-input {
+    .signal-stepper {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: auto minmax(0, 1fr) auto auto;
       align-items: center;
-      min-height: 30px;
+      min-height: 34px;
       border: 1px solid var(--line-soft);
       background:
         linear-gradient(180deg, rgba(255,255,255,0.03), transparent 40%),
         rgba(0,0,0,0.16);
     }
-    .signal-input__field {
-      min-width: 0;
-      min-height: 28px;
+    .signal-stepper__button {
+      min-width: 30px;
+      min-height: 30px;
       border: 0;
-      background: transparent;
-      padding: 0 7px;
+      background: rgba(255,255,255,0.02);
+      color: var(--text);
       font-family: var(--mono);
-      font-size: 13px;
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .signal-stepper__button:disabled {
+      opacity: 0.28;
+      cursor: not-allowed;
+    }
+    .signal-stepper__button:hover:not(:disabled) {
+      background: rgba(255,255,255,0.05);
+    }
+    .signal-stepper__value {
+      min-width: 0;
+      min-height: 30px;
+      display: grid;
+      place-items: center;
+      padding: 0 8px;
+      font-family: var(--mono);
+      font-size: 19px;
       font-weight: 700;
       color: var(--text);
-      text-align: center;
-      appearance: textfield;
-      -moz-appearance: textfield;
+      letter-spacing: 0.02em;
     }
-    .signal-input__field::-webkit-outer-spin-button,
-    .signal-input__field::-webkit-inner-spin-button {
-      -webkit-appearance: none;
-      margin: 0;
-    }
-    .signal-input__field:focus {
-      outline: none;
-      background: rgba(255,255,255,0.02);
-    }
-    .signal-input__unit {
-      min-width: 26px;
+    .signal-stepper__unit {
+      min-width: 22px;
       padding: 0 8px 0 0;
       font-family: var(--mono);
       font-size: 10px;
@@ -1144,6 +1152,17 @@ BOARD_WEB_APP_HTML = "".join(
       color: var(--text-soft);
       text-align: center;
       pointer-events: none;
+    }
+    .signal-input--hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
     .tags-panel {
       gap: 6px;
@@ -4930,13 +4949,29 @@ BOARD_WEB_APP_HTML = "".join(
             </div>
             <div class="overview-main__meta">
                 <div class="subpanel signal-panel">
-                  <div class="panel-title">ОБРАТНЫЙ ОТСЧЁТ</div>
+                <div class="panel-title">ОБРАТНЫЙ ОТСЧЁТ</div>
                 <div class="signal-preview" id="signalPreview">01Д 00Ч</div>
                 <div class="signal-grid signal-grid--timer">
-                  <label class="signal-cell signal-cell--timer"><span class="signal-cell__label">&#1044;&#1085;&#1077;&#1081;</span><div class="signal-input"><input class="signal-input__field" id="signalDaysStyled" type="number" min="0" max="365" inputmode="numeric"><span class="signal-input__unit">&#1076;</span></div></label>
-                  <label class="signal-cell signal-cell--timer"><span class="signal-cell__label">&#1063;&#1072;&#1089;&#1086;&#1074;</span><div class="signal-input"><input class="signal-input__field" id="signalHoursStyled" type="number" min="0" max="23" inputmode="numeric"><span class="signal-input__unit">&#1095;</span></div></label>
-                  <label class="signal-cell"><span>ДН</span><input id="signalDays" type="number" min="0" max="365"></label>
-                  <label class="signal-cell"><span>ЧС</span><input id="signalHours" type="number" min="0" max="23"></label>
+                  <label class="signal-cell signal-cell--timer">
+                    <span class="signal-cell__label">&#1044;&#1085;&#1077;&#1081;</span>
+                    <div class="signal-stepper">
+                      <button class="signal-stepper__button" id="signalDaysDecrementButton" type="button" aria-label="Уменьшить дни">−</button>
+                      <span class="signal-stepper__value" id="signalDaysDisplay">00</span>
+                      <button class="signal-stepper__button" id="signalDaysIncrementButton" type="button" aria-label="Увеличить дни">+</button>
+                      <span class="signal-stepper__unit">&#1076;</span>
+                    </div>
+                  </label>
+                  <label class="signal-cell signal-cell--timer">
+                    <span class="signal-cell__label">&#1063;&#1072;&#1089;&#1086;&#1074;</span>
+                    <div class="signal-stepper">
+                      <button class="signal-stepper__button" id="signalHoursDecrementButton" type="button" aria-label="Уменьшить часы">−</button>
+                      <span class="signal-stepper__value" id="signalHoursDisplay">00</span>
+                      <button class="signal-stepper__button" id="signalHoursIncrementButton" type="button" aria-label="Увеличить часы">+</button>
+                      <span class="signal-stepper__unit">&#1095;</span>
+                    </div>
+                  </label>
+                  <input class="signal-input--hidden" id="signalDays" type="number" min="0" max="365">
+                  <input class="signal-input--hidden" id="signalHours" type="number" min="0" max="23">
                 </div>
               </div>
               <div class="subpanel tags-panel">
@@ -5801,8 +5836,14 @@ BOARD_WEB_APP_HTML = "".join(
       cardTitle: document.getElementById('cardTitle'),
       cardDescription: document.getElementById('cardDescription'),
       signalPreview: document.getElementById('signalPreview'),
-      signalDays: document.getElementById('signalDaysStyled') || document.getElementById('signalDays'),
-      signalHours: document.getElementById('signalHoursStyled') || document.getElementById('signalHours'),
+      signalDays: document.getElementById('signalDays'),
+      signalHours: document.getElementById('signalHours'),
+      signalDaysDisplay: document.getElementById('signalDaysDisplay'),
+      signalHoursDisplay: document.getElementById('signalHoursDisplay'),
+      signalDaysIncrementButton: document.getElementById('signalDaysIncrementButton'),
+      signalDaysDecrementButton: document.getElementById('signalDaysDecrementButton'),
+      signalHoursIncrementButton: document.getElementById('signalHoursIncrementButton'),
+      signalHoursDecrementButton: document.getElementById('signalHoursDecrementButton'),
       vehiclePanelSummary: document.getElementById('vehiclePanelSummary'),
       vehicleProfileFields: document.getElementById('vehicleProfileFields'),
       vehicleAutofillButton: document.getElementById('vehicleAutofillButton'),
@@ -10442,6 +10483,28 @@ BOARD_WEB_APP_HTML = "".join(
       };
     }
 
+    function clampSignalPart(kind, value) {
+      const limit = kind === 'days' ? 365 : 23;
+      return Math.max(0, Math.min(limit, value));
+    }
+
+    function setSignalPartValue(kind, value) {
+      const input = kind === 'days' ? els.signalDays : els.signalHours;
+      if (!input) return;
+      const nextValue = clampSignalPart(kind, Number(value || 0));
+      input.value = String(nextValue);
+    }
+
+    function signalPartValue(kind) {
+      const input = kind === 'days' ? els.signalDays : els.signalHours;
+      return clampSignalPart(kind, Number(input?.value || 0));
+    }
+
+    function adjustSignalPart(kind, delta) {
+      setSignalPartValue(kind, signalPartValue(kind) + Number(delta || 0));
+      renderSignalPreview();
+    }
+
     function stickyDeadlineInput() {
       return {
         days: Number(els.stickyDays.value || 0),
@@ -10615,6 +10678,12 @@ BOARD_WEB_APP_HTML = "".join(
     function renderSignalPreview() {
       const draft = deadlineInput();
       const total = (draft.days * 86400) + (draft.hours * 3600) + (draft.minutes * 60) + draft.seconds;
+      if (els.signalDaysDisplay) els.signalDaysDisplay.textContent = String(signalPartValue('days')).padStart(2, '0');
+      if (els.signalHoursDisplay) els.signalHoursDisplay.textContent = String(signalPartValue('hours')).padStart(2, '0');
+      if (els.signalDaysDecrementButton) els.signalDaysDecrementButton.disabled = signalPartValue('days') <= 0;
+      if (els.signalDaysIncrementButton) els.signalDaysIncrementButton.disabled = signalPartValue('days') >= 365;
+      if (els.signalHoursDecrementButton) els.signalHoursDecrementButton.disabled = signalPartValue('hours') <= 0;
+      if (els.signalHoursIncrementButton) els.signalHoursIncrementButton.disabled = signalPartValue('hours') >= 23;
       els.signalPreview.innerHTML = durationToMarkup(total, true);
     }
 
@@ -15028,6 +15097,10 @@ function renderCompactArchiveRows(cards) {
     els.boardControlCooldownInput?.addEventListener('change', persistBoardScaleChange);
     els.columnButton.addEventListener('click', createColumnFromTopbar);
     els.cardButton.addEventListener('click', openDefaultNewCard);
+    els.signalDaysIncrementButton.addEventListener('click', () => adjustSignalPart('days', 1));
+    els.signalDaysDecrementButton.addEventListener('click', () => adjustSignalPart('days', -1));
+    els.signalHoursIncrementButton.addEventListener('click', () => adjustSignalPart('hours', 1));
+    els.signalHoursDecrementButton.addEventListener('click', () => adjustSignalPart('hours', -1));
     [els.signalDays, els.signalHours].forEach((input) => {
       input.addEventListener('input', renderSignalPreview);
       input.addEventListener('change', renderSignalPreview);
