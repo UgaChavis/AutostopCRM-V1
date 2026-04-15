@@ -11181,16 +11181,29 @@ BOARD_WEB_APP_HTML = "".join(
         return;
       }
       try {
-        if (navigator.clipboard?.writeText) {
-          await navigator.clipboard.writeText(value);
-        } else {
-          const temp = document.createElement('textarea');
-          temp.value = value;
-          document.body.appendChild(temp);
-          temp.select();
-          document.execCommand('copy');
-          temp.remove();
+        const temp = document.createElement('textarea');
+        temp.value = value;
+        temp.setAttribute('readonly', 'readonly');
+        temp.style.position = 'fixed';
+        temp.style.left = '-1000px';
+        temp.style.top = '-1000px';
+        temp.style.opacity = '0';
+        document.body.appendChild(temp);
+        temp.focus();
+        temp.select();
+        temp.setSelectionRange(0, temp.value.length);
+        let copied = false;
+        try {
+          copied = document.execCommand('copy');
+        } catch (_) {
+          copied = false;
         }
+        temp.remove();
+        if (!copied && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(value);
+          copied = true;
+        }
+        if (!copied) throw new Error('copy_failed');
         setStatus('СКОПИРОВАНО: ' + fieldName.toUpperCase(), false);
       } catch (_) {
         setStatus('НЕ УДАЛОСЬ СКОПИРОВАТЬ ПОЛЕ.', true);
