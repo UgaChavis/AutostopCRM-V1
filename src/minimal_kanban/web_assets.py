@@ -807,16 +807,6 @@ BOARD_WEB_APP_HTML = "".join(
       border-style: dashed;
       background: transparent;
     }
-    .meta-line {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: calc(10px * var(--board-scale));
-      color: #4e493d;
-      font-family: var(--mono);
-      font-size: calc(11px * var(--board-scale));
-      text-transform: uppercase;
-    }
     .modal {
       position: fixed;
       inset: 0;
@@ -4822,7 +4812,7 @@ BOARD_WEB_APP_HTML = "".join(
             </div>
             <div class="cashbox-composer__actions">
               <button class="btn btn--accent" id="cashboxIncomeButton">+ ПОСТУПЛЕНИЕ</button>
-              <button class="btn" id="cashboxTransferButton">↔ ПЕРЕМЕЩЕНИЕ</button>
+              <button class="btn" id="cashboxTransferButton">- ПЕРЕМЕЩЕНИЕ</button>
               <button class="btn" id="cashboxExpenseButton">- СПИСАНИЕ</button>
             </div>
           </div>
@@ -4955,7 +4945,7 @@ BOARD_WEB_APP_HTML = "".join(
                   <label class="signal-cell signal-cell--timer">
                     <span class="signal-cell__label">&#1044;&#1085;&#1077;&#1081;</span>
                     <div class="signal-stepper">
-                      <button class="signal-stepper__button" id="signalDaysDecrementButton" type="button" aria-label="Уменьшить дни">−</button>
+                      <button class="signal-stepper__button" id="signalDaysDecrementButton" type="button" aria-label="Уменьшить дни">?</button>
                       <span class="signal-stepper__value" id="signalDaysDisplay">00</span>
                       <button class="signal-stepper__button" id="signalDaysIncrementButton" type="button" aria-label="Увеличить дни">+</button>
                       <span class="signal-stepper__unit">&#1076;</span>
@@ -4964,7 +4954,7 @@ BOARD_WEB_APP_HTML = "".join(
                   <label class="signal-cell signal-cell--timer">
                     <span class="signal-cell__label">&#1063;&#1072;&#1089;&#1086;&#1074;</span>
                     <div class="signal-stepper">
-                      <button class="signal-stepper__button" id="signalHoursDecrementButton" type="button" aria-label="Уменьшить часы">−</button>
+                      <button class="signal-stepper__button" id="signalHoursDecrementButton" type="button" aria-label="Уменьшить часы">?</button>
                       <span class="signal-stepper__value" id="signalHoursDisplay">00</span>
                       <button class="signal-stepper__button" id="signalHoursIncrementButton" type="button" aria-label="Увеличить часы">+</button>
                       <span class="signal-stepper__unit">&#1095;</span>
@@ -5448,7 +5438,7 @@ BOARD_WEB_APP_HTML = "".join(
         button.className = 'btn btn--ghost repair-order-money-button';
         button.id = 'repairOrderPaymentsButton';
         button.type = 'button';
-        button.textContent = '₽';
+        button.textContent = '?';
         footerActions.insertBefore(button, document.getElementById('repairOrderPrintButton'));
       }
     }
@@ -5506,7 +5496,7 @@ BOARD_WEB_APP_HTML = "".join(
                   + '<div class="agent-autofill-panel">'
                     + '<div class="agent-autofill-panel__top">'
                       + '<button class="btn btn--ghost agent-autofill-button" id="agentAutofillButton" type="button">АВТОЗАПОЛНЕНИЕ</button>'
-                      + '<button class="agent-autofill-gear" id="agentAutofillPromptToggle" type="button" title="Mini-prompt" aria-label="Mini-prompt">⚙</button>'
+                      + '<button class="agent-autofill-gear" id="agentAutofillPromptToggle" type="button" title="Mini-prompt" aria-label="Mini-prompt">?</button>'
                     + '</div>'
                     + '<div class="agent-autofill-status" id="agentAutofillStatus" data-state="offline">SERVER AI OFFLINE</div>'
                     + '<div class="agent-autofill-prompt" id="agentAutofillPromptPanel" hidden>'
@@ -7106,7 +7096,7 @@ BOARD_WEB_APP_HTML = "".join(
         els.aiChatWindowSettingsButton.disabled = false;
         els.aiChatWindowSettingsButton.dataset.state = isOpen ? 'open' : 'closed';
         els.aiChatWindowSettingsButton.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-        els.aiChatWindowSettingsButton.textContent = isOpen ? 'НАСТРОЙКИ ×' : 'НАСТРОЙКИ';
+        els.aiChatWindowSettingsButton.textContent = isOpen ? 'НАСТРОЙКИ ?' : 'НАСТРОЙКИ';
       }
       if (els.aiChatWindowPromptSystem) {
         els.aiChatWindowPromptSystem.textContent = profile.system_instruction;
@@ -9490,9 +9480,9 @@ BOARD_WEB_APP_HTML = "".join(
               + '<div class="agent-task-row__meta">' + escapeHtml(scopeLabel.toUpperCase()) + '</div>'
             + '</div>'
             + '<div class="agent-task-actions">'
-              + '<button class="btn btn--ghost" type="button" data-agent-scheduled-action="run" data-task-id="' + escapeHtml(task.id) + '">▶</button>'
-              + '<button class="btn btn--ghost" type="button" data-agent-scheduled-action="' + escapeHtml(task.active ? 'pause' : 'resume') + '" data-task-id="' + escapeHtml(task.id) + '">' + escapeHtml(task.active ? '⏸' : '▶') + '</button>'
-              + '<button class="btn btn--ghost" type="button" data-agent-scheduled-action="delete" data-task-id="' + escapeHtml(task.id) + '">✕</button>'
+              + '<button class="btn btn--ghost" type="button" data-agent-scheduled-action="run" data-task-id="' + escapeHtml(task.id) + '">?</button>'
+              + '<button class="btn btn--ghost" type="button" data-agent-scheduled-action="' + escapeHtml(task.active ? 'pause' : 'resume') + '" data-task-id="' + escapeHtml(task.id) + '">' + escapeHtml(task.active ? '?' : '?') + '</button>'
+              + '<button class="btn btn--ghost" type="button" data-agent-scheduled-action="delete" data-task-id="' + escapeHtml(task.id) + '">?</button>'
             + '</div>'
           + '</div>'
           + '<div class="agent-task-row__prompt">' + escapeHtml(promptPreview) + '</div>'
@@ -10638,7 +10628,7 @@ BOARD_WEB_APP_HTML = "".join(
       const expired = sticky.is_expired ? 'true' : 'false';
       const tone = style.toneClass;
       return '<article class="sticky" data-sticky-id="' + escapeHtml(sticky.id) + '" data-expired="' + expired + '" data-opacity="' + tone + '" style="left:' + style.left + 'px; top:' + style.top + 'px; opacity:' + style.opacity + ';">' +
-        '<div class="sticky__head"><span class="sticky__pin">СТИКЕР</span><button class="sticky__close" type="button" data-delete-sticky="' + escapeHtml(sticky.id) + '" title="Удалить">×</button></div>' +
+        '<div class="sticky__head"><span class="sticky__pin">СТИКЕР</span><button class="sticky__close" type="button" data-delete-sticky="' + escapeHtml(sticky.id) + '" title="Удалить">?</button></div>' +
         '<div class="sticky__text">' + escapeHtml(sticky.text || 'ЗАМЕТКА') + '</div>' +
         '<div class="sticky__meta"><span>' + stickyDurationMarkup(sticky) + '</span><span>TIME</span></div>' +
         '</article>';
@@ -10791,7 +10781,7 @@ BOARD_WEB_APP_HTML = "".join(
         ? state.repairOrderTags.map((tag) => (
             '<span class="repair-order-tag-item">'
             + '<button class="tag repair-order-tag-edit" type="button" data-tag-color="' + escapeHtml(tag.color) + '" data-edit-repair-order-tag="' + escapeHtml(tag.label) + '" title="Редактировать метку"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</button>'
-            + '<button class="btn btn--ghost repair-order-tag-remove" type="button" data-remove-repair-order-tag="' + escapeHtml(tag.label) + '" aria-label="Удалить метку">×</button>'
+            + '<button class="btn btn--ghost repair-order-tag-remove" type="button" data-remove-repair-order-tag="' + escapeHtml(tag.label) + '" aria-label="Удалить метку">?</button>'
             + '</span>'
           )).join('')
         : '<div class="tag tag--muted">МЕТОК НЕТ</div>';
@@ -11161,7 +11151,7 @@ BOARD_WEB_APP_HTML = "".join(
         ? previewTags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
         : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
-      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
     };
 
     renderCardHtml = function(card) {
@@ -11173,7 +11163,7 @@ BOARD_WEB_APP_HTML = "".join(
         : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
     };
 
     renderBoardCardHtml = function(card) {
@@ -11186,7 +11176,7 @@ BOARD_WEB_APP_HTML = "".join(
       const headingHtml = buildCardHeadingHtml(card);
       const unreadBadgeHtml = cardUnreadBadgeHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
     };
 
     function legacyRefreshVehiclePanelShadow() {
@@ -12024,7 +12014,7 @@ BOARD_WEB_APP_HTML = "".join(
               + '<div class="repair-order-payment-row__subline">' + escapeHtml('Когда: ' + paidAt + ' | Кем: ' + actorName + ' | Касса: ' + cashboxName) + '</div>'
             + '</div>'
             + '<div class="repair-order-payment-row__amount">' + escapeHtml(repairOrderFormatMoney(item?.amount || 0)) + '</div>'
-            + '<button class="btn btn--ghost repair-order-payment-row__remove" type="button" data-remove-repair-order-payment="' + escapeHtml(item.id) + '">×</button>'
+            + '<button class="btn btn--ghost repair-order-payment-row__remove" type="button" data-remove-repair-order-payment="' + escapeHtml(item.id) + '">?</button>'
             + '</div>';
         }).join('') : '<div class="cashboxes-empty">Оплат пока нет.</div>';
       }
@@ -12527,7 +12517,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     function renderTags() {
       els.tagList.innerHTML = state.draftTags.length
-        ? state.draftTags.map((tag) => '<button class="tag" data-remove-tag="' + escapeHtml(tag) + '">' + escapeHtml(tag) + ' ×</button>').join('')
+        ? state.draftTags.map((tag) => '<button class="tag" data-remove-tag="' + escapeHtml(tag) + '">' + escapeHtml(tag) + ' ?</button>').join('')
         : '<div class="tag tag--muted">МЕТОК НЕТ</div>';
       els.tagSuggestions.innerHTML = SUGGESTED_TAGS.map((tag) => {
         const active = state.draftTags.includes(tag.label);
@@ -12541,7 +12531,7 @@ BOARD_WEB_APP_HTML = "".join(
       const atLimit = state.draftTags.length >= CARD_TAG_LIMIT;
       renderTagColorPicker();
       els.tagList.innerHTML = state.draftTags.length
-        ? state.draftTags.map((tag) => '<button class="tag" data-tag-color="' + escapeHtml(tag.color) + '" data-remove-tag="' + escapeHtml(tag.label) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + ' ×</button>').join('')
+        ? state.draftTags.map((tag) => '<button class="tag" data-tag-color="' + escapeHtml(tag.color) + '" data-remove-tag="' + escapeHtml(tag.label) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + ' ?</button>').join('')
         : '<div class="tag tag--muted">МЕТОК НЕТ</div>';
       if (els.tagMeta) {
         els.tagMeta.textContent = state.draftTags.length + ' / ' + CARD_TAG_LIMIT;
@@ -13045,7 +13035,7 @@ function renderCompactArchiveRows(cards) {
       const sortBy = normalizeRepairOrdersSortBy(meta.sort_by || state.repairOrdersSortBy);
       const sortDir = normalizeRepairOrdersSortDir(meta.sort_dir || state.repairOrdersSortDir);
       const sortLabel = sortBy === 'number' ? 'НОМЕР' : (sortBy === 'closed_at' ? 'ДАТА ЗАКРЫТИЯ' : 'ДАТА ОТКРЫТИЯ');
-      parts.push('СОРТ: ' + sortLabel + ' ' + (sortDir === 'asc' ? '↑' : '↓'));
+      parts.push('СОРТ: ' + sortLabel + ' ' + (sortDir === 'asc' ? '^' : 'v'));
       return parts.join(' | ');
     };
 
@@ -13228,7 +13218,7 @@ function renderCompactArchiveRows(cards) {
       const headingHtml = card.vehicle
         ? '<div class="card__heading"><div class="card__vehicle">' + escapeHtml(card.vehicle) + '</div><span class="card__slash">/</span><div class="card__title">' + escapeHtml(card.title) + '</div></div>'
         : '<div class="card__title">' + escapeHtml(card.title) + '</div>';
-      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
     }
 
     function renderCardHtml(card) {
@@ -13242,7 +13232,7 @@ function renderCompactArchiveRows(cards) {
         ? '<div class="card__heading"><div class="card__vehicle">' + escapeHtml(card.vehicle) + '</div><span class="card__slash">/</span><div class="card__title">' + escapeHtml(card.title) + '</div></div>'
         : '<div class="card__title">' + escapeHtml(card.title) + '</div>';
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
     }
 
     function renderBoardCardHtml(card) {
@@ -13255,7 +13245,7 @@ function renderCompactArchiveRows(cards) {
       const headingHtml = buildCardHeadingHtml(card);
       const unreadBadgeHtml = cardUnreadBadgeHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
     }
 
     function sortBoardCards(cards) {
@@ -13303,7 +13293,7 @@ function renderCompactArchiveRows(cards) {
         : (snapshot.columns.length <= 1 ? 'Последний столбец нельзя удалить' : 'Удалить пустой столбец');
       const renameTitle = 'Переименовать столбец';
       const deleteAttrs = isDeleteBlocked ? ' disabled' : '';
-      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '" draggable="true"><div class="column__head" data-drag-column-handle="1"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '">&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>×</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '<div class="empty">ЗДЕСЬ ПОКА ПУСТО.</div>') + '</div><button class="btn" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
+      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '" draggable="true"><div class="column__head" data-drag-column-handle="1"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '">&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>?</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '<div class="empty">ЗДЕСЬ ПОКА ПУСТО.</div>') + '</div><button class="btn" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
     }
 
     function renderBoardColumnById(columnId, cardsByColumn = null) {
@@ -14005,7 +13995,7 @@ function renderCompactArchiveRows(cards) {
       const amount = Number(value || 0);
       const sign = amount < 0 ? '-' : '';
       const absolute = Math.abs(amount) / 100;
-      return sign + absolute.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
+      return sign + absolute.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ?';
     }
 
     function activeCashboxStatistics() {
@@ -15214,7 +15204,7 @@ function renderCompactArchiveRows(cards) {
       const headingHtml = buildCardHeadingHtml(card);
       const badgeHtml = cardUnreadBadgeHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-updated-unseen="' + (card.has_unseen_update ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + badgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(boardCardDescription(card)) + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-updated-unseen="' + (card.has_unseen_update ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + badgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(boardCardDescription(card)) + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
     };
 
     function legacyCardHtmlBase(card) {
@@ -15224,7 +15214,7 @@ function renderCompactArchiveRows(cards) {
         ? previewTags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
         : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
-      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
     }
 
     function legacyRenderCardHtmlBase(card) {
@@ -15237,7 +15227,7 @@ function renderCompactArchiveRows(cards) {
       const headingHtml = buildCardHeadingHtml(card);
       const unreadBadgeHtml = cardUnreadBadgeHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
     }
 
     function legacyCardHtmlShadow(card) {
@@ -15247,7 +15237,7 @@ function renderCompactArchiveRows(cards) {
         ? previewTags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
         : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
-      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
     }
 
     function legacyRenderCardHtmlShadow(card) {
@@ -15259,7 +15249,7 @@ function renderCompactArchiveRows(cards) {
         : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div><div class="meta-line"><span>ФАЙЛЫ ' + escapeHtml(card.attachment_count) + '</span><span>ЖУРНАЛ ' + escapeHtml(card.events_count) + '</span></div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
     }
 
     function refreshVehiclePanel() {
@@ -15306,3 +15296,5 @@ function renderCompactArchiveRows(cards) {
 """,
     ]
 )
+
+

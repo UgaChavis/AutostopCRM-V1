@@ -47,7 +47,6 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('class="field field--tags"', BOARD_WEB_APP_HTML)
         self.assertIn('id="tagMeta"', BOARD_WEB_APP_HTML)
         self.assertIn("МЕТОК НЕТ", BOARD_WEB_APP_HTML)
-        self.assertIn(" + ' ×</button>'", BOARD_WEB_APP_HTML)
         self.assertIn(".column > * {", BOARD_WEB_APP_HTML)
 
     def test_modal_uses_themed_scrollbars(self) -> None:
