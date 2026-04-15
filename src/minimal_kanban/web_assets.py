@@ -968,8 +968,8 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .overview-main__meta {
       display: grid;
-      grid-template-columns: minmax(128px, 144px) minmax(0, 1fr);
-      gap: 5px;
+      grid-template-columns: minmax(168px, 184px) minmax(0, 1fr);
+      gap: 8px;
       align-items: start;
     }
     .dialog__tabs--card {
@@ -1053,8 +1053,8 @@ BOARD_WEB_APP_HTML = "".join(
       color: var(--text-soft);
     }
     .signal-panel {
-      gap: 4px;
-      padding: 6px;
+      gap: 6px;
+      padding: 8px;
       align-content: start;
       min-width: 0;
     }
@@ -1103,13 +1103,13 @@ BOARD_WEB_APP_HTML = "".join(
       font-size: 11px;
     }
     .signal-grid--timer {
-      gap: 4px;
+      gap: 8px;
     }
     .signal-grid--timer > .signal-cell:not(.signal-cell--timer) {
       display: none;
     }
     .signal-cell--timer {
-      gap: 4px;
+      gap: 5px;
     }
     .signal-cell__label {
       font-family: var(--mono);
@@ -1122,15 +1122,15 @@ BOARD_WEB_APP_HTML = "".join(
       display: grid;
       grid-template-columns: auto minmax(0, 1fr) auto auto;
       align-items: center;
-      min-height: 34px;
+      min-height: 38px;
       border: 1px solid var(--line-soft);
       background:
         linear-gradient(180deg, rgba(255,255,255,0.03), transparent 40%),
         rgba(0,0,0,0.16);
     }
     .signal-stepper__button {
-      min-width: 30px;
-      min-height: 30px;
+      min-width: 32px;
+      min-height: 32px;
       border: 0;
       background: rgba(255,255,255,0.02);
       color: var(--text);
@@ -1149,12 +1149,12 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .signal-stepper__value {
       min-width: 0;
-      min-height: 30px;
+      min-height: 32px;
       display: grid;
       place-items: center;
-      padding: 0 8px;
+      padding: 0 10px;
       font-family: var(--mono);
-      font-size: 19px;
+      font-size: 21px;
       font-weight: 700;
       color: var(--text);
       letter-spacing: 0.02em;
@@ -4972,7 +4972,7 @@ BOARD_WEB_APP_HTML = "".join(
                   <label class="signal-cell signal-cell--timer">
                     <span class="signal-cell__label">&#1044;&#1085;&#1077;&#1081;</span>
                     <div class="signal-stepper">
-                      <button class="signal-stepper__button" id="signalDaysDecrementButton" type="button" aria-label="Уменьшить дни">?</button>
+                       <button class="signal-stepper__button" id="signalDaysDecrementButton" type="button" aria-label="Уменьшить дни">&minus;</button>
                       <span class="signal-stepper__value" id="signalDaysDisplay">00</span>
                       <button class="signal-stepper__button" id="signalDaysIncrementButton" type="button" aria-label="Увеличить дни">+</button>
                       <span class="signal-stepper__unit">&#1076;</span>
@@ -4981,7 +4981,7 @@ BOARD_WEB_APP_HTML = "".join(
                   <label class="signal-cell signal-cell--timer">
                     <span class="signal-cell__label">&#1063;&#1072;&#1089;&#1086;&#1074;</span>
                     <div class="signal-stepper">
-                      <button class="signal-stepper__button" id="signalHoursDecrementButton" type="button" aria-label="Уменьшить часы">?</button>
+                       <button class="signal-stepper__button" id="signalHoursDecrementButton" type="button" aria-label="Уменьшить часы">&minus;</button>
                       <span class="signal-stepper__value" id="signalHoursDisplay">00</span>
                       <button class="signal-stepper__button" id="signalHoursIncrementButton" type="button" aria-label="Увеличить часы">+</button>
                       <span class="signal-stepper__unit">&#1095;</span>
