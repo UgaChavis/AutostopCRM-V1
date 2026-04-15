@@ -218,6 +218,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function renderAiChatWindowSettings()", BOARD_WEB_APP_HTML)
         self.assertIn("function handleAiChatWindowSettingsToggle()", BOARD_WEB_APP_HTML)
         self.assertIn("function handleAiChatWindowPromptProfileInput(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("if (!(els.agentModal instanceof HTMLElement)) {", BOARD_WEB_APP_HTML)
+        self.assertIn("els.agentModal?.classList.remove('is-open');", BOARD_WEB_APP_HTML)
         self.assertIn("async function handleAiChatWindowSend()", BOARD_WEB_APP_HTML)
         self.assertIn('id="aiChatWindowInput"', BOARD_WEB_APP_HTML)
         self.assertIn('class="ai-chat-window__composer-pane" aria-label="Поле ввода"', BOARD_WEB_APP_HTML)

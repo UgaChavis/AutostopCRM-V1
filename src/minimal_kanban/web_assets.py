@@ -10004,7 +10004,10 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function closeAgentModal() {
-      els.agentModal.classList.remove('is-open');
+      if (!(els.agentModal instanceof HTMLElement)) {
+        hydrateAgentUiRefs();
+      }
+      els.agentModal?.classList.remove('is-open');
       state.agentAutofillPromptOpen = false;
       if (!isAnyAgentSurfaceOpen() && state.agentRefreshTimer) {
         window.clearTimeout(state.agentRefreshTimer);
