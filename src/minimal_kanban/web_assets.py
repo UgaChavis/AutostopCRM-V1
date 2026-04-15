@@ -6371,7 +6371,7 @@ BOARD_WEB_APP_HTML = "".join(
           aiCompactTrimList(keyFacts, AI_COMPACT_CONTEXT_LIMITS.wall_key_facts).join(' · '),
           aiCompactTrimList(notableChanges, AI_COMPACT_CONTEXT_LIMITS.wall_notable_changes).join(' · '),
           aiCompactTrimList(importantNotes, AI_COMPACT_CONTEXT_LIMITS.wall_important_notes).join(' · '),
-        ].filter(Boolean).join('\n'),
+        ].filter(Boolean).join('\\n'),
       };
     }
 
@@ -6755,7 +6755,7 @@ BOARD_WEB_APP_HTML = "".join(
         packet.attachments_intake?.label || 'ВЛОЖЕНИЯ · НЕ ДОСТУПНЫ',
         packet.attachments_intake?.items?.length ? 'Вложения AI: ' + packet.attachments_intake.items.slice(0, 3).map((item) => item.file_name || item.content_hint || item.attachment_id || 'attachment').join(' · ') : '',
       ];
-      return lines.join('\n');
+      return lines.join('\\n');
     }
 
     function refreshAiCompactContextPacket() {
@@ -6877,7 +6877,7 @@ BOARD_WEB_APP_HTML = "".join(
 
       function flushCode() {
         if (!codeLines.length) return;
-        blocks.push('<pre><code>' + escapeHtml(codeLines.join('\n')) + '</code></pre>');
+        blocks.push('<pre><code>' + escapeHtml(codeLines.join('\\n')) + '</code></pre>');
         codeLines = [];
       }
 
@@ -6985,7 +6985,7 @@ BOARD_WEB_APP_HTML = "".join(
         context.attachments_intake?.items?.length ? 'Вложения AI: ' + context.attachments_intake.items.slice(0, 3).map((item) => item.file_name || item.content_hint || item.attachment_id || 'attachment').join(' · ') : '',
         documentTitles.length ? 'Документы: ' + documentTitles.join(' · ') : '',
         internetTitles.length ? 'Интернет: ' + internetTitles.join(' · ') : '',
-        'Compact context: ' + aiChatCompactContextSummary(context).replace(/\n/g, ' · '),
+        'Compact context: ' + aiChatCompactContextSummary(context).replace(/\\n/g, ' · '),
         profile.user_tune ? 'Пользовательская настройка: ' + profile.user_tune : '',
       ].filter(Boolean);
       const bulletLine = [
@@ -6997,7 +6997,7 @@ BOARD_WEB_APP_HTML = "".join(
         knowledge?.documents?.used ? '- documents lookup used' : '- documents lookup skipped',
         knowledge?.internet?.used ? '- internet lookup used' : '- internet lookup skipped',
       ];
-      return responseParts.join('\n') + '\n\n' + bulletLine.join('\n');
+      return responseParts.join('\\n') + '\\n\\n' + bulletLine.join('\\n');
     }
 
     function renderAiChatWindowHistory() {
@@ -7086,7 +7086,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     function handleAiChatWindowPromptProfileInput(event) {
       const profile = ensureAiChatWindowPromptProfile();
-      profile.user_tune = String(event?.target?.value || '').replace(/\r\n/g, '\n');
+      profile.user_tune = String(event?.target?.value || '').replace(/\\r\\n/g, '\\n');
       state.aiChatWindowPromptProfile = profile;
       state.aiChatWindowHistoryContext = aiChatHistoryContextSnapshot();
     }
