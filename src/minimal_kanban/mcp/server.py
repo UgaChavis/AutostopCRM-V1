@@ -352,6 +352,11 @@ def create_mcp_server(
         host=resolved_host,
         port=resolved_port,
         streamable_http_path=resolved_path,
+        # Prefer direct JSON responses for request/response flows. The MCP client
+        # still keeps the standalone GET stream for notifications, but avoiding
+        # per-request SSE streams reduces transport overhead and sidesteps noisy
+        # cleanup issues in the upstream SSE response path.
+        json_response=True,
         stateless_http=True,
         auth=auth_settings,
         auth_server_provider=auth_server_provider,

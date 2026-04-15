@@ -18,7 +18,6 @@ from unittest.mock import patch
 
 import httpx
 from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 
@@ -31,6 +30,7 @@ from minimal_kanban.api.server import ApiServer
 from minimal_kanban.mcp.client import BoardApiClient, BoardApiTransportError
 from minimal_kanban.mcp.runtime import McpServerRuntime
 from minimal_kanban.mcp.server import _normalize_tool_path_alias, create_mcp_server
+from minimal_kanban.mcp.session_utils import managed_streamable_http_client
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
 
@@ -64,7 +64,7 @@ async def close_lingering_memory_streams(*, max_passes: int = 3) -> int:
 
 @asynccontextmanager
 async def open_mcp_session(url: str, *, http_client: httpx.AsyncClient | None = None):
-    async with streamable_http_client(url, http_client=http_client) as (read_stream, write_stream, _get_session_id):
+    async with managed_streamable_http_client(url, http_client=http_client) as (read_stream, write_stream, _get_session_id):
         try:
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()

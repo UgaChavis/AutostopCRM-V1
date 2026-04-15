@@ -10,10 +10,10 @@ import urllib.request
 
 import httpx
 from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
 
 from .connection_card import GPT_CONNECTOR_REQUIRED_TOOL_NAMES
 from .mcp.client import BoardApiClient, BoardApiTransportError
+from .mcp.session_utils import managed_streamable_http_client
 from .models import utc_now_iso
 from .settings_models import (
     AUTH_MODE_VALUES,
@@ -607,12 +607,16 @@ class SettingsService:
             headers["Authorization"] = f"Bearer {bearer_token}"
         try:
             async with httpx.AsyncClient(headers=headers, timeout=timeout_seconds, follow_redirects=True) as http_client:
-                preflight = await http_client.get(url)
-                if preflight.status_code == 421 and "Invalid Host header" in preflight.text:
-                    raise RuntimeError(
-                        "MCP runtime rejects the external Host header. Allow the tunnel/external host in MCP settings."
-                    )
-                async with streamable_http_client(url, http_client=http_client) as (read, write, _):
+                # The preflight GET is only needed for external URLs where tunnel
+                # / Host-header mismatches can surface as a 421 before MCP ever
+                # starts the streamable session. Local loopback probes can skip it.
+                if is_external_http_url(url):
+                    preflight = await http_client.get(url)
+                    if preflight.status_code == 421 and "Invalid Host header" in preflight.text:
+                        raise RuntimeError(
+                            "MCP runtime rejects the external Host header. Allow the tunnel/external host in MCP settings."
+                        )
+                async with managed_streamable_http_client(url, http_client=http_client) as (read, write, _):
                     async with ClientSession(read, write) as session:
                         await session.initialize()
                         tools = await session.list_tools()
