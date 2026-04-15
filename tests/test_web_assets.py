@@ -433,6 +433,12 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("ФАЙЛЫ ", BOARD_WEB_APP_HTML)
         self.assertIn("ЖУРНАЛ ", BOARD_WEB_APP_HTML)
 
+    def test_red_deadline_indicator_pulses_subtly(self) -> None:
+        self.assertIn('.lamp[data-indicator="red"] {', BOARD_WEB_APP_HTML)
+        self.assertIn("animation: lamp-red-pulse 1.8s ease-in-out infinite;", BOARD_WEB_APP_HTML)
+        self.assertIn("@keyframes lamp-red-pulse {", BOARD_WEB_APP_HTML)
+        self.assertIn("@media (prefers-reduced-motion: reduce) {", BOARD_WEB_APP_HTML)
+
     def test_unread_cards_expose_corner_badge_and_hover_seen_flow(self) -> None:
         self.assertEqual(BOARD_WEB_APP_HTML.count("function cardHtml(card)"), 1)
         self.assertEqual(BOARD_WEB_APP_HTML.count("function renderCardHtml(card)"), 1)

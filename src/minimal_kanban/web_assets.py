@@ -756,10 +756,37 @@ BOARD_WEB_APP_HTML = "".join(
       opacity: 0.88;
       transform: translateY(-0.18em);
     }
-    .lamp { width: calc(13px * var(--board-scale)); height: calc(13px * var(--board-scale)); border: 1px solid #283126; background: #6f786e; flex: 0 0 auto; }
+    .lamp {
+      width: calc(13px * var(--board-scale));
+      height: calc(13px * var(--board-scale));
+      border: 1px solid #283126;
+      background: #6f786e;
+      flex: 0 0 auto;
+    }
     .lamp[data-indicator="green"] { background: var(--ok); }
     .lamp[data-indicator="yellow"] { background: var(--warn); }
-    .lamp[data-indicator="red"] { background: var(--danger); }
+    .lamp[data-indicator="red"] {
+      background: var(--danger);
+      box-shadow: 0 0 0 1px rgba(207, 91, 75, 0.2);
+      animation: lamp-red-pulse 1.8s ease-in-out infinite;
+      transform-origin: center;
+      will-change: transform, box-shadow;
+    }
+    @keyframes lamp-red-pulse {
+      0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 1px rgba(207, 91, 75, 0.2), 0 0 0 rgba(207, 91, 75, 0);
+      }
+      50% {
+        transform: scale(1.18);
+        box-shadow: 0 0 0 1px rgba(207, 91, 75, 0.36), 0 0 12px rgba(207, 91, 75, 0.42);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .lamp[data-indicator="red"] {
+        animation: none;
+      }
+    }
     .card__tags, .tag-list {
       display: flex;
       flex-wrap: wrap;
