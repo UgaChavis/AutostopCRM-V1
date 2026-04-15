@@ -691,6 +691,14 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(deleted["meta"]["removed_transactions"], 0)
         self.assertEqual(self.service.list_cashboxes()["meta"]["total"], 1)
 
+    def test_cashbox_creation_is_capped_at_six_items(self) -> None:
+        for index in range(6):
+            created = self.service.create_cashbox({"name": f"Касса {index + 1}", "actor_name": "ADMIN"})
+            self.assertEqual(created["cashbox"]["name"], f"Касса {index + 1}")
+
+        with self.assertRaisesRegex(ValueError, "Нельзя создать больше 6 касс"):
+            self.service.create_cashbox({"name": "Касса 7", "actor_name": "ADMIN"})
+
     def test_move_card_can_reorder_within_same_column(self) -> None:
         first = self.service.create_card({"title": "First", "column": "inbox", "deadline": {"hours": 2}})
         second = self.service.create_card({"title": "Second", "column": "inbox", "deadline": {"hours": 2}})

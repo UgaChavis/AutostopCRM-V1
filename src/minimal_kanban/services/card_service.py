@@ -1000,6 +1000,8 @@ class CardService:
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
+            if len(cashboxes) >= 6:
+                raise ValueError("Нельзя создать больше 6 касс.")
             now_iso = utc_now_iso()
             cashbox = CashBox(
                 id=str(uuid.uuid4()),
