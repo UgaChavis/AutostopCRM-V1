@@ -2087,16 +2087,22 @@ BOARD_WEB_APP_HTML = "".join(
       .ai-entry-tile[data-state="error"] { border-color: rgba(207, 91, 75, 0.48); }
       .ai-entry-tile[data-state="idle"] { opacity: 0.7; }
       .ai-entry-tile__title {
-        font-size: 10px;
-        letter-spacing: 0.12em;
+        font-size: 11px;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
         color: var(--text);
+      }
+      .ai-entry-tile__description {
+        font-size: 12px;
+        line-height: 1.45;
+        color: rgba(229, 228, 214, 0.92);
+        flex: 1 1 auto;
       }
       .ai-entry-tile__meta {
         font-size: 10px;
         line-height: 1.45;
         color: var(--text-soft);
-        flex: 1 1 auto;
+        flex: 0 0 auto;
       }
       .ai-entry-tile__state {
         font-size: 9px;
@@ -4582,21 +4588,21 @@ BOARD_WEB_APP_HTML = "".join(
   <div class="modal" id="aiSurfaceModal">
     <div class="dialog dialog--agent dialog--ai-entry">
       <div class="dialog__head">
-        <div class="dialog__title" id="aiSurfaceTitle">AI / НОВЫЙ ВХОД</div>
+        <div class="dialog__title" id="aiSurfaceTitle">AI / ПОМОЩНИК</div>
         <button class="btn" data-close="ai-surface">ЗАКРЫТЬ</button>
       </div>
       <div class="ai-entry-shell">
         <div class="agent-headline">
-          <div class="agent-context" id="aiSurfaceContextLabel">AI · ЧАТ</div>
-          <div class="agent-status" id="aiSurfaceStatusLabel" data-state="idle">HIDDEN</div>
+          <div class="agent-context" id="aiSurfaceContextLabel">РЕЖИМ: ОБЩИЙ ЧАТ</div>
+          <div class="agent-status" id="aiSurfaceStatusLabel" data-state="idle">СКРЫТО</div>
         </div>
         <div class="ai-entry-summary" id="aiSurfaceSummary">
-          Новый entry-surface слой открыт как shell. Чат, обогащение карточки и контроль доски разведены по отдельным сценариям.
+          Здесь можно открыть AI-чат, запустить AI-обогащение открытой карточки или посмотреть статус фонового AI-режима.
         </div>
         <div class="ai-entry-grid" id="aiSurfaceScenarioGrid"></div>
-        <div class="agent-result" id="aiSurfaceResult" data-state="empty">Выберите сценарий сверху.</div>
+        <div class="agent-result" id="aiSurfaceResult" data-state="empty">Выберите, что хотите сделать.</div>
         <div class="dialog__foot ai-entry-foot">
-          <div class="compact-note">Legacy agent остаётся только как fallback и не является primary path.</div>
+          <div class="compact-note">Старое меню агента оставлено только как резервный путь и больше не является основным интерфейсом.</div>
           <button class="btn btn--ghost ai-entry-legacy" id="aiSurfaceLegacyButton" type="button">СТАРЫЙ АГЕНТ</button>
         </div>
       </div>
@@ -8305,12 +8311,12 @@ BOARD_WEB_APP_HTML = "".join(
       const normalized = context && typeof context === 'object' ? context : { kind: 'chat' };
       if (String(normalized.kind || '').trim().toLowerCase() === 'card') {
         const heading = String(normalized.title || normalized.vehicle || normalized.card_id || 'карточка').trim();
-        return 'КОНТЕКСТ: AI-КАРТОЧКА · ' + heading;
+        return 'РЕЖИМ: КАРТОЧКА · ' + heading;
       }
       if (String(normalized.kind || '').trim().toLowerCase() === 'board') {
-        return 'КОНТЕКСТ: AI-ДОСКА';
+        return 'РЕЖИМ: ДОСКА';
       }
-      return 'КОНТЕКСТ: AI-ЧАТ';
+      return 'РЕЖИМ: ОБЩИЙ ЧАТ';
     }
 
     function buildFullCardEnrichmentRequestPayload() {
@@ -8341,11 +8347,11 @@ BOARD_WEB_APP_HTML = "".join(
     function aiSurfaceExposureLabel(exposureState) {
       const normalized = String(exposureState || '').trim().toLowerCase();
       if (normalized === 'primary') return 'ОСНОВНОЙ';
-      if (normalized === 'available') return 'ДОСТУПЕН';
-      if (normalized === 'gated') return 'ГЕЙТ';
-      if (normalized === 'legacy_only') return 'LEGACY';
-      if (normalized === 'replaced') return 'ЗАМЕНЁН';
-      return 'СКРЫТ';
+      if (normalized === 'available') return 'ДОСТУПНО';
+      if (normalized === 'gated') return 'ОГРАНИЧЕНО';
+      if (normalized === 'legacy_only') return 'РЕЗЕРВ';
+      if (normalized === 'replaced') return 'ЗАМЕНЕНО';
+      return 'СКРЫТО';
     }
 
     function aiSurfaceScenarioMeta(scenario) {
@@ -8357,6 +8363,52 @@ BOARD_WEB_APP_HTML = "".join(
       if (scope) parts.push(scope);
       if (writePolicy) parts.push(writePolicy);
       return parts.join(' · ');
+    }
+
+    function aiSurfaceScenarioTitle(scenarioId, scenario) {
+      const normalized = String(scenarioId || '').trim().toLowerCase();
+      if (normalized === 'ai_chat') return 'Чат с AI';
+      if (normalized === 'full_card_enrichment') return 'Обогатить карточку';
+      if (normalized === 'board_control') return 'Фоновый контроль доски';
+      return String(scenario?.display_intent || scenarioId || 'AI').trim();
+    }
+
+    function aiSurfaceScenarioDescription(scenarioId) {
+      const normalized = String(scenarioId || '').trim().toLowerCase();
+      if (normalized === 'ai_chat') {
+        return 'Открыть отдельное окно чата для вопросов, разбора ситуации и работы с контекстом CRM.';
+      }
+      if (normalized === 'full_card_enrichment') {
+        return 'Аккуратно дополнить открытую карточку, использовать найденные факты и проверить запись после изменений.';
+      }
+      if (normalized === 'board_control') {
+        return 'Фоновый режим для тихой поддержки качества карточек. Работает по правилам и без ручного чата.';
+      }
+      return 'Отдельный AI-сценарий.';
+    }
+
+    function aiSurfaceScenarioUserMeta(scenarioId) {
+      const normalized = String(scenarioId || '').trim().toLowerCase();
+      if (normalized === 'ai_chat') return 'Ручной режим · без автоматических изменений';
+      if (normalized === 'full_card_enrichment') return 'Только для открытой карточки · безопасные изменения';
+      if (normalized === 'board_control') return 'Фоновый режим · работает по расписанию';
+      return '';
+    }
+
+    function aiSurfacePrimaryPathSummary(primaryPath) {
+      const normalized = String(primaryPath || '').trim().toLowerCase();
+      if (normalized === 'ai_chat') return 'Сейчас главным ручным входом считается AI-чат.';
+      if (normalized === 'full_card_enrichment') return 'Сейчас главным ручным входом считается AI-обогащение карточки.';
+      return 'Новый AI-интерфейс уже отделён от старого меню агента.';
+    }
+
+    function aiSurfaceAvailableScenarioSummary(availableScenarioIds) {
+      const scenarioIds = Array.isArray(availableScenarioIds) ? availableScenarioIds : [];
+      const titles = scenarioIds
+        .map((scenarioId) => aiSurfaceScenarioTitle(scenarioId))
+        .filter(Boolean);
+      if (!titles.length) return 'Сейчас доступных AI-сценариев не отмечено.';
+      return 'Сценарии в этом режиме: ' + titles.join(', ') + '.';
     }
 
     function aiSurfaceScenarioSourceList(scenario) {
@@ -8782,9 +8834,15 @@ BOARD_WEB_APP_HTML = "".join(
       }
       if (els.aiSurfaceSummary) {
         const primaryPath = String(effectiveMode.primary_interactive_path || 'legacy_agent_modal_manual_tasks').trim();
-        const available = Array.isArray(effectiveMode.available_scenarios) ? effectiveMode.available_scenarios.join(' · ') : '';
+        const available = Array.isArray(effectiveMode.available_scenarios) ? effectiveMode.available_scenarios : [];
         const legacyFallbackVisible = aiSurfaceLegacyFallbackVisible(payload, selectedExposureState);
-        els.aiSurfaceSummary.textContent = 'Текущий путь: ' + primaryPath + '. Legacy UX ' + (legacyFallbackVisible ? 'доступен только как gated fallback' : 'скрыт по умолчанию') + '. Доступные сценарии: ' + (available || 'нет');
+        els.aiSurfaceSummary.textContent = [
+          aiSurfacePrimaryPathSummary(primaryPath),
+          legacyFallbackVisible
+            ? 'Старое меню доступно только как резервный путь.'
+            : 'Старое меню скрыто по умолчанию.',
+          aiSurfaceAvailableScenarioSummary(available),
+        ].join(' ');
       }
       applyAiSurfaceEntryState(els.aiChatButton, entryExposureMap.future_ai_chat_window, { label: 'AI чат', keepVisibleWhenHidden: true });
       applyAiSurfaceEntryState(els.cardAgentButton, entryExposureMap.future_card_enrichment_trigger, { label: 'AI карточки', keepVisibleWhenHidden: true });
@@ -8815,16 +8873,13 @@ BOARD_WEB_APP_HTML = "".join(
           const stateTone = aiSurfaceExposureTone(exposureState);
           const stateLabel = aiSurfaceExposureLabel(exposureState);
           const isSelected = scenarioId === selectedScenario;
-          const title = String(scenario.display_intent || scenarioId).trim();
-          const meta = [
-            scenario.trigger_kind,
-            scenario.actor_mode,
-            scenario.scope_kind,
-            scenario.write_policy,
-          ].map((item) => String(item || '').trim()).filter(Boolean).join(' · ');
+          const title = aiSurfaceScenarioTitle(scenarioId, scenario);
+          const description = aiSurfaceScenarioDescription(scenarioId);
+          const meta = aiSurfaceScenarioUserMeta(scenarioId) || aiSurfaceScenarioMeta(scenario);
           return ''
             + '<button class="ai-entry-tile' + (isSelected ? ' is-selected' : '') + '" type="button" data-scenario="' + escapeHtml(scenarioId) + '" data-state="' + escapeHtml(stateTone) + '">'
               + '<span class="ai-entry-tile__title">' + escapeHtml(title) + '</span>'
+              + '<span class="ai-entry-tile__description">' + escapeHtml(description) + '</span>'
               + '<span class="ai-entry-tile__meta">' + escapeHtml(meta || aiSurfaceScenarioMeta(scenario)) + '</span>'
               + '<span class="ai-entry-tile__state">' + escapeHtml(stateLabel) + '</span>'
             + '</button>';
@@ -8849,17 +8904,26 @@ BOARD_WEB_APP_HTML = "".join(
           els.aiSurfaceResult.innerHTML = enrichmentResult.html;
           return;
         }
-        const detailParts = [
-          '<strong>' + escapeHtml(String(scenario.display_intent || selectedScenario).trim()) + '</strong>',
-          'СТАТУС: ' + escapeHtml(selectedExposureLabel) + ' · ' + escapeHtml(String(scenarioMode.rollout_state || entryExposure?.exposure_state || 'hidden').toUpperCase()),
-          'ТРИГГЕР: ' + escapeHtml(aiSurfaceScenarioMeta(scenario)),
-          'КОНТЕКСТ: ' + escapeHtml(sourceList || 'нет'),
-          'ВХОДЫ: ' + escapeHtml(entrySurfaces || 'нет'),
-          'ГРАНИЦЫ: ' + escapeHtml(boundaryList || 'нет'),
-          'НЕ ЦЕЛИ: ' + escapeHtml(nonGoalList || 'нет'),
-          'ЗАМЕНА: ' + escapeHtml(String(scenario.legacy_replacement_scope || 'legacy').trim()),
-          'ВЛАДЕЛЕЦ: ' + escapeHtml(String(scenario.future_module_owner || 'unknown').trim()),
-        ];
+        const detailParts = [];
+        if (selectedScenario === 'ai_chat') {
+          detailParts.push('<strong>Чат с AI</strong>');
+          detailParts.push('Открывает отдельное окно для ручной работы с вопросами и CRM-контекстом.');
+          detailParts.push('Статус: ' + escapeHtml(selectedExposureLabel) + '.');
+          detailParts.push('Использует: ' + escapeHtml(sourceList || 'CRM-контекст.'));
+          detailParts.push('Это новый основной ручной путь, а не старое меню агента.');
+        } else if (selectedScenario === 'board_control') {
+          detailParts.push('<strong>Фоновый контроль доски</strong>');
+          detailParts.push('Этот режим работает тихо в фоне и не предназначен для ручного запуска оператором.');
+          detailParts.push('Статус: ' + escapeHtml(selectedExposureLabel) + '.');
+          detailParts.push('Использует: ' + escapeHtml(sourceList || 'delta-board context.'));
+          detailParts.push('Границы: ' + escapeHtml(boundaryList || 'только безопасные изменения.'));
+        } else {
+          detailParts.push('<strong>' + escapeHtml(aiSurfaceScenarioTitle(selectedScenario, scenario)) + '</strong>');
+          detailParts.push('Статус: ' + escapeHtml(selectedExposureLabel) + '.');
+          detailParts.push('Контекст: ' + escapeHtml(sourceList || 'нет'));
+          detailParts.push('Границы: ' + escapeHtml(boundaryList || 'нет'));
+          detailParts.push('Не делает: ' + escapeHtml(nonGoalList || 'нет'));
+        }
         els.aiSurfaceResult.innerHTML = '<div class="agent-result__fallback">' + detailParts.join('<br>') + '</div>';
       }
     }
