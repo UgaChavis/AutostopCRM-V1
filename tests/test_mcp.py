@@ -1481,6 +1481,17 @@ class McpServerRuntimeTests(unittest.TestCase):
             self.assertTrue(runtime._is_port_open())
         create_connection.assert_called_once_with(("127.0.0.1", 43123), timeout=0.5)
 
+    def test_build_startup_error_uses_readable_messages(self) -> None:
+        runtime = self._runtime("127.0.0.1")
+        generic = runtime._build_startup_error(RuntimeError("boom"))
+        logging_issue = runtime._build_startup_error(RuntimeError("Unable to configure formatter 'default'"))
+
+        self.assertIn("Ошибка запуска MCP сервера", generic.user_message)
+        self.assertIn("Подробности сохранены", generic.user_message)
+        self.assertNotIn("РћС", generic.user_message)
+        self.assertIn("Проблема в конфигурации логирования", logging_issue.user_message)
+        self.assertNotIn("РџС", logging_issue.user_message)
+
     def test_request_with_identity_enriches_payload_for_write_methods(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")
 
@@ -1618,6 +1629,16 @@ class McpServerRuntimeTests(unittest.TestCase):
             with self.assertRaises(BoardApiTransportError) as error:
                 client.health()
         self.assertIn("Локальный API вернул некорректный JSON", str(error.exception))
+        self.assertNotIn("Р›Рѕ", str(error.exception))
+
+    def test_request_raises_readable_transport_error_on_unreachable_api(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")):
+            with self.assertRaises(BoardApiTransportError) as error:
+                client.health()
+        self.assertIn("Не удалось подключиться к локальному API", str(error.exception))
+        self.assertNotIn("РќРµ", str(error.exception))
 
     def test_request_retries_once_for_safe_get_transport_error(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")

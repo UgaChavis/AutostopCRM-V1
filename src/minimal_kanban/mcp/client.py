@@ -628,14 +628,16 @@ class BoardApiClient:
             if str(method or "POST").strip().upper() == "GET" and _allow_retry:
                 self._log("board_api_request path=%s retry_after_transport_error=%s", path, exc)
                 return self._request(path, payload, method=method, _allow_retry=False)
-            raise BoardApiTransportError(f"Не удалось подключиться к локальному API по адресу {self.base_url}.") from exc
+            message = f"Не удалось подключиться к локальному API по адресу {self.base_url}."
+            raise BoardApiTransportError(message) from exc
 
     def _parse_json_payload(self, raw: bytes, *, path: str) -> dict:
         try:
             decoded = raw.decode("utf-8")
             parsed = json.loads(decoded)
         except (UnicodeDecodeError, json.JSONDecodeError) as parse_error:
-            raise BoardApiTransportError(f"Локальный API вернул некорректный JSON для {path}.") from parse_error
+            message = f"Локальный API вернул некорректный JSON для {path}."
+            raise BoardApiTransportError(message) from parse_error
         return parsed
 
     def _log(self, message: str, *args) -> None:
