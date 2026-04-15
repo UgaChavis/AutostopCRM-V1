@@ -895,6 +895,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn('id="cashboxNameInput"', BOARD_WEB_APP_HTML)
         self.assertNotIn('cashboxPeriodFilter', BOARD_WEB_APP_HTML)
         self.assertNotIn('cashboxDirectionFilter', BOARD_WEB_APP_HTML)
+        self.assertNotIn('ОТКУДА', BOARD_WEB_APP_HTML)
+        self.assertNotIn('КУДА ПЕРЕВЕСТИ', BOARD_WEB_APP_HTML)
+        self.assertNotIn('Баланс:', BOARD_WEB_APP_HTML)
+        self.assertNotIn('1000 или 1000,50', BOARD_WEB_APP_HTML)
         self.assertNotIn("window.prompt('Куда перевести деньги?", BOARD_WEB_APP_HTML)
 
     def test_modal_data_loader_helpers_drive_active_archive_and_gpt_paths(self) -> None:

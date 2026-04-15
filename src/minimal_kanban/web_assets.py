@@ -4036,22 +4036,10 @@ BOARD_WEB_APP_HTML = "".join(
       border: 1px solid var(--line-soft);
       background: rgba(255,255,255,0.02);
     }
-    .cashbox-transfer-source__label,
-    .cashbox-transfer-targets__label {
-      color: var(--muted);
-      font-size: 10px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
     .cashbox-transfer-source__name {
       font-size: 17px;
       font-weight: 700;
       line-height: 1.2;
-    }
-    .cashbox-transfer-source__meta {
-      color: var(--muted);
-      font-size: 11px;
-      line-height: 1.35;
     }
     .cashbox-transfer-targets {
       display: grid;
@@ -4062,8 +4050,8 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .cashbox-transfer-target {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 8px;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
       align-items: center;
       width: 100%;
       padding: 9px 10px;
@@ -4082,13 +4070,6 @@ BOARD_WEB_APP_HTML = "".join(
       font-size: 14px;
       font-weight: 700;
       line-height: 1.2;
-    }
-    .cashbox-transfer-target__meta {
-      color: var(--muted);
-      font-size: 10px;
-      line-height: 1.35;
-      text-align: right;
-      white-space: nowrap;
     }
     .cashbox-transfer-summary {
       display: grid;
@@ -4810,7 +4791,7 @@ BOARD_WEB_APP_HTML = "".join(
             <div class="cashbox-composer__row">
               <div class="field field--compact">
                 <label for="cashboxAmountInput">СУММА</label>
-                <input id="cashboxAmountInput" type="text" inputmode="decimal" maxlength="24" placeholder="1000 или 1000,50">
+                <input id="cashboxAmountInput" type="text" inputmode="decimal" maxlength="24">
               </div>
               <div class="field field--compact">
                 <label for="cashboxNoteInput">КОММЕНТАРИЙ</label>
@@ -4842,15 +4823,13 @@ BOARD_WEB_APP_HTML = "".join(
       </div>
       <div class="cashbox-transfer-grid">
         <div class="cashbox-transfer-pane">
-          <div class="cashbox-transfer-source">
-            <div class="cashbox-transfer-source__label">ОТКУДА</div>
-            <div class="cashbox-transfer-source__name" id="cashboxTransferSourceName">КАССА НЕ ВЫБРАНА</div>
-            <div class="cashbox-transfer-source__meta" id="cashboxTransferSourceMeta"></div>
-          </div>
+            <div class="cashbox-transfer-source">
+              <div class="cashbox-transfer-source__name" id="cashboxTransferSourceName">КАССА НЕ ВЫБРАНА</div>
+            </div>
           <div class="cashbox-transfer-summary">
             <div class="field field--compact">
               <label for="cashboxTransferAmountInput">СУММА</label>
-              <input id="cashboxTransferAmountInput" type="text" inputmode="decimal" maxlength="24" placeholder="1000 или 1000,50">
+                <input id="cashboxTransferAmountInput" type="text" inputmode="decimal" maxlength="24">
             </div>
             <div class="field field--compact">
               <label for="cashboxTransferNoteInput">КОММЕНТАРИЙ</label>
@@ -4859,7 +4838,6 @@ BOARD_WEB_APP_HTML = "".join(
           </div>
         </div>
         <div class="cashbox-transfer-pane">
-          <div class="cashbox-transfer-targets__label">КУДА ПЕРЕВЕСТИ</div>
           <div class="cashbox-transfer-targets" id="cashboxTransferTargets"></div>
         </div>
       </div>
@@ -5455,7 +5433,7 @@ BOARD_WEB_APP_HTML = "".join(
             + '<div class="repair-order-payments-head"><div class="repair-order-payments-summary" id="repairOrderPaymentsMeta">Пока нет оплат.</div></div>'
             + '<div class="repair-order-payments-form">'
             + '<div class="field field--compact"><label for="repairOrderPaymentCashbox">Касса</label><select id="repairOrderPaymentCashbox"><option value="">Выберите кассу</option></select></div>'
-            + '<div class="field field--compact"><label for="repairOrderPaymentAmount">Сумма</label><input id="repairOrderPaymentAmount" type="text" inputmode="decimal" maxlength="24" placeholder="1000 или 1000,50"></div>'
+            + '<div class="field field--compact"><label for="repairOrderPaymentAmount">Сумма</label><input id="repairOrderPaymentAmount" type="text" inputmode="decimal" maxlength="24"></div>'
             + '<button class="btn btn--accent" id="repairOrderPaymentAddButton" type="button">+ Оплата</button>'
             + '<div class="field field--compact repair-order-payments-form__note"><label for="repairOrderPaymentNote">Комментарий</label><input id="repairOrderPaymentNote" type="text" maxlength="240" placeholder="Предоплата / оплата по работам"></div>'
             + '</div>'
@@ -5745,7 +5723,6 @@ BOARD_WEB_APP_HTML = "".join(
       cashboxExpenseButton: document.getElementById('cashboxExpenseButton'),
       cashboxTransactions: document.getElementById('cashboxTransactions'),
       cashboxTransferSourceName: document.getElementById('cashboxTransferSourceName'),
-      cashboxTransferSourceMeta: document.getElementById('cashboxTransferSourceMeta'),
       cashboxTransferTargets: document.getElementById('cashboxTransferTargets'),
       cashboxTransferAmountInput: document.getElementById('cashboxTransferAmountInput'),
       cashboxTransferNoteInput: document.getElementById('cashboxTransferNoteInput'),
@@ -14213,16 +14190,10 @@ function renderCompactArchiveRows(cards) {
       const sourceCashbox = (Array.isArray(state.cashboxes) ? state.cashboxes : []).find((item) => item.id === sourceId) || state.activeCashbox?.cashbox || null;
       const availableCashboxes = (Array.isArray(state.cashboxes) ? state.cashboxes : []).filter((item) => item.id !== sourceId);
       els.cashboxTransferSourceName.textContent = sourceCashbox?.name || 'КАССА НЕ ВЫБРАНА';
-      els.cashboxTransferSourceMeta.textContent = sourceCashbox?.statistics?.balance_display ? ('Баланс: ' + sourceCashbox.statistics.balance_display) : '';
       els.cashboxTransferTargets.innerHTML = availableCashboxes.length ? availableCashboxes.map((item) => {
         const activeClass = item.id === state.cashboxTransferDraft.targetId ? ' is-active' : '';
-        const stats = item?.statistics || {};
         return '<button class="cashbox-transfer-target' + activeClass + '" type="button" data-cashbox-transfer-target="' + escapeHtml(item.id) + '">'
-          + '<div>'
           + '<div class="cashbox-transfer-target__name">' + escapeHtml(item.name || '—') + '</div>'
-          + '<div class="cashbox-transfer-target__meta">' + escapeHtml(String(item.short_id || item.id || '')) + '</div>'
-          + '</div>'
-          + '<div class="cashbox-transfer-target__meta">' + escapeHtml(stats?.balance_display || cashboxFormatMinorAmount(stats?.balance_minor || 0)) + '</div>'
           + '</button>';
       }).join('') : '<div class="cashboxes-empty">НЕТ ДРУГИХ КАСС.</div>';
       const selectedTarget = availableCashboxes.find((item) => item.id === state.cashboxTransferDraft.targetId) || availableCashboxes[0] || null;
