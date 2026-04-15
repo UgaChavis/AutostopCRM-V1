@@ -3610,6 +3610,17 @@ BOARD_WEB_APP_HTML = "".join(
       gap: 8px;
       min-width: 0;
     }
+    .repair-orders-table-head__searchable-group {
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      min-width: 0;
+      width: 100%;
+    }
+    .repair-orders-table-head__searchable--plate {
+      flex: 0 0 auto;
+    }
     .repair-orders-search-scope {
       position: relative;
       width: 14px;
@@ -4980,7 +4991,7 @@ BOARD_WEB_APP_HTML = "".join(
         <div class="repair-orders-table-head__searchable"><span>Клиент</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="client" aria-label="Искать по графе клиент" title="Искать по графе клиент"></button></div>
         <div class="repair-orders-table-head__searchable"><span>Телефон</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="phone" aria-label="Искать по графе телефон" title="Искать по графе телефон"></button></div>
         <div class="repair-orders-table-head__searchable"><span>Автомобиль</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="vehicle" aria-label="Искать по графе автомобиль" title="Искать по графе автомобиль"></button></div>
-        <div class="repair-orders-table-head__searchable"><span>Смысл карточки</span><button class="repair-orders-search-scope is-active" type="button" data-repair-orders-search-field="summary" aria-label="Искать по графе смысл карточки" title="Искать по графе смысл карточки"></button></div>
+        <div class="repair-orders-table-head__searchable-group"><div class="repair-orders-table-head__searchable"><span>Смысл карточки</span><button class="repair-orders-search-scope is-active" type="button" data-repair-orders-search-field="summary" aria-label="Искать по графе смысл карточки" title="Искать по графе смысл карточки"></button></div><div class="repair-orders-table-head__searchable repair-orders-table-head__searchable--plate"><span>Госномер</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="license_plate" aria-label="Искать по госномеру" title="Искать по госномеру"></button></div></div>
         <div class="repair-orders-table-head__sum">Внесено</div>
         <div class="repair-orders-table-head__sum">Сумма</div>
       </div>
@@ -5581,7 +5592,7 @@ BOARD_WEB_APP_HTML = "".join(
     const REPAIR_ORDER_TAG_LIMIT = 5;
     const REPAIR_ORDER_SORT_FIELDS = ['number', 'opened_at', 'closed_at'];
     const REPAIR_ORDER_SORT_DIRECTIONS = ['asc', 'desc'];
-    const REPAIR_ORDER_SEARCH_FIELDS = ['number', 'date', 'client', 'phone', 'vehicle', 'summary'];
+    const REPAIR_ORDER_SEARCH_FIELDS = ['number', 'date', 'client', 'phone', 'vehicle', 'summary', 'license_plate'];
     const TAG_COLOR_OPTIONS = [
       { value: 'green', label: 'Зелёная' },
       { value: 'yellow', label: 'Жёлтая' },
@@ -13126,6 +13137,7 @@ function renderCompactArchiveRows(cards) {
       if (normalized === 'client') return 'КЛИЕНТ';
       if (normalized === 'phone') return 'ТЕЛЕФОН';
       if (normalized === 'vehicle') return 'АВТОМОБИЛЬ';
+      if (normalized === 'license_plate') return 'ГОСНОМЕР';
       return 'СМЫСЛ КАРТОЧКИ';
     }
 
@@ -13136,6 +13148,7 @@ function renderCompactArchiveRows(cards) {
       if (normalized === 'client') return 'поиск по клиенту';
       if (normalized === 'phone') return 'поиск по телефону';
       if (normalized === 'vehicle') return 'поиск по автомобилю';
+      if (normalized === 'license_plate') return 'поиск по госномеру';
       return 'поиск по сути карточки';
     }
 
@@ -13145,6 +13158,13 @@ function renderCompactArchiveRows(cards) {
       const labelText = String(label || '').trim();
       const titleText = 'Искать по графе ' + labelText.toLowerCase();
       return '<div class="repair-orders-table-head__searchable"><span>' + escapeHtml(labelText) + '</span><button class="repair-orders-search-scope' + activeClass + '" type="button" data-repair-orders-search-field="' + escapeHtml(normalizedField) + '" aria-label="' + escapeHtml(titleText) + '" title="' + escapeHtml(titleText) + '"></button></div>';
+    }
+
+    function repairOrdersTableHeadSummaryCellHtml() {
+      return '<div class="repair-orders-table-head__searchable-group">'
+        + repairOrdersTableHeadSearchableHtml('Смысл карточки', 'summary')
+        + repairOrdersTableHeadSearchableHtml('Госномер', 'license_plate')
+        + '</div>';
     }
 
     function repairOrdersColumnsValue(status = state.repairOrdersFilter) {
@@ -13159,7 +13179,7 @@ function renderCompactArchiveRows(cards) {
         + repairOrdersTableHeadSearchableHtml('Клиент', 'client')
         + repairOrdersTableHeadSearchableHtml('Телефон', 'phone')
         + repairOrdersTableHeadSearchableHtml('Автомобиль', 'vehicle')
-        + repairOrdersTableHeadSearchableHtml('Смысл карточки', 'summary')
+        + repairOrdersTableHeadSummaryCellHtml()
         + '<div class="repair-orders-table-head__sum">Внесено</div>'
         + '<div class="repair-orders-table-head__sum">Сумма</div>';
     }
@@ -13377,6 +13397,14 @@ function renderCompactArchiveRows(cards) {
       if (normalizedField === 'client') return String(item?.client || '').trim();
       if (normalizedField === 'phone') return String(item?.phone || '').trim();
       if (normalizedField === 'vehicle') return String(item?.vehicle || '').trim();
+      if (normalizedField === 'license_plate') {
+        return [
+          item?.license_plate,
+          item?.summary,
+          item?.reason,
+          item?.heading,
+        ].filter(Boolean).join(' ');
+      }
       return [
         item?.summary,
         item?.reason,
