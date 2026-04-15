@@ -4917,13 +4917,9 @@ BOARD_WEB_APP_HTML = "".join(
                 <input id="cardVehicle" type="text" maxlength="60" placeholder="KIA RIO">
               </div>
               <div class="field field--compact">
-                <label for="cardColumn">СТОЛБЕЦ</label>
-                <select id="cardColumn"></select>
+                <label for="cardTitle">КРАТКАЯ СУТЬ</label>
+                <input id="cardTitle" type="text" maxlength="120">
               </div>
-            </div>
-            <div class="field">
-              <label for="cardTitle">ЗАГОЛОВОК</label>
-              <input id="cardTitle" type="text" maxlength="120">
             </div>
             <div class="field field--description">
               <label for="cardDescription">ОПИСАНИЕ</label>
@@ -5369,8 +5365,8 @@ BOARD_WEB_APP_HTML = "".join(
       {
         title: 'Идентификация',
         fields: [
-          { name: 'make_display', label: 'Марка', placeholder: 'Audi' },
-          { name: 'model_display', label: 'Модель', placeholder: 'A8 D4' },
+          { name: 'display_name', label: 'Марка / модель', placeholder: 'Subaru Legacy', wide: true },
+          { name: 'license_plate', label: 'Гос номер', placeholder: 'А123АА124', mono: true },
           { name: 'production_year', label: 'Год', type: 'number', min: '1900', max: '2100', step: '1', placeholder: '2016' },
           { name: 'mileage', label: 'Пробег', type: 'number', min: '0', step: '1', placeholder: '185000' },
           { name: 'vin', label: 'VIN', placeholder: 'WAU...', copy: true, mono: true, wide: true, maxlength: '17' },
@@ -5800,7 +5796,6 @@ BOARD_WEB_APP_HTML = "".join(
       cardMetaLine: document.getElementById('cardMetaLine'),
       cardVehicle: document.getElementById('cardVehicle'),
       cardTitle: document.getElementById('cardTitle'),
-      cardColumn: document.getElementById('cardColumn'),
       cardDescription: document.getElementById('cardDescription'),
       signalPreview: document.getElementById('signalPreview'),
       signalDays: document.getElementById('signalDaysStyled') || document.getElementById('signalDays'),
@@ -10967,6 +10962,8 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function vehicleDisplayFromProfile(profile) {
+      const displayName = String(profile?.display_name || '').trim();
+      if (displayName) return profile?.production_year ? (displayName + ' ' + profile.production_year) : displayName;
       const parts = [profile?.make_display, profile?.model_display].filter(Boolean);
       if (!parts.length) return '';
       const base = parts.join(' ');
@@ -11136,6 +11133,9 @@ BOARD_WEB_APP_HTML = "".join(
 
     function applyVehicleProfileToForm(profile, { preserveStatus = false } = {}) {
       const normalized = cloneVehicleProfile(profile);
+      if (!String(normalized.display_name || '').trim()) {
+        normalized.display_name = vehicleDisplayFromProfile(normalized);
+      }
       state.vehicleProfileDraft = normalized;
       VEHICLE_PRIMARY_FIELDS.forEach((fieldName) => setVehicleFieldValue(fieldName, normalized[fieldName]));
       refreshVehiclePanel();
@@ -11259,7 +11259,7 @@ BOARD_WEB_APP_HTML = "".join(
         vehicle: els.cardVehicle.value.trim(),
         title: els.cardTitle.value.trim(),
         description: els.cardDescription.value.trim(),
-        column: els.cardColumn.value,
+        column: state.activeCard?.column || state.snapshot?.columns?.[0]?.id || '',
         tags: state.draftTags.map((tag) => ({ label: tag.label, color: tag.color })),
         deadline: deadlineInput(),
         vehicle_profile: vehicleProfile,
@@ -12253,13 +12253,6 @@ BOARD_WEB_APP_HTML = "".join(
       }
     }
 
-    function populateColumns(selectedId) {
-      els.cardColumn.innerHTML = (state.snapshot?.columns || []).map((column) => {
-        const selected = column.id === selectedId ? ' selected' : '';
-        return '<option value="' + escapeHtml(column.id) + '"' + selected + '>' + escapeHtml(column.label) + '</option>';
-      }).join('');
-    }
-
     function columnLabelById(columnId) {
       const found = (state.snapshot?.columns || []).find((column) => column.id === columnId);
       return found?.label || String(columnId || '—');
@@ -12333,7 +12326,6 @@ BOARD_WEB_APP_HTML = "".join(
       els.cardVehicle.value = currentCard?.vehicle || '';
       els.cardTitle.value = currentCard?.title || '';
       els.cardDescription.value = currentCard?.description || '';
-      populateColumns(currentCard?.column || state.snapshot?.columns?.[0]?.id);
       const parts = secondsToParts(currentCard?.remaining_seconds || 86400);
       els.signalDays.value = parts.days;
       els.signalHours.value = parts.hours;

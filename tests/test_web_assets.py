@@ -324,8 +324,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("Доп. данные:", BOARD_WEB_APP_HTML)
         self.assertNotIn("АНАЛИЗ ПОЛЕЙ КАРТОЧКИ", BOARD_WEB_APP_HTML)
         self.assertIn("const VEHICLE_FIELD_GROUPS = [", BOARD_WEB_APP_HTML)
-        self.assertIn("make_display", BOARD_WEB_APP_HTML)
-        self.assertIn("model_display", BOARD_WEB_APP_HTML)
+        self.assertIn("display_name", BOARD_WEB_APP_HTML)
+        self.assertIn("license_plate", BOARD_WEB_APP_HTML)
         self.assertIn("production_year", BOARD_WEB_APP_HTML)
         self.assertIn("mileage", BOARD_WEB_APP_HTML)
         self.assertIn("customer_phone", BOARD_WEB_APP_HTML)
@@ -352,9 +352,13 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("els.vehiclePanelSummary.style.display = summaryLines.length ? '' : 'none';", BOARD_WEB_APP_HTML)
 
     def test_vehicle_panel_places_mileage_before_customer_contact_fields(self) -> None:
+        display_index = BOARD_WEB_APP_HTML.index("{ name: 'display_name'")
+        plate_index = BOARD_WEB_APP_HTML.index("{ name: 'license_plate'")
         year_index = BOARD_WEB_APP_HTML.index("{ name: 'production_year'")
         mileage_index = BOARD_WEB_APP_HTML.index("{ name: 'mileage'")
         customer_phone_index = BOARD_WEB_APP_HTML.index("{ name: 'customer_phone'")
+        self.assertLess(display_index, plate_index)
+        self.assertLess(plate_index, year_index)
         self.assertLess(year_index, mileage_index)
         self.assertLess(mileage_index, customer_phone_index)
 
