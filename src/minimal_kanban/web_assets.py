@@ -14782,7 +14782,7 @@ function renderCompactArchiveRows(cards) {
     async function downloadCashJournal() {
       try {
         const text = await loadCashJournalText();
-        const blob = new Blob([text.trim() + '\n'], { type: 'text/plain;charset=utf-8' });
+        const blob = new Blob([text.trim() + '\\n'], { type: 'text/plain;charset=utf-8' });
         const fileName = 'cash-journal-' + new Date().toISOString().slice(0, 10) + '.txt';
         triggerBlobDownload(blob, fileName);
         setStatus('ЖУРНАЛ СКАЧАН.', false);
