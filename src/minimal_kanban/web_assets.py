@@ -4542,14 +4542,14 @@ BOARD_WEB_APP_HTML = "".join(
       align-items: start;
     }
     .employees-pane {
-      display: grid;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
       gap: 10px;
       min-height: 0;
-      align-content: start;
-      grid-auto-rows: min-content;
+      align-self: start;
     }
     .employees-pane--list {
-      align-content: start;
       align-self: start;
       position: sticky;
       top: 0;
