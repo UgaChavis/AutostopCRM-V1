@@ -372,6 +372,7 @@ class ApiServer:
                     "/api/get_cash_journal",
                     "/api/list_employees",
                     "/api/get_payroll_report",
+                    "/api/get_employee_salary_ledger",
                     "/api/get_cashbox",
                     "/api/get_gpt_wall",
                     "/api/get_card_log",

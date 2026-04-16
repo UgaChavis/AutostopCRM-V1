@@ -820,7 +820,10 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(closed["data"]["repair_order"]["works"][0]["salary_amount"], "2000")
 
-        status, ledger = self.request("/api/get_employee_salary_ledger", {"employee_id": employee["id"]})
+        status, ledger = self.request(
+            f"/api/get_employee_salary_ledger?employee_id={employee['id']}&months=6",
+            method="GET",
+        )
         self.assertEqual(status, 200)
         self.assertEqual(ledger["data"]["balance_total"], "2000")
         self.assertTrue(any(row["kind"] == "accrual" for row in ledger["data"]["journal_rows"]))
@@ -851,7 +854,10 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(advance["data"]["transaction"]["transaction_kind"], "salary_advance")
 
-        status, ledger_after = self.request("/api/get_employee_salary_ledger", {"employee_id": employee["id"]})
+        status, ledger_after = self.request(
+            f"/api/get_employee_salary_ledger?employee_id={employee['id']}&months=6",
+            method="GET",
+        )
         self.assertEqual(status, 200)
         self.assertEqual(ledger_after["data"]["balance_total"], "-1000")
         self.assertEqual(ledger_after["data"]["payout_total"], "2500")
