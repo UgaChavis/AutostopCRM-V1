@@ -3440,8 +3440,65 @@ BOARD_WEB_APP_HTML = "".join(
       display: grid;
       gap: 6px;
     }
+    .file-row.is-previewing {
+      border-color: rgba(167, 178, 132, 0.44);
+      box-shadow: inset 0 0 0 1px rgba(167, 178, 132, 0.12);
+    }
     .file-zone-panel {
       gap: 12px;
+    }
+    .file-preview {
+      border: 1px solid rgba(167, 178, 132, 0.18);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.025), transparent 38%),
+        rgba(0,0,0,0.2);
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .file-preview__head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .file-preview__meta {
+      color: var(--text-soft);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .file-preview__stage {
+      min-height: 220px;
+      display: grid;
+      place-items: center;
+      padding: 12px;
+      border: 1px solid rgba(167, 178, 132, 0.14);
+      background: rgba(11, 16, 13, 0.56);
+      overflow: auto;
+    }
+    .file-preview__status {
+      color: var(--text-soft);
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.5;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      text-align: center;
+      white-space: pre-wrap;
+    }
+    .file-preview__status[data-state="error"] {
+      color: #efb0a6;
+    }
+    .file-preview__image {
+      display: block;
+      max-width: min(100%, 1180px);
+      max-height: 72vh;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      border: 1px solid rgba(167, 178, 132, 0.18);
+      background: rgba(0,0,0,0.28);
     }
     .file-dropzone {
       min-height: 136px;
@@ -5304,6 +5361,19 @@ BOARD_WEB_APP_HTML = "".join(
             <button class="btn" id="uploadButton">ЗАГРУЗИТЬ</button>
           </div>
           <div id="fileList"></div>
+          <div class="file-preview hidden" id="filePreviewPanel">
+            <div class="file-preview__head">
+              <div class="stack" style="gap:4px;">
+                <div class="panel-title" id="filePreviewTitle">ПРОСМОТР</div>
+                <div class="file-preview__meta" id="filePreviewMeta"></div>
+              </div>
+              <button class="btn btn--ghost" id="filePreviewCloseButton" type="button" data-close-file-preview="1">СКРЫТЬ</button>
+            </div>
+            <div class="file-preview__stage">
+              <div class="file-preview__status" id="filePreviewStatus"></div>
+              <img class="file-preview__image" id="filePreviewImage" alt="Предпросмотр вложения" hidden>
+            </div>
+          </div>
         </div>
       </section>
       <section data-panel="journal" class="hidden">
@@ -5647,6 +5717,13 @@ BOARD_WEB_APP_HTML = "".join(
       agentLatestActions: [],
       cardCleanupState: 'idle',
       cardCleanupError: '',
+      filePreview: {
+        attachmentId: '',
+        fileName: '',
+        objectUrl: '',
+        loading: false,
+        error: '',
+      },
     };
 
     const SNAPSHOT_POLL_INTERVAL_MS = 8000;
@@ -6199,6 +6276,12 @@ BOARD_WEB_APP_HTML = "".join(
       fileInput: document.getElementById('fileInput'),
       uploadButton: document.getElementById('uploadButton'),
       fileList: document.getElementById('fileList'),
+      filePreviewPanel: document.getElementById('filePreviewPanel'),
+      filePreviewTitle: document.getElementById('filePreviewTitle'),
+      filePreviewMeta: document.getElementById('filePreviewMeta'),
+      filePreviewStatus: document.getElementById('filePreviewStatus'),
+      filePreviewImage: document.getElementById('filePreviewImage'),
+      filePreviewCloseButton: document.getElementById('filePreviewCloseButton'),
       logList: document.getElementById('logList'),
     };
 
@@ -7638,15 +7721,20 @@ BOARD_WEB_APP_HTML = "".join(
       });
     }
 
-    async function downloadAttachment(url) {
+    function attachmentRequestHeaders() {
       const headers = {};
       if (state.apiToken) headers.Authorization = 'Bearer ' + state.apiToken;
       if (state.operatorSessionToken) headers['X-Operator-Session'] = state.operatorSessionToken;
+      return headers;
+    }
+
+    async function fetchAttachmentBlob(url, { networkErrorMessage = 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ ФАЙЛ. ПРОВЕРЬ СЕТЬ И ДОСТУП К ДОСКЕ.' } = {}) {
+      const headers = attachmentRequestHeaders();
       let response;
       try {
         response = await fetch(url, { headers, cache: 'no-store' });
       } catch (_) {
-        throw new Error('НЕ УДАЛОСЬ СКАЧАТЬ ФАЙЛ. ПРОВЕРЬ СЕТЬ И ДОСТУП К ДОСКЕ.');
+        throw new Error(networkErrorMessage);
       }
       if (response.status === 401) {
         throw new Error(accessDeniedMessage());
@@ -7655,6 +7743,13 @@ BOARD_WEB_APP_HTML = "".join(
         throw new Error('ФАЙЛ НЕДОСТУПЕН: HTTP ' + response.status);
       }
       const blob = await response.blob();
+      return { response, blob };
+    }
+
+    async function downloadAttachment(url) {
+      const { response, blob } = await fetchAttachmentBlob(url, {
+        networkErrorMessage: 'НЕ УДАЛОСЬ СКАЧАТЬ ФАЙЛ. ПРОВЕРЬ СЕТЬ И ДОСТУП К ДОСКЕ.',
+      });
       triggerBlobDownload(blob, extractDownloadName(response, 'attachment.bin'));
     }
 
@@ -11144,6 +11239,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     const ATTACHMENT_ALLOWED_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.pdf']);
+    const ATTACHMENT_PREVIEWABLE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
     const ATTACHMENT_ALLOWED_LABEL = 'PNG, JPG, JPEG, WEBP, GIF, DOC, DOCX, XLS, XLSX, TXT, PDF';
     const ATTACHMENT_MAX_SIZE_BYTES = 15 * 1024 * 1024;
     const ATTACHMENT_EXTENSION_TO_MIME = {
@@ -12850,7 +12946,9 @@ BOARD_WEB_APP_HTML = "".join(
       state.cardCleanupError = '';
       refreshRepairOrderEntry(null);
       els.fileInput.value = '';
+      clearFilePreview({ sync: false });
       syncFileDropzone(null);
+      syncFilePreview(null);
       renderCardCleanupIndicator();
     }
 
@@ -12980,6 +13078,152 @@ BOARD_WEB_APP_HTML = "".join(
       els.fileDropzone.textContent = '';
     }
 
+    function attachmentDownloadPath(cardId, attachmentId) {
+      return '/api/attachment?card_id=' + encodeURIComponent(String(cardId || '').trim()) + '&attachment_id=' + encodeURIComponent(String(attachmentId || '').trim());
+    }
+
+    function findCardAttachment(card, attachmentId) {
+      const attachments = Array.isArray(card?.attachments) ? card.attachments : [];
+      const targetId = String(attachmentId || '').trim();
+      if (!targetId) return null;
+      return attachments.find((item) => String(item?.id || '').trim() === targetId && !item?.removed) || null;
+    }
+
+    function attachmentIsPreviewable(attachment) {
+      if (!attachment || typeof attachment !== 'object' || attachment.removed) return false;
+      const mimeType = normalizeAttachmentMimeType(attachment.mime_type || attachment.type || '');
+      if (mimeType.startsWith('image/')) return true;
+      return ATTACHMENT_PREVIEWABLE_EXTENSIONS.has(attachmentExtension(attachment.file_name || attachment.name || ''));
+    }
+
+    function revokeFilePreviewObjectUrl() {
+      const objectUrl = String(state.filePreview?.objectUrl || '').trim();
+      if (!objectUrl) return;
+      try {
+        URL.revokeObjectURL(objectUrl);
+      } catch (_) {
+        return;
+      }
+    }
+
+    function clearFilePreview({ sync = true } = {}) {
+      revokeFilePreviewObjectUrl();
+      state.filePreview = {
+        attachmentId: '',
+        fileName: '',
+        objectUrl: '',
+        loading: false,
+        error: '',
+      };
+      if (sync) syncFilePreview();
+    }
+
+    function syncFilePreview(card = state.activeCard) {
+      if (!els.filePreviewPanel || !els.filePreviewTitle || !els.filePreviewMeta || !els.filePreviewStatus || !els.filePreviewImage) return;
+      const preview = state.filePreview && typeof state.filePreview === 'object'
+        ? state.filePreview
+        : { attachmentId: '', fileName: '', objectUrl: '', loading: false, error: '' };
+      const attachment = findCardAttachment(card, preview.attachmentId);
+      if (preview.attachmentId && !preview.loading && (!attachment || !attachmentIsPreviewable(attachment))) {
+        clearFilePreview();
+        return;
+      }
+      const isVisible = Boolean(preview.loading || preview.objectUrl || preview.error);
+      els.filePreviewPanel.classList.toggle('hidden', !isVisible);
+      if (!isVisible) {
+        els.filePreviewTitle.textContent = 'ПРОСМОТР';
+        els.filePreviewMeta.textContent = '';
+        els.filePreviewStatus.textContent = '';
+        els.filePreviewStatus.dataset.state = 'idle';
+        els.filePreviewImage.hidden = true;
+        els.filePreviewImage.removeAttribute('src');
+        els.filePreviewImage.alt = 'Предпросмотр вложения';
+        return;
+      }
+      const fileName = String(attachment?.file_name || preview.fileName || 'Вложение').trim() || 'Вложение';
+      const metaParts = [];
+      if (attachment?.created_at) metaParts.push(formatDate(attachment.created_at));
+      if (attachment?.size_bytes !== undefined) metaParts.push(formatBytes(attachment.size_bytes));
+      els.filePreviewTitle.textContent = fileName;
+      els.filePreviewMeta.textContent = metaParts.join(' · ');
+      if (preview.loading) {
+        els.filePreviewStatus.textContent = 'ЗАГРУЖАЕМ ИЗОБРАЖЕНИЕ...';
+        els.filePreviewStatus.dataset.state = 'loading';
+        els.filePreviewImage.hidden = true;
+        els.filePreviewImage.removeAttribute('src');
+        return;
+      }
+      if (preview.error) {
+        els.filePreviewStatus.textContent = preview.error;
+        els.filePreviewStatus.dataset.state = 'error';
+        els.filePreviewImage.hidden = true;
+        els.filePreviewImage.removeAttribute('src');
+        return;
+      }
+      els.filePreviewStatus.textContent = '';
+      els.filePreviewStatus.dataset.state = 'ready';
+      if (els.filePreviewImage.getAttribute('src') !== preview.objectUrl) {
+        els.filePreviewImage.src = preview.objectUrl;
+      }
+      els.filePreviewImage.alt = 'Предпросмотр файла ' + fileName;
+      els.filePreviewImage.hidden = false;
+    }
+
+    async function previewActiveCardAttachment(attachmentId) {
+      const attachment = findCardAttachment(state.activeCard, attachmentId);
+      if (!state.editingId || !attachment) {
+        clearFilePreview();
+        setStatus('ФАЙЛ НЕ НАЙДЕН В КАРТОЧКЕ.', true);
+        return;
+      }
+      if (!attachmentIsPreviewable(attachment)) {
+        setStatus('ЭТО ВЛОЖЕНИЕ НЕЛЬЗЯ ПОКАЗАТЬ В ИНТЕРФЕЙСЕ.', true);
+        return;
+      }
+      if (String(state.filePreview?.attachmentId || '') === String(attachment.id || '') && (state.filePreview.loading || state.filePreview.objectUrl || state.filePreview.error)) {
+        clearFilePreview();
+        return;
+      }
+      clearFilePreview({ sync: false });
+      state.filePreview = {
+        attachmentId: String(attachment.id || '').trim(),
+        fileName: String(attachment.file_name || '').trim(),
+        objectUrl: '',
+        loading: true,
+        error: '',
+      };
+      syncFilePreview(state.activeCard);
+      try {
+        const { blob } = await fetchAttachmentBlob(withAccessToken(attachmentDownloadPath(state.editingId, attachment.id)), {
+          networkErrorMessage: 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ ИЗОБРАЖЕНИЕ. ПРОВЕРЬ СЕТЬ И ДОСТУП К ДОСКЕ.',
+        });
+        const blobMimeType = normalizeAttachmentMimeType(blob.type);
+        const attachmentMimeType = normalizeAttachmentMimeType(attachment.mime_type || '');
+        if (!blobMimeType.startsWith('image/') && !attachmentMimeType.startsWith('image/')) {
+          throw new Error('ФАЙЛ НЕ ЯВЛЯЕТСЯ ИЗОБРАЖЕНИЕМ ДЛЯ ПРОСМОТРА.');
+        }
+        state.filePreview = {
+          attachmentId: String(attachment.id || '').trim(),
+          fileName: String(attachment.file_name || '').trim(),
+          objectUrl: URL.createObjectURL(blob),
+          loading: false,
+          error: '',
+        };
+        syncFilePreview(state.activeCard);
+      } catch (error) {
+        clearFilePreview({ sync: false });
+        state.filePreview = {
+          attachmentId: String(attachment.id || '').trim(),
+          fileName: String(attachment.file_name || '').trim(),
+          objectUrl: '',
+          loading: false,
+          error: String(error?.message || 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ ИЗОБРАЖЕНИЕ.'),
+        };
+        syncFilePreview(state.activeCard);
+        setStatus(state.filePreview.error, true);
+      }
+    }
+
     function renderFiles(card) {
       const attachments = (card?.attachments || []).filter((item) => !item.removed);
       syncFileDropzone(card);
@@ -12989,8 +13233,16 @@ BOARD_WEB_APP_HTML = "".join(
             : 'ПОЛЕ ПУСТО. ПЕРЕТАЩИТЕ ФАЙЛ, НАЖМИТЕ CTRL+V ИЛИ ВСТАВЬТЕ ЧЕРЕЗ КОНТЕКСТНОЕ МЕНЮ.')
         : 'СНАЧАЛА СОХРАНИТЕ КАРТОЧКУ, ЗАТЕМ ДОБАВЛЯЙТЕ ВЛОЖЕНИЯ.';
       els.fileList.innerHTML = attachments.length
-        ? attachments.map((item) => '<div class="file-row"><div>' + escapeHtml(item.file_name) + '</div><div class="log-row__meta">' + escapeHtml(formatDate(item.created_at)) + ' · ' + Math.round(item.size_bytes / 1024) + ' КБ</div><div style="display:flex; gap:8px; flex-wrap:wrap;"><a class="btn" href="/api/attachment?card_id=' + encodeURIComponent(card.id) + '&attachment_id=' + encodeURIComponent(item.id) + '">СКАЧАТЬ</a><button class="btn btn--danger" data-remove-file="' + escapeHtml(item.id) + '">УДАЛИТЬ</button></div></div>').join('')
+        ? attachments.map((item) => {
+            const downloadUrl = attachmentDownloadPath(card.id, item.id);
+            const previewOpen = String(state.filePreview?.attachmentId || '') === String(item.id || '') && (state.filePreview.loading || state.filePreview.objectUrl || state.filePreview.error);
+            const previewButtonHtml = attachmentIsPreviewable(item)
+              ? '<button class="btn btn--ghost' + (previewOpen ? ' is-active' : '') + '" type="button" data-preview-file="' + escapeHtml(item.id) + '">' + (previewOpen ? 'СКРЫТЬ' : 'ПРОСМОТР') + '</button>'
+              : '';
+            return '<div class="file-row' + (previewOpen ? ' is-previewing' : '') + '"><div>' + escapeHtml(item.file_name) + '</div><div class="log-row__meta">' + escapeHtml(formatDate(item.created_at)) + ' · ' + escapeHtml(formatBytes(item.size_bytes || 0)) + '</div><div style="display:flex; gap:8px; flex-wrap:wrap;">' + previewButtonHtml + '<a class="btn" href="' + downloadUrl + '">СКАЧАТЬ</a><button class="btn btn--danger" type="button" data-remove-file="' + escapeHtml(item.id) + '">УДАЛИТЬ</button></div></div>';
+          }).join('')
         : '<div class="log-row__meta">ФАЙЛОВ НЕТ.</div>';
+      syncFilePreview(card);
     }
 
     function requireSavedCardForFiles({ syncDropzone = false } = {}) {
@@ -14511,6 +14763,14 @@ function renderCompactArchiveRows(cards) {
       }
       if (target.dataset.suggestTag) {
         addSuggestedTag({ label: target.dataset.suggestTag, color: target.dataset.suggestColor });
+        return true;
+      }
+      if (target.dataset.previewFile && state.editingId) {
+        await previewActiveCardAttachment(target.dataset.previewFile);
+        return true;
+      }
+      if (target.dataset.closeFilePreview) {
+        clearFilePreview();
         return true;
       }
       if (target.dataset.removeFile && state.editingId) {
