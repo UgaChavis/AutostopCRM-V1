@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -51,6 +50,66 @@ def _default_api_url() -> str:
     return candidate.rstrip("/")
 
 
+def _http_error_code(exc: Exception) -> int | None:
+    return exc.code if isinstance(exc, urllib.error.HTTPError) else None
+
+
+def _supports_cleanup_only_flow(base_url: str, token: str) -> bool:
+    headers = {"X-Operator-Session": token} if token else {}
+    try:
+        _request_json(
+            f"{base_url}/api/cleanup_card_content",
+            method="POST",
+            payload={},
+            headers=headers,
+        )
+        return True
+    except urllib.error.HTTPError as exc:
+        # Any non-404 response means the cleanup endpoint exists and the legacy
+        # server-agent runtime is simply retired in this deployment.
+        return exc.code != 404
+
+
+def _evaluate_agent_runtime_mode(
+    *,
+    base_url: str,
+    token: str,
+    max_heartbeat_age_seconds: float,
+) -> tuple[str, dict[str, str]]:
+    headers = {"X-Operator-Session": token} if token else {}
+    try:
+        payload = _request_json(
+            f"{base_url}/api/agent_status",
+            headers=headers,
+        )
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, KeyError) as exc:
+        if _http_error_code(exc) == 404 and _supports_cleanup_only_flow(base_url, token):
+            return "cleanup_only", {"api_url": base_url, "reason": "agent_status_route_retired"}
+        raise
+
+    status = payload["data"]["status"]
+    agent = payload["data"]["agent"]
+    heartbeat_age = _heartbeat_age_seconds(str(status.get("last_heartbeat", "") or ""))
+    if agent.get("enabled") and heartbeat_age is not None and heartbeat_age <= max_heartbeat_age_seconds:
+        return "ok", {
+            "api_url": base_url,
+            "heartbeat_age_seconds": f"{heartbeat_age:.2f}",
+            "model": str(agent.get("model", "") or ""),
+        }
+    if _supports_cleanup_only_flow(base_url, token):
+        if not agent.get("enabled"):
+            reason = "embedded_agent_disabled"
+        else:
+            reason = "stale_or_missing_heartbeat"
+        return "cleanup_only", {"api_url": base_url, "reason": reason}
+    if not agent.get("enabled"):
+        return "disabled", {"api_url": base_url}
+    return "stale_heartbeat", {
+        "api_url": base_url,
+        "heartbeat_age_seconds": str(heartbeat_age if heartbeat_age is not None else "unknown"),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--local-api-url", default=_default_api_url())
@@ -61,30 +120,38 @@ def main() -> int:
 
     try:
         token = _login(args.local_api_url.rstrip("/"), args.operator_username, args.operator_password)
-        payload = _request_json(
-            f"{args.local_api_url.rstrip('/')}/api/agent_status",
-            headers={"X-Operator-Session": token},
+        status, details = _evaluate_agent_runtime_mode(
+            base_url=args.local_api_url.rstrip("/"),
+            token=token,
+            max_heartbeat_age_seconds=args.max_heartbeat_age_seconds,
         )
-        status = payload["data"]["status"]
-        agent = payload["data"]["agent"]
-        heartbeat_age = _heartbeat_age_seconds(str(status.get("last_heartbeat", "") or ""))
-        if not agent.get("enabled"):
-            print("status: disabled")
+        if status == "ok":
+            print(
+                "status: ok",
+                f"heartbeat_age_seconds={details['heartbeat_age_seconds']}",
+                f"api_url={details['api_url']}",
+                f"model={details['model']}",
+            )
+            return 0
+        if status == "cleanup_only":
+            print(
+                "status: cleanup_only",
+                f"api_url={details['api_url']}",
+                f"reason={details['reason']}",
+            )
+            return 0
+        if status == "disabled":
+            print("status: disabled", f"api_url={details['api_url']}")
             return 1
-        if heartbeat_age is None or heartbeat_age > args.max_heartbeat_age_seconds:
+        if status == "stale_heartbeat":
             print(
                 "status: stale_heartbeat",
-                f"heartbeat_age_seconds={heartbeat_age if heartbeat_age is not None else 'unknown'}",
-                f"api_url={args.local_api_url.rstrip('/')}",
+                f"heartbeat_age_seconds={details['heartbeat_age_seconds']}",
+                f"api_url={details['api_url']}",
             )
             return 1
-        print(
-            "status: ok",
-            f"heartbeat_age_seconds={heartbeat_age:.2f}",
-            f"api_url={args.local_api_url.rstrip('/')}",
-            f"model={agent.get('model', '')}",
-        )
-        return 0
+        print("status: error", f"api_url={args.local_api_url.rstrip('/')}", f"mode={status}")
+        return 1
     except (KeyError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as exc:
         print("status: error", f"type={type(exc).__name__}", f"detail={exc}")
         return 1
