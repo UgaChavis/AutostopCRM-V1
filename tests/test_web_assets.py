@@ -215,6 +215,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".employees-report-panel.is-active {", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-kpi--accent {", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-row__summary {", BOARD_WEB_APP_HTML)
+        self.assertIn(".employees-row {", BOARD_WEB_APP_HTML)
+        self.assertIn("color: var(--text);", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-card-head {", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-field--compact {", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-field--salary {", BOARD_WEB_APP_HTML)

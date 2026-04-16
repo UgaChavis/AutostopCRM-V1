@@ -4601,6 +4601,7 @@ BOARD_WEB_APP_HTML = "".join(
       display: grid;
       gap: 3px;
       text-align: left;
+      color: var(--text);
     }
     .employees-row.is-active {
       border-color: var(--accent);
@@ -4616,6 +4617,7 @@ BOARD_WEB_APP_HTML = "".join(
     .employees-row__title {
       font-size: 13px;
       font-weight: 700;
+      color: var(--text);
     }
     .employees-row__state {
       font-size: 10px;
