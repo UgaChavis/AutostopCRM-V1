@@ -364,6 +364,19 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(profile["data"]["stats"]["cards_opened"], 1)
 
+    def test_open_card_requires_operator_session(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"title": "Tracked open", "deadline": {"hours": 1}},
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        status, blocked = self.request("/api/open_card", {"card_id": card_id})
+        self.assertEqual(status, 401)
+        self.assertEqual(blocked["error"]["code"], "unauthorized")
+        self.assertEqual(blocked["error"]["details"]["auth_type"], "operator_session")
+
     def test_admin_user_report_uses_last_15_days_window(self) -> None:
         status, logged_in = self.request("/api/login_operator", {"username": "admin", "password": "admin"})
         self.assertEqual(status, 200)

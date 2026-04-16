@@ -13,7 +13,7 @@ It should answer four questions fast:
 
 ## 1. Product Snapshot
 
-AutoStop CRM is a production-oriented CRM for an auto workshop built around a kanban board, local API, MCP surface, and a separate server AI worker.
+AutoStop CRM is a production-oriented CRM for an auto workshop built around a kanban board, local API, MCP surface, and one narrow local card-cleanup action.
 
 Current product scope:
 
@@ -24,7 +24,7 @@ Current product scope:
 - operator authentication and admin user management
 - cashboxes, cash transactions, employees, and payroll reports
 - MCP server for ChatGPT / OpenAI tool access
-- separate long-running server AI agent with tasks, schedules, autofill, and follow-up logic
+- local deterministic card cleanup from the card indicator
 
 Legacy names still exist and are expected:
 
@@ -93,13 +93,6 @@ local HTTP API
         ->
 same CardService and storage
 
-Server AI worker
-        ->
-Agent queue / scheduler
-        ->
-local HTTP API + bounded research tools
-        ->
-contract-based write / verify / follow-up flow
 ```
 
 Core rule:
@@ -112,7 +105,7 @@ Core rule:
 
 - `main.py`: desktop application entry
 - `main_mcp.py`: MCP-only entry
-- `main_agent.py`: agent worker entry
+- `main_agent.py`: retired compatibility stub
 
 ### Runtime assembly
 
@@ -146,18 +139,11 @@ Core rule:
 - `src/minimal_kanban/mcp/runtime.py`: MCP runtime server wrapper
 - `src/minimal_kanban/mcp/oauth_provider.py`: embedded OAuth metadata and provider behavior
 
-### Agent layer
+### Retired agent layer
 
-- `src/minimal_kanban/agent/control.py`: queue, schedules, status, heartbeat, autofill triggers
-- `src/minimal_kanban/agent/runner.py`: main orchestration core
-- `src/minimal_kanban/agent/contracts.py`: orchestration contracts
-- `src/minimal_kanban/agent/policy.py`: scenario policy and required-tool gates
-- `src/minimal_kanban/agent/tools.py`: bounded tool dispatch
-- `src/minimal_kanban/agent/storage.py`: tasks, runs, schedules, actions persistence
-- `src/minimal_kanban/agent/automotive_tools.py`: automotive external research tools
-- `src/minimal_kanban/agent/web_tools.py`: bounded web access helpers
-- `src/minimal_kanban/agent/openai_client.py`: OpenAI model calls
-- `src/minimal_kanban/agent/instructions.py`: base system rules for the server agent
+- old server-agent modules still exist in the repository as legacy code
+- they are no longer part of active startup, deploy, or visible UI flows
+- current product behavior keeps only local card cleanup through `CardService`
 
 ### Printing
 
@@ -171,47 +157,24 @@ Core rule:
 - `src/minimal_kanban/ui/settings_window.py`: settings UI
 - `src/minimal_kanban/web_assets.py`: browser-facing UI assets
 
-## 5. AI Agent Status
+## 5. Card Cleanup Status
 
-The current server AI is built around one contract:
+Current visible AI behavior:
 
-- `read -> evidence -> plan -> tools -> patch -> write -> verify`
+- only the card indicator remains
+- click -> `/api/cleanup_card_content`
+- local deterministic cleanup in `CardService.cleanup_card_content(...)`
+- patch-only write
+- verify after write
+- refresh card in UI
 
-Current design rules:
+Hard guarantees of the current flow:
 
-- required external tools are enforced by policy for key scenarios
-- writes are patch-oriented and additive
-- read-after-write verification is part of success
-- follow-up remains bounded and server-owned
-- MCP remains an external control plane, not the internal transport of the worker
-
-Current important scenario families:
-
-- VIN enrichment
-- parts lookup
-- DTC / fault research
-- maintenance advisory
-- card normalization
-- repair-order assistance
-
-Recent practical agent changes:
-
-- follow-up limits were relaxed and made more context-aware
-- `agent_status` became more honest about readiness and availability reasons
-- scheduler status now exposes more diagnostics
-- follow-up no-op passes became quieter and back off more cleanly
-- per-run cache was added for repeated automotive lookup calls
-- MCP client read-path became more resilient on invalid JSON and transient read errors
-- mixed MCP test runs no longer rely on noisy `ResourceWarning` behavior
-
-Important files for AI work:
-
-- `src/minimal_kanban/agent/runner.py`
-- `src/minimal_kanban/agent/contracts.py`
-- `src/minimal_kanban/agent/policy.py`
-- `src/minimal_kanban/agent/tools.py`
-- `src/minimal_kanban/agent/control.py`
-- `src/minimal_kanban/agent/scenarios`
+- no server worker
+- no queue / scheduler
+- no separate AI chat surface
+- no popup or menu on indicator click
+- no internet lookup in the user cleanup path
 
 ## 6. Most Recent Development State
 
@@ -222,8 +185,10 @@ Latest completed wave, in practical terms:
 - employees UI was rebuilt into a clearer master-detail workspace
 - board column reordering was added with native HTML5 drag-and-drop
 - column drag capture was widened from a narrow header handle to the whole column shell
-- AI follow-up became quieter and less wasteful on repeated no-op cycles
-- MCP and server-agent test/runtime paths were cleaned up and hardened
+- old AI worker contour was rolled back to one local card-cleanup action
+- visible AI chat / dock / popup entries were removed
+- server deploy topology was reduced to the main `autostopcrm` service
+- MCP and local API were kept as the active integration layers
 
 Latest completed stabilization wave:
 
@@ -253,15 +218,12 @@ Current stability note:
 
 ## 7. Production Verification Snapshot
 
-At the last fully documented production verification after `1796ec9`, production reported:
+At the current verification baseline, production reported:
 
 - site returns `200 OK`
 - MCP live check passes
-- agent runtime check returns `ok`
 - `autostopcrm` container is healthy
-- `autostopcrm-agent` container is up
-- MCP tool count is still `60`
-- agent runtime model is `gpt-5.4-mini`
+- no separate `autostopcrm-agent` container is expected anymore
 
 Operational reality:
 
@@ -287,8 +249,7 @@ Current known verification baseline:
 
 - last known full-suite baseline before the latest UI/employee work was green
 - latest targeted regressions for `tests.test_service`, `tests.test_api`, and `tests.test_web_assets` are green
-- latest targeted mixed `tests.test_agent`, `tests.test_mcp`, `tests.test_mcp_main`, and `tests.test_api` runs are green
-- MCP tests now pass cleanly even with `-W error::ResourceWarning`
+- latest targeted `tests.test_service`, `tests.test_api`, `tests.test_web_assets`, `tests.test_mcp`, and `tests.test_mcp_main` runs are green
 - import smoke for `main.py`, `main_mcp.py`, and `main_agent.py` is green
 - latest full-suite validation on the current local stabilization pass: `344/344 OK`
 - latest focused validation on MCP/settings/UI startup chain: `61/61 OK`
@@ -299,7 +260,6 @@ Main test areas:
 - `tests/test_service.py`
 - `tests/test_mcp.py`
 - `tests/test_mcp_main.py`
-- `tests/test_agent.py`
 - `tests/test_printing_service.py`
 - `tests/test_settings_service.py`
 - `tests/test_settings_ui.py`
@@ -320,7 +280,6 @@ git reset --hard origin/autostopCRM
 Current compose services:
 
 - `autostopcrm`: main app, local API, MCP
-- `autostopcrm-agent`: separate worker
 
 Useful production verification commands:
 
@@ -328,7 +287,6 @@ Useful production verification commands:
 cd /opt/autostopcrm
 docker compose ps
 docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --mcp-url https://crm.autostopcrm.ru/mcp --operator-username admin --operator-password admin --expect-admin
-docker compose exec -T autostopcrm python scripts/check_agent_runtime.py --local-api-url http://127.0.0.1:41731 --operator-username admin --operator-password admin
 ```
 
 ## 10. Current Risks And Cleanup Targets
@@ -336,7 +294,8 @@ docker compose exec -T autostopcrm python scripts/check_agent_runtime.py --local
 Known risks:
 
 - production still currently accepts the default admin account
-- some docs still carry older naming and historical assumptions
+- some docs and source files still carry older naming and historical assumptions
+- `web_assets.py` still contains inert legacy agent/chat functions that are no longer wired into the visible UX
 - board column drag currently relies on native HTML5 DnD and should be rechecked on touch-oriented setups
 
 Current cleanup policy:
@@ -354,8 +313,8 @@ Current cleanup policy:
 4. `AUTOSTOPCRM_FULL_INSTRUCTION.txt`
 5. `API_GUIDE.md`
 6. `MCP_GUIDE.md`
-7. `src/minimal_kanban/agent/runner.py`
-8. `src/minimal_kanban/services/card_service.py`
+7. `src/minimal_kanban/services/card_service.py`
+8. `src/minimal_kanban/mcp/server.py`
 9. `src/minimal_kanban/web_assets.py`
 
 ## 12. Maintenance Rule For This File
@@ -363,7 +322,7 @@ Current cleanup policy:
 Update this file when any of the following happens:
 
 - a new architectural layer is added or materially changed
-- the server AI behavior changes
+- the cleanup flow or MCP/UI contract changes materially
 - the working production domain or server changes
 - the main branch policy changes
 - regression baseline changes

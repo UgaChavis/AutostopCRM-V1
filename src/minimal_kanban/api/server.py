@@ -635,8 +635,6 @@ class ApiServer:
                     return next_payload
                 if route in operator_session_routes:
                     if session is None:
-                        if route in agent_routes:
-                            return next_payload
                         self._send_error_response(
                             request_id,
                             HTTPStatus.UNAUTHORIZED,

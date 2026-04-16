@@ -5,6 +5,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from decimal import Decimal
 from unittest.mock import patch
 
 
@@ -54,6 +55,44 @@ def build_card() -> Card:
                 "materials": [
                     {"name": "ATF", "catalog_number": "08886-81210", "quantity": "6", "price": "950", "total": ""},
                     {"name": "Фильтр АКПП", "quantity": "1", "price": "2100", "total": ""},
+                ],
+            },
+        }
+    )
+
+
+def build_payment_card(*, payment_method: str, payments: list[dict[str, str]]) -> Card:
+    return Card.from_dict(
+        {
+            "id": "card-print-payments",
+            "vehicle": "Toyota Camry XV70",
+            "title": "РўРћ РђРљРџРџ",
+            "description": "РљР»РёРµРЅС‚ РїСЂРёРµС…Р°Р» РЅР° РѕР±СЃР»СѓР¶РёРІР°РЅРёРµ РєРѕСЂРѕР±РєРё РїРµСЂРµРґР°С‡.",
+            "column": "inbox",
+            "archived": False,
+            "created_at": "2026-04-06T10:00:00+00:00",
+            "updated_at": "2026-04-06T10:30:00+00:00",
+            "deadline_timestamp": "2026-04-07T10:30:00+00:00",
+            "repair_order": {
+                "number": "13",
+                "date": "06.04.2026 17:30",
+                "opened_at": "06.04.2026 17:30",
+                "client": "РРІР°РЅ РРІР°РЅРѕРІ",
+                "phone": "+7 900 123-45-67",
+                "vehicle": "Toyota Camry XV70",
+                "license_plate": "Рђ123РђРђ124",
+                "vin": "JTNB11HK103456789",
+                "mileage": "165000",
+                "payment_method": payment_method,
+                "payments": payments,
+                "reason": "РџР»Р°РЅРѕРІРѕРµ РѕР±СЃР»СѓР¶РёРІР°РЅРёРµ РђРљРџРџ",
+                "comment": "РџСЂРѕРІРµСЂРёР»Рё РєРѕСЂРѕР±РєСѓ, Р·Р°РјРµРЅРёР»Рё РјР°СЃР»Рѕ Рё С„РёР»СЊС‚СЂ.",
+                "note": "РЎР»РµРґРѕРІ РєСЂРёС‚РёС‡РµСЃРєРѕРіРѕ РёР·РЅРѕСЃР° РЅРµ РѕР±РЅР°СЂСѓР¶РµРЅРѕ.",
+                "works": [
+                    {"name": "Р Р°Р±РѕС‚Р° 1", "quantity": "1", "price": "10000", "total": ""},
+                ],
+                "materials": [
+                    {"name": "РњР°С‚РµСЂРёР°Р» 1", "quantity": "1", "price": "10000", "total": ""},
                 ],
             },
         }
@@ -127,6 +166,66 @@ class PrintingServiceTests(unittest.TestCase):
             active_document_id="repair_order",
         )
         self.assertNotIn("08886-81210", preview["documents"][0]["pages"][0]["html"])
+
+    def test_print_context_uses_payment_summary_for_payment_amounts(self) -> None:
+        scenarios = [
+            (
+                "cash",
+                [{"amount": "10000", "payment_method": "cash"}],
+                {
+                    "subtotal": Decimal("20000"),
+                    "taxes": Decimal("0"),
+                    "grand": Decimal("20000"),
+                    "prepayment": Decimal("10000"),
+                    "due": Decimal("10000"),
+                },
+            ),
+            (
+                "cashless",
+                [{"amount": "10000", "payment_method": "cashless"}],
+                {
+                    "subtotal": Decimal("20000"),
+                    "taxes": Decimal("1500"),
+                    "grand": Decimal("21500"),
+                    "prepayment": Decimal("10000"),
+                    "due": Decimal("11500"),
+                },
+            ),
+            (
+                "mixed",
+                [
+                    {"amount": "5000", "payment_method": "cash"},
+                    {"amount": "7000", "payment_method": "cashless"},
+                ],
+                {
+                    "subtotal": Decimal("20000"),
+                    "taxes": Decimal("1050"),
+                    "grand": Decimal("21050"),
+                    "prepayment": Decimal("12000"),
+                    "due": Decimal("9200"),
+                },
+            ),
+        ]
+
+        for label, payments, expected in scenarios:
+            with self.subTest(label=label):
+                card = build_payment_card(payment_method="cashless" if label != "cash" else "cash", payments=payments)
+                context = self.service._build_document_context(
+                    card,
+                    card.repair_order,
+                    document=self.service._document_definition("repair_order"),
+                    settings=self.service._read_settings(),
+                )
+                totals = context["totals"]
+
+                self.assertEqual(totals["subtotal"], expected["subtotal"])
+                self.assertEqual(totals["taxes"], expected["taxes"])
+                self.assertEqual(totals["grand"], expected["grand"])
+                self.assertEqual(totals["prepayment"], expected["prepayment"])
+                self.assertEqual(totals["due"], expected["due"])
+                self.assertEqual(context["repair_order"]["prepayment_display"], totals["prepayment_display"])
+                self.assertEqual(totals["base_total_display"], totals["subtotal_display"])
+                self.assertEqual(totals["total_paid_display"], totals["prepayment_display"])
 
     def test_inspection_sheet_form_roundtrip_updates_preview(self) -> None:
         initial = self.service.get_inspection_sheet_form(self.card)

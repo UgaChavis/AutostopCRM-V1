@@ -15,7 +15,7 @@ The repository still contains legacy technical names from the earlier `Minimal K
 - kanban board with cards, custom columns, sticky notes, archive, unread and updated markers
 - local HTTP API for the UI, reverse proxy, and automation
 - MCP server for ChatGPT / OpenAI tools / connector workflows
-- separate AI agent runtime with task queue and scheduler
+- local card cleanup action available from the card indicator
 - vehicle profiles and card autofill
 - repair orders with works, materials, payments, status flow, and text export
 - print module for repair-order documents and inspection sheets
@@ -26,7 +26,7 @@ The repository still contains legacy technical names from the earlier `Minimal K
 
 - Desktop application: [main.py](main.py)
 - MCP server only: [main_mcp.py](main_mcp.py)
-- Agent worker only: [main_agent.py](main_agent.py)
+- Retired compatibility stub: [main_agent.py](main_agent.py)
 - Containerized deployment: [docker-compose.yml](docker-compose.yml)
 
 ## Architecture
@@ -49,19 +49,13 @@ MCP server
 local HTTP API
         ->
 same CardService and storage
-
-Agent scheduler / worker
-        ->
-local HTTP API and board context
-        ->
-safe tool execution and card updates
 ```
 
 ## Code Map
 
 Core entrypoints and runtime assembly:
 
-- [src/minimal_kanban/app.py](src/minimal_kanban/app.py): desktop bootstrap, splash screen, API startup, auth service, embedded agent worker, settings, MCP and tunnel controllers
+- [src/minimal_kanban/app.py](src/minimal_kanban/app.py): desktop bootstrap, splash screen, API startup, auth service, settings, MCP and tunnel controllers
 - [src/minimal_kanban/config.py](src/minimal_kanban/config.py): paths, ports, environment variables
 - [src/minimal_kanban/logging_setup.py](src/minimal_kanban/logging_setup.py): runtime logging
 
@@ -91,15 +85,11 @@ MCP layer:
 - [src/minimal_kanban/mcp/runtime.py](src/minimal_kanban/mcp/runtime.py): MCP server runtime
 - [src/minimal_kanban/mcp/oauth_provider.py](src/minimal_kanban/mcp/oauth_provider.py): embedded OAuth metadata and provider logic
 
-Agent layer:
+Retired agent layer:
 
-- [src/minimal_kanban/agent/control.py](src/minimal_kanban/agent/control.py): task queue, scheduler, status, on-create handlers
-- [src/minimal_kanban/agent/runner.py](src/minimal_kanban/agent/runner.py): unified orchestration core, model loop, deterministic autofill executor, patch writer, verify stage
-- [src/minimal_kanban/agent/contracts.py](src/minimal_kanban/agent/contracts.py): evidence, plan, tool, patch, verify, and orchestration trace contracts
-- [src/minimal_kanban/agent/policy.py](src/minimal_kanban/agent/policy.py): scenario tool policy, required-tool gates, write-target rules
-- [src/minimal_kanban/agent/tools.py](src/minimal_kanban/agent/tools.py): bounded tool execution
-- [src/minimal_kanban/agent/automotive_tools.py](src/minimal_kanban/agent/automotive_tools.py): automotive research helpers
-- [src/minimal_kanban/agent/storage.py](src/minimal_kanban/agent/storage.py): queue, runs, actions, schedule persistence
+- old server-agent modules still exist in the repository as legacy code
+- they are no longer part of the active product runtime, startup path, or deploy topology
+- the visible product keeps only the local card cleanup action
 
 Printing and documents:
 
@@ -125,7 +115,7 @@ The local API is broader than the original board-only stage. Current route group
 - cashboxes and cash transactions
 - employees and payroll
 - operator auth and user management
-- agent status, runs, tasks, and schedules
+- local card cleanup
 
 The main API implementation lives in [src/minimal_kanban/api/server.py](src/minimal_kanban/api/server.py). Detailed payload docs are in [API_GUIDE.md](API_GUIDE.md).
 
@@ -137,39 +127,26 @@ The MCP server exposes the current AutoStop CRM board and services as tools over
 - board review and GPT wall
 - cashbox access
 - repair-order access and updates
-- agent queue and schedule control
-- autofill toggles and bounded data-enrichment actions
+- local card cleanup and bounded board/card reads
 
 See [MCP_GUIDE.md](MCP_GUIDE.md) and [src/minimal_kanban/mcp/server.py](src/minimal_kanban/mcp/server.py).
 
-## AI Agent
+## Card Cleanup
 
-The AI agent is a bounded operational worker, not a free-form UI bot.
+The visible AI behavior in the product is intentionally narrow:
 
-Current server behavior is built around one orchestration framework:
+- only the card indicator remains
+- clicking it runs a local deterministic cleanup flow
+- the cleanup path stays inside `CardService`
+- no internet, no MCP dependency in the user flow, and no server worker are involved
 
-- `read -> evidence -> plan -> tools -> patch -> write -> verify`
-- one shared run trace in agent runs
-- policy-gated required tools for VIN / parts / DTC / maintenance scenarios
-- patch-only writes through the runner contract layer
-- read-after-write verification before success is recorded
-- follow-up ownership kept in the server autofill flow and `CardService`
+Current cleanup contract:
 
-It supports:
-
-- manual queue tasks
-- scheduled tasks
-- on-create automations
-- card autofill orchestration with explicit scenario selection
-- model-loop tasks that now still run through the same evidence / plan / policy / verify contract
-- controlled use of automotive web tools and card updates
-
-Relevant docs:
-
-- [GPT_AGENT_04_SERVER_AGENT_API_AND_COMMANDS.txt](GPT_AGENT_04_SERVER_AGENT_API_AND_COMMANDS.txt)
-- [GPT_AGENT_09_MCP_COMMAND_CATALOG.md](GPT_AGENT_09_MCP_COMMAND_CATALOG.md)
-- [GPT_AGENT_10_MCP_OPERATION_FLOWS.md](GPT_AGENT_10_MCP_OPERATION_FLOWS.md)
-- [GPT_AGENT_11_AGENT_AUTOFILL_ORCHESTRATION.md](GPT_AGENT_11_AGENT_AUTOFILL_ORCHESTRATION.md)
+- `read -> evidence -> patch -> write -> verify`
+- normalize description without deleting meaningful user text
+- fill only obvious empty local fields
+- use patch-only writes
+- refresh the card after write
 
 ## Local Development
 
@@ -185,7 +162,7 @@ MCP server only:
 .\scripts\run_mcp_server.ps1
 ```
 
-Agent only:
+Retired compatibility entry:
 
 ```powershell
 .\.venv\Scripts\python.exe main_agent.py
@@ -210,7 +187,6 @@ Important test areas:
 - API: [tests/test_api.py](tests/test_api.py)
 - service layer: [tests/test_service.py](tests/test_service.py)
 - MCP: [tests/test_mcp.py](tests/test_mcp.py), [tests/test_mcp_main.py](tests/test_mcp_main.py)
-- agent: [tests/test_agent.py](tests/test_agent.py)
 - printing: [tests/test_printing_service.py](tests/test_printing_service.py)
 - settings and UI: [tests/test_settings_service.py](tests/test_settings_service.py), [tests/test_settings_ui.py](tests/test_settings_ui.py), [tests/test_ui_smoke.py](tests/test_ui_smoke.py)
 
@@ -240,10 +216,9 @@ Main files:
 - [Dockerfile](Dockerfile)
 - [AUTOSTOPCRM_FULL_INSTRUCTION.txt](AUTOSTOPCRM_FULL_INSTRUCTION.txt)
 
-The production compose stack currently has two services:
+The production compose stack currently has one service:
 
 - `autostopcrm`: main app, local API, MCP
-- `autostopcrm-agent`: separate agent worker
 
 ## Documentation Map
 

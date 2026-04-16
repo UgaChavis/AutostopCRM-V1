@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Any
 
 from ..models import Card, parse_datetime, utc_now_iso
-from ..repair_order import RepairOrder, RepairOrderRow
+from ..repair_order import (
+    REPAIR_ORDER_PAYMENT_METHOD_CASHLESS,
+    RepairOrder,
+    RepairOrderRow,
+)
 from .defaults import BUILTIN_PRINT_DOCUMENTS, PRINT_BASE_STYLES, builtin_template_records
 from .models import (
     InspectionSheetFormData,
@@ -908,6 +912,17 @@ class PrintModuleService:
             recommendations = self._inspection_sheet_list(inspection_form.recommendations)
             missing_fields = self._inspection_sheet_missing_fields(inspection_form)
         warnings: list[str] = []
+        payment_summary = order.payment_summary_value()
+        payment_summary_display = {f"{key}_display": _money_display(value) for key, value in payment_summary.items()}
+        selected_due = (
+            payment_summary["noncash_due"]
+            if order.payment_method == REPAIR_ORDER_PAYMENT_METHOD_CASHLESS
+            else payment_summary["cash_due"]
+        )
+        selected_due_display = _money_display(selected_due)
+        grand_total = payment_summary["base_total"] + payment_summary["taxes_and_fees"]
+        grand_total_display = _money_display(grand_total)
+        total_paid_display = payment_summary_display["total_paid_display"]
         if missing_fields:
             warnings.append("Часть полей не заполнена, проверьте документ перед печатью.")
         if not line_items:
@@ -944,11 +959,12 @@ class PrintModuleService:
                 "closed_at_display": _date_display(order.closed_at),
                 "status_label": "Закрыт" if str(order.status).strip().lower() == "closed" else "Открыт",
                 "payment_method_label": _display(repair_order_payload.get("payment_method_label")),
-                "prepayment_display": _money_display(order.prepayment_amount()),
+                "prepayment_display": total_paid_display,
                 "reason_display": _display(order.reason),
                 "reason_html": _line_breaks_html(order.reason),
                 "client_information_html": _line_breaks_html(order.comment),
                 "note_display": _display(order.note),
+                "payment_summary": payment_summary_display,
             },
             "client": {
                 "name": order.client,
@@ -1003,20 +1019,29 @@ class PrintModuleService:
             "totals": {
                 "works": order.works_total_amount(),
                 "materials": order.materials_total_amount(),
-                "subtotal": order.subtotal_amount(),
-                "taxes": order.taxes_amount(),
-                "grand": order.grand_total_amount(),
-                "prepayment": order.prepayment_amount(),
-                "due": order.due_total_amount(),
+                "subtotal": payment_summary["base_total"],
+                "taxes": payment_summary["taxes_and_fees"],
+                "grand": grand_total,
+                "prepayment": payment_summary["total_paid"],
+                "due": selected_due,
                 "works_display": _money_display(order.works_total_amount()),
                 "materials_display": _money_display(order.materials_total_amount()),
-                "subtotal_display": _money_display(order.subtotal_amount()),
-                "taxes_display": _money_display(order.taxes_amount()),
-                "grand_display": _money_display(order.grand_total_amount()),
-                "prepayment_display": _money_display(order.prepayment_amount()),
-                "due_display": _money_display(order.due_total_amount()),
-                "has_taxes": order.has_taxes(),
-                "has_prepayment": order.has_prepayment(),
+                "subtotal_display": payment_summary_display["base_total_display"],
+                "taxes_display": payment_summary_display["taxes_and_fees_display"],
+                "grand_display": grand_total_display,
+                "prepayment_display": total_paid_display,
+                "due_display": selected_due_display,
+                "base_total_display": payment_summary_display["base_total_display"],
+                "base_paid_cash_display": payment_summary_display["base_paid_cash_display"],
+                "base_paid_noncash_display": payment_summary_display["base_paid_noncash_display"],
+                "base_remaining_display": payment_summary_display["base_remaining_display"],
+                "cash_due_display": payment_summary_display["cash_due_display"],
+                "noncash_due_display": payment_summary_display["noncash_due_display"],
+                "taxes_and_fees_display": payment_summary_display["taxes_and_fees_display"],
+                "total_paid_display": total_paid_display,
+                "has_taxes": payment_summary["taxes_and_fees"] != Decimal("0"),
+                "has_prepayment": payment_summary["total_paid"] != Decimal("0"),
+                "has_payment_summary": True,
             },
             "meta": {
                 "warnings": warnings,

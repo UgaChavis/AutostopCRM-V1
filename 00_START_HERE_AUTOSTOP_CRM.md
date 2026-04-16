@@ -23,7 +23,7 @@ AutoStop CRM is an auto-workshop CRM built around:
 - operator authentication and admin users
 - cashboxes, employees, payroll
 - MCP server for external tool access
-- separate long-running server AI worker
+- local card cleanup action from the card indicator
 
 ## First Read Order
 
@@ -34,8 +34,8 @@ AutoStop CRM is an auto-workshop CRM built around:
 5. `AUTOSTOPCRM_FULL_INSTRUCTION.txt`
 6. `API_GUIDE.md`
 7. `MCP_GUIDE.md`
-8. `src/minimal_kanban/agent/runner.py`
-9. `src/minimal_kanban/services/card_service.py`
+8. `src/minimal_kanban/services/card_service.py`
+9. `src/minimal_kanban/mcp/server.py`
 10. `src/minimal_kanban/web_assets.py`
 
 ## Main Runtime Layers
@@ -51,46 +51,30 @@ External ChatGPT / MCP client
  -> local API
  -> same business core
 
-Server AI worker
- -> task queue / scheduler
- -> orchestration core
- -> bounded tools
- -> patch / verify / follow-up
 ```
 
 ## Key Files
 
 - `main.py`: desktop entry
 - `main_mcp.py`: MCP entry
-- `main_agent.py`: agent worker entry
+- `main_agent.py`: retired compatibility stub
 - `src/minimal_kanban/api/server.py`: API surface
 - `src/minimal_kanban/services/card_service.py`: business core
 - `src/minimal_kanban/services/column_service.py`: column ordering and column operations
-- `src/minimal_kanban/agent/control.py`: queue and schedules
-- `src/minimal_kanban/agent/runner.py`: AI orchestration core
-- `src/minimal_kanban/agent/contracts.py`: evidence / plan / patch / verify contracts
-- `src/minimal_kanban/agent/scenarios`: structured deterministic scenario executors
 - `src/minimal_kanban/mcp/server.py`: MCP server
 - `src/minimal_kanban/web_assets.py`: browser UI
 
-## Current AI Status
+## Current Cleanup Status
 
-The server AI is now built around one contract:
+The active in-product AI behavior is now only the local card cleanup action:
 
-- `read -> evidence -> plan -> tools -> patch -> write -> verify`
+- click the card indicator
+- run local cleanup through `CardService.cleanup_card_content`
+- patch only obvious local fields
+- verify after write
+- refresh the card
 
-Important current behavior:
-
-- card autofill uses structured deterministic orchestration
-- quick card prompts from the UI route into the same structured card pipeline instead of a weaker free-form loop
-- orchestration traces include per-scenario feedback, warnings, notes, and follow-up reasons
-- agent follow-up now uses per-run cache and quieter backoff for repeated no-op passes
-- MCP read-path and mixed MCP test runs were recently stabilized
-
-Known remaining limitation:
-
-- if the external VIN source returns sparse data, the agent can still end with a partial VIN result
-- the next likely improvement is a second VIN fallback source for weak European VIN decodes
+There is no active server AI worker in startup or deploy.
 
 ## Recent Practical Changes
 
@@ -103,12 +87,9 @@ Known remaining limitation:
 
 - last known full-suite baseline before this update cycle was green
 - latest targeted local regressions for `service + api + web_assets` are green
-- latest targeted mixed `agent + MCP + API` runs are green
-- MCP tests now pass cleanly even with `ResourceWarning` escalated to error
+- latest targeted `service + api + web_assets + MCP` runs are green
 - production site: `200 OK`
-- production MCP: `ok`, `60` tools
-- production agent runtime: `ok`
-- production agent model: `gpt-5.4-mini`
+- production MCP: verify current tool count from live runtime before assuming a stale number
 
 ## Documentation Layout
 
@@ -128,7 +109,7 @@ Obsolete root-level release docs and duplicated doc bundles were removed during 
 ## Current Risks
 
 - production still uses the default admin account and needs a separate credential rotation pass
-- board column drag is based on native HTML5 DnD and should still be rechecked on touch-heavy or unusual browser setups
+- `web_assets.py` still contains inert legacy agent/chat code paths that are no longer wired into the visible UI
 
 ## Rule For Future Updates
 

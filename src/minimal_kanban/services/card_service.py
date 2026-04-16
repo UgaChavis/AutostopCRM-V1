@@ -424,7 +424,10 @@ class CardService:
         )
 
     def attach_agent_control(self, agent_control: Any | None) -> None:
-        self._agent_control = agent_control
+        # Legacy compatibility hook: the old server agent runtime is retired,
+        # so the service no longer binds a live agent controller.
+        _ = agent_control
+        self._agent_control = None
 
     def create_card(self, payload: dict) -> dict:
         with self._lock:
@@ -493,7 +496,7 @@ class CardService:
             self._notify_agent_card_created(card)
             return {"card": self._serialize_card(card, events, column_labels=column_labels)}
 
-    def set_card_ai_autofill(self, payload: dict | None = None) -> dict:
+    def _removed_legacy_server_agent_set_card_ai_autofill(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
             bundle = self._store.read_bundle()
@@ -597,7 +600,7 @@ class CardService:
                 },
             }
 
-    def run_full_card_enrichment(self, payload: dict | None = None) -> dict:
+    def _removed_legacy_server_agent_run_full_card_enrichment(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
             bundle = self._store.read_bundle()
@@ -751,6 +754,8 @@ class CardService:
     # Legacy AI entry points are intentionally retired. Keep these thin shims so
     # any stale internal caller lands on a safe local cleanup path instead of
     # reviving the old background agent workflow.
+    # Retained only as inert reference during the rollback stabilization pass.
+    # The live compatibility shim is defined further below.
     def set_card_ai_autofill(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
@@ -809,6 +814,8 @@ class CardService:
                 },
             }
 
+    # Retained only as inert reference during the rollback stabilization pass.
+    # The live compatibility shim is defined further below.
     def run_full_card_enrichment(self, payload: dict | None = None) -> dict:
         result = self.cleanup_card_content(payload)
         result["meta"].update(
@@ -826,6 +833,7 @@ class CardService:
 
     def trigger_due_ai_followups(self) -> dict:
         with self._lock:
+            # Background AI follow-up is intentionally retired.
             return {"launched": [], "failed": []}
             bundle = self._store.read_bundle()
             cards = bundle["cards"]
