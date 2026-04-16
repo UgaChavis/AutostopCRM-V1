@@ -535,7 +535,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertLess(mileage_index, customer_phone_index)
 
     def test_vehicle_panel_collapses_cleanly_on_narrow_screens(self) -> None:
-        self.assertIn("@media (max-width: 900px) {", BOARD_WEB_APP_HTML)
+        self.assertIn("@media (max-width: 760px) {", BOARD_WEB_APP_HTML)
         self.assertIn(".vehicle-group__grid { grid-template-columns: 1fr; }", BOARD_WEB_APP_HTML)
         self.assertIn(".vehicle-panel__fields { max-height: none; }", BOARD_WEB_APP_HTML)
         self.assertIn(".vehicle-panel::before { display: none; }", BOARD_WEB_APP_HTML)

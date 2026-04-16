@@ -4114,7 +4114,7 @@ BOARD_WEB_APP_HTML = "".join(
         gap: 18px;
       }
     }
-    @media (max-width: 900px) {
+    @media (max-width: 760px) {
       .grid { grid-template-columns: 1fr; }
       .overview-layout { grid-template-columns: 1fr; }
       .overview-main__meta { grid-template-columns: 1fr; }
