@@ -12321,8 +12321,8 @@ BOARD_WEB_APP_HTML = "".join(
       const taxes = repairOrderProjectedTaxesValue(subtotal, paymentMethod);
       const grandTotal = repairOrderRoundMoney(subtotal + taxes);
       const prepayment = repairOrderPaymentsTotalValue(state.repairOrderPayments);
-      const cashlessDue = grandTotal;
-      const cashDue = subtotal;
+      const cashlessDue = repairOrderRoundMoney(grandTotal - prepayment);
+      const cashDue = repairOrderRoundMoney(subtotal - prepayment);
       if (els.repairOrderPrepayment) {
         els.repairOrderPrepayment.value = repairOrderNumberToRaw(prepayment);
       }
