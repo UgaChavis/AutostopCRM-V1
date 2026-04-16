@@ -9002,7 +9002,15 @@ BOARD_WEB_APP_HTML = "".join(
     function handleAiSurfaceLegacyClick() {
       if (!aiSurfaceLegacyFallbackVisible(state.aiSurfaceStatusPayload || {}, state.aiSurfaceSelectedScenario)) return;
       closeAiSurface();
-      openAgentModal(String(state.aiSurfaceContext?.kind || '').trim().toLowerCase() === 'card' ? 'card' : 'board');
+      reportLegacyAgentRuntimeRetired();
+    }
+
+    function legacyAgentRuntimeAvailable() {
+      return false;
+    }
+
+    function reportLegacyAgentRuntimeRetired() {
+      setStatus('Старый AI-режим отключён. Используй кнопку "Прибраться в карточке".', true);
     }
 
     function openAiChatEntry() {
@@ -9011,6 +9019,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     async function runFullCardEnrichment() {
       if (!requireOperatorSession()) return;
+      if (!legacyAgentRuntimeAvailable()) return reportLegacyAgentRuntimeRetired();
       const payload = buildFullCardEnrichmentRequestPayload();
       if (!String(payload.card_id || '').trim()) {
         return setStatus('ОТКРОЙ КАРТОЧКУ ДЛЯ AI-ОБОГАЩЕНИЯ.', true);
@@ -9854,6 +9863,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     function openAgentTasksModal() {
       if (!requireOperatorSession()) return;
+      if (!legacyAgentRuntimeAvailable()) return reportLegacyAgentRuntimeRetired();
       ensureAgentTasksUi();
       bindAgentTasksUiEvents();
       hydrateAgentTasksUiRefs();
@@ -10319,6 +10329,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     function openAgentModal(kind = 'board') {
       if (!requireOperatorSession()) return;
+      if (!legacyAgentRuntimeAvailable()) return reportLegacyAgentRuntimeRetired();
       ensureAgentUi();
       bindAgentUiEvents();
       state.agentContext = buildAgentContext(kind);

@@ -161,6 +161,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("state.cardCleanupState = 'running';", BOARD_WEB_APP_HTML)
         self.assertIn("Карточка приведена в порядок.", BOARD_WEB_APP_HTML)
         self.assertIn("Явных изменений для карточки не найдено.", BOARD_WEB_APP_HTML)
+        self.assertIn("function legacyAgentRuntimeAvailable()", BOARD_WEB_APP_HTML)
+        self.assertIn('Старый AI-режим отключён. Используй кнопку "Прибраться в карточке".', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="aiChatButton"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="agentDockButton"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="aiSurfaceModal"', BOARD_WEB_APP_HTML)
