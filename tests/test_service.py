@@ -1953,6 +1953,152 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(updated_maria["grand_total"], "1000")
         self.assertEqual(updated_maria["due_total"], "500")
 
+    def test_repair_order_payment_summary_handles_cash_cashless_and_mixed_payments(self) -> None:
+        cashless_cashbox = self.service.create_cashbox({"name": "Безналичный", "actor_name": "ADMIN"})["cashbox"]
+        cash_cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})["cashbox"]
+
+        def update_order(payments: list[dict[str, str]] | None = None) -> dict[str, str]:
+            created = self.service.create_card({"vehicle": "TOYOTA CAMRY", "title": "Сводка", "deadline": {"hours": 2}})[
+                "card"
+            ]
+            result = self.service.update_card(
+                {
+                    "card_id": created["id"],
+                    "repair_order": {
+                        "works": [{"name": "Ремонт", "quantity": "1", "price": "20000"}],
+                        **({"payments": payments} if payments is not None else {}),
+                    },
+                }
+            )
+            return result["card"]["repair_order"]
+
+        scenarios = [
+            (
+                "no_payments",
+                None,
+                {
+                    "base_total": "20000",
+                    "base_paid_cash": "0",
+                    "base_paid_noncash": "0",
+                    "base_remaining": "20000",
+                    "cash_due": "20000",
+                    "noncash_due": "23000",
+                    "taxes_and_fees": "0",
+                    "total_paid": "0",
+                },
+            ),
+            (
+                "cash_partial",
+                [
+                    {
+                        "amount": "10000",
+                        "paid_at": "06.04.2026 10:00",
+                        "note": "Нал",
+                        "payment_method": "cash",
+                        "actor_name": "ADMIN",
+                        "cashbox_id": cash_cashbox["id"],
+                    }
+                ],
+                {
+                    "base_total": "20000",
+                    "base_paid_cash": "10000",
+                    "base_paid_noncash": "0",
+                    "base_remaining": "10000",
+                    "cash_due": "10000",
+                    "noncash_due": "11500",
+                    "taxes_and_fees": "0",
+                    "total_paid": "10000",
+                },
+            ),
+            (
+                "cashless_partial",
+                [
+                    {
+                        "amount": "10000",
+                        "paid_at": "06.04.2026 10:00",
+                        "note": "Безнал",
+                        "payment_method": "cash",
+                        "actor_name": "ADMIN",
+                        "cashbox_id": cashless_cashbox["id"],
+                    }
+                ],
+                {
+                    "base_total": "20000",
+                    "base_paid_cash": "0",
+                    "base_paid_noncash": "10000",
+                    "base_remaining": "10000",
+                    "cash_due": "10000",
+                    "noncash_due": "11500",
+                    "taxes_and_fees": "1500",
+                    "total_paid": "10000",
+                },
+            ),
+            (
+                "mixed_payment",
+                [
+                    {
+                        "amount": "5000",
+                        "paid_at": "06.04.2026 10:00",
+                        "note": "Нал",
+                        "payment_method": "cash",
+                        "actor_name": "ADMIN",
+                        "cashbox_id": cash_cashbox["id"],
+                    },
+                    {
+                        "amount": "5000",
+                        "paid_at": "06.04.2026 10:10",
+                        "note": "Безнал",
+                        "payment_method": "cash",
+                        "actor_name": "ADMIN",
+                        "cashbox_id": cashless_cashbox["id"],
+                    },
+                ],
+                {
+                    "base_total": "20000",
+                    "base_paid_cash": "5000",
+                    "base_paid_noncash": "5000",
+                    "base_remaining": "10000",
+                    "cash_due": "10000",
+                    "noncash_due": "11500",
+                    "taxes_and_fees": "750",
+                    "total_paid": "10000",
+                },
+            ),
+            (
+                "full_close",
+                [
+                    {
+                        "amount": "20000",
+                        "paid_at": "06.04.2026 10:00",
+                        "note": "Закрытие",
+                        "payment_method": "cash",
+                        "actor_name": "ADMIN",
+                        "cashbox_id": cash_cashbox["id"],
+                    }
+                ],
+                {
+                    "base_total": "20000",
+                    "base_paid_cash": "20000",
+                    "base_paid_noncash": "0",
+                    "base_remaining": "0",
+                    "cash_due": "0",
+                    "noncash_due": "0",
+                    "taxes_and_fees": "0",
+                    "total_paid": "20000",
+                },
+            ),
+        ]
+
+        for scenario_name, payments, expected in scenarios:
+            with self.subTest(scenario=scenario_name):
+                order = update_order(payments)
+                summary = order["payment_summary"]
+                for key, value in expected.items():
+                    self.assertEqual(summary[key], value)
+                self.assertEqual(order["subtotal_total"], "20000")
+                self.assertEqual(order["payment_summary"]["base_total"], order["subtotal_total"])
+                self.assertEqual(order["payment_summary"]["cash_due"], order["payment_summary"]["base_remaining"])
+
     def test_list_repair_orders_creates_text_files_and_sorts_by_latest_number(self) -> None:
         first = self.service.create_card({"vehicle": "KIA RIO", "title": "Первый заказ", "deadline": {"hours": 2}})
         second = self.service.create_card({"vehicle": "LADA VESTA", "title": "Второй заказ", "deadline": {"hours": 2}})

@@ -11833,12 +11833,37 @@ BOARD_WEB_APP_HTML = "".join(
       return repairOrderPaymentsValueByMethod(payments, 'cashless');
     }
 
+    function repairOrderSummaryValue(baseTotal, payments) {
+      const normalizedBaseTotal = repairOrderRoundMoney(repairOrderParseNumber(baseTotal) ?? 0);
+      const normalizedPayments = Array.isArray(payments) ? payments : [];
+      const basePaidCash = repairOrderCashPaymentsValue(normalizedPayments);
+      const basePaidNoncash = repairOrderCashlessPaymentsValue(normalizedPayments);
+      const baseRemaining = repairOrderRoundMoney(Math.max(normalizedBaseTotal - basePaidCash - basePaidNoncash, 0));
+      const taxesAndFees = repairOrderRoundMoney(basePaidNoncash * repairOrderTaxRate('cashless'));
+      return {
+        base_total: normalizedBaseTotal,
+        base_paid_cash: basePaidCash,
+        base_paid_noncash: basePaidNoncash,
+        base_remaining: baseRemaining,
+        cash_due: baseRemaining,
+        noncash_due: repairOrderRoundMoney(baseRemaining * (1 + repairOrderTaxRate('cashless'))),
+        taxes_and_fees: taxesAndFees,
+        total_paid: repairOrderRoundMoney(basePaidCash + basePaidNoncash),
+        grand_total: repairOrderRoundMoney(normalizedBaseTotal + taxesAndFees),
+        due_total: baseRemaining,
+      };
+    }
+
     function repairOrderPaymentMethodLabel(value) {
       return normalizeRepairOrderPaymentMethod(value) === 'cashless' ? 'Безналичный' : 'Наличный';
     }
 
     function repairOrderTaxRate(value) {
       return normalizeRepairOrderPaymentMethod(value) === 'cashless' ? 0.15 : 0;
+    }
+
+    function repairOrderProjectedTaxesValue(subtotal, paymentMethod) {
+      return repairOrderRoundMoney(subtotal * repairOrderTaxRate(paymentMethod));
     }
 
     function syncRepairOrderPaymentMethod(value) {
@@ -11938,10 +11963,16 @@ BOARD_WEB_APP_HTML = "".join(
         source.prepayment ?? source.advance_payment ?? source.advancePayment ?? '',
         String(source.opened_at ?? source.openedAt ?? source.date ?? '').trim()
       );
+      const works = normalizeRows(source.works);
+      const materials = normalizeRows(source.materials);
       const paymentMethod = repairOrderPaymentMethodFromPayments(
         payments,
         source.payment_method ?? source.paymentMethod ?? 'cash'
       );
+      const subtotal = repairOrderRoundMoney(
+        repairOrderRowsTotalValue(works) + repairOrderRowsTotalValue(materials)
+      );
+      const summary = repairOrderSummaryValue(subtotal, payments);
       return {
         number: String(source.number ?? '').trim(),
         date: String(source.date ?? '').trim(),
@@ -11961,8 +11992,9 @@ BOARD_WEB_APP_HTML = "".join(
         comment: String(source.client_information ?? source.comment ?? '').trim(),
         note: String(source.note ?? source.master_comment ?? source.masterComment ?? source.internal_comment ?? source.internalComment ?? '').trim(),
         tags: normalizeRepairOrderTags(source.tags),
-        works: normalizeRows(source.works),
-        materials: normalizeRows(source.materials),
+        works,
+        materials,
+        payment_summary: summary,
       };
     }
 
@@ -12072,12 +12104,8 @@ BOARD_WEB_APP_HTML = "".join(
       const subtotal = repairOrderRoundMoney(
         repairOrderRowsTotalValue(normalized.works) + repairOrderRowsTotalValue(normalized.materials)
       );
-      const taxes = repairOrderRoundMoney(
-        repairOrderCashlessPaymentsValue(normalized.payments) * repairOrderTaxRate('cashless')
-      );
-      const grandTotal = repairOrderRoundMoney(subtotal + taxes);
-      const paidTotal = repairOrderPaymentsTotalValue(normalized.payments);
-      return paidTotal >= grandTotal;
+      const summary = repairOrderSummaryValue(subtotal, normalized.payments);
+      return summary.base_remaining <= 0;
     }
 
     function syncRepairOrderCloseButtonState(order = null) {
@@ -12317,32 +12345,29 @@ BOARD_WEB_APP_HTML = "".join(
       const worksTotal = syncRepairOrderSectionTotals('works');
       const materialsTotal = syncRepairOrderSectionTotals('materials');
       const subtotal = repairOrderRoundMoney(worksTotal + materialsTotal);
-      const paymentMethod = syncRepairOrderPaymentMethodFromPayments();
-      const taxes = repairOrderProjectedTaxesValue(subtotal, paymentMethod);
-      const grandTotal = repairOrderRoundMoney(subtotal + taxes);
-      const prepayment = repairOrderPaymentsTotalValue(state.repairOrderPayments);
-      const cashlessDue = repairOrderRoundMoney(grandTotal - prepayment);
-      const cashDue = repairOrderRoundMoney(subtotal - prepayment);
+      syncRepairOrderPaymentMethodFromPayments();
+      const summary = repairOrderSummaryValue(subtotal, state.repairOrderPayments);
+      state.repairOrderSummary = summary;
       if (els.repairOrderPrepayment) {
-        els.repairOrderPrepayment.value = repairOrderNumberToRaw(prepayment);
+        els.repairOrderPrepayment.value = repairOrderNumberToRaw(summary.total_paid);
       }
       document.querySelectorAll('[data-repair-order-total="subtotal"]').forEach((node) => {
-        node.textContent = repairOrderFormatMoney(subtotal);
+        node.textContent = repairOrderFormatMoney(summary.base_total);
       });
       document.querySelectorAll('[data-repair-order-total="cashless_due"]').forEach((node) => {
-        node.textContent = repairOrderFormatMoney(cashlessDue);
+        node.textContent = repairOrderFormatMoney(summary.noncash_due);
       });
       document.querySelectorAll('[data-repair-order-total="cash_due"]').forEach((node) => {
-        node.textContent = repairOrderFormatMoney(cashDue);
+        node.textContent = repairOrderFormatMoney(summary.cash_due);
       });
       document.querySelectorAll('[data-repair-order-total="taxes"]').forEach((node) => {
-        node.textContent = repairOrderFormatMoney(taxes);
+        node.textContent = repairOrderFormatMoney(summary.taxes_and_fees);
       });
       document.querySelectorAll('[data-repair-order-total="prepayment"]').forEach((node) => {
-        node.textContent = repairOrderFormatMoney(prepayment);
+        node.textContent = repairOrderFormatMoney(summary.total_paid);
       });
       document.querySelectorAll('[data-repair-order-total-block="taxes"]').forEach((node) => {
-        node.classList.toggle('is-hidden', taxes === 0);
+        node.classList.toggle('is-hidden', summary.taxes_and_fees === 0);
       });
       syncRepairOrderCloseButtonState();
     }
@@ -12350,10 +12375,10 @@ BOARD_WEB_APP_HTML = "".join(
     function renderRepairOrderPayments() {
       const payments = Array.isArray(state.repairOrderPayments) ? state.repairOrderPayments : [];
       const paymentMethod = syncRepairOrderPaymentMethodFromPayments();
-      const total = repairOrderPaymentsTotalValue(payments);
       const subtotal = repairOrderRoundMoney(syncRepairOrderSectionTotals('works') + syncRepairOrderSectionTotals('materials'));
-      const taxes = repairOrderProjectedTaxesValue(subtotal, paymentMethod);
-      const due = repairOrderRoundMoney(subtotal + taxes - total);
+      const summary = repairOrderSummaryValue(subtotal, payments);
+      const total = summary.total_paid;
+      const due = summary.base_remaining;
       if (els.repairOrderPaymentsMeta) {
         const latestPayment = payments.length ? payments[payments.length - 1] : null;
         const latestText = latestPayment
@@ -15688,9 +15713,6 @@ function renderCompactArchiveRows(cards) {
     els.boardScaleInput.addEventListener('input', handleBoardScaleInput);
     els.boardScaleInput.addEventListener('change', persistBoardScaleChange);
     els.boardScaleReset.addEventListener('click', resetBoardScaleToDefault);
-    els.boardControlToggle?.addEventListener('change', persistBoardScaleChange);
-    els.boardControlIntervalInput?.addEventListener('change', persistBoardScaleChange);
-    els.boardControlCooldownInput?.addEventListener('change', persistBoardScaleChange);
     els.columnButton.addEventListener('click', createColumnFromTopbar);
     els.cardButton.addEventListener('click', openDefaultNewCard);
     els.signalDaysIncrementButton.addEventListener('click', () => adjustSignalPart('days', 1));

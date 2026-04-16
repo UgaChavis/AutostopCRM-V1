@@ -139,6 +139,46 @@ def _round_money(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def repair_order_payments_value_by_method(
+    payments: list["RepairOrderPayment"] | Any,
+    payment_method: str,
+) -> Decimal:
+    normalized_payments = payments if isinstance(payments, list) else normalize_repair_order_payments(payments)
+    normalized_method = normalize_repair_order_payment_method(payment_method)
+    return sum(
+        (
+            payment.amount_value()
+            for payment in normalized_payments
+            if payment.payment_method == normalized_method
+        ),
+        Decimal("0"),
+    )
+
+
+def repair_order_payment_summary_value(
+    base_total: Decimal,
+    payments: list["RepairOrderPayment"] | Any,
+) -> dict[str, Decimal]:
+    normalized_payments = payments if isinstance(payments, list) else normalize_repair_order_payments(payments)
+    base_total = _round_money(base_total)
+    base_paid_cash = repair_order_payments_value_by_method(normalized_payments, REPAIR_ORDER_PAYMENT_METHOD_CASH)
+    base_paid_noncash = repair_order_payments_value_by_method(normalized_payments, REPAIR_ORDER_PAYMENT_METHOD_CASHLESS)
+    base_remaining = max(base_total - base_paid_cash - base_paid_noncash, Decimal("0"))
+    taxes_and_fees = _round_money(base_paid_noncash * REPAIR_ORDER_PAYMENT_TAX_RATE)
+    return {
+        "base_total": base_total,
+        "base_paid_cash": _round_money(base_paid_cash),
+        "base_paid_noncash": _round_money(base_paid_noncash),
+        "base_remaining": _round_money(base_remaining),
+        "cash_due": _round_money(base_remaining),
+        "noncash_due": _round_money(base_remaining * (Decimal("1") + REPAIR_ORDER_PAYMENT_TAX_RATE)),
+        "taxes_and_fees": taxes_and_fees,
+        "total_paid": _round_money(base_paid_cash + base_paid_noncash),
+        "grand_total": _round_money(base_total + taxes_and_fees),
+        "due_total": _round_money(base_remaining),
+    }
+
+
 @dataclass(slots=True)
 class RepairOrderRow:
     name: str = ""
@@ -501,6 +541,7 @@ class RepairOrder:
             "tags": [tag.to_dict() for tag in self.tags],
             "works": [row.to_dict() for row in self.works],
             "materials": [row.to_dict() for row in self.materials],
+            "payment_summary": self.payment_summary_amounts(),
             "subtotal_total": self.subtotal_amount(),
             "taxes_total": self.taxes_amount(),
             "works_total": self.works_total_amount(),
@@ -553,16 +594,16 @@ class RepairOrder:
     def subtotal_amount(self) -> str:
         return _format_decimal(self.subtotal_value())
 
+    def cash_payments_value(self) -> Decimal:
+        if self.payments:
+            return repair_order_payments_value_by_method(self.payments, REPAIR_ORDER_PAYMENT_METHOD_CASH)
+        if self.payment_method == REPAIR_ORDER_PAYMENT_METHOD_CASH:
+            return _parse_decimal(self.prepayment) or Decimal("0")
+        return Decimal("0")
+
     def cashless_payments_value(self) -> Decimal:
         if self.payments:
-            return sum(
-                (
-                    payment.amount_value()
-                    for payment in self.payments
-                    if payment.payment_method == REPAIR_ORDER_PAYMENT_METHOD_CASHLESS
-                ),
-                Decimal("0"),
-            )
+            return repair_order_payments_value_by_method(self.payments, REPAIR_ORDER_PAYMENT_METHOD_CASHLESS)
         prepayment = _parse_decimal(self.prepayment) or Decimal("0")
         if self.payment_method != REPAIR_ORDER_PAYMENT_METHOD_CASHLESS:
             return Decimal("0")
@@ -594,6 +635,13 @@ class RepairOrder:
     def due_total_amount(self) -> str:
         return _format_decimal(self.due_total_value())
 
+    def payment_summary_value(self) -> dict[str, Decimal]:
+        return repair_order_payment_summary_value(self.subtotal_value(), self.payments)
+
+    def payment_summary_amounts(self) -> dict[str, str]:
+        summary = self.payment_summary_value()
+        return {key: _format_decimal(value) for key, value in summary.items()}
+
     def has_taxes(self) -> bool:
         return self.taxes_value() != Decimal("0")
 
@@ -601,8 +649,7 @@ class RepairOrder:
         return self.prepayment_value() != Decimal("0")
 
     def is_paid(self) -> bool:
-        grand_total = _parse_decimal(self.grand_total_amount()) or Decimal("0")
-        return self.prepayment_value() >= grand_total
+        return self.payment_summary_value()["base_remaining"] <= Decimal("0")
 
     def payment_status(self) -> str:
         return "paid" if self.is_paid() else "unpaid"
