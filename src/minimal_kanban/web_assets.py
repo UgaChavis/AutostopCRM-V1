@@ -8731,6 +8731,10 @@ BOARD_WEB_APP_HTML = "".join(
           dialog.scrollTop = 0;
           dialog.scrollLeft = 0;
         }
+        const closeButton = els.employeesModal.querySelector('[data-close="employees"]');
+        if (closeButton instanceof HTMLElement) {
+          closeButton.focus({ preventScroll: true });
+        }
       }
     }
 
@@ -8750,6 +8754,9 @@ BOARD_WEB_APP_HTML = "".join(
       bindEmployeesUiEvents();
       if (els.employeesMonthInput && !els.employeesMonthInput.value) {
         els.employeesMonthInput.value = state.payrollMonth || currentPayrollMonthValue();
+      }
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
       }
       els.employeesModal.scrollTop = 0;
       const dialog = els.employeesModal.querySelector('.dialog');
