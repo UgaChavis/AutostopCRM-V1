@@ -7782,7 +7782,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeeSalaryModeInput?.addEventListener('change', syncEmployeeSalaryModeUi);
       els.employeesSearchInput?.addEventListener('input', handleEmployeesSearchInput);
       els.employeesVisibilityFilters?.addEventListener('click', handleEmployeesVisibilityFilterClick);
-      els.employeesMonthInput?.addEventListener('change', () => loadEmployeesWorkspace(false).catch((error) => setStatus(error.message, true)));
+      els.employeesMonthInput?.addEventListener('change', handleEmployeesMonthChange);
       els.employeesReportTabs?.addEventListener('click', handleEmployeesReportTabClick);
       els.employeesList?.addEventListener('click', handleEmployeesListClick);
       els.employeesSummaryTable?.addEventListener('click', handleEmployeesListClick);
@@ -8810,9 +8810,13 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     async function addEmployeeFromForm() {
+      if (!confirmDiscardEmployeeChanges()) return;
       state.employeeCreateMode = true;
       state.activeEmployeeId = '';
-      await saveEmployee();
+      renderEmployeesWorkspace();
+      if (els.employeeNameInput) {
+        setTimeout(() => els.employeeNameInput.focus(), 0);
+      }
     }
 
     function openEmployeesModal() {
@@ -8856,6 +8860,7 @@ BOARD_WEB_APP_HTML = "".join(
         setStatus('ВЫБЕРИ СОТРУДНИКА ДЛЯ УДАЛЕНИЯ.', true);
         return;
       }
+      if (!confirmDiscardEmployeeChanges()) return;
       if (!window.confirm('Удалить сотрудника "' + String(employee.name || 'Сотрудник') + '"?')) return;
       try {
         const data = await api('/api/delete_employee', {
@@ -8891,6 +8896,7 @@ BOARD_WEB_APP_HTML = "".join(
         setStatus('ВЫБЕРИ СОТРУДНИКА ДЛЯ ПЕРЕКЛЮЧЕНИЯ.', true);
         return;
       }
+      if (!confirmDiscardEmployeeChanges()) return;
       try {
         const data = await api('/api/toggle_employee', {
           method: 'POST',
@@ -8903,6 +8909,9 @@ BOARD_WEB_APP_HTML = "".join(
         state.employees = Array.isArray(data?.employees) ? data.employees : [];
         state.activeEmployeeId = data?.employee?.id || state.activeEmployeeId;
         state.employeeCreateMode = false;
+        if (data?.employee && !data.employee.is_active && normalizeEmployeesVisibilityFilter(state.employeesVisibilityFilter) === 'active') {
+          state.employeesVisibilityFilter = 'all';
+        }
         await loadPayrollReport();
         renderEmployeesWorkspace();
         refreshRepairOrderEmployeeSelects();
@@ -8917,6 +8926,20 @@ BOARD_WEB_APP_HTML = "".join(
       if (!(target instanceof HTMLInputElement)) return;
       state.employeesQuery = String(target.value || '').trim();
       renderEmployeesListPanel();
+    }
+
+    async function handleEmployeesMonthChange() {
+      if (!confirmDiscardEmployeeChanges()) {
+        if (els.employeesMonthInput) {
+          els.employeesMonthInput.value = state.payrollMonth || currentPayrollMonthValue();
+        }
+        return;
+      }
+      try {
+        await loadEmployeesWorkspace(false);
+      } catch (error) {
+        setStatus(error.message, true);
+      }
     }
 
     function handleEmployeesVisibilityFilterClick(event) {
