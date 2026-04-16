@@ -17,6 +17,7 @@ function Assert-LastExitCode {
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $venvPath = Join-Path $projectRoot ".venv"
 $pythonExe = Join-Path $projectRoot ".venv\\Scripts\\python.exe"
+$devRequirementsPath = Join-Path $projectRoot "requirements-dev.txt"
 
 if (-not (Test-Path $pythonExe)) {
     New-ProjectVirtualEnvironment -VenvPath $venvPath | Out-Null
@@ -27,6 +28,16 @@ if (-not (Test-Path $pythonExe)) {
 Assert-LastExitCode "Upgrade pip"
 & $pythonExe -m pip install -r (Join-Path $projectRoot "requirements.txt")
 Assert-LastExitCode "Install dependencies"
+if (Test-Path $devRequirementsPath) {
+    & $pythonExe -m pip install -r $devRequirementsPath
+    Assert-LastExitCode "Install dev dependencies"
+}
+
+& (Join-Path $PSScriptRoot "doctor.ps1")
+Assert-LastExitCode "Run environment doctor"
+
+& (Join-Path $PSScriptRoot "run_checks.ps1")
+Assert-LastExitCode "Run incremental ruff checks"
 
 & $pythonExe -m unittest discover -s (Join-Path $projectRoot "tests") -v
 Assert-LastExitCode "Run unit tests"

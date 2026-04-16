@@ -1,7 +1,7 @@
 function Get-PreferredPythonLauncher {
     $candidates = @(
-        @{ Command = "py"; BaseArgs = @("-3.13"); Label = "py -3.13" },
         @{ Command = "py"; BaseArgs = @("-3.12"); Label = "py -3.12" },
+        @{ Command = "py"; BaseArgs = @("-3.13"); Label = "py -3.13" },
         @{ Command = "py"; BaseArgs = @("-3.11"); Label = "py -3.11" },
         @{ Command = "python"; BaseArgs = @(); Label = "python" }
     )
@@ -50,7 +50,7 @@ function Get-PreferredPythonLauncher {
         }
     }
 
-    throw "Python 3.11+ was not found. Install Python 3.13 or 3.12 and rerun."
+    throw "Python 3.11+ was not found. Install Python 3.12 or 3.13 and rerun."
 }
 
 function New-ProjectVirtualEnvironment {

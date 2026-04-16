@@ -150,6 +150,29 @@ Current cleanup contract:
 
 ## Local Development
 
+Recommended local Python target:
+
+- Python 3.12
+- `PowerShell 7` is preferred for day-to-day scripting, although the repository still supports Windows PowerShell 5.1
+
+Developer bootstrap:
+
+```powershell
+.\scripts\setup_dev.ps1 -InstallGitHooks
+```
+
+Environment check:
+
+```powershell
+.\scripts\doctor.ps1
+```
+
+Lint and format checks:
+
+```powershell
+.\scripts\run_checks.ps1
+```
+
 Desktop app:
 
 ```powershell
