@@ -8723,7 +8723,15 @@ BOARD_WEB_APP_HTML = "".join(
       await loadPayrollReport();
       renderEmployeesWorkspace();
       refreshRepairOrderEmployeeSelects();
-      if (openModal) els.employeesModal.classList.add('is-open');
+      if (openModal) {
+        els.employeesModal.classList.add('is-open');
+        els.employeesModal.scrollTop = 0;
+        const dialog = els.employeesModal.querySelector('.dialog');
+        if (dialog instanceof HTMLElement) {
+          dialog.scrollTop = 0;
+          dialog.scrollLeft = 0;
+        }
+      }
     }
 
     async function addEmployeeFromForm() {
@@ -8742,6 +8750,12 @@ BOARD_WEB_APP_HTML = "".join(
       bindEmployeesUiEvents();
       if (els.employeesMonthInput && !els.employeesMonthInput.value) {
         els.employeesMonthInput.value = state.payrollMonth || currentPayrollMonthValue();
+      }
+      els.employeesModal.scrollTop = 0;
+      const dialog = els.employeesModal.querySelector('.dialog');
+      if (dialog instanceof HTMLElement) {
+        dialog.scrollTop = 0;
+        dialog.scrollLeft = 0;
       }
       loadEmployeesWorkspace(true).catch((error) => setStatus(error.message, true));
     }
