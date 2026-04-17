@@ -1,7 +1,7 @@
 param(
     [string]$HostName = "46.8.254.243",
     [string]$SshUser = "root",
-    [string]$KeyPath = "$env:USERPROFILE\.ssh\autostopcrm_server_ed25519",
+    [string]$KeyPath = "",
     [int]$LocalPort = 18765,
     [int]$RemotePort = 18080
 )
@@ -27,8 +27,16 @@ function Test-LocalPort {
     }
 }
 
-if (-not (Test-Path $KeyPath)) {
-    throw "SSH key not found: $KeyPath"
+if (-not $KeyPath) {
+    $candidateKeys = @(
+        "$env:USERPROFILE\.ssh\autostopvpn_server_ed25519",
+        "$env:USERPROFILE\.ssh\autostopcrm_server_ed25519"
+    )
+    $KeyPath = $candidateKeys | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+
+if (-not $KeyPath -or -not (Test-Path $KeyPath)) {
+    throw "SSH key not found. Checked autostopvpn_server_ed25519 and autostopcrm_server_ed25519 in $env:USERPROFILE\.ssh"
 }
 
 $sshPath = Join-Path $env:WINDIR 'System32\OpenSSH\ssh.exe'
