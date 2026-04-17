@@ -1,0 +1,54 @@
+# AutoStop CRM production HTTPS reverse proxy example for crm.autostopcrm.ru
+#
+# Expected upstreams:
+# - UI + API: http://127.0.0.1:8000
+# - MCP:      http://127.0.0.1:8001/mcp
+#
+# Important:
+# - Use scripts/nginx.autostopcrm.http-bootstrap.conf.example for the first
+#   certbot run on a clean server.
+# - Switch to this file only after the LetsEncrypt certificate already exists.
+# - This file is the steady-state config after HTTPS is working.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name crm.autostopcrm.ru;
+
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name crm.autostopcrm.ru;
+
+    ssl_certificate /etc/letsencrypt/live/crm.autostopcrm.ru/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/crm.autostopcrm.ru/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    client_max_body_size 64m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location ^~ /mcp {
+        proxy_pass http://127.0.0.1:8001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
+}
