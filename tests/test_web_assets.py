@@ -39,6 +39,8 @@ class _EmployeesLayoutParser(HTMLParser):
 class WebAssetsTests(unittest.TestCase):
     def test_board_brand_uses_autostop_name(self) -> None:
         self.assertIn("<title>AutoStop</title>", BOARD_WEB_APP_HTML)
+        self.assertIn('rel="icon" type="image/svg+xml"', BOARD_WEB_APP_HTML)
+        self.assertIn("data:image/svg+xml;base64,", BOARD_WEB_APP_HTML)
         self.assertIn('<div class="brand__title">AUTOSTOP / ПУЛЬТ</div>', BOARD_WEB_APP_HTML)
         self.assertIn(
             '<div class="brand__sub">МИНИМУМ ИНТЕРФЕЙСА · ХОСТ В СЕТИ</div>', BOARD_WEB_APP_HTML

@@ -4,6 +4,18 @@ from .printing.web_module import (
     PRINTING_WEB_MODULE_STYLE,
 )
 
+BOARD_FAVICON_DATA_URI = (
+    "data:image/svg+xml;base64,"
+    "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+"
+    "CiAgPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTYiIGZpbGw9IiMxNzFkMTgiLz4KICA8"
+    "cmVjdCB4PSIxMiIgeT0iMTIiIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgcng9IjEyIiBmaWxsPSIjYTdi"
+    "Mjg0Ii8+CiAgPHBhdGggZD0iTTIwIDM0aDI0YTQgNCAwIDAgMCA0LTR2LTJhNiA2IDAgMCAwLTYtNkgy"
+    "NmE2IDYgMCAwIDAtNiA2djZ6IiBmaWxsPSIjZjJmMGU2Ii8+CiAgPGNpcmNsZSBjeD0iMjQiIGN5PSIz"
+    "OCIgcj0iNCIgZmlsbD0iIzE3MWQxOCIvPgogIDxjaXJjbGUgY3g9IjQwIiBjeT0iMzgiIHI9IjQiIGZp"
+    "bGw9IiMxNzFkMTgiLz4KICA8cGF0aCBkPSJNMjQgMjJoMTYiIHN0cm9rZT0iIzE3MWQxOCIgc3Ryb2tl"
+    "LXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KPC9zdmc+"
+)
+
 BOARD_WEB_APP_HTML = "".join(
     [
         """<!doctype html>
@@ -11,7 +23,9 @@ BOARD_WEB_APP_HTML = "".join(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AutoStop</title>
+""",
+        f'  <link rel="icon" type="image/svg+xml" href="{BOARD_FAVICON_DATA_URI}">',
+        """<title>AutoStop</title>
   <style>
     :root {
       --bg: #171d18;
