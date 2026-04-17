@@ -237,6 +237,26 @@ class ApiServerTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_favicon_routes_serve_brand_assets(self) -> None:
+        parsed = urlsplit(self.base_url)
+        cases = [
+            ("/favicon.ico", "image/x-icon", b"\x00\x00\x01\x00"),
+            ("/favicon.png", "image/png", b"\x89PNG\r\n\x1a\n"),
+        ]
+        for path, content_type, expected_prefix in cases:
+            connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=5)
+            try:
+                connection.request("GET", path)
+                response = connection.getresponse()
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.getheader("Content-Type"), content_type)
+                self.assertGreater(int(response.getheader("Content-Length", "0")), 0)
+                body = response.read()
+                self.assertGreater(len(body), 0)
+                self.assertTrue(body.startswith(expected_prefix))
+            finally:
+                connection.close()
+
     def test_review_board_route_returns_summary(self) -> None:
         status, created = self.request(
             "/api/create_card",

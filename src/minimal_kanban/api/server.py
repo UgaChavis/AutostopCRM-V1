@@ -378,6 +378,9 @@ class ApiServer:
                         len(body),
                         cache_control="public, max-age=86400, immutable",
                     )
+                    self._write_body(
+                        body, route=route, request_id=request_id, status_code=HTTPStatus.OK
+                    )
                     return
                 if route == "/favicon.png":
                     body = _static_asset_bytes("favicon.png")
@@ -386,6 +389,9 @@ class ApiServer:
                         "image/png",
                         len(body),
                         cache_control="public, max-age=86400, immutable",
+                    )
+                    self._write_body(
+                        body, route=route, request_id=request_id, status_code=HTTPStatus.OK
                     )
                     return
                 if route == "/api/health":
@@ -783,6 +789,7 @@ class ApiServer:
             ) -> bool:
                 try:
                     self.wfile.write(body)
+                    self.wfile.flush()
                     return True
                 except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError) as exc:
                     logger.warning(
