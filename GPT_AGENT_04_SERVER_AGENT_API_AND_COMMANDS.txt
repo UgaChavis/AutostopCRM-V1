@@ -1,0 +1,113 @@
+AUTOSTOP CRM SERVER AGENT API AND COMMANDS
+
+Updated on: 2026-04-13
+
+Operator-authenticated API routes
+- GET /api/agent_status
+- POST /api/agent_enqueue_task
+- GET /api/agent_runs
+- GET /api/agent_actions
+- GET /api/agent_tasks
+- GET /api/agent_scheduled_tasks
+- POST /api/save_agent_scheduled_task
+- POST /api/delete_agent_scheduled_task
+- POST /api/run_agent_scheduled_task
+- POST /api/pause_agent_scheduled_task
+- POST /api/resume_agent_scheduled_task
+- POST /api/set_card_ai_autofill
+
+Related board and repair-order API routes
+- POST /api/autofill_vehicle_data
+- POST /api/autofill_repair_order
+- POST /api/get_repair_order
+- POST /api/set_repair_order_status
+- POST /api/create_cash_transaction
+
+Auth model
+- Use operator session auth.
+- Login route: POST /api/login_operator
+- Send the returned token in X-Operator-Session.
+
+Minimal login example
+curl -sS -X POST http://127.0.0.1:8000/api/login_operator ^
+  -H "Content-Type: application/json" ^
+  -d "{\"username\":\"admin\",\"password\":\"admin\"}"
+
+Minimal manual task enqueue
+{
+  "task_text": "Сделай обзор доски и дай короткий отчёт."
+}
+
+Scheduled task create example
+{
+  "name": "Проверка просрочек",
+  "prompt": "Найди карточки с просрочкой и дай короткую сводку.",
+  "scope_type": "all_cards",
+  "schedule_type": "interval",
+  "interval_value": 1,
+  "interval_unit": "hour",
+  "active": true
+}
+
+On-create task example
+{
+  "name": "Обогащение inbox",
+  "prompt": "Когда появляется новая карточка, кратко обогати её и дополни полезные поля.",
+  "scope_type": "column",
+  "scope_column": "inbox",
+  "scope_column_label": "Inbox",
+  "schedule_type": "on_create",
+  "active": true
+}
+
+Card autofill toggle example
+{
+  "card_id": "card-123",
+  "enabled": true
+}
+
+Windows local commands
+- app:
+  .\.venv\Scripts\python.exe main.py
+- MCP:
+  .\.venv\Scripts\python.exe main_mcp.py
+- server agent:
+  .\.venv\Scripts\python.exe main_agent.py
+- isolated tests:
+  .\.venv\Scripts\python.exe scripts\run_isolated_tests.py
+- full unittest:
+  .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+- MCP regression:
+  .\.venv\Scripts\python.exe -m unittest tests.test_mcp -v
+
+Server commands
+- deploy:
+  cd /opt/autostopcrm
+  ./deploy.sh
+- restart containers:
+  cd /opt/autostopcrm
+  docker compose restart
+- app logs:
+  cd /opt/autostopcrm
+  docker compose logs -f autostopcrm
+- agent logs:
+  cd /opt/autostopcrm
+  docker compose logs -f autostopcrm-agent
+
+Sync and smoke-check commands
+- compare Git hashes:
+  cd /opt/autostopcrm
+  git rev-parse HEAD
+  git rev-parse origin/autostopCRM
+- local connector smoke:
+  cd /opt/autostopcrm
+  docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --mcp-url https://crm.autostopcrm.ru/mcp --operator-username admin --operator-password admin --expect-admin
+- agent runtime smoke:
+  cd /opt/autostopcrm
+  docker compose exec -T autostopcrm python scripts/check_agent_runtime.py --local-api-url http://127.0.0.1:41731 --operator-username admin --operator-password admin
+
+Important operating rules
+- Use the current board API as the only write surface for tasks.
+- Do not enqueue duplicate scheduled runs for the same schedule when one is already active.
+- For card autofill, enable the 4-hour mode only on the target card and let the scheduler handle repeats.
+- If a repair order is unpaid, do not close it. Payment is required first.
