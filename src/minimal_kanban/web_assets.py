@@ -4537,9 +4537,9 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .employees-layout {
       display: grid;
-      grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
+      grid-template-columns: minmax(360px, 390px) minmax(0, 1fr);
       gap: 14px;
-      align-items: stretch;
+      align-items: start;
     }
     .employees-pane {
       display: flex;
@@ -4547,18 +4547,17 @@ BOARD_WEB_APP_HTML = "".join(
       align-items: stretch;
       gap: 10px;
       min-height: 0;
-      align-self: stretch;
+      align-self: start;
     }
     .employees-pane--list {
       position: sticky;
       top: 0;
-      align-self: stretch;
+      align-self: start;
     }
-    .employees-pane .subpanel {
-      min-height: 0;
-      height: 100%;
+    .employees-pane--list .subpanel {
       display: flex;
       flex-direction: column;
+      min-height: 0;
     }
     .employees-list-tools {
       display: grid;
@@ -4595,11 +4594,10 @@ BOARD_WEB_APP_HTML = "".join(
       white-space: nowrap;
     }
     .employees-list {
-      display: grid;
+      display: flex;
+      flex-direction: column;
       gap: 6px;
-      flex: 1;
-      min-height: 0;
-      max-height: none;
+      max-height: min(68vh, 640px);
       overflow: auto;
       padding-right: 4px;
     }

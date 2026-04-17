@@ -309,7 +309,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('class="btn btn--ghost" id="employeeToggleButton"', BOARD_WEB_APP_HTML)
         self.assertIn(".employees-layout {", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);", BOARD_WEB_APP_HTML
+            "grid-template-columns: minmax(360px, 390px) minmax(0, 1fr);", BOARD_WEB_APP_HTML
         )
         self.assertIn(".employees-list-tools {", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-search {", BOARD_WEB_APP_HTML)
