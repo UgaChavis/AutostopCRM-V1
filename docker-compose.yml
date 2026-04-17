@@ -20,6 +20,7 @@ services:
       MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL: "${AUTOSTOP_PUBLIC_MCP_URL:-https://crm.autostopcrm.ru/mcp}"
       MINIMAL_KANBAN_MCP_ALLOWED_HOSTS: "${AUTOSTOP_MCP_ALLOWED_HOSTS:-}"
       MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS: "${AUTOSTOP_MCP_ALLOWED_ORIGINS:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.4-mini}"
     volumes:
       - "${AUTOSTOP_DATA_DIR:-./data}:/root/.minimal-kanban"
