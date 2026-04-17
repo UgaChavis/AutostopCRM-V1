@@ -21,6 +21,7 @@ The repository still contains legacy technical names from the earlier `Minimal K
 - print module for repair-order documents and inspection sheets
 - operator authentication and admin user management
 - cashboxes, cash transactions, employees, and payroll reports
+- VPN monitoring and Amnezia traffic statistics are now part of the same repository, but kept as a separate subsystem under `scripts/`
 
 ## Runtime Modes
 
@@ -102,6 +103,15 @@ UI:
 - [src/minimal_kanban/ui/main_window.py](src/minimal_kanban/ui/main_window.py): desktop shell and operator workspace
 - [src/minimal_kanban/ui/settings_window.py](src/minimal_kanban/ui/settings_window.py): integration, MCP, auth, diagnostics settings
 - [src/minimal_kanban/web_assets.py](src/minimal_kanban/web_assets.py): browser-facing board UI HTML, CSS, and JS
+- [AMNEZIA_VPN_MONITORING.md](AMNEZIA_VPN_MONITORING.md): VPN monitoring subsystem, dashboard, deployment and rollback notes
+- [scripts/amnezia_traffic_collector.py](scripts/amnezia_traffic_collector.py): Amnezia/WireGuard collector and dashboard generator
+- [scripts/open_amnezia_dashboard.ps1](scripts/open_amnezia_dashboard.ps1): Windows launcher for the VPN dashboard
+- [scripts/amnezia-traffic-collector.service](scripts/amnezia-traffic-collector.service): collector systemd unit
+- [scripts/amnezia-traffic-collector.timer](scripts/amnezia-traffic-collector.timer): collector timer
+- [LOCAL_INSTALL.md](LOCAL_INSTALL.md): local install and desktop shortcut instructions
+- [install_autostopvpn.ps1](install_autostopvpn.ps1): install the VPN app into `%LOCALAPPDATA%\AutostopVPN`
+- [start_autostopvpn.ps1](start_autostopvpn.ps1): installed app entrypoint
+- [remove_autostopvpn.ps1](remove_autostopvpn.ps1): remove the local install and desktop shortcut
 
 ## Main API Capability Groups
 
@@ -116,6 +126,7 @@ The local API is broader than the original board-only stage. Current route group
 - employees and payroll
 - operator auth and user management
 - local card cleanup
+- VPN monitoring and server telemetry
 
 The main API implementation lives in [src/minimal_kanban/api/server.py](src/minimal_kanban/api/server.py). Detailed payload docs are in [API_GUIDE.md](API_GUIDE.md).
 
