@@ -146,6 +146,70 @@ def load_server_info() -> Dict[str, object]:
     return result
 
 
+def coerce_positive_float(value: object) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number <= 0:
+        return None
+    return number
+
+
+def detect_default_interface() -> Optional[str]:
+    try:
+        completed = run_command(["ip", "route", "show", "default"], check=False)
+    except FileNotFoundError:
+        return None
+    match = re.search(r"\bdev\s+(\S+)", completed.stdout or "")
+    if match:
+        return match.group(1)
+    return None
+
+
+def read_interface_speed_mbps(interface: Optional[str]) -> Optional[float]:
+    if not interface:
+        return None
+    speed_path = Path("/sys/class/net") / interface / "speed"
+    try:
+        raw_speed = speed_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    try:
+        speed = float(raw_speed)
+    except ValueError:
+        return None
+    return speed if speed > 0 else None
+
+
+def get_bandwidth_capacity(server_info: Dict[str, object]) -> Dict[str, object]:
+    limit_mbps = coerce_positive_float(server_info.get("bandwidth_limit_mbps"))
+    limit_bytes_per_sec = coerce_positive_float(server_info.get("bandwidth_limit_bytes_per_sec"))
+    source = ""
+    interface = str(server_info.get("network_interface", "")).strip()
+
+    if limit_mbps is not None:
+        limit_bytes_per_sec = int(limit_mbps * 125000)
+        source = "server_info.json:bandwidth_limit_mbps"
+    elif limit_bytes_per_sec is not None:
+        limit_bytes_per_sec = int(limit_bytes_per_sec)
+        source = "server_info.json:bandwidth_limit_bytes_per_sec"
+    else:
+        if not interface:
+            interface = detect_default_interface() or ""
+        detected_mbps = read_interface_speed_mbps(interface)
+        if detected_mbps is not None:
+            limit_bytes_per_sec = int(detected_mbps * 125000)
+            source = f"/sys/class/net/{interface}/speed" if interface else "/sys/class/net/*/speed"
+
+    return {
+        "capacity_bytes_per_sec": int(limit_bytes_per_sec or 0),
+        "capacity_mbps": round((float(limit_bytes_per_sec or 0) * 8) / 1000000, 2) if limit_bytes_per_sec else 0.0,
+        "source": source,
+        "interface": interface,
+    }
+
+
 def parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
@@ -291,7 +355,12 @@ def read_meminfo() -> Dict[str, int]:
     }
 
 
-def get_server_status(current_time: datetime) -> Dict[str, object]:
+def get_server_status(
+    current_time: datetime,
+    server_info: Optional[Dict[str, object]] = None,
+    current_total_bps: int = 0,
+) -> Dict[str, object]:
+    server_info = server_info or load_server_info()
     disk_total, disk_used, disk_free = shutil.disk_usage("/")
     ping = get_ping_metrics()
     uptime_seconds = 0.0
@@ -301,6 +370,21 @@ def get_server_status(current_time: datetime) -> Dict[str, object]:
         uptime_seconds = 0.0
 
     load_1, load_5, load_15 = os.getloadavg()
+    bandwidth = get_bandwidth_capacity(server_info)
+    capacity_bytes_per_sec = int(bandwidth.get("capacity_bytes_per_sec", 0) or 0)
+    utilization_percent = (
+        round((current_total_bps / capacity_bytes_per_sec) * 100, 2) if capacity_bytes_per_sec else None
+    )
+    headroom_bytes_per_sec = max(capacity_bytes_per_sec - current_total_bps, 0) if capacity_bytes_per_sec else 0
+    over_capacity_bytes_per_sec = max(current_total_bps - capacity_bytes_per_sec, 0) if capacity_bytes_per_sec else 0
+    bandwidth.update(
+        {
+            "current_bytes_per_sec": int(current_total_bps),
+            "utilization_percent": utilization_percent,
+            "headroom_bytes_per_sec": headroom_bytes_per_sec,
+            "over_capacity_bytes_per_sec": over_capacity_bytes_per_sec,
+        }
+    )
     return {
         "checked_at": current_time.isoformat(),
         "loadavg": {"1m": round(load_1, 2), "5m": round(load_5, 2), "15m": round(load_15, 2)},
@@ -313,6 +397,7 @@ def get_server_status(current_time: datetime) -> Dict[str, object]:
         },
         "uptime_seconds": int(uptime_seconds),
         "ping": ping,
+        "bandwidth": bandwidth,
     }
 
 
@@ -418,6 +503,7 @@ def build_warnings(summary: Dict[str, object]) -> List[str]:
     disk = server["disk_root"]
     memory = server["memory"]
     container = summary["container"]
+    bandwidth = server.get("bandwidth", {})
 
     if container["status"] != "running":
         warnings.append(f"VPN-контейнер сейчас в состоянии: {container['status']}.")
@@ -431,6 +517,12 @@ def build_warnings(summary: Dict[str, object]) -> List[str]:
         warnings.append(f"Средняя задержка до {ping['target']}: {ping['latency_avg_ms']:.2f} мс.")
     if vpn["active_connections"] == 0:
         warnings.append("Нет активных handshake в текущем окне активности.")
+    bandwidth_utilization = bandwidth.get("utilization_percent")
+    if bandwidth_utilization is not None and bandwidth_utilization >= 85:
+        warnings.append(f"Канал загружен на {bandwidth_utilization:.2f}%.")
+    over_capacity = int(bandwidth.get("over_capacity_bytes_per_sec", 0) or 0)
+    if over_capacity > 0:
+        warnings.append(f"Текущий поток выше лимита канала на {format_rate(over_capacity)}.")
     return warnings
 
 
@@ -462,6 +554,7 @@ def render_dashboard(summary: Dict[str, object]) -> str:
             f'data-sort-current_rx_bps="{peer["current_rx_bps"]}" '
             f'data-sort-current_tx_bps="{peer["current_tx_bps"]}" '
             f'data-sort-daily_avg_total_bps="{peer["daily_avg_total_bps"]}" '
+            f'data-sort-current_share_percent="{peer["current_share_percent"]}" '
             f'data-sort-today_bytes="{peer["today_bytes"]}" '
             f'data-sort-total_bytes="{peer["total_bytes"]}">'
             f"<td>{esc(peer['name'])}</td>"
@@ -471,6 +564,7 @@ def render_dashboard(summary: Dict[str, object]) -> str:
             f"<td>{esc(format_rate(peer['current_total_bps']))}</td>"
             f"<td>{esc(format_rate(peer['current_rx_bps']))}</td>"
             f"<td>{esc(format_rate(peer['current_tx_bps']))}</td>"
+            f"<td>{esc(format_percent(peer['current_share_percent']))}</td>"
             f"<td class='day-col'>{esc(format_rate(peer['daily_avg_total_bps']))}</td>"
             f"<td class='day-col'>{esc(format_bytes(peer['today_bytes']))}</td>"
             f"<td class='all-col'>{esc(format_bytes(peer['total_bytes']))}</td>"
@@ -497,6 +591,19 @@ def render_dashboard(summary: Dict[str, object]) -> str:
     accounting_range = (
         f"{format_timestamp(accounting_period.get('started_at'))} -> {format_timestamp(accounting_period.get('ended_at'))}"
     )
+    bandwidth = server.get("bandwidth", {})
+    current_total_bps = int(bandwidth.get("current_bytes_per_sec", 0) or 0)
+    current_rx_bps = int(vpn.get("current_rx_bps", 0) or 0)
+    current_tx_bps = int(vpn.get("current_tx_bps", 0) or 0)
+    bandwidth_capacity_bps = int(bandwidth.get("capacity_bytes_per_sec", 0) or 0)
+    bandwidth_utilization = bandwidth.get("utilization_percent")
+    bandwidth_headroom_bps = int(bandwidth.get("headroom_bytes_per_sec", 0) or 0)
+    bandwidth_source = bandwidth.get("source", "")
+    bandwidth_interface = bandwidth.get("interface", "")
+    bandwidth_limit_label = format_rate(bandwidth_capacity_bps) if bandwidth_capacity_bps else "н/д"
+    bandwidth_utilization_label = format_percent(bandwidth_utilization)
+    bandwidth_headroom_label = format_rate(bandwidth_headroom_bps) if bandwidth_capacity_bps else "н/д"
+    bandwidth_context = bandwidth_source or bandwidth_interface or "auto"
 
     return """<!doctype html>
 <html lang="ru">
@@ -626,6 +733,15 @@ def render_dashboard(summary: Dict[str, object]) -> str:
       <div class="hint">Нагрузка: среднее за 1, 5 и 15 минут.</div>
     </div>
     <div class="panel">
+      <strong>Канал</strong><br>
+      Текущий поток: {current_total}<br>
+      Приём / передача: {current_rx} / {current_tx}<br>
+      Лимит: {bandwidth_limit}<br>
+      Загрузка: {bandwidth_utilization}<br>
+      Запас: {bandwidth_headroom}
+      <div class="hint">Лимит берется из server_info.json или скорости сетевого интерфейса. Источник: {bandwidth_context}.</div>
+    </div>
+    <div class="panel">
       <strong>Сеть</strong><br>
       Ping-цель: {ping_target}<br>
       Средняя задержка: {latency}<br>
@@ -692,6 +808,7 @@ def render_dashboard(summary: Dict[str, object]) -> str:
           <th><button type="button" class="sort-btn" data-key="current_total_bps" data-type="number">Текущая</button></th>
           <th><button type="button" class="sort-btn" data-key="current_rx_bps" data-type="number">Вход</button></th>
           <th><button type="button" class="sort-btn" data-key="current_tx_bps" data-type="number">Выход</button></th>
+          <th><button type="button" class="sort-btn" data-key="current_share_percent" data-type="number">Доля потока</button></th>
           <th class="day-col"><button type="button" class="sort-btn" data-key="daily_avg_total_bps" data-type="number">Средняя за день</button></th>
           <th class="day-col"><button type="button" class="sort-btn" data-key="today_bytes" data-type="number">Сегодня</button></th>
           <th class="all-col"><button type="button" class="sort-btn" data-key="total_bytes" data-type="number">Всего</button></th>
@@ -786,6 +903,13 @@ def render_dashboard(summary: Dict[str, object]) -> str:
         disk_used=esc(format_bytes(server["disk_root"]["used_bytes"])),
         disk_used_pct=esc(format_percent(server["disk_root"]["used_percent"])),
         uptime=esc(format_age(server["uptime_seconds"])),
+        current_total=esc(format_rate(current_total_bps)),
+        current_rx=esc(format_rate(current_rx_bps)),
+        current_tx=esc(format_rate(current_tx_bps)),
+        bandwidth_limit=esc(bandwidth_limit_label),
+        bandwidth_utilization=esc(bandwidth_utilization_label),
+        bandwidth_headroom=esc(bandwidth_headroom_label),
+        bandwidth_context=esc(bandwidth_context),
         ping_target=esc(ping["target"]),
         latency=esc(
             f"{ping['latency_avg_ms']:.2f} мс" if ping["latency_avg_ms"] is not None else "н/д"
@@ -813,12 +937,16 @@ def render_dashboard(summary: Dict[str, object]) -> str:
         vpn_container=esc(server_info.get("vpn_container", "")),
         warning_html=warning_html,
         server_notes=server_notes,
-        rows="".join(rows) or "<tr><td colspan='10'>Пиры не найдены.</td></tr>",
+        rows="".join(rows) or "<tr><td colspan='11'>Пиры не найдены.</td></tr>",
     )
 
 
 def write_reports(totals: Dict[str, object], daily: Dict[str, object], summary: Dict[str, object]) -> None:
     peers = summary.get("peers", [])
+    bandwidth = summary.get("server", {}).get("bandwidth", {})
+    capacity_bps = int(bandwidth.get("capacity_bytes_per_sec", 0) or 0)
+    bandwidth_limit = format_rate(capacity_bps) if capacity_bps else "н/д"
+    bandwidth_utilization = format_percent(bandwidth.get("utilization_percent"))
 
     csv_path = REPORTS_DIR / "current_users.csv"
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
@@ -832,6 +960,7 @@ def write_reports(totals: Dict[str, object], daily: Dict[str, object], summary: 
                 "current_rx_bps",
                 "current_tx_bps",
                 "current_total_bps",
+                "current_share_percent",
                 "daily_avg_total_bps",
                 "today_rx_bytes",
                 "today_tx_bytes",
@@ -853,6 +982,7 @@ def write_reports(totals: Dict[str, object], daily: Dict[str, object], summary: 
                     int(peer["current_rx_bps"]),
                     int(peer["current_tx_bps"]),
                     int(peer["current_total_bps"]),
+                    round(float(peer.get("current_share_percent", 0.0)), 2),
                     int(peer["daily_avg_total_bps"]),
                     peer["today_rx_bytes"],
                     peer["today_tx_bytes"],
@@ -872,18 +1002,22 @@ def write_reports(totals: Dict[str, object], daily: Dict[str, object], summary: 
         f"Обновлено: {summary.get('updated_at', '')}",
         f"Часовой пояс: {summary.get('timezone', TIMEZONE)}",
         f"Окно текущей скорости: {summary.get('vpn', {}).get('sample_window_seconds', 0)} сек.",
+        f"Текущий суммарный поток: {format_rate(int(summary.get('vpn', {}).get('current_total_bps', 0) or 0))}",
+        f"Лимит канала: {bandwidth_limit}",
+        f"Загрузка канала: {bandwidth_utilization}",
         "",
-        "| Имя | VPN IP | Активен | Handshake | Текущая | Средняя за день | Сегодня | Всего | Ключ |",
-        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |",
+        "| Имя | VPN IP | Активен | Handshake | Текущая | Доля потока | Средняя за день | Сегодня | Всего | Ключ |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for peer in peers:
         lines.append(
-            "| {name} | {vpn_ip} | {active} | {handshake} | {current_total} | {daily_avg} | {today_total} | {total} | `{key}` |".format(
+            "| {name} | {vpn_ip} | {active} | {handshake} | {current_total} | {current_share} | {daily_avg} | {today_total} | {total} | `{key}` |".format(
                 name=peer["name"],
                 vpn_ip=peer["vpn_ip"],
                 active="да" if peer["is_active"] else "нет",
                 handshake=peer["handshake_age"],
                 current_total=format_rate(peer["current_total_bps"]),
+                current_share=format_percent(peer.get("current_share_percent")),
                 daily_avg=format_rate(peer["daily_avg_total_bps"]),
                 today_total=format_bytes(peer["today_bytes"]),
                 total=format_bytes(peer["total_bytes"]),
@@ -1032,6 +1166,10 @@ def build_peer_rows(
             "allowed_ips": peer["allowed_ips"],
         }
 
+    current_total_bps = sum(float(peer["current_total_bps"]) for peer in rows)
+    for peer in rows:
+        peer["current_share_percent"] = round((peer["current_total_bps"] / current_total_bps) * 100, 2) if current_total_bps else 0.0
+
     rows.sort(key=lambda item: (not item["is_active"], -item["current_total_bps"], -item["today_bytes"]))
     totals_data["updated_at"] = current_time.isoformat()
     return rows, daily_data, new_state
@@ -1066,6 +1204,7 @@ def collect() -> int:
         meta=meta,
         current_time=current_time,
     )
+    current_total_bps = int(sum(float(peer["current_total_bps"]) for peer in peer_rows))
     accounting_started_at = current_time
     first_seen_values = []
     for peer_info in totals.get("peers", {}).values():
@@ -1075,7 +1214,8 @@ def collect() -> int:
     if first_seen_values:
         accounting_started_at = min(first_seen_values)
     day_started_at = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
-    server_status = get_server_status(current_time)
+    server_info = load_server_info()
+    server_status = get_server_status(current_time, server_info=server_info, current_total_bps=current_total_bps)
     summary = {
         "updated_at": current_time.isoformat(),
         "timezone": TIMEZONE,
@@ -1091,6 +1231,9 @@ def collect() -> int:
             "listen_port": interface_meta.get("listen_port", 0),
             "total_peers": len(peer_rows),
             "active_connections": sum(1 for peer in peer_rows if peer["is_active"]),
+            "current_rx_bps": int(sum(float(peer["current_rx_bps"]) for peer in peer_rows)),
+            "current_tx_bps": int(sum(float(peer["current_tx_bps"]) for peer in peer_rows)),
+            "current_total_bps": current_total_bps,
             "active_window_seconds": ACTIVE_WINDOW_SECONDS,
             "sample_window_seconds": max(
                 int((current_time - parse_iso_datetime(state.get("sampled_at"))).total_seconds()),
@@ -1100,7 +1243,7 @@ def collect() -> int:
             else 0,
         },
         "server": server_status,
-        "server_info": load_server_info(),
+        "server_info": server_info,
         "periods": {
             "current_day": {
                 "started_at": day_started_at.isoformat(),
@@ -1123,49 +1266,64 @@ def collect() -> int:
     return 0
 
 
+def build_default_summary(current_time: datetime, totals: Dict[str, object] | None = None) -> Dict[str, object]:
+    totals = totals or {"updated_at": "", "timezone": TIMEZONE}
+    return {
+        "updated_at": totals.get("updated_at", current_time.isoformat()),
+        "timezone": totals.get("timezone", TIMEZONE),
+        "container": {"name": CONTAINER, "status": "unknown", "started_at": "", "image": ""},
+        "vpn": {
+            "type": "AmneziaWG",
+            "interface": INTERFACE,
+            "listen_port": 0,
+            "total_peers": 0,
+            "active_connections": 0,
+            "current_rx_bps": 0,
+            "current_tx_bps": 0,
+            "current_total_bps": 0,
+            "active_window_seconds": ACTIVE_WINDOW_SECONDS,
+            "sample_window_seconds": 0,
+        },
+        "server": {
+            "loadavg": {"1m": 0, "5m": 0, "15m": 0},
+            "memory": {"used_bytes": 0, "used_percent": 0.0},
+            "disk_root": {"used_bytes": 0, "used_percent": 0.0},
+            "uptime_seconds": 0,
+            "ping": {"target": PING_TARGET, "packet_loss_percent": None, "latency_avg_ms": None},
+            "bandwidth": {
+                "capacity_bytes_per_sec": 0,
+                "capacity_mbps": 0.0,
+                "source": "",
+                "interface": "",
+                "current_bytes_per_sec": 0,
+                "utilization_percent": None,
+                "headroom_bytes_per_sec": 0,
+                "over_capacity_bytes_per_sec": 0,
+            },
+        },
+        "server_info": default_server_info(),
+        "periods": {
+            "current_day": {
+                "started_at": current_time.replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
+                "ended_at": current_time.isoformat(),
+            },
+            "accounting": {
+                "started_at": current_time.isoformat(),
+                "ended_at": current_time.isoformat(),
+            },
+        },
+        "peers": [],
+        "warnings": [],
+    }
+
+
 def report() -> int:
     ensure_dirs()
     totals = load_json(TOTALS_FILE, {"peers": {}, "timezone": TIMEZONE, "updated_at": ""})
     current_time = now_local()
     current_date = current_time.date().isoformat()
     daily = load_json(DAILY_DIR / f"{current_date}.json", {"peers": {}})
-    summary = load_json(
-        SUMMARY_FILE,
-        {
-            "updated_at": totals.get("updated_at", current_time.isoformat()),
-            "timezone": totals.get("timezone", TIMEZONE),
-            "container": {"name": CONTAINER, "status": "unknown", "started_at": "", "image": ""},
-            "vpn": {
-                "type": "AmneziaWG",
-                "interface": INTERFACE,
-                "listen_port": 0,
-                "total_peers": 0,
-                "active_connections": 0,
-                "active_window_seconds": ACTIVE_WINDOW_SECONDS,
-                "sample_window_seconds": 0,
-            },
-            "server": {
-                "loadavg": {"1m": 0, "5m": 0, "15m": 0},
-                "memory": {"used_bytes": 0, "used_percent": 0.0},
-                "disk_root": {"used_bytes": 0, "used_percent": 0.0},
-                "uptime_seconds": 0,
-                "ping": {"target": PING_TARGET, "packet_loss_percent": None, "latency_avg_ms": None},
-            },
-            "server_info": default_server_info(),
-            "periods": {
-                "current_day": {
-                    "started_at": current_time.replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
-                    "ended_at": current_time.isoformat(),
-                },
-                "accounting": {
-                    "started_at": current_time.isoformat(),
-                    "ended_at": current_time.isoformat(),
-                },
-            },
-            "peers": [],
-            "warnings": [],
-        },
-    )
+    summary = load_json(SUMMARY_FILE, build_default_summary(current_time, totals))
     summary.setdefault(
         "periods",
         {
@@ -1183,12 +1341,142 @@ def report() -> int:
     return 0
 
 
+def render_status(summary: Dict[str, object]) -> List[str]:
+    container = summary.get("container", {})
+    vpn = summary.get("vpn", {})
+    server = summary.get("server", {})
+    warnings = summary.get("warnings", [])
+    peers = summary.get("peers", [])
+    updated_at = summary.get("updated_at", "н/д")
+    bandwidth = server.get("bandwidth", {})
+    bandwidth_capacity_bps = int(bandwidth.get("capacity_bytes_per_sec", 0) or 0)
+    bandwidth_limit_label = format_rate(bandwidth_capacity_bps) if bandwidth_capacity_bps else "н/д"
+    bandwidth_headroom_label = (
+        format_rate(int(bandwidth.get("headroom_bytes_per_sec", 0) or 0)) if bandwidth_capacity_bps else "н/д"
+    )
+    lines = [
+        f"Обновлено: {updated_at}",
+        f"Контейнер: {container.get('name', '')} [{container.get('status', '')}] image={container.get('image', '')}",
+        (
+            "VPN: "
+            f"{vpn.get('type', '')} / {vpn.get('interface', '')} "
+            f"port={vpn.get('listen_port', 0)} "
+            f"peers={vpn.get('total_peers', 0)} "
+            f"active={vpn.get('active_connections', 0)} "
+            f"window={vpn.get('sample_window_seconds', 0)}s "
+            f"flow={format_rate(float(vpn.get('current_total_bps', 0)))}"
+        ),
+        (
+            "Server: "
+            f"load={server.get('loadavg', {}).get('1m', 0)} "
+            f"memory={format_percent(server.get('memory', {}).get('used_percent', 0.0))} "
+            f"disk={format_percent(server.get('disk_root', {}).get('used_percent', 0.0))} "
+            f"uptime={format_age(int(server.get('uptime_seconds', 0)))}"
+        ),
+        (
+            "Bandwidth: "
+            f"current={format_rate(int(server.get('bandwidth', {}).get('current_bytes_per_sec', 0) or 0))} "
+            f"limit={bandwidth_limit_label} "
+            f"util={format_percent(server.get('bandwidth', {}).get('utilization_percent'))} "
+            f"headroom={bandwidth_headroom_label}"
+        ),
+        f"Warnings: {len(warnings)}",
+    ]
+    if warnings:
+        lines.append("Предупреждения:")
+        lines.extend(f"- {item}" for item in warnings)
+    if peers:
+        lines.append("Top peers:")
+        for peer in peers[:5]:
+            lines.append(
+                "- "
+                f"{peer.get('name', '')} "
+                f"{peer.get('vpn_ip', '')} "
+                f"{format_rate(float(peer.get('current_total_bps', 0.0)))} "
+                f"share={format_percent(peer.get('current_share_percent'))} "
+                f"active={'да' if peer.get('is_active') else 'нет'}"
+            )
+    return lines
+
+
+def status() -> int:
+    ensure_dirs()
+    current_time = now_local()
+    totals = load_json(TOTALS_FILE, {"peers": {}, "timezone": TIMEZONE, "updated_at": ""})
+    summary = load_json(SUMMARY_FILE, build_default_summary(current_time, totals))
+    for line in render_status(summary):
+        print(line)
+    return 0
+
+
+def doctor() -> int:
+    ensure_dirs()
+    script_root = Path(__file__).resolve().parent
+    server_info_candidates = [
+        script_root / "amnezia_server_info.json",
+        script_root.parent / "amnezia_server_info.json",
+    ]
+    checks = [
+        ("docker", shutil.which("docker") is not None, "docker not found in PATH"),
+        ("ping", shutil.which("ping") is not None, "ping not found in PATH"),
+        ("ip", shutil.which("ip") is not None, "ip not found in PATH"),
+        (
+            "server info template",
+            any(path.exists() for path in server_info_candidates),
+            "amnezia_server_info.json is missing",
+        ),
+        ("dashboard launcher", (script_root / "open_amnezia_dashboard.ps1").exists(), "open_amnezia_dashboard.ps1 is missing"),
+        ("collector service", (script_root / "amnezia-traffic-collector.service").exists(), "amnezia-traffic-collector.service is missing"),
+        ("dashboard service", (script_root / "amnezia-dashboard.service").exists(), "amnezia-dashboard.service is missing"),
+        ("timer unit", (script_root / "amnezia-traffic-collector.timer").exists(), "amnezia-traffic-collector.timer is missing"),
+    ]
+
+    if SERVER_INFO_FILE.exists():
+        try:
+            load_server_info()
+            runtime_server_info_ok = True
+            runtime_server_info_error = ""
+        except Exception as exc:  # pragma: no cover - defensive diagnostics
+            runtime_server_info_ok = False
+            runtime_server_info_error = f"server info load failed: {exc}"
+    else:
+        runtime_server_info_ok = True
+        runtime_server_info_error = ""
+
+    failure_count = 0
+    for name, ok, failure_message in checks:
+        print(f"[{'OK' if ok else 'FAIL'}] {name}")
+        if not ok:
+            print(f"  {failure_message}")
+            failure_count += 1
+
+    if SERVER_INFO_FILE.exists():
+        print(f"[{'OK' if runtime_server_info_ok else 'FAIL'}] runtime server info")
+        if not runtime_server_info_ok:
+            print(f"  {runtime_server_info_error}")
+            failure_count += 1
+    else:
+        print(f"[WARN] runtime server info")
+        print(f"  {SERVER_INFO_FILE} is missing; copy the template to the runtime data directory during deployment.")
+
+    summary_exists = SUMMARY_FILE.exists()
+    print(f"[{'OK' if summary_exists else 'WARN'}] summary cache")
+    if not summary_exists:
+        print("  Run `collect` first to create the cached dashboard state.")
+
+    return 1 if failure_count else 0
+
+
 def main() -> int:
     command = sys.argv[1] if len(sys.argv) > 1 else "collect"
     if command == "collect":
         return collect()
     if command == "report":
         return report()
+    if command == "status":
+        return status()
+    if command == "doctor":
+        return doctor()
     print(f"Unsupported command: {command}", file=sys.stderr)
     return 1
 
