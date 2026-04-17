@@ -970,7 +970,7 @@ class CardService:
             payload = payload or {}
             limit = self._validated_limit(payload.get("limit"), default=200, maximum=1000)
             bundle = self._store.read_bundle()
-            cashboxes = bundle["cashboxes"]
+            cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
             transactions = bundle["cash_transactions"]
             serialized_cashboxes = [self._serialize_cashbox(cashbox, transactions) for cashbox in cashboxes[:limit]]
             return {
@@ -989,7 +989,8 @@ class CardService:
             payload = payload or {}
             transaction_limit = self._validated_limit(payload.get("transaction_limit"), default=300, maximum=5000)
             bundle = self._store.read_bundle()
-            cashbox = self._find_cashbox(bundle["cashboxes"], payload.get("cashbox_id"))
+            cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
+            cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
             transactions = self._cashbox_transactions(bundle["cash_transactions"], cashbox.id)
             return {
                 "cashbox": self._serialize_cashbox(cashbox, bundle["cash_transactions"]),
@@ -1032,7 +1033,7 @@ class CardService:
         with self._lock:
             payload = payload or {}
             bundle = self._store.read_bundle()
-            cashboxes = bundle["cashboxes"]
+            cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
@@ -1042,11 +1043,11 @@ class CardService:
             cashbox = CashBox(
                 id=str(uuid.uuid4()),
                 name=self._validated_cashbox_name(payload.get("name"), cashboxes),
+                order=len(cashboxes),
                 created_at=now_iso,
                 updated_at=now_iso,
             )
             cashboxes.append(cashbox)
-            cashboxes.sort(key=lambda item: (item.name.casefold(), item.id))
             self._append_event(
                 events,
                 actor_name=actor_name,
@@ -1066,11 +1067,70 @@ class CardService:
             )
             return {"cashbox": self._serialize_cashbox(cashbox, transactions)}
 
+    def reorder_cashboxes(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
+            transactions = bundle["cash_transactions"]
+            events = bundle["events"]
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
+            before_cashbox_id = payload.get("before_cashbox_id") or payload.get("before_id") or payload.get("target_cashbox_id")
+            if before_cashbox_id and str(before_cashbox_id).strip() == cashbox.id:
+                return {
+                    "cashboxes": [self._serialize_cashbox(item, transactions) for item in cashboxes],
+                    "cashbox": self._serialize_cashbox(cashbox, transactions),
+                    "meta": {
+                        "changed": False,
+                        "total": len(cashboxes),
+                    },
+                }
+            reordered_cashboxes, changed = self._reposition_cashbox(
+                cashboxes,
+                cashbox,
+                before_cashbox_id=before_cashbox_id,
+            )
+            if changed:
+                before_cashbox = None
+                if before_cashbox_id:
+                    before_cashbox = self._find_cashbox(reordered_cashboxes, before_cashbox_id)
+                self._append_event(
+                    events,
+                    actor_name=actor_name,
+                    source=source,
+                    action="cashbox_reordered",
+                    message=f"{actor_name} изменил порядок касс",
+                    card_id=None,
+                    details={
+                        "cashbox_id": cashbox.id,
+                        "cashbox_name": cashbox.name,
+                        "before_cashbox_id": before_cashbox.id if before_cashbox else None,
+                        "before_cashbox_name": before_cashbox.name if before_cashbox else None,
+                    },
+                )
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=bundle["cards"],
+                    cashboxes=reordered_cashboxes,
+                    cash_transactions=transactions,
+                    events=events,
+                )
+            return {
+                "cashboxes": [self._serialize_cashbox(item, transactions) for item in reordered_cashboxes],
+                "cashbox": self._serialize_cashbox(cashbox, transactions),
+                "meta": {
+                    "changed": changed,
+                    "total": len(reordered_cashboxes),
+                },
+            }
+
     def create_cashbox_transfer(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
             bundle = self._store.read_bundle()
-            cashboxes = bundle["cashboxes"]
+            cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
@@ -1144,7 +1204,7 @@ class CardService:
         with self._lock:
             payload = payload or {}
             bundle = self._store.read_bundle()
-            cashboxes = bundle["cashboxes"]
+            cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
@@ -1153,7 +1213,8 @@ class CardService:
             if related_transactions:
                 raise ValueError("Нельзя удалить кассу, пока в ней есть движения.")
             statistics = self._cashbox_statistics(cashbox, transactions)
-            remaining_cashboxes = [item for item in cashboxes if item.id != cashbox.id]
+            remaining_cashboxes = self._ordered_cashboxes([item for item in cashboxes if item.id != cashbox.id])
+            self._renumber_cashboxes(remaining_cashboxes)
             remaining_transactions = [item for item in transactions if item.cashbox_id != cashbox.id]
             self._append_event(
                 events,
@@ -3450,6 +3511,47 @@ class CardService:
         payload = cashbox.to_dict()
         payload["statistics"] = self._cashbox_statistics(cashbox, transactions)
         return payload
+
+    def _ordered_cashboxes(
+        self,
+        cashboxes: list[CashBox],
+        *,
+        exclude_cashbox_id: str | None = None,
+    ) -> list[CashBox]:
+        ordered = [
+            cashbox
+            for cashbox in cashboxes
+            if exclude_cashbox_id is None or cashbox.id != exclude_cashbox_id
+        ]
+        ordered.sort(key=lambda item: (item.order, item.created_at, item.updated_at, item.name.casefold(), item.id))
+        return ordered
+
+    def _renumber_cashboxes(self, cashboxes: list[CashBox]) -> bool:
+        changed = False
+        for index, cashbox in enumerate(cashboxes):
+            if cashbox.order != index:
+                cashbox.order = index
+                changed = True
+        return changed
+
+    def _reposition_cashbox(
+        self,
+        cashboxes: list[CashBox],
+        cashbox: CashBox,
+        *,
+        before_cashbox_id: str | None = None,
+    ) -> tuple[list[CashBox], bool]:
+        original_ids = [item.id for item in self._ordered_cashboxes(cashboxes)]
+        ordered = self._ordered_cashboxes(cashboxes, exclude_cashbox_id=cashbox.id)
+        insert_index = len(ordered)
+        if before_cashbox_id:
+            before_cashbox = self._find_cashbox(ordered, before_cashbox_id)
+            insert_index = next((index for index, item in enumerate(ordered) if item.id == before_cashbox.id), len(ordered))
+        ordered.insert(insert_index, cashbox)
+        changed = [item.id for item in ordered] != original_ids
+        if self._renumber_cashboxes(ordered):
+            changed = True
+        return ordered, changed
 
     def _column_labels(self, columns: list[Column]) -> dict[str, str]:
         return {column.id: column.label for column in columns}

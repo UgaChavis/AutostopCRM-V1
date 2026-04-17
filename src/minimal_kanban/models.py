@@ -623,6 +623,7 @@ class AuditEvent:
 class CashBox:
     id: str
     name: str
+    order: int
     created_at: str
     updated_at: str
 
@@ -631,6 +632,7 @@ class CashBox:
             "id": self.id,
             "short_id": short_entity_id(self.id, prefix="CB"),
             "name": self.name,
+            "order": self.order,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -639,6 +641,7 @@ class CashBox:
         return {
             "id": self.id,
             "name": self.name,
+            "order": self.order,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -652,9 +655,11 @@ class CashBox:
         name = normalize_text(payload.get("name"), limit=CASHBOX_NAME_LIMIT)
         if not name:
             raise ValueError("Cash box name is required.")
+        order = normalize_int(payload.get("order"), default=0, minimum=0)
         return cls(
             id=normalize_text(payload.get("id"), default=str(uuid.uuid4()), limit=128),
             name=name,
+            order=order,
             created_at=created_at.isoformat(),
             updated_at=updated_at.isoformat(),
         )

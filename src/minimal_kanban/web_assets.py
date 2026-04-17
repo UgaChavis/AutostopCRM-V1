@@ -4217,6 +4217,9 @@ BOARD_WEB_APP_HTML = "".join(
       overflow: auto;
       padding-right: 3px;
     }
+    .cashboxes-list.is-drop-end {
+      box-shadow: inset 0 -2px 0 rgba(167, 178, 132, 0.56);
+    }
     .cashbox-row {
       display: flex;
       flex-direction: column;
@@ -4229,7 +4232,20 @@ BOARD_WEB_APP_HTML = "".join(
       color: var(--text);
       cursor: pointer;
     }
+    .cashbox-row[draggable="true"] {
+      cursor: grab;
+    }
+    .cashbox-row[draggable="true"]:active {
+      cursor: grabbing;
+    }
     .cashbox-row.is-active { border-color: rgba(167, 178, 132, 0.64); background: rgba(167, 178, 132, 0.06); box-shadow: inset 3px 0 0 rgba(167, 178, 132, 0.76); }
+    .cashbox-row.is-dragging {
+      opacity: 0.62;
+    }
+    .cashbox-row.is-drop-target {
+      border-color: rgba(167, 178, 132, 0.88);
+      box-shadow: inset 0 0 0 1px rgba(167, 178, 132, 0.26);
+    }
     .cashbox-row__head,
     .cashbox-stat-grid {
       display: grid;
@@ -5812,6 +5828,9 @@ BOARD_WEB_APP_HTML = "".join(
       cashboxes: [],
       activeCashboxId: '',
       activeCashbox: null,
+      cashboxDragId: '',
+      cashboxDropBeforeId: '',
+      cashboxDragIgnoreClicksUntil: 0,
       cashboxTransferDraft: {
         sourceId: '',
         targetId: '',
@@ -15356,23 +15375,58 @@ function renderCompactArchiveRows(cards) {
       return;
     }
 
+    function resetCashboxDragState() {
+      state.cashboxDragId = '';
+      state.cashboxDropBeforeId = '';
+    }
+
+    function setCashboxDropBeforeId(nextId) {
+      const normalized = String(nextId || '').trim();
+      if (state.cashboxDropBeforeId === normalized) return false;
+      state.cashboxDropBeforeId = normalized;
+      renderCashboxesList();
+      return true;
+    }
+
+    function cashboxDropBeforeIdFromRow(row, clientY) {
+      const targetId = String(row?.dataset?.cashboxId || '').trim();
+      if (!targetId || targetId === state.cashboxDragId) return '';
+      const items = Array.isArray(state.cashboxes) ? state.cashboxes : [];
+      const index = items.findIndex((item) => item.id === targetId);
+      if (index < 0) return '__end__';
+      const rect = row.getBoundingClientRect();
+      const before = Number(clientY) < (rect.top + rect.height / 2);
+      if (before) return targetId;
+      return items[index + 1]?.id || '__end__';
+    }
+
     function syncCashboxInList(cashbox) {
       if (!cashbox?.id) return;
       const nextItems = (state.cashboxes || []).slice();
       const index = nextItems.findIndex((item) => item.id === cashbox.id);
       if (index >= 0) nextItems[index] = cashbox;
       else nextItems.push(cashbox);
-      nextItems.sort((left, right) => String(left?.name || '').localeCompare(String(right?.name || ''), 'ru', { sensitivity: 'base' }));
+      nextItems.sort((left, right) => {
+        const orderDiff = Number(left?.order || 0) - Number(right?.order || 0);
+        if (orderDiff) return orderDiff;
+        const nameDiff = String(left?.name || '').localeCompare(String(right?.name || ''), 'ru', { sensitivity: 'base' });
+        if (nameDiff) return nameDiff;
+        return String(left?.id || '').localeCompare(String(right?.id || ''));
+      });
       state.cashboxes = nextItems;
     }
 
     function renderCashboxesList() {
       const items = Array.isArray(state.cashboxes) ? state.cashboxes : [];
+      const isDropEnd = state.cashboxDropBeforeId === '__end__';
+      els.cashboxesList.classList.toggle('is-drop-end', isDropEnd);
       els.cashboxesList.innerHTML = items.length ? items.map((item) => {
         const stats = item?.statistics || {};
         const balanceMinor = Number(stats?.balance_minor || 0);
         const activeClass = item.id === state.activeCashboxId ? ' is-active' : '';
-        return '<button class="cashbox-row' + activeClass + '" type="button" data-cashbox-id="' + escapeHtml(item.id) + '">'
+        const draggingClass = item.id === state.cashboxDragId ? ' is-dragging' : '';
+        const dropClass = item.id === state.cashboxDropBeforeId ? ' is-drop-target' : '';
+        return '<button class="cashbox-row' + activeClass + draggingClass + dropClass + '" type="button" data-cashbox-id="' + escapeHtml(item.id) + '" draggable="true" title="Перетащите, чтобы изменить порядок касс">'
           + '<div class="cashbox-row__head">'
           + '<div class="cashbox-row__name">' + escapeHtml(item.name || '—') + '</div>'
           + '<div class="cashbox-row__balance" data-balance-sign="' + escapeHtml(balanceMinor < 0 ? 'negative' : 'positive') + '">' + escapeHtml(cashboxFormatMinorAmount(balanceMinor)) + '</div>'
@@ -15476,6 +15530,7 @@ function renderCompactArchiveRows(cards) {
 
     async function loadCashboxes(openModal = false) {
       try {
+        resetCashboxDragState();
         const data = await api('/api/list_cashboxes?limit=200');
         state.cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
         const total = Number(data?.meta?.total || state.cashboxes.length);
@@ -15580,6 +15635,47 @@ function renderCompactArchiveRows(cards) {
         setStatus(error.message, true);
       } finally {
         els.cashboxDeleteButton.disabled = false;
+      }
+    }
+
+    async function reorderCashboxes(cashboxId, beforeCashboxId = '') {
+      const normalizedId = String(cashboxId || '').trim();
+      if (!normalizedId) return;
+      const normalizedBeforeId = String(beforeCashboxId || '').trim();
+      try {
+        const data = await api('/api/reorder_cashboxes', {
+          method: 'POST',
+          body: {
+            cashbox_id: normalizedId,
+            before_cashbox_id: normalizedBeforeId || null,
+            actor_name: state.actor,
+            source: 'ui',
+          },
+        });
+        if (Array.isArray(data?.cashboxes)) {
+          state.cashboxes = data.cashboxes;
+        } else {
+          await loadCashboxes(false);
+        }
+        if (data?.cashbox?.id && state.activeCashbox?.cashbox?.id === data.cashbox.id) {
+          state.activeCashbox.cashbox = data.cashbox;
+          state.activeCashbox.statistics = data.cashbox.statistics || state.activeCashbox.statistics || {};
+        } else if (state.activeCashbox?.cashbox?.id) {
+          const activeCashbox = (Array.isArray(state.cashboxes) ? state.cashboxes : []).find((item) => item.id === state.activeCashbox.cashbox.id);
+          if (activeCashbox) {
+            state.activeCashbox.cashbox = activeCashbox;
+            state.activeCashbox.statistics = activeCashbox.statistics || state.activeCashbox.statistics || {};
+          }
+        }
+        renderCashboxesList();
+        renderCashboxDetail();
+        setStatus('ПОРЯДОК КАСС ИЗМЕНЕН.', false);
+      } catch (error) {
+        setStatus(String(error?.message || 'НЕ УДАЛОСЬ ИЗМЕНИТЬ ПОРЯДОК КАСС.'), true);
+      } finally {
+        resetCashboxDragState();
+        state.cashboxDragIgnoreClicksUntil = Date.now() + 250;
+        renderCashboxesList();
       }
     }
 
@@ -15770,6 +15866,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     async function handleCashboxesListClick(event) {
+      if (Date.now() < Number(state.cashboxDragIgnoreClicksUntil || 0)) return;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       const row = target.closest('[data-cashbox-id]');
@@ -15785,6 +15882,59 @@ function renderCompactArchiveRows(cards) {
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
       await loadCashboxDetail(row.dataset.cashboxId, { openModal: true });
+    }
+
+    function handleCashboxesListDragStart(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const row = target.closest('[data-cashbox-id]');
+      if (!row) return;
+      const cashboxId = String(row.dataset.cashboxId || '').trim();
+      if (!cashboxId) return;
+      state.cashboxDragId = cashboxId;
+      state.cashboxDragIgnoreClicksUntil = 0;
+      setCashboxDropBeforeId(cashboxId);
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', cashboxId);
+      }
+      renderCashboxesList();
+    }
+
+    function handleCashboxesListDragOver(event) {
+      if (!state.cashboxDragId) return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const row = target.closest('[data-cashbox-id]');
+      event.preventDefault();
+      if (!row) {
+        if ((Array.isArray(state.cashboxes) ? state.cashboxes.length : 0) > 0) {
+          setCashboxDropBeforeId('__end__');
+        }
+        return;
+      }
+      const beforeId = cashboxDropBeforeIdFromRow(row, event.clientY);
+      if (!beforeId) return;
+      setCashboxDropBeforeId(beforeId);
+    }
+
+    async function handleCashboxesListDrop(event) {
+      if (!state.cashboxDragId) return;
+      event.preventDefault();
+      const draggedId = String(state.cashboxDragId || '').trim();
+      const beforeId = state.cashboxDropBeforeId === '__end__' ? '' : String(state.cashboxDropBeforeId || '').trim();
+      if (!draggedId || draggedId === beforeId) {
+        resetCashboxDragState();
+        renderCashboxesList();
+        return;
+      }
+      await reorderCashboxes(draggedId, beforeId);
+    }
+
+    function handleCashboxesListDragEnd() {
+      resetCashboxDragState();
+      state.cashboxDragIgnoreClicksUntil = Date.now() + 250;
+      renderCashboxesList();
     }
 
     function openGptWallModal() {
@@ -16460,6 +16610,10 @@ function renderCompactArchiveRows(cards) {
     els.cashboxTransferNoteInput.addEventListener('input', handleCashboxTransferNoteInput);
     els.cashboxesList.addEventListener('click', handleCashboxesListClick);
     els.cashboxesList.addEventListener('keydown', handleCashboxesListKeydown);
+    els.cashboxesList.addEventListener('dragstart', handleCashboxesListDragStart);
+    els.cashboxesList.addEventListener('dragover', handleCashboxesListDragOver);
+    els.cashboxesList.addEventListener('drop', handleCashboxesListDrop);
+    els.cashboxesList.addEventListener('dragend', handleCashboxesListDragEnd);
     els.cashboxAmountInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();

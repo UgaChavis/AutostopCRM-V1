@@ -820,6 +820,27 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(deleted["meta"]["removed_transactions"], 0)
         self.assertEqual(self.service.list_cashboxes()["meta"]["total"], 1)
 
+    def test_cashbox_reorder_persists_custom_order(self) -> None:
+        first = self.service.create_cashbox({"name": "Касса A", "actor_name": "ADMIN"})["cashbox"]
+        second = self.service.create_cashbox({"name": "Касса B", "actor_name": "ADMIN"})["cashbox"]
+        third = self.service.create_cashbox({"name": "Касса C", "actor_name": "ADMIN"})["cashbox"]
+
+        reordered = self.service.reorder_cashboxes(
+            {
+                "cashbox_id": third["id"],
+                "before_cashbox_id": first["id"],
+                "actor_name": "ADMIN",
+            }
+        )
+
+        self.assertTrue(reordered["meta"]["changed"])
+        self.assertEqual([item["id"] for item in reordered["cashboxes"]], [third["id"], first["id"], second["id"]])
+        self.assertEqual([item["order"] for item in reordered["cashboxes"]], [0, 1, 2])
+
+        listed = self.service.list_cashboxes()["cashboxes"]
+        self.assertEqual([item["id"] for item in listed], [third["id"], first["id"], second["id"]])
+        self.assertEqual([item["order"] for item in listed], [0, 1, 2])
+
     def test_cashbox_transfer_moves_money_between_cashboxes(self) -> None:
         source_cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})["cashbox"]
         target_cashbox = self.service.create_cashbox({"name": "Безналичный", "actor_name": "ADMIN"})["cashbox"]

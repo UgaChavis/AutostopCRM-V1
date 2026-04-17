@@ -628,6 +628,22 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(listed["data"]["meta"]["total"], 1)
         self.assertEqual(listed["data"]["cashboxes"][0]["id"], cashbox["id"])
 
+        status, another_created = self.request("/api/create_cashbox", {"name": "Касса 2", "actor_name": "ADMIN"})
+        self.assertEqual(status, 200)
+        another_cashbox = another_created["data"]["cashbox"]
+
+        status, reordered = self.request(
+            "/api/reorder_cashboxes",
+            {
+                "cashbox_id": another_cashbox["id"],
+                "before_cashbox_id": cashbox["id"],
+                "actor_name": "ADMIN",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(reordered["data"]["meta"]["changed"])
+        self.assertEqual([item["id"] for item in reordered["data"]["cashboxes"][:2]], [another_cashbox["id"], cashbox["id"]])
+
         status, transaction = self.request(
             "/api/create_cash_transaction",
             {
@@ -641,9 +657,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(transaction["data"]["transaction"]["amount_minor"], 250000)
 
-        status, destination_created = self.request("/api/create_cashbox", {"name": "Касса 2", "actor_name": "ADMIN"})
-        self.assertEqual(status, 200)
-        destination_cashbox = destination_created["data"]["cashbox"]
+        destination_cashbox = another_cashbox
 
         status, transferred = self.request(
             "/api/create_cashbox_transfer",

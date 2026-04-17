@@ -35,7 +35,7 @@ def default_columns() -> list[Column]:
 
 
 DEFAULT_STATE = {
-    "schema_version": 7,
+    "schema_version": 8,
     "columns": [column.to_dict() for column in default_columns()],
     "cards": [],
     "stickies": [],
@@ -428,7 +428,7 @@ class JsonStore:
         parsed_cashboxes: list[CashBox] = []
         seen_ids: set[str] = set()
         seen_names: set[str] = set()
-        for item in raw_cashboxes:
+        for index, item in enumerate(raw_cashboxes):
             if not isinstance(item, dict):
                 repaired = True
                 continue
@@ -437,6 +437,9 @@ class JsonStore:
             except (TypeError, ValueError):
                 repaired = True
                 continue
+            if cashbox.order != index:
+                repaired = True
+                cashbox.order = index
             normalized_name = cashbox.name.casefold()
             if cashbox.id in seen_ids or normalized_name in seen_names:
                 repaired = True
@@ -444,7 +447,7 @@ class JsonStore:
             seen_ids.add(cashbox.id)
             seen_names.add(normalized_name)
             parsed_cashboxes.append(cashbox)
-        parsed_cashboxes.sort(key=lambda item: (item.name.casefold(), item.id))
+        parsed_cashboxes.sort(key=lambda item: (item.order, item.name.casefold(), item.id))
         return parsed_cashboxes, repaired
 
     def _normalize_cash_transactions(self, state: dict, cashboxes: list[CashBox]) -> tuple[list[CashTransaction], bool]:
@@ -521,15 +524,23 @@ class JsonStore:
         normalized: list[CashBox] = []
         seen_ids: set[str] = set()
         seen_names: set[str] = set()
-        for item in cashboxes:
+        ordered_cashboxes = sorted(cashboxes, key=lambda item: (item.order, item.name.casefold(), item.id))
+        for index, item in enumerate(ordered_cashboxes):
             if not isinstance(item, CashBox):
                 continue
+            if item.order != index:
+                item = CashBox(
+                    id=item.id,
+                    name=item.name,
+                    order=index,
+                    created_at=item.created_at,
+                    updated_at=item.updated_at,
+                )
             if item.id in seen_ids or item.name.casefold() in seen_names:
                 continue
             seen_ids.add(item.id)
             seen_names.add(item.name.casefold())
             normalized.append(item)
-        normalized.sort(key=lambda item: (item.name.casefold(), item.id))
         return normalized
 
     def _normalize_cash_transactions_payload(
