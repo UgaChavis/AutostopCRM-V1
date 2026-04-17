@@ -1,0 +1,20 @@
+[Unit]
+Description=Serve Amnezia VPN dashboard on localhost
+After=network-online.target amnezia-traffic-collector.service
+Wants=network-online.target
+ConditionPathExists=/var/lib/amnezia-traffic/web/index.html
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+ExecStart=/usr/bin/python3 -m http.server 18080 --bind 127.0.0.1 --directory /var/lib/amnezia-traffic/web
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
