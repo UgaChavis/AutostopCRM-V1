@@ -1,7 +1,8 @@
+# ruff: noqa: E402
 from __future__ import annotations
 
-import unittest
 import sys
+import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,8 +11,8 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.agent.contracts import PatchResult, PlanResult
-from minimal_kanban.agent.tools import AgentToolExecutor
 from minimal_kanban.agent.policy import ToolPolicyEngine
+from minimal_kanban.agent.tools import AgentToolExecutor
 
 
 class ToolPolicyEngineTests(unittest.TestCase):
@@ -28,6 +29,7 @@ class ToolPolicyEngineTests(unittest.TestCase):
         self.assertEqual(plan.scenario_id, "vin_enrichment")
         self.assertEqual(plan.execution_mode, "structured_card")
         self.assertEqual(plan.required_tools, ["decode_vin"])
+        self.assertEqual(plan.optional_tools, ["search_web", "fetch_page_excerpt"])
         self.assertEqual(plan.write_mode, "patch_only_additive")
         self.assertTrue(plan.followup_policy["enabled"])
 
@@ -38,7 +40,13 @@ class ToolPolicyEngineTests(unittest.TestCase):
             scenario_chain=["custom"],
             execution_mode="model_loop",
             needs_external_tools=False,
-            allowed_write_targets=["title", "vehicle_profile", "repair_order", "repair_order_works", "repair_order_materials"],
+            allowed_write_targets=[
+                "title",
+                "vehicle_profile",
+                "repair_order",
+                "repair_order_works",
+                "repair_order_materials",
+            ],
             forbidden_write_targets=["vehicle_profile", "repair_order_works"],
         )
         patch = PatchResult(

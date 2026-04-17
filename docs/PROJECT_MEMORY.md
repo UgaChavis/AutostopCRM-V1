@@ -15,12 +15,14 @@ Use this file for durable notes that should not be rediscovered every session.
 - `run_full_card_enrichment` is the active card-button entrypoint again, backed by `/api/run_full_card_enrichment`
 - the agent surface routes in `api/server.py` are active again; status/tasks/actions/scheduled-task routes are wired to `CardService`
 - `CardService` now attaches an agent controller through the shared embedded-agent bootstrap used by both `app.py` and `mcp.main`; the old local-cleanup path still remains only as fallback when no controller is attached
+- VIN enrichment is now bounded but multi-step: `decode_vin` runs first, then sparse VIN results trigger `search_web` and `fetch_page_excerpt` for the same VIN only, and the card patch merges only confirmed vehicle facts
 
 ## Current Known Cautions
 
 - default admin credentials are still a production concern
 - browser-run artifacts should not be left in the worktree
 - stale branch notes are less reliable than `git rev-parse` output
+- web-followup for VIN cards should stay constrained to VIN-derived vehicle facts and not branch into parts/DTC/maintenance unless the card explicitly asks for that
 
 ## When To Add Notes Here
 

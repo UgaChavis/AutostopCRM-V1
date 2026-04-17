@@ -9,6 +9,7 @@ from typing import Any
 
 from ..mcp.client import BoardApiClient, BoardApiTransportError, discover_board_api
 from ..models import utc_now_iso
+from ..services.vehicle_profile_service import VehicleProfileService
 from ..vehicle_profile import normalize_vehicle_notes
 from .config import (
     get_agent_board_api_url,
@@ -129,6 +130,7 @@ class AgentRunner:
         self._tools = AgentToolExecutor(board_api, actor_name=self._actor_name)
         self._policy = ToolPolicyEngine()
         self._scenario_registry = build_default_scenario_registry()
+        self._vehicle_profile_service = VehicleProfileService()
 
     def run_once(self) -> bool:
         task = self._storage.claim_next_task()
@@ -2943,6 +2945,39 @@ class AgentRunner:
             return "insufficient"
         return "failed"
 
+    def _vin_web_enrichment_required(self, decoded_vin: dict[str, Any]) -> bool:
+        if not isinstance(decoded_vin, dict):
+            return False
+        return any(
+            not str(decoded_vin.get(field_name, "") or "").strip()
+            for field_name in (
+                "engine_model",
+                "gearbox_model",
+                "transmission",
+                "drive_type",
+                "engine_power_hp",
+            )
+        )
+
+    def _parse_vehicle_profile_text(
+        self, text: str, *, explicit_vehicle: str = ""
+    ) -> dict[str, Any]:
+        profile, _, warnings = self._vehicle_profile_service._parse_text_payload(
+            str(text or "").strip(), explicit_vehicle=str(explicit_vehicle or "").strip()
+        )
+        profile_data = profile.to_dict()
+        return {
+            "make_display": str(profile_data.get("make_display", "") or "").strip(),
+            "model_display": str(profile_data.get("model_display", "") or "").strip(),
+            "production_year": profile_data.get("production_year"),
+            "engine_model": str(profile_data.get("engine_model", "") or "").strip(),
+            "engine_power_hp": profile_data.get("engine_power_hp"),
+            "gearbox_type": str(profile_data.get("gearbox_type", "") or "").strip(),
+            "gearbox_model": str(profile_data.get("gearbox_model", "") or "").strip(),
+            "drivetrain": str(profile_data.get("drivetrain", "") or "").strip(),
+            "warnings": [str(item or "").strip() for item in warnings if str(item or "").strip()],
+        }
+
     def _extract_existing_ai_notes(self, description_text: str) -> list[str]:
         notes: list[str] = []
         inside_ai_block = False
@@ -3221,14 +3256,54 @@ class AgentRunner:
                 vin_bits.append(str(decoded_vin.get("model_year", "") or "").strip())
             if decoded_vin.get("engine_model") and "engine_model" in vehicle_patch:
                 vin_bits.append(f"двигатель: {decoded_vin.get('engine_model')}")
-            if decoded_vin.get("transmission") and "gearbox_model" in vehicle_patch:
-                vin_bits.append(f"КПП: {decoded_vin.get('transmission')}")
+            if decoded_vin.get("engine_power_hp") and "engine_power_hp" in vehicle_patch:
+                vin_bits.append(f"мощность: {decoded_vin.get('engine_power_hp')} л.с.")
+            if (
+                decoded_vin.get("gearbox_model") or decoded_vin.get("transmission")
+            ) and "gearbox_model" in vehicle_patch:
+                vin_bits.append(
+                    f"КПП: {decoded_vin.get('gearbox_model') or decoded_vin.get('transmission')}"
+                )
             if decoded_vin.get("drive_type") and "drivetrain" in vehicle_patch:
                 vin_bits.append(f"привод: {decoded_vin.get('drive_type')}")
             if decoded_vin.get("plant_country"):
                 vin_bits.append(f"сборка: {decoded_vin.get('plant_country')}")
             if vin_bits:
                 ai_lines.append("По VIN подтверждено: " + ", ".join(vin_bits) + ".")
+            web_enrichment_fields = [
+                str(item or "").strip()
+                for item in (
+                    decoded_vin.get("web_enrichment_fields")
+                    if isinstance(decoded_vin.get("web_enrichment_fields"), list)
+                    else []
+                )
+                if str(item or "").strip()
+            ]
+            if web_enrichment_fields:
+                web_bits: list[str] = []
+                for field_name in web_enrichment_fields:
+                    if field_name == "engine_model" and decoded_vin.get("engine_model"):
+                        web_bits.append(f"двигатель: {decoded_vin.get('engine_model')}")
+                    elif field_name == "engine_power_hp" and decoded_vin.get("engine_power_hp"):
+                        web_bits.append(f"мощность: {decoded_vin.get('engine_power_hp')} л.с.")
+                    elif field_name == "gearbox_model" and (
+                        decoded_vin.get("gearbox_model") or decoded_vin.get("transmission")
+                    ):
+                        web_bits.append(
+                            f"КПП: {decoded_vin.get('gearbox_model') or decoded_vin.get('transmission')}"
+                        )
+                    elif field_name == "drive_type" and decoded_vin.get("drive_type"):
+                        web_bits.append(f"привод: {decoded_vin.get('drive_type')}")
+                    elif field_name == "make_display" and decoded_vin.get("make"):
+                        web_bits.append(f"марка: {decoded_vin.get('make')}")
+                    elif field_name == "model_display" and decoded_vin.get("model"):
+                        web_bits.append(f"модель: {decoded_vin.get('model')}")
+                    elif field_name == "production_year" and decoded_vin.get("model_year"):
+                        web_bits.append(f"год: {decoded_vin.get('model_year')}")
+                if web_bits:
+                    ai_lines.append(
+                        "Дополнительно по интернету подтверждено: " + ", ".join(web_bits) + "."
+                    )
         elif facts.get("vin") and facts.get("vin_decode_attempted"):
             if vin_decode_status == "insufficient":
                 ai_lines.append(
@@ -3441,6 +3516,16 @@ class AgentRunner:
         existing = facts["vehicle_profile"]
         field_sources: dict[str, str] = {}
         autofilled_fields: list[str] = []
+        web_source_urls = [
+            str(item or "").strip()
+            for item in decoded_vin.get("web_source_urls", [])
+            if str(item or "").strip()
+        ]
+        web_enrichment_fields = {
+            str(item or "").strip()
+            for item in decoded_vin.get("web_enrichment_fields", [])
+            if str(item or "").strip()
+        }
 
         def _set_if_missing(field_name: str, value: Any) -> None:
             text = str(value or "").strip()
@@ -3463,16 +3548,23 @@ class AgentRunner:
                 autofilled_fields.append("production_year")
                 field_sources["production_year"] = "official_vin_decode_nhtsa"
         _set_if_missing("engine_model", decoded_vin.get("engine_model"))
-        _set_if_missing("gearbox_model", decoded_vin.get("transmission"))
+        _set_if_missing("engine_power_hp", decoded_vin.get("engine_power_hp"))
+        _set_if_missing(
+            "gearbox_model", decoded_vin.get("gearbox_model") or decoded_vin.get("transmission")
+        )
         _set_if_missing("drivetrain", decoded_vin.get("drive_type"))
         if not patch:
             return {}
-        patch["source_summary"] = "official VIN decode"
-        patch["source_confidence"] = 0.78
+        patch["source_summary"] = (
+            "official VIN decode + web VIN enrichment" if web_source_urls else "official VIN decode"
+        )
+        patch["source_confidence"] = 0.8 if web_source_urls else 0.78
         patch["autofilled_fields"] = autofilled_fields
         patch["field_sources"] = field_sources
-        source_refs = [str(decoded_vin.get("source_url", "") or "").strip()]
+        source_refs = [str(decoded_vin.get("source_url", "") or "").strip(), *web_source_urls]
         patch["source_links_or_refs"] = [item for item in source_refs if item]
+        if web_enrichment_fields:
+            patch["web_enrichment_fields"] = sorted(web_enrichment_fields)
         patch["data_completion_state"] = (
             "mostly_autofilled" if len(autofilled_fields) >= 3 else "partially_autofilled"
         )
@@ -3495,6 +3587,7 @@ class AgentRunner:
                 ("модель", "model"),
                 ("год", "model_year"),
                 ("двигатель", "engine_model"),
+                ("мощность", "engine_power_hp"),
                 ("КПП", "transmission"),
                 ("привод", "drive_type"),
             ):
@@ -3503,6 +3596,38 @@ class AgentRunner:
                     vin_bits.append(f"{label}: {value}")
             if vin_bits:
                 notes.append("VIN decode: " + "; ".join(vin_bits[:5]) + ".")
+            web_enrichment_fields = [
+                str(item or "").strip()
+                for item in (
+                    decoded_vin.get("web_enrichment_fields")
+                    if isinstance(decoded_vin.get("web_enrichment_fields"), list)
+                    else []
+                )
+                if str(item or "").strip()
+            ]
+            if web_enrichment_fields:
+                web_bits: list[str] = []
+                for field_name in web_enrichment_fields:
+                    if field_name == "make_display" and decoded_vin.get("make"):
+                        web_bits.append(f"марка: {decoded_vin.get('make')}")
+                    elif field_name == "model_display" and decoded_vin.get("model"):
+                        web_bits.append(f"модель: {decoded_vin.get('model')}")
+                    elif field_name == "production_year" and decoded_vin.get("model_year"):
+                        web_bits.append(f"год: {decoded_vin.get('model_year')}")
+                    elif field_name == "engine_model" and decoded_vin.get("engine_model"):
+                        web_bits.append(f"двигатель: {decoded_vin.get('engine_model')}")
+                    elif field_name == "engine_power_hp" and decoded_vin.get("engine_power_hp"):
+                        web_bits.append(f"мощность: {decoded_vin.get('engine_power_hp')} л.с.")
+                    elif field_name == "gearbox_model" and (
+                        decoded_vin.get("gearbox_model") or decoded_vin.get("transmission")
+                    ):
+                        web_bits.append(
+                            f"КПП: {decoded_vin.get('gearbox_model') or decoded_vin.get('transmission')}"
+                        )
+                    elif field_name == "drive_type" and decoded_vin.get("drive_type"):
+                        web_bits.append(f"привод: {decoded_vin.get('drive_type')}")
+                if web_bits:
+                    notes.append("Web VIN enrichment: " + "; ".join(web_bits) + ".")
         part_lookup = orchestration_results.get("find_part_numbers")
         if isinstance(part_lookup, dict) and facts.get("part_queries"):
             primary_part, analog_parts = self._summarize_part_matches(part_lookup)
@@ -3714,6 +3839,11 @@ class AgentRunner:
             parts: list[str] = []
             if "decode_vin" in orchestration_results:
                 parts.append("VIN")
+                decoded_vin = orchestration_results.get("decode_vin")
+                if isinstance(decoded_vin, dict) and (
+                    decoded_vin.get("web_source_urls") or decoded_vin.get("web_enrichment_fields")
+                ):
+                    parts.append("веб")
             if "find_part_numbers" in orchestration_results:
                 parts.append("запчасти")
             if "estimate_maintenance" in orchestration_results:

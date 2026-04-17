@@ -18,6 +18,7 @@ class ScenarioPolicy:
 _SCENARIO_POLICIES: dict[str, ScenarioPolicy] = {
     "vin_enrichment": ScenarioPolicy(
         required_tools=("decode_vin",),
+        optional_tools=("search_web", "fetch_page_excerpt"),
         allowed_write_targets=("description", "vehicle", "vehicle_profile"),
         source_type="external_vin",
     ),
@@ -49,7 +50,12 @@ _SCENARIO_POLICIES: dict[str, ScenarioPolicy] = {
         source_type="crm",
     ),
     "repair_order_assistance": ScenarioPolicy(
-        allowed_write_targets=("description", "repair_order", "repair_order_works", "repair_order_materials"),
+        allowed_write_targets=(
+            "description",
+            "repair_order",
+            "repair_order_works",
+            "repair_order_materials",
+        ),
         source_type="crm",
     ),
     "board_review": ScenarioPolicy(source_type="crm"),
@@ -93,7 +99,9 @@ class ToolPolicyEngine:
         followup_enabled: bool,
         notes: list[str] | None = None,
     ) -> PlanResult:
-        normalized_execution_mode = str(execution_mode or "model_loop").strip().lower() or "model_loop"
+        normalized_execution_mode = (
+            str(execution_mode or "model_loop").strip().lower() or "model_loop"
+        )
         normalized_chain = self._normalize_chain(scenario_chain)
         if not normalized_chain:
             normalized_chain = ["freeform_manual"]
@@ -117,10 +125,14 @@ class ToolPolicyEngine:
             allowed_write_targets.extend(policy.allowed_write_targets)
             forbidden_write_targets.extend(policy.forbidden_write_targets)
         required_unique = self._unique(required_tools)
-        optional_unique = [item for item in self._unique(optional_tools) if item not in required_unique]
+        optional_unique = [
+            item for item in self._unique(optional_tools) if item not in required_unique
+        ]
         forbidden_unique = self._unique(forbidden_write_targets)
         forbidden_set = set(forbidden_unique)
-        allowed_unique = [item for item in self._unique(allowed_write_targets) if item not in forbidden_set]
+        allowed_unique = [
+            item for item in self._unique(allowed_write_targets) if item not in forbidden_set
+        ]
         stop_conditions = [f"missing_required_tool:{tool_name}" for tool_name in required_unique]
         if normalized_execution_mode == "model_loop" and allowed_unique:
             stop_conditions.append("forbid_unplanned_writes")
@@ -135,7 +147,10 @@ class ToolPolicyEngine:
             write_mode = "patch_only_additive"
         if any(item in {"vin_enrichment", "dtc_lookup"} for item in normalized_chain):
             confidence_mode = "confirmed_only"
-        elif any(item in {"parts_lookup", "fault_research", "maintenance_lookup"} for item in normalized_chain):
+        elif any(
+            item in {"parts_lookup", "fault_research", "maintenance_lookup"}
+            for item in normalized_chain
+        ):
             confidence_mode = "evidence_guided"
         return PlanResult(
             scenario_id=primary,
@@ -144,7 +159,8 @@ class ToolPolicyEngine:
             needs_external_tools=bool(required_unique or optional_unique),
             required_tools=required_unique,
             optional_tools=optional_unique,
-            tool_order=required_unique + [item for item in optional_unique if item not in required_unique],
+            tool_order=required_unique
+            + [item for item in optional_unique if item not in required_unique],
             allowed_write_targets=allowed_unique,
             forbidden_write_targets=forbidden_unique,
             stop_conditions=stop_conditions,
@@ -171,9 +187,21 @@ class ToolPolicyEngine:
             for key, value in dict(patch.card_patch).items()
             if key in allowed and key not in forbidden
         }
-        repair_order_patch = dict(patch.repair_order_patch) if "repair_order" in allowed and "repair_order" not in forbidden else {}
-        repair_order_works = [dict(item) for item in patch.repair_order_works if isinstance(item, dict)] if "repair_order_works" in allowed and "repair_order_works" not in forbidden else []
-        repair_order_materials = [dict(item) for item in patch.repair_order_materials if isinstance(item, dict)] if "repair_order_materials" in allowed and "repair_order_materials" not in forbidden else []
+        repair_order_patch = (
+            dict(patch.repair_order_patch)
+            if "repair_order" in allowed and "repair_order" not in forbidden
+            else {}
+        )
+        repair_order_works = (
+            [dict(item) for item in patch.repair_order_works if isinstance(item, dict)]
+            if "repair_order_works" in allowed and "repair_order_works" not in forbidden
+            else []
+        )
+        repair_order_materials = (
+            [dict(item) for item in patch.repair_order_materials if isinstance(item, dict)]
+            if "repair_order_materials" in allowed and "repair_order_materials" not in forbidden
+            else []
+        )
         return PatchResult(
             card_patch=filtered_card_patch,
             repair_order_patch=repair_order_patch,
