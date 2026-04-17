@@ -2,27 +2,30 @@ from __future__ import annotations
 
 import base64
 import binascii
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
-from io import BytesIO
 import json
-from pathlib import Path, PurePath
 import re
 import shutil
 import threading
 import time
 import uuid
 import zipfile
+from datetime import UTC, datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from io import BytesIO
 from logging import Logger
+from pathlib import Path, PurePath
 from typing import Any
 
+from ..agent.knowledge import build_ai_chat_knowledge_packet
+from ..agent.openai_client import AgentModelError, OpenAIJsonAgentClient
 from ..config import get_attachments_dir
 from ..demo_seed import build_demo_board
 from ..models import (
     CARD_DESCRIPTION_LIMIT,
     CARD_TITLE_LIMIT,
     CARD_VEHICLE_LIMIT,
+    COLUMN_LABEL_LIMIT,
     MAX_ATTACHMENT_SIZE_BYTES,
     REPAIR_ORDER_FILE_RETENTION_LIMIT,
     TAG_LIMIT,
@@ -45,13 +48,14 @@ from ..models import (
     normalize_money_minor,
     normalize_source,
     normalize_tag_label,
+    normalize_tags,
     normalize_text,
     parse_datetime,
-    normalize_tags,
     short_entity_id,
     utc_now,
     utc_now_iso,
 )
+from ..printing.service import PrintModuleError, PrintModuleService
 from ..repair_order import (
     REPAIR_ORDER_STATUS_CLOSED,
     REPAIR_ORDER_STATUS_OPEN,
@@ -59,42 +63,42 @@ from ..repair_order import (
     RepairOrderPayment,
     RepairOrderRow,
     normalize_repair_order_payment_method,
+    normalize_repair_order_payments,
+    normalize_repair_order_rows,
+    normalize_repair_order_status,
+    normalize_repair_order_tags,
     repair_order_payment_method_from_cashbox_name,
     repair_order_payment_method_from_payments,
-    normalize_repair_order_payments,
     repair_order_payment_method_label,
-    normalize_repair_order_rows,
-    normalize_repair_order_tags,
-    normalize_repair_order_status,
 )
+from ..storage.json_store import JsonStore, default_columns
 from ..vehicle_profile import (
     VEHICLE_COMPACT_FIELDS,
     VehicleProfile,
 )
-from ..agent.openai_client import AgentModelError, OpenAIJsonAgentClient
-from ..agent.knowledge import build_ai_chat_knowledge_packet
-from ..printing.service import PrintModuleError, PrintModuleService
 from .column_service import ColumnService
 from .snapshot_service import SnapshotService
 from .vehicle_profile_service import VehicleProfileService
-
 
 _CARD_AI_LOG_LIMIT = 24
 _CARD_AI_LEVELS = {"INFO", "RUN", "WAIT", "DONE", "WARN"}
 _CARD_AI_VIN_PATTERN = re.compile(r"\b[A-HJ-NPR-Z0-9]{17}\b")
 _CARD_AI_DTC_PATTERN = re.compile(r"\b[PBCU][0-9]{4}\b", re.IGNORECASE)
-from ..storage.json_store import JsonStore, default_columns
 
 
 _SEARCH_SEPARATOR_PATTERN = re.compile(r"[\W_]+", re.UNICODE)
 _LICENSE_PLATE_PATTERN = re.compile(r"\b[А-ЯA-Z]\d{3}[А-ЯA-Z]{2}\d{2,3}\b", re.IGNORECASE)
 _VIN_PATTERN = re.compile(r"\b[A-HJ-NPR-Z0-9]{17}\b", re.IGNORECASE)
-_PHONE_PATTERN = re.compile(r"(?:\+7|8)\s*(?:\(\s*\d{3}\s*\)|\d{3})\s*[\- ]?\s*\d{3}\s*[\- ]?\s*\d{2}\s*[\- ]?\s*\d{2}")
+_PHONE_PATTERN = re.compile(
+    r"(?:\+7|8)\s*(?:\(\s*\d{3}\s*\)|\d{3})\s*[\- ]?\s*\d{3}\s*[\- ]?\s*\d{2}\s*[\- ]?\s*\d{2}"
+)
 _CUSTOMER_NAME_PATTERN = re.compile(
     r"(?:клиент|владелец|контакт(?:ное лицо)?)\s*[:\-]?\s*([А-ЯЁA-Z][А-ЯЁA-Zа-яёa-z.\-]+(?:\s+[А-ЯЁA-Z][А-ЯЁA-Zа-яёa-z.\-]+){0,2})",
     re.IGNORECASE,
 )
-_MILEAGE_PATTERN = re.compile(r"(?:пробег|mileage|одометр)\s*[:\-]?\s*([\d\s]{2,12})", re.IGNORECASE)
+_MILEAGE_PATTERN = re.compile(
+    r"(?:пробег|mileage|одометр)\s*[:\-]?\s*([\d\s]{2,12})", re.IGNORECASE
+)
 _REPAIR_ITEM_SPLIT_PATTERN = re.compile(r"\s*(?:,|;|\n|•|\u2022)\s*")
 _REPAIR_REASON_PREFIX_PATTERN = re.compile(
     r"^(?:жалоба|жалобы|причина обращения|причина|со слов клиента|симптом|неисправность)\s*[:\-]?\s*",
@@ -361,7 +365,9 @@ _OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
 
 class ServiceError(Exception):
-    def __init__(self, code: str, message: str, *, status_code: int = 400, details: dict | None = None) -> None:
+    def __init__(
+        self, code: str, message: str, *, status_code: int = 400, details: dict | None = None
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
@@ -391,7 +397,9 @@ class CardService:
             store,
             logger,
             self._lock,
-            audit_identity=lambda payload, default_source: self._audit_identity(payload, default_source=default_source),
+            audit_identity=lambda payload, default_source: self._audit_identity(
+                payload, default_source=default_source
+            ),
             append_event=self._append_event,
             save_bundle=self._save_bundle,
             validated_column=self._validated_column,
@@ -446,7 +454,9 @@ class CardService:
             tags = self._validated_tags(payload.get("tags", []))
             default_column_id = columns[0].id if columns else "inbox"
             column = self._validated_column(payload.get("column", default_column_id), columns)
-            mark_unread = self._validated_optional_bool(payload, "mark_unread", default=source == "mcp")
+            mark_unread = self._validated_optional_bool(
+                payload, "mark_unread", default=source == "mcp"
+            )
             now = utc_now()
             now_iso = now.isoformat()
             card = Card(
@@ -496,7 +506,9 @@ class CardService:
             self._notify_agent_card_created(card)
             return {"card": self._serialize_card(card, events, column_labels=column_labels)}
 
-    def _removed_legacy_server_agent_set_card_ai_autofill(self, payload: dict | None = None) -> dict:
+    def _removed_legacy_server_agent_set_card_ai_autofill(
+        self, payload: dict | None = None
+    ) -> dict:
         with self._lock:
             payload = payload or {}
             bundle = self._store.read_bundle()
@@ -526,9 +538,13 @@ class CardService:
             if enabled_requested and not enabled:
                 card.last_card_fingerprint = ""
                 card.ai_run_count = 0
-                self._append_card_ai_log(card, level="DONE", message="Автосопровождение остановлено.")
+                self._append_card_ai_log(
+                    card, level="DONE", message="Автосопровождение остановлено."
+                )
             if prompt_requested and prompt_updated:
-                self._append_card_ai_log(card, level="INFO", message="ИИ-подсказка автосопровождения обновлена.")
+                self._append_card_ai_log(
+                    card, level="INFO", message="ИИ-подсказка автосопровождения обновлена."
+                )
             launched_task_id = ""
             server_available = self._agent_control is not None
             if self._agent_control is not None:
@@ -557,19 +573,35 @@ class CardService:
                     )
                     if task is not None:
                         launched_task_id = str(task.get("id", "") or "").strip()
-                        card.last_ai_run_at = str(task.get("created_at", "") or now_iso).strip() or now_iso
+                        card.last_ai_run_at = (
+                            str(task.get("created_at", "") or now_iso).strip() or now_iso
+                        )
                         card.ai_run_count = max(0, int(card.ai_run_count)) + 1
-                        card.ai_next_run_at = (now + timedelta(minutes=self._card_ai_next_interval_minutes(card, changed=True))).isoformat()
-                        self._append_card_ai_log(card, level="RUN", message="Первый проход запущен.", task_id=launched_task_id)
+                        card.ai_next_run_at = (
+                            now
+                            + timedelta(
+                                minutes=self._card_ai_next_interval_minutes(card, changed=True)
+                            )
+                        ).isoformat()
+                        self._append_card_ai_log(
+                            card,
+                            level="RUN",
+                            message="Первый проход запущен.",
+                            task_id=launched_task_id,
+                        )
                     else:
-                        self._append_card_ai_log(card, level="WAIT", message="Проход уже выполняется.")
+                        self._append_card_ai_log(
+                            card, level="WAIT", message="Проход уже выполняется."
+                        )
                 else:
                     self._append_card_ai_log(card, level="WARN", message="Server AI недоступен.")
             self._touch_card(card, actor_name)
             if enabled:
                 card.last_card_fingerprint = self._card_ai_fingerprint(card)
             event_action = "card_ai_autofill_enabled" if enabled else "card_ai_autofill_disabled"
-            event_message = f"{actor_name} {'включил' if enabled else 'выключил'} автосопровождение карточки"
+            event_message = (
+                f"{actor_name} {'включил' if enabled else 'выключил'} автосопровождение карточки"
+            )
             if prompt_requested and not enabled_requested:
                 event_action = "card_ai_autofill_prompt_updated"
                 event_message = f"{actor_name} обновил mini-prompt автосопровождения"
@@ -589,7 +621,9 @@ class CardService:
             )
             self._save_bundle(bundle, columns=columns, cards=cards, events=events)
             return {
-                "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
+                "card": self._serialize_card(
+                    card, events, column_labels=self._column_labels(columns)
+                ),
                 "meta": {
                     "enabled": enabled,
                     "launched": bool(launched_task_id),
@@ -600,7 +634,11 @@ class CardService:
                 },
             }
 
-    def _removed_legacy_server_agent_run_full_card_enrichment(self, payload: dict | None = None) -> dict:
+    def _removed_legacy_server_agent_run_full_card_enrichment(
+        self, payload: dict | None = None
+    ) -> dict:
+        return self.run_full_card_enrichment(payload)
+
         with self._lock:
             payload = payload or {}
             bundle = self._store.read_bundle()
@@ -619,7 +657,11 @@ class CardService:
                     server_available = bool(status_payload.get("agent", {}).get("available"))
                 except Exception:
                     server_available = True
-            scenario_context = payload.get("context_packet") if isinstance(payload.get("context_packet"), dict) else None
+            scenario_context = (
+                payload.get("context_packet")
+                if isinstance(payload.get("context_packet"), dict)
+                else None
+            )
             if self._agent_control is not None:
                 task = self._agent_control.enqueue_card_autofill_task(
                     {
@@ -628,7 +670,11 @@ class CardService:
                         "title": card.title,
                         "vehicle": card.vehicle_display(),
                         "requested_by": actor_name,
-                        "ai_autofill_prompt": normalize_text(payload.get("prompt", card.ai_autofill_prompt), default=card.ai_autofill_prompt, limit=800),
+                        "ai_autofill_prompt": normalize_text(
+                            payload.get("prompt", card.ai_autofill_prompt),
+                            default=card.ai_autofill_prompt,
+                            limit=800,
+                        ),
                         "ai_log_tail": list(card.ai_autofill_log[-8:]),
                         "scenario_id": "full_card_enrichment",
                         "context_packet": scenario_context,
@@ -638,16 +684,32 @@ class CardService:
                 )
                 if task is not None:
                     launched_task_id = str(task.get("id", "") or "").strip()
-                    card.last_ai_run_at = str(task.get("created_at", "") or utc_now_iso()).strip() or utc_now_iso()
+                    card.last_ai_run_at = (
+                        str(task.get("created_at", "") or utc_now_iso()).strip() or utc_now_iso()
+                    )
                     card.ai_run_count = max(0, int(card.ai_run_count)) + 1
-                    self._append_card_ai_log(card, level="RUN", message="AI-обогащение карточки запущено.", task_id=launched_task_id)
+                    self._append_card_ai_log(
+                        card,
+                        level="RUN",
+                        message="AI-обогащение карточки запущено.",
+                        task_id=launched_task_id,
+                    )
                     for level, message in self._card_ai_context_messages(card):
-                        self._append_card_ai_log(card, level=level, message=message, task_id=launched_task_id)
+                        self._append_card_ai_log(
+                            card, level=level, message=message, task_id=launched_task_id
+                        )
                 else:
                     already_running = True
-                    latest_task = self._agent_control.latest_task_for_card(card.id, purpose="card_autofill")
+                    latest_task = self._agent_control.latest_task_for_card(
+                        card.id, purpose="card_autofill"
+                    )
                     launched_task_id = str((latest_task or {}).get("id", "") or "").strip()
-                    self._append_card_ai_log(card, level="WAIT", message="AI-обогащение карточки уже выполняется.", task_id=launched_task_id)
+                    self._append_card_ai_log(
+                        card,
+                        level="WAIT",
+                        message="AI-обогащение карточки уже выполняется.",
+                        task_id=launched_task_id,
+                    )
             else:
                 self._append_card_ai_log(card, level="WARN", message="Server AI недоступен.")
             self._touch_card(card, actor_name)
@@ -667,7 +729,9 @@ class CardService:
             )
             self._save_bundle(bundle, columns=columns, cards=cards, events=events)
             return {
-                "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
+                "card": self._serialize_card(
+                    card, events, column_labels=self._column_labels(columns)
+                ),
                 "meta": {
                     "launched": bool(launched_task_id) and not already_running,
                     "already_running": already_running,
@@ -692,7 +756,9 @@ class CardService:
             changed_fields: list[str] = []
             normalized_description = self._build_card_cleanup_description(card)
             if normalized_description and normalized_description != card.description:
-                if self._update_description(card, normalized_description, events, actor_name, source):
+                if self._update_description(
+                    card, normalized_description, events, actor_name, source
+                ):
                     changed = True
                     changed_fields.append("description")
 
@@ -709,7 +775,8 @@ class CardService:
                     changed_fields.append("vehicle_profile")
 
             verify = {
-                "description_ok": not normalized_description or card.description == normalized_description,
+                "description_ok": not normalized_description
+                or card.description == normalized_description,
                 "vehicle_ok": not cleanup_vehicle or card.vehicle == cleanup_vehicle,
                 "vehicle_profile_ok": self._cleanup_profile_patch_applied(card, profile_patch),
                 "external_calls": False,
@@ -739,7 +806,9 @@ class CardService:
                 self._save_bundle(bundle, columns=columns, cards=cards, events=events)
 
             return {
-                "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
+                "card": self._serialize_card(
+                    card, events, column_labels=self._column_labels(columns)
+                ),
                 "meta": {
                     "changed": changed,
                     "changed_fields": changed_fields,
@@ -800,7 +869,9 @@ class CardService:
                 )
                 self._save_bundle(bundle, columns=columns, cards=cards, events=events)
             return {
-                "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
+                "card": self._serialize_card(
+                    card, events, column_labels=self._column_labels(columns)
+                ),
                 "meta": {
                     "enabled": False,
                     "launched": False,
@@ -850,7 +921,11 @@ class CardService:
                         card.ai_autofill_active = False
                         card.ai_autofill_until = ""
                         card.ai_next_run_at = ""
-                        self._append_card_ai_log(card, level="DONE", message="Автосопровождение остановлено: карточка в архиве.")
+                        self._append_card_ai_log(
+                            card,
+                            level="DONE",
+                            message="Автосопровождение остановлено: карточка в архиве.",
+                        )
                         changed_any = True
                     continue
                 if not card.ai_autofill_active:
@@ -862,9 +937,13 @@ class CardService:
                     card.ai_autofill_until = ""
                     card.ai_next_run_at = ""
                     if until_at is None or until_at <= now:
-                        done_message = "Автосопровождение завершено: вышло время окна автосопровождения."
+                        done_message = (
+                            "Автосопровождение завершено: вышло время окна автосопровождения."
+                        )
                     else:
-                        done_message = f"Автосопровождение завершено: достигнут лимит проходов ({max_runs})."
+                        done_message = (
+                            f"Автосопровождение завершено: достигнут лимит проходов ({max_runs})."
+                        )
                     self._append_card_ai_log(card, level="DONE", message=done_message)
                     changed_any = True
                     continue
@@ -873,13 +952,22 @@ class CardService:
                     continue
                 if self._agent_control.has_active_task_for_card(card.id, purpose="card_autofill"):
                     continue
-                latest_task = self._agent_control.latest_task_for_card(card.id, purpose="card_autofill")
-                retry_after_failure = str(latest_task.get("status", "") if isinstance(latest_task, dict) else "").strip().lower() == "failed"
+                latest_task = self._agent_control.latest_task_for_card(
+                    card.id, purpose="card_autofill"
+                )
+                retry_after_failure = (
+                    str(latest_task.get("status", "") if isinstance(latest_task, dict) else "")
+                    .strip()
+                    .lower()
+                    == "failed"
+                )
                 fingerprint = self._card_ai_fingerprint(card)
                 changed = fingerprint != str(card.last_card_fingerprint or "").strip()
                 if not changed and not retry_after_failure:
                     next_interval_minutes = self._card_ai_next_interval_minutes(card, changed=False)
-                    card.ai_next_run_at = (now + timedelta(minutes=next_interval_minutes)).isoformat()
+                    card.ai_next_run_at = (
+                        now + timedelta(minutes=next_interval_minutes)
+                    ).isoformat()
                     self._append_card_ai_log(
                         card,
                         level="WAIT",
@@ -887,7 +975,11 @@ class CardService:
                     )
                     changed_any = True
                     continue
-                followup_trigger = "retry_after_error" if retry_after_failure and not changed else "adaptive_followup"
+                followup_trigger = (
+                    "retry_after_error"
+                    if retry_after_failure and not changed
+                    else "adaptive_followup"
+                )
                 try:
                     task = self._agent_control.enqueue_card_autofill_task(
                         {
@@ -903,20 +995,39 @@ class CardService:
                         trigger=followup_trigger,
                     )
                     if task is None:
-                        self._append_card_ai_log(card, level="WAIT", message="Не удалось запустить повторный проход.")
+                        self._append_card_ai_log(
+                            card, level="WAIT", message="Не удалось запустить повторный проход."
+                        )
                         changed_any = True
                         continue
                     launched.append(str(task.get("id", "") or "").strip())
-                    card.last_ai_run_at = str(task.get("created_at", "") or now_iso).strip() or now_iso
+                    card.last_ai_run_at = (
+                        str(task.get("created_at", "") or now_iso).strip() or now_iso
+                    )
                     card.ai_run_count = max(0, int(card.ai_run_count)) + 1
                     card.last_card_fingerprint = fingerprint
-                    card.ai_next_run_at = (now + timedelta(minutes=self._card_ai_next_interval_minutes(card, changed=True))).isoformat()
+                    card.ai_next_run_at = (
+                        now
+                        + timedelta(minutes=self._card_ai_next_interval_minutes(card, changed=True))
+                    ).isoformat()
                     if retry_after_failure and not changed:
-                        self._append_card_ai_log(card, level="WARN", message="Предыдущий проход завершился ошибкой. Запущен безопасный повтор.", task_id=launched[-1])
-                    self._append_card_ai_log(card, level="RUN", message="Обнаружены изменения. Запущен повторный проход.", task_id=launched[-1])
+                        self._append_card_ai_log(
+                            card,
+                            level="WARN",
+                            message="Предыдущий проход завершился ошибкой. Запущен безопасный повтор.",
+                            task_id=launched[-1],
+                        )
+                    self._append_card_ai_log(
+                        card,
+                        level="RUN",
+                        message="Обнаружены изменения. Запущен повторный проход.",
+                        task_id=launched[-1],
+                    )
                     changed_any = True
                 except Exception as exc:
-                    self._append_card_ai_log(card, level="WARN", message="Не удалось запустить повторный проход.")
+                    self._append_card_ai_log(
+                        card, level="WARN", message="Не удалось запустить повторный проход."
+                    )
                     failed.append({"card_id": card.id, "error": str(exc)})
                     changed_any = True
             if changed_any:
@@ -937,7 +1048,10 @@ class CardService:
                 card.is_unread = False
                 changed = True
             if actor_name:
-                changed = card.mark_seen(actor_name, seen_at=card.updated_at or card.created_at) or changed
+                changed = (
+                    card.mark_seen(actor_name, seen_at=card.updated_at or card.created_at)
+                    or changed
+                )
             if changed:
                 self._save_bundle(bundle, columns=columns, cards=cards, events=events)
             return {
@@ -972,7 +1086,9 @@ class CardService:
             bundle = self._store.read_bundle()
             cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
             transactions = bundle["cash_transactions"]
-            serialized_cashboxes = [self._serialize_cashbox(cashbox, transactions) for cashbox in cashboxes[:limit]]
+            serialized_cashboxes = [
+                self._serialize_cashbox(cashbox, transactions) for cashbox in cashboxes[:limit]
+            ]
             return {
                 "cashboxes": serialized_cashboxes,
                 "meta": {
@@ -987,14 +1103,19 @@ class CardService:
     def get_cashbox(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            transaction_limit = self._validated_limit(payload.get("transaction_limit"), default=300, maximum=5000)
+            transaction_limit = self._validated_limit(
+                payload.get("transaction_limit"), default=300, maximum=5000
+            )
             bundle = self._store.read_bundle()
             cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
             transactions = self._cashbox_transactions(bundle["cash_transactions"], cashbox.id)
             return {
                 "cashbox": self._serialize_cashbox(cashbox, bundle["cash_transactions"]),
-                "transactions": [self._serialize_cash_transaction(item) for item in transactions[:transaction_limit]],
+                "transactions": [
+                    self._serialize_cash_transaction(item)
+                    for item in transactions[:transaction_limit]
+                ],
                 "meta": {
                     "transactions_total": len(transactions),
                     "transaction_limit": transaction_limit,
@@ -1018,8 +1139,12 @@ class CardService:
             returned_transactions = recent_transactions[:limit]
             cashboxes_by_id = {cashbox.id: cashbox for cashbox in bundle["cashboxes"]}
             return {
-                "entries": [self._serialize_cash_transaction(item) for item in returned_transactions],
-                "text": self._cash_journal_text(returned_transactions, cashboxes_by_id, months=months),
+                "entries": [
+                    self._serialize_cash_transaction(item) for item in returned_transactions
+                ],
+                "text": self._cash_journal_text(
+                    returned_transactions, cashboxes_by_id, months=months
+                ),
                 "meta": {
                     "months": months,
                     "limit": limit,
@@ -1076,10 +1201,16 @@ class CardService:
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
-            before_cashbox_id = payload.get("before_cashbox_id") or payload.get("before_id") or payload.get("target_cashbox_id")
+            before_cashbox_id = (
+                payload.get("before_cashbox_id")
+                or payload.get("before_id")
+                or payload.get("target_cashbox_id")
+            )
             if before_cashbox_id and str(before_cashbox_id).strip() == cashbox.id:
                 return {
-                    "cashboxes": [self._serialize_cashbox(item, transactions) for item in cashboxes],
+                    "cashboxes": [
+                        self._serialize_cashbox(item, transactions) for item in cashboxes
+                    ],
                     "cashbox": self._serialize_cashbox(cashbox, transactions),
                     "meta": {
                         "changed": False,
@@ -1118,7 +1249,9 @@ class CardService:
                     events=events,
                 )
             return {
-                "cashboxes": [self._serialize_cashbox(item, transactions) for item in reordered_cashboxes],
+                "cashboxes": [
+                    self._serialize_cashbox(item, transactions) for item in reordered_cashboxes
+                ],
                 "cashbox": self._serialize_cashbox(cashbox, transactions),
                 "meta": {
                     "changed": changed,
@@ -1134,10 +1267,18 @@ class CardService:
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
-            source_cashbox = self._find_cashbox(cashboxes, payload.get("from_cashbox_id") or payload.get("cashbox_id"))
-            target_cashbox = self._find_cashbox(cashboxes, payload.get("to_cashbox_id") or payload.get("target_cashbox_id"))
+            source_cashbox = self._find_cashbox(
+                cashboxes, payload.get("from_cashbox_id") or payload.get("cashbox_id")
+            )
+            target_cashbox = self._find_cashbox(
+                cashboxes, payload.get("to_cashbox_id") or payload.get("target_cashbox_id")
+            )
             if source_cashbox.id == target_cashbox.id:
-                self._fail("validation_error", "Нельзя переместить деньги в ту же кассу.", details={"field": "to_cashbox_id"})
+                self._fail(
+                    "validation_error",
+                    "Нельзя переместить деньги в ту же кассу.",
+                    details={"field": "to_cashbox_id"},
+                )
             amount_minor = self._validated_cash_amount_minor(payload)
             base_note = self._validated_cash_transaction_note(payload.get("note"))
             transfer_out_note = f"Перемещение в {target_cashbox.name}"
@@ -1213,9 +1354,13 @@ class CardService:
             if related_transactions:
                 raise ValueError("Нельзя удалить кассу, пока в ней есть движения.")
             statistics = self._cashbox_statistics(cashbox, transactions)
-            remaining_cashboxes = self._ordered_cashboxes([item for item in cashboxes if item.id != cashbox.id])
+            remaining_cashboxes = self._ordered_cashboxes(
+                [item for item in cashboxes if item.id != cashbox.id]
+            )
             self._renumber_cashboxes(remaining_cashboxes)
-            remaining_transactions = [item for item in transactions if item.cashbox_id != cashbox.id]
+            remaining_transactions = [
+                item for item in transactions if item.cashbox_id != cashbox.id
+            ]
             self._append_event(
                 events,
                 actor_name=actor_name,
@@ -1265,7 +1410,9 @@ class CardService:
                 source=source,
                 employee_id=normalize_text(payload.get("employee_id"), default="", limit=64),
                 employee_name=normalize_text(payload.get("employee_name"), default="", limit=80),
-                transaction_kind=normalize_text(payload.get("transaction_kind"), default="", limit=32),
+                transaction_kind=normalize_text(
+                    payload.get("transaction_kind"), default="", limit=32
+                ),
             )
             self._append_event(
                 events,
@@ -1308,17 +1455,28 @@ class CardService:
             employees = self._employees_from_settings(settings)
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
             if not employee_id:
-                self._fail("validation_error", "Нужно передать employee_id.", details={"field": "employee_id"})
+                self._fail(
+                    "validation_error",
+                    "Нужно передать employee_id.",
+                    details={"field": "employee_id"},
+                )
             employee = next((item for item in employees if item["id"] == employee_id), None)
             if employee is None:
-                self._fail("not_found", "Сотрудник не найден.", status_code=404, details={"employee_id": employee_id})
-            kind = self._normalize_salary_transaction_kind(payload.get("transaction_kind") or payload.get("kind"))
+                self._fail(
+                    "not_found",
+                    "Сотрудник не найден.",
+                    status_code=404,
+                    details={"employee_id": employee_id},
+                )
+            kind = self._normalize_salary_transaction_kind(
+                payload.get("transaction_kind") or payload.get("kind")
+            )
             amount_minor = self._validated_cash_amount_minor(payload)
             cashbox = self._salary_cashbox(cashboxes)
             if cashbox is None:
                 self._fail(
                     "validation_error",
-                    "Для выплат зарплаты нужна касса \"Наличный\".",
+                    'Для выплат зарплаты нужна касса "Наличный".',
                     details={"cashbox_name": "Наличный"},
                 )
             note_prefix = "Выплата зарплаты" if kind == "salary_payout" else "Аванс"
@@ -1381,14 +1539,25 @@ class CardService:
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
             related_transactions = self._cashbox_transactions(transactions, cashbox.id)
             if not related_transactions:
-                self._fail("validation_error", "В кассе нет движений для отмены.", details={"field": "cashbox_id"})
+                self._fail(
+                    "validation_error",
+                    "В кассе нет движений для отмены.",
+                    details={"field": "cashbox_id"},
+                )
             latest_transaction = related_transactions[0]
-            requested_transaction = self._find_cash_transaction(transactions, payload.get("transaction_id")) or latest_transaction
+            requested_transaction = (
+                self._find_cash_transaction(transactions, payload.get("transaction_id"))
+                or latest_transaction
+            )
             if requested_transaction.id != latest_transaction.id:
                 self._fail(
                     "validation_error",
                     "Можно отменить только последнее движение по выбранной кассе.",
-                    details={"field": "transaction_id", "cashbox_id": cashbox.id, "latest_transaction_id": latest_transaction.id},
+                    details={
+                        "field": "transaction_id",
+                        "cashbox_id": cashbox.id,
+                        "latest_transaction_id": latest_transaction.id,
+                    },
                 )
             if self._is_cashbox_transfer_transaction(latest_transaction):
                 self._fail(
@@ -1397,7 +1566,9 @@ class CardService:
                     details={"transaction_id": latest_transaction.id, "cashbox_id": cashbox.id},
                 )
 
-            linked_card, linked_payment = self._find_repair_order_payment_by_cash_transaction(cards, latest_transaction.id)
+            linked_card, linked_payment = self._find_repair_order_payment_by_cash_transaction(
+                cards, latest_transaction.id
+            )
             response_meta: dict[str, object] = {
                 "cancelled": True,
                 "transaction_id": latest_transaction.id,
@@ -1435,7 +1606,9 @@ class CardService:
                 if self._card_has_repair_order(linked_card):
                     self._ensure_repair_order_text_file(linked_card, force=True)
             else:
-                transactions[:] = [item for item in transactions if item.id != latest_transaction.id]
+                transactions[:] = [
+                    item for item in transactions if item.id != latest_transaction.id
+                ]
                 self._append_event(
                     events,
                     actor_name=actor_name,
@@ -1508,11 +1681,19 @@ class CardService:
             actor_name, source = self._audit_identity(payload, default_source="ui")
             bundle = self._store.read_bundle()
             previous_scale = float(bundle["settings"].get("board_scale", 1.0))
-            previous_board_control = self._normalized_ai_board_control_settings(bundle["settings"].get("ai_board_control"))
-            board_scale = self._validated_board_scale(payload.get("board_scale")) if "board_scale" in payload else previous_scale
+            previous_board_control = self._normalized_ai_board_control_settings(
+                bundle["settings"].get("ai_board_control")
+            )
+            board_scale = (
+                self._validated_board_scale(payload.get("board_scale"))
+                if "board_scale" in payload
+                else previous_scale
+            )
             board_control_payload = self._extract_ai_board_control_settings_payload(payload)
             board_control_settings = (
-                self._validated_ai_board_control_settings(board_control_payload, default=previous_board_control)
+                self._validated_ai_board_control_settings(
+                    board_control_payload, default=previous_board_control
+                )
                 if board_control_payload is not None
                 else previous_board_control
             )
@@ -1529,7 +1710,7 @@ class CardService:
                         actor_name=actor_name,
                         source=source,
                         action="board_scale_changed",
-                    message=f"{actor_name} изменил масштаб доски",
+                        message=f"{actor_name} изменил масштаб доски",
                         card_id=None,
                         details={"before": previous_scale, "after": board_scale},
                     )
@@ -1572,7 +1753,9 @@ class CardService:
     def get_ai_board_control_settings(self) -> dict[str, Any]:
         with self._lock:
             bundle = self._store.read_bundle()
-            return self._normalized_ai_board_control_settings(bundle["settings"].get("ai_board_control"))
+            return self._normalized_ai_board_control_settings(
+                bundle["settings"].get("ai_board_control")
+            )
 
     def get_gpt_wall(self, payload: dict | None = None) -> dict:
         return self._snapshot_service.get_gpt_wall(payload)
@@ -1605,17 +1788,35 @@ class CardService:
             bundle = self._store.read_bundle()
             cards = bundle["cards"]
             if self._synchronize_repair_order_numbers(cards):
-                self._save_bundle(bundle, columns=bundle["columns"], cards=cards, events=bundle["events"])
+                self._save_bundle(
+                    bundle, columns=bundle["columns"], cards=cards, events=bundle["events"]
+                )
             self._cleanup_repair_orders_directory(cards)
             ranked_cards = [
                 card
                 for card in sorted(cards, key=self._repair_order_sort_key, reverse=True)
                 if self._card_has_repair_order(card)
             ]
-            inconsistent_cards = [card for card in ranked_cards if self._card_has_inconsistent_repair_order_state(card)]
-            ranked_cards = [card for card in ranked_cards if not self._card_has_inconsistent_repair_order_state(card)]
-            active_cards = [card for card in ranked_cards if card.repair_order.status != REPAIR_ORDER_STATUS_CLOSED]
-            archived_cards = [card for card in ranked_cards if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED]
+            inconsistent_cards = [
+                card
+                for card in ranked_cards
+                if self._card_has_inconsistent_repair_order_state(card)
+            ]
+            ranked_cards = [
+                card
+                for card in ranked_cards
+                if not self._card_has_inconsistent_repair_order_state(card)
+            ]
+            active_cards = [
+                card
+                for card in ranked_cards
+                if card.repair_order.status != REPAIR_ORDER_STATUS_CLOSED
+            ]
+            archived_cards = [
+                card
+                for card in ranked_cards
+                if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED
+            ]
             if status_filter == "all":
                 ordered_cards = ranked_cards
             elif status_filter == REPAIR_ORDER_STATUS_CLOSED:
@@ -1630,8 +1831,7 @@ class CardService:
             )
             return {
                 "repair_orders": [
-                    self._serialize_repair_order_list_item(card)
-                    for card in sorted_cards[:limit]
+                    self._serialize_repair_order_list_item(card) for card in sorted_cards[:limit]
                 ],
                 "meta": {
                     "limit": limit,
@@ -1653,7 +1853,9 @@ class CardService:
         with self._lock:
             payload = payload or {}
             event_limit = self._validated_limit(payload.get("event_limit"), default=20, maximum=200)
-            include_repair_order_text = self._validated_optional_bool(payload, "include_repair_order_text", default=True)
+            include_repair_order_text = self._validated_optional_bool(
+                payload, "include_repair_order_text", default=True
+            )
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             column_labels = self._column_labels(bundle["columns"])
@@ -1666,7 +1868,9 @@ class CardService:
             card_events = self._events_for_card(bundle["events"], card.id)
             events = [event.to_dict() for event in card_events[:event_limit]]
             active_attachments = [attachment.to_dict() for attachment in card.active_attachments()]
-            removed_attachments = [attachment.to_dict() for attachment in card.attachments if attachment.removed]
+            removed_attachments = [
+                attachment.to_dict() for attachment in card.attachments if attachment.removed
+            ]
             viewer_username = normalize_actor_name(payload.get("actor_name"), default="") or None
             has_repair_order = self._card_has_repair_order(card)
             return {
@@ -1705,7 +1909,11 @@ class CardService:
         payload = payload or {}
         prompt = str(payload.get("prompt") or "").strip()
         context = payload.get("context") if isinstance(payload.get("context"), dict) else None
-        prompt_profile = payload.get("prompt_profile") if isinstance(payload.get("prompt_profile"), dict) else None
+        prompt_profile = (
+            payload.get("prompt_profile")
+            if isinstance(payload.get("prompt_profile"), dict)
+            else None
+        )
         return build_ai_chat_knowledge_packet(
             prompt=prompt,
             context=context,
@@ -1751,7 +1959,9 @@ class CardService:
             return {
                 "card_id": card.id,
                 "heading": card.heading(),
-                "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
+                "card": self._serialize_card(
+                    card, events, column_labels=self._column_labels(columns)
+                ),
                 "repair_order": card.repair_order.to_dict(),
                 "meta": {
                     "has_any_data": self._card_has_repair_order(card),
@@ -1770,7 +1980,9 @@ class CardService:
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_not_archived(card)
             actor_name, source = self._audit_identity(payload, default_source="api")
-            next_payload = self._merged_repair_order_storage(card.repair_order.to_storage_dict(), patch)
+            next_payload = self._merged_repair_order_storage(
+                card.repair_order.to_storage_dict(), patch
+            )
             changed = self._update_repair_order(
                 card,
                 cards,
@@ -1798,7 +2010,9 @@ class CardService:
                 )
             return {
                 "repair_order": card.repair_order.to_dict(),
-                "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
+                "card": self._serialize_card(
+                    card, events, column_labels=self._column_labels(columns)
+                ),
                 "meta": {
                     "changed": changed or numbering_changed,
                 },
@@ -1846,7 +2060,9 @@ class CardService:
                 )
             return {
                 "repair_order": card.repair_order.to_dict(),
-                "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
+                "card": self._serialize_card(
+                    card, events, column_labels=self._column_labels(columns)
+                ),
                 "meta": {
                     "changed": changed or numbering_changed,
                     "rows": len(card.repair_order.works),
@@ -1895,7 +2111,9 @@ class CardService:
                 )
             return {
                 "repair_order": card.repair_order.to_dict(),
-                "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
+                "card": self._serialize_card(
+                    card, events, column_labels=self._column_labels(columns)
+                ),
                 "meta": {
                     "changed": changed or numbering_changed,
                     "rows": len(card.repair_order.materials),
@@ -1905,7 +2123,9 @@ class CardService:
     def set_repair_order_status(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            status = self._validated_repair_order_status(payload.get("status"), default=REPAIR_ORDER_STATUS_OPEN)
+            status = self._validated_repair_order_status(
+                payload.get("status"), default=REPAIR_ORDER_STATUS_OPEN
+            )
             bundle = self._store.read_bundle()
             cards = bundle["cards"]
             events = bundle["events"]
@@ -1917,7 +2137,9 @@ class CardService:
             actor_name, source = self._audit_identity(payload, default_source="api")
             next_payload = card.repair_order.to_storage_dict()
             next_payload["status"] = status
-            next_payload["closed_at"] = self._repair_order_now() if status == REPAIR_ORDER_STATUS_CLOSED else ""
+            next_payload["closed_at"] = (
+                self._repair_order_now() if status == REPAIR_ORDER_STATUS_CLOSED else ""
+            )
             changed = self._update_repair_order(
                 card,
                 cards,
@@ -1955,7 +2177,9 @@ class CardService:
                 )
             return {
                 "repair_order": card.repair_order.to_dict(),
-                "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
+                "card": self._serialize_card(
+                    card, events, column_labels=self._column_labels(columns)
+                ),
                 "meta": {
                     "changed": changed or numbering_changed,
                     "status": card.repair_order.status,
@@ -1988,7 +2212,11 @@ class CardService:
                 payload = dict(payload)
                 payload.pop("employee_id", None)
                 payload.pop("id", None)
-            employee_id = "" if create_mode else normalize_text(payload.get("employee_id"), default="", limit=64)
+            employee_id = (
+                ""
+                if create_mode
+                else normalize_text(payload.get("employee_id"), default="", limit=64)
+            )
             existing = next((item for item in employees if item["id"] == employee_id), None)
             created = existing is None
             if created and len(employees) >= EMPLOYEES_MAX_COUNT:
@@ -2000,7 +2228,9 @@ class CardService:
             employee = self._validated_employee_payload(payload, existing=existing)
             next_employees = [item for item in employees if item["id"] != employee["id"]]
             next_employees.append(employee)
-            next_employees.sort(key=lambda item: (not item["is_active"], item["name"].casefold(), item["id"]))
+            next_employees.sort(
+                key=lambda item: (not item["is_active"], item["name"].casefold(), item["id"])
+            )
             settings[EMPLOYEES_SETTING_KEY] = next_employees
             self._append_event(
                 bundle["events"],
@@ -2031,10 +2261,19 @@ class CardService:
             employees = self._employees_from_settings(settings)
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
             if not employee_id:
-                self._fail("validation_error", "Нужно передать employee_id.", details={"field": "employee_id"})
+                self._fail(
+                    "validation_error",
+                    "Нужно передать employee_id.",
+                    details={"field": "employee_id"},
+                )
             target = next((item for item in employees if item["id"] == employee_id), None)
             if target is None:
-                self._fail("not_found", "Сотрудник не найден.", status_code=404, details={"employee_id": employee_id})
+                self._fail(
+                    "not_found",
+                    "Сотрудник не найден.",
+                    status_code=404,
+                    details={"employee_id": employee_id},
+                )
             target["is_active"] = not bool(target.get("is_active"))
             target["updated_at"] = utc_now_iso()
             settings[EMPLOYEES_SETTING_KEY] = employees
@@ -2067,10 +2306,19 @@ class CardService:
             employees = self._employees_from_settings(settings)
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
             if not employee_id:
-                self._fail("validation_error", "РќСѓР¶РЅРѕ РїРµСЂРµРґР°С‚СЊ employee_id.", details={"field": "employee_id"})
+                self._fail(
+                    "validation_error",
+                    "РќСѓР¶РЅРѕ РїРµСЂРµРґР°С‚СЊ employee_id.",
+                    details={"field": "employee_id"},
+                )
             target = next((item for item in employees if item["id"] == employee_id), None)
             if target is None:
-                self._fail("not_found", "РЎРѕС‚СЂСѓРґРЅРёРє РЅРµ РЅР°Р№РґРµРЅ.", status_code=404, details={"employee_id": employee_id})
+                self._fail(
+                    "not_found",
+                    "РЎРѕС‚СЂСѓРґРЅРёРє РЅРµ РЅР°Р№РґРµРЅ.",
+                    status_code=404,
+                    details={"employee_id": employee_id},
+                )
             next_employees = [item for item in employees if item["id"] != employee_id]
             settings[EMPLOYEES_SETTING_KEY] = next_employees
             self._append_event(
@@ -2100,7 +2348,9 @@ class CardService:
             employees = self._employees_from_settings(bundle["settings"])
             month = self._validated_payroll_month(payload.get("month"))
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
-            report = self._build_payroll_report(bundle["cards"], employees, month=month, employee_id=employee_id or None)
+            report = self._build_payroll_report(
+                bundle["cards"], employees, month=month, employee_id=employee_id or None
+            )
             return {
                 "month": month,
                 "summary": report["summary"],
@@ -2133,7 +2383,9 @@ class CardService:
                 continue
             is_recent = closed_at >= period_start
             for source_row in order.works:
-                row = RepairOrderRow.from_dict(source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row)
+                row = RepairOrderRow.from_dict(
+                    source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
+                )
                 if row.executor_id != employee_id:
                     continue
                 amount = self._parse_payroll_decimal(row.salary_amount)
@@ -2171,7 +2423,11 @@ class CardService:
             created_at = parse_datetime(transaction.created_at)
             if created_at is not None and created_at < period_start:
                 continue
-            cashbox_name = cashboxes_by_id.get(transaction.cashbox_id).name if cashboxes_by_id.get(transaction.cashbox_id) else "касса"
+            cashbox_name = (
+                cashboxes_by_id.get(transaction.cashbox_id).name
+                if cashboxes_by_id.get(transaction.cashbox_id)
+                else "касса"
+            )
             journal_rows.append(
                 {
                     "kind": kind,
@@ -2224,11 +2480,20 @@ class CardService:
             employees = self._employees_from_settings(bundle["settings"])
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
             if not employee_id:
-                self._fail("validation_error", "Нужно передать employee_id.", details={"field": "employee_id"})
+                self._fail(
+                    "validation_error",
+                    "Нужно передать employee_id.",
+                    details={"field": "employee_id"},
+                )
             months = self._validated_limit(payload.get("months"), default=6, maximum=12)
             employee = next((item for item in employees if item["id"] == employee_id), None)
             if employee is None:
-                self._fail("not_found", "Сотрудник не найден.", status_code=404, details={"employee_id": employee_id})
+                self._fail(
+                    "not_found",
+                    "Сотрудник не найден.",
+                    status_code=404,
+                    details={"employee_id": employee_id},
+                )
             ledger = self._build_employee_salary_ledger(
                 bundle["cards"],
                 bundle["cashboxes"],
@@ -2242,7 +2507,12 @@ class CardService:
         with self._lock:
             bundle = self._store.read_bundle()
             if self._synchronize_repair_order_numbers(bundle["cards"]):
-                self._save_bundle(bundle, columns=bundle["columns"], cards=bundle["cards"], events=bundle["events"])
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=bundle["cards"],
+                    events=bundle["events"],
+                )
             card = self._find_card(bundle["cards"], card_id)
             self._ensure_repair_order_state_supported(card)
             if not self._card_has_repair_order(card):
@@ -2260,7 +2530,12 @@ class CardService:
             payload = payload or {}
             bundle = self._store.read_bundle()
             if self._synchronize_repair_order_numbers(bundle["cards"]):
-                self._save_bundle(bundle, columns=bundle["columns"], cards=bundle["cards"], events=bundle["events"])
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=bundle["cards"],
+                    events=bundle["events"],
+                )
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             self._ensure_repair_order_state_supported(card)
             if not self._card_has_repair_order(card):
@@ -2291,7 +2566,9 @@ class CardService:
             self._ensure_repair_order_state_supported(card)
             preview_card = self._print_module_card(card, payload)
             try:
-                return self._print_module.workspace(preview_card, repair_order=preview_card.repair_order)
+                return self._print_module.workspace(
+                    preview_card, repair_order=preview_card.repair_order
+                )
             except PrintModuleError as exc:
                 self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
 
@@ -2302,7 +2579,9 @@ class CardService:
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             preview_card = self._print_module_card(card, payload)
             try:
-                return self._print_module.get_inspection_sheet_form(preview_card, repair_order=preview_card.repair_order)
+                return self._print_module.get_inspection_sheet_form(
+                    preview_card, repair_order=preview_card.repair_order
+                )
             except PrintModuleError as exc:
                 self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
 
@@ -2312,13 +2591,21 @@ class CardService:
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             preview_card = self._print_module_card(card, payload)
-            session = payload.get("_operator_session") if isinstance(payload.get("_operator_session"), dict) else {}
-            actor_name = normalize_actor_name((session.get("username") if session else "") or payload.get("actor_name"))
+            session = (
+                payload.get("_operator_session")
+                if isinstance(payload.get("_operator_session"), dict)
+                else {}
+            )
+            actor_name = normalize_actor_name(
+                (session.get("username") if session else "") or payload.get("actor_name")
+            )
             try:
                 return self._print_module.save_inspection_sheet_form(
                     preview_card,
                     repair_order=preview_card.repair_order,
-                    form_data=payload.get("form_data") if isinstance(payload.get("form_data"), dict) else {},
+                    form_data=payload.get("form_data")
+                    if isinstance(payload.get("form_data"), dict)
+                    else {},
                     filled_by=actor_name,
                     source=str(payload.get("form_source", "manual") or "manual"),
                 )
@@ -2327,8 +2614,14 @@ class CardService:
 
     def autofill_inspection_sheet_form(self, payload: dict | None = None) -> dict:
         payload = payload or {}
-        session = payload.get("_operator_session") if isinstance(payload.get("_operator_session"), dict) else {}
-        actor_name = normalize_actor_name((session.get("username") if session else "") or payload.get("actor_name"))
+        session = (
+            payload.get("_operator_session")
+            if isinstance(payload.get("_operator_session"), dict)
+            else {}
+        )
+        actor_name = normalize_actor_name(
+            (session.get("username") if session else "") or payload.get("actor_name")
+        )
         with self._lock:
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
@@ -2355,11 +2648,19 @@ class CardService:
             "client": self._inspection_sheet_text(result.get("client")),
             "vehicle": self._inspection_sheet_text(result.get("vehicle")),
             "vin_or_plate": self._inspection_sheet_text(result.get("vin_or_plate")),
-            "complaint_summary": self._inspection_sheet_text(result.get("complaint_summary"), multiline=True),
+            "complaint_summary": self._inspection_sheet_text(
+                result.get("complaint_summary"), multiline=True
+            ),
             "findings": self._inspection_sheet_text(result.get("findings"), multiline=True),
-            "recommendations": self._inspection_sheet_text(result.get("recommendations"), multiline=True),
-            "planned_works": self._inspection_sheet_text(result.get("planned_works"), multiline=True),
-            "planned_materials": self._inspection_sheet_text(result.get("planned_materials"), multiline=True),
+            "recommendations": self._inspection_sheet_text(
+                result.get("recommendations"), multiline=True
+            ),
+            "planned_works": self._inspection_sheet_text(
+                result.get("planned_works"), multiline=True
+            ),
+            "planned_materials": self._inspection_sheet_text(
+                result.get("planned_materials"), multiline=True
+            ),
             "planned_work_rows": self._inspection_sheet_table_rows(
                 result.get("planned_work_rows"),
                 fallback_text=result.get("planned_works"),
@@ -2368,7 +2669,9 @@ class CardService:
                 result.get("planned_material_rows"),
                 fallback_text=result.get("planned_materials"),
             ),
-            "master_comment": self._inspection_sheet_text(result.get("master_comment"), multiline=True),
+            "master_comment": self._inspection_sheet_text(
+                result.get("master_comment"), multiline=True
+            ),
         }
         confidence_notes = self._inspection_sheet_lines(result.get("confidence_notes"))
         with self._lock:
@@ -2402,9 +2705,15 @@ class CardService:
                     repair_order=preview_card.repair_order,
                     selected_document_ids=payload.get("selected_document_ids"),
                     active_document_id=str(payload.get("active_document_id", "") or ""),
-                    selected_template_ids=payload.get("selected_template_ids") if isinstance(payload.get("selected_template_ids"), dict) else {},
-                    template_overrides=payload.get("template_overrides") if isinstance(payload.get("template_overrides"), dict) else {},
-                    print_settings=payload.get("print_settings") if isinstance(payload.get("print_settings"), dict) else {},
+                    selected_template_ids=payload.get("selected_template_ids")
+                    if isinstance(payload.get("selected_template_ids"), dict)
+                    else {},
+                    template_overrides=payload.get("template_overrides")
+                    if isinstance(payload.get("template_overrides"), dict)
+                    else {},
+                    print_settings=payload.get("print_settings")
+                    if isinstance(payload.get("print_settings"), dict)
+                    else {},
                 )
             except PrintModuleError as exc:
                 self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
@@ -2420,9 +2729,15 @@ class CardService:
                     preview_card,
                     repair_order=preview_card.repair_order,
                     selected_document_ids=payload.get("selected_document_ids"),
-                    selected_template_ids=payload.get("selected_template_ids") if isinstance(payload.get("selected_template_ids"), dict) else {},
-                    template_overrides=payload.get("template_overrides") if isinstance(payload.get("template_overrides"), dict) else {},
-                    print_settings=payload.get("print_settings") if isinstance(payload.get("print_settings"), dict) else {},
+                    selected_template_ids=payload.get("selected_template_ids")
+                    if isinstance(payload.get("selected_template_ids"), dict)
+                    else {},
+                    template_overrides=payload.get("template_overrides")
+                    if isinstance(payload.get("template_overrides"), dict)
+                    else {},
+                    print_settings=payload.get("print_settings")
+                    if isinstance(payload.get("print_settings"), dict)
+                    else {},
                 )
                 return {
                     "file_name": file_name,
@@ -2444,9 +2759,15 @@ class CardService:
                     preview_card,
                     repair_order=preview_card.repair_order,
                     selected_document_ids=payload.get("selected_document_ids"),
-                    selected_template_ids=payload.get("selected_template_ids") if isinstance(payload.get("selected_template_ids"), dict) else {},
-                    template_overrides=payload.get("template_overrides") if isinstance(payload.get("template_overrides"), dict) else {},
-                    print_settings=payload.get("print_settings") if isinstance(payload.get("print_settings"), dict) else {},
+                    selected_template_ids=payload.get("selected_template_ids")
+                    if isinstance(payload.get("selected_template_ids"), dict)
+                    else {},
+                    template_overrides=payload.get("template_overrides")
+                    if isinstance(payload.get("template_overrides"), dict)
+                    else {},
+                    print_settings=payload.get("print_settings")
+                    if isinstance(payload.get("print_settings"), dict)
+                    else {},
                     printer_name=str(payload.get("printer_name", "") or ""),
                 )
                 return {
@@ -2484,7 +2805,9 @@ class CardService:
         with self._lock:
             payload = payload or {}
             try:
-                return self._print_module.delete_template(template_id=str(payload.get("template_id", "") or ""))
+                return self._print_module.delete_template(
+                    template_id=str(payload.get("template_id", "") or "")
+                )
             except PrintModuleError as exc:
                 self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
 
@@ -2503,8 +2826,14 @@ class CardService:
         with self._lock:
             payload = payload or {}
             try:
-                settings_payload = payload.get("print_settings") if isinstance(payload.get("print_settings"), dict) else payload
-                return self._print_module.save_settings(settings_payload if isinstance(settings_payload, dict) else {})
+                settings_payload = (
+                    payload.get("print_settings")
+                    if isinstance(payload.get("print_settings"), dict)
+                    else payload
+                )
+                return self._print_module.save_settings(
+                    settings_payload if isinstance(settings_payload, dict) else {}
+                )
             except PrintModuleError as exc:
                 self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
 
@@ -2551,7 +2880,9 @@ class CardService:
                 break
         return lines
 
-    def _inspection_sheet_table_rows(self, value: Any, *, fallback_text: Any = "") -> list[dict[str, str]]:
+    def _inspection_sheet_table_rows(
+        self, value: Any, *, fallback_text: Any = ""
+    ) -> list[dict[str, str]]:
         rows: list[dict[str, str]] = []
         if isinstance(value, list):
             for item in value:
@@ -2568,7 +2899,9 @@ class CardService:
                     break
         if rows:
             return rows
-        return [{"name": line, "quantity": ""} for line in self._inspection_sheet_lines(fallback_text)]
+        return [
+            {"name": line, "quantity": ""} for line in self._inspection_sheet_lines(fallback_text)
+        ]
 
     def autofill_vehicle_data(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -2576,15 +2909,27 @@ class CardService:
             vehicle_profile_payload = payload.get("vehicle_profile")
             if vehicle_profile_payload is None:
                 vehicle_profile_payload = payload.get("existing_profile")
-            vehicle_label = normalize_text(payload.get("vehicle"), default="", limit=CARD_VEHICLE_LIMIT)
+            vehicle_label = normalize_text(
+                payload.get("vehicle"), default="", limit=CARD_VEHICLE_LIMIT
+            )
             if not vehicle_label:
-                vehicle_label = normalize_text(payload.get("explicit_vehicle"), default="", limit=CARD_VEHICLE_LIMIT)
-            explicit_title = normalize_text(payload.get("title"), default="", limit=CARD_TITLE_LIMIT)
+                vehicle_label = normalize_text(
+                    payload.get("explicit_vehicle"), default="", limit=CARD_VEHICLE_LIMIT
+                )
+            explicit_title = normalize_text(
+                payload.get("title"), default="", limit=CARD_TITLE_LIMIT
+            )
             if not explicit_title:
-                explicit_title = normalize_text(payload.get("explicit_title"), default="", limit=CARD_TITLE_LIMIT)
-            explicit_description = normalize_text(payload.get("description"), default="", limit=CARD_DESCRIPTION_LIMIT)
+                explicit_title = normalize_text(
+                    payload.get("explicit_title"), default="", limit=CARD_TITLE_LIMIT
+                )
+            explicit_description = normalize_text(
+                payload.get("description"), default="", limit=CARD_DESCRIPTION_LIMIT
+            )
             if not explicit_description:
-                explicit_description = normalize_text(payload.get("explicit_description"), default="", limit=CARD_DESCRIPTION_LIMIT)
+                explicit_description = normalize_text(
+                    payload.get("explicit_description"), default="", limit=CARD_DESCRIPTION_LIMIT
+                )
             raw_text = normalize_text(payload.get("raw_text"), default="", limit=6000)
             analysis_parts: list[str] = []
             for part in (vehicle_label, explicit_title, explicit_description, raw_text):
@@ -2593,9 +2938,14 @@ class CardService:
                     analysis_parts.append(cleaned)
             result = self._vehicle_profiles.autofill_preview(
                 raw_text="\n\n".join(analysis_parts),
-                image_base64=normalize_text(payload.get("image_base64"), default="", limit=16_000_000) or None,
+                image_base64=normalize_text(
+                    payload.get("image_base64"), default="", limit=16_000_000
+                )
+                or None,
                 image_filename=normalize_text(payload.get("image_filename"), default="", limit=240),
-                image_mime_type=normalize_text(payload.get("image_mime_type"), default="", limit=120),
+                image_mime_type=normalize_text(
+                    payload.get("image_mime_type"), default="", limit=120
+                ),
                 existing_profile=vehicle_profile_payload,
                 explicit_vehicle=vehicle_label,
                 explicit_title=explicit_title,
@@ -2605,12 +2955,30 @@ class CardService:
 
     def update_card(self, payload: dict) -> dict:
         with self._lock:
-            updated_fields = {"vehicle", "title", "description", "deadline", "tags", "vehicle_profile", "repair_order"} & set(payload.keys())
+            updated_fields = {
+                "vehicle",
+                "title",
+                "description",
+                "deadline",
+                "tags",
+                "vehicle_profile",
+                "repair_order",
+            } & set(payload.keys())
             if not updated_fields:
                 self._fail(
                     "validation_error",
                     "Для обновления карточки нужно передать хотя бы одно поле: vehicle, title, description, deadline, tags, vehicle_profile или repair_order.",
-                    details={"fields": ["vehicle", "title", "description", "deadline", "tags", "vehicle_profile", "repair_order"]},
+                    details={
+                        "fields": [
+                            "vehicle",
+                            "title",
+                            "description",
+                            "deadline",
+                            "tags",
+                            "vehicle_profile",
+                            "repair_order",
+                        ]
+                    },
                 )
             bundle = self._store.read_bundle()
             cards = bundle["cards"]
@@ -2622,32 +2990,44 @@ class CardService:
             changed = False
             changed_fields: list[str] = []
             if "vehicle" in payload:
-                vehicle_changed = self._update_vehicle(card, payload.get("vehicle", ""), events, actor_name, source)
+                vehicle_changed = self._update_vehicle(
+                    card, payload.get("vehicle", ""), events, actor_name, source
+                )
                 changed = vehicle_changed or changed
                 if vehicle_changed:
                     changed_fields.append("vehicle")
             if "vehicle_profile" in payload:
-                profile_changed = self._update_vehicle_profile(card, payload.get("vehicle_profile"), events, actor_name, source)
+                profile_changed = self._update_vehicle_profile(
+                    card, payload.get("vehicle_profile"), events, actor_name, source
+                )
                 changed = profile_changed or changed
                 if profile_changed:
                     changed_fields.append("vehicle_profile")
             if "title" in payload:
-                title_changed = self._update_title(card, payload.get("title"), events, actor_name, source)
+                title_changed = self._update_title(
+                    card, payload.get("title"), events, actor_name, source
+                )
                 changed = title_changed or changed
                 if title_changed:
                     changed_fields.append("title")
             if "description" in payload:
-                description_changed = self._update_description(card, payload.get("description", ""), events, actor_name, source)
+                description_changed = self._update_description(
+                    card, payload.get("description", ""), events, actor_name, source
+                )
                 changed = description_changed or changed
                 if description_changed:
                     changed_fields.append("description")
             if "deadline" in payload:
-                deadline_changed = self._update_deadline(card, payload.get("deadline"), events, actor_name, source)
+                deadline_changed = self._update_deadline(
+                    card, payload.get("deadline"), events, actor_name, source
+                )
                 changed = deadline_changed or changed
                 if deadline_changed:
                     changed_fields.append("deadline")
             if "tags" in payload:
-                tags_changed = self._update_tags(card, payload.get("tags"), events, actor_name, source)
+                tags_changed = self._update_tags(
+                    card, payload.get("tags"), events, actor_name, source
+                )
                 changed = tags_changed or changed
                 if tags_changed:
                     changed_fields.append("tags")
@@ -2710,7 +3090,9 @@ class CardService:
             card = self._find_card(cards, payload.get("card_id"))
             actor_name, source = self._audit_identity(payload, default_source="api")
             overwrite = self._validated_optional_bool(payload, "overwrite", default=False)
-            next_order, autofill_report = self._autofill_repair_order(card, cards, overwrite=overwrite)
+            next_order, autofill_report = self._autofill_repair_order(
+                card, cards, overwrite=overwrite
+            )
             changed = card.repair_order.to_storage_dict() != next_order.to_storage_dict()
             if changed:
                 card.repair_order = next_order
@@ -2736,7 +3118,9 @@ class CardService:
                 self._save_bundle(bundle, columns=columns, cards=cards, events=events)
             return {
                 "repair_order": next_order.to_dict(),
-                "card": self._serialize_card(card, events, column_labels=self._column_labels(columns)),
+                "card": self._serialize_card(
+                    card, events, column_labels=self._column_labels(columns)
+                ),
                 "meta": {
                     "changed": changed or numbering_changed,
                     "overwrite": overwrite,
@@ -2777,8 +3161,18 @@ class CardService:
                 },
             )
             self._save_bundle(bundle, columns=bundle["columns"], cards=cards, events=events)
-            self._logger.info("set_card_indicator id=%s indicator=%s actor=%s source=%s", card.id, indicator, actor_name, source)
-            return {"card": self._serialize_card(card, events, column_labels=self._column_labels(bundle["columns"]))}
+            self._logger.info(
+                "set_card_indicator id=%s indicator=%s actor=%s source=%s",
+                card.id,
+                indicator,
+                actor_name,
+                source,
+            )
+            return {
+                "card": self._serialize_card(
+                    card, events, column_labels=self._column_labels(bundle["columns"])
+                )
+            }
 
     def move_card(self, payload: dict) -> dict:
         with self._lock:
@@ -2790,9 +3184,13 @@ class CardService:
             self._ensure_not_archived(card)
             actor_name, source = self._audit_identity(payload, default_source="api")
             next_column = self._validated_column(payload.get("column", card.column), columns)
-            before_card_id = normalize_text(payload.get("before_card_id"), default="", limit=128) or None
+            before_card_id = (
+                normalize_text(payload.get("before_card_id"), default="", limit=128) or None
+            )
             column_labels = self._column_labels(columns)
-            move_meta = self._reposition_card(cards, card, target_column=next_column, before_card_id=before_card_id)
+            move_meta = self._reposition_card(
+                cards, card, target_column=next_column, before_card_id=before_card_id
+            )
             changed = (
                 move_meta["before_column"] != move_meta["after_column"]
                 or move_meta["before_position"] != move_meta["after_position"]
@@ -2853,7 +3251,11 @@ class CardService:
             card.ai_autofill_active = False
             card.ai_autofill_until = ""
             card.ai_next_run_at = ""
-            self._append_card_ai_log(card, level="DONE", message="Автосопровождение остановлено: карточка отправлена в архив.")
+            self._append_card_ai_log(
+                card,
+                level="DONE",
+                message="Автосопровождение остановлено: карточка отправлена в архив.",
+            )
             self._touch_card(card, actor_name)
             self._append_event(
                 events,
@@ -2866,7 +3268,11 @@ class CardService:
             )
             self._save_bundle(bundle, columns=bundle["columns"], cards=cards, events=events)
             self._logger.info("archive_card id=%s actor=%s source=%s", card.id, actor_name, source)
-            return {"card": self._serialize_card(card, events, column_labels=self._column_labels(bundle["columns"]))}
+            return {
+                "card": self._serialize_card(
+                    card, events, column_labels=self._column_labels(bundle["columns"])
+                )
+            }
 
     def bulk_move_cards(self, payload: dict) -> dict:
         with self._lock:
@@ -2987,7 +3393,11 @@ class CardService:
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
             if not card.archived:
-                self._fail("validation_error", "Карточка уже находится на доске.", details={"card_id": card.id})
+                self._fail(
+                    "validation_error",
+                    "Карточка уже находится на доске.",
+                    details={"card_id": card.id},
+                )
             actor_name, source = self._audit_identity(payload, default_source="api")
             target_column = self._validated_column(
                 payload.get("column", columns[0].id if columns else "inbox"),
@@ -3008,7 +3418,11 @@ class CardService:
             )
             self._save_bundle(bundle, columns=columns, cards=cards, events=events)
             self._logger.info("restore_card id=%s actor=%s source=%s", card.id, actor_name, source)
-            return {"card": self._serialize_card(card, events, column_labels=self._column_labels(columns))}
+            return {
+                "card": self._serialize_card(
+                    card, events, column_labels=self._column_labels(columns)
+                )
+            }
 
     def list_columns(self, payload: dict | None = None) -> dict:
         return self._column_service.list_columns(payload)
@@ -3062,9 +3476,20 @@ class CardService:
                     "deadline_total_seconds": sticky.deadline_total_seconds,
                 },
             )
-            self._save_bundle(bundle, columns=bundle["columns"], cards=bundle["cards"], stickies=stickies, events=events)
-            self._logger.info("create_sticky id=%s actor=%s source=%s", sticky.id, actor_name, source)
-            return {"sticky": self._serialize_sticky(sticky), "stickies": [self._serialize_sticky(item) for item in stickies]}
+            self._save_bundle(
+                bundle,
+                columns=bundle["columns"],
+                cards=bundle["cards"],
+                stickies=stickies,
+                events=events,
+            )
+            self._logger.info(
+                "create_sticky id=%s actor=%s source=%s", sticky.id, actor_name, source
+            )
+            return {
+                "sticky": self._serialize_sticky(sticky),
+                "stickies": [self._serialize_sticky(item) for item in stickies],
+            }
 
     def update_sticky(self, payload: dict) -> dict:
         with self._lock:
@@ -3102,7 +3527,9 @@ class CardService:
                 if next_deadline_seconds != sticky.deadline_total_seconds:
                     before_seconds = sticky.deadline_total_seconds
                     sticky.deadline_total_seconds = next_deadline_seconds
-                    sticky.deadline_timestamp = (utc_now() + timedelta(seconds=next_deadline_seconds)).isoformat()
+                    sticky.deadline_timestamp = (
+                        utc_now() + timedelta(seconds=next_deadline_seconds)
+                    ).isoformat()
                     self._append_event(
                         events,
                         actor_name=actor_name,
@@ -3120,9 +3547,24 @@ class CardService:
                     changed = True
             if changed:
                 sticky.updated_at = utc_now_iso()
-                self._save_bundle(bundle, columns=bundle["columns"], cards=bundle["cards"], stickies=stickies, events=events)
-            self._logger.info("update_sticky id=%s changed=%s actor=%s source=%s", sticky.id, changed, actor_name, source)
-            return {"sticky": self._serialize_sticky(sticky), "stickies": [self._serialize_sticky(item) for item in stickies]}
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=bundle["cards"],
+                    stickies=stickies,
+                    events=events,
+                )
+            self._logger.info(
+                "update_sticky id=%s changed=%s actor=%s source=%s",
+                sticky.id,
+                changed,
+                actor_name,
+                source,
+            )
+            return {
+                "sticky": self._serialize_sticky(sticky),
+                "stickies": [self._serialize_sticky(item) for item in stickies],
+            }
 
     def move_sticky(self, payload: dict) -> dict:
         with self._lock:
@@ -3145,11 +3587,31 @@ class CardService:
                     action="sticky_moved",
                     message=f"{actor_name} переместил стикер",
                     card_id=None,
-                    details={"sticky_id": sticky.id, "before": before, "after": {"x": sticky.x, "y": sticky.y}},
+                    details={
+                        "sticky_id": sticky.id,
+                        "before": before,
+                        "after": {"x": sticky.x, "y": sticky.y},
+                    },
                 )
-                self._save_bundle(bundle, columns=bundle["columns"], cards=bundle["cards"], stickies=stickies, events=events)
-            self._logger.info("move_sticky id=%s x=%s y=%s actor=%s source=%s", sticky.id, sticky.x, sticky.y, actor_name, source)
-            return {"sticky": self._serialize_sticky(sticky), "stickies": [self._serialize_sticky(item) for item in stickies]}
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=bundle["cards"],
+                    stickies=stickies,
+                    events=events,
+                )
+            self._logger.info(
+                "move_sticky id=%s x=%s y=%s actor=%s source=%s",
+                sticky.id,
+                sticky.x,
+                sticky.y,
+                actor_name,
+                source,
+            )
+            return {
+                "sticky": self._serialize_sticky(sticky),
+                "stickies": [self._serialize_sticky(item) for item in stickies],
+            }
 
     def delete_sticky(self, payload: dict) -> dict:
         with self._lock:
@@ -3168,9 +3630,21 @@ class CardService:
                 card_id=None,
                 details={"sticky_id": sticky.id, "text": sticky.text, "x": sticky.x, "y": sticky.y},
             )
-            self._save_bundle(bundle, columns=bundle["columns"], cards=bundle["cards"], stickies=stickies, events=events)
-            self._logger.info("delete_sticky id=%s actor=%s source=%s", sticky.id, actor_name, source)
-            return {"deleted": True, "sticky_id": sticky.id, "stickies": [self._serialize_sticky(item) for item in stickies]}
+            self._save_bundle(
+                bundle,
+                columns=bundle["columns"],
+                cards=bundle["cards"],
+                stickies=stickies,
+                events=events,
+            )
+            self._logger.info(
+                "delete_sticky id=%s actor=%s source=%s", sticky.id, actor_name, source
+            )
+            return {
+                "deleted": True,
+                "sticky_id": sticky.id,
+                "stickies": [self._serialize_sticky(item) for item in stickies],
+            }
 
     def add_card_attachment(self, payload: dict) -> dict:
         with self._lock:
@@ -3214,7 +3688,12 @@ class CardService:
                 },
             )
             self._save_bundle(bundle, columns=bundle["columns"], cards=cards, events=events)
-            self._logger.info("add_attachment card_id=%s attachment_id=%s actor=%s", card.id, attachment.id, actor_name)
+            self._logger.info(
+                "add_attachment card_id=%s attachment_id=%s actor=%s",
+                card.id,
+                attachment.id,
+                actor_name,
+            )
             return {
                 "card": self._serialize_card(
                     card,
@@ -3255,7 +3734,12 @@ class CardService:
                 details={"attachment_id": attachment.id, "file_name": attachment.file_name},
             )
             self._save_bundle(bundle, columns=bundle["columns"], cards=cards, events=events)
-            self._logger.info("remove_attachment card_id=%s attachment_id=%s actor=%s", card.id, attachment.id, actor_name)
+            self._logger.info(
+                "remove_attachment card_id=%s attachment_id=%s actor=%s",
+                card.id,
+                attachment.id,
+                actor_name,
+            )
             return {
                 "card": self._serialize_card(
                     card,
@@ -3278,9 +3762,16 @@ class CardService:
                     details={"attachment_id": attachment.id},
                 )
             attachment_path = self._require_attachment_file(card.id, attachment)
-            attachment_path, repaired = self._repair_attachment_metadata(card.id, attachment, attachment_path)
+            attachment_path, repaired = self._repair_attachment_metadata(
+                card.id, attachment, attachment_path
+            )
             if repaired:
-                self._save_bundle(bundle, columns=bundle["columns"], cards=bundle["cards"], events=bundle["events"])
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=bundle["cards"],
+                    events=bundle["events"],
+                )
             return attachment_path, attachment
 
     def get_onboarding_seen(self) -> bool:
@@ -3306,7 +3797,11 @@ class CardService:
                     events=seeded["events"],
                     settings=seeded["settings"],
                 )
-                self._logger.info("demo_board_seeded cards=%s columns=%s", len(seeded["cards"]), len(seeded["columns"]))
+                self._logger.info(
+                    "demo_board_seeded cards=%s columns=%s",
+                    len(seeded["cards"]),
+                    len(seeded["columns"]),
+                )
                 return True
             settings["demo_seeded"] = True
             self._store.write_bundle(
@@ -3358,7 +3853,10 @@ class CardService:
             return None
         requested_short_id = requested_id.upper()
         for transaction in transactions:
-            if transaction.id == requested_id or short_entity_id(transaction.id, prefix="CT").upper() == requested_short_id:
+            if (
+                transaction.id == requested_id
+                or short_entity_id(transaction.id, prefix="CT").upper() == requested_short_id
+            ):
                 return transaction
         return None
 
@@ -3416,7 +3914,11 @@ class CardService:
             return "salary_payout"
         if normalized in {"salary_advance", "advance", "avans"}:
             return "salary_advance"
-        self._fail("validation_error", "Неверный тип операции по зарплате.", details={"field": "transaction_kind"})
+        self._fail(
+            "validation_error",
+            "Неверный тип операции по зарплате.",
+            details={"field": "transaction_kind"},
+        )
 
     def _salary_cashbox(self, cashboxes: list[CashBox]) -> CashBox | None:
         if not cashboxes:
@@ -3424,7 +3926,11 @@ class CardService:
         exact = [item for item in cashboxes if item.name.casefold() == "наличный"]
         if exact:
             return exact[0]
-        loose = [item for item in cashboxes if "налич" in item.name.casefold() or "cash" in item.name.casefold()]
+        loose = [
+            item
+            for item in cashboxes
+            if "налич" in item.name.casefold() or "cash" in item.name.casefold()
+        ]
         if loose:
             return loose[0]
         return None
@@ -3453,8 +3959,12 @@ class CardService:
             "",
         ]
         for date_label, day_items in grouped.items():
-            income_minor = sum(item.amount_minor for item in day_items if item.direction == "income")
-            expense_minor = sum(item.amount_minor for item in day_items if item.direction == "expense")
+            income_minor = sum(
+                item.amount_minor for item in day_items if item.direction == "income"
+            )
+            expense_minor = sum(
+                item.amount_minor for item in day_items if item.direction == "expense"
+            )
             day_balance_minor = income_minor - expense_minor
             lines.append(date_label)
             lines.append(
@@ -3466,14 +3976,20 @@ class CardService:
             for item in day_items:
                 created_at = parse_datetime(item.created_at)
                 time_label = created_at.strftime("%H:%M") if created_at is not None else "—"
-                cashbox_name = cashboxes_by_id.get(item.cashbox_id).name if cashboxes_by_id.get(item.cashbox_id) else "Неизвестная касса"
+                cashbox_name = (
+                    cashboxes_by_id.get(item.cashbox_id).name
+                    if cashboxes_by_id.get(item.cashbox_id)
+                    else "Неизвестная касса"
+                )
                 direction_label = "ПОСТУПЛЕНИЕ" if item.direction == "income" else "СПИСАНИЕ"
                 amount_label = self._cash_journal_amount_text(
                     item.amount_minor,
                     allow_sign=item.direction == "income",
                     force_negative=item.direction == "expense",
                 )
-                lines.append(f"  {time_label} | {cashbox_name} | {direction_label} | {amount_label}")
+                lines.append(
+                    f"  {time_label} | {cashbox_name} | {direction_label} | {amount_label}"
+                )
                 note = normalize_text(item.note, default="Без комментария", limit=240)
                 lines.append(f"    {note}")
                 lines.append(
@@ -3523,7 +4039,15 @@ class CardService:
             for cashbox in cashboxes
             if exclude_cashbox_id is None or cashbox.id != exclude_cashbox_id
         ]
-        ordered.sort(key=lambda item: (item.order, item.created_at, item.updated_at, item.name.casefold(), item.id))
+        ordered.sort(
+            key=lambda item: (
+                item.order,
+                item.created_at,
+                item.updated_at,
+                item.name.casefold(),
+                item.id,
+            )
+        )
         return ordered
 
     def _renumber_cashboxes(self, cashboxes: list[CashBox]) -> bool:
@@ -3546,7 +4070,10 @@ class CardService:
         insert_index = len(ordered)
         if before_cashbox_id:
             before_cashbox = self._find_cashbox(ordered, before_cashbox_id)
-            insert_index = next((index for index, item in enumerate(ordered) if item.id == before_cashbox.id), len(ordered))
+            insert_index = next(
+                (index for index, item in enumerate(ordered) if item.id == before_cashbox.id),
+                len(ordered),
+            )
         ordered.insert(insert_index, cashbox)
         changed = [item.id for item in ordered] != original_ids
         if self._renumber_cashboxes(ordered):
@@ -3564,16 +4091,16 @@ class CardService:
         *,
         column_labels: dict[str, str] | None = None,
     ) -> list[dict]:
-        normalized_column_ids = [str(column_id or "").strip() for column_id in column_ids if str(column_id or "").strip()]
+        normalized_column_ids = [
+            str(column_id or "").strip() for column_id in column_ids if str(column_id or "").strip()
+        ]
         if not normalized_column_ids:
             return []
         target_ids = set(normalized_column_ids)
-        selected_cards = [
-            card
-            for card in cards
-            if not card.archived and card.column in target_ids
-        ]
-        selected_cards.sort(key=lambda item: (item.column, item.position, item.created_at, item.updated_at, item.id))
+        selected_cards = [card for card in cards if not card.archived and card.column in target_ids]
+        selected_cards.sort(
+            key=lambda item: (item.column, item.position, item.created_at, item.updated_at, item.id)
+        )
         return [
             self._serialize_card(card, events, column_labels=column_labels, compact=True)
             for card in selected_cards
@@ -3626,11 +4153,15 @@ class CardService:
             if before_card.id == card.id:
                 before_card = None
 
-        source_cards = self._ordered_cards_in_column(cards, previous_column, exclude_card_id=card.id)
+        source_cards = self._ordered_cards_in_column(
+            cards, previous_column, exclude_card_id=card.id
+        )
         if previous_column == target_column:
             target_cards = list(source_cards)
         else:
-            target_cards = self._ordered_cards_in_column(cards, target_column, exclude_card_id=card.id)
+            target_cards = self._ordered_cards_in_column(
+                cards, target_column, exclude_card_id=card.id
+            )
 
         insert_index = len(target_cards)
         if before_card is not None:
@@ -3656,11 +4187,21 @@ class CardService:
             "before_card_id": before_card.id if before_card is not None else None,
         }
 
-    def _cards_for_wall(self, cards: list[Card], columns: list[Column], *, include_archived: bool) -> list[Card]:
+    def _cards_for_wall(
+        self, cards: list[Card], columns: list[Column], *, include_archived: bool
+    ) -> list[Card]:
         position_map = {column.id: column.position for column in columns}
         active_cards = [card for card in cards if not card.archived]
         archived_cards = [card for card in cards if card.archived] if include_archived else []
-        active_cards.sort(key=lambda item: (position_map.get(item.column, 999), item.position, item.created_at, item.updated_at, item.id))
+        active_cards.sort(
+            key=lambda item: (
+                position_map.get(item.column, 999),
+                item.position,
+                item.created_at,
+                item.updated_at,
+                item.id,
+            )
+        )
         archived_cards.sort(key=lambda item: item.updated_at, reverse=True)
         return active_cards + archived_cards
 
@@ -3689,7 +4230,9 @@ class CardService:
                 payload["card_heading"] = card.heading()
                 payload["card_column"] = card.column
                 payload["card_column_label"] = column_labels.get(card.column, card.column)
-            payload["details_text"] = self._repair_mojibake_text(self._describe_wall_event_details(event, column_labels))
+            payload["details_text"] = self._repair_mojibake_text(
+                self._describe_wall_event_details(event, column_labels)
+            )
             payloads.append(payload)
         return payloads
 
@@ -3697,7 +4240,9 @@ class CardService:
         details = event.details or {}
         parts: list[str] = []
         for key, value in details.items():
-            parts.append(f"{self._wall_label(key)}={self._wall_value(value, key=key, column_labels=column_labels)}")
+            parts.append(
+                f"{self._wall_label(key)}={self._wall_value(value, key=key, column_labels=column_labels)}"
+            )
         return " | ".join(parts)
 
     def _wall_label(self, key: str) -> str:
@@ -3705,7 +4250,12 @@ class CardService:
 
     def _wall_value(self, value, *, key: str, column_labels: dict[str, str]) -> str:
         if isinstance(value, list):
-            return ", ".join(self._wall_value(item, key=key, column_labels=column_labels) for item in value) or "—"
+            return (
+                ", ".join(
+                    self._wall_value(item, key=key, column_labels=column_labels) for item in value
+                )
+                or "—"
+            )
         if value in (None, ""):
             return "—"
         key_lower = key.lower()
@@ -3730,7 +4280,11 @@ class CardService:
         except (UnicodeEncodeError, UnicodeDecodeError):
             return text
         repaired = " ".join(repaired.split())
-        return repaired if self._text_quality_score(repaired) > self._text_quality_score(text) else text
+        return (
+            repaired
+            if self._text_quality_score(repaired) > self._text_quality_score(text)
+            else text
+        )
 
     def _looks_like_mojibake(self, text: str) -> bool:
         suspicious = self._mojibake_hint_score(text)
@@ -3764,10 +4318,14 @@ class CardService:
         for card in cards:
             if card.archived:
                 archived_cards_total += 1
-                archived_counts_by_column[card.column] = archived_counts_by_column.get(card.column, 0) + 1
+                archived_counts_by_column[card.column] = (
+                    archived_counts_by_column.get(card.column, 0) + 1
+                )
             else:
                 active_cards_total += 1
-                active_counts_by_column[card.column] = active_counts_by_column.get(card.column, 0) + 1
+                active_counts_by_column[card.column] = (
+                    active_counts_by_column.get(card.column, 0) + 1
+                )
         column_summary: list[dict[str, object]] = []
         for column in columns:
             column_summary.append(
@@ -3818,7 +4376,8 @@ class CardService:
                 "archived_cards={archived_cards_total} | stickies={stickies_total}"
             ).format(**context),
             f"board_scale: {context['board_scale']}",
-            "vehicle_profile_compact_fields: " + ", ".join(context["vehicle_profile_compact_fields"]),
+            "vehicle_profile_compact_fields: "
+            + ", ".join(context["vehicle_profile_compact_fields"]),
             "vehicle_profile_autofill_mode: card_content_first (vehicle/title/description first, safe merge after)",
             "allowed_columns:",
         ]
@@ -3857,7 +4416,9 @@ class CardService:
         )
         lines.append("")
         lines.append("[ТЕКУЩЕЕ СОСТОЯНИЕ ДОСКИ]")
-        lines.append("НИЖЕ ИДЁТ ПОЛНЫЙ СРЕЗ ПО ВСЕМ КАРТОЧКАМ: ГДЕ ОНИ ЛЕЖАТ, ЧТО В НИХ НАПИСАНО И В КАКОМ ОНИ СОСТОЯНИИ.")
+        lines.append(
+            "НИЖЕ ИДЁТ ПОЛНЫЙ СРЕЗ ПО ВСЕМ КАРТОЧКАМ: ГДЕ ОНИ ЛЕЖАТ, ЧТО В НИХ НАПИСАНО И В КАКОМ ОНИ СОСТОЯНИИ."
+        )
         lines.append("")
 
         active_cards = [card for card in cards if not card.get("archived")]
@@ -3873,7 +4434,9 @@ class CardService:
             for index, card in enumerate(column_cards, start=1):
                 lines.append(f"  КАРТОЧКА {index}")
                 lines.append(f"    card_id: {card['id']}")
-                lines.append(f"    short_id: {card.get('short_id') or short_entity_id(card['id'], prefix='C')}")
+                lines.append(
+                    f"    short_id: {card.get('short_id') or short_entity_id(card['id'], prefix='C')}"
+                )
                 lines.append(f"    местоположение: {card.get('column_label', card['column'])}")
                 lines.append(f"    марка: {card.get('vehicle') or '—'}")
                 lines.append(f"    заголовок: {card.get('title') or card.get('heading') or '—'}")
@@ -3897,10 +4460,14 @@ class CardService:
             for index, sticky in enumerate(stickies, start=1):
                 lines.append(f"  СТИКЕР {index}")
                 lines.append(f"    sticky_id: {sticky['id']}")
-                lines.append(f"    short_id: {sticky.get('short_id') or short_entity_id(sticky['id'], prefix='S')}")
+                lines.append(
+                    f"    short_id: {sticky.get('short_id') or short_entity_id(sticky['id'], prefix='S')}"
+                )
                 lines.append(f"    позиция: x={sticky.get('x', 0)} | y={sticky.get('y', 0)}")
                 lines.append(f"    текст: {sticky.get('text') or '—'}")
-                lines.append(f"    остаток: {sticky.get('remaining_seconds', 0)} | opacity: {sticky.get('opacity', 0.5)}")
+                lines.append(
+                    f"    остаток: {sticky.get('remaining_seconds', 0)} | opacity: {sticky.get('opacity', 0.5)}"
+                )
                 lines.append("")
         else:
             lines.append("  СТИКЕРОВ НЕТ.")
@@ -3911,7 +4478,9 @@ class CardService:
             for index, card in enumerate(archived_cards, start=1):
                 lines.append(f"  АРХИВ {index}")
                 lines.append(f"    card_id: {card['id']}")
-                lines.append(f"    short_id: {card.get('short_id') or short_entity_id(card['id'], prefix='C')}")
+                lines.append(
+                    f"    short_id: {card.get('short_id') or short_entity_id(card['id'], prefix='C')}"
+                )
                 lines.append(f"    последнее_место: {card.get('column_label', card['column'])}")
                 lines.append(f"    марка: {card.get('vehicle') or '—'}")
                 lines.append(f"    заголовок: {card.get('title') or card.get('heading') or '—'}")
@@ -3967,7 +4536,9 @@ class CardService:
         )
         lines.append("")
         lines.append("[ТЕКУЩЕЕ СОСТОЯНИЕ ДОСКИ]")
-        lines.append("НИЖЕ ИДЁТ ПОЛНЫЙ СРЕЗ ПО ВСЕМ КАРТОЧКАМ: ГДЕ ОНИ ЛЕЖАТ, ЧТО В НИХ НАПИСАНО И В КАКОМ ОНИ СОСТОЯНИИ.")
+        lines.append(
+            "НИЖЕ ИДЁТ ПОЛНЫЙ СРЕЗ ПО ВСЕМ КАРТОЧКАМ: ГДЕ ОНИ ЛЕЖАТ, ЧТО В НИХ НАПИСАНО И В КАКОМ ОНИ СОСТОЯНИИ."
+        )
         lines.append("")
 
         active_cards = [card for card in cards if not card.get("archived")]
@@ -3983,7 +4554,9 @@ class CardService:
             for index, card in enumerate(column_cards, start=1):
                 lines.append(f"  КАРТОЧКА {index}")
                 lines.append(f"    card_id: {card['id']}")
-                lines.append(f"    short_id: {card.get('short_id') or short_entity_id(card['id'], prefix='C')}")
+                lines.append(
+                    f"    short_id: {card.get('short_id') or short_entity_id(card['id'], prefix='C')}"
+                )
                 lines.append(f"    местоположение: {card.get('column_label', card['column'])}")
                 lines.append(f"    марка: {card.get('vehicle') or '—'}")
                 lines.append(f"    заголовок: {card.get('title') or card.get('heading') or '—'}")
@@ -4007,10 +4580,14 @@ class CardService:
             for index, sticky in enumerate(stickies, start=1):
                 lines.append(f"  СТИКЕР {index}")
                 lines.append(f"    sticky_id: {sticky['id']}")
-                lines.append(f"    short_id: {sticky.get('short_id') or short_entity_id(sticky['id'], prefix='S')}")
+                lines.append(
+                    f"    short_id: {sticky.get('short_id') or short_entity_id(sticky['id'], prefix='S')}"
+                )
                 lines.append(f"    позиция: x={sticky.get('x', 0)} | y={sticky.get('y', 0)}")
                 lines.append(f"    текст: {sticky.get('text') or '—'}")
-                lines.append(f"    остаток: {sticky.get('remaining_seconds', 0)} | opacity: {sticky.get('opacity', 0.5)}")
+                lines.append(
+                    f"    остаток: {sticky.get('remaining_seconds', 0)} | opacity: {sticky.get('opacity', 0.5)}"
+                )
                 lines.append("")
         else:
             lines.append("  СТИКЕРОВ НЕТ.")
@@ -4021,7 +4598,9 @@ class CardService:
             for index, card in enumerate(archived_cards, start=1):
                 lines.append(f"  АРХИВ {index}")
                 lines.append(f"    card_id: {card['id']}")
-                lines.append(f"    short_id: {card.get('short_id') or short_entity_id(card['id'], prefix='C')}")
+                lines.append(
+                    f"    short_id: {card.get('short_id') or short_entity_id(card['id'], prefix='C')}"
+                )
                 lines.append(f"    последнее_место: {card.get('column_label', card['column'])}")
                 lines.append(f"    марка: {card.get('vehicle') or '—'}")
                 lines.append(f"    заголовок: {card.get('title') or card.get('heading') or '—'}")
@@ -4097,7 +4676,9 @@ class CardService:
             f"[СТЕНА УСЕЧЕНА] Показана только свежая часть ленты. Общий лимит: {GPT_WALL_TEXT_LINE_LIMIT} строк.",
         ]
 
-    def _append_vehicle_profile_wall_lines(self, lines: list[str], card: dict, *, indent: str = "    ") -> None:
+    def _append_vehicle_profile_wall_lines(
+        self, lines: list[str], card: dict, *, indent: str = "    "
+    ) -> None:
         profile = card.get("vehicle_profile_compact")
         full_profile = card.get("vehicle_profile")
         if not isinstance(profile, dict):
@@ -4131,11 +4712,7 @@ class CardService:
             lines.append(f"{indent}  vin: {profile.get('vin')}")
 
         engine_line = " | ".join(
-            part
-            for part in (
-                str(profile.get("engine_model") or "").strip(),
-            )
-            if part
+            part for part in (str(profile.get("engine_model") or "").strip(),) if part
         )
         if engine_line:
             lines.append(f"{indent}  двигатель: {engine_line}")
@@ -4157,9 +4734,15 @@ class CardService:
         fluids_line = " | ".join(
             part
             for part in (
-                f"engine_oil={profile.get('oil_engine_capacity_l')}L" if profile.get("oil_engine_capacity_l") else "",
-                f"gearbox_oil={profile.get('oil_gearbox_capacity_l')}L" if profile.get("oil_gearbox_capacity_l") else "",
-                f"coolant={profile.get('coolant_capacity_l')}L" if profile.get("coolant_capacity_l") else "",
+                f"engine_oil={profile.get('oil_engine_capacity_l')}L"
+                if profile.get("oil_engine_capacity_l")
+                else "",
+                f"gearbox_oil={profile.get('oil_gearbox_capacity_l')}L"
+                if profile.get("oil_gearbox_capacity_l")
+                else "",
+                f"coolant={profile.get('coolant_capacity_l')}L"
+                if profile.get("coolant_capacity_l")
+                else "",
             )
             if part
         )
@@ -4182,7 +4765,9 @@ class CardService:
             part
             for part in (
                 str(profile.get("data_completion_state") or "").strip(),
-                f"confidence={profile.get('source_confidence')}" if profile.get("source_confidence") not in (None, "") else "",
+                f"confidence={profile.get('source_confidence')}"
+                if profile.get("source_confidence") not in (None, "")
+                else "",
                 str(profile.get("source_summary") or "").strip(),
             )
             if part
@@ -4344,7 +4929,9 @@ class CardService:
             cards=cards,
             stickies=bundle["stickies"] if stickies is None else stickies,
             cashboxes=bundle["cashboxes"] if cashboxes is None else cashboxes,
-            cash_transactions=bundle["cash_transactions"] if cash_transactions is None else cash_transactions,
+            cash_transactions=bundle["cash_transactions"]
+            if cash_transactions is None
+            else cash_transactions,
             events=events,
             settings=bundle["settings"] if settings is None else settings,
         )
@@ -4380,27 +4967,52 @@ class CardService:
             return normalized
         return datetime.now().astimezone().strftime("%Y-%m")
 
-    def _normalized_employee_record(self, payload: Any, *, existing: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    def _normalized_employee_record(
+        self, payload: Any, *, existing: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
         if not isinstance(payload, dict):
             return None
         now_iso = utc_now_iso()
         existing = existing or {}
         employee_id = normalize_text(
-            payload.get("id") or payload.get("employee_id") or existing.get("id") or str(uuid.uuid4()),
+            payload.get("id")
+            or payload.get("employee_id")
+            or existing.get("id")
+            or str(uuid.uuid4()),
             default="",
             limit=64,
         )
         name = normalize_text(payload.get("name"), default=existing.get("name", ""), limit=80)
         if not employee_id or not name:
             return None
-        position = normalize_text(payload.get("position"), default=existing.get("position", ""), limit=80)
-        salary_mode = self._normalize_payroll_mode(payload.get("salary_mode", existing.get("salary_mode")))
-        base_salary = self._format_payroll_decimal(self._parse_payroll_decimal(payload.get("base_salary", existing.get("base_salary", ""))))
-        work_percent = self._format_payroll_decimal(self._parse_payroll_decimal(payload.get("work_percent", existing.get("work_percent", ""))))
+        position = normalize_text(
+            payload.get("position"), default=existing.get("position", ""), limit=80
+        )
+        salary_mode = self._normalize_payroll_mode(
+            payload.get("salary_mode", existing.get("salary_mode"))
+        )
+        base_salary = self._format_payroll_decimal(
+            self._parse_payroll_decimal(payload.get("base_salary", existing.get("base_salary", "")))
+        )
+        work_percent = self._format_payroll_decimal(
+            self._parse_payroll_decimal(
+                payload.get("work_percent", existing.get("work_percent", ""))
+            )
+        )
         note = normalize_text(payload.get("note"), default=existing.get("note", ""), limit=240)
-        is_active = normalize_bool(payload.get("is_active"), default=normalize_bool(existing.get("is_active"), default=True))
-        created_at = normalize_text(existing.get("created_at"), default=now_iso, limit=40) or now_iso
-        updated_at = normalize_text(payload.get("updated_at"), default=existing.get("updated_at", now_iso), limit=40) or now_iso
+        is_active = normalize_bool(
+            payload.get("is_active"),
+            default=normalize_bool(existing.get("is_active"), default=True),
+        )
+        created_at = (
+            normalize_text(existing.get("created_at"), default=now_iso, limit=40) or now_iso
+        )
+        updated_at = (
+            normalize_text(
+                payload.get("updated_at"), default=existing.get("updated_at", now_iso), limit=40
+            )
+            or now_iso
+        )
         return {
             "id": employee_id,
             "name": name,
@@ -4424,22 +5036,32 @@ class CardService:
             if normalized is None:
                 continue
             employees.append(normalized)
-        employees.sort(key=lambda item: (not item["is_active"], item["name"].casefold(), item["id"]))
+        employees.sort(
+            key=lambda item: (not item["is_active"], item["name"].casefold(), item["id"])
+        )
         return employees
 
-    def _validated_employee_payload(self, payload: dict[str, Any], *, existing: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _validated_employee_payload(
+        self, payload: dict[str, Any], *, existing: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         employee = self._normalized_employee_record(payload, existing=existing)
         if employee is None:
-            self._fail("validation_error", "Нужно указать имя сотрудника.", details={"field": "name"})
+            self._fail(
+                "validation_error", "Нужно указать имя сотрудника.", details={"field": "name"}
+            )
         employee["updated_at"] = utc_now_iso()
         return employee
 
-    def _apply_repair_order_payroll_snapshot(self, order: RepairOrder, settings: dict[str, Any]) -> RepairOrder:
+    def _apply_repair_order_payroll_snapshot(
+        self, order: RepairOrder, settings: dict[str, Any]
+    ) -> RepairOrder:
         if order.status != REPAIR_ORDER_STATUS_CLOSED:
             next_rows: list[dict[str, str]] = []
             changed = False
             for source_row in order.works:
-                row = RepairOrderRow.from_dict(source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row)
+                row = RepairOrderRow.from_dict(
+                    source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
+                )
                 if any(
                     [
                         row.salary_mode_snapshot,
@@ -4463,7 +5085,9 @@ class CardService:
         next_rows: list[dict[str, str]] = []
         accrued_at = order.closed_at or self._repair_order_now()
         for source_row in order.works:
-            row = RepairOrderRow.from_dict(source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row)
+            row = RepairOrderRow.from_dict(
+                source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
+            )
             employee = employees_by_id.get(row.executor_id)
             if employee is None:
                 row.salary_mode_snapshot = ""
@@ -4478,8 +5102,15 @@ class CardService:
             row.base_salary_snapshot = employee["base_salary"]
             row.work_percent_snapshot = employee["work_percent"]
             salary_amount = Decimal("0")
-            if employee["salary_mode"] in {PAYROLL_MODE_PERCENT_ONLY, PAYROLL_MODE_SALARY_PLUS_PERCENT}:
-                salary_amount = row.total_value() * self._parse_payroll_decimal(employee["work_percent"]) / Decimal("100")
+            if employee["salary_mode"] in {
+                PAYROLL_MODE_PERCENT_ONLY,
+                PAYROLL_MODE_SALARY_PLUS_PERCENT,
+            }:
+                salary_amount = (
+                    row.total_value()
+                    * self._parse_payroll_decimal(employee["work_percent"])
+                    / Decimal("100")
+                )
             row.salary_amount = self._format_payroll_decimal(salary_amount)
             row.salary_accrued_at = accrued_at
             next_rows.append(row.to_dict())
@@ -4520,7 +5151,9 @@ class CardService:
             if not closed_sort_key.startswith(month_key):
                 continue
             for source_row in order.works:
-                row = RepairOrderRow.from_dict(source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row)
+                row = RepairOrderRow.from_dict(
+                    source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
+                )
                 current_employee_id = row.executor_id
                 if not current_employee_id:
                     continue
@@ -4576,8 +5209,18 @@ class CardService:
                     "total_salary": self._format_payroll_decimal(base_salary + accrued_total),
                 }
             )
-        summary_rows.sort(key=lambda item: (Decimal(item["total_salary"] or "0"), item["employee_name"]), reverse=True)
-        detail_rows.sort(key=lambda item: (self._repair_order_sortable_datetime(item["closed_at"]), item["repair_order_number"], item["work_name"]), reverse=True)
+        summary_rows.sort(
+            key=lambda item: (Decimal(item["total_salary"] or "0"), item["employee_name"]),
+            reverse=True,
+        )
+        detail_rows.sort(
+            key=lambda item: (
+                self._repair_order_sortable_datetime(item["closed_at"]),
+                item["repair_order_number"],
+                item["work_name"],
+            ),
+            reverse=True,
+        )
         return {"summary": summary_rows, "detail_rows": detail_rows}
 
     def _touch_card(self, card: Card, actor_name: str | None = None) -> str:
@@ -4617,8 +5260,24 @@ class CardService:
                 ],
             )
         ).casefold()
-        waiting = any(token in haystack for token in ("ожид", "в пути", "клиент дума", "согласован", "заказали", "ждем", "ждём"))
-        active = any(token in haystack for token in ("ошибк", "dtc", "vin", "запчаст", "пробег", "течь", "стук", "ремонт", "диагност"))
+        waiting = any(
+            token in haystack
+            for token in ("ожид", "в пути", "клиент дума", "согласован", "заказали", "ждем", "ждём")
+        )
+        active = any(
+            token in haystack
+            for token in (
+                "ошибк",
+                "dtc",
+                "vin",
+                "запчаст",
+                "пробег",
+                "течь",
+                "стук",
+                "ремонт",
+                "диагност",
+            )
+        )
         if not changed:
             if int(card.ai_run_count or 0) >= 5:
                 return 240 if waiting else 180
@@ -4633,11 +5292,16 @@ class CardService:
 
     def _card_ai_max_runs(self, card: Card) -> int:
         haystack = self._card_ai_source_text(card).casefold()
-        if any(token in haystack for token in ("ошибк", "dtc", "vin", "запчаст", "ремонт", "диагност", "течь", "стук")):
+        if any(
+            token in haystack
+            for token in ("ошибк", "dtc", "vin", "запчаст", "ремонт", "диагност", "течь", "стук")
+        ):
             return 10
         return 8
 
-    def _append_card_ai_log(self, card: Card, *, level: str, message: str, task_id: str = "") -> None:
+    def _append_card_ai_log(
+        self, card: Card, *, level: str, message: str, task_id: str = ""
+    ) -> None:
         normalized_level = str(level or "INFO").strip().upper()
         if normalized_level not in _CARD_AI_LEVELS:
             normalized_level = "INFO"
@@ -4693,15 +5357,27 @@ class CardService:
         messages: list[tuple[str, str]] = []
         vin = self._card_ai_detect_vin(card, source_text)
         messages.append(("INFO", "Обнаружен VIN." if vin else "VIN не найден."))
-        if "то" in haystack or "техническ" in haystack or "обслуж" in haystack or "пробег" in haystack:
+        if (
+            "то" in haystack
+            or "техническ" in haystack
+            or "обслуж" in haystack
+            or "пробег" in haystack
+        ):
             messages.append(("INFO", "Найден контекст по ТО."))
-        if "запчаст" in haystack or "детал" in haystack or "фильтр" in haystack or "масл" in haystack:
+        if (
+            "запчаст" in haystack
+            or "детал" in haystack
+            or "фильтр" in haystack
+            or "масл" in haystack
+        ):
             messages.append(("INFO", "Найден контекст по запчастям."))
         if _CARD_AI_DTC_PATTERN.search(source_text):
             messages.append(("INFO", "Найдены коды ошибок."))
         return messages[:4]
 
-    def _refresh_card_ai_fingerprint_if_agent_changed(self, card: Card, actor_name: str, source: str) -> None:
+    def _refresh_card_ai_fingerprint_if_agent_changed(
+        self, card: Card, actor_name: str, source: str
+    ) -> None:
         _ = (card, actor_name, source)
         return
 
@@ -4784,31 +5460,51 @@ class CardService:
         for card in cards:
             if card.id == str(card_id):
                 return card
-        self._fail("not_found", "Карточка не найдена.", status_code=404, details={"card_id": card_id})
+        self._fail(
+            "not_found", "Карточка не найдена.", status_code=404, details={"card_id": card_id}
+        )
 
     def _find_sticky(self, stickies: list[StickyNote], sticky_id: str | None) -> StickyNote:
         if not sticky_id:
-            self._fail("validation_error", "Нужно передать sticky_id.", details={"field": "sticky_id"})
+            self._fail(
+                "validation_error", "Нужно передать sticky_id.", details={"field": "sticky_id"}
+            )
         requested_id = str(sticky_id).strip()
         requested_short_id = requested_id.upper()
         for sticky in stickies:
-            if sticky.id == requested_id or short_entity_id(sticky.id, prefix="S").upper() == requested_short_id:
+            if (
+                sticky.id == requested_id
+                or short_entity_id(sticky.id, prefix="S").upper() == requested_short_id
+            ):
                 return sticky
-        self._fail("not_found", "Стикер не найден.", status_code=404, details={"sticky_id": sticky_id})
+        self._fail(
+            "not_found", "Стикер не найден.", status_code=404, details={"sticky_id": sticky_id}
+        )
 
     def _find_cashbox(self, cashboxes: list[CashBox], cashbox_id: str | None) -> CashBox:
         if not cashbox_id:
-            self._fail("validation_error", "Нужно передать cashbox_id.", details={"field": "cashbox_id"})
+            self._fail(
+                "validation_error", "Нужно передать cashbox_id.", details={"field": "cashbox_id"}
+            )
         requested_id = str(cashbox_id).strip()
         requested_short_id = requested_id.upper()
         for cashbox in cashboxes:
-            if cashbox.id == requested_id or short_entity_id(cashbox.id, prefix="CB").upper() == requested_short_id:
+            if (
+                cashbox.id == requested_id
+                or short_entity_id(cashbox.id, prefix="CB").upper() == requested_short_id
+            ):
                 return cashbox
-        self._fail("not_found", "Касса не найдена.", status_code=404, details={"cashbox_id": cashbox_id})
+        self._fail(
+            "not_found", "Касса не найдена.", status_code=404, details={"cashbox_id": cashbox_id}
+        )
 
     def _find_attachment(self, card: Card, attachment_id: str | None) -> Attachment:
         if not attachment_id:
-            self._fail("validation_error", "Нужно передать attachment_id.", details={"field": "attachment_id"})
+            self._fail(
+                "validation_error",
+                "Нужно передать attachment_id.",
+                details={"field": "attachment_id"},
+            )
         for attachment in card.attachments:
             if attachment.id == str(attachment_id):
                 return attachment
@@ -4876,12 +5572,17 @@ class CardService:
         source: str,
     ) -> bool:
         profile, changed_fields = self._merge_vehicle_profile_patch(card.vehicle_profile, value)
-        if not changed_fields and profile.to_storage_dict() == card.vehicle_profile.to_storage_dict():
+        if (
+            not changed_fields
+            and profile.to_storage_dict() == card.vehicle_profile.to_storage_dict()
+        ):
             return False
         previous_profile = card.vehicle_profile
         previous_vehicle = card.vehicle
         card.vehicle_profile = profile
-        card.vehicle = self._sync_vehicle_label_with_profile(previous_vehicle, previous_profile, profile)
+        card.vehicle = self._sync_vehicle_label_with_profile(
+            previous_vehicle, previous_profile, profile
+        )
         details: dict[str, Any] = {
             "changed_fields": changed_fields,
             "completion_state": profile.data_completion_state,
@@ -4941,7 +5642,10 @@ class CardService:
         previous_timestamp = card.deadline_timestamp
         previous_total_seconds = card.deadline_total_seconds
         next_timestamp = (utc_now() + timedelta(seconds=deadline_total_seconds)).isoformat()
-        if previous_total_seconds == deadline_total_seconds and previous_timestamp == next_timestamp:
+        if (
+            previous_total_seconds == deadline_total_seconds
+            and previous_timestamp == next_timestamp
+        ):
             return False
         card.deadline_total_seconds = deadline_total_seconds
         card.deadline_timestamp = next_timestamp
@@ -5008,7 +5712,11 @@ class CardService:
                 action="tag_color_changed",
                 message=f"{actor_name} изменил цвет метки",
                 card_id=card.id,
-                details={"tag": shared_label, "before_color": before_tag.color, "after_color": after_tag.color},
+                details={
+                    "tag": shared_label,
+                    "before_color": before_tag.color,
+                    "after_color": after_tag.color,
+                },
             )
         self._append_event(
             events,
@@ -5017,7 +5725,10 @@ class CardService:
             action="tags_changed",
             message=f"{actor_name} обновил набор меток",
             card_id=card.id,
-            details={"before": [tag.to_dict() for tag in previous_tags], "after": [tag.to_dict() for tag in tags]},
+            details={
+                "before": [tag.to_dict() for tag in previous_tags],
+                "after": [tag.to_dict() for tag in tags],
+            },
         )
         return True
 
@@ -5076,7 +5787,9 @@ class CardService:
         )
         return True
 
-    def _repair_order_payment_financial_signature(self, payment: RepairOrderPayment) -> tuple[str, str, str]:
+    def _repair_order_payment_financial_signature(
+        self, payment: RepairOrderPayment
+    ) -> tuple[str, str, str]:
         return (
             payment.amount or "",
             payment.note or "",
@@ -5101,9 +5814,13 @@ class CardService:
                     return card, payment
         return None, None
 
-    def _refresh_cashbox_updated_at(self, cashbox: CashBox, transactions: list[CashTransaction]) -> None:
+    def _refresh_cashbox_updated_at(
+        self, cashbox: CashBox, transactions: list[CashTransaction]
+    ) -> None:
         latest_transaction = next(iter(self._cashbox_transactions(transactions, cashbox.id)), None)
-        cashbox.updated_at = latest_transaction.created_at if latest_transaction is not None else cashbox.created_at
+        cashbox.updated_at = (
+            latest_transaction.created_at if latest_transaction is not None else cashbox.created_at
+        )
 
     def _sync_repair_order_payment_transactions(
         self,
@@ -5116,11 +5833,16 @@ class CardService:
         actor_name: str,
         source: str,
     ) -> RepairOrder:
-        next_payments = [RepairOrderPayment.from_dict(payment.to_storage_dict()) for payment in next_order.payments]
+        next_payments = [
+            RepairOrderPayment.from_dict(payment.to_storage_dict())
+            for payment in next_order.payments
+        ]
         next_by_id = {payment.id: payment for payment in next_payments if payment.id}
 
         for previous_payment in previous_order.payments:
-            existing_transaction = self._find_cash_transaction(cash_transactions, previous_payment.cash_transaction_id)
+            existing_transaction = self._find_cash_transaction(
+                cash_transactions, previous_payment.cash_transaction_id
+            )
             next_payment = next_by_id.get(previous_payment.id)
             keep_transaction = (
                 existing_transaction is not None
@@ -5130,13 +5852,25 @@ class CardService:
             )
             if keep_transaction:
                 next_payment.cash_transaction_id = existing_transaction.id
-                next_payment.actor_name = next_payment.actor_name or previous_payment.actor_name or existing_transaction.actor_name
-                next_payment.cashbox_id = next_payment.cashbox_id or previous_payment.cashbox_id or existing_transaction.cashbox_id
-                next_payment.cashbox_name = next_payment.cashbox_name or previous_payment.cashbox_name
+                next_payment.actor_name = (
+                    next_payment.actor_name
+                    or previous_payment.actor_name
+                    or existing_transaction.actor_name
+                )
+                next_payment.cashbox_id = (
+                    next_payment.cashbox_id
+                    or previous_payment.cashbox_id
+                    or existing_transaction.cashbox_id
+                )
+                next_payment.cashbox_name = (
+                    next_payment.cashbox_name or previous_payment.cashbox_name
+                )
                 continue
             if existing_transaction is None:
                 continue
-            cash_transactions[:] = [item for item in cash_transactions if item.id != existing_transaction.id]
+            cash_transactions[:] = [
+                item for item in cash_transactions if item.id != existing_transaction.id
+            ]
             self._append_event(
                 events,
                 actor_name=actor_name,
@@ -5156,7 +5890,9 @@ class CardService:
             if not payment.id:
                 payment.id = f"payment-{uuid.uuid4().hex[:10]}"
             payment.actor_name = payment.actor_name or actor_name
-            payment.payment_method = normalize_repair_order_payment_method(payment.payment_method or next_order.payment_method)
+            payment.payment_method = normalize_repair_order_payment_method(
+                payment.payment_method or next_order.payment_method
+            )
             if not payment.cashbox_id:
                 payment.cashbox_name = ""
                 payment.cash_transaction_id = ""
@@ -5168,14 +5904,19 @@ class CardService:
                 payment.cashbox_name,
                 default=payment.payment_method or next_order.payment_method,
             )
-            if self._find_cash_transaction(cash_transactions, payment.cash_transaction_id) is not None:
+            if (
+                self._find_cash_transaction(cash_transactions, payment.cash_transaction_id)
+                is not None
+            ):
                 continue
             transaction = CashTransaction(
                 id=str(uuid.uuid4()),
                 cashbox_id=cashbox.id,
                 direction="income",
                 amount_minor=normalize_money_minor(payment.amount, minimum=1),
-                note=self._validated_cash_transaction_note(payment.note or f"Заказ-наряд №{next_order.number or '-'}"),
+                note=self._validated_cash_transaction_note(
+                    payment.note or f"Заказ-наряд №{next_order.number or '-'}"
+                ),
                 created_at=payment.paid_at or utc_now_iso(),
                 actor_name=payment.actor_name or actor_name,
                 source=source,
@@ -5209,7 +5950,9 @@ class CardService:
         next_order.prepayment = next_order.prepayment_amount()
         return next_order
 
-    def _autofill_repair_order(self, card: Card, cards: list[Card], *, overwrite: bool) -> tuple[RepairOrder, dict[str, object]]:
+    def _autofill_repair_order(
+        self, card: Card, cards: list[Card], *, overwrite: bool
+    ) -> tuple[RepairOrder, dict[str, object]]:
         order = self._prepared_repair_order(
             RepairOrder.from_dict(card.repair_order.to_storage_dict()),
             cards,
@@ -5243,13 +5986,19 @@ class CardService:
         if overwrite or not order.vin:
             order.vin = profile.vin or self._extract_vin(card, fallback=order.vin)
         if overwrite or not order.mileage:
-            order.mileage = (str(profile.mileage) if profile.mileage else "") or self._extract_mileage(card, fallback=order.mileage)
+            order.mileage = (
+                str(profile.mileage) if profile.mileage else ""
+            ) or self._extract_mileage(card, fallback=order.mileage)
         if overwrite or not order.reason:
             order.reason = self._build_repair_order_reason(card) or order.reason
         if overwrite or not order.license_plate:
             order.license_plate = self._extract_license_plate(card, fallback=order.license_plate)
-        suggested_works = self._suggest_repair_order_rows(card, profile=profile, cards=cards, related_cards=related_cards, section="works")
-        suggested_materials = self._suggest_repair_order_rows(card, profile=profile, cards=cards, related_cards=related_cards, section="materials")
+        suggested_works = self._suggest_repair_order_rows(
+            card, profile=profile, cards=cards, related_cards=related_cards, section="works"
+        )
+        suggested_materials = self._suggest_repair_order_rows(
+            card, profile=profile, cards=cards, related_cards=related_cards, section="materials"
+        )
         price_hits: list[dict[str, str]] = []
         suggested_works, work_price_hits = self._apply_history_prices_to_rows(
             suggested_works,
@@ -5276,7 +6025,9 @@ class CardService:
         if overwrite or not order.comment:
             order.comment = self._build_client_description(card, order) or order.comment
         if overwrite or not order.note:
-            order.note = self._build_internal_repair_note(card, order, price_hits=price_hits) or order.note
+            order.note = (
+                self._build_internal_repair_note(card, order, price_hits=price_hits) or order.note
+            )
 
         review_items: list[str] = []
         if suggested_works or suggested_materials:
@@ -5296,8 +6047,12 @@ class CardService:
         current_vin = self._extract_vin(card, fallback="")
         current_license = self._extract_license_plate(card, fallback="")
         current_phone = self._extract_phone(card)
-        current_vehicle = self._normalize_search_text(card.vehicle_display() or card.repair_order.vehicle)
-        current_customer = self._normalize_search_text(card.vehicle_profile.customer_name or card.repair_order.client)
+        current_vehicle = self._normalize_search_text(
+            card.vehicle_display() or card.repair_order.vehicle
+        )
+        current_customer = self._normalize_search_text(
+            card.vehicle_profile.customer_name or card.repair_order.client
+        )
         ranked: list[tuple[int, str, Card]] = []
         for candidate in cards:
             if candidate.id == card.id:
@@ -5305,14 +6060,20 @@ class CardService:
             score = 0
             if current_vin and current_vin == self._extract_vin(candidate, fallback=""):
                 score += 12
-            if current_license and current_license == self._extract_license_plate(candidate, fallback=""):
+            if current_license and current_license == self._extract_license_plate(
+                candidate, fallback=""
+            ):
                 score += 10
             if current_phone and current_phone == self._extract_phone(candidate):
                 score += 8
-            candidate_vehicle = self._normalize_search_text(candidate.vehicle_display() or candidate.repair_order.vehicle)
+            candidate_vehicle = self._normalize_search_text(
+                candidate.vehicle_display() or candidate.repair_order.vehicle
+            )
             if current_vehicle and current_vehicle == candidate_vehicle:
                 score += 2
-            candidate_customer = self._normalize_search_text(candidate.vehicle_profile.customer_name or candidate.repair_order.client)
+            candidate_customer = self._normalize_search_text(
+                candidate.vehicle_profile.customer_name or candidate.repair_order.client
+            )
             if current_customer and current_customer == candidate_customer:
                 score += 1
             if score > 0:
@@ -5418,7 +6179,9 @@ class CardService:
         candidate = normalize_text(card.repair_order.vehicle, default="", limit=CARD_VEHICLE_LIMIT)
         if candidate:
             return candidate
-        display_name = normalize_text(card.vehicle_profile.display_name(), default="", limit=CARD_VEHICLE_LIMIT)
+        display_name = normalize_text(
+            card.vehicle_profile.display_name(), default="", limit=CARD_VEHICLE_LIMIT
+        )
         if display_name:
             return display_name
         return ""
@@ -5435,15 +6198,21 @@ class CardService:
             if customer_phone:
                 patch["customer_phone"] = customer_phone
         if not normalize_text(profile.vin, default="", limit=32):
-            vin = normalize_text(card.repair_order.vin or self._extract_vin(card), default="", limit=32).upper()
+            vin = normalize_text(
+                card.repair_order.vin or self._extract_vin(card), default="", limit=32
+            ).upper()
             if vin:
                 patch["vin"] = vin
         if not profile.mileage:
-            mileage = normalize_text(card.repair_order.mileage or self._extract_mileage(card), default="", limit=40)
+            mileage = normalize_text(
+                card.repair_order.mileage or self._extract_mileage(card), default="", limit=40
+            )
             if mileage:
                 patch["mileage"] = mileage
         if not normalize_text(profile.oem_notes, default="", limit=1200):
-            notes = "\n".join(self._repair_text_lines(card.repair_order.comment, card.repair_order.note))
+            notes = "\n".join(
+                self._repair_text_lines(card.repair_order.comment, card.repair_order.note)
+            )
             normalized_notes = normalize_text(notes, default="", limit=1200)
             if normalized_notes:
                 patch["oem_notes"] = normalized_notes
@@ -5451,11 +6220,25 @@ class CardService:
 
     def _build_card_cleanup_data_lines(self, card: Card) -> list[str]:
         lines: list[str] = []
-        vehicle = normalize_text(card.vehicle or card.repair_order.vehicle or card.vehicle_profile.display_name(), default="", limit=120)
+        vehicle = normalize_text(
+            card.vehicle or card.repair_order.vehicle or card.vehicle_profile.display_name(),
+            default="",
+            limit=120,
+        )
         customer_name = self._extract_customer_name(card)
         customer_phone = self._extract_phone(card)
-        vin = normalize_text(card.vehicle_profile.vin or card.repair_order.vin or self._extract_vin(card), default="", limit=32).upper()
-        mileage = normalize_text(str(card.vehicle_profile.mileage or "") or card.repair_order.mileage or self._extract_mileage(card), default="", limit=40)
+        vin = normalize_text(
+            card.vehicle_profile.vin or card.repair_order.vin or self._extract_vin(card),
+            default="",
+            limit=32,
+        ).upper()
+        mileage = normalize_text(
+            str(card.vehicle_profile.mileage or "")
+            or card.repair_order.mileage
+            or self._extract_mileage(card),
+            default="",
+            limit=40,
+        )
         for label, value in (
             ("Автомобиль", vehicle),
             ("Клиент", customer_name),
@@ -5471,7 +6254,9 @@ class CardService:
         return lines
 
     def _build_card_cleanup_description(self, card: Card) -> str:
-        summary = normalize_text(card.repair_order.reason or self._build_repair_order_reason(card), default="", limit=320)
+        summary = normalize_text(
+            card.repair_order.reason or self._build_repair_order_reason(card), default="", limit=320
+        )
         raw_lines = self._repair_text_lines(
             card.description,
             card.repair_order.reason,
@@ -5498,7 +6283,11 @@ class CardService:
             if not work_name:
                 continue
             quantity = normalize_text(row.quantity, default="", limit=40)
-            line = f"{work_name} x {quantity}" if quantity and quantity not in {"0", "1", "1.0"} else work_name
+            line = (
+                f"{work_name} x {quantity}"
+                if quantity and quantity not in {"0", "1", "1.0"}
+                else work_name
+            )
             if line.casefold() in seen:
                 continue
             seen.add(line.casefold())
@@ -5514,7 +6303,9 @@ class CardService:
         if data_lines:
             sections.append(("ДАННЫЕ", data_lines[:6]))
         if not sections:
-            return self._validated_description(normalize_text(card.description, default="", limit=CARD_DESCRIPTION_LIMIT))
+            return self._validated_description(
+                normalize_text(card.description, default="", limit=CARD_DESCRIPTION_LIMIT)
+            )
         cleaned = "\n\n".join(
             label + ":\n" + "\n".join(f"- {line}" for line in lines if line)
             for label, lines in sections
@@ -5562,14 +6353,29 @@ class CardService:
             if not cleaned:
                 continue
             if _REPAIR_REASON_PREFIX_PATTERN.match(line) or (
-                any(token in lowered for token in ("жалоб", "пинки", "рывк", "стук", "шум", "вибрац", "течь", "не завод", "горит"))
+                any(
+                    token in lowered
+                    for token in (
+                        "жалоб",
+                        "пинки",
+                        "рывк",
+                        "стук",
+                        "шум",
+                        "вибрац",
+                        "течь",
+                        "не завод",
+                        "горит",
+                    )
+                )
                 and not self._looks_like_work_item(cleaned)
             ):
                 if cleaned not in complaint_lines:
                     complaint_lines.append(cleaned)
         if complaint_lines:
             return normalize_text(" ".join(complaint_lines[:2]), default="", limit=400)
-        first_description = next((line for line in description_lines if not self._looks_like_work_item(line)), "")
+        first_description = next(
+            (line for line in description_lines if not self._looks_like_work_item(line)), ""
+        )
         if first_description:
             return normalize_text(first_description, default="", limit=400)
         return normalize_text(card.title, default="", limit=400)
@@ -5581,7 +6387,9 @@ class CardService:
             cleaned = _REPAIR_FINDING_PREFIX_PATTERN.sub("", line).strip(" .,:;-")
             if not cleaned:
                 continue
-            if _REPAIR_FINDING_PREFIX_PATTERN.match(line) or any(keyword in lowered for keyword in _REPAIR_FINDING_KEYWORDS):
+            if _REPAIR_FINDING_PREFIX_PATTERN.match(line) or any(
+                keyword in lowered for keyword in _REPAIR_FINDING_KEYWORDS
+            ):
                 if cleaned not in findings:
                     findings.append(cleaned)
         return findings[:3]
@@ -5593,7 +6401,9 @@ class CardService:
             cleaned = _REPAIR_RECOMMENDATION_PREFIX_PATTERN.sub("", line).strip(" .,:;-")
             if not cleaned:
                 continue
-            if _REPAIR_RECOMMENDATION_PREFIX_PATTERN.match(line) or any(keyword in lowered for keyword in _REPAIR_RECOMMENDATION_KEYWORDS):
+            if _REPAIR_RECOMMENDATION_PREFIX_PATTERN.match(line) or any(
+                keyword in lowered for keyword in _REPAIR_RECOMMENDATION_KEYWORDS
+            ):
                 if cleaned not in recommendations:
                     recommendations.append(cleaned)
         return recommendations[:3]
@@ -5619,12 +6429,16 @@ class CardService:
         for line in self._repair_text_lines(card.description, profile.oem_notes):
             if self._line_declares_repair_section(line, section=section):
                 for item in self._split_repair_items(self._repair_section_payload(line)):
-                    row = self._repair_row_from_item(item, section=section, profile=profile, force_section=True)
+                    row = self._repair_row_from_item(
+                        item, section=section, profile=profile, force_section=True
+                    )
                     if row is not None:
                         self._append_repair_row(suggested, row)
                 continue
             for item in self._split_repair_items(line):
-                row = self._repair_row_from_item(item, section=section, profile=profile, force_section=False)
+                row = self._repair_row_from_item(
+                    item, section=section, profile=profile, force_section=False
+                )
                 if row is not None:
                     self._append_repair_row(suggested, row)
         for row in self._template_repair_rows(card, profile=profile, section=section):
@@ -5633,8 +6447,13 @@ class CardService:
 
     def _line_declares_repair_section(self, line: str, *, section: str) -> bool:
         lowered = line.casefold()
-        markers = _REPAIR_WORK_SECTION_MARKERS if section == "works" else _REPAIR_MATERIAL_SECTION_MARKERS
-        return any(lowered.startswith(f"{marker}:") or lowered.startswith(f"{marker} -") for marker in markers)
+        markers = (
+            _REPAIR_WORK_SECTION_MARKERS if section == "works" else _REPAIR_MATERIAL_SECTION_MARKERS
+        )
+        return any(
+            lowered.startswith(f"{marker}:") or lowered.startswith(f"{marker} -")
+            for marker in markers
+        )
 
     def _repair_section_payload(self, line: str) -> str:
         if ":" in line:
@@ -5738,15 +6557,22 @@ class CardService:
         cleaned = self._clean_repair_text_fragment(cleaned, limit=240)
         if not cleaned:
             return ""
-        if "atf" in lowered or ("масло" in lowered and any(token in lowered for token in ("акпп", "dsg", "вариатор", "cvt", "короб"))):
+        if "atf" in lowered or (
+            "масло" in lowered
+            and any(token in lowered for token in ("акпп", "dsg", "вариатор", "cvt", "короб"))
+        ):
             return "ATF"
         if "антифриз" in lowered or "охлажда" in lowered:
             return "Антифриз"
         if "масля" in lowered and "фильтр" in lowered:
             return "Масляный фильтр"
-        if "фильтр" in lowered and any(token in lowered for token in ("акпп", "dsg", "вариатор", "cvt", "короб")):
+        if "фильтр" in lowered and any(
+            token in lowered for token in ("акпп", "dsg", "вариатор", "cvt", "короб")
+        ):
             return "Фильтр АКПП"
-        if "масло" in lowered and any(token in lowered for token in ("двиг", "мотор", "5w", "0w", "10w", "15w")):
+        if "масло" in lowered and any(
+            token in lowered for token in ("двиг", "мотор", "5w", "0w", "10w", "15w")
+        ):
             return "Моторное масло"
         return cleaned[:1].upper() + cleaned[1:]
 
@@ -5755,17 +6581,24 @@ class CardService:
         if explicit_quantity:
             return explicit_quantity
         lowered = text.casefold()
-        if "atf" in lowered or ("масло" in lowered and any(token in lowered for token in ("акпп", "dsg", "вариатор", "cvt", "короб"))):
+        if "atf" in lowered or (
+            "масло" in lowered
+            and any(token in lowered for token in ("акпп", "dsg", "вариатор", "cvt", "короб"))
+        ):
             return self._format_quantity_value(profile.oil_gearbox_capacity_l)
         if "антифриз" in lowered or "охлажда" in lowered:
             return self._format_quantity_value(profile.coolant_capacity_l)
-        if "масло" in lowered and any(token in lowered for token in ("двиг", "мотор", "5w", "0w", "10w", "15w")):
+        if "масло" in lowered and any(
+            token in lowered for token in ("двиг", "мотор", "5w", "0w", "10w", "15w")
+        ):
             return self._format_quantity_value(profile.oil_engine_capacity_l)
         if "фильтр" in lowered or "проклад" in lowered:
             return "1"
         return ""
 
-    def _template_repair_rows(self, card: Card, *, profile: VehicleProfile, section: str) -> list[RepairOrderRow]:
+    def _template_repair_rows(
+        self, card: Card, *, profile: VehicleProfile, section: str
+    ) -> list[RepairOrderRow]:
         combined_text = self._repair_analysis_text(card)
         lowered = combined_text.casefold()
         rows: list[RepairOrderRow] = []
@@ -5774,22 +6607,34 @@ class CardService:
         has_coolant_service = self._is_coolant_service(lowered)
         if section == "works":
             if "диагност" in lowered:
-                diagnostic_name = "Диагностика DSG/АКПП" if has_transmission_service else "Диагностика"
+                diagnostic_name = (
+                    "Диагностика DSG/АКПП" if has_transmission_service else "Диагностика"
+                )
                 self._append_repair_row(rows, RepairOrderRow(name=diagnostic_name, quantity="1"))
             if has_engine_oil_service:
-                self._append_repair_row(rows, RepairOrderRow(name="Замена масла двигателя", quantity="1"))
+                self._append_repair_row(
+                    rows, RepairOrderRow(name="Замена масла двигателя", quantity="1")
+                )
             if has_transmission_service:
-                transmission_name = "ТО DSG/АКПП" if any(token in lowered for token in ("dsg", "акпп")) else "Обслуживание трансмиссии"
+                transmission_name = (
+                    "ТО DSG/АКПП"
+                    if any(token in lowered for token in ("dsg", "акпп"))
+                    else "Обслуживание трансмиссии"
+                )
                 self._append_repair_row(rows, RepairOrderRow(name=transmission_name, quantity="1"))
             if has_coolant_service:
-                self._append_repair_row(rows, RepairOrderRow(name="Замена охлаждающей жидкости", quantity="1"))
+                self._append_repair_row(
+                    rows, RepairOrderRow(name="Замена охлаждающей жидкости", quantity="1")
+                )
             return rows
         if has_engine_oil_service:
             self._append_repair_row(
                 rows,
                 RepairOrderRow(
                     name="Моторное масло",
-                    quantity=self._extract_specific_quantity(combined_text, "масло", "двиг", "мотор")
+                    quantity=self._extract_specific_quantity(
+                        combined_text, "масло", "двиг", "мотор"
+                    )
                     or self._format_quantity_value(profile.oil_engine_capacity_l),
                 ),
             )
@@ -5800,14 +6645,20 @@ class CardService:
                 rows,
                 RepairOrderRow(
                     name="ATF",
-                    quantity=self._extract_specific_quantity(combined_text, "atf", "акпп", "dsg", "вариатор", "cvt", "короб")
+                    quantity=self._extract_specific_quantity(
+                        combined_text, "atf", "акпп", "dsg", "вариатор", "cvt", "короб"
+                    )
                     or self._format_quantity_value(profile.oil_gearbox_capacity_l),
                 ),
             )
-            if "фильтр" in lowered and any(token in lowered for token in ("акпп", "dsg", "вариатор", "cvt", "короб")):
+            if "фильтр" in lowered and any(
+                token in lowered for token in ("акпп", "dsg", "вариатор", "cvt", "короб")
+            ):
                 self._append_repair_row(rows, RepairOrderRow(name="Фильтр АКПП", quantity="1"))
             if "проклад" in lowered and "поддон" in lowered:
-                self._append_repair_row(rows, RepairOrderRow(name="Прокладка поддона", quantity="1"))
+                self._append_repair_row(
+                    rows, RepairOrderRow(name="Прокладка поддона", quantity="1")
+                )
         if has_coolant_service:
             self._append_repair_row(
                 rows,
@@ -5820,13 +6671,22 @@ class CardService:
         return rows
 
     def _is_engine_oil_service(self, lowered_text: str) -> bool:
-        has_oil = "масло" in lowered_text and any(token in lowered_text for token in ("двиг", "мотор", "5w", "0w", "10w", "15w"))
-        has_service = any(token in lowered_text for token in ("замен", "обслуж")) or bool(re.search(r"\bто\b", lowered_text))
+        has_oil = "масло" in lowered_text and any(
+            token in lowered_text for token in ("двиг", "мотор", "5w", "0w", "10w", "15w")
+        )
+        has_service = any(token in lowered_text for token in ("замен", "обслуж")) or bool(
+            re.search(r"\bто\b", lowered_text)
+        )
         return has_oil and has_service and not self._is_transmission_service(lowered_text)
 
     def _is_transmission_service(self, lowered_text: str) -> bool:
-        has_transmission = any(token in lowered_text for token in ("акпп", "dsg", "вариатор", "cvt", "короб", "трансмис"))
-        has_service = any(token in lowered_text for token in ("замен", "обслуж", "atf")) or bool(re.search(r"\bто\b", lowered_text))
+        has_transmission = any(
+            token in lowered_text
+            for token in ("акпп", "dsg", "вариатор", "cvt", "короб", "трансмис")
+        )
+        has_service = any(token in lowered_text for token in ("замен", "обслуж", "atf")) or bool(
+            re.search(r"\bто\b", lowered_text)
+        )
         return has_transmission and has_service
 
     def _is_coolant_service(self, lowered_text: str) -> bool:
@@ -5891,8 +6751,12 @@ class CardService:
                 related_cards=related_cards,
             )
             if price:
-                updated_rows.append(RepairOrderRow(name=row.name, quantity=row.quantity, price=price, total=""))
-                hits.append({"section": section, "name": row.name, "price": price, "source": source})
+                updated_rows.append(
+                    RepairOrderRow(name=row.name, quantity=row.quantity, price=price, total="")
+                )
+                hits.append(
+                    {"section": section, "name": row.name, "price": price, "source": source}
+                )
                 continue
             updated_rows.append(row)
         return updated_rows, hits
@@ -5912,7 +6776,11 @@ class CardService:
         def collect_prices(candidates: list[Card]) -> list[str]:
             prices: list[str] = []
             for candidate in candidates:
-                rows = candidate.repair_order.works if section == "works" else candidate.repair_order.materials
+                rows = (
+                    candidate.repair_order.works
+                    if section == "works"
+                    else candidate.repair_order.materials
+                )
                 for item in rows:
                     if self._repair_row_key(item.name) != row_key:
                         continue
@@ -5925,13 +6793,17 @@ class CardService:
         if related_prices and len(set(related_prices)) == 1:
             return related_prices[0], "related_history"
 
-        global_candidates = [candidate for candidate in cards if self._card_has_repair_order(candidate)]
+        global_candidates = [
+            candidate for candidate in cards if self._card_has_repair_order(candidate)
+        ]
         global_prices = collect_prices(global_candidates)
         if len(global_prices) >= 2 and len(set(global_prices)) == 1:
             return global_prices[0], "board_history"
         return "", ""
 
-    def _merge_repair_order_rows(self, existing: list[RepairOrderRow], suggested: list[RepairOrderRow]) -> list[RepairOrderRow]:
+    def _merge_repair_order_rows(
+        self, existing: list[RepairOrderRow], suggested: list[RepairOrderRow]
+    ) -> list[RepairOrderRow]:
         if not suggested:
             return list(existing)
         merged = [RepairOrderRow.from_dict(row.to_dict()) for row in existing]
@@ -5941,21 +6813,33 @@ class CardService:
 
     def _build_client_description(self, card: Card, order: RepairOrder) -> str:
         parts: list[str] = []
-        reason = normalize_text(order.reason or self._build_repair_order_reason(card), default="", limit=320)
+        reason = normalize_text(
+            order.reason or self._build_repair_order_reason(card), default="", limit=320
+        )
         findings = self._extract_repair_findings(card)
         recommendations = self._extract_repair_recommendations(card)
         work_names = [row.name for row in order.works if row.name][:4]
-        material_names = [self._format_client_material(row) for row in order.materials if row.name][:5]
+        material_names = [self._format_client_material(row) for row in order.materials if row.name][
+            :5
+        ]
         if reason:
             parts.append(f"Клиент обратился с запросом: {reason.rstrip('.')} .".replace(" .", "."))
         if findings:
-            parts.append(f"В ходе проверки выявлено: {'; '.join(findings[:2]).rstrip('.')} .".replace(" .", "."))
+            parts.append(
+                f"В ходе проверки выявлено: {'; '.join(findings[:2]).rstrip('.')} .".replace(
+                    " .", "."
+                )
+            )
         if work_names:
             parts.append(f"Выполнены работы: {', '.join(work_names)}.")
         if material_names:
             parts.append(f"Использованы материалы и запчасти: {', '.join(material_names)}.")
         if recommendations:
-            parts.append(f"Рекомендовано далее: {'; '.join(recommendations[:2]).rstrip('.')} .".replace(" .", "."))
+            parts.append(
+                f"Рекомендовано далее: {'; '.join(recommendations[:2]).rstrip('.')} .".replace(
+                    " .", "."
+                )
+            )
         if not parts:
             fallback = self._clean_repair_text_fragment(card.description, limit=320)
             if fallback:
@@ -6049,14 +6933,18 @@ class CardService:
                 details={"fields": sorted(allowed_fields)},
             )
         if "works" in patch:
-            patch["works"] = self._validated_repair_order_rows(patch["works"], field_name="repair_order.works")
+            patch["works"] = self._validated_repair_order_rows(
+                patch["works"], field_name="repair_order.works"
+            )
         if "materials" in patch:
             patch["materials"] = self._validated_repair_order_rows(
                 patch["materials"],
                 field_name="repair_order.materials",
             )
         if "tags" in patch:
-            patch["tags"] = self._validated_repair_order_tags(patch["tags"], field_name="repair_order.tags")
+            patch["tags"] = self._validated_repair_order_tags(
+                patch["tags"], field_name="repair_order.tags"
+            )
         if "payments" in patch:
             patch["payments"] = self._validated_repair_order_payments(
                 patch["payments"],
@@ -6131,21 +7019,28 @@ class CardService:
         if not prepared.number:
             prepared.number = self._next_repair_order_number(cards, exclude_card_id=exclude_card_id)
         if not prepared.date:
-            prepared.date = self._repair_order_card_datetime(card.created_at if card is not None else "") or self._repair_order_now()
+            prepared.date = (
+                self._repair_order_card_datetime(card.created_at if card is not None else "")
+                or self._repair_order_now()
+            )
         if not prepared.opened_at:
             prepared.opened_at = (
                 self._repair_order_card_datetime(card.created_at if card is not None else "")
                 or prepared.date
                 or self._repair_order_now()
             )
-        prepared.status = normalize_repair_order_status(prepared.status, default=REPAIR_ORDER_STATUS_OPEN)
+        prepared.status = normalize_repair_order_status(
+            prepared.status, default=REPAIR_ORDER_STATUS_OPEN
+        )
         if prepared.status == REPAIR_ORDER_STATUS_CLOSED and not prepared.closed_at:
             prepared.closed_at = self._repair_order_now()
         if prepared.status != REPAIR_ORDER_STATUS_CLOSED:
             prepared.closed_at = ""
         return prepared
 
-    def _next_repair_order_number(self, cards: list[Card], *, exclude_card_id: str | None = None) -> str:
+    def _next_repair_order_number(
+        self, cards: list[Card], *, exclude_card_id: str | None = None
+    ) -> str:
         current_max = 0
         for item in cards:
             if exclude_card_id is not None and item.id == exclude_card_id:
@@ -6166,7 +7061,10 @@ class CardService:
         return card.archived and self._card_has_open_repair_order(card)
 
     def _card_has_open_repair_order(self, card: Card) -> bool:
-        return self._card_has_repair_order(card) and card.repair_order.status != REPAIR_ORDER_STATUS_CLOSED
+        return (
+            self._card_has_repair_order(card)
+            and card.repair_order.status != REPAIR_ORDER_STATUS_CLOSED
+        )
 
     def _ensure_repair_order_state_supported(self, card: Card) -> None:
         if not self._card_has_inconsistent_repair_order_state(card):
@@ -6184,7 +7082,10 @@ class CardService:
     def _repair_order_seed_payload(self, card: Card) -> dict[str, Any]:
         profile = card.vehicle_profile
         mileage = str(profile.mileage) if profile.mileage is not None else ""
-        vehicle = normalize_text(card.vehicle, default="", limit=CARD_VEHICLE_LIMIT) or profile.display_name()
+        vehicle = (
+            normalize_text(card.vehicle, default="", limit=CARD_VEHICLE_LIMIT)
+            or profile.display_name()
+        )
         return {
             "client": profile.customer_name,
             "phone": profile.customer_phone,
@@ -6304,7 +7205,7 @@ class CardService:
     def _parse_repair_order_datetime(self, value: str | None) -> datetime | None:
         parsed = parse_datetime(value)
         if parsed is not None:
-            return parsed.astimezone(timezone.utc)
+            return parsed.astimezone(UTC)
         raw_value = normalize_text(value, default="", limit=32)
         if not raw_value:
             return None
@@ -6312,12 +7213,14 @@ class CardService:
             local_dt = datetime.strptime(raw_value, "%d.%m.%Y %H:%M")
         except ValueError:
             return None
-        local_tz = datetime.now().astimezone().tzinfo or timezone.utc
-        return local_dt.replace(tzinfo=local_tz).astimezone(timezone.utc)
+        local_tz = datetime.now().astimezone().tzinfo or UTC
+        return local_dt.replace(tzinfo=local_tz).astimezone(UTC)
 
     def _repair_order_opened_sort_value(self, card: Card) -> str:
         order = card.repair_order
-        return self._repair_order_sortable_datetime(order.opened_at or card.created_at or order.date)
+        return self._repair_order_sortable_datetime(
+            order.opened_at or card.created_at or order.date
+        )
 
     def _repair_order_closed_sort_value(self, card: Card) -> str:
         return self._repair_order_sortable_datetime(card.repair_order.closed_at)
@@ -6484,7 +7387,9 @@ class CardService:
         return self._repair_orders_dir / self._repair_order_file_name(card)
 
     def _repair_order_file_name(self, card: Card) -> str:
-        number = normalize_file_name(card.repair_order.number or f"card-{card.id}") or f"card-{card.id}"
+        number = (
+            normalize_file_name(card.repair_order.number or f"card-{card.id}") or f"card-{card.id}"
+        )
         title = normalize_file_name(card.heading()) or "repair-order"
         short_id = short_entity_id(card.id, prefix="C")
         return f"{number}__{title}__{short_id}.txt"
@@ -6708,7 +7613,9 @@ class CardService:
         )
         return self._vehicle_profiles.finalize_profile_metadata(profile)
 
-    def _merge_vehicle_profile_patch(self, existing: VehicleProfile, value) -> tuple[VehicleProfile, list[str]]:
+    def _merge_vehicle_profile_patch(
+        self, existing: VehicleProfile, value
+    ) -> tuple[VehicleProfile, list[str]]:
         incoming, present_primary, present_meta = self._vehicle_profiles.normalize_profile_payload(
             value,
             assume_manual_for_explicit_fields=False,
@@ -6736,10 +7643,11 @@ class CardService:
         next_profile: VehicleProfile,
     ) -> str:
         previous_display = previous_profile.display_name()
-        next_display = next_profile.display_name()
         if not current_vehicle.strip():
             return self._resolved_card_vehicle_label("", next_profile)
-        if previous_display and current_vehicle.strip() == self._validated_vehicle(previous_display):
+        if previous_display and current_vehicle.strip() == self._validated_vehicle(
+            previous_display
+        ):
             return self._resolved_card_vehicle_label("", next_profile)
         return self._validated_vehicle(current_vehicle)
 
@@ -6831,12 +7739,16 @@ class CardService:
                 "Поле deadline для стикера должно быть JSON-объектом с числами days, hours, minutes, seconds или total_seconds.",
                 details={"field": "deadline"},
             )
-        total_seconds_direct = self._validated_deadline_part(value, "total_seconds", maximum=31_536_000)
+        total_seconds_direct = self._validated_deadline_part(
+            value, "total_seconds", maximum=31_536_000
+        )
         days = self._validated_deadline_part(value, "days", maximum=365)
         hours = self._validated_deadline_part(value, "hours", maximum=23)
         minutes = self._validated_deadline_part(value, "minutes", maximum=59)
         seconds = self._validated_deadline_part(value, "seconds", maximum=59)
-        total_seconds = total_seconds_direct + days * 24 * 3600 + hours * 3600 + minutes * 60 + seconds
+        total_seconds = (
+            total_seconds_direct + days * 24 * 3600 + hours * 3600 + minutes * 60 + seconds
+        )
         if total_seconds <= 0:
             self._fail(
                 "validation_error",
@@ -6858,7 +7770,9 @@ class CardService:
     def _validated_title(self, value) -> str:
         title = str(value or "").strip()
         if not title:
-            self._fail("validation_error", "Нужно передать непустой title.", details={"field": "title"})
+            self._fail(
+                "validation_error", "Нужно передать непустой title.", details={"field": "title"}
+            )
         if len(title) > CARD_TITLE_LIMIT:
             self._fail(
                 "validation_error",
@@ -7047,7 +7961,9 @@ class CardService:
             )
         return file_name
 
-    def _validated_attachment_upload(self, file_name_value, mime_type_value, content: bytes) -> tuple[str, str, str]:
+    def _validated_attachment_upload(
+        self, file_name_value, mime_type_value, content: bytes
+    ) -> tuple[str, str, str]:
         detected_type = self._detect_attachment_type(content)
         if not detected_type:
             self._fail(
@@ -7094,7 +8010,10 @@ class CardService:
             file_name = self._generated_attachment_name(requested_extension)
 
         normalized_mime_type = self._normalized_attachment_mime_type(mime_type_value)
-        if normalized_mime_type not in _ATTACHMENT_GENERIC_MIME_TYPES and normalized_mime_type not in spec["mime_types"]:
+        if (
+            normalized_mime_type not in _ATTACHMENT_GENERIC_MIME_TYPES
+            and normalized_mime_type not in spec["mime_types"]
+        ):
             self._fail(
                 "validation_error",
                 "MIME-тип файла не соответствует его расширению и содержимому.",
@@ -7108,7 +8027,9 @@ class CardService:
         file_name = self._attachment_name_with_extension(file_name, requested_extension)
         return file_name, spec["canonical_mime"], requested_extension
 
-    def _repair_attachment_metadata(self, card_id: str, attachment: Attachment, attachment_path: Path) -> tuple[Path, bool]:
+    def _repair_attachment_metadata(
+        self, card_id: str, attachment: Attachment, attachment_path: Path
+    ) -> tuple[Path, bool]:
         content = attachment_path.read_bytes()
         detected_type = self._detect_attachment_type(content)
         if not detected_type:
@@ -7134,13 +8055,18 @@ class CardService:
         else:
             current_extension = self._attachment_extension(normalized_name)
             if current_extension not in spec["extensions"]:
-                if current_extension in _ATTACHMENT_EXTENSION_TO_TYPE or current_extension in _ATTACHMENT_DANGEROUS_INTERMEDIATE_EXTENSIONS:
+                if (
+                    current_extension in _ATTACHMENT_EXTENSION_TO_TYPE
+                    or current_extension in _ATTACHMENT_DANGEROUS_INTERMEDIATE_EXTENSIONS
+                ):
                     normalized_name = self._attachment_name_with_extension(
                         self._attachment_stem(normalized_name) or "attachment",
                         spec["canonical_extension"],
                     )
                 else:
-                    normalized_name = self._append_attachment_extension(normalized_name, spec["canonical_extension"])
+                    normalized_name = self._append_attachment_extension(
+                        normalized_name, spec["canonical_extension"]
+                    )
         if attachment.file_name != normalized_name:
             attachment.file_name = normalized_name
             repaired = True
@@ -7162,7 +8088,11 @@ class CardService:
 
     def _ensure_safe_attachment_name(self, file_name: str) -> None:
         suffixes = [suffix.lower() for suffix in PurePath(file_name).suffixes]
-        dangerous_suffixes = [suffix for suffix in suffixes[:-1] if suffix in _ATTACHMENT_DANGEROUS_INTERMEDIATE_EXTENSIONS]
+        dangerous_suffixes = [
+            suffix
+            for suffix in suffixes[:-1]
+            if suffix in _ATTACHMENT_DANGEROUS_INTERMEDIATE_EXTENSIONS
+        ]
         if dangerous_suffixes:
             self._fail(
                 "validation_error",
@@ -7247,7 +8177,10 @@ class CardService:
         return None
 
     def _detect_ole_attachment_type(self, content: bytes) -> str | None:
-        if b"WordDocument" in content or b"W\x00o\x00r\x00d\x00D\x00o\x00c\x00u\x00m\x00e\x00n\x00t\x00" in content:
+        if (
+            b"WordDocument" in content
+            or b"W\x00o\x00r\x00d\x00D\x00o\x00c\x00u\x00m\x00e\x00n\x00t\x00" in content
+        ):
             return "doc"
         if (
             b"Workbook" in content
@@ -7376,11 +8309,17 @@ class CardService:
             "cooldown_minutes": min(max(cooldown_minutes, 5), 1440),
         }
 
-    def _extract_ai_board_control_settings_payload(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+    def _extract_ai_board_control_settings_payload(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any] | None:
         nested = payload.get("ai_board_control")
         if isinstance(nested, dict):
             return dict(nested)
-        flat_keys = {"ai_board_control_enabled", "ai_board_control_interval_minutes", "ai_board_control_cooldown_minutes"}
+        flat_keys = {
+            "ai_board_control_enabled",
+            "ai_board_control_interval_minutes",
+            "ai_board_control_cooldown_minutes",
+        }
         if not any(key in payload for key in flat_keys):
             return None
         return {
@@ -7389,7 +8328,9 @@ class CardService:
             "cooldown_minutes": payload.get("ai_board_control_cooldown_minutes"),
         }
 
-    def _validated_ai_board_control_settings(self, value: Any, *, default: dict[str, Any]) -> dict[str, Any]:
+    def _validated_ai_board_control_settings(
+        self, value: Any, *, default: dict[str, Any]
+    ) -> dict[str, Any]:
         payload = dict(default)
         if isinstance(value, dict):
             payload.update(value)
@@ -7430,14 +8371,20 @@ class CardService:
     ) -> str:
         name = normalize_text(value, default="", limit=80)
         if not name:
-            self._fail("validation_error", "Нужно передать название кассы.", details={"field": "name"})
+            self._fail(
+                "validation_error", "Нужно передать название кассы.", details={"field": "name"}
+            )
         existing_names = {
             item.name.casefold()
             for item in cashboxes
             if exclude_cashbox_id is None or item.id != exclude_cashbox_id
         }
         if name.casefold() in existing_names:
-            self._fail("validation_error", "Касса с таким названием уже существует.", details={"field": "name"})
+            self._fail(
+                "validation_error",
+                "Касса с таким названием уже существует.",
+                details={"field": "name"},
+            )
         return name
 
     def _validated_cash_transaction_note(self, value) -> str:
@@ -7448,10 +8395,16 @@ class CardService:
         if raw_value in (None, ""):
             raw_value = payload.get("amount")
         if raw_value in (None, ""):
-            self._fail("validation_error", "Нужно передать сумму операции.", details={"field": "amount"})
+            self._fail(
+                "validation_error", "Нужно передать сумму операции.", details={"field": "amount"}
+            )
         amount_minor = normalize_money_minor(raw_value, minimum=1)
         if amount_minor < 1:
-            self._fail("validation_error", "Сумма операции должна быть больше нуля.", details={"field": "amount"})
+            self._fail(
+                "validation_error",
+                "Сумма операции должна быть больше нуля.",
+                details={"field": "amount"},
+            )
         return amount_minor
 
     def _fail(
