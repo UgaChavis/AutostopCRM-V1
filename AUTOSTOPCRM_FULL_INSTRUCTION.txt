@@ -1,0 +1,180 @@
+AUTOSTOP CRM
+Полная эксплуатационная инструкция
+
+1. Базовые пути
+- проект на сервере: /opt/autostopcrm
+- рабочая ветка GitHub: autostopCRM
+- compose-сервис: autostopcrm
+- данные приложения в контейнере: /root/.minimal-kanban
+- MCP endpoint: /mcp
+- домен CRM: crm.autostopcrm.ru
+
+2. Основные адреса
+- HTTP: http://crm.autostopcrm.ru
+- HTTPS: https://crm.autostopcrm.ru
+- MCP: https://crm.autostopcrm.ru/mcp
+- локальный API за nginx: http://127.0.0.1:8000
+- локальный MCP за nginx: http://127.0.0.1:8001/mcp
+
+3. Стандартное обновление сервера из GitHub
+cd /opt/autostopcrm
+git fetch origin autostopCRM
+git reset --hard origin/autostopCRM
+./deploy.sh
+
+4. Что делает deploy.sh
+- подтягивает origin/autostopCRM
+- пересобирает контейнер
+- поднимает docker compose up -d --build
+- дожидается запуска контейнера и healthcheck
+- прогоняет встроенный smoke-check по local API, auth и MCP
+- может дополнительно прогнать публичную HTTPS-проверку, если запустить его с AUTOSTOP_VERIFY_PUBLIC_HTTPS=1
+- копирует эту инструкцию в /root/Desktop/AUTOSTOPCRM_FULL_INSTRUCTION.txt, если путь доступен
+
+5. Быстрые проверки после деплоя
+cd /opt/autostopcrm
+docker compose ps
+docker compose logs --tail=200
+docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url http://crm.autostopcrm.ru --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username admin --operator-password admin --expect-admin
+curl -sS http://127.0.0.1:8000/api/health
+curl -sS http://127.0.0.1:8000/api/get_board_snapshot
+curl -sS http://127.0.0.1:8000/api/get_gpt_wall
+curl -sS http://127.0.0.1:8000/api/list_repair_orders
+curl -sS -o /dev/null http://crm.autostopcrm.ru
+curl -sS -H "Accept: text/event-stream" http://127.0.0.1:8001/mcp
+
+6. Проверка авторизации
+- логин администратора по умолчанию: admin
+- пароль администратора по умолчанию: admin
+
+Проверка логина:
+curl -sS -X POST http://127.0.0.1:8000/api/login_operator \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin"}'
+
+7. Проверка создания пользователя
+1. Получить X-Operator-Session через login_operator.
+2. Создать пользователя:
+curl -sS -X POST http://127.0.0.1:8000/api/save_operator_user \
+  -H "Content-Type: application/json" \
+  -H "X-Operator-Session: <TOKEN>" \
+  -d '{"username":"worker","password":"1234"}'
+3. Проверить список:
+curl -sS http://127.0.0.1:8000/api/list_operator_users \
+  -H "X-Operator-Session: <TOKEN>"
+
+8. Проверка основных API route
+- /api/health
+- /api/get_board_snapshot
+- /api/get_gpt_wall
+- /api/list_repair_orders
+- /api/get_operator_profile
+- /api/list_operator_users
+- анонимные write-route через опубликованный nginx должны возвращать 401/403, а не выполнять запись
+
+9. Проверка MCP
+Ожидаемое поведение:
+- GET /mcp без нужного Accept может вернуть 406
+- MCP должен нормально открываться streamable HTTP клиентом
+- ping_connector и bootstrap_context должны работать
+
+Проверка через Python:
+python - <<'PY'
+import asyncio
+import httpx
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+
+async def main():
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        async with streamable_http_client("https://crm.autostopcrm.ru/mcp", http_client=client) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                print((await session.list_tools()).tools[0].name)
+                print((await session.call_tool("ping_connector", {})).structuredContent)
+
+asyncio.run(main())
+PY
+
+10. Проверка HTTPS через certbot
+Если DNS уже смотрит на сервер и nginx отвечает по 80 порту:
+Bootstrap-шаблон nginx лежит в /opt/autostopcrm/scripts/nginx.autostopcrm.http-bootstrap.conf.example
+Финальный HTTPS-шаблон nginx лежит в /opt/autostopcrm/scripts/nginx.autostopcrm.conf.example
+
+Базовая схема:
+1. Проверить, что домен резолвится в нужный IP:
+getent hosts crm.autostopcrm.ru
+2. Проверить, что порты 80 и 443 открыты на сервере:
+ss -ltnp | grep -E ':(80|443)\\s'
+ufw status
+3. Положить bootstrap-шаблон в /etc/nginx/sites-available/autostopcrm
+cp /opt/autostopcrm/scripts/nginx.autostopcrm.http-bootstrap.conf.example /etc/nginx/sites-available/autostopcrm
+4. Сделать symlink в /etc/nginx/sites-enabled/autostopcrm
+ln -sf /etc/nginx/sites-available/autostopcrm /etc/nginx/sites-enabled/autostopcrm
+5. Проверить nginx -t и перезагрузить nginx
+nginx -t && systemctl reload nginx
+6. Проверить HTTP-сайт и HTTP MCP до certbot:
+curl -I http://crm.autostopcrm.ru/
+curl -I http://crm.autostopcrm.ru/mcp
+7. Установить certbot и выпустить сертификат:
+apt-get update
+apt-get install -y certbot python3-certbot-nginx
+certbot --nginx -d crm.autostopcrm.ru
+8. Убедиться, что сертификат реально появился:
+ls -l /etc/letsencrypt/live/crm.autostopcrm.ru/
+9. Заменить bootstrap-конфиг на финальный HTTPS-конфиг:
+cp /opt/autostopcrm/scripts/nginx.autostopcrm.conf.example /etc/nginx/sites-available/autostopcrm
+10. Проверить nginx -t и перезагрузить nginx
+nginx -t && systemctl reload nginx
+
+После выпуска проверить:
+curl -vk https://crm.autostopcrm.ru/ -o /dev/null
+curl -vk -H "Accept: text/event-stream" https://crm.autostopcrm.ru/mcp -o /dev/null
+docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --mcp-url https://crm.autostopcrm.ru/mcp --operator-username admin --operator-password admin --expect-admin
+AUTOSTOP_VERIFY_PUBLIC_HTTPS=1 ./deploy.sh
+
+11. Что должно быть после нормального прод-подъёма
+- https://crm.autostopcrm.ru открывается без TLS ошибок
+- https://crm.autostopcrm.ru/mcp отвечает как MCP endpoint
+- admin/admin логинится как администратор
+- анонимный POST на публичный /api/create_sticky не проходит
+- создание и удаление пользователей работает
+- board snapshot, wall, event journal и repair orders доступны
+- данные переживают docker restart
+
+12. Проверка переживания рестарта
+cd /opt/autostopcrm
+docker compose restart
+sleep 5
+curl -sS http://127.0.0.1:8000/api/get_board_snapshot
+curl -sS http://127.0.0.1:8000/api/list_repair_orders
+
+13. Проверка синхронизации GitHub и сервера
+На сервере:
+cd /opt/autostopcrm
+git rev-parse HEAD
+git rev-parse origin/autostopCRM
+
+Если хэши совпадают, сервер синхронизирован с GitHub.
+
+14. Полезные команды диагностики
+cd /opt/autostopcrm
+docker compose ps
+docker compose logs -f
+docker compose logs --tail=300 autostopcrm
+ls -l /etc/letsencrypt/live/crm.autostopcrm.ru/
+nginx -t
+ss -ltnp | grep -E ':(80|443)\\s'
+curl -I http://crm.autostopcrm.ru/
+curl -vk https://crm.autostopcrm.ru/ -o /dev/null
+curl -vk -H "Accept: text/event-stream" https://crm.autostopcrm.ru/mcp -o /dev/null
+docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --mcp-url https://crm.autostopcrm.ru/mcp --operator-username admin --operator-password admin --expect-admin
+git status
+git branch -vv
+git log --oneline -n 10
+
+15. Важные замечания
+- основной источник кода: GitHub ветка autostopCRM
+- основной источник прод-состояния: сервер /opt/autostopcrm
+- перед ручными правками на сервере сначала проверить git status
+- если правка нужна надолго, сначала внести её в GitHub, потом задеплоить на сервер
