@@ -1,0 +1,29 @@
+services:
+  autostopcrm:
+    container_name: autostopcrm
+    build: .
+    restart: always
+    extra_hosts:
+      - "crm.autostopcrm.ru:host-gateway"
+    ports:
+      - "127.0.0.1:8000:41731"
+      - "127.0.0.1:8001:41831"
+    environment:
+      MINIMAL_KANBAN_API_HOST: "0.0.0.0"
+      MINIMAL_KANBAN_API_PORT: "41731"
+      MINIMAL_KANBAN_MCP_HOST: "0.0.0.0"
+      MINIMAL_KANBAN_MCP_PORT: "41831"
+      MINIMAL_KANBAN_MCP_PATH: "/mcp"
+      MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL: "${AUTOSTOP_PUBLIC_BASE_URL:-https://crm.autostopcrm.ru}"
+      MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL: "${AUTOSTOP_PUBLIC_MCP_URL:-https://crm.autostopcrm.ru/mcp}"
+      MINIMAL_KANBAN_MCP_ALLOWED_HOSTS: "${AUTOSTOP_MCP_ALLOWED_HOSTS:-}"
+      MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS: "${AUTOSTOP_MCP_ALLOWED_ORIGINS:-}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.4-mini}"
+    volumes:
+      - "${AUTOSTOP_DATA_DIR:-./data}:/root/.minimal-kanban"
+    healthcheck:
+      test: ["CMD", "python", "scripts/container_healthcheck.py"]
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
