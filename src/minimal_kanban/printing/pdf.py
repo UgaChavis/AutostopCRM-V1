@@ -1,0 +1,221 @@
+from __future__ import annotations
+
+import html as html_lib
+import os
+import re
+import tempfile
+import threading
+from pathlib import Path
+
+
+class PdfRenderError(RuntimeError):
+    pass
+
+
+def _ensure_qt_application():
+    if not os.environ.get("QT_QPA_PLATFORM") and os.name != "nt":
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    try:
+        from PySide6.QtWidgets import QApplication
+    except Exception as exc:  # pragma: no cover
+        raise PdfRenderError("PySide6 недоступен для генерации PDF.") from exc
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication([])
+        app.setQuitOnLastWindowClosed(False)
+    return app
+
+
+def _should_use_qt_renderer() -> bool:
+    if str(os.environ.get("MINIMAL_KANBAN_FORCE_FALLBACK_PDF", "")).strip().lower() in {"1", "true", "yes"}:
+        return False
+    # QTextDocument/QPrinter from non-main threads is unstable on Windows and
+    # can crash the process at interpreter shutdown after otherwise successful
+    # requests. In worker threads we always use the deterministic fallback.
+    if threading.current_thread() is not threading.main_thread():
+        return False
+    return True
+
+
+def render_html_to_pdf_bytes(
+    html: str,
+    *,
+    paper_size: str = "A4",
+    orientation: str = "portrait",
+    title: str = "AutoStop CRM",
+) -> bytes:
+    if not _should_use_qt_renderer():
+        return _render_fallback_pdf_bytes(
+            html,
+            paper_size=paper_size,
+            orientation=orientation,
+            title=title,
+        )
+    try:
+        _ensure_qt_application()
+        from PySide6.QtCore import QMarginsF, QSizeF
+        from PySide6.QtGui import QPageLayout, QPageSize, QTextDocument
+        from PySide6.QtPrintSupport import QPrinter
+    except Exception:
+        return _render_fallback_pdf_bytes(
+            html,
+            paper_size=paper_size,
+            orientation=orientation,
+            title=title,
+        )
+
+    page_sizes = {
+        "A4": QPageSize(QPageSize.PageSizeId.A4),
+        "A5": QPageSize(QPageSize.PageSizeId.A5),
+        "LETTER": QPageSize(QPageSize.PageSizeId.Letter),
+    }
+    selected_size = page_sizes.get(str(paper_size or "A4").upper(), page_sizes["A4"])
+    selected_orientation = (
+        QPageLayout.Orientation.Landscape
+        if str(orientation or "").strip().lower() == "landscape"
+        else QPageLayout.Orientation.Portrait
+    )
+
+    with tempfile.NamedTemporaryFile(prefix="autostopcrm-print-", suffix=".pdf", delete=False) as tmp:
+        pdf_path = Path(tmp.name)
+    try:
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(str(pdf_path))
+        printer.setDocName(str(title or "AutoStop CRM"))
+        printer.setPageLayout(QPageLayout(selected_size, selected_orientation, QMarginsF(10, 10, 10, 10)))
+        document = QTextDocument()
+        document.setDocumentMargin(0)
+        document.setDefaultStyleSheet(
+            "body { color: #171717; font-family: 'Segoe UI', Arial, sans-serif; } "
+            "table { border-collapse: collapse; width: 100%; } "
+            "th, td { border: 1px solid #cfcfcf; }"
+        )
+        document.setHtml(str(html or ""))
+        page_size = printer.pageRect(QPrinter.Unit.Point).size()
+        document.setPageSize(QSizeF(page_size.width(), page_size.height()))
+        document.print_(printer)
+        if not pdf_path.exists():
+            raise PdfRenderError("Qt не создал PDF-файл.")
+        return pdf_path.read_bytes()
+    finally:
+        try:
+            pdf_path.unlink(missing_ok=True)
+        except OSError:  # pragma: no cover
+            pass
+
+
+def _render_fallback_pdf_bytes(
+    html: str,
+    *,
+    paper_size: str = "A4",
+    orientation: str = "portrait",
+    title: str = "AutoStop CRM",
+) -> bytes:
+    text = _html_to_plain_text(html, default_title=title)
+    return _render_plain_text_pdf(text, paper_size=paper_size, orientation=orientation, title=title)
+
+
+def _html_to_plain_text(html: str, *, default_title: str = "AutoStop CRM") -> str:
+    text = str(html or "")
+    replacements = [
+        (r"(?i)<\s*br\s*/?>", "\n"),
+        (r"(?i)</\s*(p|div|tr|h1|h2|h3|h4|h5|h6)\s*>", "\n"),
+        (r"(?i)<\s*li[^>]*>", "- "),
+        (r"(?i)</\s*li\s*>", "\n"),
+        (r"(?i)</\s*td\s*>", " | "),
+        (r"(?i)</\s*th\s*>", " | "),
+    ]
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html_lib.unescape(text)
+    lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
+    compact = [line for line in lines if line]
+    return "\n".join(compact).strip() or str(default_title or "AutoStop CRM")
+
+
+def _page_size_points(paper_size: str, orientation: str) -> tuple[int, int]:
+    sizes = {
+        "A4": (595, 842),
+        "A5": (420, 595),
+        "LETTER": (612, 792),
+    }
+    width, height = sizes.get(str(paper_size or "A4").upper(), sizes["A4"])
+    if str(orientation or "").strip().lower() == "landscape":
+        return height, width
+    return width, height
+
+
+def _escape_pdf_text(value: str) -> str:
+    safe = str(value or "").replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    return safe.encode("ascii", "replace").decode("ascii")
+
+
+def _build_pdf_bytes(objects: list[bytes]) -> bytes:
+    out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets: list[int] = [0]
+    for index, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out.extend(f"{index} 0 obj\n".encode("ascii"))
+        out.extend(body)
+        if not body.endswith(b"\n"):
+            out.extend(b"\n")
+        out.extend(b"endobj\n")
+    xref_offset = len(out)
+    out.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    out.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        out.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    out.extend(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF".encode("ascii"))
+    return bytes(out)
+
+
+def _render_plain_text_pdf(
+    text: str,
+    *,
+    paper_size: str = "A4",
+    orientation: str = "portrait",
+    title: str = "AutoStop CRM",
+) -> bytes:
+    width, height = _page_size_points(paper_size, orientation)
+    margin_x = 48
+    margin_y = 54
+    line_height = 14
+    usable_height = max(height - (margin_y * 2), line_height)
+    lines_per_page = max(1, usable_height // line_height)
+    raw_lines = [line.rstrip() for line in str(text or title or "AutoStop CRM").splitlines()]
+    lines = raw_lines or [str(title or "AutoStop CRM")]
+    pages = [lines[index:index + lines_per_page] for index in range(0, len(lines), lines_per_page)] or [[str(title or "AutoStop CRM")]]
+
+    font_object = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n"
+    objects: list[bytes] = [b"", b"", font_object]
+    page_refs: list[str] = []
+
+    for page_index, page_lines in enumerate(pages):
+        page_object_id = 4 + (page_index * 2)
+        content_object_id = page_object_id + 1
+        page_refs.append(f"{page_object_id} 0 R")
+        commands = [
+            "BT",
+            "/F1 11 Tf",
+            f"{line_height} TL",
+            f"{margin_x} {height - margin_y} Td",
+        ]
+        for line_index, line in enumerate(page_lines):
+            if line_index:
+                commands.append("T*")
+            commands.append(f"({_escape_pdf_text(line)}) Tj")
+        commands.append("ET")
+        stream = "\n".join(commands).encode("ascii", "replace")
+        page_object = (
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] "
+            f"/Resources << /Font << /F1 3 0 R >> >> /Contents {content_object_id} 0 R >>\n"
+        ).encode("ascii")
+        content_object = b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream\n"
+        objects.append(page_object)
+        objects.append(content_object)
+
+    objects[0] = b"<< /Type /Catalog /Pages 2 0 R >>\n"
+    objects[1] = f"<< /Type /Pages /Count {len(page_refs)} /Kids [{' '.join(page_refs)}] >>\n".encode("ascii")
+    return _build_pdf_bytes(objects)
