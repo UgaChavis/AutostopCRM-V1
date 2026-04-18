@@ -828,15 +828,9 @@ class CardService:
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_not_archived(card)
             actor_name, source = self._audit_identity(payload, default_source="ui")
-            server_available = self._agent_control is not None
+            server_available = bool(self._agent_control is not None)
             launched_task_id = ""
             already_running = False
-            if self._agent_control is not None:
-                try:
-                    status_payload = self._agent_control.agent_status()
-                    server_available = bool(status_payload.get("agent", {}).get("available"))
-                except Exception:
-                    server_available = True
             vin_only_prompt = (
                 "Найди VIN в описании карточки, расшифруй его через внешние источники и верни "
                 "только подтвержденные данные для заполнения карточки. Не используй никакие "
