@@ -1015,6 +1015,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("Артикул / OEM", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-table__input {", BOARD_WEB_APP_HTML)
         self.assertIn("font-size: 14.25px;", BOARD_WEB_APP_HTML)
+        self.assertIn('[data-repair-order-cell="name"]', BOARD_WEB_APP_HTML)
+        self.assertIn("font-size: 17px;", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-table__select {", BOARD_WEB_APP_HTML)
         self.assertIn("font-size: 10.75px;", BOARD_WEB_APP_HTML)
         self.assertIn('data-add-repair-order-row="works"', BOARD_WEB_APP_HTML)

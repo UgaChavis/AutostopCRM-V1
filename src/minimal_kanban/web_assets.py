@@ -1894,6 +1894,11 @@ BOARD_WEB_APP_HTML = "".join(
       outline: none;
       font-size: 14.25px;
     }
+    .repair-order-table__input[data-repair-order-cell="name"] {
+      font-size: 17px;
+      font-weight: 600;
+      line-height: 1.12;
+    }
     .repair-order-table__input:focus {
       border-bottom-color: var(--accent);
       box-shadow: inset 0 -1px 0 rgba(167, 178, 132, 0.22);
