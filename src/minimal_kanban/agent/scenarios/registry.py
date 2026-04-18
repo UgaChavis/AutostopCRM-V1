@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from .base import ScenarioContext, ScenarioExecutionResult, ScenarioExecutor
 from .dtc_lookup import DtcLookupScenarioExecutor
@@ -19,7 +19,9 @@ class PassthroughScenarioExecutor:
         return ScenarioExecutionResult(
             scenario_id=self.scenario_id,
             status="registered",
-            notes=[f"Scenario '{self.scenario_id}' is registered but still executed by legacy runner logic."],
+            notes=[
+                f"Scenario '{self.scenario_id}' is registered but still executed by legacy runner logic."
+            ],
         )
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
@@ -13,41 +13,41 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return raw_value in {"1", "true", "yes", "y", "on"}
 
 
-class AiScenarioId(str, Enum):
+class AiScenarioId(StrEnum):
     AI_CHAT = "ai_chat"
     FULL_CARD_ENRICHMENT = "full_card_enrichment"
     BOARD_CONTROL = "board_control"
 
 
-class AiTriggerKind(str, Enum):
+class AiTriggerKind(StrEnum):
     USER_INVOKED = "user_invoked"
     SCHEDULED = "scheduled"
     BACKGROUND = "background"
 
 
-class AiActorMode(str, Enum):
+class AiActorMode(StrEnum):
     INTERACTIVE = "interactive"
     BACKGROUND = "background"
 
 
-class AiInteractionStyle(str, Enum):
+class AiInteractionStyle(StrEnum):
     CONVERSATIONAL = "conversational"
     DETERMINISTIC = "deterministic"
 
 
-class AiScopeKind(str, Enum):
+class AiScopeKind(StrEnum):
     WORKSPACE = "workspace"
     CARD = "card"
     BOARD = "board"
 
 
-class AiWritePolicy(str, Enum):
+class AiWritePolicy(StrEnum):
     READ_HEAVY_RESTRICTED_WRITE = "read_heavy_restricted_write"
     BOUNDED_WRITE = "bounded_write"
     BOUNDED_BACKGROUND_WRITE = "bounded_background_write"
 
 
-class AiContextSource(str, Enum):
+class AiContextSource(StrEnum):
     CARD_CONTEXT = "card_context"
     REPAIR_ORDER_CONTEXT = "repair_order_context"
     WALL_DIGEST = "wall_digest"
@@ -57,7 +57,7 @@ class AiContextSource(str, Enum):
     ATTACHMENTS = "attachments"
 
 
-class AiRolloutState(str, Enum):
+class AiRolloutState(StrEnum):
     DISABLED = "disabled"
     HIDDEN = "hidden"
     AVAILABLE = "available"
@@ -154,8 +154,7 @@ class AiModeConfig:
         return {
             "legacy_ux_enabled": bool(self.legacy_ux_enabled),
             "scenario_state": {
-                scenario.value: state.to_dict()
-                for scenario, state in self.scenario_state.items()
+                scenario.value: state.to_dict() for scenario, state in self.scenario_state.items()
             },
         }
 
@@ -258,7 +257,11 @@ SCENARIO_DEFINITIONS: tuple[AiScenarioDefinition, ...] = (
         legacy_replacement_scope="legacy_card_agent_button_and_card_autofill_menu",
         future_module_owner="Module 1.3 Card Enrichment Pipeline",
         boundaries=("not_open_ended_chat", "not_board_scope", "not_menu_of_actions"),
-        non_goals=("no freeform assistant mode", "no hidden scheduling", "no broad board-level writes"),
+        non_goals=(
+            "no freeform assistant mode",
+            "no hidden scheduling",
+            "no broad board-level writes",
+        ),
         default_enabled=True,
     ),
     AiScenarioDefinition(
@@ -325,7 +328,8 @@ LEGACY_AI_ENTRY_POINTS: dict[str, dict[str, Any]] = {
     },
 }
 
-class AiBackendComponentKind(str, Enum):
+
+class AiBackendComponentKind(StrEnum):
     SERVICE_BOUNDARY = "service_boundary"
     API_SURFACE = "api_surface"
     RUNTIME_CORE = "runtime_core"
@@ -340,7 +344,7 @@ class AiBackendComponentKind(str, Enum):
     STATUS_SURFACE = "status_surface"
 
 
-class AiBackendReuseCategory(str, Enum):
+class AiBackendReuseCategory(StrEnum):
     REUSE_AS_IS = "reuse_as_is"
     REUSE_WITH_ADAPTATION = "reuse_with_adaptation"
     LEGACY_ONLY_OR_RETIRE_LATER = "legacy_only_or_retire_later"
@@ -398,16 +402,27 @@ BACKEND_COMPONENT_DEFINITIONS: tuple[AiBackendComponentDefinition, ...] = (
         component_kind=AiBackendComponentKind.SERVICE_BOUNDARY,
         current_role="source_of_truth for cards, repair orders, attachments, and domain writes",
         reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
-        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        future_targets=(
+            AiScenarioId.AI_CHAT,
+            AiScenarioId.FULL_CARD_ENRICHMENT,
+            AiScenarioId.BOARD_CONTROL,
+        ),
         notes=("Keep business writes in CardService.",),
-        do_not_break=("do_not_move_domain_logic_to_agent_layer", "preserve_existing_validation_rules"),
+        do_not_break=(
+            "do_not_move_domain_logic_to_agent_layer",
+            "preserve_existing_validation_rules",
+        ),
     ),
     AiBackendComponentDefinition(
         component_id="local_api",
         component_kind=AiBackendComponentKind.API_SURFACE,
         current_role="read/write boundary exposed to UI, MCP, and agent runtime",
         reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
-        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        future_targets=(
+            AiScenarioId.AI_CHAT,
+            AiScenarioId.FULL_CARD_ENRICHMENT,
+            AiScenarioId.BOARD_CONTROL,
+        ),
         notes=("This is the internal boundary for all AI writes.",),
         do_not_break=("keep_card_service_as_source_of_truth", "preserve_auth_and_operator_checks"),
     ),
@@ -416,16 +431,27 @@ BACKEND_COMPONENT_DEFINITIONS: tuple[AiBackendComponentDefinition, ...] = (
         component_kind=AiBackendComponentKind.RUNTIME_CORE,
         current_role="read -> evidence -> plan -> tools -> patch -> write -> verify contracts",
         reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
-        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        future_targets=(
+            AiScenarioId.AI_CHAT,
+            AiScenarioId.FULL_CARD_ENRICHMENT,
+            AiScenarioId.BOARD_CONTROL,
+        ),
         notes=("Scenario modules should depend on these contracts instead of ad hoc dict shapes.",),
-        do_not_break=("preserve_patch_write_verify_discipline", "keep_backward_serialization_helpers_stable"),
+        do_not_break=(
+            "preserve_patch_write_verify_discipline",
+            "keep_backward_serialization_helpers_stable",
+        ),
     ),
     AiBackendComponentDefinition(
         component_id="policy_engine",
         component_kind=AiBackendComponentKind.POLICY_ENGINE,
         current_role="required tool gates, scenario policy, and patch filtering",
         reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
-        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        future_targets=(
+            AiScenarioId.AI_CHAT,
+            AiScenarioId.FULL_CARD_ENRICHMENT,
+            AiScenarioId.BOARD_CONTROL,
+        ),
         notes=("Future modules should extend policy inputs, not bypass the gate.",),
         do_not_break=("preserve_required_tool_checks", "do_not_allow_unbounded_writes"),
     ),
@@ -434,7 +460,11 @@ BACKEND_COMPONENT_DEFINITIONS: tuple[AiBackendComponentDefinition, ...] = (
         component_kind=AiBackendComponentKind.CONTEXT_PRIMITIVE,
         current_role="compact board/card/wall snapshot and digest assembly",
         reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
-        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        future_targets=(
+            AiScenarioId.AI_CHAT,
+            AiScenarioId.FULL_CARD_ENRICHMENT,
+            AiScenarioId.BOARD_CONTROL,
+        ),
         notes=("Foundation for wall digest and delta-oriented reads.",),
         do_not_break=("preserve_revision_signatures", "keep_compact_payload_paths_stable"),
     ),
@@ -443,7 +473,11 @@ BACKEND_COMPONENT_DEFINITIONS: tuple[AiBackendComponentDefinition, ...] = (
         component_kind=AiBackendComponentKind.STORAGE,
         current_role="tasks, schedules, runs, actions, status, prompt, and memory persistence",
         reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
-        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        future_targets=(
+            AiScenarioId.AI_CHAT,
+            AiScenarioId.FULL_CARD_ENRICHMENT,
+            AiScenarioId.BOARD_CONTROL,
+        ),
         notes=("Persistence layer stays in place for new scenario states and traces.",),
         do_not_break=("preserve_file_locking", "preserve_json_payload_shapes_for_current_runtime"),
     ),
@@ -452,7 +486,11 @@ BACKEND_COMPONENT_DEFINITIONS: tuple[AiBackendComponentDefinition, ...] = (
         component_kind=AiBackendComponentKind.API_SURFACE,
         current_role="agent_status, runs, actions, tasks, and enqueue route registration",
         reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
-        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        future_targets=(
+            AiScenarioId.AI_CHAT,
+            AiScenarioId.FULL_CARD_ENRICHMENT,
+            AiScenarioId.BOARD_CONTROL,
+        ),
         notes=("Runtime exposure stays stable while new scenario entry points are added later.",),
         do_not_break=("keep_agent_status_contract_stable", "preserve_operator_session_checks"),
     ),
@@ -461,7 +499,11 @@ BACKEND_COMPONENT_DEFINITIONS: tuple[AiBackendComponentDefinition, ...] = (
         component_kind=AiBackendComponentKind.RUNTIME_CORE,
         current_role="claim, read, evidence, plan, tools, patch, write, verify execution loop",
         reuse_category=AiBackendReuseCategory.REUSE_WITH_ADAPTATION,
-        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        future_targets=(
+            AiScenarioId.AI_CHAT,
+            AiScenarioId.FULL_CARD_ENRICHMENT,
+            AiScenarioId.BOARD_CONTROL,
+        ),
         notes=("Will be adapted into scenario dispatch rather than replaced outright.",),
         do_not_break=("keep_tool_call_accounting", "preserve_trace_and_verification_flow"),
     ),
@@ -472,15 +514,24 @@ BACKEND_COMPONENT_DEFINITIONS: tuple[AiBackendComponentDefinition, ...] = (
         reuse_category=AiBackendReuseCategory.REUSE_WITH_ADAPTATION,
         future_targets=(AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
         notes=("Current autofill logic is the closest foundation for full_card_enrichment.",),
-        do_not_break=("preserve_current_autofill_verification_semantics", "keep_partial_result_reporting"),
+        do_not_break=(
+            "preserve_current_autofill_verification_semantics",
+            "keep_partial_result_reporting",
+        ),
     ),
     AiBackendComponentDefinition(
         component_id="control_scheduler",
         component_kind=AiBackendComponentKind.SCHEDULER,
         current_role="worker, scheduler, heartbeat, and task claim orchestration",
         reuse_category=AiBackendReuseCategory.REUSE_WITH_ADAPTATION,
-        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
-        notes=("Will continue to own runtime supervision, but with later board_control specialization.",),
+        future_targets=(
+            AiScenarioId.AI_CHAT,
+            AiScenarioId.FULL_CARD_ENRICHMENT,
+            AiScenarioId.BOARD_CONTROL,
+        ),
+        notes=(
+            "Will continue to own runtime supervision, but with later board_control specialization.",
+        ),
         do_not_break=("preserve_heartbeat_semantics", "keep_throttle_and_claim_logic_stable"),
     ),
     AiBackendComponentDefinition(
@@ -506,7 +557,11 @@ BACKEND_COMPONENT_DEFINITIONS: tuple[AiBackendComponentDefinition, ...] = (
         component_kind=AiBackendComponentKind.MODEL_ADAPTER,
         current_role="LLM API client used by the worker runtime",
         reuse_category=AiBackendReuseCategory.REUSE_AS_IS,
-        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        future_targets=(
+            AiScenarioId.AI_CHAT,
+            AiScenarioId.FULL_CARD_ENRICHMENT,
+            AiScenarioId.BOARD_CONTROL,
+        ),
         notes=("Generic model transport should stay stable across the remodel.",),
         do_not_break=("preserve_model_selection", "preserve_timeout_and_retry_behavior"),
     ),
@@ -515,9 +570,16 @@ BACKEND_COMPONENT_DEFINITIONS: tuple[AiBackendComponentDefinition, ...] = (
         component_kind=AiBackendComponentKind.MODEL_ADAPTER,
         current_role="system prompt and task prompt assembly",
         reuse_category=AiBackendReuseCategory.REUSE_WITH_ADAPTATION,
-        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT, AiScenarioId.BOARD_CONTROL),
+        future_targets=(
+            AiScenarioId.AI_CHAT,
+            AiScenarioId.FULL_CARD_ENRICHMENT,
+            AiScenarioId.BOARD_CONTROL,
+        ),
         notes=("Prompt assembly will be split by scenario in later modules.",),
-        do_not_break=("preserve_current_instruction_fallbacks", "keep_task_prompt_templates_callable"),
+        do_not_break=(
+            "preserve_current_instruction_fallbacks",
+            "keep_task_prompt_templates_callable",
+        ),
     ),
     AiBackendComponentDefinition(
         component_id="source_registry",
@@ -562,7 +624,10 @@ BACKEND_COMPONENT_DEFINITIONS: tuple[AiBackendComponentDefinition, ...] = (
         reuse_category=AiBackendReuseCategory.REUSE_WITH_ADAPTATION,
         future_targets=(AiScenarioId.BOARD_CONTROL,),
         notes=("Schedule persistence remains useful, but the UX surface will change.",),
-        do_not_break=("keep_existing_schedule_storage_valid", "preserve_run_pause_resume_semantics_until_replacement"),
+        do_not_break=(
+            "keep_existing_schedule_storage_valid",
+            "preserve_run_pause_resume_semantics_until_replacement",
+        ),
     ),
 )
 
@@ -571,14 +636,14 @@ def build_ai_backend_reuse_registry() -> AiBackendReuseRegistry:
     return AiBackendReuseRegistry(BACKEND_COMPONENT_DEFINITIONS)
 
 
-class AiEntrySurfaceKind(str, Enum):
+class AiEntrySurfaceKind(StrEnum):
     UI = "ui"
     BACKEND = "backend"
     STATUS = "status"
     FUTURE = "future"
 
 
-class AiEntryExposureState(str, Enum):
+class AiEntryExposureState(StrEnum):
     ACTIVE = "active"
     GATED = "gated"
     HIDDEN = "hidden"
@@ -586,7 +651,7 @@ class AiEntryExposureState(str, Enum):
     REPLACED = "replaced"
 
 
-class AiEntryDeactivationPolicy(str, Enum):
+class AiEntryDeactivationPolicy(StrEnum):
     KEEP = "keep"
     GATE = "gate"
     LATER_HIDE = "later_hide"
@@ -819,7 +884,9 @@ LEGACY_DEACTIVATION_MAP: tuple[AiEntrySurfaceDefinition, ...] = (
         replacement_module="Module 1.3 Card Enrichment Pipeline",
         rollout_dependency="full_card_enrichment rollout",
         future_module_owner="Module 1.3 Card Enrichment Pipeline",
-        notes=("Scheduled follow-up and on-create triggers remain part of current autofill plumbing.",),
+        notes=(
+            "Scheduled follow-up and on-create triggers remain part of current autofill plumbing.",
+        ),
     ),
     AiEntrySurfaceDefinition(
         entry_id="future_ai_chat_window",
@@ -877,7 +944,9 @@ def _entry_replacement_scenarios(entry: AiEntrySurfaceDefinition) -> tuple[AiSce
     return tuple(resolved)
 
 
-def _entry_has_enabled_replacement(entry: AiEntrySurfaceDefinition, mode_config: AiModeConfig) -> bool:
+def _entry_has_enabled_replacement(
+    entry: AiEntrySurfaceDefinition, mode_config: AiModeConfig
+) -> bool:
     for scenario_id in _entry_replacement_scenarios(entry):
         scenario_state = mode_config.scenario_state.get(scenario_id)
         if scenario_state and scenario_state.enabled:
@@ -885,7 +954,9 @@ def _entry_has_enabled_replacement(entry: AiEntrySurfaceDefinition, mode_config:
     return False
 
 
-def _entry_has_primary_replacement(entry: AiEntrySurfaceDefinition, mode_config: AiModeConfig) -> bool:
+def _entry_has_primary_replacement(
+    entry: AiEntrySurfaceDefinition, mode_config: AiModeConfig
+) -> bool:
     for scenario_id in _entry_replacement_scenarios(entry):
         scenario_state = mode_config.scenario_state.get(scenario_id)
         if scenario_state and scenario_state.primary_interactive:
@@ -897,7 +968,9 @@ def build_ai_entry_surface_registry() -> AiEntrySurfaceRegistry:
     return AiEntrySurfaceRegistry(LEGACY_DEACTIVATION_MAP)
 
 
-def _entry_rollout_state(entry: AiEntrySurfaceDefinition, flags: AiFeatureFlags, mode_config: AiModeConfig) -> AiEntryExposureState:
+def _entry_rollout_state(
+    entry: AiEntrySurfaceDefinition, flags: AiFeatureFlags, mode_config: AiModeConfig
+) -> AiEntryExposureState:
     if entry.surface_kind == AiEntrySurfaceKind.STATUS:
         return AiEntryExposureState.ACTIVE
     if entry.entry_id == "agent_enqueue_task_api":
@@ -905,12 +978,20 @@ def _entry_rollout_state(entry: AiEntrySurfaceDefinition, flags: AiFeatureFlags,
     replacement_enabled = _entry_has_enabled_replacement(entry, mode_config)
     replacement_primary = _entry_has_primary_replacement(entry, mode_config)
     if entry.surface_kind == AiEntrySurfaceKind.BACKEND:
-        if entry.entry_id in {"agent_scheduled_tasks_api", "set_card_ai_autofill_api", "card_created_auto_trigger"}:
+        if entry.entry_id in {
+            "agent_scheduled_tasks_api",
+            "set_card_ai_autofill_api",
+            "card_created_auto_trigger",
+        }:
             if replacement_primary:
                 return AiEntryExposureState.REPLACED
             if replacement_enabled:
                 return AiEntryExposureState.GATED
-            return AiEntryExposureState.LEGACY_ONLY if flags.legacy_ux_enabled else AiEntryExposureState.HIDDEN
+            return (
+                AiEntryExposureState.LEGACY_ONLY
+                if flags.legacy_ux_enabled
+                else AiEntryExposureState.HIDDEN
+            )
         return AiEntryExposureState.ACTIVE
     if entry.surface_kind == AiEntrySurfaceKind.FUTURE:
         if entry.entry_id == "future_card_enrichment_trigger" and replacement_enabled:
@@ -921,7 +1002,11 @@ def _entry_rollout_state(entry: AiEntrySurfaceDefinition, flags: AiFeatureFlags,
     if replacement_primary:
         return AiEntryExposureState.REPLACED
     if replacement_enabled:
-        return AiEntryExposureState.LEGACY_ONLY if flags.legacy_ux_enabled else AiEntryExposureState.REPLACED
+        return (
+            AiEntryExposureState.LEGACY_ONLY
+            if flags.legacy_ux_enabled
+            else AiEntryExposureState.REPLACED
+        )
     if flags.legacy_ux_enabled:
         if entry.deactivation_policy == AiEntryDeactivationPolicy.KEEP:
             return AiEntryExposureState.ACTIVE
@@ -939,7 +1024,9 @@ def get_ai_entry_surface_map() -> dict[str, dict[str, Any]]:
     return {item.entry_id: item.to_dict() for item in LEGACY_DEACTIVATION_MAP}
 
 
-def get_ai_entry_exposure_map(flags: AiFeatureFlags | None = None, mode_config: AiModeConfig | None = None) -> dict[str, dict[str, Any]]:
+def get_ai_entry_exposure_map(
+    flags: AiFeatureFlags | None = None, mode_config: AiModeConfig | None = None
+) -> dict[str, dict[str, Any]]:
     resolved_flags = flags or get_ai_feature_flags()
     resolved_mode = mode_config or get_ai_mode_config(resolved_flags)
     return {
@@ -984,7 +1071,9 @@ def get_ai_feature_flags() -> AiFeatureFlags:
     return AiFeatureFlags(
         legacy_ux_enabled=_env_flag("MINIMAL_KANBAN_AI_LEGACY_UX_ENABLED", default=True),
         ai_chat_enabled=_env_flag("MINIMAL_KANBAN_AI_CHAT_ENABLED", default=False),
-        full_card_enrichment_enabled=_env_flag("MINIMAL_KANBAN_FULL_CARD_ENRICHMENT_ENABLED", default=True),
+        full_card_enrichment_enabled=_env_flag(
+            "MINIMAL_KANBAN_FULL_CARD_ENRICHMENT_ENABLED", default=True
+        ),
         board_control_enabled=_env_flag("MINIMAL_KANBAN_BOARD_CONTROL_ENABLED", default=False),
     )
 
@@ -996,7 +1085,9 @@ def get_ai_mode_config(flags: AiFeatureFlags | None = None) -> AiModeConfig:
         item.scenario_id: registry.mode_state_for(item.scenario_id, resolved_flags)
         for item in registry.scenarios
     }
-    return AiModeConfig(legacy_ux_enabled=resolved_flags.legacy_ux_enabled, scenario_state=scenario_state)
+    return AiModeConfig(
+        legacy_ux_enabled=resolved_flags.legacy_ux_enabled, scenario_state=scenario_state
+    )
 
 
 def get_ai_effective_mode(flags: AiFeatureFlags | None = None) -> dict[str, Any]:
@@ -1027,7 +1118,9 @@ def get_ai_effective_mode(flags: AiFeatureFlags | None = None) -> dict[str, Any]
         for scenario_id, state in mode_config.scenario_state.items()
         if state.background_only
     ]
-    available = [scenario_id for scenario_id, item in scenario_map.items() if bool(item.get("enabled"))]
+    available = [
+        scenario_id for scenario_id, item in scenario_map.items() if bool(item.get("enabled"))
+    ]
     return {
         "legacy_ux_enabled": bool(resolved_flags.legacy_ux_enabled),
         "primary_interactive_path": primary,
@@ -1075,7 +1168,8 @@ def get_ai_remodel_status_payload() -> dict[str, Any]:
         "backend_legacy_only": {
             key: value
             for key, value in backend_component_registry.items()
-            if str(value.get("reuse_category")) == AiBackendReuseCategory.LEGACY_ONLY_OR_RETIRE_LATER.value
+            if str(value.get("reuse_category"))
+            == AiBackendReuseCategory.LEGACY_ONLY_OR_RETIRE_LATER.value
         },
         "legacy_scenario_names": list(LEGACY_SCENARIO_NAMES),
     }

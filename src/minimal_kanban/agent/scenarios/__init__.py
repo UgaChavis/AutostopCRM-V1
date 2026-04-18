@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .base import ScenarioContext, ScenarioExecutor, ScenarioExecutionResult
+from .base import ScenarioContext, ScenarioExecutionResult, ScenarioExecutor
 from .dtc_lookup import DtcLookupScenarioExecutor
 from .fault_research import FaultResearchScenarioExecutor
 from .maintenance_lookup import MaintenanceLookupScenarioExecutor

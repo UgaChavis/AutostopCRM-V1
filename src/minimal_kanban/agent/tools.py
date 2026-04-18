@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
-from typing import Any, Callable
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
-from .automotive_tools import AutomotiveLookupService
 from ..mcp.client import BoardApiClient
+from .automotive_tools import AutomotiveLookupService
 
 
 @dataclass(frozen=True)
@@ -77,7 +78,9 @@ class AgentToolExecutor:
                 },
             ),
             AgentToolDefinition("list_columns", "List board columns.", {}),
-            AgentToolDefinition("get_board_snapshot", "Get board snapshot.", {"archive_limit": "optional int"}),
+            AgentToolDefinition(
+                "get_board_snapshot", "Get board snapshot.", {"archive_limit": "optional int"}
+            ),
             AgentToolDefinition(
                 "search_cards",
                 "Search cards by text and filters.",
@@ -137,7 +140,11 @@ class AgentToolExecutor:
                 },
             ),
             AgentToolDefinition("archive_card", "Archive a card.", {"card_id": "required string"}),
-            AgentToolDefinition("restore_card", "Restore an archived card.", {"card_id": "required string", "column": "optional string"}),
+            AgentToolDefinition(
+                "restore_card",
+                "Restore an archived card.",
+                {"card_id": "required string", "column": "optional string"},
+            ),
             AgentToolDefinition(
                 "list_repair_orders",
                 "List repair orders.",
@@ -149,7 +156,9 @@ class AgentToolExecutor:
                     "sort_dir": "optional string",
                 },
             ),
-            AgentToolDefinition("get_repair_order", "Get repair order by card id.", {"card_id": "required string"}),
+            AgentToolDefinition(
+                "get_repair_order", "Get repair order by card id.", {"card_id": "required string"}
+            ),
             AgentToolDefinition(
                 "update_repair_order",
                 "Update repair order object for a card.",
@@ -171,9 +180,15 @@ class AgentToolExecutor:
                 {"card_id": "required string", "status": "required string"},
             ),
             AgentToolDefinition("list_cashboxes", "List cashboxes.", {"limit": "optional int"}),
-            AgentToolDefinition("get_cashbox", "Get one cashbox with transactions.", {"cashbox_id": "required string", "transaction_limit": "optional int"}),
+            AgentToolDefinition(
+                "get_cashbox",
+                "Get one cashbox with transactions.",
+                {"cashbox_id": "required string", "transaction_limit": "optional int"},
+            ),
             AgentToolDefinition("create_cashbox", "Create a cashbox.", {"name": "required string"}),
-            AgentToolDefinition("delete_cashbox", "Delete a cashbox.", {"cashbox_id": "required string"}),
+            AgentToolDefinition(
+                "delete_cashbox", "Delete a cashbox.", {"cashbox_id": "required string"}
+            ),
             AgentToolDefinition(
                 "create_cash_transaction",
                 "Create cashbox income or expense.",
@@ -192,7 +207,11 @@ class AgentToolExecutor:
             AgentToolDefinition(
                 "find_part_numbers",
                 "Find OEM/catalog part numbers with trusted whitelisted sources.",
-                {"query": "required string", "vehicle": "optional string/object", "limit": "optional int"},
+                {
+                    "query": "required string",
+                    "vehicle": "optional string/object",
+                    "limit": "optional int",
+                },
             ),
             AgentToolDefinition(
                 "search_part_numbers",
@@ -206,7 +225,11 @@ class AgentToolExecutor:
             AgentToolDefinition(
                 "estimate_price_ru",
                 "Estimate Russian-market part prices from trusted whitelisted sources.",
-                {"part_number": "required string", "vehicle": "optional string/object", "limit": "optional int"},
+                {
+                    "part_number": "required string",
+                    "vehicle": "optional string/object",
+                    "limit": "optional int",
+                },
             ),
             AgentToolDefinition(
                 "lookup_part_prices",
@@ -220,12 +243,22 @@ class AgentToolExecutor:
             AgentToolDefinition(
                 "decode_dtc",
                 "Decode an OBD/DTC trouble code using trusted whitelisted sources.",
-                {"code": "required string", "vehicle": "optional string/object", "vehicle_context": "optional object", "limit": "optional int"},
+                {
+                    "code": "required string",
+                    "vehicle": "optional string/object",
+                    "vehicle_context": "optional object",
+                    "limit": "optional int",
+                },
             ),
             AgentToolDefinition(
                 "search_fault_info",
                 "Search fault symptoms and repair notes with trusted whitelisted sources.",
-                {"query": "required string", "vehicle": "optional string/object", "vehicle_context": "optional object", "limit": "optional int"},
+                {
+                    "query": "required string",
+                    "vehicle": "optional string/object",
+                    "vehicle_context": "optional object",
+                    "limit": "optional int",
+                },
             ),
             AgentToolDefinition(
                 "estimate_maintenance",
@@ -259,7 +292,9 @@ class AgentToolExecutor:
     ) -> str:
         lines: list[str] = []
         for item in self.definitions:
-            if not self._definition_allowed(item.name, task_type=task_type, context_kind=context_kind):
+            if not self._definition_allowed(
+                item.name, task_type=task_type, context_kind=context_kind
+            ):
                 continue
             lines.append(f"- {item.name}: {item.description}")
             lines.append(f"  args: {json.dumps(item.args_schema, ensure_ascii=False)}")
@@ -292,7 +327,9 @@ class AgentToolExecutor:
         return self._board_api.list_columns()
 
     def _get_board_snapshot(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self._board_api.get_board_snapshot(archive_limit=self._maybe_int(args.get("archive_limit")))
+        return self._board_api.get_board_snapshot(
+            archive_limit=self._maybe_int(args.get("archive_limit"))
+        )
 
     def _search_cards(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.search_cards(
@@ -348,7 +385,9 @@ class AgentToolExecutor:
         )
 
     def _archive_card(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self._board_api.archive_card(card_id=self._required_text(args, "card_id"), actor_name=self._actor_name)
+        return self._board_api.archive_card(
+            card_id=self._required_text(args, "card_id"), actor_name=self._actor_name
+        )
 
     def _restore_card(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.restore_card(
@@ -407,10 +446,14 @@ class AgentToolExecutor:
         )
 
     def _create_cashbox(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self._board_api.create_cashbox(self._required_text(args, "name"), actor_name=self._actor_name)
+        return self._board_api.create_cashbox(
+            self._required_text(args, "name"), actor_name=self._actor_name
+        )
 
     def _delete_cashbox(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self._board_api.delete_cashbox(self._required_text(args, "cashbox_id"), actor_name=self._actor_name)
+        return self._board_api.delete_cashbox(
+            self._required_text(args, "cashbox_id"), actor_name=self._actor_name
+        )
 
     def _create_cash_transaction(self, args: dict[str, Any]) -> dict[str, Any]:
         amount = args.get("amount")
@@ -546,7 +589,9 @@ class AgentToolExecutor:
             raise ExternalToolBudgetExceeded("External web tool budget exceeded for this task.")
         self._external_request_budget -= 1
 
-    def _definition_allowed(self, tool_name: str, *, task_type: str | None, context_kind: str | None) -> bool:
+    def _definition_allowed(
+        self, tool_name: str, *, task_type: str | None, context_kind: str | None
+    ) -> bool:
         normalized_type = str(task_type or "").strip().lower()
         normalized_context = str(context_kind or "").strip().lower()
         all_tools = {item.name for item in self.definitions}
@@ -603,33 +648,49 @@ class AgentToolExecutor:
         elif normalized_type == "card_cleanup":
             allowed = core_board | card_update | repair_order | automotive
         elif normalized_type == "vin_decode":
-            allowed = card_update | {"get_repair_order"} | {"decode_vin", "search_web", "fetch_page_excerpt"}
+            allowed = (
+                card_update
+                | {"get_repair_order"}
+                | {"decode_vin", "search_web", "fetch_page_excerpt"}
+            )
         elif normalized_type == "parts_lookup":
-            allowed = card_update | {"get_repair_order"} | {
-                "decode_vin",
-                "find_part_numbers",
-                "search_part_numbers",
-                "estimate_price_ru",
-                "lookup_part_prices",
-                "decode_dtc",
-                "search_fault_info",
-                "search_web",
-                "fetch_page_excerpt",
-            }
+            allowed = (
+                card_update
+                | {"get_repair_order"}
+                | {
+                    "decode_vin",
+                    "find_part_numbers",
+                    "search_part_numbers",
+                    "estimate_price_ru",
+                    "lookup_part_prices",
+                    "decode_dtc",
+                    "search_fault_info",
+                    "search_web",
+                    "fetch_page_excerpt",
+                }
+            )
         elif normalized_type == "maintenance_estimate":
-            allowed = card_update | {"get_repair_order"} | {
-                "estimate_maintenance",
-                "search_part_numbers",
-                "lookup_part_prices",
-                "decode_vin",
-            }
+            allowed = (
+                card_update
+                | {"get_repair_order"}
+                | {
+                    "estimate_maintenance",
+                    "search_part_numbers",
+                    "lookup_part_prices",
+                    "decode_vin",
+                }
+            )
         elif normalized_type == "dtc_lookup":
-            allowed = card_update | {"get_repair_order"} | {
-                "decode_dtc",
-                "search_fault_info",
-                "search_web",
-                "fetch_page_excerpt",
-            }
+            allowed = (
+                card_update
+                | {"get_repair_order"}
+                | {
+                    "decode_dtc",
+                    "search_fault_info",
+                    "search_web",
+                    "fetch_page_excerpt",
+                }
+            )
         elif normalized_type == "repair_order_assist":
             allowed = card_update | repair_order | automotive
         elif normalized_type == "cash_review":

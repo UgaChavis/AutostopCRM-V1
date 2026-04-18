@@ -30,6 +30,7 @@ Use this file for durable notes that should not be rediscovered every session.
 - dead legacy server-agent compatibility stubs were removed from `card_service.py`; only the live `set_card_ai_autofill` and `run_full_card_enrichment` paths remain in the class body
 - a dead helper alias `_extract_autofill_symptom_query_legacy_unused` was removed from `agent/runner.py`; the canonical helper is `_extract_autofill_symptom_query`
 - the green-button flow no longer calls `agent_status()` just to set `server_available`; the button path now treats an attached agent control as available and skips that extra hot-path status probe
+- `agent/remodel.py` now uses `StrEnum` for its AI enum sets, and the surrounding `agent/*` modules were reformatted so import blocks stay canonical without touching behavior
 
 ## Current Known Cautions
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from copy import deepcopy
-import re
 import json
+import re
+from copy import deepcopy
 from typing import Any
 from urllib.parse import quote
 
@@ -11,11 +11,12 @@ import httpx
 from .source_registry import PARTS_CATALOG_SOURCES, PARTS_PRICE_SOURCES, trusted_domains
 from .web_tools import DuckDuckGoSearchClient, InternetToolError
 
-
 _PART_NUMBER_PATTERN = re.compile(r"\b[A-Z0-9-]{5,18}\b")
 
 
-_PRICE_PATTERN = re.compile(r"(\d[\d\s]{2,}(?:[.,]\d{1,2})?)\s*(₽|руб(?:\.|лей|ля)?|KZT|₸|\$|€)", re.I)
+_PRICE_PATTERN = re.compile(
+    r"(\d[\d\s]{2,}(?:[.,]\d{1,2})?)\s*(₽|руб(?:\.|лей|ля)?|KZT|₸|\$|€)", re.I
+)
 _DEFAULT_SERVICE_TYPE = "ТО"
 _MAINTENANCE_HINTS = ("то", "техобслуж", "техничес", "service", "oil")
 _BRAKE_HINTS = ("торм", "brake")
@@ -87,18 +88,28 @@ class AutomotiveLookupService:
             lambda: self._decode_vin_uncached(normalized_vin),
         )
 
-    def search_part_numbers(self, *, vehicle_context: dict[str, Any] | None, part_query: str, limit: int = 8) -> dict[str, Any]:
+    def search_part_numbers(
+        self, *, vehicle_context: dict[str, Any] | None, part_query: str, limit: int = 8
+    ) -> dict[str, Any]:
         normalized_query = self._required_query(part_query)
         context = self._normalize_vehicle_context(vehicle_context)
         return self._cached_result(
             "search_part_numbers",
             {"vehicle_context": context, "part_query": normalized_query, "limit": int(limit or 8)},
-            lambda: self._search_part_numbers_uncached(context=context, normalized_query=normalized_query, limit=limit),
+            lambda: self._search_part_numbers_uncached(
+                context=context, normalized_query=normalized_query, limit=limit
+            ),
         )
 
-    def find_part_numbers(self, *, query: str, vehicle: dict[str, Any] | str | None = None, limit: int = 5) -> dict[str, Any]:
-        vehicle_context = vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()}
-        return self.search_part_numbers(vehicle_context=vehicle_context, part_query=query, limit=limit)
+    def find_part_numbers(
+        self, *, query: str, vehicle: dict[str, Any] | str | None = None, limit: int = 5
+    ) -> dict[str, Any]:
+        vehicle_context = (
+            vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()}
+        )
+        return self.search_part_numbers(
+            vehicle_context=vehicle_context, part_query=query, limit=limit
+        )
 
     def lookup_part_prices(
         self,
@@ -111,12 +122,22 @@ class AutomotiveLookupService:
         context = self._normalize_vehicle_context(vehicle_context)
         return self._cached_result(
             "lookup_part_prices",
-            {"vehicle_context": context, "part_number_or_query": normalized_query, "limit": int(limit or 8)},
-            lambda: self._lookup_part_prices_uncached(context=context, normalized_query=normalized_query, limit=limit),
+            {
+                "vehicle_context": context,
+                "part_number_or_query": normalized_query,
+                "limit": int(limit or 8),
+            },
+            lambda: self._lookup_part_prices_uncached(
+                context=context, normalized_query=normalized_query, limit=limit
+            ),
         )
 
-    def estimate_price_ru(self, *, part_number: str, vehicle: dict[str, Any] | str | None = None, limit: int = 5) -> dict[str, Any]:
-        vehicle_context = vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()}
+    def estimate_price_ru(
+        self, *, part_number: str, vehicle: dict[str, Any] | str | None = None, limit: int = 5
+    ) -> dict[str, Any]:
+        vehicle_context = (
+            vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()}
+        )
         payload = self.lookup_part_prices(
             vehicle_context=vehicle_context,
             part_number_or_query=part_number,
@@ -134,8 +155,13 @@ class AutomotiveLookupService:
     ) -> dict[str, Any]:
         return self._cached_result(
             "estimate_maintenance",
-            {"vehicle_context": self._normalize_vehicle_context(vehicle_context), "service_type": self._normalize_service_type(service_type)},
-            lambda: self._estimate_maintenance_uncached(vehicle_context=vehicle_context, service_type=service_type),
+            {
+                "vehicle_context": self._normalize_vehicle_context(vehicle_context),
+                "service_type": self._normalize_service_type(service_type),
+            },
+            lambda: self._estimate_maintenance_uncached(
+                vehicle_context=vehicle_context, service_type=service_type
+            ),
         )
 
     def _decode_vin_uncached(self, normalized_vin: str) -> dict[str, Any]:
@@ -145,7 +171,9 @@ class AutomotiveLookupService:
             + "?format=json"
         )
         try:
-            with httpx.Client(timeout=self._timeout_seconds, headers={"User-Agent": "Mozilla/5.0 AutoStopCRM/1.0"}) as client:
+            with httpx.Client(
+                timeout=self._timeout_seconds, headers={"User-Agent": "Mozilla/5.0 AutoStopCRM/1.0"}
+            ) as client:
                 response = client.get(url, follow_redirects=True)
                 response.raise_for_status()
         except httpx.HTTPError as exc:
@@ -162,8 +190,12 @@ class AutomotiveLookupService:
             "model_year": self._text(row.get("ModelYear")),
             "vehicle_type": self._text(row.get("VehicleType")),
             "body_class": self._text(row.get("BodyClass")),
-            "engine_model": self._join_values(row.get("EngineModel"), row.get("DisplacementL"), row.get("FuelTypePrimary")),
-            "transmission": self._join_values(row.get("TransmissionStyle"), row.get("TransmissionSpeeds")),
+            "engine_model": self._join_values(
+                row.get("EngineModel"), row.get("DisplacementL"), row.get("FuelTypePrimary")
+            ),
+            "transmission": self._join_values(
+                row.get("TransmissionStyle"), row.get("TransmissionSpeeds")
+            ),
             "drive_type": self._text(row.get("DriveType")),
             "plant_country": self._text(row.get("PlantCountry")),
             "plant_company": self._text(row.get("Manufacturer")),
@@ -172,12 +204,14 @@ class AutomotiveLookupService:
             "source_url": url,
         }
 
-    def _search_part_numbers_uncached(self, *, context: dict[str, Any], normalized_query: str, limit: int) -> dict[str, Any]:
+    def _search_part_numbers_uncached(
+        self, *, context: dict[str, Any], normalized_query: str, limit: int
+    ) -> dict[str, Any]:
         query_variants = self._expand_part_query_variants(normalized_query)
         queries: list[str] = []
         for variant in query_variants[:3]:
             if context.get("vin"):
-                queries.append(f'{context["vin"]} {variant} OEM part number')
+                queries.append(f"{context['vin']} {variant} OEM part number")
             queries.append(self._build_vehicle_query(context, variant, suffix="OEM part number"))
             queries.append(self._build_vehicle_query(context, variant, suffix="catalog"))
         results = self._search_domains(
@@ -196,7 +230,9 @@ class AutomotiveLookupService:
             "source_group": [item.label for item in PARTS_CATALOG_SOURCES],
         }
 
-    def _lookup_part_prices_uncached(self, *, context: dict[str, Any], normalized_query: str, limit: int) -> dict[str, Any]:
+    def _lookup_part_prices_uncached(
+        self, *, context: dict[str, Any], normalized_query: str, limit: int
+    ) -> dict[str, Any]:
         quoted = f'"{normalized_query}"'
         queries = [
             f"{quoted} price",
@@ -210,7 +246,9 @@ class AutomotiveLookupService:
         )
         enriched: list[dict[str, Any]] = []
         for item in search_results:
-            price_matches = self._extract_prices(" ".join([item.get("title", ""), item.get("snippet", "")]))
+            price_matches = self._extract_prices(
+                " ".join([item.get("title", ""), item.get("snippet", "")])
+            )
             page_excerpt = ""
             if not price_matches:
                 try:
@@ -234,7 +272,9 @@ class AutomotiveLookupService:
             "source_group": [item.label for item in PARTS_PRICE_SOURCES],
         }
 
-    def _estimate_maintenance_uncached(self, *, vehicle_context: dict[str, Any] | None, service_type: str) -> dict[str, Any]:
+    def _estimate_maintenance_uncached(
+        self, *, vehicle_context: dict[str, Any] | None, service_type: str
+    ) -> dict[str, Any]:
         context = self._normalize_vehicle_context(vehicle_context)
         normalized_service = self._normalize_service_type(service_type)
         lower = normalized_service.casefold()
@@ -275,18 +315,38 @@ class AutomotiveLookupService:
         if self._contains_any(lower, _SUSPENSION_HINTS):
             self._append_unique_rows(works, [{"name": "Диагностика подвески", "quantity": "1"}])
         if self._contains_any(lower, _SPARK_HINTS):
-            self._append_unique_rows(materials, [{"name": "Комплект свечей зажигания", "quantity": "1"}])
+            self._append_unique_rows(
+                materials, [{"name": "Комплект свечей зажигания", "quantity": "1"}]
+            )
             self._append_unique_rows(works, [{"name": "Замена свечей зажигания", "quantity": "1"}])
         if mileage_value >= 60_000:
-            self._append_unique_rows(materials, [{"name": "Тормозная жидкость", "quantity": "1"}, {"name": "Свечи зажигания", "quantity": "1 комплект"}])
-            self._append_unique_rows(works, [{"name": "Проверка свечей зажигания и катушек", "quantity": "1"}])
+            self._append_unique_rows(
+                materials,
+                [
+                    {"name": "Тормозная жидкость", "quantity": "1"},
+                    {"name": "Свечи зажигания", "quantity": "1 комплект"},
+                ],
+            )
+            self._append_unique_rows(
+                works, [{"name": "Проверка свечей зажигания и катушек", "quantity": "1"}]
+            )
         if mileage_value >= 90_000:
-            self._append_unique_rows(materials, [{"name": "Антифриз", "quantity": "по объему"}, {"name": "Ремень навесного оборудования", "quantity": "1"}])
-            self._append_unique_rows(works, [{"name": "Проверка приводного ремня и роликов", "quantity": "1"}])
+            self._append_unique_rows(
+                materials,
+                [
+                    {"name": "Антифриз", "quantity": "по объему"},
+                    {"name": "Ремень навесного оборудования", "quantity": "1"},
+                ],
+            )
+            self._append_unique_rows(
+                works, [{"name": "Проверка приводного ремня и роликов", "quantity": "1"}]
+            )
         if mileage_value >= 120_000:
             self._append_unique_rows(works, [{"name": "Проверка масла АКПП/МКПП", "quantity": "1"}])
         if context.get("vin"):
-            notes.append("VIN доступен: можно выполнить точный подбор расходников и каталожных номеров.")
+            notes.append(
+                "VIN доступен: можно выполнить точный подбор расходников и каталожных номеров."
+            )
         if mileage_text:
             notes.append(f"Пробег в карточке: {mileage_text} км.")
         engine_oil_capacity = self._text(context.get("oil_engine_capacity_l"))
@@ -306,13 +366,23 @@ class AutomotiveLookupService:
             "notes": notes,
         }
 
-    def search_web(self, *, query: str, limit: int = 5, allowed_domains: list[str] | None = None) -> dict[str, Any]:
+    def search_web(
+        self, *, query: str, limit: int = 5, allowed_domains: list[str] | None = None
+    ) -> dict[str, Any]:
         normalized_query = self._required_query(query)
-        normalized_domains = sorted({str(item or "").strip() for item in (allowed_domains or []) if str(item or "").strip()})
+        normalized_domains = sorted(
+            {str(item or "").strip() for item in (allowed_domains or []) if str(item or "").strip()}
+        )
         return self._cached_result(
             "search_web",
-            {"query": normalized_query, "limit": int(limit or 5), "allowed_domains": normalized_domains},
-            lambda: self._search_web_uncached(query=normalized_query, limit=limit, allowed_domains=normalized_domains),
+            {
+                "query": normalized_query,
+                "limit": int(limit or 5),
+                "allowed_domains": normalized_domains,
+            },
+            lambda: self._search_web_uncached(
+                query=normalized_query, limit=limit, allowed_domains=normalized_domains
+            ),
         )
 
     def decode_dtc(
@@ -325,7 +395,9 @@ class AutomotiveLookupService:
     ) -> dict[str, Any]:
         normalized_code = self._required_query(code).upper()
         context = self._normalize_vehicle_context(
-            vehicle_context if isinstance(vehicle_context, dict) else (vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()})
+            vehicle_context
+            if isinstance(vehicle_context, dict)
+            else (vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()})
         )
         return self._cached_result(
             "decode_dtc",
@@ -343,12 +415,16 @@ class AutomotiveLookupService:
     ) -> dict[str, Any]:
         normalized_query = self._required_query(query)
         context = self._normalize_vehicle_context(
-            vehicle_context if isinstance(vehicle_context, dict) else (vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()})
+            vehicle_context
+            if isinstance(vehicle_context, dict)
+            else (vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()})
         )
         return self._cached_result(
             "search_fault_info",
             {"query": normalized_query, "vehicle_context": context, "limit": int(limit or 5)},
-            lambda: self._search_fault_info_uncached(query=normalized_query, context=context, limit=limit),
+            lambda: self._search_fault_info_uncached(
+                query=normalized_query, context=context, limit=limit
+            ),
         )
 
     def fetch_page_excerpt(self, *, url: str, max_chars: int = 2500) -> dict[str, Any]:
@@ -359,30 +435,51 @@ class AutomotiveLookupService:
             lambda: self._fetch_page_excerpt_uncached(url=normalized_url, max_chars=max_chars),
         )
 
-    def _search_web_uncached(self, *, query: str, limit: int, allowed_domains: list[str]) -> dict[str, Any]:
-        results = [item.to_dict() for item in self._search.search(query, limit=limit, allowed_domains=allowed_domains)]
+    def _search_web_uncached(
+        self, *, query: str, limit: int, allowed_domains: list[str]
+    ) -> dict[str, Any]:
+        results = [
+            item.to_dict()
+            for item in self._search.search(query, limit=limit, allowed_domains=allowed_domains)
+        ]
         return {
             "query": str(query or "").strip(),
             "results": results,
         }
 
-    def _decode_dtc_uncached(self, *, code: str, context: dict[str, Any], limit: int) -> dict[str, Any]:
-        query = " ".join(part for part in (context.get("vehicle", ""), code, "DTC code meaning") if part).strip()
+    def _decode_dtc_uncached(
+        self, *, code: str, context: dict[str, Any], limit: int
+    ) -> dict[str, Any]:
+        query = " ".join(
+            part for part in (context.get("vehicle", ""), code, "DTC code meaning") if part
+        ).strip()
         return {
             "code": code,
             "vehicle_context": context,
             "query": query,
-            "results": [item.to_dict() for item in self._search.search(query, limit=limit, allowed_domains=trusted_domains(kind="dtc"))],
+            "results": [
+                item.to_dict()
+                for item in self._search.search(
+                    query, limit=limit, allowed_domains=trusted_domains(kind="dtc")
+                )
+            ],
             "source_group": ["DTC lookup"],
         }
 
-    def _search_fault_info_uncached(self, *, query: str, context: dict[str, Any], limit: int) -> dict[str, Any]:
+    def _search_fault_info_uncached(
+        self, *, query: str, context: dict[str, Any], limit: int
+    ) -> dict[str, Any]:
         search_query = self._build_vehicle_query(context, query)
         return {
             "query": query,
             "vehicle_context": context,
             "search_query": search_query,
-            "results": [item.to_dict() for item in self._search.search(search_query, limit=limit, allowed_domains=trusted_domains(kind="fault"))],
+            "results": [
+                item.to_dict()
+                for item in self._search.search(
+                    search_query, limit=limit, allowed_domains=trusted_domains(kind="fault")
+                )
+            ],
             "source_group": ["Fault search"],
         }
 
@@ -416,7 +513,9 @@ class AutomotiveLookupService:
             "coolant_capacity_l": self._text(payload.get("coolant_capacity_l")),
         }
 
-    def _build_vehicle_query(self, context: dict[str, Any], item_query: str, *, suffix: str = "") -> str:
+    def _build_vehicle_query(
+        self, context: dict[str, Any], item_query: str, *, suffix: str = ""
+    ) -> str:
         parts = [
             context.get("make", ""),
             context.get("model", ""),
@@ -457,7 +556,9 @@ class AutomotiveLookupService:
                 query_variants.append(f"site:{domain} {query}")
             for query_variant in query_variants:
                 try:
-                    batch = self._search.search(query_variant, limit=per_query_limit, allowed_domains=allowed_domains)
+                    batch = self._search.search(
+                        query_variant, limit=per_query_limit, allowed_domains=allowed_domains
+                    )
                 except InternetToolError:
                     continue
                 for result in batch:
@@ -482,7 +583,9 @@ class AutomotiveLookupService:
             prices.append({"amount": amount.strip(), "currency": currency.strip()})
         return prices[:5]
 
-    def _extract_part_numbers_from_results(self, results: list[dict[str, Any]]) -> list[dict[str, str]]:
+    def _extract_part_numbers_from_results(
+        self, results: list[dict[str, Any]]
+    ) -> list[dict[str, str]]:
         candidates: list[dict[str, Any]] = []
         seen: set[str] = set()
         for item in results:
@@ -543,7 +646,9 @@ class AutomotiveLookupService:
                 enriched.append(updated)
                 continue
             try:
-                excerpt_payload = self._search.fetch_page_excerpt(str(updated.get("url", "") or ""), max_chars=1800)
+                excerpt_payload = self._search.fetch_page_excerpt(
+                    str(updated.get("url", "") or ""), max_chars=1800
+                )
             except InternetToolError:
                 enriched.append(updated)
                 continue
@@ -660,7 +765,9 @@ class AutomotiveLookupService:
     def _contains_any(self, haystack: str, needles: tuple[str, ...]) -> bool:
         return any(needle in haystack for needle in needles)
 
-    def _append_unique_rows(self, rows: list[dict[str, str]], additions: list[dict[str, str]]) -> None:
+    def _append_unique_rows(
+        self, rows: list[dict[str, str]], additions: list[dict[str, str]]
+    ) -> None:
         existing = {str(item.get("name") or "").strip().casefold() for item in rows}
         for item in additions:
             name = str(item.get("name") or "").strip()

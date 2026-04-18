@@ -20,7 +20,6 @@ from .config import (
     get_agent_tasks_file,
 )
 
-
 DEFAULT_STATUS = {
     "running": False,
     "current_task_id": None,
@@ -107,7 +106,9 @@ class AgentStorage:
     def read_status(self) -> dict[str, Any]:
         with self._lock, self._process_lock.acquire():
             payload = self._read_json(self._status_file, DEFAULT_STATUS)
-            normalized = self._normalize_status_payload(payload if isinstance(payload, dict) else {})
+            normalized = self._normalize_status_payload(
+                payload if isinstance(payload, dict) else {}
+            )
             return normalized
 
     def update_status(self, **updates: Any) -> dict[str, Any]:
@@ -116,7 +117,11 @@ class AgentStorage:
             current = self._normalize_status_payload(payload if isinstance(payload, dict) else {})
             board_control_updates = updates.get("board_control")
             if isinstance(board_control_updates, dict):
-                merged_board_control = dict(current.get("board_control") if isinstance(current.get("board_control"), dict) else {})
+                merged_board_control = dict(
+                    current.get("board_control")
+                    if isinstance(current.get("board_control"), dict)
+                    else {}
+                )
                 merged_board_control.update(board_control_updates)
                 updates = dict(updates)
                 updates["board_control"] = merged_board_control
@@ -164,19 +169,27 @@ class AgentStorage:
             self._write_json(self._tasks_file, tasks)
         return task
 
-    def list_tasks(self, *, limit: int = 50, statuses: set[str] | None = None) -> list[dict[str, Any]]:
+    def list_tasks(
+        self, *, limit: int = 50, statuses: set[str] | None = None
+    ) -> list[dict[str, Any]]:
         with self._lock, self._process_lock.acquire():
             tasks = self._read_tasks_locked()
         if statuses:
             tasks = [task for task in tasks if str(task.get("status", "")).strip() in statuses]
-        tasks.sort(key=lambda item: (str(item.get("created_at", "")), str(item.get("id", ""))), reverse=True)
+        tasks.sort(
+            key=lambda item: (str(item.get("created_at", "")), str(item.get("id", ""))),
+            reverse=True,
+        )
         return tasks[:limit]
 
     def list_schedules(self) -> list[dict[str, Any]]:
         with self._lock, self._process_lock.acquire():
             payload = self._read_json(self._schedules_file, [])
         items = payload if isinstance(payload, list) else []
-        items.sort(key=lambda item: (str(item.get("created_at", "")), str(item.get("id", ""))), reverse=True)
+        items.sort(
+            key=lambda item: (str(item.get("created_at", "")), str(item.get("id", ""))),
+            reverse=True,
+        )
         return items
 
     def get_schedule(self, schedule_id: str) -> dict[str, Any] | None:
@@ -260,11 +273,7 @@ class AgentStorage:
                 continue
             metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
             context = metadata.get("context") if isinstance(metadata.get("context"), dict) else {}
-            metadata_card_id = str(
-                context.get("card_id")
-                or metadata.get("card_id")
-                or ""
-            ).strip()
+            metadata_card_id = str(context.get("card_id") or metadata.get("card_id") or "").strip()
             if metadata_card_id != normalized_id:
                 continue
             if not normalized_purpose:
@@ -302,7 +311,9 @@ class AgentStorage:
             ]
             if not pending:
                 return None
-            pending.sort(key=lambda item: (str(item[1].get("created_at", "")), str(item[1].get("id", ""))))
+            pending.sort(
+                key=lambda item: (str(item[1].get("created_at", "")), str(item[1].get("id", "")))
+            )
             index, task = pending[0]
             task = dict(task)
             task["status"] = "running"
@@ -420,9 +431,7 @@ class AgentStorage:
 
     def _compact_tasks_locked(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         active_tasks = [
-            task
-            for task in tasks
-            if str(task.get("status", "")).strip() in {"pending", "running"}
+            task for task in tasks if str(task.get("status", "")).strip() in {"pending", "running"}
         ]
         finished_tasks = [
             task
@@ -430,9 +439,7 @@ class AgentStorage:
             if str(task.get("status", "")).strip() not in {"pending", "running"}
         ]
         if len(finished_tasks) > self._max_finished_tasks:
-            finished_keep_ids = {
-                id(task) for task in finished_tasks[-self._max_finished_tasks :]
-            }
+            finished_keep_ids = {id(task) for task in finished_tasks[-self._max_finished_tasks :]}
             finished_tasks = [task for task in finished_tasks if id(task) in finished_keep_ids]
         if len(active_tasks) == len(tasks) and len(finished_tasks) == 0:
             return tasks
@@ -445,7 +452,10 @@ class AgentStorage:
             with path.open("a", encoding="utf-8") as handle:
                 handle.write(line)
                 handle.write("\n")
-            if self._compact_threshold_bytes and path.stat().st_size > self._compact_threshold_bytes:
+            if (
+                self._compact_threshold_bytes
+                and path.stat().st_size > self._compact_threshold_bytes
+            ):
                 self._compact_jsonl_locked(path, retention=retention)
 
     def _compact_jsonl_locked(self, path: Path, *, retention: int) -> None:

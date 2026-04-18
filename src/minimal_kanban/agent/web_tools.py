@@ -8,7 +8,6 @@ from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
 import httpx
 
-
 _RESULT_BLOCK_PATTERN = re.compile(r'<div class="result(?:__body)?[^"]*".*?</div>\s*</div>', re.S)
 _RESULT_LINK_PATTERN = re.compile(
     r'<a rel="nofollow" class="result__a" href="(?P<href>[^"]+)">(?P<title>.*?)</a>',
@@ -59,7 +58,9 @@ class DuckDuckGoSearchClient:
             raise InternetToolError("query is required")
         url = f"https://html.duckduckgo.com/html/?q={quote_plus(query_text)}"
         try:
-            with httpx.Client(timeout=self._timeout_seconds, headers={"User-Agent": "Mozilla/5.0 AutoStopCRM/1.0"}) as client:
+            with httpx.Client(
+                timeout=self._timeout_seconds, headers={"User-Agent": "Mozilla/5.0 AutoStopCRM/1.0"}
+            ) as client:
                 response = client.get(url, follow_redirects=True)
                 response.raise_for_status()
         except httpx.HTTPError as exc:
@@ -71,7 +72,9 @@ class DuckDuckGoSearchClient:
         if not normalized_url:
             raise InternetToolError("url is required")
         try:
-            with httpx.Client(timeout=self._timeout_seconds, headers={"User-Agent": "Mozilla/5.0 AutoStopCRM/1.0"}) as client:
+            with httpx.Client(
+                timeout=self._timeout_seconds, headers={"User-Agent": "Mozilla/5.0 AutoStopCRM/1.0"}
+            ) as client:
                 response = client.get(normalized_url, follow_redirects=True)
                 response.raise_for_status()
         except httpx.HTTPError as exc:
@@ -102,7 +105,9 @@ class DuckDuckGoSearchClient:
             if not resolved_url or resolved_url in seen_urls:
                 continue
             domain = urlparse(resolved_url).netloc.lower()
-            if allowed and not any(domain == item or domain.endswith(f".{item}") for item in allowed):
+            if allowed and not any(
+                domain == item or domain.endswith(f".{item}") for item in allowed
+            ):
                 continue
             seen_urls.add(resolved_url)
             results.append(
