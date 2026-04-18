@@ -520,15 +520,93 @@ class VinEnrichmentScenarioTests(unittest.TestCase):
         )
 
         self.assertEqual(result.status, "success")
-        self.assertGreaterEqual(result.tool_calls_used, 5)
-        self.assertIn(
-            ("fetch_page_excerpt", {"url": "https://example.com/audi-90", "max_chars": 1800}),
-            runtime.actions,
-        )
+        self.assertEqual(result.tool_calls_used, 3)
+        fetch_urls = [
+            str(args.get("url", "") or "")
+            for tool_name, args in runtime.actions
+            if tool_name == "fetch_page_excerpt"
+        ]
+        self.assertTrue(fetch_urls)
+        self.assertEqual(fetch_urls[0], "https://example.com/audi-90")
+        self.assertNotIn("https://blocked.example/one", fetch_urls)
+        self.assertNotIn("https://blocked.example/two", fetch_urls)
         decoded = result.orchestration_updates["decode_vin"]
         self.assertEqual(decoded["model"], "90")
         self.assertEqual(decoded["engine_power_hp"], 130)
         self.assertEqual(decoded["drive_type"], "AWD")
+
+    def test_same_vin_board_profile_fills_sparse_decode(self) -> None:
+        runner = object.__new__(AgentRunner)
+        facts = {
+            "vin": "XW8ZZZ7PZBG008034",
+            "vin_decode_attempted": True,
+            "vin_decode_status": "insufficient",
+            "card": {
+                "id": "card-current",
+                "vehicle": "Тестовая карточка",
+                "description": "",
+            },
+            "vehicle_context": {},
+            "vehicle_profile": {},
+            "related_cards": [
+                {
+                    "id": "card-related",
+                    "vehicle": "Volkswagen Touareg",
+                    "title": "Touareg — нет жидкости в расширительном бачке",
+                    "column": "Машины в ремонте",
+                    "vehicle_profile_compact": {
+                        "vin": "XW8ZZZ7PZBG008034",
+                        "make_display": "Volkswagen",
+                        "model_display": "Touareg",
+                        "production_year": 2011,
+                        "engine_model": "CASA",
+                        "engine_power_hp": 240,
+                        "gearbox_model": "0C8",
+                        "drivetrain": "4Motion",
+                    },
+                }
+            ],
+            "evidence_model": {},
+        }
+        orchestration_results = {
+            "decode_vin": {
+                "vin": "XW8ZZZ7PZBG008034",
+                "make": "",
+                "model": "",
+                "model_year": "",
+                "engine_model": "",
+                "engine_power_hp": None,
+                "gearbox_model": "",
+                "gearbox_type": "",
+                "transmission": "",
+                "drive_type": "",
+                "source_url": "https://vpic.nhtsa.dot.gov/api/vehicles/example",
+            }
+        }
+
+        update_args, display_sections = AgentRunner._compose_card_autofill_update(
+            runner,
+            card_id="card-current",
+            facts=facts,
+            orchestration_results=orchestration_results,
+        )
+
+        self.assertIsNotNone(update_args)
+        assert update_args is not None
+        self.assertEqual(update_args["vehicle"], "Volkswagen Touareg 2011")
+        self.assertIn("Volkswagen", update_args["description"])
+        self.assertIn("Touareg", update_args["description"])
+        self.assertIn("2011", update_args["description"])
+        self.assertEqual(update_args["vehicle_profile"]["make_display"], "Volkswagen")
+        self.assertEqual(update_args["vehicle_profile"]["model_display"], "Touareg")
+        self.assertEqual(update_args["vehicle_profile"]["production_year"], 2011)
+        self.assertEqual(update_args["vehicle_profile"]["engine_model"], "CASA")
+        self.assertEqual(update_args["vehicle_profile"]["engine_power_hp"], 240)
+        self.assertEqual(update_args["vehicle_profile"]["gearbox_model"], "0C8")
+        self.assertEqual(update_args["vehicle_profile"]["drivetrain"], "4Motion")
+        self.assertIn("same VIN board context", update_args["vehicle_profile"]["source_summary"])
+        self.assertTrue(display_sections)
+        self.assertEqual(facts["vin_decode_status"], "success")
 
 
 if __name__ == "__main__":

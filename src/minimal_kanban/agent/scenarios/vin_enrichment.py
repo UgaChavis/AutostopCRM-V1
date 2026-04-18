@@ -3,8 +3,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 from .base import ScenarioContext, ScenarioExecutionResult
+
+_VIN_WEB_BLOCKED_DOMAINS = {
+    "nhtsa.gov",
+    "autozone.com",
+}
 
 
 def _build_vin_web_query(decoded_vin: dict[str, Any]) -> str:
@@ -19,6 +25,41 @@ def _build_vin_web_query(decoded_vin: dict[str, Any]) -> str:
         "specifications",
     ]
     return " ".join(part for part in parts if part).strip()
+
+
+def _vin_web_url_is_blocked(url: str) -> bool:
+    hostname = urlparse(str(url or "").strip()).netloc.casefold()
+    return any(hostname.endswith(domain) for domain in _VIN_WEB_BLOCKED_DOMAINS)
+
+
+def _vin_web_result_score(item: dict[str, Any]) -> int:
+    url = str(item.get("url", "") or "").strip()
+    text = " ".join(
+        str(item.get(key, "") or "").strip() for key in ("title", "snippet", "excerpt")
+    ).casefold()
+    score = 0
+    for token in (
+        "spec",
+        "specs",
+        "engine",
+        "transmission",
+        "gearbox",
+        "horsepower",
+        "power",
+        "hp",
+        "drivetrain",
+        "awd",
+        "4wd",
+        "quattro",
+        "technical",
+    ):
+        if token in text:
+            score += 2
+    if "vin" in text:
+        score += 1
+    if _vin_web_url_is_blocked(url):
+        score -= 100
+    return score
 
 
 def _merge_web_enrichment(
@@ -132,7 +173,7 @@ class VinEnrichmentScenarioExecutor:
                 web_lookup_attempted = True
                 facts["vin_web_enrichment_used"] = False
                 web_query = _build_vin_web_query(orchestration_payload)
-                web_search_args = {"query": web_query, "limit": 4}
+                web_search_args = {"query": web_query, "limit": 6}
                 runtime._record_log_action(
                     task_id=context.task_id,
                     run_id=context.run_id,
@@ -158,11 +199,11 @@ class VinEnrichmentScenarioExecutor:
                 )
                 excerpt_payloads: list[dict[str, Any]] = []
                 if isinstance(web_results, list):
-                    for offset, item in enumerate(web_results[:4], start=3):
-                        if not isinstance(item, dict):
-                            continue
+                    ranked_results = [item for item in web_results if isinstance(item, dict)]
+                    ranked_results.sort(key=_vin_web_result_score, reverse=True)
+                    for offset, item in enumerate(ranked_results[:4], start=3):
                         url = str(item.get("url", "") or "").strip()
-                        if not url:
+                        if not url or _vin_web_url_is_blocked(url):
                             continue
                         runtime._record_log_action(
                             task_id=context.task_id,
@@ -183,6 +224,14 @@ class VinEnrichmentScenarioExecutor:
                         )
                         if excerpt_payload is not None:
                             excerpt_payloads.append(excerpt_payload)
+                            excerpt_data = runtime._response_data(excerpt_payload)
+                            excerpt_text = str(
+                                excerpt_data.get("excerpt", "")
+                                if isinstance(excerpt_data, dict)
+                                else ""
+                            ).strip()
+                            if excerpt_text:
+                                break
                 combined_text_parts: list[str] = []
                 if isinstance(web_results, list):
                     for item in web_results[:4]:

@@ -1973,11 +1973,76 @@ class AgentRunner:
                     "column": str(
                         item.get("column_label", "") or item.get("column", "") or ""
                     ).strip(),
+                    "vehicle_profile": dict(
+                        item.get("vehicle_profile")
+                        if isinstance(item.get("vehicle_profile"), dict)
+                        else {}
+                    ),
+                    "vehicle_profile_compact": dict(
+                        item.get("vehicle_profile_compact")
+                        if isinstance(item.get("vehicle_profile_compact"), dict)
+                        else {}
+                    ),
                 }
             )
             if len(related) >= 3:
                 break
         return related
+
+    def _best_related_vehicle_profile(self, facts: dict[str, Any]) -> dict[str, Any]:
+        related_cards = (
+            facts.get("related_cards") if isinstance(facts.get("related_cards"), list) else []
+        )
+        current_vin = str(facts.get("vin", "") or "").strip().casefold()
+        best_profile: dict[str, Any] = {}
+        best_score = 0
+        for item in related_cards:
+            if not isinstance(item, dict):
+                continue
+            profile = item.get("vehicle_profile_compact")
+            if not isinstance(profile, dict) or not profile:
+                profile = item.get("vehicle_profile")
+            if not isinstance(profile, dict) or not profile:
+                continue
+            score = sum(
+                1
+                for field_name in (
+                    "make_display",
+                    "model_display",
+                    "production_year",
+                    "engine_model",
+                    "gearbox_model",
+                    "drivetrain",
+                )
+                if str(profile.get(field_name, "") or "").strip()
+            )
+            profile_vin = str(profile.get("vin", "") or "").strip().casefold()
+            if current_vin and profile_vin == current_vin:
+                score += 3
+            if score > best_score:
+                best_score = score
+                best_profile = dict(profile)
+        return best_profile if best_score >= 3 else {}
+
+    def _related_vehicle_profile_to_vin_facts(
+        self, profile: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        if not isinstance(profile, dict) or not profile:
+            return {}
+        return {
+            "vin": str(profile.get("vin", "") or "").strip(),
+            "make": str(profile.get("make_display", "") or "").strip(),
+            "model": str(profile.get("model_display", "") or "").strip(),
+            "model_year": str(profile.get("production_year", "") or "").strip(),
+            "engine_model": str(profile.get("engine_model", "") or "").strip(),
+            "engine_power_hp": profile.get("engine_power_hp"),
+            "gearbox_model": str(profile.get("gearbox_model", "") or "").strip(),
+            "gearbox_type": str(profile.get("gearbox_type", "") or "").strip(),
+            "transmission": str(
+                profile.get("gearbox_type", "") or profile.get("gearbox_model", "") or ""
+            ).strip(),
+            "drive_type": str(profile.get("drivetrain", "") or "").strip(),
+        }
 
     def _run_autofill_tool(
         self,
@@ -3239,43 +3304,63 @@ class AgentRunner:
         current_description = str(card.get("description", "") or "").strip()
         decoded_vin = orchestration_results.get("decode_vin")
         vin_decode_status = str(facts.get("vin_decode_status", "") or "").strip().lower()
+        related_vehicle_profile = self._best_related_vehicle_profile(facts)
+        related_vehicle_facts = self._related_vehicle_profile_to_vin_facts(related_vehicle_profile)
+        resolved_vin_payload = dict(decoded_vin) if isinstance(decoded_vin, dict) else {}
+        for key, value in related_vehicle_facts.items():
+            if key == "engine_power_hp":
+                if value not in (None, "", 0) and not resolved_vin_payload.get(key):
+                    resolved_vin_payload[key] = value
+                continue
+            if value and not str(resolved_vin_payload.get(key, "") or "").strip():
+                resolved_vin_payload[key] = value
+        effective_vin_status = vin_decode_status
+        if related_vehicle_facts and vin_decode_status != "success":
+            effective_vin_status = "success"
+            facts["vin_decode_status"] = "success"
         vehicle_patch = self._autofill_vehicle_patch(
-            facts=facts, decoded_vin=decoded_vin, vin_decode_status=vin_decode_status
+            facts=facts,
+            decoded_vin=resolved_vin_payload,
+            vin_decode_status=effective_vin_status,
+            fallback_vehicle_profile=related_vehicle_profile,
         )
         vehicle_label_patch = self._autofill_vehicle_label_patch(
-            facts=facts, decoded_vin=decoded_vin, vin_decode_status=vin_decode_status
+            facts=facts,
+            decoded_vin=resolved_vin_payload,
+            vin_decode_status=effective_vin_status,
+            fallback_vehicle_profile=related_vehicle_profile,
         )
         ai_lines: list[str] = []
-        if vin_decode_status == "success" and isinstance(decoded_vin, dict):
+        if effective_vin_status == "success" and isinstance(resolved_vin_payload, dict):
             vin_bits: list[str] = []
-            if decoded_vin.get("make"):
-                vin_bits.append(str(decoded_vin.get("make", "") or "").strip())
-            if decoded_vin.get("model"):
-                vin_bits.append(str(decoded_vin.get("model", "") or "").strip())
-            if decoded_vin.get("model_year"):
-                vin_bits.append(str(decoded_vin.get("model_year", "") or "").strip())
-            if decoded_vin.get("engine_model") and "engine_model" in vehicle_patch:
-                vin_bits.append(f"двигатель: {decoded_vin.get('engine_model')}")
-            if decoded_vin.get("engine_power_hp") and "engine_power_hp" in vehicle_patch:
-                vin_bits.append(f"мощность: {decoded_vin.get('engine_power_hp')} л.с.")
+            if resolved_vin_payload.get("make"):
+                vin_bits.append(str(resolved_vin_payload.get("make", "") or "").strip())
+            if resolved_vin_payload.get("model"):
+                vin_bits.append(str(resolved_vin_payload.get("model", "") or "").strip())
+            if resolved_vin_payload.get("model_year"):
+                vin_bits.append(str(resolved_vin_payload.get("model_year", "") or "").strip())
+            if resolved_vin_payload.get("engine_model") and "engine_model" in vehicle_patch:
+                vin_bits.append(f"двигатель: {resolved_vin_payload.get('engine_model')}")
+            if resolved_vin_payload.get("engine_power_hp") and "engine_power_hp" in vehicle_patch:
+                vin_bits.append(f"мощность: {resolved_vin_payload.get('engine_power_hp')} л.с.")
             gearbox_text = (
-                decoded_vin.get("gearbox_model")
-                or decoded_vin.get("transmission")
-                or decoded_vin.get("gearbox_type")
+                resolved_vin_payload.get("gearbox_model")
+                or resolved_vin_payload.get("transmission")
+                or resolved_vin_payload.get("gearbox_type")
             )
             if gearbox_text and "gearbox_model" in vehicle_patch:
                 vin_bits.append(f"КПП: {gearbox_text}")
-            if decoded_vin.get("drive_type") and "drivetrain" in vehicle_patch:
-                vin_bits.append(f"привод: {decoded_vin.get('drive_type')}")
-            if decoded_vin.get("plant_country"):
-                vin_bits.append(f"сборка: {decoded_vin.get('plant_country')}")
+            if resolved_vin_payload.get("drive_type") and "drivetrain" in vehicle_patch:
+                vin_bits.append(f"привод: {resolved_vin_payload.get('drive_type')}")
+            if resolved_vin_payload.get("plant_country"):
+                vin_bits.append(f"сборка: {resolved_vin_payload.get('plant_country')}")
             if vin_bits:
                 ai_lines.append("По VIN подтверждено: " + ", ".join(vin_bits) + ".")
             web_enrichment_fields = [
                 str(item or "").strip()
                 for item in (
-                    decoded_vin.get("web_enrichment_fields")
-                    if isinstance(decoded_vin.get("web_enrichment_fields"), list)
+                    resolved_vin_payload.get("web_enrichment_fields")
+                    if isinstance(resolved_vin_payload.get("web_enrichment_fields"), list)
                     else []
                 )
                 if str(item or "").strip()
@@ -3283,26 +3368,30 @@ class AgentRunner:
             if web_enrichment_fields:
                 web_bits: list[str] = []
                 for field_name in web_enrichment_fields:
-                    if field_name == "engine_model" and decoded_vin.get("engine_model"):
-                        web_bits.append(f"двигатель: {decoded_vin.get('engine_model')}")
-                    elif field_name == "engine_power_hp" and decoded_vin.get("engine_power_hp"):
-                        web_bits.append(f"мощность: {decoded_vin.get('engine_power_hp')} л.с.")
-                    elif field_name == "gearbox_model" and (
-                        decoded_vin.get("gearbox_model")
-                        or decoded_vin.get("transmission")
-                        or decoded_vin.get("gearbox_type")
+                    if field_name == "engine_model" and resolved_vin_payload.get("engine_model"):
+                        web_bits.append(f"двигатель: {resolved_vin_payload.get('engine_model')}")
+                    elif field_name == "engine_power_hp" and resolved_vin_payload.get(
+                        "engine_power_hp"
                     ):
                         web_bits.append(
-                            f"КПП: {decoded_vin.get('gearbox_model') or decoded_vin.get('transmission') or decoded_vin.get('gearbox_type')}"
+                            f"мощность: {resolved_vin_payload.get('engine_power_hp')} л.с."
                         )
-                    elif field_name == "drive_type" and decoded_vin.get("drive_type"):
-                        web_bits.append(f"привод: {decoded_vin.get('drive_type')}")
-                    elif field_name == "make_display" and decoded_vin.get("make"):
-                        web_bits.append(f"марка: {decoded_vin.get('make')}")
-                    elif field_name == "model_display" and decoded_vin.get("model"):
-                        web_bits.append(f"модель: {decoded_vin.get('model')}")
-                    elif field_name == "production_year" and decoded_vin.get("model_year"):
-                        web_bits.append(f"год: {decoded_vin.get('model_year')}")
+                    elif field_name == "gearbox_model" and (
+                        resolved_vin_payload.get("gearbox_model")
+                        or resolved_vin_payload.get("transmission")
+                        or resolved_vin_payload.get("gearbox_type")
+                    ):
+                        web_bits.append(
+                            f"КПП: {resolved_vin_payload.get('gearbox_model') or resolved_vin_payload.get('transmission') or resolved_vin_payload.get('gearbox_type')}"
+                        )
+                    elif field_name == "drive_type" and resolved_vin_payload.get("drive_type"):
+                        web_bits.append(f"привод: {resolved_vin_payload.get('drive_type')}")
+                    elif field_name == "make_display" and resolved_vin_payload.get("make"):
+                        web_bits.append(f"марка: {resolved_vin_payload.get('make')}")
+                    elif field_name == "model_display" and resolved_vin_payload.get("model"):
+                        web_bits.append(f"модель: {resolved_vin_payload.get('model')}")
+                    elif field_name == "production_year" and resolved_vin_payload.get("model_year"):
+                        web_bits.append(f"год: {resolved_vin_payload.get('model_year')}")
                 if web_bits:
                     ai_lines.append(
                         "Дополнительно по интернету подтверждено: " + ", ".join(web_bits) + "."
@@ -3474,8 +3563,9 @@ class AgentRunner:
         facts: dict[str, Any],
         decoded_vin: dict[str, Any] | None,
         vin_decode_status: str = "",
+        fallback_vehicle_profile: dict[str, Any] | None = None,
     ) -> str:
-        if vin_decode_status != "success":
+        if vin_decode_status != "success" and not fallback_vehicle_profile:
             return ""
         current_vehicle = str(facts["card"].get("vehicle", "") or "").strip()
         context = (
@@ -3500,6 +3590,16 @@ class AgentRunner:
                 )
                 if part
             ).strip()
+        if not candidate and isinstance(fallback_vehicle_profile, dict):
+            candidate = " ".join(
+                part
+                for part in (
+                    str(fallback_vehicle_profile.get("make_display", "") or "").strip(),
+                    str(fallback_vehicle_profile.get("model_display", "") or "").strip(),
+                    str(fallback_vehicle_profile.get("production_year", "") or "").strip(),
+                )
+                if part
+            ).strip()
         if not candidate or candidate == current_vehicle:
             return ""
         if current_vehicle and candidate.casefold() in current_vehicle.casefold():
@@ -3512,8 +3612,11 @@ class AgentRunner:
         facts: dict[str, Any],
         decoded_vin: dict[str, Any] | None,
         vin_decode_status: str = "",
+        fallback_vehicle_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        if not isinstance(decoded_vin, dict) or vin_decode_status != "success":
+        if not isinstance(decoded_vin, dict) or (
+            vin_decode_status != "success" and not fallback_vehicle_profile
+        ):
             return {}
         patch: dict[str, Any] = {}
         existing = facts["vehicle_profile"]
@@ -3529,18 +3632,54 @@ class AgentRunner:
             for item in decoded_vin.get("web_enrichment_fields", [])
             if str(item or "").strip()
         }
+        fallback_profile = (
+            fallback_vehicle_profile if isinstance(fallback_vehicle_profile, dict) else {}
+        )
 
-        def _set_if_missing(field_name: str, value: Any) -> None:
+        def _set_if_missing(field_name: str, value: Any, *, source: str) -> None:
             text = str(value or "").strip()
             if not text or str(existing.get(field_name, "") or "").strip():
                 return
-            patch[field_name] = text
+            if field_name == "production_year":
+                try:
+                    patch[field_name] = int(text)
+                except (TypeError, ValueError):
+                    return
+            elif field_name == "engine_power_hp":
+                try:
+                    patch[field_name] = int(float(text))
+                except (TypeError, ValueError):
+                    return
+            else:
+                patch[field_name] = text
             autofilled_fields.append(field_name)
-            field_sources[field_name] = "official_vin_decode_nhtsa"
+            field_sources[field_name] = source
 
-        _set_if_missing("vin", decoded_vin.get("vin") or facts["vin"])
-        _set_if_missing("make_display", decoded_vin.get("make"))
-        _set_if_missing("model_display", decoded_vin.get("model"))
+        _set_if_missing(
+            "vin", decoded_vin.get("vin") or facts["vin"], source="official_vin_decode_nhtsa"
+        )
+        if fallback_profile:
+            _set_if_missing(
+                "vin",
+                fallback_profile.get("vin"),
+                source="same_vin_board_context",
+            )
+        _set_if_missing("make_display", decoded_vin.get("make"), source="official_vin_decode_nhtsa")
+        if fallback_profile:
+            _set_if_missing(
+                "make_display",
+                fallback_profile.get("make_display"),
+                source="same_vin_board_context",
+            )
+        _set_if_missing(
+            "model_display", decoded_vin.get("model"), source="official_vin_decode_nhtsa"
+        )
+        if fallback_profile:
+            _set_if_missing(
+                "model_display",
+                fallback_profile.get("model_display"),
+                source="same_vin_board_context",
+            )
         if not str(existing.get("production_year", "") or "").strip():
             try:
                 year_value = int(str(decoded_vin.get("model_year", "") or "").strip())
@@ -3550,22 +3689,80 @@ class AgentRunner:
                 patch["production_year"] = year_value
                 autofilled_fields.append("production_year")
                 field_sources["production_year"] = "official_vin_decode_nhtsa"
-        _set_if_missing("engine_model", decoded_vin.get("engine_model"))
-        _set_if_missing("engine_power_hp", decoded_vin.get("engine_power_hp"))
-        _set_if_missing("gearbox_model", decoded_vin.get("gearbox_model"))
+            elif fallback_profile:
+                try:
+                    fallback_year = int(
+                        str(fallback_profile.get("production_year", "") or "").strip()
+                    )
+                except (TypeError, ValueError):
+                    fallback_year = None
+                if fallback_year:
+                    patch["production_year"] = fallback_year
+                    autofilled_fields.append("production_year")
+                    field_sources["production_year"] = "same_vin_board_context"
         _set_if_missing(
-            "gearbox_type", decoded_vin.get("gearbox_type") or decoded_vin.get("transmission")
+            "engine_model", decoded_vin.get("engine_model"), source="official_vin_decode_nhtsa"
         )
-        _set_if_missing("drivetrain", decoded_vin.get("drive_type"))
+        if fallback_profile:
+            _set_if_missing(
+                "engine_model",
+                fallback_profile.get("engine_model"),
+                source="same_vin_board_context",
+            )
+        _set_if_missing(
+            "engine_power_hp",
+            decoded_vin.get("engine_power_hp"),
+            source="official_vin_decode_nhtsa",
+        )
+        if fallback_profile:
+            _set_if_missing(
+                "engine_power_hp",
+                fallback_profile.get("engine_power_hp"),
+                source="same_vin_board_context",
+            )
+        _set_if_missing(
+            "gearbox_model", decoded_vin.get("gearbox_model"), source="official_vin_decode_nhtsa"
+        )
+        if fallback_profile:
+            _set_if_missing(
+                "gearbox_model",
+                fallback_profile.get("gearbox_model"),
+                source="same_vin_board_context",
+            )
+        _set_if_missing(
+            "gearbox_type",
+            decoded_vin.get("gearbox_type") or decoded_vin.get("transmission"),
+            source="official_vin_decode_nhtsa",
+        )
+        if fallback_profile:
+            _set_if_missing(
+                "gearbox_type",
+                fallback_profile.get("gearbox_type") or fallback_profile.get("gearbox_model"),
+                source="same_vin_board_context",
+            )
+        _set_if_missing(
+            "drivetrain", decoded_vin.get("drive_type"), source="official_vin_decode_nhtsa"
+        )
+        if fallback_profile:
+            _set_if_missing(
+                "drivetrain",
+                fallback_profile.get("drivetrain"),
+                source="same_vin_board_context",
+            )
         if not patch:
             return {}
-        patch["source_summary"] = (
-            "official VIN decode + web VIN enrichment" if web_source_urls else "official VIN decode"
-        )
-        patch["source_confidence"] = 0.8 if web_source_urls else 0.78
+        source_summary_parts = ["official VIN decode"]
+        if web_source_urls:
+            source_summary_parts.append("web VIN enrichment")
+        if fallback_profile:
+            source_summary_parts.append("same VIN board context")
+        patch["source_summary"] = " + ".join(source_summary_parts)
+        patch["source_confidence"] = 0.82 if web_source_urls or fallback_profile else 0.78
         patch["autofilled_fields"] = autofilled_fields
         patch["field_sources"] = field_sources
         source_refs = [str(decoded_vin.get("source_url", "") or "").strip(), *web_source_urls]
+        if fallback_profile:
+            source_refs.append("same_vin_board_context")
         patch["source_links_or_refs"] = [item for item in source_refs if item]
         if web_enrichment_fields:
             patch["web_enrichment_fields"] = sorted(web_enrichment_fields)
