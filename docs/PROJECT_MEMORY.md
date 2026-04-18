@@ -27,6 +27,7 @@ Use this file for durable notes that should not be rediscovered every session.
 - the full-card button flow now uses `purpose=card_enrichment` in the agent task metadata, while legacy `card_autofill` remains only for the older autofill path; this keeps the green-button flow distinct from the older followup/autofill routines
 - the full-card button payload now sends the VIN-only instruction through plain `task_text` instead of legacy `ai_autofill_prompt` / `ai_log_tail` fields; that trims noise without changing the bridge contract
 - the full-card button payload no longer forwards `vehicle` or `context_packet`; the worker reads the card context itself, so those hints were removed from the green-button path to keep it minimal
+- dead legacy server-agent compatibility stubs were removed from `card_service.py`; only the live `set_card_ai_autofill` and `run_full_card_enrichment` paths remain in the class body
 
 ## Current Known Cautions
 
