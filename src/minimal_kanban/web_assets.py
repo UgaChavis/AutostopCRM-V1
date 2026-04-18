@@ -9473,8 +9473,10 @@ BOARD_WEB_APP_HTML = "".join(
 
     async function runFullCardEnrichment() {
       if (!requireOperatorSession()) return;
-      const card = currentAgentContextCard();
-      const cardId = String(card?.id || '').trim();
+      const card = state.activeCard && typeof state.activeCard === 'object'
+        ? state.activeCard
+        : currentAgentContextCard();
+      const cardId = String(card?.id || state.editingId || '').trim();
       if (!cardId) {
         setStatus('ОТКРОЙ КАРТОЧКУ ДЛЯ AI-ОБОГАЩЕНИЯ.', true);
         return;

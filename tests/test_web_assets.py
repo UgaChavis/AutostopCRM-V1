@@ -70,6 +70,18 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("width: max-content;", BOARD_WEB_APP_HTML)
         self.assertIn(".topbar__actions .btn {", BOARD_WEB_APP_HTML)
 
+    def test_card_enrichment_button_uses_open_card_context(self) -> None:
+        self.assertIn(
+            "const card = state.activeCard && typeof state.activeCard === 'object'",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "const cardId = String(card?.id || state.editingId || '').trim();", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("setStatus('ОТКРОЙ КАРТОЧКУ ДЛЯ AI-ОБОГАЩЕНИЯ.', true);", BOARD_WEB_APP_HTML)
+        self.assertIn("api('/api/run_full_card_enrichment'", BOARD_WEB_APP_HTML)
+        self.assertIn("openAgentModal('card');", BOARD_WEB_APP_HTML)
+
     def test_card_tag_editor_uses_compact_tag_controls(self) -> None:
         self.assertIn(".tags-panel {", BOARD_WEB_APP_HTML)
         self.assertIn(".tags-panel__head {", BOARD_WEB_APP_HTML)
