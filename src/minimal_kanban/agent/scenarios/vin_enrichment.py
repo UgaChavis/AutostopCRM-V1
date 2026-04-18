@@ -121,7 +121,7 @@ class VinEnrichmentScenarioExecutor:
         facts["vin_decode_status"] = vin_status
         if isinstance(facts.get("evidence_model"), dict):
             facts["evidence_model"]["external_result_sufficient"] = vin_status == "success"
-        if vin_status == "success":
+        if vin_status in {"success", "insufficient"}:
             facts["vehicle_context"] = runtime._merge_vehicle_context(
                 facts["vehicle_context"],
                 orchestration_payload,
@@ -233,6 +233,8 @@ class VinEnrichmentScenarioExecutor:
                         facts["vehicle_context"],
                         orchestration_payload,
                     )
+                    vin_status = "success"
+                    facts["vin_decode_status"] = vin_status
                     runtime._record_log_action(
                         task_id=context.task_id,
                         run_id=context.run_id,
