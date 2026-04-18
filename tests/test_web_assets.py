@@ -1413,6 +1413,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="repairOrdersOpenTab"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrdersClosedTab"', BOARD_WEB_APP_HTML)
         self.assertIn("function updateRepairOrdersTabs()", BOARD_WEB_APP_HTML)
+        self.assertIn("data-repair-orders-filter", BOARD_WEB_APP_HTML)
         self.assertIn("renderRepairOrderListRows = function(items)", BOARD_WEB_APP_HTML)
         self.assertIn(
             "async function setRepairOrdersFilter(status, { openModal = false } = {})",

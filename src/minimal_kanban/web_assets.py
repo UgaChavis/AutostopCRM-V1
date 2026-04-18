@@ -3891,6 +3891,16 @@ BOARD_WEB_APP_HTML = "".join(
       color: #f1e8cf;
       background: rgba(109, 83, 40, 0.18);
     }
+    .dialog--repair-orders[data-repair-orders-filter="closed"] .repair-orders-row__payment-status,
+    .dialog--repair-orders[data-repair-orders-filter="closed"] .repair-orders-row__payment-status[data-payment-status="paid"],
+    .dialog--repair-orders[data-repair-orders-filter="closed"] .repair-orders-row__payment-status[data-payment-status="unpaid"] {
+      border-color: rgba(148, 154, 144, 0.22);
+      background: rgba(120, 126, 117, 0.12);
+      color: rgba(214, 220, 211, 0.52);
+      opacity: 0.82;
+      box-shadow: none;
+      filter: saturate(0.08) brightness(0.95);
+    }
     .repair-orders-row__paid,
     .repair-orders-row__total {
       color: #f0ecdc;
@@ -13683,6 +13693,7 @@ function renderCompactArchiveRows(cards) {
       const isClosed = state.repairOrdersFilter === 'closed';
       if (els.repairOrdersOpenTab) els.repairOrdersOpenTab.classList.toggle('is-active', !isClosed);
       if (els.repairOrdersClosedTab) els.repairOrdersClosedTab.classList.toggle('is-active', isClosed);
+      if (els.repairOrdersModal) els.repairOrdersModal.dataset.repairOrdersFilter = isClosed ? 'closed' : 'open';
       syncRepairOrdersLayout(isClosed ? 'closed' : 'open');
     }
 
