@@ -25,6 +25,7 @@ Use this file for durable notes that should not be rediscovered every session.
 - same-VIN board context is now the stronger fallback when it conflicts with sparse or noisy VIN/web decode results; model/year/engine/gearbox/drivetrain should not be overwritten by a weaker `Rio / 1983`-style parse if the board already has a richer same-VIN profile
 - the CRM ↔ agent bridge is now pinned in `docs/VIN_ENRICHMENT_BRIDGE.md`: task payload uses `card_id` + `purpose=card_enrichment`, the worker must read `get_card_context(card_id)` first, and the only CRM write path is `update_card` with `description`, `vehicle`, and `vehicle_profile`
 - the full-card button flow now uses `purpose=card_enrichment` in the agent task metadata, while legacy `card_autofill` remains only for the older autofill path; this keeps the green-button flow distinct from the older followup/autofill routines
+- the full-card button payload now sends the VIN-only instruction through plain `task_text` instead of legacy `ai_autofill_prompt` / `ai_log_tail` fields; that trims noise without changing the bridge contract
 
 ## Current Known Cautions
 

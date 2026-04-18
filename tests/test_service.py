@@ -514,7 +514,7 @@ class CardServiceTests(unittest.TestCase):
         )
         self.assertEqual(agent_control.autofill_calls[-1]["purpose"], "card_enrichment")
         self.assertEqual(agent_control.autofill_calls[-1]["mode"], "card_enrichment")
-        prompt_text = str(agent_control.autofill_calls[-1]["payload"].get("ai_autofill_prompt", ""))
+        prompt_text = str(agent_control.autofill_calls[-1]["payload"].get("task_text", ""))
         self.assertIn("VIN", prompt_text)
         self.assertNotIn("parts", prompt_text.lower())
         self.assertNotIn("dtc", prompt_text.lower())
