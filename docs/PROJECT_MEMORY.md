@@ -16,6 +16,7 @@ Use this file for durable notes that should not be rediscovered every session.
 - the agent surface routes in `api/server.py` are active again; status/tasks/actions/scheduled-task routes are wired to `CardService`
 - `CardService` now attaches an agent controller through the shared embedded-agent bootstrap used by both `app.py` and `mcp.main`; the old local-cleanup path still remains only as fallback when no controller is attached
 - VIN enrichment is now bounded but multi-step: `decode_vin` runs first, then sparse VIN results trigger `search_web` and `fetch_page_excerpt` for the same VIN only, and the card patch merges only confirmed vehicle facts
+- VIN web parsing has a known trap: prepending `explicit_vehicle` with a year can suppress model detection, so model parsing should prefer the raw web text first; the web follow-up also needs to skip 403 pages and continue to later results instead of stopping early
 
 ## Current Known Cautions
 

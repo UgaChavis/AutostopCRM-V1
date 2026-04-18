@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from copy import deepcopy
-from dataclasses import dataclass, field
 import json
 import re
 import subprocess
 import tempfile
+from copy import deepcopy
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +23,6 @@ from ..vehicle_profile import (
     normalize_vehicle_text,
     soft_normalize_vin,
 )
-
 
 _MAKE_ALIASES: dict[str, tuple[str, ...]] = {
     "TOYOTA": ("TOYOTA", "ТОЙОТА"),
@@ -55,9 +54,9 @@ _GEARBOX_PATTERNS: tuple[tuple[str, str], ...] = (
 )
 
 _DRIVETRAIN_PATTERNS: tuple[tuple[str, str], ...] = (
-    ("AWD", r"\bAWD\b|\b4WD\b|ПОЛНЫЙ ПРИВОД"),
-    ("FWD", r"\bFWD\b|ПЕРЕДНИЙ ПРИВОД"),
-    ("RWD", r"\bRWD\b|ЗАДНИЙ ПРИВОД"),
+    ("AWD", r"\bAWD\b|\b4WD\b|\b4X4\b|QUATTRO|ALL WHEEL DRIVE|ПОЛНЫЙ ПРИВОД"),
+    ("FWD", r"\bFWD\b|FRONT WHEEL DRIVE|ПЕРЕДНИЙ ПРИВОД"),
+    ("RWD", r"\bRWD\b|REAR WHEEL DRIVE|ЗАДНИЙ ПРИВОД"),
 )
 
 _FUEL_PATTERNS: tuple[tuple[str, str], ...] = (
@@ -84,11 +83,22 @@ _COOLANT_PATTERN = re.compile(
 _POWER_PATTERN = re.compile(r"(\d{2,4})\s*(?:Л\.?\s*С\.?|HP|ЛС)\b", re.IGNORECASE)
 _DISPLACEMENT_PATTERN = re.compile(r"(\d(?:[.,]\d{1,2})?)\s*(?:Л|L)\b", re.IGNORECASE)
 _YEAR_PATTERN = re.compile(r"\b(19\d{2}|20\d{2}|21\d{2})\b")
-_MILEAGE_PATTERN = re.compile(r"(?:ПРОБЕГ|MILEAGE|ОДОМЕТР)\s*[:\-]?\s*([\d\s]{2,12})", re.IGNORECASE)
-_ENGINE_LABEL_PATTERN = re.compile(r"(?:ENGINE(?:\s+MODEL)?|ДВИГАТЕЛЬ|МОТОР)\s*[:\-]?\s*([A-Z0-9\-/. ]{3,32})", re.IGNORECASE)
-_ENGINE_CODE_PATTERN = re.compile(r"(?:ENGINE\s+CODE|КОД\s+ДВИГАТЕЛЯ|ENGINE NO|ДВИГАТЕЛЬ №)\s*[:\-]?\s*([A-Z0-9\-]{3,24})", re.IGNORECASE)
-_GEARBOX_LABEL_PATTERN = re.compile(r"(?:GEARBOX|TRANSMISSION|КОРОБКА|ТРАНСМИССИЯ)\s*[:\-]?\s*([A-Z0-9\-/. ]{2,32})", re.IGNORECASE)
-_PHONE_PATTERN = re.compile(r"(?:\+7|8)\s*(?:\(\s*\d{3}\s*\)|\d{3})\s*[\- ]?\s*\d{3}\s*[\- ]?\s*\d{2}\s*[\- ]?\s*\d{2}")
+_MILEAGE_PATTERN = re.compile(
+    r"(?:ПРОБЕГ|MILEAGE|ОДОМЕТР)\s*[:\-]?\s*([\d\s]{2,12})", re.IGNORECASE
+)
+_ENGINE_LABEL_PATTERN = re.compile(
+    r"(?:ENGINE(?:\s+MODEL)?|ДВИГАТЕЛЬ|МОТОР)\s*[:\-]?\s*([A-Z0-9\-/. ]{3,32})", re.IGNORECASE
+)
+_ENGINE_CODE_PATTERN = re.compile(
+    r"(?:ENGINE\s+CODE|КОД\s+ДВИГАТЕЛЯ|ENGINE NO|ДВИГАТЕЛЬ №)\s*[:\-]?\s*([A-Z0-9\-]{3,24})",
+    re.IGNORECASE,
+)
+_GEARBOX_LABEL_PATTERN = re.compile(
+    r"(?:GEARBOX|TRANSMISSION|КОРОБКА|ТРАНСМИССИЯ)\s*[:\-]?\s*([A-Z0-9\-/. ]{2,32})", re.IGNORECASE
+)
+_PHONE_PATTERN = re.compile(
+    r"(?:\+7|8)\s*(?:\(\s*\d{3}\s*\)|\d{3})\s*[\- ]?\s*\d{3}\s*[\- ]?\s*\d{2}\s*[\- ]?\s*\d{2}"
+)
 _CUSTOMER_NAME_PATTERN = re.compile(
     r"(?:КЛИЕНТ|ВЛАДЕЛЕЦ|КОНТАКТ(?:НОЕ ЛИЦО)?|CUSTOMER)\s*[:\-]?\s*([A-ZА-ЯЁ][A-ZА-ЯЁA-Zа-яё.\-]+(?:\s+[A-ZА-ЯЁ][A-ZА-ЯЁA-Zа-яё.\-]+){0,2})",
     re.IGNORECASE,
@@ -333,12 +343,16 @@ class VehicleProfileService:
         manual_fields = set(profile.manual_fields)
         autofilled_fields = set(profile.autofilled_fields)
         tentative_fields = set(profile.tentative_fields)
-        has_meta_hints = any(key in raw for key in ("manual_fields", "autofilled_fields", "tentative_fields"))
+        has_meta_hints = any(
+            key in raw for key in ("manual_fields", "autofilled_fields", "tentative_fields")
+        )
 
         if assume_manual_for_explicit_fields and present_primary and not has_meta_hints:
             manual_fields.update(present_primary)
         elif not manual_fields and not autofilled_fields and present_primary:
-            manual_fields.update({field for field in present_primary if raw.get(field) not in (None, "", [])})
+            manual_fields.update(
+                {field for field in present_primary if raw.get(field) not in (None, "", [])}
+            )
 
         autofilled_fields -= manual_fields
         tentative_fields &= autofilled_fields
@@ -419,7 +433,9 @@ class VehicleProfileService:
         tentative_fields &= autofilled_fields
 
         result.manual_fields = sorted(normalize_vehicle_field_names(list(manual_fields)))
-        result.autofilled_fields = sorted(normalize_vehicle_field_names(list(autofilled_fields - manual_fields)))
+        result.autofilled_fields = sorted(
+            normalize_vehicle_field_names(list(autofilled_fields - manual_fields))
+        )
         result.tentative_fields = sorted(normalize_vehicle_field_names(list(tentative_fields)))
         result.data_completion_state = self._derive_completion_state(result)
 
@@ -485,7 +501,9 @@ class VehicleProfileService:
         if parsed_primary:
             used_sources.append("user_text")
 
-        image_profile = VehicleProfile(raw_image_text=image_result.raw_text, image_parse_status=image_result.status)
+        image_profile = VehicleProfile(
+            raw_image_text=image_result.raw_text, image_parse_status=image_result.status
+        )
         image_primary: set[str] = set()
         if image_result.raw_text:
             image_profile, _, image_parse_warnings = self._parse_text_payload(image_result.raw_text)
@@ -502,7 +520,9 @@ class VehicleProfileService:
         if image_primary:
             image_profile.autofilled_fields = sorted(image_primary)
             image_profile.tentative_fields = sorted(image_primary)
-            image_profile.field_sources = {field_name: "windows_ocr" for field_name in image_primary}
+            image_profile.field_sources = {
+                field_name: "windows_ocr" for field_name in image_primary
+            }
             image_profile.source_links_or_refs = ["ocr:windows-media-ocr"]
             image_profile.source_summary = "OCR from provided vehicle image"
             image_profile.source_confidence = 0.42
@@ -536,8 +556,12 @@ class VehicleProfileService:
 
         card_draft = {
             "vehicle": self._suggest_vehicle_label(explicit_vehicle, merged),
-            "title": self._suggest_title(explicit_title, raw_text, parsed_card_draft.get("title", ""), merged),
-            "description": self._suggest_description(explicit_description, raw_text, parsed_card_draft.get("description", "")),
+            "title": self._suggest_title(
+                explicit_title, raw_text, parsed_card_draft.get("title", ""), merged
+            ),
+            "description": self._suggest_description(
+                explicit_description, raw_text, parsed_card_draft.get("description", "")
+            ),
         }
         return VehicleAutofillResult(
             vehicle_profile=merged,
@@ -548,7 +572,9 @@ class VehicleProfileService:
             image_debug_chunks=image_result.debug_chunks,
         )
 
-    def _should_enrich_from_vin_decode(self, base_profile: VehicleProfile, profile: VehicleProfile) -> bool:
+    def _should_enrich_from_vin_decode(
+        self, base_profile: VehicleProfile, profile: VehicleProfile
+    ) -> bool:
         if any(
             self._is_empty_vehicle_value(getattr(profile, field_name))
             for field_name in ("make_display", "model_display", "production_year")
@@ -609,16 +635,22 @@ class VehicleProfileService:
 
         detected_make = ""
         for canonical_make, aliases in _MAKE_ALIASES.items():
-            if any(re.search(rf"\b{re.escape(alias)}\b", upper_text, re.IGNORECASE) for alias in aliases):
+            if any(
+                re.search(rf"\b{re.escape(alias)}\b", upper_text, re.IGNORECASE)
+                for alias in aliases
+            ):
                 detected_make = canonical_make
                 break
         if detected_make:
             profile.make_display = self._display_make(detected_make)
 
-        model_match = self._detect_model(combined_text, detected_make)
+        model_source_text = text or explicit_vehicle or combined_text
+        model_match = self._detect_model(model_source_text, detected_make)
         if model_match:
             profile.model_display = model_match
-            generation_or_platform = self._extract_generation_or_platform(combined_text, model_match)
+            generation_or_platform = self._extract_generation_or_platform(
+                combined_text, model_match
+            )
             if generation_or_platform:
                 profile.generation_or_platform = generation_or_platform
 
@@ -629,7 +661,10 @@ class VehicleProfileService:
         engine_model_match = _ENGINE_LABEL_PATTERN.search(combined_text)
         if engine_model_match:
             candidate = normalize_vehicle_text(engine_model_match.group(1), limit=40)
-            if candidate and candidate.upper() not in {profile.make_display.upper(), profile.model_display.upper()}:
+            if candidate and candidate.upper() not in {
+                profile.make_display.upper(),
+                profile.model_display.upper(),
+            }:
                 profile.engine_model = candidate
 
         displacement_match = _DISPLACEMENT_PATTERN.search(combined_text)
@@ -688,7 +723,9 @@ class VehicleProfileService:
             description_candidate = normalize_text(text, default="", limit=CARD_DESCRIPTION_LIMIT)
 
         if profile.vin and len(profile.vin) != 17:
-            warnings.append("VIN выглядит неполным: автодополнение из интернета может быть ограничено.")
+            warnings.append(
+                "VIN выглядит неполным: автодополнение из интернета может быть ограничено."
+            )
 
         return profile, {"title": title_candidate, "description": description_candidate}, warnings
 
@@ -709,7 +746,9 @@ class VehicleProfileService:
         if len(image_bytes) > _VEHICLE_IMAGE_LIMIT_BYTES:
             return ImageParseResult(
                 status="image_too_large",
-                warnings=[f"Изображение слишком большое для локального OCR: более {_VEHICLE_IMAGE_LIMIT_BYTES // (1024 * 1024)} МБ."],
+                warnings=[
+                    f"Изображение слишком большое для локального OCR: более {_VEHICLE_IMAGE_LIMIT_BYTES // (1024 * 1024)} МБ."
+                ],
             )
 
         suffix = self._image_suffix(image_filename, image_mime_type)
@@ -746,7 +785,16 @@ catch {
 $payload | ConvertTo-Json -Compress -Depth 6
 """
         completed = subprocess.run(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "-", "--", str(image_path)],
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "-",
+                "--",
+                str(image_path),
+            ],
             input=script,
             text=True,
             capture_output=True,
@@ -769,7 +817,9 @@ $payload | ConvertTo-Json -Compress -Depth 6
         status = "parsed" if raw_text else "no_text_found"
         if not raw_text:
             warnings.append("На изображении не удалось уверенно распознать текст.")
-        return ImageParseResult(raw_text=raw_text, status=status, warnings=warnings, debug_chunks=lines[:20])
+        return ImageParseResult(
+            raw_text=raw_text, status=status, warnings=warnings, debug_chunks=lines[:20]
+        )
 
     def _enrich_from_vin_decode(self, vin: str) -> VehicleProfile | None:
         normalized_vin = soft_normalize_vin(vin)
@@ -789,7 +839,9 @@ $payload | ConvertTo-Json -Compress -Depth 6
         profile = VehicleProfile(
             make_display=self._title_case(record.get("Make")),
             model_display=normalize_vehicle_text(record.get("Model")),
-            generation_or_platform=self._join_non_empty([record.get("Series"), record.get("Trim")], separator=" / "),
+            generation_or_platform=self._join_non_empty(
+                [record.get("Series"), record.get("Trim")], separator=" / "
+            ),
             production_year=normalize_vehicle_int(record.get("ModelYear")),
             vin=normalized_vin,
             engine_code=normalize_vehicle_text(record.get("EngineModel")),
@@ -826,7 +878,9 @@ $payload | ConvertTo-Json -Compress -Depth 6
             )
             if not self._is_empty_vehicle_value(getattr(profile, field_name))
         )
-        profile.field_sources = {field_name: "official_vin_decode_nhtsa" for field_name in profile.autofilled_fields}
+        profile.field_sources = {
+            field_name: "official_vin_decode_nhtsa" for field_name in profile.autofilled_fields
+        }
         return profile if not profile.is_empty() else None
 
     def _enrich_from_catalog(self, profile: VehicleProfile) -> VehicleProfile | None:
@@ -864,18 +918,31 @@ $payload | ConvertTo-Json -Compress -Depth 6
                 separator=" ",
             )
         candidate.autofilled_fields = sorted(
-            field_name for field_name in VEHICLE_PRIMARY_FIELDS if not self._is_empty_vehicle_value(getattr(candidate, field_name))
+            field_name
+            for field_name in VEHICLE_PRIMARY_FIELDS
+            if not self._is_empty_vehicle_value(getattr(candidate, field_name))
         )
         candidate.tentative_fields = sorted(
             field_name
             for field_name in candidate.autofilled_fields
-            if field_name in {"oil_engine_capacity_l", "oil_gearbox_capacity_l", "coolant_capacity_l", "gearbox_model", "engine_power_hp"}
+            if field_name
+            in {
+                "oil_engine_capacity_l",
+                "oil_gearbox_capacity_l",
+                "coolant_capacity_l",
+                "gearbox_model",
+                "engine_power_hp",
+            }
             and best_score < 9
         )
-        candidate.field_sources = {field_name: "structured_reference_catalog" for field_name in candidate.autofilled_fields}
+        candidate.field_sources = {
+            field_name: "structured_reference_catalog" for field_name in candidate.autofilled_fields
+        }
         return candidate if candidate.autofilled_fields else None
 
-    def _merge_autofill_profile(self, base: VehicleProfile, incoming: VehicleProfile) -> VehicleProfile:
+    def _merge_autofill_profile(
+        self, base: VehicleProfile, incoming: VehicleProfile
+    ) -> VehicleProfile:
         result = deepcopy(base)
         manual_fields = set(result.manual_fields)
         autofilled_fields = set(result.autofilled_fields)
@@ -890,7 +957,10 @@ $payload | ConvertTo-Json -Compress -Depth 6
                 continue
             if field_name in manual_fields:
                 continue
-            if not self._is_empty_vehicle_value(getattr(result, field_name)) and field_name not in autofilled_fields:
+            if (
+                not self._is_empty_vehicle_value(getattr(result, field_name))
+                and field_name not in autofilled_fields
+            ):
                 continue
             setattr(result, field_name, deepcopy(next_value))
             autofilled_fields.add(field_name)
@@ -908,10 +978,16 @@ $payload | ConvertTo-Json -Compress -Depth 6
 
         result.source_links_or_refs = source_links[:12]
         result.warnings = warnings
-        result.source_summary = self._join_non_empty([result.source_summary, incoming.source_summary], separator="; ")
+        result.source_summary = self._join_non_empty(
+            [result.source_summary, incoming.source_summary], separator="; "
+        )
         result.source_confidence = max(result.source_confidence, incoming.source_confidence)
-        result.autofilled_fields = sorted(normalize_vehicle_field_names(list(autofilled_fields - manual_fields)))
-        result.tentative_fields = sorted(normalize_vehicle_field_names(list(tentative_fields & set(result.autofilled_fields))))
+        result.autofilled_fields = sorted(
+            normalize_vehicle_field_names(list(autofilled_fields - manual_fields))
+        )
+        result.tentative_fields = sorted(
+            normalize_vehicle_field_names(list(tentative_fields & set(result.autofilled_fields)))
+        )
         result.field_sources = field_sources
         result.data_completion_state = self._derive_completion_state(result)
         if incoming.raw_image_text:
@@ -925,16 +1001,24 @@ $payload | ConvertTo-Json -Compress -Depth 6
         model_slug = self._slug(profile.model_display)
         if make_slug != self._slug(entry.make_display):
             return 0
-        if not any(alias in model_slug for alias in [self._slug(alias) for alias in entry.model_aliases]):
+        if not any(
+            alias in model_slug for alias in [self._slug(alias) for alias in entry.model_aliases]
+        ):
             return 0
         score = 5
         if profile.production_year and entry.year_from <= profile.production_year <= entry.year_to:
             score += 2
-        if profile.engine_code and any(self._slug(code) == self._slug(profile.engine_code) for code in entry.engine_codes):
+        if profile.engine_code and any(
+            self._slug(code) == self._slug(profile.engine_code) for code in entry.engine_codes
+        ):
             score += 4
-        if profile.engine_model and any(self._slug(model) == self._slug(profile.engine_model) for model in entry.engine_models):
+        if profile.engine_model and any(
+            self._slug(model) == self._slug(profile.engine_model) for model in entry.engine_models
+        ):
             score += 3
-        if profile.engine_displacement_l and any(abs(profile.engine_displacement_l - value) < 0.11 for value in entry.displacements_l):
+        if profile.engine_displacement_l and any(
+            abs(profile.engine_displacement_l - value) < 0.11 for value in entry.displacements_l
+        ):
             score += 3
         return score
 
@@ -1006,7 +1090,34 @@ $payload | ConvertTo-Json -Compress -Depth 6
                     for token in tokens:
                         if _YEAR_PATTERN.fullmatch(token):
                             break
-                        if token in {"VIN", "ПРОБЛЕМА", "ЖАЛОБА", "НЕИСПРАВНОСТЬ"}:
+                        if token in {
+                            "VIN",
+                            "ПРОБЛЕМА",
+                            "ЖАЛОБА",
+                            "НЕИСПРАВНОСТЬ",
+                            "SPECS",
+                            "SPECIFICATIONS",
+                            "SPEC",
+                            "REVIEW",
+                            "DATA",
+                            "PERFORMANCE",
+                            "PHOTOS",
+                            "WARRANTY",
+                            "TECHNICAL",
+                            "DIMENSIONS",
+                            "FUEL",
+                            "CONSUMPTION",
+                            "CATALOG",
+                            "QUATTRO",
+                            "SEDAN",
+                            "COUPE",
+                            "CABRIOLET",
+                            "HATCHBACK",
+                            "SPORTBACK",
+                            "TOURING",
+                        }:
+                            break
+                        if token.isdigit() and model_tokens:
                             break
                         model_tokens.append(token)
                         if len(model_tokens) >= 3:
@@ -1060,14 +1171,24 @@ $payload | ConvertTo-Json -Compress -Depth 6
         if labelled:
             candidate = normalize_vehicle_text(labelled.group(1), limit=40)
             if candidate:
-                return candidate.upper() if re.fullmatch(r"[A-Z0-9\-/. ]+", candidate, re.IGNORECASE) else candidate
+                return (
+                    candidate.upper()
+                    if re.fullmatch(r"[A-Z0-9\-/. ]+", candidate, re.IGNORECASE)
+                    else candidate
+                )
         model_tokens = [token for token in re.split(r"[\s\-]+", model_display.upper()) if token]
         if model_tokens:
             joined = r"[\s\-]+".join(re.escape(token) for token in model_tokens)
-            near_model = re.search(rf"{joined}\s+([A-Z]{{1,4}}\d{{1,4}}[A-Z]?|[IVX]{{1,5}})\b", text.upper(), re.IGNORECASE)
+            near_model = re.search(
+                rf"{joined}\s+([A-Z]{{1,4}}\d{{1,4}}[A-Z]?|[IVX]{{1,5}})\b",
+                text.upper(),
+                re.IGNORECASE,
+            )
             if near_model:
                 return near_model.group(1).upper()
-        platform_tokens = [match.group(1).upper() for match in _PLATFORM_TOKEN_PATTERN.finditer(text.upper())]
+        platform_tokens = [
+            match.group(1).upper() for match in _PLATFORM_TOKEN_PATTERN.finditer(text.upper())
+        ]
         filtered = [
             token
             for token in platform_tokens
@@ -1105,7 +1226,9 @@ $payload | ConvertTo-Json -Compress -Depth 6
         display = profile.display_name()
         return normalize_text(display, default="", limit=CARD_VEHICLE_LIMIT)
 
-    def _suggest_title(self, explicit_title: str, raw_text: str, parsed_title: str, profile: VehicleProfile) -> str:
+    def _suggest_title(
+        self, explicit_title: str, raw_text: str, parsed_title: str, profile: VehicleProfile
+    ) -> str:
         explicit = normalize_text(explicit_title, default="", limit=CARD_TITLE_LIMIT)
         if explicit:
             return explicit
@@ -1118,7 +1241,9 @@ $payload | ConvertTo-Json -Compress -Depth 6
         raw = normalize_text(raw_text, default="", limit=CARD_TITLE_LIMIT)
         return raw.upper() if raw else "НОВАЯ КАРТОЧКА ПО АВТО"
 
-    def _suggest_description(self, explicit_description: str, raw_text: str, parsed_description: str) -> str:
+    def _suggest_description(
+        self, explicit_description: str, raw_text: str, parsed_description: str
+    ) -> str:
         explicit = normalize_text(explicit_description, default="", limit=CARD_DESCRIPTION_LIMIT)
         if explicit:
             return explicit
@@ -1147,11 +1272,17 @@ $payload | ConvertTo-Json -Compress -Depth 6
         return ", ".join(unique_labels)
 
     def _infer_source_summary(self, profile: VehicleProfile) -> str:
-        source_values = {str(value or "").strip().lower() for value in profile.field_sources.values()}
+        source_values = {
+            str(value or "").strip().lower() for value in profile.field_sources.values()
+        }
         links = [str(value or "").strip().lower() for value in profile.source_links_or_refs]
-        if any("official_vin_decode" in value for value in source_values) or any("vpic.nhtsa.dot.gov" in value for value in links):
+        if any("official_vin_decode" in value for value in source_values) or any(
+            "vpic.nhtsa.dot.gov" in value for value in links
+        ):
             return "official VIN decode"
-        if any("structured_reference_catalog" in value for value in source_values) or any("catalog:" in value for value in links):
+        if any("structured_reference_catalog" in value for value in source_values) or any(
+            "catalog:" in value for value in links
+        ):
             return "reference catalog"
         if profile.autofilled_fields:
             return "autofilled from card content"

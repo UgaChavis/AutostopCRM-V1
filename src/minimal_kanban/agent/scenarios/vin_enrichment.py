@@ -154,7 +154,7 @@ class VinEnrichmentScenarioExecutor:
                 )
                 excerpt_payloads: list[dict[str, Any]] = []
                 if isinstance(web_results, list):
-                    for offset, item in enumerate(web_results[:2], start=3):
+                    for offset, item in enumerate(web_results[:4], start=3):
                         if not isinstance(item, dict):
                             continue
                         url = str(item.get("url", "") or "").strip()

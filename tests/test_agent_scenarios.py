@@ -191,6 +191,154 @@ class VinEnrichmentScenarioTests(unittest.TestCase):
         self.assertIn("web_enrichment_fields", decoded)
         self.assertIn("VIN web enrichment produced additional confirmed facts.", runtime.logs)
 
+    def test_sparse_decode_keeps_trying_after_failed_excerpts(self) -> None:
+        service = VehicleProfileService()
+
+        class _FakeRuntime:
+            def __init__(self) -> None:
+                self.actions: list[tuple[str, dict[str, object]]] = []
+
+            def _record_log_action(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+                return None
+
+            def _run_autofill_tool(self, *, tool_name: str, args: dict[str, object], **kwargs):  # type: ignore[no-untyped-def]
+                self.actions.append((tool_name, dict(args)))
+                if tool_name == "decode_vin":
+                    return {
+                        "ok": True,
+                        "data": {
+                            "vin": str(args["vin"]),
+                            "make": "AUDI",
+                            "model": "",
+                            "model_year": "1988",
+                            "source_url": "https://vpic.nhtsa.dot.gov/api/vehicles/example",
+                        },
+                    }
+                if tool_name == "search_web":
+                    return {
+                        "ok": True,
+                        "data": {
+                            "results": [
+                                {
+                                    "title": "Blocked page one",
+                                    "snippet": "",
+                                    "url": "https://blocked.example/one",
+                                },
+                                {
+                                    "title": "Blocked page two",
+                                    "snippet": "",
+                                    "url": "https://blocked.example/two",
+                                },
+                                {
+                                    "title": "1988 Audi 90 Quattro Specs Review (97 kW / 132 PS / 130 hp)",
+                                    "snippet": "",
+                                    "url": "https://example.com/audi-90",
+                                },
+                                {
+                                    "title": "Extra page",
+                                    "snippet": "",
+                                    "url": "https://example.com/extra",
+                                },
+                            ]
+                        },
+                    }
+                if tool_name == "fetch_page_excerpt":
+                    url = str(args["url"])
+                    if "blocked.example" in url:
+                        return None
+                    return {
+                        "ok": True,
+                        "data": {
+                            "title": "1988 Audi 90 Quattro Specs Review",
+                            "excerpt": "1988 Audi 90 Quattro Specs Review (97 kW / 132 PS / 130 hp). What is the drivetrain? All wheel drive (4x4).",
+                            "url": url,
+                        },
+                    }
+                raise AssertionError(f"unexpected tool: {tool_name}")
+
+            def _response_data(self, payload):  # type: ignore[no-untyped-def]
+                if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+                    return payload["data"]
+                return payload if isinstance(payload, dict) else {}
+
+            def _vin_decode_status(self, payload):  # type: ignore[no-untyped-def]
+                data = payload if isinstance(payload, dict) else {}
+                if any(
+                    str(data.get(key, "") or "").strip()
+                    for key in ("model", "model_year", "engine_model", "transmission", "drive_type")
+                ):
+                    return "success"
+                if any(
+                    str(data.get(key, "") or "").strip() for key in ("make", "plant_country", "vin")
+                ):
+                    return "insufficient"
+                return "failed"
+
+            def _merge_vehicle_context(self, current, decoded):  # type: ignore[no-untyped-def]
+                merged = dict(current or {})
+                for key, target in (
+                    ("make", "make"),
+                    ("model", "model"),
+                    ("model_year", "year"),
+                    ("engine_model", "engine"),
+                    ("transmission", "gearbox"),
+                    ("drive_type", "drivetrain"),
+                    ("vin", "vin"),
+                ):
+                    if not merged.get(target) and decoded.get(key):
+                        merged[target] = decoded.get(key)
+                return merged
+
+            def _build_tool_result(self, tool_name, payload, **kwargs):  # type: ignore[no-untyped-def]
+                return ToolResult(
+                    tool_name=tool_name,
+                    status="success",
+                    source_type="external_vin",
+                    confidence=0.9,
+                    data={"ok": True},
+                    raw_ref="test",
+                    evidence_ref=str(kwargs.get("evidence_ref", "")),
+                    reason=str(kwargs.get("reason", "")),
+                )
+
+            def _vin_web_enrichment_required(self, decoded_vin):  # type: ignore[no-untyped-def]
+                return True
+
+            def _parse_vehicle_profile_text(
+                self, text: str, *, explicit_vehicle: str = ""
+            ) -> dict[str, object]:
+                profile, _, _ = service._parse_text_payload(text, explicit_vehicle=explicit_vehicle)
+                return profile.to_dict()
+
+        runtime = _FakeRuntime()
+        facts = {
+            "vin": "WAUZZZ8V0JA000001",
+            "vehicle_context": {},
+            "vehicle_profile": {},
+            "evidence_model": {},
+        }
+        result = VinEnrichmentScenarioExecutor().execute(
+            ScenarioContext(
+                scenario_id="vin_enrichment",
+                task_id="task-2",
+                run_id="run-2",
+                metadata={"context": {"kind": "card", "card_id": "card-2"}},
+                facts=facts,
+                runtime=runtime,
+            )
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertGreaterEqual(result.tool_calls_used, 5)
+        self.assertIn(
+            ("fetch_page_excerpt", {"url": "https://example.com/audi-90", "max_chars": 1800}),
+            runtime.actions,
+        )
+        decoded = result.orchestration_updates["decode_vin"]
+        self.assertEqual(decoded["model"], "90")
+        self.assertEqual(decoded["engine_power_hp"], 130)
+        self.assertEqual(decoded["drive_type"], "AWD")
+
 
 if __name__ == "__main__":
     unittest.main()
