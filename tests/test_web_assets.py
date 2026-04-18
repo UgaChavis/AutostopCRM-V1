@@ -185,12 +185,14 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('aria-label="Новый стикер"', BOARD_WEB_APP_HTML)
         self.assertIn('title="Новый стикер"', BOARD_WEB_APP_HTML)
         self.assertIn(".sticky-dock__button svg {", BOARD_WEB_APP_HTML)
+        self.assertIn(".sticky__text {", BOARD_WEB_APP_HTML)
+        self.assertIn("font-size: calc(22px * var(--board-scale));", BOARD_WEB_APP_HTML)
+        self.assertIn("font-weight: 800;", BOARD_WEB_APP_HTML)
+        self.assertIn("color: #d61f1f;", BOARD_WEB_APP_HTML)
         self.assertNotIn("stickyDockMenu", BOARD_WEB_APP_HTML)
         self.assertNotIn("stickyCreateButton", BOARD_WEB_APP_HTML)
         self.assertNotIn("toggleStickyMenu", BOARD_WEB_APP_HTML)
         self.assertNotIn("closeStickyMenu", BOARD_WEB_APP_HTML)
-        self.assertIn(".sticky__text {", BOARD_WEB_APP_HTML)
-        self.assertIn("font-size: calc(15px * var(--board-scale));", BOARD_WEB_APP_HTML)
         self.assertIn("const rawTarget = event.target;", BOARD_WEB_APP_HTML)
         self.assertIn("const target = rawTarget instanceof Element", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -201,7 +203,6 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "const createInTrigger = target.closest('[data-create-in]');", BOARD_WEB_APP_HTML
         )
-        self.assertIn("color: rgba(104, 42, 39, 0.94);", BOARD_WEB_APP_HTML)
         self.assertIn("async function handleAuxiliaryBoardClick(target, event)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleStickyModalOverlayClick(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function applyStickySnapshot(stickies)", BOARD_WEB_APP_HTML)

@@ -595,9 +595,11 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .sticky__text {
         font-family: var(--mono);
-        font-size: calc(15px * var(--board-scale));
-        line-height: 1.36;
-        color: rgba(104, 42, 39, 0.94);
+        font-size: calc(22px * var(--board-scale));
+        line-height: 1.22;
+        font-weight: 800;
+        color: #d61f1f;
+        text-shadow: 0 1px 0 rgba(255, 240, 240, 0.18);
         white-space: pre-wrap;
         word-break: break-word;
         user-select: text;
