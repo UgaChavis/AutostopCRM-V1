@@ -2309,6 +2309,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(autofilled["data"]["repair_order"]["phone"], "+7 999 000-11-22")
         self.assertEqual(autofilled["data"]["repair_order"]["license_plate"], "А123АА124")
         self.assertEqual(autofilled["data"]["repair_order"]["works"], [])
+        self.assertIn("Заявка принята", autofilled["data"]["repair_order"]["client_information"])
         self.assertIn("autofill_report", autofilled["data"]["meta"])
 
     def test_autofill_repair_order_route_returns_structured_rows_and_history_prices(self) -> None:
@@ -2364,9 +2365,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(autofilled["data"]["repair_order"]["works"], [])
         self.assertEqual(autofilled["data"]["repair_order"]["materials"], [])
-        self.assertIn(
-            "Клиент обратился с запросом", autofilled["data"]["repair_order"]["client_information"]
-        )
+        self.assertIn("Заявка принята", autofilled["data"]["repair_order"]["client_information"])
         self.assertIn(
             "В ходе проверки выявлено", autofilled["data"]["repair_order"]["client_information"]
         )
