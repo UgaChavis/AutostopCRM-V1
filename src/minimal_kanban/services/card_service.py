@@ -6056,85 +6056,57 @@ class CardService:
             exclude_card_id=card.id,
         )
         profile = card.vehicle_profile
-        related_cards = self._related_cards(card, cards)
+        changed_fields: list[str] = []
+        original_order = order.to_storage_dict()
         suggested_client = profile.customer_name or self._extract_customer_name(card)
-        if not suggested_client:
-            suggested_client = self._first_related_value(
-                related_cards,
-                lambda related: related.repair_order.client,
-                lambda related: related.vehicle_profile.customer_name,
-            )
         if overwrite or not order.client:
             order.client = suggested_client or order.client
+        if order.client != original_order.get("client", ""):
+            changed_fields.append("client")
         suggested_phone = profile.customer_phone or self._extract_phone(card)
-        if not suggested_phone:
-            suggested_phone = self._first_related_value(
-                related_cards,
-                lambda related: related.repair_order.phone,
-                lambda related: related.vehicle_profile.customer_phone,
-            )
         if overwrite or not order.phone:
             order.phone = suggested_phone or order.phone
+        if order.phone != original_order.get("phone", ""):
+            changed_fields.append("phone")
         if overwrite or not order.vehicle:
             order.vehicle = card.vehicle_display() or order.vehicle
+        if order.vehicle != original_order.get("vehicle", ""):
+            changed_fields.append("vehicle")
         if overwrite or not order.opened_at:
             order.opened_at = self._repair_order_card_datetime(card.created_at) or order.opened_at
+        if order.opened_at != original_order.get("opened_at", ""):
+            changed_fields.append("opened_at")
         if overwrite or not order.vin:
             order.vin = profile.vin or self._extract_vin(card, fallback=order.vin)
+        if order.vin != original_order.get("vin", ""):
+            changed_fields.append("vin")
         if overwrite or not order.mileage:
             order.mileage = (
                 str(profile.mileage) if profile.mileage else ""
             ) or self._extract_mileage(card, fallback=order.mileage)
+        if order.mileage != original_order.get("mileage", ""):
+            changed_fields.append("mileage")
         if overwrite or not order.reason:
             order.reason = self._build_repair_order_reason(card) or order.reason
+        if order.reason != original_order.get("reason", ""):
+            changed_fields.append("reason")
         if overwrite or not order.license_plate:
             order.license_plate = self._extract_license_plate(card, fallback=order.license_plate)
-        suggested_works = self._suggest_repair_order_rows(
-            card, profile=profile, cards=cards, related_cards=related_cards, section="works"
-        )
-        suggested_materials = self._suggest_repair_order_rows(
-            card, profile=profile, cards=cards, related_cards=related_cards, section="materials"
-        )
-        price_hits: list[dict[str, str]] = []
-        suggested_works, work_price_hits = self._apply_history_prices_to_rows(
-            suggested_works,
-            section="works",
-            cards=cards,
-            related_cards=related_cards,
-        )
-        suggested_materials, material_price_hits = self._apply_history_prices_to_rows(
-            suggested_materials,
-            section="materials",
-            cards=cards,
-            related_cards=related_cards,
-        )
-        price_hits.extend(work_price_hits)
-        price_hits.extend(material_price_hits)
-
-        if overwrite:
-            order.works = suggested_works or order.works
-            order.materials = suggested_materials or order.materials
-        else:
-            order.works = self._merge_repair_order_rows(order.works, suggested_works)
-            order.materials = self._merge_repair_order_rows(order.materials, suggested_materials)
+        if order.license_plate != original_order.get("license_plate", ""):
+            changed_fields.append("license_plate")
 
         if overwrite or not order.comment:
             order.comment = self._build_client_description(card, order) or order.comment
+        if order.comment != original_order.get("comment", ""):
+            changed_fields.append("comment")
         if overwrite or not order.note:
-            order.note = (
-                self._build_internal_repair_note(card, order, price_hits=price_hits) or order.note
-            )
+            order.note = self._build_internal_repair_note(card, order) or order.note
+        if order.note != original_order.get("note", ""):
+            changed_fields.append("note")
 
         review_items: list[str] = []
-        if suggested_works or suggested_materials:
-            review_items.append("Проверьте перечень работ и материалов перед сохранением.")
-        if price_hits:
-            review_items.append("Цены подтянуты из истории доски: проверьте актуальность.")
         autofill_report: dict[str, object] = {
-            "matched_history_cards": len(related_cards),
-            "works_suggested": len(suggested_works),
-            "materials_suggested": len(suggested_materials),
-            "prices_applied": price_hits,
+            "filled_fields": changed_fields,
             "review_items": review_items,
         }
         return order, autofill_report
@@ -6914,10 +6886,6 @@ class CardService:
         )
         findings = self._extract_repair_findings(card)
         recommendations = self._extract_repair_recommendations(card)
-        work_names = [row.name for row in order.works if row.name][:4]
-        material_names = [self._format_client_material(row) for row in order.materials if row.name][
-            :5
-        ]
         if reason:
             parts.append(f"Клиент обратился с запросом: {reason.rstrip('.')} .".replace(" .", "."))
         if findings:
@@ -6926,10 +6894,6 @@ class CardService:
                     " .", "."
                 )
             )
-        if work_names:
-            parts.append(f"Выполнены работы: {', '.join(work_names)}.")
-        if material_names:
-            parts.append(f"Использованы материалы и запчасти: {', '.join(material_names)}.")
         if recommendations:
             parts.append(
                 f"Рекомендовано далее: {'; '.join(recommendations[:2]).rstrip('.')} .".replace(
@@ -6952,17 +6916,12 @@ class CardService:
         self,
         card: Card,
         order: RepairOrder,
-        *,
-        price_hits: list[dict[str, str]],
     ) -> str:
         parts: list[str] = []
         findings = self._extract_repair_findings(card)
         recommendations = self._extract_repair_recommendations(card)
         if findings:
             parts.append(f"Технические замечания: {'; '.join(findings[:3])}.")
-        if price_hits:
-            labels = ", ".join(f"{item['name']} = {item['price']}" for item in price_hits[:3])
-            parts.append(f"Цены подтянуты из истории: {labels}.")
         if recommendations:
             parts.append(f"Контроль / следующий шаг: {'; '.join(recommendations[:2])}.")
         return normalize_text(" ".join(parts), default="", limit=1200)

@@ -3432,10 +3432,10 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(order["vehicle"], "Volkswagen Tiguan II")
         self.assertEqual(order["mileage"], "98000")
         self.assertEqual(order["license_plate"], "А123АА124")
-        self.assertIn("замену расходников", order["comment"].lower())
-        self.assertEqual(order["works"][0]["name"], "ТО DSG/АКПП")
-        self.assertEqual(order["works"][0]["quantity"], "1")
+        self.assertIn("то dsg/акпп", order["comment"].lower())
+        self.assertEqual(order["works"], [])
         self.assertEqual(order["materials"][0]["name"], "ATF")
+        self.assertEqual(order["materials"][0]["price"], "")
 
     def test_autofill_repair_order_extracts_structured_rows_and_client_summary_from_text(
         self,
@@ -3474,53 +3474,14 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(order["vin"], "WVWZZZ1KZBP123456")
         self.assertEqual(order["mileage"], "145000")
         self.assertIn("пинки dsg", order["reason"].lower())
-        self.assertEqual(
-            [row["name"] for row in order["works"][:3]],
-            ["Диагностика DSG", "Адаптация DSG", "Замена масла АКПП"],
-        )
-        self.assertEqual(
-            [row["name"] for row in order["materials"][:3]],
-            ["ATF", "Фильтр АКПП", "Прокладка поддона"],
-        )
-        self.assertEqual(order["materials"][0]["quantity"], "6")
-        self.assertEqual(order["materials"][1]["quantity"], "1")
         self.assertIn("Клиент обратился с запросом", order["client_information"])
-        self.assertIn("Выполнены работы", order["client_information"])
-        self.assertIn("Рекомендовано далее", order["client_information"])
+        self.assertIn("В ходе проверки выявлено", order["client_information"])
         self.assertIn("Технические замечания", order["note"])
+        self.assertEqual(order["works"], [])
+        self.assertEqual(order["materials"], [])
 
-    def test_autofill_repair_order_uses_history_prices_and_merges_existing_rows(self) -> None:
+    def test_autofill_repair_order_keeps_money_and_rows_untouched(self) -> None:
         vin = "WVWZZZ1KZBP123456"
-        for index in range(2):
-            created = self.service.create_card(
-                {
-                    "vehicle": "Volkswagen Tiguan II",
-                    "title": f"История DSG {index}",
-                    "description": "Ранее выполненные работы",
-                    "deadline": {"hours": 4},
-                    "vehicle_profile": {"vin": vin},
-                }
-            )
-            self.service.update_card(
-                {
-                    "card_id": created["card"]["id"],
-                    "repair_order": {
-                        "client": "Иван Иванов",
-                        "works": [
-                            {
-                                "name": "Диагностика DSG",
-                                "quantity": "1",
-                                "price": "2500",
-                                "total": "",
-                            }
-                        ],
-                        "materials": [
-                            {"name": "ATF", "quantity": "6", "price": "950", "total": ""}
-                        ],
-                    },
-                }
-            )
-
         current = self.service.create_card(
             {
                 "vehicle": "Volkswagen Tiguan II",
@@ -3543,16 +3504,12 @@ class CardServiceTests(unittest.TestCase):
         autofilled = self.service.autofill_repair_order({"card_id": card_id})
 
         order = autofilled["repair_order"]
-        self.assertEqual(order["works"][0]["name"], "Диагностика DSG")
-        self.assertEqual(order["works"][0]["price"], "2500")
-        self.assertEqual(order["works"][0]["total"], "2500")
         self.assertEqual(len(order["materials"]), 1)
         self.assertEqual(order["materials"][0]["name"], "ATF")
-        self.assertEqual(order["materials"][0]["quantity"], "6")
-        self.assertEqual(order["materials"][0]["price"], "950")
-        self.assertEqual(order["materials"][0]["total"], "5700")
-        self.assertEqual(order["grand_total"], "8200")
-        self.assertEqual(len(autofilled["meta"]["autofill_report"]["prices_applied"]), 2)
+        self.assertEqual(order["materials"][0]["quantity"], "")
+        self.assertEqual(order["materials"][0]["price"], "")
+        self.assertEqual(order["grand_total"], "0")
+        self.assertIn("filled_fields", autofilled["meta"]["autofill_report"])
 
     def test_search_cards_matches_vehicle_profile_fields(self) -> None:
         created = self.service.create_card(

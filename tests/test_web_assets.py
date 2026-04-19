@@ -1164,7 +1164,8 @@ class WebAssetsTests(unittest.TestCase):
     def test_repair_order_autofill_status_uses_report_hints(self) -> None:
         self.assertIn("function buildRepairOrderAutofillStatus(data)", BOARD_WEB_APP_HTML)
         self.assertIn("data?.meta?.autofill_report", BOARD_WEB_APP_HTML)
-        self.assertIn("цены из истории", BOARD_WEB_APP_HTML)
+        self.assertIn("filled_fields", BOARD_WEB_APP_HTML)
+        self.assertIn("информация для клиента", BOARD_WEB_APP_HTML)
 
     def test_repair_order_print_module_exposes_preview_template_editor_and_routes(self) -> None:
         self.assertIn('id="repairOrderPrintModal"', BOARD_WEB_APP_HTML)

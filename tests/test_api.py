@@ -2308,7 +2308,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(autofilled["data"]["repair_order"]["client"], "Петров Пётр")
         self.assertEqual(autofilled["data"]["repair_order"]["phone"], "+7 999 000-11-22")
         self.assertEqual(autofilled["data"]["repair_order"]["license_plate"], "А123АА124")
-        self.assertEqual(autofilled["data"]["repair_order"]["works"][0]["name"], "ТО DSG/АКПП")
+        self.assertEqual(autofilled["data"]["repair_order"]["works"], [])
         self.assertIn("autofill_report", autofilled["data"]["meta"])
 
     def test_autofill_repair_order_route_returns_structured_rows_and_history_prices(self) -> None:
@@ -2362,11 +2362,15 @@ class ApiServerTests(unittest.TestCase):
 
         status, autofilled = self.request("/api/autofill_repair_order", {"card_id": card_id})
         self.assertEqual(status, 200)
-        self.assertEqual(autofilled["data"]["repair_order"]["works"][0]["price"], "2500")
-        self.assertEqual(autofilled["data"]["repair_order"]["materials"][0]["name"], "ATF")
-        self.assertEqual(autofilled["data"]["repair_order"]["materials"][0]["price"], "950")
-        self.assertIn("Выполнены работы", autofilled["data"]["repair_order"]["client_information"])
-        self.assertEqual(len(autofilled["data"]["meta"]["autofill_report"]["prices_applied"]), 2)
+        self.assertEqual(autofilled["data"]["repair_order"]["works"], [])
+        self.assertEqual(autofilled["data"]["repair_order"]["materials"], [])
+        self.assertIn(
+            "Клиент обратился с запросом", autofilled["data"]["repair_order"]["client_information"]
+        )
+        self.assertIn(
+            "В ходе проверки выявлено", autofilled["data"]["repair_order"]["client_information"]
+        )
+        self.assertIn("filled_fields", autofilled["data"]["meta"]["autofill_report"])
 
     def test_repair_order_status_route_moves_order_between_active_list_and_archive(self) -> None:
         status, created = self.request(

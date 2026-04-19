@@ -13041,12 +13041,23 @@ BOARD_WEB_APP_HTML = "".join(
       if (!data?.meta?.changed) return 'Пустые поля для автозаполнения не найдены.';
       const report = data?.meta?.autofill_report || {};
       const parts = [];
-      const worksSuggested = Number(report.works_suggested || 0);
-      const materialsSuggested = Number(report.materials_suggested || 0);
-      const priceHits = Array.isArray(report.prices_applied) ? report.prices_applied.length : 0;
-      if (worksSuggested > 0) parts.push('работы ' + worksSuggested);
-      if (materialsSuggested > 0) parts.push('материалы ' + materialsSuggested);
-      if (priceHits > 0) parts.push('цены из истории ' + priceHits);
+      const filledFields = Array.isArray(report.filled_fields) ? report.filled_fields : [];
+      const fieldLabels = {
+        client: 'клиент',
+        phone: 'телефон',
+        vehicle: 'автомобиль',
+        license_plate: 'госномер',
+        vin: 'VIN',
+        mileage: 'пробег',
+        opened_at: 'дата открытия',
+        reason: 'суть обращения',
+        comment: 'информация для клиента',
+        note: 'тех. заметка',
+      };
+      const filledLabels = filledFields
+        .map((field) => fieldLabels[field] || field)
+        .filter(Boolean);
+      if (filledLabels.length) parts.push(filledLabels.join(', '));
       const reviewItems = Array.isArray(report.review_items) ? report.review_items.filter(Boolean) : [];
       if (!parts.length) return 'Заказ-наряд автозаполнен.';
       return 'Заказ-наряд автозаполнен: ' + parts.join(', ') + '.' + (reviewItems.length ? ' ' + reviewItems[0] : '');
