@@ -9942,7 +9942,7 @@ BOARD_WEB_APP_HTML = "".join(
       ).join('');
     }
 
-    function scheduleAgentTasksRefresh(delay = 4000) {
+    function scheduleAgentTasksRefresh(delay = 8000) {
       if (state.agentTasksRefreshTimer) window.clearTimeout(state.agentTasksRefreshTimer);
       if (!els.agentTasksModal?.classList.contains('is-open')) return;
       state.agentTasksRefreshTimer = window.setTimeout(refreshAgentTasksModalState, delay);
@@ -10172,7 +10172,7 @@ BOARD_WEB_APP_HTML = "".join(
         const activeTask = activeAgentScheduledTask();
         if (activeTask) applyAgentScheduledTaskToForm(activeTask);
         else resetAgentScheduledTaskForm();
-        scheduleAgentTasksRefresh(state.agentScheduledTasks.some((item) => item?.busy) ? 1800 : 4000);
+        scheduleAgentTasksRefresh(state.agentScheduledTasks.some((item) => item?.busy) ? 1800 : 8000);
       } catch (error) {
         if (els.agentTasksMeta) els.agentTasksMeta.textContent = String(error.message || 'Ошибка загрузки.').toUpperCase();
         scheduleAgentTasksRefresh(5000);
@@ -10628,7 +10628,7 @@ BOARD_WEB_APP_HTML = "".join(
         const activeAutofill = Boolean(currentAgentContextCard()?.ai_autofill_active);
         scheduleAgentRefresh(task && (task.status === 'pending' || task.status === 'running')
           ? 1200
-          : ((hasRunningAutofill || activeAutofill) ? 1800 : 3500));
+          : ((hasRunningAutofill || activeAutofill) ? 1800 : 6000));
       } catch (error) {
         renderAgentStatus({ agent: { enabled: false }, status: { running: false, last_error: error.message }, queue: { pending_total: 0 } });
         if (els.agentResultPanel) {
@@ -10672,7 +10672,7 @@ BOARD_WEB_APP_HTML = "".join(
       if (state.agentAutofillCountdownTimer) window.clearInterval(state.agentAutofillCountdownTimer);
       state.agentAutofillCountdownTimer = window.setInterval(() => {
         renderAgentAutofillControls(state.agentStatusPayload || { agent: { enabled: false } });
-      }, 1000);
+      }, 3000);
       refreshAgentModalState();
       window.setTimeout(() => {
         syncAgentTaskInputHeight();
