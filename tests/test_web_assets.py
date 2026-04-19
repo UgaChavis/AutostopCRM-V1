@@ -43,10 +43,8 @@ class WebAssetsTests(unittest.TestCase):
             'rel="icon" type="image/png" sizes="32x32" href="/favicon.png"', BOARD_WEB_APP_HTML
         )
         self.assertIn('rel="icon" type="image/x-icon" href="/favicon.ico"', BOARD_WEB_APP_HTML)
-        self.assertIn('<div class="brand__title">AUTOSTOP / ПУЛЬТ</div>', BOARD_WEB_APP_HTML)
-        self.assertIn(
-            '<div class="brand__sub">МИНИМУМ ИНТЕРФЕЙСА · ХОСТ В СЕТИ</div>', BOARD_WEB_APP_HTML
-        )
+        self.assertIn('<div class="brand__title">AUTOSTOP</div>', BOARD_WEB_APP_HTML)
+        self.assertNotIn('brand__sub">МИНИМУМ ИНТЕРФЕЙСА', BOARD_WEB_APP_HTML)
         self.assertIn('id="topbarStatusHost"', BOARD_WEB_APP_HTML)
         self.assertNotIn('<div class="brand__title">КАНБАН / ПУЛЬТ</div>', BOARD_WEB_APP_HTML)
 

@@ -5119,9 +5119,8 @@ BOARD_WEB_APP_HTML = "".join(
           <img class="gear-button__logo" src="/favicon.png" alt="" aria-hidden="true" focusable="false">
         </button>
         <div class="brand">
-          <div class="brand__title">AUTOSTOP / ПУЛЬТ</div>
+          <div class="brand__title">AUTOSTOP</div>
           <div class="topbar__meta">
-            <div class="brand__sub">МИНИМУМ ИНТЕРФЕЙСА · ХОСТ В СЕТИ</div>
             <div class="status-shell" id="topbarStatusHost"></div>
           </div>
         </div>
