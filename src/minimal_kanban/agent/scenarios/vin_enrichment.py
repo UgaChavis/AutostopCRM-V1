@@ -211,6 +211,9 @@ class VinEnrichmentScenarioExecutor:
         orchestration_payload = runtime._response_data(vin_payload) or vin_payload
         vin_status = runtime._vin_decode_status(orchestration_payload)
         facts["vin_decode_status"] = vin_status
+        scenario_patch = self._build_card_patch(
+            facts=facts, orchestration_payload=orchestration_payload, vin_status=vin_status
+        )
         if isinstance(facts.get("evidence_model"), dict):
             facts["evidence_model"]["external_result_sufficient"] = vin_status == "success"
         if vin_status in {"success", "insufficient"}:
@@ -421,6 +424,7 @@ class VinEnrichmentScenarioExecutor:
                 "vin_decode_status": vin_status,
                 "vehicle_context": dict(facts.get("vehicle_context") or {}),
             },
+            patch=scenario_patch,
             warnings=(
                 ["vin decode returned sparse data"]
                 if vin_status == "insufficient"
@@ -435,3 +439,99 @@ class VinEnrichmentScenarioExecutor:
             if vin_status == "insufficient"
             else ("vin_decode_failed" if vin_status == "failed" else ""),
         )
+
+    def _build_card_patch(
+        self, *, facts: dict[str, Any], orchestration_payload: dict[str, Any], vin_status: str
+    ) -> dict[str, Any]:
+        patch: dict[str, Any] = {}
+        vehicle_profile_patch: dict[str, Any] = {}
+        current_vin = str(facts.get("vin", "") or "").strip().upper()
+        if vin_status == "success" and current_vin:
+            vehicle_profile_patch["vin"] = current_vin
+        for field_name, payload_key in (
+            ("make_display", "make"),
+            ("model_display", "model"),
+            ("production_year", "model_year"),
+            ("engine_model", "engine_model"),
+            ("gearbox_model", "transmission"),
+            ("drivetrain", "drive_type"),
+        ):
+            value = str(orchestration_payload.get(payload_key, "") or "").strip()
+            if not value:
+                continue
+            if field_name == "production_year":
+                vehicle_profile_patch[field_name] = int(value) if value.isdigit() else value
+            else:
+                vehicle_profile_patch[field_name] = value
+        source_summary = str(orchestration_payload.get("source_summary", "") or "").strip()
+        if source_summary:
+            vehicle_profile_patch["source_summary"] = source_summary
+        source_confidence = orchestration_payload.get("source_confidence")
+        if source_confidence not in (None, ""):
+            vehicle_profile_patch["source_confidence"] = source_confidence
+        source_links = orchestration_payload.get("source_links_or_refs")
+        if isinstance(source_links, list) and source_links:
+            vehicle_profile_patch["source_links_or_refs"] = [
+                str(item or "").strip() for item in source_links if str(item or "").strip()
+            ]
+        if vehicle_profile_patch:
+            vehicle_profile_patch["autofilled_fields"] = [
+                key
+                for key in (
+                    "vin",
+                    "make_display",
+                    "model_display",
+                    "production_year",
+                    "engine_model",
+                    "gearbox_model",
+                    "drivetrain",
+                )
+                if key in vehicle_profile_patch
+            ]
+            vehicle_profile_patch["field_sources"] = {
+                key: "vin_web_research" for key in vehicle_profile_patch["autofilled_fields"]
+            }
+            vehicle_profile_patch["data_completion_state"] = (
+                "mostly_autofilled" if vin_status == "success" else "partially_autofilled"
+            )
+            patch["vehicle_profile"] = vehicle_profile_patch
+
+        vehicle_label = str(orchestration_payload.get("vehicle_label", "") or "").strip()
+        if not vehicle_label:
+            parts = [
+                str(orchestration_payload.get("make", "") or "").strip(),
+                str(orchestration_payload.get("model", "") or "").strip(),
+                str(orchestration_payload.get("model_year", "") or "").strip(),
+            ]
+            vehicle_label = " ".join(part for part in parts if part).strip()
+        if vehicle_label:
+            patch["vehicle"] = vehicle_label
+
+        description_line = str(orchestration_payload.get("description_line", "") or "").strip()
+        if not description_line:
+            summary_bits = [
+                str(orchestration_payload.get(key, "") or "").strip()
+                for key in (
+                    "make",
+                    "model",
+                    "model_year",
+                    "engine_model",
+                    "transmission",
+                    "drive_type",
+                )
+                if str(orchestration_payload.get(key, "") or "").strip()
+            ]
+            if summary_bits:
+                prefix = (
+                    "По VIN подтверждено: "
+                    if vin_status == "success"
+                    else "По VIN выполнено best-effort исследование: "
+                )
+                description_line = prefix + ", ".join(summary_bits[:4])
+        if description_line:
+            patch["description"] = (
+                description_line
+                if description_line.endswith((".", "!", "?"))
+                else f"{description_line}."
+            )
+        return patch

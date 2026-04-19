@@ -1,7 +1,9 @@
 # ruff: noqa: E402
 from __future__ import annotations
 
+import logging
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -10,13 +12,15 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from minimal_kanban.agent.contracts import ToolResult
+from minimal_kanban.agent.contracts import PlanResult, ToolResult
 from minimal_kanban.agent.runner import AgentRunner
 from minimal_kanban.agent.scenarios import ScenarioContext, build_default_scenario_registry
+from minimal_kanban.agent.scenarios.base import ScenarioExecutionResult
 from minimal_kanban.agent.scenarios.vin_enrichment import (
     VinEnrichmentScenarioExecutor,
     _merge_web_enrichment,
 )
+from minimal_kanban.agent.storage import AgentStorage
 from minimal_kanban.services.vehicle_profile_service import VehicleProfileService
 
 
@@ -761,6 +765,128 @@ class VinEnrichmentScenarioTests(unittest.TestCase):
         )
 
         self.assertEqual(label, "Kia Quoris 2013")
+
+    def test_scenario_patch_triggers_update_card_writeback(self) -> None:
+        class _PatchOnlyExecutor:
+            scenario_id = "vin_enrichment"
+
+            def execute(self, context):  # type: ignore[no-untyped-def]
+                del context
+                return ScenarioExecutionResult(
+                    scenario_id=self.scenario_id,
+                    status="success",
+                    patch={
+                        "description": "По VIN подтверждено: Toyota, Land Cruiser 4.0.",
+                        "vehicle": "Toyota Land Cruiser 4.0",
+                        "vehicle_profile": {
+                            "make_display": "Toyota",
+                            "model_display": "Land Cruiser 4.0",
+                            "production_year": 2013,
+                            "drivetrain": "AWD",
+                        },
+                    },
+                )
+
+        class _FakeBoardApi:
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+                self.card = {
+                    "id": "card-1",
+                    "title": "VIN bridge test",
+                    "description": "VIN: JTEBU3FJX05027767\nПроверить запись из scenario patch.",
+                    "vehicle": "",
+                    "vehicle_profile": {},
+                }
+
+            def get_card_context(
+                self,
+                card_id: str,
+                *,
+                event_limit: int = 20,
+                include_repair_order_text: bool = True,
+            ) -> dict[str, object]:
+                del event_limit, include_repair_order_text
+                self.calls.append({"method": "get_card_context", "card_id": card_id})
+                return {"data": {"card": dict(self.card), "events": []}}
+
+            def get_card(self, card_id: str) -> dict[str, object]:
+                self.calls.append({"method": "get_card", "card_id": card_id})
+                return {"data": {"card": dict(self.card)}}
+
+            def search_cards(self, **kwargs) -> dict[str, object]:  # type: ignore[no-untyped-def]
+                self.calls.append({"method": "search_cards", **kwargs})
+                return {"data": {"cards": []}}
+
+            def update_card(self, **kwargs) -> dict[str, object]:
+                self.calls.append({"method": "update_card", **kwargs})
+                for key in ("vehicle", "description", "vehicle_profile"):
+                    if key in kwargs and kwargs[key] is not None:
+                        self.card[key] = kwargs[key]
+                changed = [
+                    key for key in ("vehicle", "description", "vehicle_profile") if key in kwargs
+                ]
+                return {
+                    "data": {
+                        "card": dict(self.card),
+                        "changed": changed,
+                        "meta": {"changed_fields": changed},
+                    }
+                }
+
+        class _NullModel:
+            model = "offline-null"
+
+        with tempfile.TemporaryDirectory(prefix="autostopcrm-test-") as temp_dir:
+            storage = AgentStorage(base_dir=Path(temp_dir))
+            board_api = _FakeBoardApi()
+            runner = AgentRunner(
+                storage=storage,
+                board_api=board_api,  # type: ignore[arg-type]
+                model_client=_NullModel(),  # type: ignore[arg-type]
+                logger=logging.getLogger("autostopcrm.test"),
+            )
+            runner._scenario_registry.register(_PatchOnlyExecutor())
+            facts = {
+                "card": dict(board_api.card),
+                "vehicle_profile": {},
+                "vehicle_context": {},
+                "vin": "JTEBU3FJX05027767",
+                "autofill_plan": {
+                    "scenarios": [{"name": "vin_enrichment", "label": "VIN", "cost": 1}]
+                },
+            }
+            plan = PlanResult(
+                scenario_id="vin_enrichment",
+                scenario_chain=["vin_enrichment"],
+                execution_mode="structured_card",
+                needs_external_tools=True,
+                required_tools=["research_vin"],
+                optional_tools=[],
+                tool_order=["research_vin"],
+                allowed_write_targets=["description", "vehicle", "vehicle_profile"],
+                forbidden_write_targets=[],
+                stop_conditions=[],
+                followup_policy={"enabled": True},
+                confidence_mode="best_effort",
+                write_mode="patch_only",
+                notes=[],
+            )
+
+            runner._execute_card_autofill_task(
+                {"id": "task-1", "task_text": "Обогати карточку по VIN."},
+                run_id="run-1",
+                metadata={
+                    "purpose": "card_enrichment",
+                    "context": {"kind": "card", "card_id": "card-1"},
+                    "card_enrichment": {"card_id": "card-1", "card_heading": "VIN bridge test"},
+                },
+                facts=facts,
+                plan=plan,
+            )
+
+        self.assertTrue(any(call["method"] == "update_card" for call in board_api.calls))
+        self.assertEqual(board_api.card["vehicle"], "Toyota Land Cruiser 4.0")
+        self.assertEqual(board_api.card["vehicle_profile"]["make_display"], "Toyota")
 
 
 if __name__ == "__main__":
