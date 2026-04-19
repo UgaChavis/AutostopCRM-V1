@@ -1418,11 +1418,21 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('#repairOrderCloseButton[data-close-available="false"],', BOARD_WEB_APP_HTML)
         self.assertIn("opacity: 0.42;", BOARD_WEB_APP_HTML)
         self.assertIn('#repairOrderCloseButton[data-close-available="true"] {', BOARD_WEB_APP_HTML)
-        self.assertIn("border-color: rgba(165, 176, 122, 0.72);", BOARD_WEB_APP_HTML)
+        self.assertIn("border-color: rgba(186, 197, 146, 0.82);", BOARD_WEB_APP_HTML)
         self.assertIn(
             '#repairOrderCloseButton[data-close-available="true"]:hover', BOARD_WEB_APP_HTML
         )
         self.assertIn("transform: translateY(-1px);", BOARD_WEB_APP_HTML)
+        self.assertIn("rgba(49, 58, 47, 0.99);", BOARD_WEB_APP_HTML)
+        self.assertIn("rgba(68, 77, 63, 1);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            '#repairOrderCloseButton[data-close-available="true"]:active,',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            '#repairOrderCloseButton[data-close-available="true"]:focus-visible',
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "async function persistRepairOrderRecord({ statusMessage = '', silent = false } = {})",
             BOARD_WEB_APP_HTML,

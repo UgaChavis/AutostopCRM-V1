@@ -194,27 +194,40 @@ BOARD_WEB_APP_HTML = "".join(
       transform: none;
     }
     #repairOrderCloseButton[data-close-available="true"] {
-      border-color: rgba(165, 176, 122, 0.72);
+      border-color: rgba(186, 197, 146, 0.82);
       background:
-        linear-gradient(180deg, rgba(255,255,255,0.08), transparent 22%),
-        rgba(30, 36, 28, 0.98);
-      color: #f5f8eb;
+        linear-gradient(180deg, rgba(255,255,255,0.22), transparent 20%),
+        rgba(49, 58, 47, 0.99);
+      color: #fafcf2;
       box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.12),
-        0 0 0 1px rgba(0,0,0,0.18);
+        inset 0 1px 0 rgba(255,255,255,0.2),
+        0 0 0 1px rgba(0,0,0,0.18),
+        0 1px 0 rgba(255,255,255,0.04);
       cursor: pointer;
-      transition: border-color 120ms ease, background 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+      text-shadow: 0 1px 0 rgba(0,0,0,0.12);
+      transition: border-color 120ms ease, background 120ms ease, transform 120ms ease, box-shadow 120ms ease, color 120ms ease;
     }
     #repairOrderCloseButton[data-close-available="true"]:hover {
       border-color: var(--accent);
       background:
-        linear-gradient(180deg, rgba(255,255,255,0.12), transparent 18%),
-        rgba(36, 44, 35, 1);
+        linear-gradient(180deg, rgba(255,255,255,0.3), transparent 16%),
+        rgba(68, 77, 63, 1);
       box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.16),
+        inset 0 1px 0 rgba(255,255,255,0.24),
         0 0 0 1px rgba(0,0,0,0.18),
-        0 8px 20px rgba(0,0,0,0.18);
+        0 12px 24px rgba(0,0,0,0.24);
       transform: translateY(-1px);
+    }
+    #repairOrderCloseButton[data-close-available="true"]:active,
+    #repairOrderCloseButton[data-close-available="true"]:focus-visible {
+      border-color: #ccd5a0;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.18), transparent 18%),
+        rgba(39, 46, 37, 1);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.12),
+        0 0 0 1px rgba(0,0,0,0.18);
+      transform: translateY(0);
     }
     .gear-button {
       width: 48px;
