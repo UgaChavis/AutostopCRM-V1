@@ -2,11 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..vehicle_profile import (
-    VEHICLE_ALL_FIELDS,
-    normalize_vehicle_notes,
-    normalize_vehicle_text,
-)
+from ..vehicle_profile import VEHICLE_ALL_FIELDS
 
 BRIDGE_PURPOSE = "card_enrichment"
 BRIDGE_ALLOWED_TOP_LEVEL_PATCH_KEYS = ("description", "vehicle", "vehicle_profile")
@@ -18,12 +14,10 @@ def normalize_card_enrichment_patch(payload: dict[str, Any] | None) -> dict[str,
     if not isinstance(payload, dict):
         return {}
     patch: dict[str, Any] = {}
-    description = normalize_vehicle_notes(payload.get("description"))
-    if description:
-        patch["description"] = description
-    vehicle = normalize_vehicle_text(payload.get("vehicle"), limit=120)
-    if vehicle:
-        patch["vehicle"] = vehicle
+    if "description" in payload and payload.get("description") not in (None, ""):
+        patch["description"] = payload.get("description")
+    if "vehicle" in payload and payload.get("vehicle") not in (None, ""):
+        patch["vehicle"] = payload.get("vehicle")
     vehicle_profile = (
         payload.get("vehicle_profile") if isinstance(payload.get("vehicle_profile"), dict) else {}
     )
@@ -41,7 +35,7 @@ def _normalize_vehicle_profile_patch(payload: dict[str, Any]) -> dict[str, Any]:
         if key not in payload:
             continue
         value = payload.get(key)
-        if value in (None, "", [], {}):
+        if value in (None, [], {}):
             continue
         normalized[key] = value
     return normalized

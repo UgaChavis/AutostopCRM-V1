@@ -35,8 +35,8 @@ class AgentBridgeTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(patch["description"], "По VIN найдено подтверждение.")
-        self.assertEqual(patch["vehicle"], "Toyota Land Cruiser 4.0")
+        self.assertEqual(patch["description"], "  По VIN найдено подтверждение.  ")
+        self.assertEqual(patch["vehicle"], "  Toyota Land Cruiser 4.0  ")
         self.assertEqual(patch["vehicle_profile"]["vin"], "JTEBU3FJX05027767")
         self.assertEqual(
             patch["vehicle_profile"]["raw_input_text"], "VIN: JTEBU3FJX05027767\nengine: 1GR-FE"

@@ -100,13 +100,13 @@ Status values:
 Only confirmed facts belong in `vehicle_profile`.
 
 The bridge accepts the full `VehicleProfile` shape defined in
-`src/minimal_kanban/vehicle_profile.py` and passes known fields through to CRM.
-Unknown keys are dropped at the bridge boundary, but the bridge does not impose
-an extra VIN-specific allowlist on the worker payload.
+`src/minimal_kanban/vehicle_profile.py` and passes known fields through to CRM
+without adding another VIN-specific allowlist or text trimming layer.
+Unknown keys are dropped at the bridge boundary.
 
-The CRM storage layer still normalizes the incoming profile, including helper
-fields such as `raw_input_text`, `warnings`, `manual_fields`, and
-`autofilled_fields`.
+The CRM storage layer still performs its own model-level normalization for the
+incoming profile, including helper fields such as `raw_input_text`,
+`warnings`, `manual_fields`, and `autofilled_fields`.
 
 Do not touch in this flow:
 
