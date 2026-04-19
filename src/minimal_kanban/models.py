@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
 import math
-from pathlib import PurePath
 import re
-from typing import Any, Collection, Literal
 import uuid
+from collections.abc import Collection
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from pathlib import PurePath
+from typing import Any, Literal
 
 from .repair_order import RepairOrder
 from .vehicle_profile import VehicleProfile, build_vehicle_display
-
 
 ColumnId = str
 Indicator = Literal["green", "yellow", "red"]
@@ -56,10 +56,16 @@ MAX_ATTACHMENT_SIZE_BYTES = 15 * 1024 * 1024
 CARD_AI_AUTOFILL_LOG_LIMIT = 24
 _COLUMN_ID_PATTERN = re.compile(r"[^a-z0-9_]+")
 _SPACES_PATTERN = re.compile(r"\s+")
+_CARD_COMPACT_VIN_LABEL_PATTERN = re.compile(r"(?i)\bVIN\s*[:=]?\s*[A-Z0-9-]{6,24}\b")
+_CARD_COMPACT_VIN_PATTERN = re.compile(r"\b[A-HJ-NPR-Z0-9]{17}\b", re.IGNORECASE)
+_CARD_COMPACT_PHONE_PATTERN = re.compile(
+    r"(?:\+7|8)\s*(?:\(\s*\d{3}\s*\)|\d{3})\s*[\- ]?\s*\d{3}\s*[\- ]?\s*\d{2}\s*[\- ]?\s*\d{2}"
+)
+_CARD_COMPACT_EMAIL_PATTERN = re.compile(r"\b[\w.+-]+@[\w.-]+\.\w+\b", re.IGNORECASE)
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def utc_now_iso() -> str:
@@ -74,7 +80,7 @@ def parse_datetime(value: str | None) -> datetime | None:
     except (TypeError, ValueError):
         return None
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
+        return parsed.replace(tzinfo=UTC)
     return parsed
 
 
@@ -123,7 +129,9 @@ def normalize_cash_direction(value, *, default: CashDirection = "income") -> Cas
     return direction  # type: ignore[return-value]
 
 
-def normalize_column(value, *, valid_columns: Collection[str] | None = None, default: str = "inbox") -> ColumnId:
+def normalize_column(
+    value, *, valid_columns: Collection[str] | None = None, default: str = "inbox"
+) -> ColumnId:
     column = str(value or "").strip().lower()
     if not column:
         return default
@@ -145,6 +153,18 @@ def normalize_text(value, *, default: str = "", limit: int | None = None) -> str
         text = default
     if limit is not None:
         text = text[:limit]
+    return text
+
+
+def _sanitize_card_compact_text(value: str) -> str:
+    text = str(value or "").replace("\r", " ").replace("\n", " ")
+    text = _SPACES_PATTERN.sub(" ", text).strip()
+    if not text:
+        return ""
+    text = _CARD_COMPACT_VIN_LABEL_PATTERN.sub("VIN: [VIN]", text)
+    text = _CARD_COMPACT_VIN_PATTERN.sub("[VIN]", text)
+    text = _CARD_COMPACT_PHONE_PATTERN.sub("[PHONE]", text)
+    text = _CARD_COMPACT_EMAIL_PATTERN.sub("[EMAIL]", text)
     return text
 
 
@@ -261,7 +281,7 @@ class CardTag:
         return {"label": self.label, "color": self.color}
 
     @classmethod
-    def from_value(cls, value) -> "CardTag | None":
+    def from_value(cls, value) -> CardTag | None:
         if isinstance(value, CardTag):
             return cls(label=value.label, color=value.color)
         if isinstance(value, dict):
@@ -329,7 +349,9 @@ def _interpolate_channel(start: int, end: int, ratio: float) -> int:
     return max(0, min(255, round(start + ((end - start) * ratio))))
 
 
-def _interpolate_rgb(start: tuple[int, int, int], end: tuple[int, int, int], ratio: float) -> tuple[int, int, int]:
+def _interpolate_rgb(
+    start: tuple[int, int, int], end: tuple[int, int, int], ratio: float
+) -> tuple[int, int, int]:
     bounded_ratio = _clamp_ratio(ratio)
     return (
         _interpolate_channel(start[0], end[0], bounded_ratio),
@@ -354,7 +376,13 @@ def calculate_deadline_progress_ratio(remaining_seconds: int, total_seconds: int
 
 
 def calculate_deadline_progress_bucket(progress_ratio: float) -> int:
-    return max(0, min(DEADLINE_HEAT_BUCKET_COUNT, math.floor(_clamp_ratio(progress_ratio) * DEADLINE_HEAT_BUCKET_COUNT)))
+    return max(
+        0,
+        min(
+            DEADLINE_HEAT_BUCKET_COUNT,
+            math.floor(_clamp_ratio(progress_ratio) * DEADLINE_HEAT_BUCKET_COUNT),
+        ),
+    )
 
 
 def deadline_heat_rgb_for_bucket(bucket: int) -> tuple[int, int, int]:
@@ -424,7 +452,7 @@ class Column:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict, *, fallback_position: int = 0) -> "Column":
+    def from_dict(cls, payload: dict, *, fallback_position: int = 0) -> Column:
         if not isinstance(payload, dict):
             raise TypeError("Column payload must be a dictionary.")
         column_id = normalize_column_id(payload.get("id"))
@@ -463,7 +491,7 @@ class Attachment:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict) -> "Attachment":
+    def from_dict(cls, payload: dict) -> Attachment:
         if not isinstance(payload, dict):
             raise TypeError("Attachment payload must be a dictionary.")
         file_name = normalize_file_name(payload.get("file_name"))
@@ -475,7 +503,9 @@ class Attachment:
             id=normalize_text(payload.get("id"), default=str(uuid.uuid4()), limit=128),
             file_name=file_name,
             stored_name=stored_name,
-            mime_type=normalize_text(payload.get("mime_type"), default="application/octet-stream", limit=100),
+            mime_type=normalize_text(
+                payload.get("mime_type"), default="application/octet-stream", limit=100
+            ),
             size_bytes=normalize_int(payload.get("size_bytes"), default=0, minimum=0),
             created_at=created_at.isoformat(),
             created_by=normalize_actor_name(payload.get("created_by"), default="СИСТЕМА"),
@@ -550,7 +580,7 @@ class StickyNote:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict) -> "StickyNote":
+    def from_dict(cls, payload: dict) -> StickyNote:
         if not isinstance(payload, dict):
             raise TypeError("Sticky note payload must be a dictionary.")
         created_at = parse_datetime(payload.get("created_at")) or utc_now()
@@ -599,7 +629,7 @@ class AuditEvent:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict) -> "AuditEvent":
+    def from_dict(cls, payload: dict) -> AuditEvent:
         if not isinstance(payload, dict):
             raise TypeError("Audit event payload must be a dictionary.")
         timestamp = parse_datetime(payload.get("timestamp")) or utc_now()
@@ -647,7 +677,7 @@ class CashBox:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict) -> "CashBox":
+    def from_dict(cls, payload: dict) -> CashBox:
         if not isinstance(payload, dict):
             raise TypeError("Cash box payload must be a dictionary.")
         created_at = parse_datetime(payload.get("created_at")) or utc_now()
@@ -712,7 +742,7 @@ class CashTransaction:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict) -> "CashTransaction":
+    def from_dict(cls, payload: dict) -> CashTransaction:
         if not isinstance(payload, dict):
             raise TypeError("Cash transaction payload must be a dictionary.")
         created_at = parse_datetime(payload.get("created_at")) or utc_now()
@@ -772,7 +802,9 @@ class Card:
         self.ai_next_run_at = normalize_text(self.ai_next_run_at, default="", limit=64)
         self.last_ai_run_at = normalize_text(self.last_ai_run_at, default="", limit=64)
         self.ai_run_count = normalize_int(self.ai_run_count, default=0, minimum=0)
-        self.last_card_fingerprint = normalize_text(self.last_card_fingerprint, default="", limit=128)
+        self.last_card_fingerprint = normalize_text(
+            self.last_card_fingerprint, default="", limit=128
+        )
         self.ai_autofill_log = normalize_ai_autofill_log(self.ai_autofill_log)
 
     def deadline_datetime(self) -> datetime:
@@ -792,7 +824,9 @@ class Card:
         return self.remaining_seconds(reference_time) / total
 
     def deadline_progress_ratio(self, reference_time: datetime | None = None) -> float:
-        return calculate_deadline_progress_ratio(self.remaining_seconds(reference_time), self.deadline_total_seconds)
+        return calculate_deadline_progress_ratio(
+            self.remaining_seconds(reference_time), self.deadline_total_seconds
+        )
 
     def deadline_progress_bucket(self, reference_time: datetime | None = None) -> int:
         return calculate_deadline_progress_bucket(self.deadline_progress_ratio(reference_time))
@@ -861,7 +895,12 @@ class Card:
         normalized_actor = normalize_actor_name(actor_name, default="")
         if not normalized_actor:
             return False
-        timestamp = parse_datetime(seen_at) or parse_datetime(self.updated_at) or parse_datetime(self.created_at) or utc_now()
+        timestamp = (
+            parse_datetime(seen_at)
+            or parse_datetime(self.updated_at)
+            or parse_datetime(self.created_at)
+            or utc_now()
+        )
         next_seen_at = timestamp.isoformat()
         if self.seen_by_users.get(normalized_actor) == next_seen_at:
             return False
@@ -894,7 +933,9 @@ class Card:
         deadline_progress_bucket = self.deadline_progress_bucket(reference_time)
         attachments = self.attachments if include_removed_attachments else self.active_attachments()
         vehicle_display = self.vehicle_display()
-        normalized_description = _SPACES_PATTERN.sub(" ", str(self.description or "").replace("\r", " ").replace("\n", " ")).strip()
+        normalized_description = _SPACES_PATTERN.sub(
+            " ", str(self.description or "").replace("\r", " ").replace("\n", " ")
+        ).strip()
         description_preview = normalized_description[:480].rstrip()
         if len(normalized_description) > len(description_preview):
             description_preview = description_preview.rstrip(" ,.;:-") + "…"
@@ -919,11 +960,18 @@ class Card:
             "deadline_progress_ratio": deadline_progress_ratio,
             "deadline_progress_percent": int(round(deadline_progress_ratio * 100)),
             "deadline_progress_bucket": deadline_progress_bucket,
-            "deadline_progress_step_percent": deadline_progress_bucket * DEADLINE_HEAT_BUCKET_STEP_PERCENT,
+            "deadline_progress_step_percent": deadline_progress_bucket
+            * DEADLINE_HEAT_BUCKET_STEP_PERCENT,
             "deadline_heat_color": deadline_heat_color_for_bucket(deadline_progress_bucket),
-            "deadline_heat_border_color": deadline_heat_border_color_for_bucket(deadline_progress_bucket),
-            "deadline_heat_ring_color": deadline_heat_ring_color_for_bucket(deadline_progress_bucket),
-            "deadline_heat_glow_color": deadline_heat_glow_color_for_bucket(deadline_progress_bucket),
+            "deadline_heat_border_color": deadline_heat_border_color_for_bucket(
+                deadline_progress_bucket
+            ),
+            "deadline_heat_ring_color": deadline_heat_ring_color_for_bucket(
+                deadline_progress_bucket
+            ),
+            "deadline_heat_glow_color": deadline_heat_glow_color_for_bucket(
+                deadline_progress_bucket
+            ),
             "status": status,
             "indicator": indicator_from_status(status),
             "is_blinking": self.is_blinking(reference_time),
@@ -942,7 +990,8 @@ class Card:
             "last_card_fingerprint": self.last_card_fingerprint,
         }
         if compact:
-            payload["description"] = description_preview
+            payload["description_preview"] = _sanitize_card_compact_text(description_preview)
+            payload["description"] = payload["description_preview"]
             payload["vehicle_profile_compact"] = self.vehicle_profile.to_compact_dict()
             return payload
 
@@ -995,7 +1044,7 @@ class Card:
         valid_columns: Collection[str] | None = None,
         default_column: str = "inbox",
         fallback_position: int = 0,
-    ) -> "Card":
+    ) -> Card:
         if not isinstance(payload, dict):
             raise TypeError("Card payload must be a dictionary.")
 
@@ -1036,9 +1085,15 @@ class Card:
 
         card = cls(
             id=normalize_text(payload.get("id"), default=str(uuid.uuid4()), limit=128),
-            title=normalize_text(payload.get("title"), default="Без названия", limit=CARD_TITLE_LIMIT),
-            description=normalize_text(payload.get("description"), default="", limit=CARD_DESCRIPTION_LIMIT),
-            column=normalize_column(payload.get("column"), valid_columns=valid_columns, default=default_column),
+            title=normalize_text(
+                payload.get("title"), default="Без названия", limit=CARD_TITLE_LIMIT
+            ),
+            description=normalize_text(
+                payload.get("description"), default="", limit=CARD_DESCRIPTION_LIMIT
+            ),
+            column=normalize_column(
+                payload.get("column"), valid_columns=valid_columns, default=default_column
+            ),
             position=normalize_int(payload.get("position"), default=fallback_position, minimum=0),
             archived=archived,
             created_at=created_at.isoformat(),
@@ -1053,12 +1108,18 @@ class Card:
             is_unread=normalize_bool(payload.get("is_unread"), default=False),
             seen_by_users=normalize_seen_by_users(payload.get("seen_by_users")),
             ai_autofill_active=normalize_bool(payload.get("ai_autofill_active"), default=False),
-            ai_autofill_until=normalize_text(payload.get("ai_autofill_until"), default="", limit=64),
-            ai_autofill_prompt=normalize_text(payload.get("ai_autofill_prompt"), default="", limit=800),
+            ai_autofill_until=normalize_text(
+                payload.get("ai_autofill_until"), default="", limit=64
+            ),
+            ai_autofill_prompt=normalize_text(
+                payload.get("ai_autofill_prompt"), default="", limit=800
+            ),
             ai_next_run_at=normalize_text(payload.get("ai_next_run_at"), default="", limit=64),
             last_ai_run_at=normalize_text(payload.get("last_ai_run_at"), default="", limit=64),
             ai_run_count=normalize_int(payload.get("ai_run_count"), default=0, minimum=0),
-            last_card_fingerprint=normalize_text(payload.get("last_card_fingerprint"), default="", limit=128),
+            last_card_fingerprint=normalize_text(
+                payload.get("last_card_fingerprint"), default="", limit=128
+            ),
             ai_autofill_log=normalize_ai_autofill_log(payload.get("ai_autofill_log")),
         )
         card.title = title

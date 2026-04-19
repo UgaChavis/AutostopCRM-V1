@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import replace
 import logging
 import sys
 import tempfile
 import unittest
+
+# ruff: noqa: E402
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -15,7 +16,11 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.settings_models import derive_allowed_hosts, derive_allowed_origins
-from minimal_kanban.settings_service import ConnectionCheckResult, ConnectionTestSummary, SettingsService, SettingsValidationError
+from minimal_kanban.settings_service import (
+    ConnectionCheckResult,
+    SettingsService,
+    SettingsValidationError,
+)
 from minimal_kanban.settings_store import SettingsStore
 
 
@@ -44,7 +49,9 @@ class SettingsServiceTests(unittest.TestCase):
         self.assertEqual(settings.local_api.local_api_port, 41731)
         self.assertEqual(settings.local_api.runtime_local_api_url, "http://127.0.0.1:41731")
         self.assertEqual(settings.local_api.effective_local_api_url, "http://127.0.0.1:41731")
-        self.assertEqual(settings.local_api.local_api_health_url, "http://127.0.0.1:41731/api/health")
+        self.assertEqual(
+            settings.local_api.local_api_health_url, "http://127.0.0.1:41731/api/health"
+        )
         self.assertEqual(settings.mcp.mcp_host, "127.0.0.1")
         self.assertEqual(settings.mcp.mcp_port, 41831)
         self.assertEqual(settings.mcp.mcp_path, "/mcp")
@@ -150,7 +157,9 @@ class SettingsServiceTests(unittest.TestCase):
         self.assertEqual(loaded.openai.model, "gpt-test")
         self.assertEqual(loaded.mcp.local_mcp_url, "http://127.0.0.1:41840/custom-mcp")
         self.assertEqual(loaded.mcp.derived_public_mcp_url, "https://public.example/custom-mcp")
-        self.assertEqual(loaded.mcp.derived_tunnel_mcp_url, "https://demo.trycloudflare.com/custom-mcp")
+        self.assertEqual(
+            loaded.mcp.derived_tunnel_mcp_url, "https://demo.trycloudflare.com/custom-mcp"
+        )
         self.assertEqual(loaded.mcp.effective_mcp_url, "https://agent.example/tools/mcp")
         self.assertIn("kanban.example", loaded.mcp.allowed_hosts)
         self.assertIn("demo.trycloudflare.com", loaded.mcp.resolved_allowed_hosts)
@@ -177,7 +186,9 @@ class SettingsServiceTests(unittest.TestCase):
 
     def test_broken_config_falls_back_to_defaults(self) -> None:
         self.settings_file.write_text("{broken", encoding="utf-8")
-        reloaded = SettingsService(SettingsStore(settings_file=self.settings_file, logger=self.logger), self.logger)
+        reloaded = SettingsService(
+            SettingsStore(settings_file=self.settings_file, logger=self.logger), self.logger
+        )
 
         settings = reloaded.load()
 
@@ -254,22 +265,39 @@ class SettingsServiceTests(unittest.TestCase):
 
     def test_test_connections_aggregates_results(self) -> None:
         settings = self.service.load()
-        with patch.object(
-            self.service,
-            "test_local_api",
-            return_value=ConnectionCheckResult("local_api", "success", "ok", "2026-03-24T10:00:00Z"),
-        ), patch.object(
-            self.service,
-            "test_mcp_endpoint",
-            return_value=ConnectionCheckResult("mcp", "success", "mcp ok", "2026-03-24T10:00:01Z"),
-        ), patch.object(
-            self.service,
-            "test_external_endpoint",
-            return_value=ConnectionCheckResult("external", "failed", "external failed", "2026-03-24T10:00:02Z", errors=("external failed",)),
-        ), patch.object(
-            self.service,
-            "test_openai_endpoint",
-            return_value=ConnectionCheckResult("openai", "skipped", "openai skipped", "2026-03-24T10:00:03Z"),
+        with (
+            patch.object(
+                self.service,
+                "test_local_api",
+                return_value=ConnectionCheckResult(
+                    "local_api", "success", "ok", "2026-03-24T10:00:00Z"
+                ),
+            ),
+            patch.object(
+                self.service,
+                "test_mcp_endpoint",
+                return_value=ConnectionCheckResult(
+                    "mcp", "success", "mcp ok", "2026-03-24T10:00:01Z"
+                ),
+            ),
+            patch.object(
+                self.service,
+                "test_external_endpoint",
+                return_value=ConnectionCheckResult(
+                    "external",
+                    "failed",
+                    "external failed",
+                    "2026-03-24T10:00:02Z",
+                    errors=("external failed",),
+                ),
+            ),
+            patch.object(
+                self.service,
+                "test_openai_endpoint",
+                return_value=ConnectionCheckResult(
+                    "openai", "skipped", "openai skipped", "2026-03-24T10:00:03Z"
+                ),
+            ),
         ):
             summary = self.service.test_connections(settings)
 
@@ -294,7 +322,9 @@ class SettingsServiceTests(unittest.TestCase):
             warnings=("Нужен внешний HTTPS endpoint.",),
         )
 
-        updated = self.service.apply_test_result(settings, "external", result, tested_at="2026-03-24T10:00:00Z")
+        updated = self.service.apply_test_result(
+            settings, "external", result, tested_at="2026-03-24T10:00:00Z"
+        )
 
         self.assertEqual(updated.diagnostics.external_status, "skipped")
         self.assertEqual(updated.diagnostics.external_message, "Внешний MCP URL не указан.")
@@ -315,7 +345,9 @@ class SettingsServiceTests(unittest.TestCase):
         with patch.object(
             self.service,
             "_probe_mcp_server",
-            side_effect=RuntimeError("MCP runtime отклоняет внешний Host header. Нужно разрешить host из Tunnel URL / external domain."),
+            side_effect=RuntimeError(
+                "MCP runtime отклоняет внешний Host header. Нужно разрешить host из Tunnel URL / external domain."
+            ),
         ):
             result = self.service.test_external_endpoint(settings)
 
@@ -380,6 +412,8 @@ class SettingsServiceTests(unittest.TestCase):
                 "tool_names": [],
                 "list_columns_ok": True,
                 "missing_required_tools": [],
+                "board_content_ok": True,
+                "board_events_ok": True,
                 "gpt_wall_ok": True,
                 "oauth_authorization_server_ok": False,
                 "oauth_protected_resource_ok": False,
@@ -408,6 +442,8 @@ class SettingsServiceTests(unittest.TestCase):
                 "tool_names": [],
                 "list_columns_ok": True,
                 "missing_required_tools": ["get_gpt_wall"],
+                "board_content_ok": True,
+                "board_events_ok": True,
                 "gpt_wall_ok": True,
                 "oauth_authorization_server_ok": True,
                 "oauth_protected_resource_ok": True,
@@ -418,7 +454,9 @@ class SettingsServiceTests(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertIn("get_gpt_wall", result.message)
 
-    def test_external_check_does_not_require_oauth_metadata_when_bearer_token_is_missing(self) -> None:
+    def test_external_check_does_not_require_oauth_metadata_when_bearer_token_is_missing(
+        self,
+    ) -> None:
         settings = self.service.update_section(
             "mcp",
             {
@@ -448,6 +486,8 @@ class SettingsServiceTests(unittest.TestCase):
                 "tool_names": [],
                 "list_columns_ok": True,
                 "missing_required_tools": [],
+                "board_content_ok": True,
+                "board_events_ok": True,
                 "gpt_wall_ok": True,
                 "oauth_authorization_server_ok": False,
                 "oauth_protected_resource_ok": False,

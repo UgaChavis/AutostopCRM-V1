@@ -15581,10 +15581,6 @@ function renderCompactArchiveRows(cards) {
       renderCashboxesList();
     }
 
-    function openGptWallModal() {
-      loadGptWall(true);
-    }
-
     function refreshGptWallView() {
       loadGptWall(false);
     }

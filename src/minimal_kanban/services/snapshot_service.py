@@ -26,8 +26,6 @@ REVIEW_BOARD_PRIORITY_LIMIT_DEFAULT = 5
 REVIEW_BOARD_EVENT_LIMIT_DEFAULT = 10
 GPT_WALL_MARKDOWN_LINE_LIMIT = 3000
 
-GPT_WALL_EVENTS_HEADER = "[ЛЕНТА СОБЫТИЙ]"
-
 
 class SnapshotService:
     def __init__(
@@ -46,7 +44,6 @@ class SnapshotService:
         build_board_context_payload: Callable[..., dict[str, Any]],
         cards_for_wall: Callable[..., list[Card]],
         wall_events: Callable[..., list[dict]],
-        build_gpt_wall_text: Callable[..., str],
         validated_search_query: Callable[[Any], str],
         validated_optional_column: Callable[[Any, list[Column]], str | None],
         validated_optional_tag: Callable[[Any], str | None],
@@ -70,7 +67,6 @@ class SnapshotService:
         self._build_board_context_payload = build_board_context_payload
         self._cards_for_wall = cards_for_wall
         self._wall_events = wall_events
-        self._build_gpt_wall_text = build_gpt_wall_text
         self._validated_search_query = validated_search_query
         self._validated_optional_column = validated_optional_column
         self._validated_optional_tag = validated_optional_tag
@@ -328,44 +324,6 @@ class SnapshotService:
             self._append_markdown_block(lines, "text", sticky.get("text"))
             lines.append("")
         return "\n".join(lines).rstrip()
-
-    def _build_event_log_text(self, events: list[dict], meta: dict[str, Any]) -> str:
-        lines = [
-            "[ЖУРНАЛ СОБЫТИЙ ДОСКИ]",
-            (
-                "собрано: {generated_at} | показано: {events_returned} | "
-                "всего: {events_total} | лимит: {event_limit}"
-            ).format(
-                generated_at=meta.get("generated_at") or "—",
-                events_returned=meta.get("events_returned") or len(events),
-                events_total=meta.get("events_total") or len(events),
-                event_limit=meta.get("event_limit") or len(events),
-            ),
-            "",
-        ]
-        if not events:
-            lines.append("СОБЫТИЙ НЕТ.")
-            return "\n".join(lines)
-
-        for event in events:
-            parts = [
-                str(event.get("timestamp") or "—"),
-                str(event.get("actor_name") or "—"),
-                str(event.get("message") or "—"),
-            ]
-            related_parts: list[str] = []
-            if event.get("card_short_id"):
-                related_parts.append(str(event["card_short_id"]))
-            elif event.get("card_id"):
-                related_parts.append(str(event["card_id"]))
-            if event.get("card_heading"):
-                related_parts.append(str(event["card_heading"]))
-            if event.get("details_text"):
-                related_parts.append(str(event["details_text"]))
-            if related_parts:
-                parts.append(" | ".join(related_parts))
-            lines.append(" | ".join(parts))
-        return "\n".join(lines)
 
     def _build_structured_event_log_text(self, events: list[dict], meta: dict[str, Any]) -> str:
         lines = [

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
 import json
 import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -13,12 +13,14 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.connection_card import (
+    GPT_CONNECTOR_REQUIRED_TOOL_NAMES,
+    MCP_TOOL_NAMES,
+    build_board_share_url,
     build_chatgpt_connect_payload,
     build_chatgpt_connector_payload,
     build_connection_card,
     build_responses_api_payload,
     build_settings_export,
-    build_board_share_url,
     derive_board_root_url,
     derive_connector_display_name,
     get_mcp_python_entry_path,
@@ -110,7 +112,9 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertIn("local_mcp_url = http://127.0.0.1:41831/mcp", text)
         self.assertIn("effective_local_api_url = http://127.0.0.1:41731", text)
         self.assertIn("mcp_bearer_token = mcp-secret", text)
-        self.assertIn("connector_display_name = AutoStop CRM / This Board Only (public.example)", text)
+        self.assertIn(
+            "connector_display_name = AutoStop CRM / This Board Only (public.example)", text
+        )
         self.assertIn("connector_scope_rule = current AutoStop CRM board only", text)
         self.assertIn("chatgpt_home = https://chatgpt.com/", text)
         self.assertIn("[GPT-CRITICAL TOOLS]", text)
@@ -119,22 +123,34 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertIn("- get_connector_identity", text)
         self.assertIn("- get_runtime_status", text)
         self.assertIn("- get_board_context", text)
+        self.assertIn("- get_board_content", text)
+        self.assertIn("- get_board_events", text)
         self.assertIn("- get_gpt_wall", text)
+        self.assertIn("- cleanup_card_content", text)
+        self.assertIn("- get_card_context", text)
         self.assertIn("- list_columns", text)
         self.assertIn("- rename_column", text)
         self.assertIn("- delete_column", text)
         self.assertIn("- bulk_move_cards", text)
+        self.assertIn("- autofill_repair_order", text)
         self.assertIn("[RECOMMENDED FIRST PROMPT]", text)
         self.assertIn("First call ping_connector.", text)
         self.assertIn("Then call bootstrap_context.", text)
         self.assertIn("call get_runtime_status", text)
         self.assertIn("Prefer canonical short tool paths like /AutoStopCRM/tool_name", text)
         self.assertIn("call get_card_context first for the focused read", text)
+        self.assertIn("get_board_content(include_archived=true)", text)
+        self.assertIn("get_board_events(event_limit=100)", text)
         self.assertIn("get_board_snapshot(compact=true)", text)
-        self.assertIn("primarily from the card body: vehicle, title, description, and optional raw_text", text)
+        self.assertIn(
+            "primarily from the card body: vehicle, title, description, and optional raw_text", text
+        )
         self.assertIn("vehicle must hold only make/model", text)
         self.assertIn("title must hold only the short essence of the card, issue, or task", text)
-        self.assertIn("make_display, model_display, production_year, vin, engine_model, gearbox_model, drivetrain, and oem_notes", text)
+        self.assertIn(
+            "make_display, model_display, production_year, vin, engine_model, gearbox_model, drivetrain, and oem_notes",
+            text,
+        )
         self.assertIn("bulk_move_cards instead of many sequential move_card calls", text)
         self.assertIn("rename_column changes only the label and keeps the same column id", text)
 
@@ -149,7 +165,9 @@ class ConnectionCardTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(derive_board_root_url("https://board.example/api"), "https://board.example")
+        self.assertEqual(
+            derive_board_root_url("https://board.example/api"), "https://board.example"
+        )
         self.assertEqual(
             build_board_share_url("https://board.example/api", "board-secret"),
             "https://board.example?access_token=board-secret",
@@ -163,7 +181,9 @@ class ConnectionCardTests(unittest.TestCase):
         )
 
         self.assertIn("public_board_url = https://board.example", text)
-        self.assertIn("public_board_share_url = https://board.example?access_token=board-secret", text)
+        self.assertIn(
+            "public_board_share_url = https://board.example?access_token=board-secret", text
+        )
 
     def test_connector_and_responses_payloads_are_built_from_live_settings(self) -> None:
         settings = IntegrationSettings.from_dict(
@@ -187,7 +207,10 @@ class ConnectionCardTests(unittest.TestCase):
 
         connector_payload = build_chatgpt_connector_payload(settings)
         connector_data = json.loads(connector_payload)
-        self.assertEqual(derive_connector_display_name(settings), "AutoStop CRM / This Board Only (kanban.example)")
+        self.assertEqual(
+            derive_connector_display_name(settings),
+            "AutoStop CRM / This Board Only (kanban.example)",
+        )
         self.assertEqual(connector_data["name"], "AutoStop CRM / This Board Only (kanban.example)")
         self.assertEqual(connector_data["connector_url"], "https://kanban.example/mcp")
         self.assertEqual(connector_data["auth_mode"], "oauth_embedded")
@@ -195,13 +218,30 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertTrue(any("ping_connector" in note for note in connector_data["notes"]))
         self.assertTrue(any("bootstrap_context" in note for note in connector_data["notes"]))
         self.assertTrue(any("/AutoStopCRM/tool_name" in note for note in connector_data["notes"]))
+        self.assertTrue(any("get_board_content" in note for note in connector_data["notes"]))
+        self.assertTrue(any("get_board_events" in note for note in connector_data["notes"]))
         self.assertTrue(any("delete_column" in note for note in connector_data["notes"]))
         self.assertTrue(any("bulk_move_cards" in note for note in connector_data["notes"]))
         self.assertTrue(any("card_content_first" in note for note in connector_data["notes"]))
         self.assertTrue(any("oem_notes" in note for note in connector_data["notes"]))
         self.assertTrue(any("delete and recreate" in note for note in connector_data["notes"]))
         self.assertTrue(any("make/model only" in note for note in connector_data["notes"]))
-        self.assertTrue(any("short essence of the issue, task, or result" in note for note in connector_data["notes"]))
+        self.assertTrue(
+            any(
+                "short essence of the issue, task, or result" in note
+                for note in connector_data["notes"]
+            )
+        )
+        self.assertEqual(len(MCP_TOOL_NAMES), 49)
+        self.assertIn("get_board_content", MCP_TOOL_NAMES)
+        self.assertIn("get_board_events", MCP_TOOL_NAMES)
+        self.assertIn("cleanup_card_content", MCP_TOOL_NAMES)
+        self.assertIn("autofill_repair_order", MCP_TOOL_NAMES)
+        self.assertIn("get_card_context", MCP_TOOL_NAMES)
+        self.assertIn("get_repair_order_text", MCP_TOOL_NAMES)
+        self.assertIn("replace_repair_order_works", MCP_TOOL_NAMES)
+        self.assertIn("replace_repair_order_materials", MCP_TOOL_NAMES)
+        self.assertTrue(set(GPT_CONNECTOR_REQUIRED_TOOL_NAMES).issubset(set(MCP_TOOL_NAMES)))
 
         responses_payload = build_responses_api_payload(settings)
         responses_data = json.loads(responses_payload)
@@ -251,7 +291,9 @@ class ConnectionCardTests(unittest.TestCase):
             self.assertEqual(get_release_exe_path(), fake_executable)
             self.assertEqual(get_mcp_script_path(), fake_executable)
             self.assertEqual(get_mcp_python_entry_path(), fake_executable)
-            self.assertEqual(get_mcp_setup_doc_path(), ROOT / "release" / "CHATGPT_CONNECTOR_SETUP.md")
+            self.assertEqual(
+                get_mcp_setup_doc_path(), ROOT / "release" / "CHATGPT_CONNECTOR_SETUP.md"
+            )
 
 
 if __name__ == "__main__":

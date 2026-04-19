@@ -1167,6 +1167,29 @@ class ApiServerTests(unittest.TestCase):
         self.assertNotIn("attachments", compact_card)
         self.assertNotIn("ai_autofill_log", compact_card)
 
+    def test_get_cards_compact_query_redacts_phone_and_vin_from_description_preview(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {
+                "title": "Compact redact",
+                "description": "Клиент: +7 (923) 123-45-67\nVIN: X4XKCN81140CY67957\nПроверить запись.",
+                "deadline": {"hours": 2},
+            },
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        status, cards_payload = self.request("/api/get_cards?compact=1", method="GET")
+        self.assertEqual(status, 200)
+        compact_card = next(
+            card for card in cards_payload["data"]["cards"] if card["id"] == card_id
+        )
+        self.assertNotIn("+7 (923) 123-45-67", compact_card["description"])
+        self.assertNotIn("X4XKCN81140CY67957", compact_card["description"])
+        self.assertIn("[PHONE]", compact_card["description"])
+        self.assertIn("[VIN]", compact_card["description"])
+        self.assertEqual(compact_card["description"], compact_card["description_preview"])
+
     def test_snapshot_can_skip_archive_payload_for_board_refresh(self) -> None:
         status, created = self.request(
             "/api/create_card",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Signal, QUrl
+from PySide6.QtCore import QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -51,10 +51,22 @@ from ..settings_models import (
     is_external_http_url,
     normalize_string_list,
 )
-from ..settings_service import ConnectionCheckResult, ConnectionTestSummary, SettingsService, SettingsValidationError
-from ..texts import BUTTON_APPLY, BUTTON_CANCEL, BUTTON_COPY, BUTTON_HIDE_SECRET, BUTTON_RESET_DEFAULTS, BUTTON_SAVE, BUTTON_SHOW_SECRET
+from ..settings_service import (
+    ConnectionCheckResult,
+    ConnectionTestSummary,
+    SettingsService,
+    SettingsValidationError,
+)
+from ..texts import (
+    BUTTON_APPLY,
+    BUTTON_CANCEL,
+    BUTTON_COPY,
+    BUTTON_HIDE_SECRET,
+    BUTTON_RESET_DEFAULTS,
+    BUTTON_SAVE,
+    BUTTON_SHOW_SECRET,
+)
 from ..tunnel_runtime import TunnelRuntimeController
-
 
 WINDOW_TITLE = "Настройки интеграции"
 WINDOW_SUBTITLE = (
@@ -313,7 +325,9 @@ def _read_text_lines(widget: QPlainTextEdit) -> tuple[str, ...]:
     return tuple(normalize_string_list(widget.toPlainText()))
 
 
-def _apply_status_label_state(owner: QWidget, label: QLabel, message: str, *, tone: str = "info") -> None:
+def _apply_status_label_state(
+    owner: QWidget, label: QLabel, message: str, *, tone: str = "info"
+) -> None:
     label.setText(message)
     label.setProperty("tone", tone)
     owner.style().unpolish(label)
@@ -375,7 +389,7 @@ class ChatGPTConnectDialog(QDialog):
             "Шаг 3. Добавьте MCP Server.",
             "Шаг 4. Вставьте effective MCP URL.",
             "Шаг 6. Нажмите Connect и завершите linking, если ChatGPT его запросит.",
-            "Шаг 7. Проверьте tools и get_gpt_wall.",
+            "Шаг 7. Проверьте tools, get_board_content и get_board_events.",
         )
         for text in step_texts[:4]:
             label = QLabel(text)
@@ -463,7 +477,9 @@ class ChatGPTConnectDialog(QDialog):
             self.mcp_token_input,
             self.tools_input,
         ):
-            widget.copied.connect(lambda message, self=self: self._set_status(message, tone="success"))
+            widget.copied.connect(
+                lambda message, self=self: self._set_status(message, tone="success")
+            )
 
         buttons = QHBoxLayout()
         buttons.setContentsMargins(0, 0, 0, 0)
@@ -517,7 +533,9 @@ class ChatGPTConnectDialog(QDialog):
         self.openai_apps_guide_input.setText(self._display_value(OPENAI_APPS_CONNECT_GUIDE_URL))
         self.effective_mcp_url_input.setText(effective_public_mcp_url)
         self.local_mcp_url_input.setText(self._display_value(settings.mcp.local_mcp_url))
-        self.effective_local_api_url_input.setText(self._display_value(settings.local_api.effective_local_api_url))
+        self.effective_local_api_url_input.setText(
+            self._display_value(settings.local_api.effective_local_api_url)
+        )
         self.tools_input.setText("\n".join(MCP_TOOL_NAMES))
 
         if settings.mcp.mcp_auth_mode == "bearer":
@@ -537,11 +555,16 @@ class ChatGPTConnectDialog(QDialog):
         self.style().unpolish(self.warning_label)
         self.style().polish(self.warning_label)
         if self._runtime_state is None or not self._runtime_state.running:
-            self._set_status("Сначала запустите MCP сервер, затем возвращайтесь к подключению ChatGPT.", tone="warning")
+            self._set_status(
+                "Сначала запустите MCP сервер, затем возвращайтесь к подключению ChatGPT.",
+                tone="warning",
+            )
         elif warning:
             self._set_status(warning, tone="warning")
         else:
-            self._set_status("MCP runtime запущен. Можно копировать данные и подключать ChatGPT.", tone="success")
+            self._set_status(
+                "MCP runtime запущен. Можно копировать данные и подключать ChatGPT.", tone="success"
+            )
 
     def _copy_all(self) -> None:
         settings = self._settings_provider()
@@ -567,7 +590,13 @@ class ChatGPTConnectDialog(QDialog):
             return
 
         messages = [mcp_result.message]
-        tone = "success" if mcp_result.status == "success" else "warning" if mcp_result.status == "skipped" else "error"
+        tone = (
+            "success"
+            if mcp_result.status == "success"
+            else "warning"
+            if mcp_result.status == "skipped"
+            else "error"
+        )
 
         effective_url = settings.mcp.effective_mcp_url.strip()
         if effective_url.startswith("https://") and is_external_http_url(effective_url):
@@ -579,7 +608,9 @@ class ChatGPTConnectDialog(QDialog):
                 elif external_result.status != "success" and tone != "error":
                     tone = "warning"
         else:
-            messages.append("Внешний HTTPS MCP URL пока не задан, поэтому проверка внешнего endpoint не выполнена.")
+            messages.append(
+                "Внешний HTTPS MCP URL пока не задан, поэтому проверка внешнего endpoint не выполнена."
+            )
             if tone == "success":
                 tone = "warning"
 
@@ -594,15 +625,21 @@ class ChatGPTConnectDialog(QDialog):
 
     def _open_chatgpt_home(self) -> None:
         QDesktopServices.openUrl(QUrl(CHATGPT_HOME_URL))
-        self._set_status("ChatGPT открыт. Продолжайте: Settings -> Apps & Connectors -> Create.", tone="success")
+        self._set_status(
+            "ChatGPT открыт. Продолжайте: Settings -> Apps & Connectors -> Create.", tone="success"
+        )
 
     def _open_openai_guide(self) -> None:
         QDesktopServices.openUrl(QUrl(OPENAI_MCP_CONNECTORS_GUIDE_URL))
-        self._set_status("Открыта официальная документация OpenAI по MCP connectors.", tone="success")
+        self._set_status(
+            "Открыта официальная документация OpenAI по MCP connectors.", tone="success"
+        )
 
     def _open_openai_apps_guide(self) -> None:
         QDesktopServices.openUrl(QUrl(OPENAI_APPS_CONNECT_GUIDE_URL))
-        self._set_status("Открыта официальная документация OpenAI по подключению из ChatGPT.", tone="success")
+        self._set_status(
+            "Открыта официальная документация OpenAI по подключению из ChatGPT.", tone="success"
+        )
 
     def _set_status(self, message: str, *, tone: str = "info") -> None:
         _apply_status_label_state(self, self.preflight_status_label, message, tone=tone)
@@ -864,10 +901,16 @@ class SettingsWindow(QDialog):
         self.effective_local_api_url_input = CopyField(read_only=True)
         self.local_api_hint_label = self._hint_label()
 
-        self._register_validation_widget("local_api.local_api_host", self.local_api_host_input.input)
+        self._register_validation_widget(
+            "local_api.local_api_host", self.local_api_host_input.input
+        )
         self._register_validation_widget("local_api.local_api_port", self.local_api_port_input)
-        self._register_validation_widget("local_api.local_api_base_url_override", self.local_api_base_url_input.input)
-        self._register_validation_widget("local_api.local_api_auth_mode", self.local_api_auth_mode_input)
+        self._register_validation_widget(
+            "local_api.local_api_base_url_override", self.local_api_base_url_input.input
+        )
+        self._register_validation_widget(
+            "local_api.local_api_auth_mode", self.local_api_auth_mode_input
+        )
 
         self.local_api_host_input.textChanged.connect(self._sync_derived_fields)
         self.local_api_port_input.valueChanged.connect(self._sync_derived_fields)
@@ -923,7 +966,9 @@ class SettingsWindow(QDialog):
         self._register_validation_widget("mcp.mcp_host", self.mcp_host_input.input)
         self._register_validation_widget("mcp.mcp_port", self.mcp_port_input)
         self._register_validation_widget("mcp.mcp_path", self.mcp_path_input.input)
-        self._register_validation_widget("mcp.public_https_base_url", self.mcp_public_base_input.input)
+        self._register_validation_widget(
+            "mcp.public_https_base_url", self.mcp_public_base_input.input
+        )
         self._register_validation_widget("mcp.tunnel_url", self.mcp_tunnel_url_input.input)
         self._register_validation_widget("mcp.full_mcp_url_override", self.mcp_full_url_input.input)
         self._register_validation_widget("mcp.mcp_auth_mode", self.mcp_auth_mode_input)
@@ -1047,8 +1092,12 @@ class SettingsWindow(QDialog):
         self.openai_api_key_input.textChanged.connect(self._sync_derived_fields)
         assert self.local_api_token_input.generate_button is not None
         assert self.mcp_token_input.generate_button is not None
-        self.local_api_token_input.generate_button.clicked.connect(lambda: self._generate_token_for(self.local_api_token_input, "локального API"))
-        self.mcp_token_input.generate_button.clicked.connect(lambda: self._generate_token_for(self.mcp_token_input, "MCP"))
+        self.local_api_token_input.generate_button.clicked.connect(
+            lambda: self._generate_token_for(self.local_api_token_input, "локального API")
+        )
+        self.mcp_token_input.generate_button.clicked.connect(
+            lambda: self._generate_token_for(self.mcp_token_input, "MCP")
+        )
 
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
@@ -1262,7 +1311,9 @@ class SettingsWindow(QDialog):
         self.local_api_host_input.setText(local_api.local_api_host)
         self.local_api_port_input.setValue(local_api.local_api_port)
         self.local_api_base_url_input.setText(local_api.local_api_base_url_override)
-        self.local_api_auth_mode_input.setCurrentIndex(max(0, self.local_api_auth_mode_input.findData(local_api.local_api_auth_mode)))
+        self.local_api_auth_mode_input.setCurrentIndex(
+            max(0, self.local_api_auth_mode_input.findData(local_api.local_api_auth_mode))
+        )
 
         mcp = self._settings.mcp
         self.mcp_enabled_checkbox.setChecked(mcp.mcp_enabled)
@@ -1274,7 +1325,9 @@ class SettingsWindow(QDialog):
         self.mcp_full_url_input.setText(mcp.full_mcp_url_override)
         _set_text_lines(self.mcp_allowed_hosts_input, mcp.allowed_hosts)
         _set_text_lines(self.mcp_allowed_origins_input, mcp.allowed_origins)
-        self.mcp_auth_mode_input.setCurrentIndex(max(0, self.mcp_auth_mode_input.findData(mcp.mcp_auth_mode)))
+        self.mcp_auth_mode_input.setCurrentIndex(
+            max(0, self.mcp_auth_mode_input.findData(mcp.mcp_auth_mode))
+        )
 
         openai = self._settings.openai
         self.provider_input.setText(openai.provider)
@@ -1287,7 +1340,9 @@ class SettingsWindow(QDialog):
         auth = self._settings.auth
         self.auth_mode_input.setCurrentIndex(max(0, self.auth_mode_input.findData(auth.auth_mode)))
         self.access_token_input.set_value(auth.access_token)
-        self.local_api_token_input.set_value(auth.local_api_bearer_token or local_api.local_api_bearer_token)
+        self.local_api_token_input.set_value(
+            auth.local_api_bearer_token or local_api.local_api_bearer_token
+        )
         self.mcp_token_input.set_value(auth.mcp_bearer_token or mcp.mcp_bearer_token)
         self.openai_api_key_input.set_value(auth.openai_api_key)
 
@@ -1301,7 +1356,11 @@ class SettingsWindow(QDialog):
         self._clear_validation_state()
 
     def _collect_settings(self) -> IntegrationSettings:
-        diagnostics = self._settings.diagnostics if isinstance(self._settings.diagnostics, DiagnosticsSettings) else DiagnosticsSettings()
+        diagnostics = (
+            self._settings.diagnostics
+            if isinstance(self._settings.diagnostics, DiagnosticsSettings)
+            else DiagnosticsSettings()
+        )
         return IntegrationSettings(
             schema_version=self._settings.schema_version,
             general=GeneralSettings(
@@ -1369,15 +1428,22 @@ class SettingsWindow(QDialog):
     def _update_hints(self, settings: IntegrationSettings) -> None:
         general_hints: list[str] = []
         if not settings.general.integration_enabled:
-            general_hints.append("Интеграция отключена. Проверки OpenAI и внешний MCP будут пропускаться.")
+            general_hints.append(
+                "Интеграция отключена. Проверки OpenAI и внешний MCP будут пропускаться."
+            )
         if settings.general.auto_connect_on_startup and not settings.mcp.mcp_enabled:
             general_hints.append("Автоподключение включено, но MCP выключен.")
         self.general_hint_label.setText(" ".join(general_hints))
 
         local_api_hints: list[str] = []
         if not settings.general.use_local_api:
-            local_api_hints.append("Локальный API отключён в интеграции. Для внешних клиентов останется только override URL.")
-        if settings.local_api.local_api_auth_mode == "bearer" and not self.local_api_token_input.value():
+            local_api_hints.append(
+                "Локальный API отключён в интеграции. Для внешних клиентов останется только override URL."
+            )
+        if (
+            settings.local_api.local_api_auth_mode == "bearer"
+            and not self.local_api_token_input.value()
+        ):
             local_api_hints.append("Для bearer-режима локального API нужен токен.")
         self.local_api_hint_label.setText(" ".join(local_api_hints))
 
@@ -1386,26 +1452,38 @@ class SettingsWindow(QDialog):
             mcp_hints.append("MCP выключен. Включите его для подключения GPT-агента.")
         if settings.mcp.mcp_auth_mode == "bearer" and not self.mcp_token_input.value():
             mcp_hints.append("Для bearer-режима MCP нужен токен.")
-        if settings.mcp.tunnel_url or settings.mcp.public_https_base_url or settings.mcp.full_mcp_url_override:
+        if (
+            settings.mcp.tunnel_url
+            or settings.mcp.public_https_base_url
+            or settings.mcp.full_mcp_url_override
+        ):
             mcp_hints.append("Host и Origin для внешнего MCP URL будут разрешены автоматически.")
         self.mcp_hint_label.setText(" ".join(mcp_hints))
 
         if settings.mcp.full_mcp_url_override:
             self.mcp_external_hint_label.setProperty("variant", "")
-            self.mcp_external_hint_label.setText("Используется полный override URL. Его и нужно вставлять в ChatGPT.")
+            self.mcp_external_hint_label.setText(
+                "Используется полный override URL. Его и нужно вставлять в ChatGPT."
+            )
         elif settings.mcp.public_https_base_url:
             self.mcp_external_hint_label.setProperty("variant", "")
-            self.mcp_external_hint_label.setText("Итоговый MCP URL собирается из Public HTTPS Base URL и path MCP.")
+            self.mcp_external_hint_label.setText(
+                "Итоговый MCP URL собирается из Public HTTPS Base URL и path MCP."
+            )
         elif settings.mcp.tunnel_url:
             self.mcp_external_hint_label.setProperty("variant", "")
-            self.mcp_external_hint_label.setText("Итоговый MCP URL собирается из Tunnel URL и path MCP.")
+            self.mcp_external_hint_label.setText(
+                "Итоговый MCP URL собирается из Tunnel URL и path MCP."
+            )
         else:
             self.mcp_external_hint_label.setProperty("variant", "warning")
             self.mcp_external_hint_label.setText(
                 "Внешний HTTPS URL не задан. Для ChatGPT на телефоне localhost не подойдёт. "
                 "Укажите Public HTTPS Base URL, Tunnel URL или Full MCP URL override."
             )
-        host_header_issue = "Host header" in (settings.diagnostics.external_message or "") or "Host header" in (settings.diagnostics.mcp_message or "")
+        host_header_issue = "Host header" in (
+            settings.diagnostics.external_message or ""
+        ) or "Host header" in (settings.diagnostics.mcp_message or "")
         if host_header_issue:
             self.mcp_external_hint_label.setProperty("variant", "error")
             self.mcp_external_hint_label.setText(
@@ -1421,7 +1499,9 @@ class SettingsWindow(QDialog):
 
         openai_hints: list[str] = []
         if not self.openai_api_key_input.value() and not self.access_token_input.value():
-            openai_hints.append("Для проверки OpenAI-compatible endpoint нужен API key или access token.")
+            openai_hints.append(
+                "Для проверки OpenAI-compatible endpoint нужен API key или access token."
+            )
         self.openai_hint_label.setText(" ".join(openai_hints))
 
     def _update_restart_hint(self, settings: IntegrationSettings) -> None:
@@ -1463,16 +1543,34 @@ class SettingsWindow(QDialog):
         self.stop_mcp_button.setEnabled(state.running)
 
     def _render_diagnostics(self, diagnostics: DiagnosticsSettings) -> None:
-        self.overall_status_input.setText(STATUS_LABELS.get(diagnostics.overall_status, STATUS_LABELS["not_tested"]))
-        self.local_api_status_input.setText(STATUS_LABELS.get(diagnostics.local_api_status, STATUS_LABELS["not_tested"]))
-        self.mcp_status_input.setText(STATUS_LABELS.get(diagnostics.mcp_status, STATUS_LABELS["not_tested"]))
-        self.external_status_input.setText(STATUS_LABELS.get(diagnostics.external_status, STATUS_LABELS["not_tested"]))
-        self.openai_status_input.setText(STATUS_LABELS.get(diagnostics.openai_status, STATUS_LABELS["not_tested"]))
-        self.last_local_api_check_input.setText(diagnostics.last_local_api_check or STATUS_LABELS["not_tested"])
+        self.overall_status_input.setText(
+            STATUS_LABELS.get(diagnostics.overall_status, STATUS_LABELS["not_tested"])
+        )
+        self.local_api_status_input.setText(
+            STATUS_LABELS.get(diagnostics.local_api_status, STATUS_LABELS["not_tested"])
+        )
+        self.mcp_status_input.setText(
+            STATUS_LABELS.get(diagnostics.mcp_status, STATUS_LABELS["not_tested"])
+        )
+        self.external_status_input.setText(
+            STATUS_LABELS.get(diagnostics.external_status, STATUS_LABELS["not_tested"])
+        )
+        self.openai_status_input.setText(
+            STATUS_LABELS.get(diagnostics.openai_status, STATUS_LABELS["not_tested"])
+        )
+        self.last_local_api_check_input.setText(
+            diagnostics.last_local_api_check or STATUS_LABELS["not_tested"]
+        )
         self.last_mcp_check_input.setText(diagnostics.last_mcp_check or STATUS_LABELS["not_tested"])
-        self.last_external_check_input.setText(diagnostics.last_external_endpoint_check or STATUS_LABELS["not_tested"])
-        self.last_openai_check_input.setText(diagnostics.last_openai_check or STATUS_LABELS["not_tested"])
-        self.last_full_check_input.setText(diagnostics.last_full_check or STATUS_LABELS["not_tested"])
+        self.last_external_check_input.setText(
+            diagnostics.last_external_endpoint_check or STATUS_LABELS["not_tested"]
+        )
+        self.last_openai_check_input.setText(
+            diagnostics.last_openai_check or STATUS_LABELS["not_tested"]
+        )
+        self.last_full_check_input.setText(
+            diagnostics.last_full_check or STATUS_LABELS["not_tested"]
+        )
         self.local_api_message_label.setText(diagnostics.local_api_message)
         self.mcp_message_label.setText(diagnostics.mcp_message)
         self.external_message_label.setText(diagnostics.external_message)
@@ -1491,7 +1589,9 @@ class SettingsWindow(QDialog):
         if saved is None:
             return
 
-        restart_required = self._runtime_signature(saved) != self._runtime_signature(self._runtime_reference)
+        restart_required = self._runtime_signature(saved) != self._runtime_signature(
+            self._runtime_reference
+        )
         self._load_into_form(saved)
         self.settings_saved.emit(saved)
         message = "Настройки сохранены." if close_after else "Настройки применены."
@@ -1510,9 +1610,14 @@ class SettingsWindow(QDialog):
         if answer != QMessageBox.StandardButton.Yes:
             return
         self._load_into_form(IntegrationSettings.defaults())
-        self._set_status("В форму подставлены значения по умолчанию. Нажмите «Применить» или «Сохранить».", tone="success")
+        self._set_status(
+            "В форму подставлены значения по умолчанию. Нажмите «Применить» или «Сохранить».",
+            tone="success",
+        )
 
-    def _apply_runtime_state_to_diagnostics(self, state, *, status_override: str | None = None) -> None:
+    def _apply_runtime_state_to_diagnostics(
+        self, state, *, status_override: str | None = None
+    ) -> None:
         settings = self._save_form_settings(show_errors=False)
         if settings is None:
             self._render_runtime_state()
@@ -1530,7 +1635,11 @@ class SettingsWindow(QDialog):
     def _current_mcp_error_text(self) -> str:
         if self._mcp_controller is None:
             return "Управление MCP runtime недоступно."
-        return (self._mcp_controller.state.details or self._mcp_controller.state.error or "Техническая ошибка запуска MCP пока отсутствует.").strip()
+        return (
+            self._mcp_controller.state.details
+            or self._mcp_controller.state.error
+            or "Техническая ошибка запуска MCP пока отсутствует."
+        ).strip()
 
     def _start_mcp_runtime(self) -> None:
         if self._mcp_controller is None:
@@ -1542,7 +1651,9 @@ class SettingsWindow(QDialog):
         if not settings.mcp.mcp_enabled:
             self._set_status("Сначала включите MCP в настройках.", tone="warning")
             return
-        needs_public_tunnel = not settings.mcp.full_mcp_url_override and not settings.mcp.public_https_base_url
+        needs_public_tunnel = (
+            not settings.mcp.full_mcp_url_override and not settings.mcp.public_https_base_url
+        )
         if self._tunnel_controller is not None and needs_public_tunnel:
             tunnel_state = self._tunnel_controller.start(settings)
             settings = self._settings_service.update_section(
@@ -1551,13 +1662,20 @@ class SettingsWindow(QDialog):
                 settings=settings,
                 persist=True,
             )
-        state = self._mcp_controller.restart(settings) if self._mcp_controller.state.running else self._mcp_controller.start(settings)
+        state = (
+            self._mcp_controller.restart(settings)
+            if self._mcp_controller.state.running
+            else self._mcp_controller.start(settings)
+        )
         self._render_runtime_state()
         self._apply_runtime_state_to_diagnostics(state)
         if state.running:
             self._load_into_form(settings)
             if self._tunnel_controller is not None and self._tunnel_controller.state.running:
-                self._set_status(f"{state.message}\nTunnel: {self._tunnel_controller.state.public_url}", tone="success")
+                self._set_status(
+                    f"{state.message}\nTunnel: {self._tunnel_controller.state.public_url}",
+                    tone="success",
+                )
             else:
                 self._set_status(state.message, tone="success")
         else:
@@ -1581,7 +1699,9 @@ class SettingsWindow(QDialog):
             self._tunnel_controller.stop()
         state = self._mcp_controller.stop()
         settings = self._settings_service.save(
-            self._settings_service.update_section("mcp", {"tunnel_url": ""}, settings=self._collect_settings(), persist=False)
+            self._settings_service.update_section(
+                "mcp", {"tunnel_url": ""}, settings=self._collect_settings(), persist=False
+            )
         )
         self._render_runtime_state()
         self._apply_runtime_state_to_diagnostics(state, status_override="warning")
@@ -1595,7 +1715,9 @@ class SettingsWindow(QDialog):
 
     def _copy_mcp_startup_error(self) -> None:
         QGuiApplication.clipboard().setText(self._current_mcp_error_text())
-        self._set_status("Техническая ошибка запуска MCP скопирована в буфер обмена.", tone="success")
+        self._set_status(
+            "Техническая ошибка запуска MCP скопирована в буфер обмена.", tone="success"
+        )
 
     def _test_connections(self) -> None:
         settings = self._save_form_settings()
@@ -1604,7 +1726,13 @@ class SettingsWindow(QDialog):
         summary = self._settings_service.test_connections(settings)
         updated = self._settings_service.apply_test_summary(settings, summary)
         self._reload_saved_settings(updated)
-        tone = "success" if summary.overall_status not in {"failed", "warning"} else "warning" if summary.overall_status == "warning" else "error"
+        tone = (
+            "success"
+            if summary.overall_status not in {"failed", "warning"}
+            else "warning"
+            if summary.overall_status == "warning"
+            else "error"
+        )
         self._set_status("Полная проверка соединений завершена.", tone=tone)
         QMessageBox.information(self, "Проверка соединений", self._format_summary(summary))
 
@@ -1614,7 +1742,13 @@ class SettingsWindow(QDialog):
             return
         result = self._settings_service.test_target(settings, target)
         self._apply_diagnostics_result(settings, target, result)
-        tone = "success" if result.status == "success" else "warning" if result.status == "skipped" else "error"
+        tone = (
+            "success"
+            if result.status == "success"
+            else "warning"
+            if result.status == "skipped"
+            else "error"
+        )
         self._set_status(result.message, tone=tone)
         return result
 
@@ -1622,7 +1756,10 @@ class SettingsWindow(QDialog):
         token = self._settings_service.generate_token()
         field.set_value(token)
         self._sync_derived_fields()
-        self._set_status(f"Сгенерирован новый bearer token для {label}. Если процесс уже запущен, может потребоваться его перезапуск.", tone="warning")
+        self._set_status(
+            f"Сгенерирован новый bearer token для {label}. Если процесс уже запущен, может потребоваться его перезапуск.",
+            tone="warning",
+        )
 
     def _open_chatgpt_connect_dialog(self) -> None:
         self._connect_dialog = ChatGPTConnectDialog(
@@ -1683,11 +1820,11 @@ class SettingsWindow(QDialog):
     def _export_connection_card(self) -> None:
         default_path = self._settings_service.settings_path.parent / "GPT_MCP_CONNECTION_CARD.txt"
         self._export_payload_file(
-            title="??????? ???????? ???????????",
+            title="Экспорт карточки подключения",
             default_path=default_path,
             file_filter="Text Files (*.txt)",
             payload=self._connection_card_text(),
-            success_message="???????? ??????????? ??????????????: {path}",
+            success_message="Карточка подключения экспортирована: {path}",
         )
 
     def _export_chatgpt_connector_payload(self) -> None:
@@ -1695,33 +1832,37 @@ class SettingsWindow(QDialog):
         default_path = self._settings_service.settings_path.parent / "chatgpt-connector.json"
         mode = resolve_connector_auth_mode(settings)
         self._export_payload_file(
-            title="??????? ChatGPT connector JSON",
+            title="Экспорт ChatGPT connector JSON",
             default_path=default_path,
             file_filter="JSON Files (*.json)",
             payload=build_chatgpt_connector_payload(settings),
-            success_message=f"ChatGPT connector JSON ????????????? ({mode}): {{path}}",
+            success_message=f"ChatGPT connector JSON экспортирован ({mode}): {{path}}",
         )
 
     def _export_responses_payload(self) -> None:
         settings = self._normalized_form_settings()
         default_path = self._settings_service.settings_path.parent / "responses-api-mcp.json"
         self._export_payload_file(
-            title="??????? Responses API JSON",
+            title="Экспорт Responses API JSON",
             default_path=default_path,
             file_filter="JSON Files (*.json)",
             payload=build_responses_api_payload(settings),
-            success_message="Responses API JSON ?????????????: {path}",
+            success_message="Responses API JSON экспортирован: {path}",
         )
 
     def _export_settings_snapshot(self) -> None:
-        default_path = self._settings_service.settings_path.parent / "integration-settings.export.json"
+        default_path = (
+            self._settings_service.settings_path.parent / "integration-settings.export.json"
+        )
         settings = self._normalized_form_settings()
         self._export_payload_file(
-            title="??????? ???????? ??????????",
+            title="Экспорт снимка настроек",
             default_path=default_path,
             file_filter="JSON Files (*.json)",
-            payload=build_settings_export(settings, include_secrets=self.include_secrets_checkbox.isChecked()),
-            success_message="????????? ?????????? ??????????????: {path}",
+            payload=build_settings_export(
+                settings, include_secrets=self.include_secrets_checkbox.isChecked()
+            ),
+            success_message="Снимок настроек экспортирован: {path}",
         )
 
     def _open_connection_docs(self) -> None:

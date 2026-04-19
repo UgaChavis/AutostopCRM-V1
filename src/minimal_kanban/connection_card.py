@@ -10,14 +10,12 @@ from .integration_runtime import McpRuntimeState
 from .models import utc_now_iso
 from .settings_models import IntegrationSettings
 
-
 MCP_TOOL_NAMES = [
+    "get_connector_identity",
     "ping_connector",
     "bootstrap_context",
-    "get_connector_identity",
     "get_runtime_status",
-    "get_board_context",
-    "autofill_vehicle_data",
+    "cleanup_card_content",
     "list_columns",
     "create_column",
     "rename_column",
@@ -25,29 +23,42 @@ MCP_TOOL_NAMES = [
     "create_sticky",
     "get_cards",
     "get_card",
+    "get_card_context",
     "get_board_snapshot",
+    "get_board_context",
     "review_board",
     "list_cashboxes",
     "get_cashbox",
-    "get_gpt_wall",
-    "get_card_log",
-    "list_archived_cards",
-    "search_cards",
-    "create_card",
     "create_cashbox",
     "delete_cashbox",
     "create_cash_transaction",
+    "update_board_settings",
+    "get_board_content",
+    "get_board_events",
+    "get_gpt_wall",
+    "get_card_log",
+    "list_repair_orders",
+    "get_repair_order",
+    "get_repair_order_text",
+    "list_archived_cards",
+    "search_cards",
+    "autofill_vehicle_data",
+    "create_card",
     "update_card",
+    "update_repair_order",
+    "set_repair_order_status",
+    "replace_repair_order_works",
+    "replace_repair_order_materials",
+    "autofill_repair_order",
     "update_sticky",
+    "move_sticky",
+    "delete_sticky",
+    "set_card_deadline",
+    "set_card_indicator",
     "move_card",
     "bulk_move_cards",
-    "move_sticky",
     "archive_card",
     "restore_card",
-    "delete_sticky",
-    "set_card_indicator",
-    "set_card_deadline",
-    "update_board_settings",
     "list_overdue_cards",
 ]
 
@@ -57,23 +68,40 @@ GPT_CONNECTOR_REQUIRED_TOOL_NAMES = [
     "get_connector_identity",
     "get_runtime_status",
     "get_board_context",
-    "autofill_vehicle_data",
-    "get_gpt_wall",
+    "get_card_context",
+    "get_cards",
     "get_board_snapshot",
+    "get_board_content",
+    "get_board_events",
+    "get_gpt_wall",
+    "autofill_vehicle_data",
+    "cleanup_card_content",
     "list_cashboxes",
+    "list_columns",
     "get_cashbox",
-    "search_cards",
-    "get_card",
-    "get_card_log",
-    "create_card",
     "create_cashbox",
     "delete_cashbox",
     "create_cash_transaction",
+    "list_repair_orders",
+    "get_repair_order",
+    "get_repair_order_text",
+    "autofill_repair_order",
+    "search_cards",
+    "get_card",
+    "get_card_log",
+    "review_board",
+    "create_card",
     "update_card",
+    "update_repair_order",
+    "set_repair_order_status",
+    "replace_repair_order_works",
+    "replace_repair_order_materials",
     "move_card",
     "bulk_move_cards",
     "archive_card",
     "restore_card",
+    "list_archived_cards",
+    "list_overdue_cards",
     "delete_column",
     "create_column",
     "rename_column",
@@ -82,19 +110,23 @@ GPT_CONNECTOR_REQUIRED_TOOL_NAMES = [
     "update_sticky",
     "move_sticky",
     "delete_sticky",
-    "list_archived_cards",
-    "list_overdue_cards",
+    "set_card_deadline",
+    "set_card_indicator",
 ]
 
 CHATGPT_HOME_URL = "https://chatgpt.com/"
-OPENAI_MCP_CONNECTORS_GUIDE_URL = "https://developers.openai.com/api/docs/guides/tools-connectors-mcp"
+OPENAI_MCP_CONNECTORS_GUIDE_URL = (
+    "https://developers.openai.com/api/docs/guides/tools-connectors-mcp"
+)
 OPENAI_APPS_CONNECT_GUIDE_URL = "https://developers.openai.com/apps-sdk/connect-from-chatgpt"
 DISPLAY_PRODUCT_NAME = "AutoStop CRM"
 SINGLE_BOARD_SCOPE_LABEL = "current AutoStop CRM board only"
 
 
 def resolve_connector_auth_mode(settings: IntegrationSettings) -> str:
-    bearer_enabled = settings.mcp.mcp_auth_mode == "bearer" and bool(resolve_mcp_bearer_token(settings))
+    bearer_enabled = settings.mcp.mcp_auth_mode == "bearer" and bool(
+        resolve_mcp_bearer_token(settings)
+    )
     return "oauth_embedded" if bearer_enabled else "none"
 
 
@@ -172,7 +204,7 @@ def build_chatgpt_connect_payload(
         "6. Second call inside ChatGPT should be bootstrap_context.",
         "7. If diagnostics are needed, call get_runtime_status before any write operation.",
         "7a. Prefer canonical short tool paths like /AutoStopCRM/tool_name; if a long alias path /AutoStopCRM/link_.../tool_name appears, normalize it to /AutoStopCRM/tool_name.",
-        "8. If the task is about a vehicle card, call get_card_context first for the focused read; escalate to get_gpt_wall(view_mode=agent) only when broad board context or recent history matters.",
+        "8. If the task is about a vehicle card, call get_card_context first for the focused read; escalate to get_board_content(include_archived=true) and get_board_events(event_limit=100) for full board context, or get_gpt_wall only when both hidden machine wall sections are needed in one response.",
         "8a. If the task is about operational load, overdue work, stale cards, or manager triage, call review_board before reading the full wall.",
         "8b. For wide board scans prefer get_cards(compact=true) or get_board_snapshot(compact=true) before switching to full/export tools.",
         "9. If the task is about a vehicle card, use autofill_vehicle_data before create_card or update_card to assemble a normalized vehicle_profile draft primarily from the card body: vehicle, title, description, and optional raw_text. vehicle must hold only make/model, while title must hold only the short essence of the card, issue, or task.",
@@ -195,10 +227,10 @@ def build_chatgpt_connect_payload(
     else:
         lines.extend(
             [
-            "17. Bearer token is not required because MCP auth is disabled.",
-            "18. Press Connect and verify that the tool list is visible.",
-        ]
-    )
+                "17. Bearer token is not required because MCP auth is disabled.",
+                "18. Press Connect and verify that the tool list is visible.",
+            ]
+        )
 
     lines.extend(
         [
@@ -251,9 +283,10 @@ def build_chatgpt_connector_payload(settings: IntegrationSettings) -> str:
             "First call should be ping_connector.",
             "Second call should be bootstrap_context.",
             "Prefer canonical short tool paths /AutoStopCRM/tool_name and normalize /AutoStopCRM/link_.../tool_name to the canonical short path when needed.",
-            "For vehicle cards, call get_gpt_wall first when broad context or recent history matters.",
-              "For vehicle cards, call autofill_vehicle_data before create_card or update_card when you need to derive vehicle_profile primarily from vehicle, title, description, and optional raw_text.",
-              "When creating or updating a card, keep vehicle limited to make/model only, and keep title limited to the short essence of the issue, task, or result.",
+            "For vehicle cards, call get_board_content first when broad context or recent history matters, or get_gpt_wall when you need both hidden machine wall sections in one response.",
+            "For vehicle cards, call get_board_events when you need the latest change journal in Markdown.",
+            "For vehicle cards, call autofill_vehicle_data before create_card or update_card when you need to derive vehicle_profile primarily from vehicle, title, description, and optional raw_text.",
+            "When creating or updating a card, keep vehicle limited to make/model only, and keep title limited to the short essence of the issue, task, or result.",
             "The 1.1 compact vehicle profile should focus on make_display, model_display, production_year, vin, engine_model, gearbox_model, drivetrain, and oem_notes.",
             "rename_column changes only the label and keeps the same column id.",
             "delete_column removes only empty columns; if a column still contains cards, move or archive them first.",
@@ -348,25 +381,43 @@ def build_settings_export(settings: IntegrationSettings, *, include_secrets: boo
     )
 
 
-def build_connection_warnings(settings: IntegrationSettings, runtime_state: McpRuntimeState | None) -> list[str]:
+def build_connection_warnings(
+    settings: IntegrationSettings, runtime_state: McpRuntimeState | None
+) -> list[str]:
     warnings: list[str] = []
     public_board_url = derive_board_root_url(settings.local_api.local_api_base_url_override)
     if not settings.general.integration_enabled:
         warnings.append("Интеграция с GPT и MCP отключена в настройках.")
     if not settings.general.use_local_api:
-        warnings.append("Использование локального API отключено. Внешние инструменты могут не увидеть доску.")
+        warnings.append(
+            "Использование локального API отключено. Внешние инструменты могут не увидеть доску."
+        )
     if not public_board_url:
-        warnings.append("Внешний URL доски не задан. Для удалённого веб-доступа укажите public/tunnel URL в override локального API.")
+        warnings.append(
+            "Внешний URL доски не задан. Для удалённого веб-доступа укажите public/tunnel URL в override локального API."
+        )
     elif settings.local_api.local_api_auth_mode != "bearer":
-        warnings.append("Внешний URL доски задан, но bearer-защита отключена. Для интернет-доступа это небезопасно.")
+        warnings.append(
+            "Внешний URL доски задан, но bearer-защита отключена. Для интернет-доступа это небезопасно."
+        )
     if not settings.mcp.mcp_enabled:
         warnings.append("MCP отключён. Для ChatGPT его нужно включить и запустить.")
-    if not settings.mcp.public_https_base_url and not settings.mcp.tunnel_url and not settings.mcp.full_mcp_url_override:
+    if (
+        not settings.mcp.public_https_base_url
+        and not settings.mcp.tunnel_url
+        and not settings.mcp.full_mcp_url_override
+    ):
         warnings.append("Не задан внешний HTTPS URL. ChatGPT не сможет подключиться к localhost.")
-    if settings.mcp.effective_mcp_url.startswith("http://127.0.0.1") or settings.mcp.effective_mcp_url.startswith("http://localhost"):
-        warnings.append("Итоговый MCP URL локальный. Для удалённого подключения нужен внешний HTTPS endpoint.")
+    if settings.mcp.effective_mcp_url.startswith(
+        "http://127.0.0.1"
+    ) or settings.mcp.effective_mcp_url.startswith("http://localhost"):
+        warnings.append(
+            "Итоговый MCP URL локальный. Для удалённого подключения нужен внешний HTTPS endpoint."
+        )
     if settings.mcp.mcp_auth_mode == "bearer" and not resolve_mcp_bearer_token(settings):
-        warnings.append("MCP is marked as bearer, but the token is empty. The endpoint effectively runs without MCP auth until a bearer token is configured.")
+        warnings.append(
+            "MCP is marked as bearer, but the token is empty. The endpoint effectively runs without MCP auth until a bearer token is configured."
+        )
     if runtime_state is not None and runtime_state.error:
         warnings.append(f"Последняя ошибка MCP runtime: {runtime_state.error}")
     return warnings
@@ -386,9 +437,17 @@ def build_connection_card(
         return text if include_secrets else "[скрыто]"
 
     warnings = build_connection_warnings(settings, runtime_state)
-    runtime_mcp_url = runtime_state.runtime_url if runtime_state and runtime_state.running else settings.mcp.local_mcp_url
+    runtime_mcp_url = (
+        runtime_state.runtime_url
+        if runtime_state and runtime_state.running
+        else settings.mcp.local_mcp_url
+    )
     public_board_url = derive_board_root_url(settings.local_api.local_api_base_url_override)
-    public_board_share_url = build_board_share_url(public_board_url, resolve_local_api_bearer_token(settings)) if public_board_url else ""
+    public_board_share_url = (
+        build_board_share_url(public_board_url, resolve_local_api_bearer_token(settings))
+        if public_board_url
+        else ""
+    )
     connector_auth_mode = resolve_connector_auth_mode(settings)
 
     lines = [

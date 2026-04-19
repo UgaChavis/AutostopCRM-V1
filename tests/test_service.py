@@ -2283,6 +2283,25 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(snapshot_service._column_labels.call_count, 0)
         self.assertEqual(snapshot_service._event_counts.call_count, 0)
 
+    def test_get_cards_compact_redacts_phone_and_vin_from_description_preview(self) -> None:
+        created = self.service.create_card(
+            {
+                "title": "Редакция описания",
+                "description": "Клиент: +7 (923) 123-45-67\nVIN: X4XKCN81140CY67957\nНужно проверить.",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+
+        compact_cards = self.service.get_cards({"compact": True})["cards"]
+        compact_card = next(card for card in compact_cards if card["id"] == card_id)
+
+        self.assertNotIn("+7 (923) 123-45-67", compact_card["description"])
+        self.assertNotIn("X4XKCN81140CY67957", compact_card["description"])
+        self.assertIn("[PHONE]", compact_card["description"])
+        self.assertIn("[VIN]", compact_card["description"])
+        self.assertEqual(compact_card["description"], compact_card["description_preview"])
+
     def test_search_cards_supports_query_filters_and_archive(self) -> None:
         created_column = self.service.create_column({"label": "ЭЛЕКТРИКИ"})
         column_id = created_column["column"]["id"]
