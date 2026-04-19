@@ -69,6 +69,29 @@ class ToolPolicyEngineTests(unittest.TestCase):
         self.assertEqual(filtered.repair_order_materials, [{"name": "kept"}])
         self.assertEqual(filtered.append_only_notes, ["note"])
 
+    def test_filter_patch_bypasses_vin_enrichment(self) -> None:
+        engine = ToolPolicyEngine()
+        plan = PlanResult(
+            scenario_id="vin_enrichment",
+            scenario_chain=["vin_enrichment"],
+            execution_mode="model_loop",
+            needs_external_tools=True,
+            allowed_write_targets=[],
+            forbidden_write_targets=["vehicle_profile"],
+        )
+        patch = PatchResult(
+            card_patch={
+                "vehicle": "MERCEDES-BENZ ML320 CDI4 2001",
+                "vehicle_profile": {"vin": "WDC1641221A444349"},
+            },
+            append_only_notes=["note"],
+        )
+
+        filtered = engine.filter_patch(plan, patch)
+
+        self.assertEqual(filtered.card_patch, patch.card_patch)
+        self.assertEqual(filtered.append_only_notes, ["note"])
+
     def test_tool_source_type_normalizes_tool_name_case(self) -> None:
         engine = ToolPolicyEngine()
         self.assertEqual(engine.tool_source_type("DECODE_VIN"), "external_vin")
