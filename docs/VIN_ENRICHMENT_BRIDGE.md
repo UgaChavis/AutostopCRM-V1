@@ -99,22 +99,14 @@ Status values:
 
 Only confirmed facts belong in `vehicle_profile`.
 
-Safe fields for the enrichment patch:
+The bridge accepts the full `VehicleProfile` shape defined in
+`src/minimal_kanban/vehicle_profile.py` and passes known fields through to CRM.
+Unknown keys are dropped at the bridge boundary, but the bridge does not impose
+an extra VIN-specific allowlist on the worker payload.
 
-- `vin`
-- `make_display`
-- `model_display`
-- `production_year`
-- `engine_model`
-- `gearbox_model`
-- `drivetrain`
-- `source_summary`
-- `source_confidence`
-- `source_links_or_refs`
-- `autofilled_fields`
-- `field_sources`
-- `data_completion_state`
-- `oem_notes` when short and factual
+The CRM storage layer still normalizes the incoming profile, including helper
+fields such as `raw_input_text`, `warnings`, `manual_fields`, and
+`autofilled_fields`.
 
 Do not touch in this flow:
 
