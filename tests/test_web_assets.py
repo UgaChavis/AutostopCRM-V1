@@ -989,7 +989,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("font-size: 15px;", BOARD_WEB_APP_HTML)
         self.assertIn("font-weight: 700;", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-cell-total {", BOARD_WEB_APP_HTML)
-        self.assertIn("font-size: 16px;", BOARD_WEB_APP_HTML)
+        self.assertIn("font-size: 18px;", BOARD_WEB_APP_HTML)
         self.assertIn("repairOrderFormatRubles", BOARD_WEB_APP_HTML)
         self.assertIn("minimumFractionDigits: 0,", BOARD_WEB_APP_HTML)
         self.assertIn("+ ' ₽';", BOARD_WEB_APP_HTML)

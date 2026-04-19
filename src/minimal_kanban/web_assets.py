@@ -1881,7 +1881,7 @@ BOARD_WEB_APP_HTML = "".join(
       text-align: right;
     }
     .repair-order-cell-total {
-      font-size: 16px;
+      font-size: 18px;
       font-weight: 800;
       line-height: 1.08;
       letter-spacing: 0.01em;
@@ -1926,7 +1926,8 @@ BOARD_WEB_APP_HTML = "".join(
       padding: 0 7px;
       color: var(--text);
       font-family: var(--mono);
-      font-size: 11.5px;
+      font-size: 18px;
+      font-weight: 800;
       font-variant-numeric: tabular-nums;
     }
     .repair-order-cell-total[data-empty="true"] {
