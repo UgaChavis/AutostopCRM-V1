@@ -2452,6 +2452,7 @@ class CardService:
         employee: dict[str, Any],
         *,
         months: int = 6,
+        period_only_totals: bool = False,
     ) -> dict[str, Any]:
         period_start = utc_now() - timedelta(days=30 * months)
         employee_id = employee["id"]
@@ -2476,9 +2477,14 @@ class CardService:
                 if row.executor_id != employee_id:
                     continue
                 amount = self._parse_payroll_decimal(row.salary_amount)
-                accrual_total += amount
-                if not is_recent:
-                    continue
+                if period_only_totals:
+                    if not is_recent:
+                        continue
+                    accrual_total += amount
+                else:
+                    accrual_total += amount
+                    if not is_recent:
+                        continue
                 journal_rows.append(
                     {
                         "kind": "accrual",
@@ -2501,13 +2507,15 @@ class CardService:
             if kind not in {"salary_payout", "salary_advance"}:
                 continue
             amount = Decimal(transaction.amount_minor) / Decimal("100")
+            created_at = parse_datetime(transaction.created_at)
+            if period_only_totals and created_at is not None and created_at < period_start:
+                continue
             if kind == "salary_payout":
                 payout_total += amount
                 kind_label = "ВЫПЛАТА"
             else:
                 advance_total += amount
                 kind_label = "АВАНС"
-            created_at = parse_datetime(transaction.created_at)
             if created_at is not None and created_at < period_start:
                 continue
             cashbox_name = (
@@ -2589,6 +2597,94 @@ class CardService:
                 months=months,
             )
             return ledger
+
+    def _employee_salary_report_text(self, ledger: dict[str, Any]) -> str:
+        period_months = ledger.get("period_months", 2)
+        lines = [
+            "ОТЧЕТ ПО ЗАРПЛАТЕ",
+            f"СОТРУДНИК: {ledger.get('employee_name') or 'СОТРУДНИК'}",
+            f"ДОЛЖНОСТЬ: {ledger.get('position') or '-'}",
+            f"ПЕРИОД: ПОСЛЕДНИЕ {period_months} МЕС.",
+            f"НАЧИСЛЕНО: {ledger.get('accrued_total_display') or '0'}",
+            f"ВЫПЛАЧЕНО: {ledger.get('payout_total_display') or '0'}",
+            f"АВАНСЫ: {ledger.get('advance_total_display') or '0'}",
+            f"БАЛАНС: {ledger.get('balance_display') or '0'}",
+            f"СТРОК: {ledger.get('journal_total') or 0}",
+            "",
+        ]
+        journal_rows = ledger.get("journal_rows") or []
+        if not journal_rows:
+            lines.append("ЗА ВЫБРАННЫЙ ПЕРИОД ДВИЖЕНИЙ НЕТ.")
+            return "\n".join(lines).strip()
+
+        current_day = ""
+        for row in journal_rows:
+            created_at = parse_datetime(row.get("created_at"))
+            day_label = created_at.strftime("%d.%m.%Y") if created_at is not None else "—"
+            if day_label != current_day:
+                if current_day:
+                    lines.append("")
+                lines.append(day_label)
+                current_day = day_label
+            time_label = created_at.strftime("%H:%M") if created_at is not None else "—"
+            kind_label = normalize_text(row.get("kind_label"), default="ДВИЖЕНИЕ", limit=32)
+            source_label = normalize_text(row.get("source_label"), default="—", limit=80)
+            lines.append(
+                f"  {time_label} | {kind_label} | {row.get('repair_order_number') or '—'} | "
+                f"{row.get('vehicle') or '—'} | {row.get('work_name') or '—'} | "
+                f"{row.get('amount_display') or '0'} | {source_label}"
+            )
+            note = normalize_text(row.get("note"), default="", limit=240)
+            if note:
+                lines.append(f"    {note}")
+        return "\n".join(lines).strip()
+
+    def get_employee_salary_report(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            employees = self._employees_from_settings(bundle["settings"])
+            employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
+            if not employee_id:
+                self._fail(
+                    "validation_error",
+                    "Нужно передать employee_id.",
+                    details={"field": "employee_id"},
+                )
+            months = self._validated_limit(payload.get("months"), default=2, maximum=2)
+            employee = next((item for item in employees if item["id"] == employee_id), None)
+            if employee is None:
+                self._fail(
+                    "not_found",
+                    "Сотрудник не найден.",
+                    status_code=404,
+                    details={"employee_id": employee_id},
+                )
+            ledger = self._build_employee_salary_ledger(
+                bundle["cards"],
+                bundle["cashboxes"],
+                bundle["cash_transactions"],
+                employee,
+                months=months,
+                period_only_totals=True,
+            )
+            return {
+                "employee_id": employee_id,
+                "employee_name": employee["name"],
+                "file_name": normalize_file_name(
+                    f"employee-salary-report-{employee['name']}-{months}-months.txt"
+                ),
+                "text": self._employee_salary_report_text(ledger),
+                "meta": {
+                    "months": months,
+                    "period_start": ledger["period_start"],
+                    "journal_total": ledger["journal_total"],
+                    "accrued_total": ledger["accrued_total"],
+                    "payout_total": ledger["payout_total"],
+                    "advance_total": ledger["advance_total"],
+                    "balance_total": ledger["balance_total"],
+                },
+            }
 
     def get_repair_order_text_download(self, card_id: str) -> tuple[Path, str]:
         with self._lock:

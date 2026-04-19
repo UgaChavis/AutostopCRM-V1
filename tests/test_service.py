@@ -884,6 +884,155 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(reopened_row["salary_amount"], "")
         self.assertEqual(reopened_row["salary_accrued_at"], "")
 
+    def test_employee_salary_report_excludes_entries_older_than_two_months(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Марина Бухгалтер",
+                "position": "Бухгалтер",
+                "salary_mode": "salary_plus_percent",
+                "base_salary": "25000",
+                "work_percent": "15",
+            }
+        )["employee"]
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+
+        old_time = utc_now() - timedelta(days=220)
+        recent_time = utc_now()
+
+        old_card = self.service.create_card(
+            {
+                "vehicle": "Skoda Octavia",
+                "title": "Старое начисление",
+                "deadline": {"hours": 2},
+            }
+        )["card"]
+        with (
+            patch("minimal_kanban.services.card_service.utc_now", return_value=old_time),
+            patch(
+                "minimal_kanban.services.card_service.utc_now_iso",
+                return_value=old_time.isoformat(),
+            ),
+            patch("minimal_kanban.models.utc_now", return_value=old_time),
+        ):
+            self.service.update_card(
+                {
+                    "card_id": old_card["id"],
+                    "repair_order": {
+                        "number": "301",
+                        "status": "open",
+                        "vehicle": "Skoda Octavia",
+                        "payments": [
+                            {
+                                "amount": "10000",
+                                "paid_at": "01.09.2025 10:00",
+                                "payment_method": "cash",
+                            }
+                        ],
+                        "works": [
+                            {
+                                "name": "Старый заказ",
+                                "quantity": "1",
+                                "price": "10000",
+                                "executor_id": employee["id"],
+                            }
+                        ],
+                    },
+                }
+            )
+            self.service.set_repair_order_status({"card_id": old_card["id"], "status": "closed"})
+            self.service.create_employee_salary_transaction(
+                {
+                    "employee_id": employee["id"],
+                    "transaction_kind": "salary_payout",
+                    "amount": "700",
+                    "actor_name": "ADMIN",
+                    "cashbox_id": cashbox["id"],
+                    "note": "СТАРАЯ ВЫПЛАТА",
+                }
+            )
+        bundle = self.service._store.read_bundle()
+        old_closed_at = old_time.astimezone().strftime("%d.%m.%Y %H:%M")
+        for card in bundle["cards"]:
+            if card.id == old_card["id"]:
+                card.repair_order.closed_at = old_closed_at
+                break
+        self.service._store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        recent_card = self.service.create_card(
+            {
+                "vehicle": "Honda Civic",
+                "title": "Свежий наряд",
+                "deadline": {"hours": 2},
+            }
+        )["card"]
+        with (
+            patch("minimal_kanban.services.card_service.utc_now", return_value=recent_time),
+            patch(
+                "minimal_kanban.services.card_service.utc_now_iso",
+                return_value=recent_time.isoformat(),
+            ),
+            patch("minimal_kanban.models.utc_now", return_value=recent_time),
+        ):
+            self.service.update_card(
+                {
+                    "card_id": recent_card["id"],
+                    "repair_order": {
+                        "number": "302",
+                        "status": "open",
+                        "vehicle": "Honda Civic",
+                        "payments": [
+                            {
+                                "amount": "12000",
+                                "paid_at": "15.04.2026 10:00",
+                                "payment_method": "cash",
+                            }
+                        ],
+                        "works": [
+                            {
+                                "name": "Свежая работа",
+                                "quantity": "1",
+                                "price": "12000",
+                                "executor_id": employee["id"],
+                            }
+                        ],
+                    },
+                }
+            )
+            self.service.set_repair_order_status({"card_id": recent_card["id"], "status": "closed"})
+            self.service.create_employee_salary_transaction(
+                {
+                    "employee_id": employee["id"],
+                    "transaction_kind": "salary_advance",
+                    "amount": "500",
+                    "actor_name": "ADMIN",
+                    "cashbox_id": cashbox["id"],
+                    "note": "СВЕЖИЙ АВАНС",
+                }
+            )
+
+        report = self.service.get_employee_salary_report({"employee_id": employee["id"]})
+        self.assertEqual(report["employee_id"], employee["id"])
+        self.assertEqual(report["meta"]["months"], 2)
+        self.assertEqual(report["meta"]["accrued_total"], "1800")
+        self.assertEqual(report["meta"]["payout_total"], "0")
+        self.assertEqual(report["meta"]["advance_total"], "500")
+        self.assertEqual(report["meta"]["balance_total"], "1300")
+        self.assertIn("ОТЧЕТ ПО ЗАРПЛАТЕ", report["text"])
+        self.assertIn("Свежая работа", report["text"])
+        self.assertIn("СВЕЖИЙ АВАНС", report["text"])
+        self.assertNotIn("Старый заказ", report["text"])
+        self.assertNotIn("СТАРАЯ ВЫПЛАТА", report["text"])
+
     def test_employee_create_multiple_and_delete_keeps_distinct_records(self) -> None:
         first = self.service.save_employee({"name": "Иван", "position": "Мастер"})["employee"]
         second = self.service.save_employee({"name": "Пётр", "position": "Приёмщик"})["employee"]

@@ -4692,8 +4692,8 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .employees-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 6px;
+      grid-template-columns: minmax(0, 1fr) 72px;
+      gap: 4px;
       align-items: stretch;
     }
     .employees-row__body {
@@ -4713,13 +4713,22 @@ BOARD_WEB_APP_HTML = "".join(
       background: rgba(38, 48, 40, 0.92);
       box-shadow: inset 0 0 0 1px rgba(182, 177, 116, 0.16);
     }
-    .employees-row__salary {
-      min-height: 100%;
-      min-width: 86px;
-      padding-inline: 10px;
-      white-space: nowrap;
+    .employees-row__actions {
+      display: grid;
+      grid-template-rows: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+      min-width: 0;
+    }
+    .employees-row__salary,
+    .employees-row__report {
+      width: 100%;
+      min-height: 0;
+      padding: 6px 5px;
+      white-space: normal;
+      line-height: 1.05;
       align-self: stretch;
       justify-self: end;
+      font-size: 10px;
     }
     .employees-row__top {
       display: flex;
@@ -8528,7 +8537,10 @@ BOARD_WEB_APP_HTML = "".join(
             + '<div class="employees-row__meta">' + escapeHtml(employee.position || 'Без должности') + '</div>'
             + '<div class="employees-row__summary"><span class="employees-row__summary-label">' + escapeHtml(summaryLabel) + '</span><strong>' + escapeHtml(summaryValue) + '</strong></div>'
           + '</button>'
-          + '<button class="btn btn--ghost employees-row__salary" type="button" data-employee-salary="' + escapeHtml(employee.id) + '">ЗАРПЛАТА</button>'
+          + '<div class="employees-row__actions">'
+            + '<button class="btn btn--ghost employees-row__salary" type="button" data-employee-salary="' + escapeHtml(employee.id) + '">ЗАРПЛАТА</button>'
+            + '<button class="btn btn--ghost employees-row__report" type="button" data-employee-report="' + escapeHtml(employee.id) + '" title="ОТКРЫТЬ ОТЧЕТ ПО ЗАРПЛАТЕ ЗА ПОСЛЕДНИЕ 2 МЕСЯЦА">ОТЧЕТ</button>'
+          + '</div>'
           + '</div>';
       }).join('');
     }
@@ -8704,6 +8716,22 @@ BOARD_WEB_APP_HTML = "".join(
       if (!confirmDiscardEmployeeChanges()) return;
       try {
         await loadEmployeeSalarySheet(requestedId, { openModal: true });
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    async function openEmployeeSalaryReport(employeeId) {
+      const requestedId = String(employeeId || '').trim();
+      if (!requestedId) return;
+      try {
+        const data = await api('/api/get_employee_salary_report?employee_id=' + encodeURIComponent(requestedId));
+        const text = String(data?.text || '').trim();
+        if (!text) {
+          setStatus('ОТЧЕТ ПУСТ.', true);
+          return;
+        }
+        openTextBlobWindow(text, data?.file_name || ('employee-salary-report-' + requestedId + '.txt'));
       } catch (error) {
         setStatus(error.message, true);
       }
@@ -8959,6 +8987,13 @@ BOARD_WEB_APP_HTML = "".join(
         const employeeId = String(salaryButton.dataset.employeeSalary || '').trim();
         if (!employeeId) return;
         openEmployeeSalaryModal(employeeId);
+        return;
+      }
+      const reportButton = target.closest('[data-employee-report]');
+      if (reportButton instanceof HTMLElement) {
+        const employeeId = String(reportButton.dataset.employeeReport || '').trim();
+        if (!employeeId) return;
+        openEmployeeSalaryReport(employeeId);
         return;
       }
       const row = target.closest('[data-employee-id]');

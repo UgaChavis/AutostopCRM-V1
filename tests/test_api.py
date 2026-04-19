@@ -1107,6 +1107,16 @@ class ApiServerTests(unittest.TestCase):
             any(row["kind"] == "salary_advance" for row in ledger_after["data"]["journal_rows"])
         )
 
+        status, report = self.request(
+            f"/api/get_employee_salary_report?employee_id={employee['id']}&months=2",
+            method="GET",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(report["data"]["meta"]["months"], 2)
+        self.assertIn("ОТЧЕТ ПО ЗАРПЛАТЕ", report["data"]["text"])
+        self.assertIn("ПОСЛЕДНИЕ 2 МЕС.", report["data"]["text"])
+        self.assertIn("employee-salary-report-", report["data"]["file_name"])
+
         status, cashbox_details = self.request(
             f"/api/get_cashbox?cashbox_id={cashbox['id']}&transaction_limit=10", method="GET"
         )
