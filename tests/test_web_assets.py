@@ -287,8 +287,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="employeeSalaryModeInput"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeNoteDetails"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeesSummaryStrip"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="employeesSummaryTable"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeesDetailTable"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeesDetailsPanel"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeesReportShell"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeesReportMeta"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeesDetailsMeta"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryBalance"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryJournalTable"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryActionDialog"', BOARD_WEB_APP_HTML)
@@ -307,15 +310,12 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("function handleEmployeesSearchInput(event)", BOARD_WEB_APP_HTML)
         self.assertNotIn("function handleEmployeesVisibilityFilterClick(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function confirmDiscardEmployeeChanges()", BOARD_WEB_APP_HTML)
-        self.assertIn("function renderEmployeesSummary()", BOARD_WEB_APP_HTML)
-        self.assertIn('title="Дважды кликните, чтобы открыть детализацию."', BOARD_WEB_APP_HTML)
         self.assertIn("function openEmployeeSalaryModal(", BOARD_WEB_APP_HTML)
         self.assertIn("function loadEmployeeSalarySheet(", BOARD_WEB_APP_HTML)
         self.assertIn("function renderEmployeeSalaryModal()", BOARD_WEB_APP_HTML)
         self.assertIn("function handleEmployeeSalaryActionConfirm()", BOARD_WEB_APP_HTML)
         self.assertIn("function renderEmployeeProfileMeta()", BOARD_WEB_APP_HTML)
         self.assertIn("function handleEmployeesDetailClick(event)", BOARD_WEB_APP_HTML)
-        self.assertIn("function handleEmployeesSummaryTableDoubleClick(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function syncEmployeeSalaryModeUi()", BOARD_WEB_APP_HTML)
         self.assertIn("function syncEmployeesReportPanelUi()", BOARD_WEB_APP_HTML)
         self.assertIn("function hydrateEmployeesUiRefs()", BOARD_WEB_APP_HTML)
@@ -347,8 +347,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".employees-card-head-main {", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-card-actions {", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-report-shell {", BOARD_WEB_APP_HTML)
-        self.assertIn('[data-details-open="true"]', BOARD_WEB_APP_HTML)
-        self.assertIn(".employees-report-panel--summary {", BOARD_WEB_APP_HTML)
+        self.assertIn('[data-details-open="false"]', BOARD_WEB_APP_HTML)
         self.assertIn(".employees-report-panel--details {", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-kpi--accent {", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-row__summary {", BOARD_WEB_APP_HTML)
@@ -374,11 +373,14 @@ class WebAssetsTests(unittest.TestCase):
             'class="field employees-field--span-6 employees-field--compact employees-field--mode"',
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn('id="employeesSummaryPanel"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="employeesSummaryPanel"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="employeesSummaryTable"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeesDetailsPanel"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeesReportShell"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeesReportMeta"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeesDetailsMeta"', BOARD_WEB_APP_HTML)
+        self.assertIn("Выберите сотрудника слева, чтобы открыть детализацию.", BOARD_WEB_APP_HTML)
+        self.assertIn("Детализация появится после выбора сотрудника.", BOARD_WEB_APP_HTML)
         self.assertIn('placeholder="0"', BOARD_WEB_APP_HTML)
         self.assertIn('data-employee-salary="', BOARD_WEB_APP_HTML)
         self.assertIn("К ВЫПЛАТЕ", BOARD_WEB_APP_HTML)
@@ -404,11 +406,12 @@ class WebAssetsTests(unittest.TestCase):
             "els.employeesMonthInput?.addEventListener('change', handleEmployeesMonthChange);",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn(
+        self.assertNotIn(
             "els.employeesSummaryTable?.addEventListener('dblclick', handleEmployeesSummaryTableDoubleClick);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("state.employeesReportDetailsOpen = false;", BOARD_WEB_APP_HTML)
+        self.assertIn("state.employeesReportDetailsOpen = true;", BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.employeesCreateButton?.addEventListener('click', addEmployeeFromForm);",
             BOARD_WEB_APP_HTML,
@@ -1212,15 +1215,18 @@ class WebAssetsTests(unittest.TestCase):
             "printEls.documents.addEventListener('change', handleRepairOrderPrintDocumentsChange);",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn('role="tablist"', BOARD_WEB_APP_HTML)
         self.assertIn(
-            "return '<div class=\"repair-order-print-doc' + activeClass + '\" data-print-document=\"' + escapeHtml(item.id) + '\">' +",
+            "return '<button class=\"repair-order-print-doc' + activeClass + '\" data-print-document=\"' + escapeHtml(item.id) + '\" type=\"button\" role=\"tab\" aria-selected=\"' + (isActive ? 'true' : 'false') + '\">' +",
             BOARD_WEB_APP_HTML,
         )
         self.assertNotIn("data-print-document-toggle", BOARD_WEB_APP_HTML)
+        self.assertIn("repairOrderPrintDocumentsCount", BOARD_WEB_APP_HTML)
         self.assertIn(
             "repairOrderPrintState.selectedDocumentIds = [documentId];", BOARD_WEB_APP_HTML
         )
-        self.assertIn("data-print-inspection-fill", BOARD_WEB_APP_HTML)
+        self.assertIn("repairOrderPrintDocumentsAction", BOARD_WEB_APP_HTML)
+        self.assertNotIn("data-print-inspection-fill", BOARD_WEB_APP_HTML)
         self.assertIn("async function openInspectionSheetForm()", BOARD_WEB_APP_HTML)
         self.assertIn("async function saveInspectionSheetFormDraft", BOARD_WEB_APP_HTML)
         self.assertIn("async function autofillInspectionSheetFormDraft()", BOARD_WEB_APP_HTML)

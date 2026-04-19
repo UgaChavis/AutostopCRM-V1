@@ -25,7 +25,7 @@ PRINTING_WEB_MODULE_STYLE = r"""
     .repair-order-print-layout {
       min-height: 0;
       display: grid;
-      grid-template-columns: 320px minmax(0, 1fr) 340px;
+      grid-template-columns: clamp(132px, 10vw, 156px) minmax(0, 1fr) 340px;
       gap: 14px;
       padding: 14px;
       background: rgba(0, 0, 0, 0.08);
@@ -54,30 +54,65 @@ PRINTING_WEB_MODULE_STYLE = r"""
       letter-spacing: 0.12em;
       color: var(--text-soft);
     }
-    .repair-order-print-documents { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: auto; padding-right: 4px; }
+    .repair-order-print-documents {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 0 0 auto;
+      overflow: visible;
+      padding: 2px 0;
+    }
     .repair-order-print-doc {
-      border: 1px solid rgba(116, 128, 111, 0.34);
-      border-radius: 14px;
-      padding: 10px 12px;
+      appearance: none;
+      border: 0;
+      border-radius: 9px;
+      padding: 7px 8px 7px 6px;
+      min-height: 32px;
+      display: grid;
+      grid-template-columns: 3px minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      cursor: pointer;
+      background: transparent;
+      color: inherit;
+      text-align: left;
+      width: 100%;
+      transition: background .15s ease, transform .15s ease, box-shadow .15s ease;
+    }
+    .repair-order-print-doc:hover { background: rgba(167, 178, 132, 0.08); transform: translateX(1px); }
+    .repair-order-print-doc.is-active { background: rgba(167, 178, 132, 0.14); box-shadow: inset 2px 0 0 rgba(211, 220, 164, 0.96); }
+    .repair-order-print-doc__meta { min-width: 0; display: flex; flex: 1 1 auto; align-items: center; gap: 8px; }
+    .repair-order-print-doc__title {
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.25;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1 1 auto;
+    }
+    .repair-order-print-doc__state {
+      flex: 0 0 auto;
+      width: 3px;
+      height: 18px;
+      border-radius: 999px;
+      background: rgba(167, 178, 132, 0.28);
+    }
+    .repair-order-print-doc.is-active .repair-order-print-doc__state { background: rgba(211, 220, 164, 0.96); }
+    .repair-order-print-docs-footer {
       display: flex;
       flex-direction: column;
       gap: 6px;
-      cursor: pointer;
-      background: rgba(255, 255, 255, 0.02);
-      transition: border-color .15s ease, background .15s ease, transform .15s ease;
+      margin-top: auto;
+      padding-top: 8px;
+      border-top: 1px solid rgba(116, 128, 111, 0.22);
     }
-    .repair-order-print-doc:hover { border-color: rgba(167, 178, 132, 0.56); background: rgba(167, 178, 132, 0.08); transform: translateY(-1px); }
-    .repair-order-print-doc.is-active { border-color: rgba(167, 178, 132, 0.74); background: rgba(167, 178, 132, 0.14); box-shadow: 0 0 0 1px rgba(167, 178, 132, 0.18) inset; }
-    .repair-order-print-doc__meta { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-    .repair-order-print-doc__state { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-soft); font-family: var(--mono); }
-    .repair-order-print-doc__title { font-size: 13px; font-weight: 700; color: var(--text); }
-    .repair-order-print-doc__description,
-    .repair-order-print-doc__template,
+    .repair-order-print-docs-count { font-size: 11px; color: var(--text-soft); letter-spacing: 0.04em; }
+    .repair-order-print-docs-action { min-height: 28px; padding-inline: 10px; font-size: 10px; width: 100%; letter-spacing: 0.08em; }
     .repair-order-print-preview__meta,
     .repair-order-print-preview__warnings,
     .print-template-editor__meta { color: var(--text-soft); font-size: 12px; line-height: 1.4; }
-    .repair-order-print-doc__actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
-    .repair-order-print-doc__fill-button { min-height: 30px; padding-inline: 10px; font-size: 11px; }
     .repair-order-print-preview-wrap {
       min-height: 0;
       border: 1px solid rgba(116, 128, 111, 0.34);
@@ -195,7 +230,7 @@ PRINTING_WEB_MODULE_STYLE = r"""
       .inspection-sheet-form__row { grid-template-columns: 1fr; }
     }
     @media (max-width: 1500px) {
-      .repair-order-print-layout { grid-template-columns: 290px minmax(0, 1fr); grid-template-areas: "docs preview" "settings settings"; }
+      .repair-order-print-layout { grid-template-columns: clamp(128px, 12vw, 154px) minmax(0, 1fr); grid-template-areas: "docs preview" "settings settings"; }
       .repair-order-print-layout > .repair-order-print-panel:first-child { grid-area: docs; }
       .repair-order-print-layout > .repair-order-print-panel:nth-child(2) { grid-area: preview; }
       .repair-order-print-layout > .repair-order-print-panel:nth-child(3) { grid-area: settings; }
@@ -227,7 +262,11 @@ PRINTING_WEB_MODULE_HTML = r"""
         <section class="repair-order-print-panel">
           <div class="repair-order-print-panel__title">Документы</div>
           <div class="repair-order-print-preview__meta" id="repairOrderPrintDocumentsMeta">Выберите документы для печати.</div>
-          <div class="repair-order-print-documents" id="repairOrderPrintDocuments"></div>
+          <div class="repair-order-print-documents" id="repairOrderPrintDocuments" role="tablist" aria-orientation="vertical"></div>
+          <div class="repair-order-print-docs-footer">
+            <div class="repair-order-print-docs-count" id="repairOrderPrintDocumentsCount">0 документов</div>
+            <button class="btn btn--ghost repair-order-print-docs-action" id="repairOrderPrintDocumentsAction" type="button">ЗАПОЛНИТЬ ВЕДОМОСТЬ</button>
+          </div>
         </section>
         <section class="repair-order-print-panel">
           <div class="repair-order-print-toolbar">
@@ -408,6 +447,8 @@ _PRINTING_SCRIPT_PART1 = r"""
       closeX: document.getElementById('repairOrderPrintCloseX'),
       documentsMeta: document.getElementById('repairOrderPrintDocumentsMeta'),
       documents: document.getElementById('repairOrderPrintDocuments'),
+      documentsCount: document.getElementById('repairOrderPrintDocumentsCount'),
+      documentsAction: document.getElementById('repairOrderPrintDocumentsAction'),
       activeLabel: document.getElementById('repairOrderPrintActiveLabel'),
       pageMeta: document.getElementById('repairOrderPrintPageMeta'),
       warnings: document.getElementById('repairOrderPrintWarnings'),
@@ -831,7 +872,7 @@ _PRINTING_SCRIPT_PART1 = r"""
         source: repairOrderPrintState.inspectionSheetForm?.source || 'manual',
       });
     }
-""" 
+"""
 
 
 _PRINTING_SCRIPT_PART2 = r"""
@@ -877,26 +918,28 @@ _PRINTING_SCRIPT_PART2 = r"""
 
     function renderRepairOrderPrintDocuments() {
       const docs = repairOrderPrintWorkspaceDocuments();
+      const activeDoc = repairOrderPrintDocumentMap()[repairOrderPrintActiveDocument()] || docs[0] || null;
       printEls.documents.innerHTML = docs.length ? docs.map((item) => {
         const isActive = item.id === repairOrderPrintActiveDocument();
         const activeClass = isActive ? ' is-active' : '';
-        const templateId = repairOrderPrintSelectedTemplateId(item.id);
-        const template = repairOrderPrintTemplatesFor(item.id).find((candidate) => candidate.id === templateId);
-        const fillAction = item.supports_form_fill
-          ? '<div class="repair-order-print-doc__actions"><button class="btn btn--ghost repair-order-print-doc__fill-button" data-print-inspection-fill="' + escapeHtml(item.id) + '" type="button">ЗАПОЛНИТЬ ВЕДОМОСТЬ</button></div>'
-          : '';
-        return '<div class="repair-order-print-doc' + activeClass + '" data-print-document="' + escapeHtml(item.id) + '">' +
+        return '<button class="repair-order-print-doc' + activeClass + '" data-print-document="' + escapeHtml(item.id) + '" type="button" role="tab" aria-selected="' + (isActive ? 'true' : 'false') + '">' +
           '<div class="repair-order-print-doc__meta">' +
-            '<div class="repair-order-print-doc__state">' + (isActive ? 'ACTIVE' : 'SELECT') + '</div>' +
+            '<div class="repair-order-print-doc__state" aria-hidden="true"></div>' +
             '<div class="repair-order-print-doc__title">' + escapeHtml(item.label) + '</div>' +
-            '<div class="repair-order-print-doc__description">' + escapeHtml(item.description || '') + '</div>' +
-            '<div class="repair-order-print-doc__template">Шаблон: ' + escapeHtml(template?.name || 'не выбран') + '</div>' +
-            fillAction +
           '</div>' +
-        '</div>';
+        '</button>';
       }).join('') : '<div class="repair-order-print-empty">Документы для печати пока недоступны.</div>';
-      const activeDoc = repairOrderPrintDocumentMap()[repairOrderPrintActiveDocument()] || docs[0] || null;
-      printEls.documentsMeta.textContent = docs.length ? ('Выбран документ: ' + (activeDoc?.label || repairOrderPrintActiveDocument() || '—')) : 'Документы для печати отсутствуют.';
+      printEls.documentsMeta.textContent = docs.length ? 'Выберите документ.' : 'Документы для печати отсутствуют.';
+      if (printEls.documentsCount) printEls.documentsCount.textContent = docs.length ? (String(docs.length) + ' документов') : '0 документов';
+      if (printEls.documentsAction) {
+        const canFill = Boolean(activeDoc?.supports_form_fill);
+        printEls.documentsAction.style.display = canFill ? '' : 'none';
+        printEls.documentsAction.textContent = canFill ? 'ЗАПОЛНИТЬ ВЕДОМОСТЬ' : 'НЕДОСТУПНО';
+      }
+    }
+
+    function handleRepairOrderPrintDocumentsActionClick() {
+      openInspectionSheetForm();
     }
 
     function renderRepairOrderPrintTemplateSelect() {
@@ -1095,7 +1138,7 @@ _PRINTING_SCRIPT_PART2 = r"""
         if (printEls.inspectionSheetAutofillButton) printEls.inspectionSheetAutofillButton.disabled = false;
       }
     }
-""" 
+"""
 
 
 _PRINTING_SCRIPT_PART3 = r"""
@@ -1235,11 +1278,6 @@ _PRINTING_SCRIPT_PART3 = r"""
     function handleRepairOrderPrintDocumentsClick(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      const fillButton = target.closest('[data-print-inspection-fill]');
-      if (fillButton instanceof HTMLElement) {
-        openInspectionSheetForm();
-        return;
-      }
       const card = target.closest('[data-print-document]');
       if (!card) return;
       const documentId = card.dataset.printDocument || 'repair_order';
@@ -1478,6 +1516,7 @@ _PRINTING_SCRIPT_PART3 = r"""
     printRepairOrderDraft = function() { return openRepairOrderPrintWorkspace(); };
 
     if (printEls.documents) printEls.documents.addEventListener('click', handleRepairOrderPrintDocumentsClick);
+    if (printEls.documentsAction) printEls.documentsAction.addEventListener('click', handleRepairOrderPrintDocumentsActionClick);
     if (printEls.templateSelect) printEls.templateSelect.addEventListener('change', handleRepairOrderPrintTemplateSelectChange);
     if (printEls.fitWidthButton) printEls.fitWidthButton.addEventListener('click', () => repairOrderPrintSetZoom('fit', 1));
     if (printEls.actualSizeButton) printEls.actualSizeButton.addEventListener('click', () => repairOrderPrintSetZoom('manual', 1));
@@ -1532,4 +1571,6 @@ _PRINTING_SCRIPT_PART3 = r"""
 """
 
 
-PRINTING_WEB_MODULE_SCRIPT = _PRINTING_SCRIPT_PART1 + _PRINTING_SCRIPT_PART2 + _PRINTING_SCRIPT_PART3
+PRINTING_WEB_MODULE_SCRIPT = (
+    _PRINTING_SCRIPT_PART1 + _PRINTING_SCRIPT_PART2 + _PRINTING_SCRIPT_PART3
+)
