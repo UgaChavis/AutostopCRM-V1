@@ -6,6 +6,7 @@ import base64
 import gc
 import hashlib
 import logging
+import re
 import socket
 import sys
 import tempfile
@@ -34,6 +35,58 @@ from minimal_kanban.mcp.server import _normalize_tool_path_alias, create_mcp_ser
 from minimal_kanban.mcp.session_utils import managed_streamable_http_client
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
+
+EXPECTED_MCP_TOOLS = {
+    "archive_card",
+    "autofill_repair_order",
+    "autofill_vehicle_data",
+    "bootstrap_context",
+    "bulk_move_cards",
+    "cleanup_card_content",
+    "create_card",
+    "create_cash_transaction",
+    "create_cashbox",
+    "create_column",
+    "create_sticky",
+    "delete_cashbox",
+    "delete_column",
+    "delete_sticky",
+    "get_board_content",
+    "get_board_context",
+    "get_board_events",
+    "get_board_snapshot",
+    "get_card",
+    "get_card_context",
+    "get_card_log",
+    "get_cards",
+    "get_cashbox",
+    "get_connector_identity",
+    "get_gpt_wall",
+    "get_repair_order",
+    "get_repair_order_text",
+    "get_runtime_status",
+    "list_archived_cards",
+    "list_cashboxes",
+    "list_columns",
+    "list_overdue_cards",
+    "list_repair_orders",
+    "move_card",
+    "move_sticky",
+    "ping_connector",
+    "rename_column",
+    "replace_repair_order_materials",
+    "replace_repair_order_works",
+    "restore_card",
+    "review_board",
+    "search_cards",
+    "set_card_deadline",
+    "set_card_indicator",
+    "set_repair_order_status",
+    "update_board_settings",
+    "update_card",
+    "update_repair_order",
+    "update_sticky",
+}
 
 
 def reserve_port() -> int:
@@ -152,59 +205,8 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
-                self.assertTrue(
-                    {
-                        "ping_connector",
-                        "bootstrap_context",
-                        "get_connector_identity",
-                        "get_runtime_status",
-                        "cleanup_card_content",
-                        "get_board_context",
-                        "list_columns",
-                        "create_column",
-                        "rename_column",
-                        "delete_column",
-                        "create_sticky",
-                        "get_cards",
-                        "get_card",
-                        "get_card_context",
-                        "get_board_snapshot",
-                        "review_board",
-                        "list_cashboxes",
-                        "get_cashbox",
-                        "autofill_vehicle_data",
-                        "autofill_repair_order",
-                        "update_board_settings",
-                        "get_gpt_wall",
-                        "get_board_content",
-                        "get_board_events",
-                        "get_card_log",
-                        "list_archived_cards",
-                        "list_repair_orders",
-                        "get_repair_order",
-                        "get_repair_order_text",
-                        "search_cards",
-                        "create_card",
-                        "create_cashbox",
-                        "delete_cashbox",
-                        "create_cash_transaction",
-                        "update_card",
-                        "update_repair_order",
-                        "set_repair_order_status",
-                        "replace_repair_order_works",
-                        "replace_repair_order_materials",
-                        "update_sticky",
-                        "move_card",
-                        "bulk_move_cards",
-                        "move_sticky",
-                        "archive_card",
-                        "restore_card",
-                        "delete_sticky",
-                        "set_card_indicator",
-                        "set_card_deadline",
-                        "list_overdue_cards",
-                    }.issubset(tool_names)
-                )
+                self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 49)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 self.assertTrue(tool_map["ping_connector"].annotations.readOnlyHint)
                 self.assertFalse(tool_map["ping_connector"].annotations.destructiveHint)
@@ -376,6 +378,26 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     1,
                 )
 
+                disposable_cashbox = await session.call_tool(
+                    "create_cashbox", {"name": "Удаляемая", "actor_name": "ОПЕРАТОР"}
+                )
+                self.assertFalse(disposable_cashbox.isError)
+                self.assertTrue(disposable_cashbox.structuredContent["ok"])
+                disposable_cashbox_id = disposable_cashbox.structuredContent["data"]["cashbox"][
+                    "id"
+                ]
+                deleted_cashbox = await session.call_tool(
+                    "delete_cashbox",
+                    {"cashbox_id": disposable_cashbox_id, "actor_name": "ОПЕРАТОР"},
+                )
+                self.assertFalse(deleted_cashbox.isError)
+                self.assertTrue(deleted_cashbox.structuredContent["ok"])
+                self.assertEqual(
+                    deleted_cashbox.structuredContent["data"]["cashbox"]["id"],
+                    disposable_cashbox_id,
+                )
+                self.assertTrue(deleted_cashbox.structuredContent["data"]["meta"]["deleted"])
+
                 runtime_status = await session.call_tool("get_runtime_status", {})
                 self.assertFalse(runtime_status.isError)
                 self.assertTrue(runtime_status.structuredContent["ok"])
@@ -532,6 +554,31 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 sticky = created_sticky.structuredContent["data"]["sticky"]
                 sticky_id = sticky["id"]
                 self.assertTrue(sticky["short_id"].startswith("S-"))
+
+                updated_sticky = await session.call_tool(
+                    "update_sticky",
+                    {
+                        "sticky_id": sticky_id,
+                        "text": "Call client after diagnostic approval",
+                        "deadline": {"minutes": 30},
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(updated_sticky.isError)
+                self.assertTrue(updated_sticky.structuredContent["ok"])
+                self.assertEqual(
+                    updated_sticky.structuredContent["data"]["sticky"]["text"],
+                    "Call client after diagnostic approval",
+                )
+
+                moved_sticky = await session.call_tool(
+                    "move_sticky",
+                    {"sticky_id": sticky_id, "x": 260, "y": 180, "actor_name": "ОПЕРАТОР"},
+                )
+                self.assertFalse(moved_sticky.isError)
+                self.assertTrue(moved_sticky.structuredContent["ok"])
+                self.assertEqual(moved_sticky.structuredContent["data"]["sticky"]["x"], 260)
+                self.assertEqual(moved_sticky.structuredContent["data"]["sticky"]["y"], 180)
 
                 updated = await session.call_tool(
                     "update_card",
@@ -1109,6 +1156,20 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     blocked_delete.structuredContent["error"]["code"], "column_not_empty"
                 )
 
+                deadline_updated = await session.call_tool(
+                    "set_card_deadline",
+                    {
+                        "card_id": card_id,
+                        "deadline": {"hours": 1, "minutes": 30},
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(deadline_updated.isError)
+                self.assertTrue(deadline_updated.structuredContent["ok"])
+                self.assertGreater(
+                    deadline_updated.structuredContent["data"]["card"]["remaining_seconds"], 0
+                )
+
                 yellow = await session.call_tool(
                     "set_card_indicator",
                     {"card_id": card_id, "indicator": "yellow", "actor_name": "РћРџР•Р РђРўРћР "},
@@ -1249,6 +1310,30 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(invalid.isError)
                 self.assertFalse(invalid.structuredContent["ok"])
                 self.assertEqual(invalid.structuredContent["error"]["code"], "not_found")
+
+                invalid_column = await session.call_tool(
+                    "move_card",
+                    {
+                        "card_id": "missing-card",
+                        "column": "missing-column",
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(invalid_column.isError)
+                self.assertFalse(invalid_column.structuredContent["ok"])
+                self.assertIn("code", invalid_column.structuredContent["error"])
+
+                invalid_cashbox = await session.call_tool(
+                    "get_cashbox", {"cashbox_id": "missing-cashbox"}
+                )
+                self.assertFalse(invalid_cashbox.isError)
+                self.assertFalse(invalid_cashbox.structuredContent["ok"])
+                self.assertIn("code", invalid_cashbox.structuredContent["error"])
+
+    def test_mcp_declared_tools_have_direct_regression_calls(self) -> None:
+        test_source = Path(__file__).read_text(encoding="utf-8-sig")
+        called_tools = set(re.findall(r'call_tool\(\s*"([^"]+)"', test_source))
+        self.assertEqual(EXPECTED_MCP_TOOLS - called_tools, set())
 
     async def test_mcp_move_card_supports_before_card_id_reordering(self) -> None:
         async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:

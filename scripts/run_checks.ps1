@@ -6,6 +6,7 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $venvPath = Join-Path $projectRoot ".venv"
 $pythonExe = Join-Path $venvPath "Scripts\python.exe"
+Set-Location $projectRoot
 
 if (-not (Test-Path $pythonExe)) {
     & (Join-Path $PSScriptRoot "setup_dev.ps1")
@@ -22,10 +23,10 @@ $untrackedPythonFiles = @(
 $targets = @($changedPythonFiles + $untrackedPythonFiles) | Sort-Object -Unique
 
 if ($targets.Count -gt 0) {
-    & $pythonExe -m ruff format --check @targets
+    & $pythonExe -m ruff format --check -- $targets
     if ($LASTEXITCODE -ne 0) { throw "ruff format check failed." }
 
-    & $pythonExe -m ruff check @targets
+    & $pythonExe -m ruff check -- $targets
     if ($LASTEXITCODE -ne 0) { throw "ruff check failed." }
 }
 else {
