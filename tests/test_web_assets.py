@@ -151,7 +151,7 @@ class WebAssetsTests(unittest.TestCase):
     def test_board_snapshot_polling_is_throttled_and_visibility_aware(self) -> None:
         self.assertIn("refreshInFlight: null", BOARD_WEB_APP_HTML)
         self.assertIn("const SNAPSHOT_POLL_INTERVAL_MS = 8000;", BOARD_WEB_APP_HTML)
-        self.assertIn("const SNAPSHOT_POLL_HIDDEN_INTERVAL_MS = 60000;", BOARD_WEB_APP_HTML)
+        self.assertIn("const SNAPSHOT_POLL_HIDDEN_INTERVAL_MS = 120000;", BOARD_WEB_APP_HTML)
         self.assertIn("function snapshotPollIntervalMs()", BOARD_WEB_APP_HTML)
         self.assertIn("function scheduleNextSnapshotPoll()", BOARD_WEB_APP_HTML)
         self.assertIn("function handleSnapshotVisibilityChange()", BOARD_WEB_APP_HTML)

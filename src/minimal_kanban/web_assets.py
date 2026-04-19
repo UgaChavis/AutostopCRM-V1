@@ -5912,7 +5912,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     const SNAPSHOT_POLL_INTERVAL_MS = 8000;
     const SNAPSHOT_POLL_MODAL_INTERVAL_MS = 15000;
-    const SNAPSHOT_POLL_HIDDEN_INTERVAL_MS = 60000;
+    const SNAPSHOT_POLL_HIDDEN_INTERVAL_MS = 120000;
     const CARD_UNREAD_HOVER_DELAY_MS = 260;
 
     const COLUMN_TONES = [
@@ -11808,19 +11808,6 @@ BOARD_WEB_APP_HTML = "".join(
       return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
     };
 
-    function legacyRefreshVehiclePanelShadow() {
-      const profile = cloneVehicleProfile(state.vehicleProfileDraft || emptyVehicleProfile());
-      const summaryLines = [];
-      if (profile.mileage) summaryLines.push('Пробег: ' + profile.mileage);
-      els.vehiclePanelSummary.textContent = summaryLines.join('\\n');
-      els.vehiclePanelSummary.style.display = summaryLines.length ? '' : 'none';
-
-      const vinInput = getVehicleFieldInput('vin');
-      if (vinInput) vinInput.classList.toggle('vehicle-suspect', vinLooksSuspicious(profile.vin));
-
-      if (!state.vehicleAutofillResult) renderVehicleAutofillStatus(defaultVehicleStatusText(profile), Boolean(profile?.warnings?.length || vinLooksSuspicious(profile.vin)));
-    }
-
     function applyVehicleProfileToForm(profile, { preserveStatus = false } = {}) {
       const normalized = cloneVehicleProfile(profile);
       if (!String(normalized.display_name || '').trim()) {
@@ -13690,55 +13677,6 @@ function renderCompactArchiveRows(cards) {
         : '<div class="log-row__meta">АРХИВ ПУСТ.</div>';
     };
 
-    legacyRenderRepairOrdersBase = function(data) {
-      const items = data?.repair_orders || [];
-      const meta = data?.meta || {};
-      els.repairOrdersMeta.textContent = repairOrdersMetaText(items, meta);
-      els.repairOrdersList.innerHTML = items.length
-        ? renderRepairOrderRows(items)
-        : '<div class="log-row__meta">ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.</div>';
-    };
-
-    function legacyRepairOrderListTotalTextBase(value) {
-      const normalized = String(value ?? '').trim();
-      return normalized || '0';
-    }
-
-    function legacyRepairOrdersMetaTextShadow(items, meta) {
-      return 'ПОКАЗАНО: ' + items.length +
-        ' | ВСЕГО: ' + (meta.total ?? items.length) +
-        ' | СПИСОК: ДАТА / АВТО / СУТЬ / СУММА';
-    }
-
-    function legacyRenderRepairOrderRowsShadow(items) {
-      return items.map((item) => {
-        const number = item.number || '-';
-        const createdAt = formatDate(item.created_at || item.date || item.updated_at);
-        const vehicle = item.vehicle || 'Авто не указано';
-        const heading = item.heading || 'Заказ-наряд';
-        const total = repairOrderListTotalText(item.grand_total);
-        return '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Открыть заказ-наряд">'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Открыта</div><div class="repair-orders-row__number">№ ' + escapeHtml(number) + ' | ' + escapeHtml(createdAt) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Автомобиль</div><div class="repair-orders-row__vehicle" title="' + escapeHtml(vehicle) + '">' + escapeHtml(vehicle) + '</div></div>'
-          + '<div class="repair-orders-row__cell repair-orders-row__title-cell"><div class="repair-orders-row__label">Смысл карточки</div><div class="repair-orders-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div></div>'
-          + '<div class="repair-orders-row__cell repair-orders-row__total-cell"><div class="repair-orders-row__label">Сумма</div><div class="repair-orders-row__total" data-empty="' + String(total === '0') + '">' + escapeHtml(total) + '</div></div>'
-          + '</div>';
-      }).join('');
-    }
-
-    async function legacyLoadRepairOrdersBase(openModal = false) {
-      try {
-        const data = await api('/api/list_repair_orders?limit=300');
-        renderRepairOrders(data);
-        if (openModal) els.repairOrdersModal.classList.add('is-open');
-      } catch (error) {
-        els.repairOrdersMeta.textContent = 'ОШИБКА ЗАГРУЗКИ СПИСКА ЗАКАЗ-НАРЯДОВ.';
-        els.repairOrdersList.innerHTML = '<div class="log-row__meta">' + escapeHtml(error.message) + '</div>';
-        if (openModal) els.repairOrdersModal.classList.add('is-open');
-        setStatus(error.message, true);
-      }
-    }
-
     async function openCardWorkspace(cardId, { closeModalEl = null, openCardModalEl = true, openRepairOrder = false, repairOrderParentLayer = '' } = {}) {
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return null;
@@ -13883,53 +13821,6 @@ function renderCompactArchiveRows(cards) {
       return '/api/list_repair_orders?' + params.toString();
     }
 
-    legacyRepairOrderListTotalTextShadow = function(value, fallbackValue = '') {
-      const normalized = String(value ?? '').trim();
-      if (normalized && normalized !== '0') return normalized;
-      const fallback = String(fallbackValue ?? '').trim();
-      return fallback || normalized || '0';
-    };
-
-    legacyRepairOrdersMetaTextShadow2 = function(items, meta) {
-      return 'ПОКАЗАНО: ' + items.length +
-        ' | ОТКРЫТЫЕ: ' + (meta.active_total ?? 0) +
-        ' | АРХИВ: ' + (meta.archived_total ?? 0);
-    };
-
-    function legacyRenderRepairOrderListRowsShadow2(items) {
-      return items.map((item) => {
-        const number = item.number || '-';
-        const openedAt = repairOrderDateDisplayValue(item.opened_at || item.created_at || item.date || item.updated_at);
-        const vehicle = item.vehicle || 'Авто не указано';
-        const client = item.client || 'Клиент не указан';
-        const phone = item.phone || 'Телефон не указан';
-        const heading = item.summary || item.reason || item.heading || 'Заказ-наряд';
-        const total = repairOrderListTotalText(item.grand_total, item.works_total);
-        const status = item.status_label || repairOrderStatusLabel(item.status);
-        const rawStatus = String(item.status || 'open').trim().toLowerCase() === 'closed' ? 'closed' : 'open';
-        return '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Открыть заказ-наряд">'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Номер / открыта</div><div class="repair-orders-row__number">' + repairOrderNumberHtml(number) + ' | ' + escapeHtml(openedAt) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Статус</div><div class="repair-orders-row__status" data-status="' + escapeHtml(rawStatus) + '">' + escapeHtml(status) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Владелец</div><div class="repair-orders-row__client" title="' + escapeHtml(client) + '">' + escapeHtml(client) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Телефон</div><div class="repair-orders-row__phone" title="' + escapeHtml(phone) + '">' + escapeHtml(phone) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Автомобиль</div><div class="repair-orders-row__vehicle" title="' + escapeHtml(vehicle) + '">' + escapeHtml(vehicle) + '</div></div>'
-          + '<div class="repair-orders-row__cell repair-orders-row__title-cell"><div class="repair-orders-row__label">Смысл карточки</div><div class="repair-orders-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div></div>'
-          + '<div class="repair-orders-row__cell repair-orders-row__total-cell"><div class="repair-orders-row__label">Сумма</div><div class="repair-orders-row__total" data-empty="' + String(total === '0') + '">' + escapeHtml(total) + '</div></div>'
-          + '</div>';
-      }).join('');
-    }
-
-    legacyRenderRepairOrdersShadow2 = function(data) {
-      const items = data?.repair_orders || [];
-      const meta = data?.meta || {};
-      if (meta.status === 'open' || meta.status === 'closed') state.repairOrdersFilter = meta.status;
-      updateRepairOrdersTabs();
-      els.repairOrdersMeta.textContent = repairOrdersMetaText(items, meta);
-      els.repairOrdersList.innerHTML = items.length
-        ? renderRepairOrderListRows(items)
-        : '<div class="log-row__meta">' + (state.repairOrdersFilter === 'closed' ? 'АРХИВ ЗАКАЗ-НАРЯДОВ ПУСТ.' : 'ОТКРЫТЫХ ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.') + '</div>';
-    };
-
     async function setRepairOrdersFilter(status, { openModal = false } = {}) {
       state.repairOrdersFilter = String(status || '').trim().toLowerCase() === 'closed' ? 'closed' : 'open';
       if (state.repairOrdersLoadTimer) {
@@ -13940,24 +13831,6 @@ function renderCompactArchiveRows(cards) {
       updateRepairOrdersTabs();
       await loadRepairOrders(openModal);
     }
-
-    legacyLoadRepairOrdersFilteredShadow = async function(openModal = false) {
-      const filter = state.repairOrdersFilter === 'closed' ? 'closed' : 'open';
-      await loadModalData('/api/list_repair_orders?limit=300&status=' + encodeURIComponent(filter), {
-        openModal,
-        modalEl: els.repairOrdersModal,
-        onSuccess: renderRepairOrders,
-        onError: (error) => {
-          setRepairOrdersSearchLoading(false);
-          setModalListError(
-            els.repairOrdersMeta,
-            els.repairOrdersList,
-            'ОШИБКА ЗАГРУЗКИ СПИСКА ЗАКАЗ-НАРЯДОВ.',
-            error.message,
-          );
-        },
-      });
-    };
 
     renderRepairOrderRows = function(section, rows) {
       const body = repairOrderRowsBody(section);
@@ -13992,22 +13865,6 @@ function renderCompactArchiveRows(cards) {
         setStatus(error.message, true);
       }
     }
-
-    legacyLoadRepairOrdersShadow = async function(openModal = false) {
-      await loadModalData('/api/list_repair_orders?limit=300', {
-        openModal,
-        modalEl: els.repairOrdersModal,
-        onSuccess: renderRepairOrders,
-        onError: (error) => {
-          setModalListError(
-            els.repairOrdersMeta,
-            els.repairOrdersList,
-            'ОШИБКА ЗАГРУЗКИ СПИСКА ЗАКАЗ-НАРЯДОВ.',
-            error.message,
-          );
-        },
-      });
-    };
 
     repairOrderListTotalText = function(value, fallbackValue = '') {
       const normalized = String(value ?? '').trim();
@@ -14128,68 +13985,6 @@ function renderCompactArchiveRows(cards) {
       const sortLabel = sortBy === 'number' ? 'НОМЕР' : (sortBy === 'closed_at' ? 'ДАТА ЗАКРЫТИЯ' : 'ДАТА ОТКРЫТИЯ');
       parts.push('СОРТ: ' + sortLabel + ' ' + (sortDir === 'asc' ? '^' : 'v'));
       return parts.join(' | ');
-    };
-
-    legacyRenderRepairOrderListRowsShadow3 = function(items) {
-      return items.map((item) => {
-        const number = item.number || '-';
-        const openedAt = repairOrderDateDisplayValue(item.opened_at || item.created_at || item.date || item.updated_at);
-        const closedAt = repairOrderDateDisplayValue(item.closed_at);
-        const vehicle = item.vehicle || 'Авто не указано';
-        const client = item.client || 'Клиент не указан';
-        const phone = item.phone || 'Телефон не указан';
-        const heading = item.summary || item.reason || item.heading || 'Заказ-наряд';
-        const total = repairOrderListTotalText(item.grand_total, item.works_total);
-        const allTags = normalizeRepairOrderTags(item.tags || []);
-        const previewTags = allTags.slice(0, 3);
-        const extraTags = allTags.length - previewTags.length;
-        const tagsHtml = previewTags.length
-          ? '<div class="repair-orders-row__tags">' + previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '') + '</div>'
-          : '';
-        return '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Открыть заказ-наряд">'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Номер</div><div class="repair-orders-row__number">' + repairOrderNumberHtml(number) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Открыта</div><div class="repair-orders-row__opened">' + escapeHtml(openedAt || '—') + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Закрыта</div><div class="repair-orders-row__closed">' + escapeHtml(closedAt || '—') + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Статус</div><div class="repair-orders-row__status" data-status="' + escapeHtml(rawStatus) + '">' + escapeHtml(status) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Владелец</div><div class="repair-orders-row__client" title="' + escapeHtml(client) + '">' + escapeHtml(client) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Телефон</div><div class="repair-orders-row__phone" title="' + escapeHtml(phone) + '">' + escapeHtml(phone) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__label">Автомобиль</div><div class="repair-orders-row__vehicle" title="' + escapeHtml(vehicle) + '">' + escapeHtml(vehicle) + '</div></div>'
-          + '<div class="repair-orders-row__cell repair-orders-row__title-cell"><div class="repair-orders-row__label">Смысл карточки</div><div class="repair-orders-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div>' + tagsHtml + '</div>'
-          + '<div class="repair-orders-row__cell repair-orders-row__total-cell"><div class="repair-orders-row__label">Сумма</div><div class="repair-orders-row__total" data-empty="' + String(total === '0') + '">' + escapeHtml(total) + '</div></div>'
-          + '</div>';
-      }).join('');
-    };
-
-    legacyRenderRepairOrderListRowsShadow4 = function(items) {
-      return items.map((item) => {
-        const number = item.number || '-';
-        const openedAt = repairOrderListDateDisplayValue(item.opened_at || item.created_at || item.date || item.updated_at);
-        const closedAt = repairOrderListDateDisplayValue(item.closed_at);
-        const vehicle = String(item.vehicle || '').trim() || '—';
-        const client = String(item.client || '').trim();
-        const phone = String(item.phone || '').trim();
-        const clientText = [client, phone].filter(Boolean).join(' · ') || '—';
-        const heading = item.summary || item.reason || item.heading || 'Заказ-наряд';
-        const total = repairOrderListTotalText(item.grand_total, item.works_total);
-        const status = item.status_label || repairOrderStatusLabel(item.status);
-        const rawStatus = String(item.status || 'open').trim().toLowerCase() === 'closed' ? 'closed' : 'open';
-        const allTags = normalizeRepairOrderTags(item.tags || []);
-        const previewTags = allTags.slice(0, 3);
-        const extraTags = allTags.length - previewTags.length;
-        const tagsHtml = previewTags.length
-          ? '<div class="repair-orders-row__tags">' + previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '') + '</div>'
-          : '';
-        return '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Открыть заказ-наряд">'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__number">' + repairOrderNumberHtml(number) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__opened">' + escapeHtml(openedAt || '—') + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__closed">' + escapeHtml(closedAt || '—') + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__status" data-status="' + escapeHtml(rawStatus) + '">' + escapeHtml(status) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__client" title="' + escapeHtml(clientText) + '">' + escapeHtml(clientText) + '</div></div>'
-          + '<div class="repair-orders-row__cell"><div class="repair-orders-row__vehicle" title="' + escapeHtml(vehicle) + '">' + escapeHtml(vehicle) + '</div></div>'
-          + '<div class="repair-orders-row__cell repair-orders-row__title-cell"><div class="repair-orders-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div>' + tagsHtml + '</div>'
-          + '<div class="repair-orders-row__cell repair-orders-row__total-cell"><div class="repair-orders-row__total" data-empty="' + String(total === '0') + '">' + escapeHtml(total) + '</div></div>'
-          + '</div>';
-      }).join('');
     };
 
     renderRepairOrderListRows = function(items) {
@@ -16544,6 +16339,19 @@ function renderCompactArchiveRows(cards) {
 
     function boardCardDescription(card) {
       return String(card?.description_preview || card?.description || 'Описание не указано');
+    }
+
+    function legacyRefreshVehiclePanelShadow() {
+      const profile = cloneVehicleProfile(state.vehicleProfileDraft || emptyVehicleProfile());
+      const summaryLines = [];
+      if (profile.mileage) summaryLines.push('Пробег: ' + profile.mileage);
+      els.vehiclePanelSummary.textContent = summaryLines.join('\\n');
+      els.vehiclePanelSummary.style.display = summaryLines.length ? '' : 'none';
+
+      const vinInput = getVehicleFieldInput('vin');
+      if (vinInput) vinInput.classList.toggle('vehicle-suspect', vinLooksSuspicious(profile.vin));
+
+      if (!state.vehicleAutofillResult) renderVehicleAutofillStatus(defaultVehicleStatusText(profile), Boolean(profile?.warnings?.length || vinLooksSuspicious(profile.vin)));
     }
 
     cardUnreadBadgeHtml = function(card) {
