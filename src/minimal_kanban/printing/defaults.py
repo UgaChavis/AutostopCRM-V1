@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Built-in document definitions and templates for the AutoStop CRM print module.
 
 To add a new printable document:
@@ -11,8 +9,9 @@ To add a new printable document:
    between template sections. The preview layer will treat each marker as a new page.
 """
 
-from .models import PrintDocumentDefinition, PrintTemplateRecord
+from __future__ import annotations
 
+from .models import PrintDocumentDefinition, PrintTemplateRecord
 
 BUILTIN_PRINT_DOCUMENTS: tuple[PrintDocumentDefinition, ...] = (
     PrintDocumentDefinition(
@@ -75,26 +74,63 @@ PRINT_BASE_STYLES = """
     width: 210mm;
     min-height: 297mm;
     margin: 0 auto 18px;
-    padding: 14mm 12mm;
+    padding: 12mm 12mm 13mm;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
     border: 1px solid rgba(0, 0, 0, 0.05);
     page-break-after: always;
   }
   .document-page:last-child { page-break-after: auto; }
-  .doc-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 14px; }
-  .doc-title { margin: 0; font-size: 24px; line-height: 1.1; font-weight: 700; letter-spacing: 0.01em; }
-  .doc-subtitle { margin-top: 6px; color: var(--paper-soft); font-size: 12px; }
+  .doc-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 330px);
+    gap: 18px;
+    align-items: start;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.09);
+  }
+  .doc-head__brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .doc-brand-mark {
+    flex: 0 0 auto;
+    width: 96px;
+    height: 96px;
+    border-radius: 20px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 9px;
+  }
+  .doc-brand-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .doc-brand-mark__fallback {
+    width: 100%;
+    height: 100%;
+    border-radius: 999px;
+    border: 5px solid #e31d1a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--paper-accent);
+    text-transform: uppercase;
+  }
+  .doc-brand-copy { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .doc-kicker { color: var(--paper-soft); font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; }
+  .doc-title { margin: 0; font-size: 24px; line-height: 1.05; font-weight: 700; letter-spacing: 0.01em; }
+  .doc-subtitle { color: var(--paper-soft); font-size: 12px; }
   .doc-service { text-align: right; max-width: 330px; }
   .doc-service__name { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
   .doc-service__meta { color: var(--paper-soft); white-space: pre-wrap; }
-  .doc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
-  .doc-card { border: 1px solid var(--paper-line); border-radius: 8px; padding: 9px 10px; min-height: 64px; }
+  .doc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .doc-card { border: 1px solid var(--paper-line); border-radius: 9px; padding: 8px 10px; min-height: 60px; background: rgba(255,255,255,0.65); }
   .doc-card--wide { grid-column: span 3; }
   .doc-label { color: var(--paper-soft); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
   .doc-value { white-space: pre-wrap; word-break: break-word; }
-  .doc-section { margin-bottom: 14px; }
-  .doc-section__title { margin: 0 0 8px; font-size: 14px; font-weight: 700; }
-  .doc-note { border: 1px solid var(--paper-line); border-radius: 8px; padding: 10px 12px; min-height: 64px; white-space: normal; }
+  .doc-section { margin-bottom: 12px; }
+  .doc-section__title { margin: 0 0 7px; font-size: 14px; font-weight: 700; }
+  .doc-note { border: 1px solid var(--paper-line); border-radius: 9px; padding: 10px 12px; min-height: 64px; white-space: normal; line-height: 1.55; background: #fcfcfc; }
   .doc-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   .doc-table th, .doc-table td { border: 1px solid var(--paper-line); padding: 7px 8px; vertical-align: top; text-align: left; }
   .doc-table th { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--paper-accent); background: rgba(0, 0, 0, 0.025); }
@@ -102,7 +138,7 @@ PRINT_BASE_STYLES = """
   .doc-table__sum { width: 16%; text-align: right !important; font-variant-numeric: tabular-nums; }
   .doc-table__empty { color: var(--paper-soft); text-align: center; }
   .doc-table tfoot td { font-weight: 700; }
-  .doc-totals { margin-top: 12px; margin-left: auto; width: min(360px, 100%); border: 1px solid var(--paper-line-strong); border-radius: 10px; overflow: hidden; }
+  .doc-totals { margin-top: 12px; margin-left: auto; width: min(380px, 100%); border: 1px solid var(--paper-line-strong); border-radius: 10px; overflow: hidden; }
   .doc-totals__row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 12px; border-bottom: 1px solid var(--paper-line); font-variant-numeric: tabular-nums; }
   .doc-totals__row:last-child { border-bottom: 0; }
   .doc-totals__row--grand { font-size: 15px; font-weight: 700; background: rgba(0, 0, 0, 0.03); }
@@ -141,7 +177,17 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
             """
 <div class="document-page">
   <header class="doc-head">
-    <div><h1 class="doc-title">Заказ-наряд</h1><div class="doc-subtitle">№ {{repair_order.number_display}} от {{dates.document_date_display}}</div></div>
+    <div class="doc-head__brand">
+      <div class="doc-brand-mark">
+        {{#service.brand_logo_data_uri}}<img src="{{service.brand_logo_data_uri}}" alt="AutoStop АВТОТЕХЦЕНТР №1">{{/service.brand_logo_data_uri}}
+        {{^service.brand_logo_data_uri}}<div class="doc-brand-mark__fallback">AutoStop</div>{{/service.brand_logo_data_uri}}
+      </div>
+      <div class="doc-brand-copy">
+        <div class="doc-kicker">Печатная форма</div>
+        <h1 class="doc-title">Заказ-наряд</h1>
+        <div class="doc-subtitle">№ {{repair_order.number_display}} от {{dates.document_date_display}}</div>
+      </div>
+    </div>
     <div class="doc-service"><div class="doc-service__name">{{service.company_name}}</div><div class="doc-service__meta">{{service.address}}</div><div class="doc-service__meta">{{service.phone}}</div></div>
   </header>
   <section class="doc-grid">

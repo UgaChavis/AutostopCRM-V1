@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import base64
 import html
 import json
 import re
 import uuid
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +19,8 @@ from ..repair_order import (
 )
 from .defaults import BUILTIN_PRINT_DOCUMENTS, PRINT_BASE_STYLES, builtin_template_records
 from .models import (
-    InspectionSheetFormData,
     SUPPORTED_PRINT_DOCUMENT_TYPES,
+    InspectionSheetFormData,
     PrintDocumentDefinition,
     PrintModuleSettings,
     PrintTemplateRecord,
@@ -27,17 +29,24 @@ from .pdf import PdfRenderError, render_html_to_pdf_bytes
 from .printers import PrinterBackendError, list_printers, print_html
 from .template_engine import TemplateRenderError, render_template
 
-
 _SETTINGS_FILE_NAME = "settings.json"
 _TEMPLATES_FILE_NAME = "templates.json"
 _INSPECTION_SHEET_FORMS_FILE_NAME = "inspection_sheet_forms.json"
 _PAGE_BREAK_MARKER = "<!-- AUTOSTOPCRM_PAGE_BREAK -->"
 _SENTENCE_SPLIT_RE = re.compile(r"[\n\r]+|(?<=[.!?])\s+")
 _MONEY_QUANT = Decimal("0.01")
+_BRAND_LOGO_PATH = Path(__file__).resolve().parent / "assets" / "autostop_brand_logo.png"
 
 
 class PrintModuleError(RuntimeError):
-    def __init__(self, code: str, message: str, *, status_code: int = 400, details: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status_code: int = 400,
+        details: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
@@ -120,6 +129,17 @@ def _safe_json_write(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+@lru_cache(maxsize=1)
+def _brand_logo_data_uri() -> str:
+    try:
+        data = _BRAND_LOGO_PATH.read_bytes()
+    except OSError:
+        return ""
+    if not data:
+        return ""
+    return "data:image/png;base64," + base64.b64encode(data).decode("ascii")
+
+
 def _repair_row_dict(row: RepairOrderRow, *, section: str, index: int) -> dict[str, Any]:
     return {
         "index": index + 1,
@@ -169,11 +189,18 @@ class PrintModuleService:
             "card_id": card.id,
             "heading": card.heading(),
             "documents": [
-                self._document_workspace_payload(document, settings=settings, template_map=template_map)
+                self._document_workspace_payload(
+                    document, settings=settings, template_map=template_map
+                )
                 for document in BUILTIN_PRINT_DOCUMENTS
             ],
             "templates": {
-                document_type: [record.to_dict(is_default=(settings.default_template_ids.get(document_type) == record.id)) for record in records]
+                document_type: [
+                    record.to_dict(
+                        is_default=(settings.default_template_ids.get(document_type) == record.id)
+                    )
+                    for record in records
+                ]
                 for document_type, records in template_map.items()
             },
             "printers": printers,
@@ -269,19 +296,23 @@ class PrintModuleService:
         except PdfRenderError as exc:
             raise PrintModuleError("pdf_error", str(exc), status_code=500) from exc
         file_name = self._build_export_file_name(card, selected_ids)
-        return pdf_bytes, file_name, {
-            "documents": [
-                {
-                    "id": payload["document"].id,
-                    "label": payload["document"].label,
-                    "template_id": payload["template"].id,
-                    "template_name": payload["template"].name,
-                }
-                for payload in document_payloads
-            ],
-            "paper_size": settings.paper_size,
-            "orientation": settings.orientation,
-        }
+        return (
+            pdf_bytes,
+            file_name,
+            {
+                "documents": [
+                    {
+                        "id": payload["document"].id,
+                        "label": payload["document"].label,
+                        "template_id": payload["template"].id,
+                        "template_name": payload["template"].name,
+                    }
+                    for payload in document_payloads
+                ],
+                "paper_size": settings.paper_size,
+                "orientation": settings.orientation,
+            },
+        )
 
     def print_documents(
         self,
@@ -298,7 +329,10 @@ class PrintModuleService:
         settings = self._merged_settings(print_settings)
         requested_printer = _normalize_text(printer_name or settings.default_printer, limit=120)
         if not requested_printer:
-            raise PrintModuleError("validation_error", "Не выбран принтер. Сначала выберите принтер или экспортируйте PDF.")
+            raise PrintModuleError(
+                "validation_error",
+                "Не выбран принтер. Сначала выберите принтер или экспортируйте PDF.",
+            )
         selected_ids = self._normalized_document_ids(selected_document_ids)
         document_payloads = [
             self._rendered_document_payload(
@@ -370,8 +404,14 @@ class PrintModuleService:
         self._write_custom_templates(templates)
         settings = self._read_settings()
         return {
-            "template": record.to_dict(is_default=(settings.default_template_ids.get(normalized_document_type) == record.id)),
-            "templates": self._template_payloads_for_document_type(normalized_document_type, settings=settings),
+            "template": record.to_dict(
+                is_default=(
+                    settings.default_template_ids.get(normalized_document_type) == record.id
+                )
+            ),
+            "templates": self._template_payloads_for_document_type(
+                normalized_document_type, settings=settings
+            ),
         }
 
     def duplicate_template(self, *, template_id: str, name: str = "") -> dict[str, Any]:
@@ -392,13 +432,17 @@ class PrintModuleService:
         settings = self._read_settings()
         return {
             "template": duplicate.to_dict(is_default=False),
-            "templates": self._template_payloads_for_document_type(source.document_type, settings=settings),
+            "templates": self._template_payloads_for_document_type(
+                source.document_type, settings=settings
+            ),
         }
 
     def delete_template(self, *, template_id: str) -> dict[str, Any]:
         record = self._find_template(template_id)
         if record.is_builtin:
-            raise PrintModuleError("forbidden", "Встроенный шаблон нельзя удалить.", status_code=403)
+            raise PrintModuleError(
+                "forbidden", "Встроенный шаблон нельзя удалить.", status_code=403
+            )
         templates = [item for item in self._read_custom_templates() if item.id != template_id]
         self._write_custom_templates(templates)
         settings = self._read_settings()
@@ -408,21 +452,27 @@ class PrintModuleService:
         return {
             "deleted": True,
             "document_type": record.document_type,
-            "templates": self._template_payloads_for_document_type(record.document_type, settings=self._read_settings()),
+            "templates": self._template_payloads_for_document_type(
+                record.document_type, settings=self._read_settings()
+            ),
         }
 
     def set_default_template(self, *, document_type: str, template_id: str) -> dict[str, Any]:
         normalized_document_type = _normalize_document_type(document_type)
         template = self._find_template(template_id)
         if template.document_type != normalized_document_type:
-            raise PrintModuleError("validation_error", "Шаблон не соответствует выбранному типу документа.")
+            raise PrintModuleError(
+                "validation_error", "Шаблон не соответствует выбранному типу документа."
+            )
         settings = self._read_settings()
         settings.default_template_ids[normalized_document_type] = template.id
         self._write_settings(settings)
         return {
             "document_type": normalized_document_type,
             "template_id": template.id,
-            "templates": self._template_payloads_for_document_type(normalized_document_type, settings=settings),
+            "templates": self._template_payloads_for_document_type(
+                normalized_document_type, settings=settings
+            ),
         }
 
     def save_settings(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -473,12 +523,17 @@ class PrintModuleService:
             "id": document.id,
             "label": document.label,
             "template": rendered["template"].to_dict(
-                is_default=(settings.default_template_ids.get(document.id) == rendered["template"].id)
+                is_default=(
+                    settings.default_template_ids.get(document.id) == rendered["template"].id
+                )
             ),
             "warnings": rendered["warnings"],
             "missing_fields": rendered["missing_fields"],
             "page_count": len(preview_pages),
-            "pages": [{"number": index + 1, "html": page_html} for index, page_html in enumerate(preview_pages)],
+            "pages": [
+                {"number": index + 1, "html": page_html}
+                for index, page_html in enumerate(preview_pages)
+            ],
         }
 
     def _rendered_document_payload(
@@ -497,7 +552,8 @@ class PrintModuleService:
                 id="preview:override",
                 document_type=document.id,
                 name="Предпросмотр шаблона",
-                content=_normalize_multiline(template_overrides.get(document.id, ""), limit=200_000) or template.content,
+                content=_normalize_multiline(template_overrides.get(document.id, ""), limit=200_000)
+                or template.content,
                 created_at=utc_now_iso(),
                 updated_at=utc_now_iso(),
                 source="custom",
@@ -525,11 +581,11 @@ class PrintModuleService:
 
     def _wrap_document_html(self, body_html: str, *, title: str) -> str:
         return (
-            "<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\">"
-            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
             f"<title>{html.escape(title)}</title>"
             f"<style>{PRINT_BASE_STYLES}</style>"
-            "</head><body><div class=\"document-shell\">"
+            '</head><body><div class="document-shell">'
             f"{body_html}"
             "</div></body></html>"
         )
@@ -559,7 +615,9 @@ class PrintModuleService:
                 normalized.append(candidate)
         return normalized or ["repair_order"]
 
-    def _resolved_active_document_id(self, active_document_id: str | None, selected_ids: list[str]) -> str:
+    def _resolved_active_document_id(
+        self, active_document_id: str | None, selected_ids: list[str]
+    ) -> str:
         candidate = _normalize_text(active_document_id, limit=64)
         if candidate in selected_ids:
             return candidate
@@ -579,7 +637,11 @@ class PrintModuleService:
         templates: list[PrintTemplateRecord] = []
         for item in raw:
             record = PrintTemplateRecord.from_dict(item)
-            if record is not None and not record.is_builtin and record.document_type in SUPPORTED_PRINT_DOCUMENT_TYPES:
+            if (
+                record is not None
+                and not record.is_builtin
+                and record.document_type in SUPPORTED_PRINT_DOCUMENT_TYPES
+            ):
                 templates.append(record)
         return templates
 
@@ -587,9 +649,13 @@ class PrintModuleService:
         payload = [record.to_dict() for record in records if not record.is_builtin]
         _safe_json_write(self._templates_path, payload)
 
-    def _templates_by_document_type(self, *, settings: PrintModuleSettings) -> dict[str, list[PrintTemplateRecord]]:
+    def _templates_by_document_type(
+        self, *, settings: PrintModuleSettings
+    ) -> dict[str, list[PrintTemplateRecord]]:
         combined = list(self._builtin_templates.values()) + self._read_custom_templates()
-        grouped: dict[str, list[PrintTemplateRecord]] = {document_type: [] for document_type in SUPPORTED_PRINT_DOCUMENT_TYPES}
+        grouped: dict[str, list[PrintTemplateRecord]] = {
+            document_type: [] for document_type in SUPPORTED_PRINT_DOCUMENT_TYPES
+        }
         for record in combined:
             grouped.setdefault(record.document_type, []).append(record)
         for document_type, records in grouped.items():
@@ -641,11 +707,17 @@ class PrintModuleService:
         for record in self._read_custom_templates():
             if record.id == normalized:
                 return record
-        raise PrintModuleError("not_found", "Шаблон не найден.", status_code=404, details={"template_id": normalized})
+        raise PrintModuleError(
+            "not_found", "Шаблон не найден.", status_code=404, details={"template_id": normalized}
+        )
 
-    def _template_payloads_for_document_type(self, document_type: str, *, settings: PrintModuleSettings) -> list[dict[str, Any]]:
+    def _template_payloads_for_document_type(
+        self, document_type: str, *, settings: PrintModuleSettings
+    ) -> list[dict[str, Any]]:
         return [
-            record.to_dict(is_default=(settings.default_template_ids.get(document_type) == record.id))
+            record.to_dict(
+                is_default=(settings.default_template_ids.get(document_type) == record.id)
+            )
             for record in self._templates_by_document_type(settings=settings).get(document_type, [])
         ]
 
@@ -662,7 +734,9 @@ class PrintModuleService:
         merged["service_profile"] = service_profile
         return PrintModuleSettings.from_dict(merged)
 
-    def get_inspection_sheet_form(self, card: Card, *, repair_order: RepairOrder | None = None) -> dict[str, Any]:
+    def get_inspection_sheet_form(
+        self, card: Card, *, repair_order: RepairOrder | None = None
+    ) -> dict[str, Any]:
         order = repair_order or card.repair_order
         form = self._load_inspection_sheet_form(card, order)
         return {
@@ -670,7 +744,8 @@ class PrintModuleService:
             "document_type": "inspection_sheet",
             "form": form.to_dict(),
             "meta": {
-                "has_saved_draft": self._inspection_sheet_form_key(card) in self._read_inspection_sheet_form_map(),
+                "has_saved_draft": self._inspection_sheet_form_key(card)
+                in self._read_inspection_sheet_form_map(),
                 "updated_at": form.updated_at,
                 "filled_by": form.filled_by,
                 "source": form.source,
@@ -738,15 +813,43 @@ class PrintModuleService:
                 "reason": order.reason,
                 "comment": order.comment,
                 "note": order.note,
-                "works": [item["name"] for item in [_repair_row_dict(row, section="works", index=index) for index, row in enumerate(order.works)]],
-                "materials": [item["name"] for item in [_repair_row_dict(row, section="materials", index=index) for index, row in enumerate(order.materials)]],
+                "works": [
+                    item["name"]
+                    for item in [
+                        _repair_row_dict(row, section="works", index=index)
+                        for index, row in enumerate(order.works)
+                    ]
+                ],
+                "materials": [
+                    item["name"]
+                    for item in [
+                        _repair_row_dict(row, section="materials", index=index)
+                        for index, row in enumerate(order.materials)
+                    ]
+                ],
                 "work_rows": [
-                    {"name": item["name"], "quantity": "" if item["quantity_display"] == "вЂ”" else item["quantity_display"]}
-                    for item in [_repair_row_dict(row, section="works", index=index) for index, row in enumerate(order.works)]
+                    {
+                        "name": item["name"],
+                        "quantity": ""
+                        if item["quantity_display"] == "вЂ”"
+                        else item["quantity_display"],
+                    }
+                    for item in [
+                        _repair_row_dict(row, section="works", index=index)
+                        for index, row in enumerate(order.works)
+                    ]
                 ],
                 "material_rows": [
-                    {"name": item["name"], "quantity": "" if item["quantity_display"] == "вЂ”" else item["quantity_display"]}
-                    for item in [_repair_row_dict(row, section="materials", index=index) for index, row in enumerate(order.materials)]
+                    {
+                        "name": item["name"],
+                        "quantity": ""
+                        if item["quantity_display"] == "вЂ”"
+                        else item["quantity_display"],
+                    }
+                    for item in [
+                        _repair_row_dict(row, section="materials", index=index)
+                        for index, row in enumerate(order.materials)
+                    ]
                 ],
             },
             "current_form": form.to_dict(),
@@ -771,15 +874,26 @@ class PrintModuleService:
     def _write_inspection_sheet_form_map(self, payload: dict[str, dict[str, Any]]) -> None:
         _safe_json_write(self._inspection_sheet_forms_path, payload)
 
-    def _load_inspection_sheet_form(self, card: Card, order: RepairOrder) -> InspectionSheetFormData:
+    def _load_inspection_sheet_form(
+        self, card: Card, order: RepairOrder
+    ) -> InspectionSheetFormData:
         saved = self._read_inspection_sheet_form_map().get(self._inspection_sheet_form_key(card))
         if isinstance(saved, dict):
             return InspectionSheetFormData.from_dict(saved)
         return self._default_inspection_sheet_form(card, order)
 
-    def _default_inspection_sheet_form(self, card: Card, order: RepairOrder) -> InspectionSheetFormData:
+    def _default_inspection_sheet_form(
+        self, card: Card, order: RepairOrder
+    ) -> InspectionSheetFormData:
         vehicle_display = _normalize_text(order.vehicle or card.vehicle_display(), limit=200)
-        vin_or_plate = " · ".join(part for part in (_normalize_text(order.vin, limit=80), _normalize_text(order.license_plate, limit=40)) if part)
+        vin_or_plate = " · ".join(
+            part
+            for part in (
+                _normalize_text(order.vin, limit=80),
+                _normalize_text(order.license_plate, limit=40),
+            )
+            if part
+        )
         return InspectionSheetFormData(
             client=order.client,
             vehicle=vehicle_display,
@@ -804,7 +918,9 @@ class PrintModuleService:
             parts.append(f"{name} — {quantity} шт." if quantity else name)
         return "\n".join(parts)
 
-    def _default_inspection_sheet_table_rows(self, rows: list[RepairOrderRow]) -> list[dict[str, str]]:
+    def _default_inspection_sheet_table_rows(
+        self, rows: list[RepairOrderRow]
+    ) -> list[dict[str, str]]:
         items: list[dict[str, str]] = []
         for row in rows:
             name = _normalize_text(row.name, limit=240)
@@ -821,7 +937,9 @@ class PrintModuleService:
     def _inspection_sheet_list(self, value: Any) -> list[dict[str, str]]:
         return self._bullet_points(value)
 
-    def _inspection_sheet_table_row(self, row: dict[str, Any], *, index: int) -> dict[str, str | int]:
+    def _inspection_sheet_table_row(
+        self, row: dict[str, Any], *, index: int
+    ) -> dict[str, str | int]:
         name = _normalize_text(row.get("name"), limit=240)
         quantity = _normalize_text(row.get("quantity"), limit=40)
         return {
@@ -852,12 +970,19 @@ class PrintModuleService:
         list_rows = self._inspection_sheet_list(text_value)
         if list_rows:
             return [
-                self._inspection_sheet_table_row({"name": item.get("text", ""), "quantity": ""}, index=index)
+                self._inspection_sheet_table_row(
+                    {"name": item.get("text", ""), "quantity": ""}, index=index
+                )
                 for index, item in enumerate(list_rows)
             ]
         return [
             self._inspection_sheet_table_row(
-                {"name": item.get("name", ""), "quantity": "" if item.get("quantity_display") == "вЂ”" else item.get("quantity_display", "")},
+                {
+                    "name": item.get("name", ""),
+                    "quantity": ""
+                    if item.get("quantity_display") == "вЂ”"
+                    else item.get("quantity_display", ""),
+                },
                 index=index,
             )
             for index, item in enumerate(fallback_rows)
@@ -886,8 +1011,14 @@ class PrintModuleService:
         document: PrintDocumentDefinition,
         settings: PrintModuleSettings,
     ) -> dict[str, Any]:
-        works = [_repair_row_dict(row, section="works", index=index) for index, row in enumerate(order.works)]
-        materials = [_repair_row_dict(row, section="materials", index=index) for index, row in enumerate(order.materials)]
+        works = [
+            _repair_row_dict(row, section="works", index=index)
+            for index, row in enumerate(order.works)
+        ]
+        materials = [
+            _repair_row_dict(row, section="materials", index=index)
+            for index, row in enumerate(order.materials)
+        ]
         repair_order_payload = _print_safe_repair_order_dict(order)
         line_items = works + materials
         inspection_form = self._load_inspection_sheet_form(card, order)
@@ -896,7 +1027,9 @@ class PrintModuleService:
         issue_points = self._bullet_points(order.reason)
         missing_fields = self._missing_fields(card, order, works=works, materials=materials)
         inspection_planned_works = self._inspection_sheet_list(inspection_form.planned_works)
-        inspection_planned_materials = self._inspection_sheet_list(inspection_form.planned_materials)
+        inspection_planned_materials = self._inspection_sheet_list(
+            inspection_form.planned_materials
+        )
         inspection_planned_work_rows = self._inspection_sheet_table_rows(
             inspection_form.planned_work_rows,
             text_value=inspection_form.planned_works,
@@ -913,7 +1046,9 @@ class PrintModuleService:
             missing_fields = self._inspection_sheet_missing_fields(inspection_form)
         warnings: list[str] = []
         payment_summary = order.payment_summary_value()
-        payment_summary_display = {f"{key}_display": _money_display(value) for key, value in payment_summary.items()}
+        payment_summary_display = {
+            f"{key}_display": _money_display(value) for key, value in payment_summary.items()
+        }
         selected_due = (
             payment_summary["noncash_due"]
             if order.payment_method == REPAIR_ORDER_PAYMENT_METHOD_CASHLESS
@@ -931,7 +1066,10 @@ class PrintModuleService:
             "service": {
                 **settings.service_profile.to_dict(),
                 "company_name": _display(settings.service_profile.company_name),
-                "legal_name": _display(settings.service_profile.legal_name, fallback=settings.service_profile.company_name or "—"),
+                "legal_name": _display(
+                    settings.service_profile.legal_name,
+                    fallback=settings.service_profile.company_name or "—",
+                ),
                 "address": _display(settings.service_profile.address),
                 "phone": _display(settings.service_profile.phone),
                 "email": _display(settings.service_profile.email),
@@ -943,6 +1081,7 @@ class PrintModuleService:
                 "settlement_account": _display(settings.service_profile.settlement_account),
                 "correspondent_account": _display(settings.service_profile.correspondent_account),
                 "tax_label": _display(settings.service_profile.tax_label),
+                "brand_logo_data_uri": _brand_logo_data_uri(),
             },
             "document": document.to_dict(),
             "card": {
@@ -957,7 +1096,9 @@ class PrintModuleService:
                 "date_display": _date_display(order.date),
                 "opened_at_display": _date_display(order.opened_at),
                 "closed_at_display": _date_display(order.closed_at),
-                "status_label": "Закрыт" if str(order.status).strip().lower() == "closed" else "Открыт",
+                "status_label": "Закрыт"
+                if str(order.status).strip().lower() == "closed"
+                else "Открыт",
                 "payment_method_label": _display(repair_order_payload.get("payment_method_label")),
                 "prepayment_display": total_paid_display,
                 "reason_display": _display(order.reason),
@@ -1046,8 +1187,12 @@ class PrintModuleService:
             "meta": {
                 "warnings": warnings,
                 "missing_fields": missing_fields,
-                "works_count": len(inspection_planned_works) if document.id == "inspection_sheet" and inspection_planned_works else len(works),
-                "materials_count": len(inspection_planned_materials) if document.id == "inspection_sheet" and inspection_planned_materials else len(materials),
+                "works_count": len(inspection_planned_works)
+                if document.id == "inspection_sheet" and inspection_planned_works
+                else len(works),
+                "materials_count": len(inspection_planned_materials)
+                if document.id == "inspection_sheet" and inspection_planned_materials
+                else len(materials),
             },
         }
 
@@ -1075,7 +1220,9 @@ class PrintModuleService:
         return missing
 
     def _bullet_points(self, value: Any, fallback_source: Any = "") -> list[dict[str, str]]:
-        text = _normalize_multiline(value, limit=6000) or _normalize_multiline(fallback_source, limit=6000)
+        text = _normalize_multiline(value, limit=6000) or _normalize_multiline(
+            fallback_source, limit=6000
+        )
         if not text:
             return []
         points: list[dict[str, str]] = []

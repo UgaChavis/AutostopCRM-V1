@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
 import sys
 import tempfile
 import threading
 import unittest
-from pathlib import Path
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import patch
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -53,7 +53,13 @@ def build_card() -> Card:
                     {"name": "Замена масла АКПП", "quantity": "1", "price": "3500", "total": ""},
                 ],
                 "materials": [
-                    {"name": "ATF", "catalog_number": "08886-81210", "quantity": "6", "price": "950", "total": ""},
+                    {
+                        "name": "ATF",
+                        "catalog_number": "08886-81210",
+                        "quantity": "6",
+                        "price": "950",
+                        "total": "",
+                    },
                     {"name": "Фильтр АКПП", "quantity": "1", "price": "2100", "total": ""},
                 ],
             },
@@ -114,11 +120,26 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual(workspace["card_id"], self.card.id)
         self.assertEqual(len(workspace["documents"]), len(SUPPORTED_PRINT_DOCUMENT_TYPES))
         self.assertEqual(workspace["documents"][0]["id"], "repair_order")
-        self.assertTrue(workspace["documents"][0]["selected_template_id"].startswith("builtin:repair_order"))
+        self.assertTrue(
+            workspace["documents"][0]["selected_template_id"].startswith("builtin:repair_order")
+        )
         self.assertIn("repair_order", workspace["templates"])
         self.assertEqual(workspace["settings"]["service_profile"]["company_name"], "AutoStop CRM")
-        inspection_document = next(item for item in workspace["documents"] if item["id"] == "inspection_sheet")
+        inspection_document = next(
+            item for item in workspace["documents"] if item["id"] == "inspection_sheet"
+        )
         self.assertTrue(inspection_document["supports_form_fill"])
+
+    def test_repair_order_context_includes_brand_logo_asset(self) -> None:
+        context = self.service._build_document_context(
+            self.card,
+            self.card.repair_order,
+            document=self.service._document_definition("repair_order"),
+            settings=self.service._read_settings(),
+        )
+        self.assertTrue(
+            context["service"]["brand_logo_data_uri"].startswith("data:image/png;base64,")
+        )
 
     def test_preview_returns_selected_documents_and_missing_fields(self) -> None:
         preview = self.service.preview_documents(
@@ -129,6 +150,8 @@ class PrintingServiceTests(unittest.TestCase):
 
         self.assertEqual(preview["active_document_id"], "invoice")
         self.assertEqual([item["id"] for item in preview["documents"]], ["repair_order", "invoice"])
+        self.assertIn('class="doc-brand-mark"', preview["documents"][0]["pages"][0]["html"])
+        self.assertIn("data:image/png;base64,", preview["documents"][0]["pages"][0]["html"])
         self.assertGreaterEqual(preview["documents"][0]["page_count"], 1)
         self.assertIn("Заказ-наряд", preview["documents"][0]["pages"][0]["html"])
         self.assertIn("Налоги и сборы", preview["documents"][0]["pages"][0]["html"])
@@ -145,7 +168,9 @@ class PrintingServiceTests(unittest.TestCase):
             active_document_id="repair_order",
         )
 
-        self.assertEqual([item["id"] for item in preview["documents"]], list(SUPPORTED_PRINT_DOCUMENT_TYPES))
+        self.assertEqual(
+            [item["id"] for item in preview["documents"]], list(SUPPORTED_PRINT_DOCUMENT_TYPES)
+        )
         for document in preview["documents"]:
             self.assertGreaterEqual(document["page_count"], 1)
             self.assertIn("<!doctype html>", document["pages"][0]["html"].lower())
@@ -209,7 +234,9 @@ class PrintingServiceTests(unittest.TestCase):
 
         for label, payments, expected in scenarios:
             with self.subTest(label=label):
-                card = build_payment_card(payment_method="cashless" if label != "cash" else "cash", payments=payments)
+                card = build_payment_card(
+                    payment_method="cashless" if label != "cash" else "cash", payments=payments
+                )
                 context = self.service._build_document_context(
                     card,
                     card.repair_order,
@@ -223,7 +250,9 @@ class PrintingServiceTests(unittest.TestCase):
                 self.assertEqual(totals["grand"], expected["grand"])
                 self.assertEqual(totals["prepayment"], expected["prepayment"])
                 self.assertEqual(totals["due"], expected["due"])
-                self.assertEqual(context["repair_order"]["prepayment_display"], totals["prepayment_display"])
+                self.assertEqual(
+                    context["repair_order"]["prepayment_display"], totals["prepayment_display"]
+                )
                 self.assertEqual(totals["base_total_display"], totals["subtotal_display"])
                 self.assertEqual(totals["total_paid_display"], totals["prepayment_display"])
 
@@ -286,7 +315,7 @@ class PrintingServiceTests(unittest.TestCase):
         saved = self.service.save_template(
             document_type="repair_order",
             name="Мой шаблон",
-            content="<div class=\"document-page\"><h1>{{client.name_display}}</h1></div>",
+            content='<div class="document-page"><h1>{{client.name_display}}</h1></div>',
         )
         template_id = saved["template"]["id"]
         self.assertTrue(template_id.startswith("custom:repair_order:"))
@@ -295,7 +324,9 @@ class PrintingServiceTests(unittest.TestCase):
         duplicated_id = duplicated["template"]["id"]
         self.assertNotEqual(template_id, duplicated_id)
 
-        defaulted = self.service.set_default_template(document_type="repair_order", template_id=duplicated_id)
+        defaulted = self.service.set_default_template(
+            document_type="repair_order", template_id=duplicated_id
+        )
         self.assertEqual(defaulted["template_id"], duplicated_id)
         self.assertTrue(any(item["is_default"] for item in defaulted["templates"]))
 
@@ -303,8 +334,13 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertTrue(deleted["deleted"])
 
     def test_export_and_print_use_pdf_and_printer_backends(self) -> None:
-        with patch("minimal_kanban.printing.service.render_html_to_pdf_bytes", return_value=b"%PDF-1.4 test") as render_pdf:
-            pdf_bytes, file_name, meta = self.service.export_documents_pdf(self.card, selected_document_ids=["repair_order"])
+        with patch(
+            "minimal_kanban.printing.service.render_html_to_pdf_bytes",
+            return_value=b"%PDF-1.4 test",
+        ) as render_pdf:
+            pdf_bytes, file_name, meta = self.service.export_documents_pdf(
+                self.card, selected_document_ids=["repair_order"]
+            )
         self.assertTrue(pdf_bytes.startswith(b"%PDF-1.4"))
         self.assertTrue(file_name.endswith(".pdf"))
         self.assertEqual(meta["documents"][0]["id"], "repair_order")
@@ -331,7 +367,6 @@ class PrintingServiceTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, "validation_error")
         self.assertIn("Не выбран принтер", context.exception.message)
-
 
     def test_pdf_renderer_falls_back_safely_from_worker_thread(self) -> None:
         result: dict[str, bytes] = {}
