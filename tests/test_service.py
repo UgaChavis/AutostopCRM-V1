@@ -2595,6 +2595,29 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(by_tag_variant["cards"][0]["id"], card_id)
         self.assertIn("tags", by_tag_variant["cards"][0]["match"]["fields"])
 
+    def test_search_cards_matches_cyrillic_and_latin_vehicle_variants(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "Ниссан Тиида",
+                "title": "Диагностика",
+                "description": "Проверка поиска по смешанным латинским и кириллическим формам.",
+                "deadline": {"hours": 4},
+            }
+        )
+        card_id = created["card"]["id"]
+
+        by_latin = self.service.search_cards({"query": "Nissan Tiida", "limit": 5})
+        self.assertEqual(by_latin["meta"]["total_matches"], 1)
+        self.assertEqual(by_latin["cards"][0]["id"], card_id)
+
+        by_short_latin = self.service.search_cards({"query": "Tiida", "limit": 5})
+        self.assertEqual(by_short_latin["meta"]["total_matches"], 1)
+        self.assertEqual(by_short_latin["cards"][0]["id"], card_id)
+
+        by_cyrillic = self.service.search_cards({"query": "Тиида", "limit": 5})
+        self.assertEqual(by_cyrillic["meta"]["total_matches"], 1)
+        self.assertEqual(by_cyrillic["cards"][0]["id"], card_id)
+
     def test_colored_tags_roundtrip_and_search_by_label(self) -> None:
         created = self.service.create_card(
             {

@@ -87,6 +87,90 @@ _CARD_AI_DTC_PATTERN = re.compile(r"\b[PBCU][0-9]{4}\b", re.IGNORECASE)
 
 
 _SEARCH_SEPARATOR_PATTERN = re.compile(r"[\W_]+", re.UNICODE)
+_SEARCH_LATIN_TO_CYRILLIC_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("shch", "щ"),
+    ("sch", "щ"),
+    ("yo", "ё"),
+    ("yu", "ю"),
+    ("ya", "я"),
+    ("zh", "ж"),
+    ("kh", "х"),
+    ("ch", "ч"),
+    ("sh", "ш"),
+    ("ts", "ц"),
+    ("ae", "ае"),
+    ("ie", "ие"),
+    ("ai", "ай"),
+    ("oi", "ой"),
+    ("ei", "ей"),
+    ("ui", "уй"),
+    ("uy", "уй"),
+    ("iu", "ию"),
+    ("ia", "ия"),
+)
+_SEARCH_LATIN_TO_CYRILLIC_SINGLE = {
+    "a": "а",
+    "b": "б",
+    "c": "к",
+    "d": "д",
+    "e": "е",
+    "f": "ф",
+    "g": "г",
+    "h": "х",
+    "i": "и",
+    "j": "й",
+    "k": "к",
+    "l": "л",
+    "m": "м",
+    "n": "н",
+    "o": "о",
+    "p": "п",
+    "q": "к",
+    "r": "р",
+    "s": "с",
+    "t": "т",
+    "u": "у",
+    "v": "в",
+    "w": "в",
+    "x": "кс",
+    "y": "й",
+    "z": "з",
+}
+_SEARCH_CYRILLIC_TO_LATIN = {
+    "а": "a",
+    "б": "b",
+    "в": "v",
+    "г": "g",
+    "д": "d",
+    "е": "e",
+    "ё": "yo",
+    "ж": "zh",
+    "з": "z",
+    "и": "i",
+    "й": "y",
+    "к": "k",
+    "л": "l",
+    "м": "m",
+    "н": "n",
+    "о": "o",
+    "п": "p",
+    "р": "r",
+    "с": "s",
+    "т": "t",
+    "у": "u",
+    "ф": "f",
+    "х": "kh",
+    "ц": "ts",
+    "ч": "ch",
+    "ш": "sh",
+    "щ": "shch",
+    "ы": "y",
+    "э": "e",
+    "ю": "yu",
+    "я": "ya",
+    "ь": "",
+    "ъ": "",
+}
 _LICENSE_PLATE_PATTERN = re.compile(r"\b[А-ЯA-Z]\d{3}[А-ЯA-Z]{2}\d{2,3}\b", re.IGNORECASE)
 _VIN_PATTERN = re.compile(r"\b[A-HJ-NPR-Z0-9]{17}\b", re.IGNORECASE)
 _PHONE_PATTERN = re.compile(
@@ -4635,9 +4719,13 @@ class CardService:
     def _search_card_match(self, card: Card, query: str) -> tuple[int, list[str]]:
         if not query:
             return 0, []
-        normalized_query = self._normalize_search_text(query)
-        tokens = [token for token in normalized_query.split() if token.strip()]
-        if not tokens:
+        query_variants = self._search_text_variants(query)
+        query_token_variants = [
+            [token for token in variant.split() if token.strip()]
+            for variant in query_variants
+            if variant
+        ]
+        if not query_token_variants:
             return 0, []
 
         profile = card.vehicle_profile
@@ -4686,11 +4774,26 @@ class CardService:
             "repair_order_materials": " ".join(row.name for row in repair_order.materials),
         }
         normalized_fields = {
-            name: self._normalize_search_text(value)
+            name: self._search_text_variants(value)
             for name, value in searchable_fields.items()
             if value
         }
-        if not all(any(token in value for value in normalized_fields.values()) for token in tokens):
+        searchable_values = [value for values in normalized_fields.values() for value in values]
+        matched_query_tokens = next(
+            (
+                tokens
+                for tokens in query_token_variants
+                if all(any(token in value for value in searchable_values) for token in tokens)
+            ),
+            None,
+        )
+        if matched_query_tokens is None:
+            return 0, []
+
+        if not any(
+            all(any(token in value for value in searchable_values) for token in tokens)
+            for tokens in query_token_variants
+        ):
             return 0, []
 
         score = 0
@@ -4739,11 +4842,18 @@ class CardService:
             ("description", 2),
         )
         for field_name, weight in weighted_fields:
-            field_value = normalized_fields.get(field_name, "")
-            if field_value and any(token in field_value for token in tokens):
+            field_values = normalized_fields.get(field_name, [])
+            if field_values and any(
+                any(token in field_value for field_value in field_values)
+                for token in matched_query_tokens
+            ):
                 fields.append(field_name)
                 score += weight
-                if normalized_query in field_value:
+                if any(
+                    query_variant
+                    and any(query_variant in field_value for field_value in field_values)
+                    for query_variant in query_variants
+                ):
                     score += 2
         return score, fields
 
@@ -4753,6 +4863,52 @@ class CardService:
             return ""
         text = _SEARCH_SEPARATOR_PATTERN.sub(" ", text)
         return " ".join(text.split())
+
+    def _search_text_variants(self, value) -> list[str]:
+        normalized = self._normalize_search_text(value)
+        if not normalized:
+            return []
+
+        variants = [normalized]
+        latin_variant = self._transliterate_search_text(normalized, target="latin_to_cyrillic")
+        cyrillic_variant = self._transliterate_search_text(normalized, target="cyrillic_to_latin")
+        for variant in (latin_variant, cyrillic_variant):
+            if variant and variant not in variants:
+                variants.append(variant)
+        return variants
+
+    def _transliterate_search_text(self, value: str, *, target: str) -> str:
+        if target == "latin_to_cyrillic":
+            return self._latin_to_cyrillic(value)
+        if target == "cyrillic_to_latin":
+            return self._cyrillic_to_latin(value)
+        return value
+
+    def _latin_to_cyrillic(self, value: str) -> str:
+        text = value.casefold()
+        result: list[str] = []
+        i = 0
+        while i < len(text):
+            matched = False
+            for source, replacement in _SEARCH_LATIN_TO_CYRILLIC_PATTERNS:
+                if text.startswith(source, i):
+                    result.append(replacement)
+                    i += len(source)
+                    matched = True
+                    break
+            if matched:
+                continue
+            char = text[i]
+            result.append(_SEARCH_LATIN_TO_CYRILLIC_SINGLE.get(char, char))
+            i += 1
+        return " ".join("".join(result).split())
+
+    def _cyrillic_to_latin(self, value: str) -> str:
+        text = value.casefold()
+        result: list[str] = []
+        for char in text:
+            result.append(_SEARCH_CYRILLIC_TO_LATIN.get(char, char))
+        return " ".join("".join(result).split())
 
     def _save_bundle(
         self,
