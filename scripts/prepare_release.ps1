@@ -83,5 +83,4 @@ if (Test-Path $releaseRoot) {
     }
 }
 
-Move-Item -Path $stagingRoot -Destination $releaseParent
-Rename-Item -Path (Join-Path $releaseParent (Split-Path -Leaf $stagingRoot)) -NewName (Split-Path -Leaf $releaseRoot)
+Rename-Item -Path $stagingRoot -NewName (Split-Path -Leaf $releaseRoot)

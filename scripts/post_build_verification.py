@@ -12,7 +12,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-
 DEFAULT_PORTS = [f"http://127.0.0.1:{port}" for port in range(41731, 41741)]
 
 
@@ -35,7 +34,9 @@ def send_request(
     data = raw_body
     if raw_body is None and payload is not None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(f"{base_url}{path}", data=data, headers=request_headers, method=method)
+    request = urllib.request.Request(
+        f"{base_url}{path}", data=data, headers=request_headers, method=method
+    )
     try:
         with urllib.request.urlopen(request, timeout=5) as response:
             return response.status, json.loads(response.read().decode("utf-8"))
@@ -86,7 +87,9 @@ def wait_for_api_shutdown(base_url: str, timeout_seconds: int = 15) -> None:
                 continue
         except Exception:
             return
-    raise VerificationError(f"Local API kept responding after the application was closed: {base_url}")
+    raise VerificationError(
+        f"Local API kept responding after the application was closed: {base_url}"
+    )
 
 
 def launch_app(
@@ -137,8 +140,35 @@ def block_port() -> tuple[socket.socket, int]:
 
 def assert_ok(status: int, response: dict, *, context: str) -> dict:
     if status != 200 or not response.get("ok"):
-        raise VerificationError(f"{context}: expected successful API response, got {status} {response}")
+        raise VerificationError(
+            f"{context}: expected successful API response, got {status} {response}"
+        )
     return response["data"]
+
+
+def assert_markdown_gpt_wall(wall: dict, *, context: str) -> None:
+    text = str(wall.get("text") or "")
+    meta = wall.get("meta") if isinstance(wall.get("meta"), dict) else {}
+    sections = wall.get("sections") if isinstance(wall.get("sections"), dict) else {}
+    board_content = (
+        sections.get("board_content") if isinstance(sections.get("board_content"), dict) else {}
+    )
+    event_log = sections.get("event_log") if isinstance(sections.get("event_log"), dict) else {}
+    board_text = str(board_content.get("text") or "")
+    event_text = str(event_log.get("text") or "")
+
+    has_combined_markdown = (
+        "# AutoStop CRM Board Content" in text and "# AutoStop CRM Event Log" in text
+    )
+    has_section_markdown = board_text.startswith(
+        "# AutoStop CRM Board Content"
+    ) and event_text.startswith("# AutoStop CRM Event Log")
+    if not has_combined_markdown and not has_section_markdown:
+        raise VerificationError(
+            f"{context}: GPT wall is missing Markdown board-content/event-log sections."
+        )
+    if meta.get("text_format") != "markdown":
+        raise VerificationError(f"{context}: GPT wall text_format should be markdown.")
 
 
 def fetch_card(base_url: str, card_id: str, *, context: str) -> tuple[dict, dict]:
@@ -147,7 +177,9 @@ def fetch_card(base_url: str, card_id: str, *, context: str) -> tuple[dict, dict
     return response, card
 
 
-def wait_for_status(base_url: str, card_id: str, *, expected_status: str, timeout_seconds: int = 10) -> dict:
+def wait_for_status(
+    base_url: str, card_id: str, *, expected_status: str, timeout_seconds: int = 10
+) -> dict:
     deadline = time.time() + timeout_seconds
     last_card: dict | None = None
     while time.time() < deadline:
@@ -176,7 +208,9 @@ def wait_for_remaining_drop(
         if card["remaining_seconds"] < lower_than:
             return card
         time.sleep(0.5)
-    raise VerificationError(f"Card remaining time did not continue to decrease. Last state: {last_card}")
+    raise VerificationError(
+        f"Card remaining time did not continue to decrease. Last state: {last_card}"
+    )
 
 
 def find_sticky(snapshot: dict, sticky_id: str, *, context: str) -> dict:
@@ -204,7 +238,9 @@ def wait_for_sticky_remaining_drop(
         if sticky["remaining_seconds"] < lower_than:
             return sticky
         time.sleep(0.5)
-    raise VerificationError(f"Sticky remaining time did not continue to decrease. Last state: {last_sticky}")
+    raise VerificationError(
+        f"Sticky remaining time did not continue to decrease. Last state: {last_sticky}"
+    )
 
 
 def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) -> dict:
@@ -225,8 +261,12 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
 
     status, columns_after_create = send_request(base_url, "/api/list_columns", method="GET")
     report["list_columns_after_create"] = columns_after_create
-    listed_columns = assert_ok(status, columns_after_create, context="list_columns_after_create")["columns"]
-    if len(listed_columns) <= len(initial_columns) or not any(column["id"] == custom_column_id for column in listed_columns):
+    listed_columns = assert_ok(status, columns_after_create, context="list_columns_after_create")[
+        "columns"
+    ]
+    if len(listed_columns) <= len(initial_columns) or not any(
+        column["id"] == custom_column_id for column in listed_columns
+    ):
         raise VerificationError("Custom column was not added to the board.")
 
     status, created_sticky = send_request(
@@ -262,7 +302,9 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     if "remaining_display" not in card or "deadline_timestamp" not in card:
         raise VerificationError("Card response is missing countdown fields.")
 
-    status, moved = send_request(base_url, "/api/move_card", {"card_id": card_id, "column": custom_column_id})
+    status, moved = send_request(
+        base_url, "/api/move_card", {"card_id": card_id, "column": custom_column_id}
+    )
     report["move_card"] = moved
     moved_card = assert_ok(status, moved, context="move_card")["card"]
     if moved_card["column"] != custom_column_id:
@@ -324,19 +366,21 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     if not any(item["id"] == card_id for item in search_payload["cards"]):
         raise VerificationError("Search did not find the created verification card.")
 
-    status, board_snapshot_response = send_request(base_url, "/api/get_board_snapshot", method="GET")
+    status, board_snapshot_response = send_request(
+        base_url, "/api/get_board_snapshot", method="GET"
+    )
     report["board_snapshot"] = board_snapshot_response
     board_snapshot = assert_ok(status, board_snapshot_response, context="get_board_snapshot")
     if float(board_snapshot["settings"].get("board_scale", 0)) != 1.0:
         raise VerificationError("A fresh board should start with board_scale = 1.0.")
     _ = find_sticky(board_snapshot, sticky_id, context="get_board_snapshot")
 
-    status, wall_response = send_request(base_url, "/api/get_gpt_wall", {"include_archived": True, "event_limit": 50})
+    status, wall_response = send_request(
+        base_url, "/api/get_gpt_wall", {"include_archived": True, "event_limit": 50}
+    )
     report["gpt_wall"] = wall_response
     wall = assert_ok(status, wall_response, context="get_gpt_wall")
-    wall_text = str(wall.get("text", ""))
-    if "[ТЕКУЩЕЕ СОСТОЯНИЕ ДОСКИ]" not in wall_text or "[ЛЕНТА СОБЫТИЙ]" not in wall_text:
-        raise VerificationError("GPT wall is missing required state/event sections.")
+    assert_markdown_gpt_wall(wall, context="get_gpt_wall")
     if not any(item["id"] == card_id for item in wall["cards"]):
         raise VerificationError("GPT wall does not contain the created card.")
     if not any(item["id"] == sticky_id for item in wall["stickies"]):
@@ -379,12 +423,18 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     if "15:00" not in updated_sticky["text"]:
         raise VerificationError("Sticky text update was not applied.")
 
-    status, updated_snapshot_response = send_request(base_url, "/api/get_board_snapshot", method="GET")
+    status, updated_snapshot_response = send_request(
+        base_url, "/api/get_board_snapshot", method="GET"
+    )
     report["board_snapshot_after_updates"] = updated_snapshot_response
-    updated_snapshot = assert_ok(status, updated_snapshot_response, context="get_board_snapshot_after_updates")
+    updated_snapshot = assert_ok(
+        status, updated_snapshot_response, context="get_board_snapshot_after_updates"
+    )
     if float(updated_snapshot["settings"].get("board_scale", 0)) != 1.25:
         raise VerificationError("Board snapshot does not reflect updated board scale.")
-    updated_snapshot_sticky = find_sticky(updated_snapshot, sticky_id, context="get_board_snapshot_after_updates")
+    updated_snapshot_sticky = find_sticky(
+        updated_snapshot, sticky_id, context="get_board_snapshot_after_updates"
+    )
     if "15:00" not in updated_snapshot_sticky["text"]:
         raise VerificationError("Board snapshot does not reflect updated sticky text.")
 
@@ -399,7 +449,9 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
         },
     )
     report["create_persistence_card"] = persistence_card_response
-    persistence_card = assert_ok(status, persistence_card_response, context="create_persistence_card")["card"]
+    persistence_card = assert_ok(
+        status, persistence_card_response, context="create_persistence_card"
+    )["card"]
     persistence_card_id = persistence_card["id"]
     time.sleep(2)
     persistence_before_restart_response, persistence_before_restart_card = fetch_card(
@@ -409,9 +461,13 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     )
     report["persistence_card_before_restart"] = persistence_before_restart_response
 
-    status, persistence_snapshot_response = send_request(base_url, "/api/get_board_snapshot", method="GET")
+    status, persistence_snapshot_response = send_request(
+        base_url, "/api/get_board_snapshot", method="GET"
+    )
     report["persistence_snapshot_before_restart"] = persistence_snapshot_response
-    persistence_snapshot = assert_ok(status, persistence_snapshot_response, context="persistence_snapshot_before_restart")
+    persistence_snapshot = assert_ok(
+        status, persistence_snapshot_response, context="persistence_snapshot_before_restart"
+    )
     persistence_sticky_before_restart = find_sticky(
         persistence_snapshot,
         sticky_id,
@@ -421,7 +477,9 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     return {
         "archived_card_id": card_id,
         "persistence_card_id": persistence_card_id,
-        "persistence_remaining_before_restart": persistence_before_restart_card["remaining_seconds"],
+        "persistence_remaining_before_restart": persistence_before_restart_card[
+            "remaining_seconds"
+        ],
         "persistence_deadline_timestamp": persistence_before_restart_card["deadline_timestamp"],
         "sticky_id": sticky_id,
         "sticky_remaining_before_restart": persistence_sticky_before_restart["remaining_seconds"],
@@ -445,7 +503,9 @@ def run_negative_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     if status != 400 or invalid_type["error"]["code"] != "validation_error":
         raise VerificationError("API did not reject a non-object JSON body.")
 
-    status, empty_title = send_request(base_url, "/api/create_card", {"title": "   ", "deadline": {"days": 1, "hours": 0}})
+    status, empty_title = send_request(
+        base_url, "/api/create_card", {"title": "   ", "deadline": {"days": 1, "hours": 0}}
+    )
     report["empty_title"] = empty_title
     if status != 400 or empty_title["error"]["code"] != "validation_error":
         raise VerificationError("API accepted an empty card title.")
@@ -579,12 +639,12 @@ def verify_persistence(
     )
     report["sticky_after_restart_progress"] = progressed_sticky
 
-    status, wall_response = send_request(base_url, "/api/get_gpt_wall", {"include_archived": True, "event_limit": 100})
+    status, wall_response = send_request(
+        base_url, "/api/get_gpt_wall", {"include_archived": True, "event_limit": 100}
+    )
     report["gpt_wall_after_restart"] = wall_response
     wall = assert_ok(status, wall_response, context="gpt_wall_after_restart")
-    wall_text = str(wall.get("text", ""))
-    if "[ТЕКУЩЕЕ СОСТОЯНИЕ ДОСКИ]" not in wall_text or "[ЛЕНТА СОБЫТИЙ]" not in wall_text:
-        raise VerificationError("GPT wall lost its expected structure after restart.")
+    assert_markdown_gpt_wall(wall, context="gpt_wall_after_restart")
     if not any(item["id"] == sticky_id for item in wall["stickies"]):
         raise VerificationError("GPT wall lost the sticky after restart.")
 
@@ -702,7 +762,9 @@ def main() -> int:
         process_after_restart = None
         wait_for_api_shutdown(base_url)
 
-        report["startup_error"] = verify_startup_error_handling(executable, startup_error_appdata_root)
+        report["startup_error"] = verify_startup_error_handling(
+            executable, startup_error_appdata_root
+        )
 
         print(json.dumps(report, ensure_ascii=True, indent=2))
         return 0
