@@ -11,6 +11,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.agent.contracts import PatchResult, PlanResult
+from minimal_kanban.agent.instructions import build_default_system_prompt
 from minimal_kanban.agent.policy import ToolPolicyEngine
 from minimal_kanban.agent.tools import AgentToolExecutor
 
@@ -297,6 +298,10 @@ class ToolPolicyEngineTests(unittest.TestCase):
         self.assertIn("search_cards", prompt)
         self.assertNotIn("create_cashbox", prompt)
         self.assertNotIn("delete_column", prompt)
+
+        system_prompt = build_default_system_prompt()
+        self.assertIn("short structured patch", system_prompt)
+        self.assertIn("repair-order header", system_prompt)
 
 
 if __name__ == "__main__":

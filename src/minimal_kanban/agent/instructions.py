@@ -73,6 +73,8 @@ CARD_CLEANUP_RULES = """Card cleanup rules:
 CARD_AUTOFILL_RULES = """Card completion rules:
 - In full_card_enrichment tasks, first read get_card_context(card_id).
 - Fill the card using ordinary CRM write tools, especially update_card, update_repair_order, replace_repair_order_works, and replace_repair_order_materials.
+- Use update_repair_order as a short structured patch for the repair-order header only; do not pack long prose or explanations into that payload.
+- If the repair-order text is long, keep the long text in the card description or card notes and keep update_repair_order minimal.
 - Do not call autofill helpers from the agent path.
 - Preserve existing confirmed numbers, prices, part numbers, VINs, notes, customer statements, and manual values unless the task clearly requires a better replacement.
 - Do not delete useful text; only supplement, structure, or carefully rephrase it.
