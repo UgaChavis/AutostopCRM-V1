@@ -2279,6 +2279,25 @@ class CardService:
             employees = self._employees_from_settings(bundle["settings"])
             month = self._validated_payroll_month(payload.get("month"))
             report = self._build_payroll_report(bundle["cards"], employees, month=month)
+            cashboxes = bundle["cashboxes"]
+            cash_transactions = bundle["cash_transactions"]
+            employee_balances = {
+                employee["id"]: self._build_employee_salary_ledger(
+                    bundle["cards"],
+                    cashboxes,
+                    cash_transactions,
+                    employee,
+                    months=6,
+                )["balance_total"]
+                for employee in employees
+            }
+            employees = [
+                {
+                    **employee,
+                    "balance_total": employee_balances.get(employee["id"], "0"),
+                }
+                for employee in employees
+            ]
             return {
                 "employees": employees,
                 "month": month,
@@ -4991,6 +5010,7 @@ class CardService:
             base_salary = self._parse_payroll_decimal(item["base_salary"])
             works_total = item["works_total"]
             accrued_total = item["accrued_total"]
+            total_salary = base_salary + accrued_total
             summary_rows.append(
                 {
                     "employee_id": item["employee_id"],
@@ -5002,7 +5022,7 @@ class CardService:
                     "works_count": item["works_count"],
                     "works_total": self._format_payroll_decimal(works_total),
                     "accrued_total": self._format_payroll_decimal(accrued_total),
-                    "total_salary": self._format_payroll_decimal(base_salary + accrued_total),
+                    "total_salary": self._format_payroll_decimal(total_salary),
                 }
             )
         summary_rows.sort(

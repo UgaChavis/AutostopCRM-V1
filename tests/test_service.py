@@ -1056,6 +1056,63 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(len(listed_after["employees"]), 2)
         self.assertFalse(any(item["id"] == second["id"] for item in listed_after["employees"]))
 
+    def test_employee_list_shows_current_balance_after_salary_payout(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Алексей Чупров",
+                "position": "Снабженец",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "100",
+            }
+        )["employee"]
+        card = self.service.create_card(
+            {
+                "vehicle": "Mazda Axela 2015",
+                "title": "Закрыть начисление",
+                "description": "Проверка выплаты зарплаты",
+                "deadline": {"hours": 2},
+            }
+        )["card"]
+        self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "number": "64",
+                    "status": "open",
+                    "client": "Тестовый клиент",
+                    "vehicle": "Mazda Axela 2015",
+                    "payments": [
+                        {"amount": "2000", "paid_at": "18.04.2026 04:58", "payment_method": "cash"}
+                    ],
+                    "works": [
+                        {
+                            "name": "Доставка",
+                            "quantity": "1",
+                            "price": "2000",
+                            "executor_id": employee["id"],
+                        }
+                    ],
+                },
+            }
+        )
+        self.service.set_repair_order_status({"card_id": card["id"], "status": "closed"})
+        self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})
+        self.service.create_employee_salary_transaction(
+            {
+                "employee_id": employee["id"],
+                "transaction_kind": "salary_payout",
+                "amount": "2000",
+                "actor_name": "ADMIN",
+            }
+        )
+
+        listed = self.service.list_employees()
+        listed_employee = next(
+            item for item in listed["employees"] if item["id"] == employee["id"]
+        )
+        self.assertEqual(listed_employee["balance_total"], "0")
+
     def test_employee_supports_up_to_fifteen_records_without_overwrite(self) -> None:
         checkpoints = {1, 2, 3, 10, 15}
         created_ids: list[str] = []

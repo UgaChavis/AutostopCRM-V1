@@ -8516,7 +8516,7 @@ BOARD_WEB_APP_HTML = "".join(
         const isActive = !state.employeeCreateMode && employee.id === state.activeEmployeeId;
         const summary = summaryMap.get(String(employee.id || ''));
         const summaryLabel = 'К ВЫПЛАТЕ';
-        const summaryValue = String(summary?.total_salary || '0');
+        const summaryValue = String(employee.balance_total ?? summary?.balance_total ?? summary?.total_salary ?? '0');
         return '<div class="employees-row' + (isActive ? ' is-active' : '') + '">'
           + '<button class="employees-row__body" type="button" data-employee-id="' + escapeHtml(employee.id) + '">'
             + '<div class="employees-row__top"><div class="employees-row__title">' + escapeHtml(employee.name) + '</div></div>'
@@ -8750,6 +8750,9 @@ BOARD_WEB_APP_HTML = "".join(
         state.employeeSalaryActionDraft = '';
         closeEmployeeSalaryDialog();
         await loadEmployeeSalarySheet(employeeId, { openModal: true });
+        await loadEmployeesReference();
+        await loadPayrollReport();
+        renderEmployeesWorkspace();
         if (els.cashboxesModal?.classList.contains('is-open')) {
           await loadCashboxes(true);
         } else {
