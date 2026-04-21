@@ -34,6 +34,7 @@ from minimal_kanban.models import CARD_DESCRIPTION_LIMIT, AuditEvent, Card, utc_
 from minimal_kanban.agent.config import get_agent_name
 from minimal_kanban.repair_order import RepairOrder
 from minimal_kanban.services.card_service import CardService, ServiceError
+from minimal_kanban.storage.financial_history_cleanup import sanitize_financial_history_state
 from minimal_kanban.storage.json_store import JsonStore
 from minimal_kanban.vehicle_profile import VehicleProfile
 
@@ -1032,6 +1033,103 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("СВЕЖИЙ АВАНС", report["text"])
         self.assertNotIn("Старый заказ", report["text"])
         self.assertNotIn("СТАРАЯ ВЫПЛАТА", report["text"])
+
+    def test_financial_history_cleanup_clears_balances_and_preserves_new_flows(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Иван Мастер",
+                "position": "Механик",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "100",
+            }
+        )["employee"]
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})["cashbox"]
+        card = self.service.create_card(
+            {
+                "vehicle": "Mitsubishi L200",
+                "title": "Историческая оплата",
+                "description": "Проверка очистки истории",
+                "deadline": {"hours": 2},
+            }
+        )["card"]
+        self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "number": "31",
+                    "status": "open",
+                    "client": "Клиент",
+                    "vehicle": "Mitsubishi L200",
+                    "payments": [
+                        {"amount": "5000", "paid_at": "05.04.2026 10:00", "payment_method": "cash"}
+                    ],
+                    "works": [
+                        {
+                            "name": "Диагностика",
+                            "quantity": "1",
+                            "price": "5000",
+                            "executor_id": employee["id"],
+                        }
+                    ],
+                },
+            }
+        )
+        closed = self.service.set_repair_order_status({"card_id": card["id"], "status": "closed"})
+        self.assertEqual(closed["repair_order"]["works"][0]["salary_amount"], "5000")
+        self.service.create_employee_salary_transaction(
+            {
+                "employee_id": employee["id"],
+                "transaction_kind": "salary_payout",
+                "amount": "5000",
+                "cashbox_id": cashbox["id"],
+                "actor_name": "ADMIN",
+            }
+        )
+        self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "income",
+                "amount": "2500",
+                "note": "Временное движение",
+                "actor_name": "ADMIN",
+            }
+        )
+
+        raw_state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        sanitized = sanitize_financial_history_state(raw_state)
+        self.state_file.write_text(json.dumps(sanitized, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        fresh_service = self._build_service()
+        ledger = fresh_service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        cashbox_details = fresh_service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
+
+        self.assertEqual(ledger["balance_total"], "0")
+        self.assertEqual(ledger["journal_rows"], [])
+        self.assertEqual(cashbox_details["cashbox"]["statistics"]["balance_minor"], 0)
+        self.assertEqual(cashbox_details["cashbox"]["statistics"]["transactions_total"], 0)
+
+        new_cash = fresh_service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "income",
+                "amount": "1000",
+                "note": "Новая операция",
+                "actor_name": "ADMIN",
+            }
+        )
+        new_salary = fresh_service.create_employee_salary_transaction(
+            {
+                "employee_id": employee["id"],
+                "transaction_kind": "salary_payout",
+                "amount": "1000",
+                "cashbox_id": cashbox["id"],
+                "actor_name": "ADMIN",
+            }
+        )
+
+        self.assertEqual(new_cash["transaction"]["amount_minor"], 100000)
+        self.assertEqual(new_salary["transaction"]["amount_minor"], 100000)
 
     def test_employee_create_multiple_and_delete_keeps_distinct_records(self) -> None:
         first = self.service.save_employee({"name": "Иван", "position": "Мастер"})["employee"]

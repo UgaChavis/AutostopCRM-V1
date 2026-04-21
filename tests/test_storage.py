@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.models import AuditEvent
+from minimal_kanban.storage.financial_history_cleanup import sanitize_financial_history_state
 from minimal_kanban.storage.json_store import JsonStore
 
 
@@ -153,6 +154,95 @@ class JsonStoreTests(unittest.TestCase):
         self.assertIn("vehicle_profile", repaired_state["cards"][0])
         self.assertEqual(repaired_state["cards"][0]["vehicle_profile"]["make_display"], "")
         self.assertEqual(repaired_state["cards"][0]["vehicle_profile"]["model_display"], "")
+
+    def test_sanitize_financial_history_state_clears_cash_and_payroll_history(self) -> None:
+        raw_state = {
+            "schema_version": 7,
+            "columns": [],
+            "cards": [
+                {
+                    "id": "card-1",
+                    "repair_order": {
+                        "payments": [
+                            {
+                                "id": "payment-1",
+                                "amount": "3000",
+                                "paid_at": "12.04.2026 16:43",
+                                "cashbox_id": "cashbox-1",
+                                "cashbox_name": "Наличный",
+                                "cash_transaction_id": "ct-1",
+                            }
+                        ],
+                        "payment_history": [
+                            {
+                                "id": "payment-2",
+                                "amount": "1500",
+                                "cash_transaction_id": "ct-2",
+                            }
+                        ],
+                        "works": [
+                            {
+                                "name": "Диагностика",
+                                "executor_id": "emp-1",
+                                "executor_name": "Иван Мастер",
+                                "salary_mode_snapshot": "percent_only",
+                                "base_salary_snapshot": "0",
+                                "work_percent_snapshot": "100",
+                                "salary_amount": "1500",
+                                "salary_accrued_at": "12.04.2026 16:44",
+                            }
+                        ],
+                    },
+                }
+            ],
+            "cashboxes": [
+                {
+                    "id": "cashbox-1",
+                    "name": "Наличный",
+                    "statistics": {
+                        "balance_minor": 123456,
+                        "transactions_total": 4,
+                        "income_total_minor": 99999,
+                        "expense_total_minor": 54321,
+                    },
+                }
+            ],
+            "cash_transactions": [{"id": "ct-1"}, {"id": "ct-2"}],
+            "events": [
+                {
+                    "id": "event-1",
+                    "action": "cashbox_created",
+                },
+                {
+                    "id": "event-2",
+                    "action": "cash_transaction_created",
+                },
+                {
+                    "id": "event-3",
+                    "action": "employee_salary_transaction_created",
+                },
+            ],
+            "settings": {},
+        }
+
+        sanitized = sanitize_financial_history_state(raw_state)
+
+        self.assertEqual(sanitized["cash_transactions"], [])
+        self.assertEqual(sanitized["cards"][0]["repair_order"]["works"][0]["executor_id"], "")
+        self.assertEqual(sanitized["cards"][0]["repair_order"]["works"][0]["executor_name"], "")
+        self.assertEqual(sanitized["cards"][0]["repair_order"]["works"][0]["salary_amount"], "")
+        self.assertEqual(sanitized["cards"][0]["repair_order"]["works"][0]["salary_accrued_at"], "")
+        self.assertEqual(sanitized["cards"][0]["repair_order"]["payments"][0]["cash_transaction_id"], "")
+        self.assertEqual(
+            sanitized["cards"][0]["repair_order"]["payment_history"][0]["cash_transaction_id"],
+            "",
+        )
+        self.assertEqual(sanitized["cashboxes"][0]["statistics"]["balance_minor"], 0)
+        self.assertEqual(sanitized["cashboxes"][0]["statistics"]["transactions_total"], 0)
+        self.assertEqual(sanitized["cashboxes"][0]["statistics"]["income_total_minor"], 0)
+        self.assertEqual(sanitized["cashboxes"][0]["statistics"]["expense_total_minor"], 0)
+        self.assertEqual(len(sanitized["events"]), 1)
+        self.assertEqual(sanitized["events"][0]["action"], "cashbox_created")
 
     def test_write_bundle_reads_state_once_when_settings_and_stickies_are_missing(self) -> None:
         store = JsonStore(state_file=self.state_file, logger=self.logger)
