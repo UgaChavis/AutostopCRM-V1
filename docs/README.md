@@ -23,4 +23,4 @@ This directory contains the operational docs that make the project easier to wor
 
 ## Maintenance Rule
 
-Keep these docs short, current, and aligned with the active `autostopCRM` branch and production state.
+Keep these docs short, current, and aligned with the active `autostopcrm-v1` branch and production state.

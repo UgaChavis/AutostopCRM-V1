@@ -3,7 +3,7 @@ AUTOSTOP CRM
 
 1. Базовые пути
 - проект на сервере: /opt/autostopcrm
-- рабочая ветка GitHub: autostopCRM
+- рабочая ветка GitHub: autostopcrm-v1
 - compose-сервис: autostopcrm
 - данные приложения в контейнере: /root/.minimal-kanban
 - MCP endpoint: /mcp
@@ -18,12 +18,12 @@ AUTOSTOP CRM
 
 3. Стандартное обновление сервера из GitHub
 cd /opt/autostopcrm
-git fetch origin autostopCRM
-git reset --hard origin/autostopCRM
+git fetch origin autostopcrm-v1
+git reset --hard origin/autostopcrm-v1
 ./deploy.sh
 
 4. Что делает deploy.sh
-- подтягивает origin/autostopCRM
+- подтягивает origin/autostopcrm-v1
 - пересобирает контейнер
 - поднимает docker compose up -d --build
 - дожидается запуска контейнера и healthcheck
@@ -153,7 +153,7 @@ curl -sS http://127.0.0.1:8000/api/list_repair_orders
 На сервере:
 cd /opt/autostopcrm
 git rev-parse HEAD
-git rev-parse origin/autostopCRM
+git rev-parse origin/autostopcrm-v1
 
 Если хэши совпадают, сервер синхронизирован с GitHub.
 
@@ -174,7 +174,7 @@ git branch -vv
 git log --oneline -n 10
 
 15. Важные замечания
-- основной источник кода: GitHub ветка autostopCRM
+- основной источник кода: GitHub ветка autostopcrm-v1
 - основной источник прод-состояния: сервер /opt/autostopcrm
 - перед ручными правками на сервере сначала проверить git status
 - если правка нужна надолго, сначала внести её в GitHub, потом задеплоить на сервер

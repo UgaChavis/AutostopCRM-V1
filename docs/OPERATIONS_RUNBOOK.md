@@ -12,7 +12,8 @@ This is the compact operational guide for local work, GitHub sync, and productio
 
 ## Branch Rule
 
-- active branch: `autostopCRM`
+- active branch: `autostopcrm-v1`
+- in this workspace the GitHub remote for that line is `autostop-v1`
 - the same commit should be present locally, on GitHub, and on production before and after release work
 
 ## Standard Sync Check
@@ -22,14 +23,14 @@ Run these checks before serious work:
 ```powershell
 git status --short --branch
 git rev-parse --short HEAD
-git fetch origin autostopCRM
-git rev-parse --short origin/autostopCRM
+git fetch autostop-v1 --prune
+git rev-parse --short autostop-v1/autostopcrm-v1
 ```
 
 Then verify the server:
 
 ```powershell
-ssh -i C:\Users\User\.ssh\codex_autostopcrm root@vps26457.mnogoweb.in "cd /opt/autostopcrm && git status --short --branch && git rev-parse --short HEAD && git rev-parse --short origin/autostopCRM"
+ssh -i C:\Users\User\.ssh\codex_autostopcrm root@vps26457.mnogoweb.in "cd /opt/autostopcrm && git status --short --branch && git rev-parse --short HEAD && git rev-parse --short origin/autostopcrm-v1"
 ```
 
 ## Local Workflow
@@ -43,8 +44,8 @@ ssh -i C:\Users\User\.ssh\codex_autostopcrm root@vps26457.mnogoweb.in "cd /opt/a
 ## Deployment Workflow
 
 1. Commit the intended change.
-2. Push to `origin/autostopCRM`.
-3. On the server, fetch and reset to `origin/autostopCRM`.
+2. Push to `autostop-v1/autostopcrm-v1`.
+3. On the server, fetch and reset to `origin/autostopcrm-v1`.
 4. Run `./deploy.sh`.
 5. Confirm the smoke check passes.
 

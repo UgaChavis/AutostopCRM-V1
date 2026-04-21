@@ -1,6 +1,6 @@
 # AutoStop CRM Codex Workflow
 
-This file is the practical operating guide for working on `autostopCRM`.
+This file is the practical operating guide for working on `autostopcrm-v1`.
 
 Goal:
 

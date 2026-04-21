@@ -1,6 +1,6 @@
 # AutoStop CRM Project Handoff
 
-This is the primary developer handoff document for branch `autostopCRM`.
+This is the primary developer handoff document for branch `autostopcrm-v1`.
 
 Use it as the operational overview after reading `00_START_HERE_AUTOSTOP_CRM.md` and `MASTER-PLAN.md`.
 
@@ -38,15 +38,16 @@ Legacy names still exist and are expected:
 
 Active working branch:
 
-- `autostopCRM`
+- `autostopcrm-v1`
 
 Not the active line for current production work:
 
+- `autostopCRM`
 - `autostopCRM-V2`
 
 Environment rule:
 
-- local repo, GitHub `autostopCRM`, and working production should stay aligned on the same branch head
+- local repo, GitHub `autostopcrm-v1`, and working production should stay aligned on the same branch head
 - current synced HEAD changes frequently; verify it with `git rev-parse --short HEAD` before acting on this file
 - after any meaningful change, verify all three explicitly instead of relying on stale notes in this file
 
@@ -67,11 +68,11 @@ Important operational note:
 
 Latest verified synchronized head:
 
-- `2b9d3a1` `Stabilize repair order flow and cashbox journal`
+- `0b0b5dc` `Fix release verification for markdown wall`
 
 Current alignment at handoff update time:
 
-- local `autostopCRM`, GitHub `origin/autostopCRM`, and production `/opt/autostopcrm` are aligned on the same commit
+- local `autostopcrm-v1`, GitHub `autostopcrm-v1`, and production `/opt/autostopcrm` are aligned on the same commit
 - local worktree is clean after synchronization
 
 ## 3. Runtime Architecture
@@ -235,7 +236,7 @@ Operational reality:
 Current post-sync note for the active stabilization pass:
 
 - local regression is green
-- local/GitHub/production are synchronized on `2b9d3a1`
+- local/GitHub/production are synchronized on `0b0b5dc`
 - connector and MCP live checks passed after deploy
 - separate `check_agent_runtime.py` still expects `/api/agent_status`, while the current production API surface does not expose that route on the deployed app container
 
@@ -253,8 +254,8 @@ Current known verification baseline:
 - latest targeted regressions for `tests.test_service`, `tests.test_api`, and `tests.test_web_assets` are green
 - latest targeted `tests.test_service`, `tests.test_api`, `tests.test_web_assets`, `tests.test_mcp`, and `tests.test_mcp_main` runs are green
 - import smoke for `main.py` and `main_mcp.py` is green
-- latest full-suite validation on the current local stabilization pass: `344/344 OK`
-- latest focused validation on MCP/settings/UI startup chain: `61/61 OK`
+- latest full-suite validation on the current local stabilization pass: `386/386 OK`
+- latest portable release verifier: passed on `0b0b5dc`
 
 Main test areas:
 
@@ -274,8 +275,8 @@ Primary deploy path:
 
 ```bash
 cd /opt/autostopcrm
-git fetch origin autostopCRM
-git reset --hard origin/autostopCRM
+git fetch origin autostopcrm-v1
+git reset --hard origin/autostopcrm-v1
 ./deploy.sh
 ```
 

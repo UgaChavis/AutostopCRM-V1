@@ -1,6 +1,6 @@
 # AutoStop CRM
 
-AutoStop CRM is the current working product on branch `autostopCRM`.
+AutoStop CRM is the current working product on branch `autostopcrm-v1`.
 
 The repository still contains legacy technical names from the earlier `Minimal Kanban` stage. They are still valid and expected:
 
@@ -217,7 +217,7 @@ Docker deployment:
 
 ## Deployment
 
-Server deployment is centered around branch `autostopCRM`.
+Server deployment is centered around branch `autostopcrm-v1`.
 
 Main files:
 
@@ -256,5 +256,5 @@ Cleanup notes:
 
 ## Current Branch Policy
 
-- working branch: `autostopCRM`
-- `autostopCRM-V2` is a separate line and is not the active production branch for this repository state
+- working branch: `autostopcrm-v1`
+- `autostopCRM` and `autostopCRM-V2` are separate legacy lines and are not the active production branch for this repository state

@@ -1,6 +1,6 @@
 # AutoStop CRM Agent Skill Guide
 
-This is a project-specific workflow guide for Codex-style work on `autostopCRM`.
+This is a project-specific workflow guide for Codex-style work on `autostopcrm-v1`.
 
 Use this guide as the default operating contract for future sessions.
 
