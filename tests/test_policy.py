@@ -113,6 +113,32 @@ class ToolPolicyEngineTests(unittest.TestCase):
         self.assertEqual(plan.forbidden_write_targets, [])
         self.assertEqual(plan.followup_policy["mode"], "none")
 
+    def test_build_plan_supports_full_card_enrichment_with_completion_writes(self) -> None:
+        engine = ToolPolicyEngine()
+        plan = engine.build_plan(
+            scenario_chain=["FULL_CARD_ENRICHMENT"],
+            execution_mode="MODEL_LOOP",
+            followup_enabled=False,
+        )
+
+        self.assertEqual(plan.scenario_id, "full_card_enrichment")
+        self.assertEqual(plan.scenario_chain, ["full_card_enrichment"])
+        self.assertEqual(plan.execution_mode, "model_loop")
+        self.assertIn("decode_vin", plan.optional_tools)
+        self.assertEqual(
+            plan.allowed_write_targets,
+            [
+                "title",
+                "description",
+                "tags",
+                "vehicle",
+                "vehicle_profile",
+                "repair_order",
+                "repair_order_works",
+                "repair_order_materials",
+            ],
+        )
+
     def test_agent_tool_executor_accepts_mixed_case_tool_names(self) -> None:
         class _FakeBoardApi:
             def health(self) -> dict[str, object]:
@@ -185,8 +211,92 @@ class ToolPolicyEngineTests(unittest.TestCase):
                 return {"ok": True}
 
         executor = AgentToolExecutor(_FakeBoardApi())
+        tool_names = {definition.name for definition in executor.definitions}
+        self.assertNotIn("autofill_repair_order", tool_names)
         payload = executor.execute("DECODE_VIN", {"vin": "WBAPF71060A798127"})
         self.assertEqual(payload["vin"], "WBAPF71060A798127")
+
+    def test_full_card_enrichment_prompt_exposes_only_completion_tools(self) -> None:
+        class _FakeBoardApi:
+            def health(self) -> dict[str, object]:
+                return {"ok": True}
+
+            def review_board(self, **kwargs) -> dict[str, object]:
+                return {"ok": True}
+
+            def list_columns(self) -> dict[str, object]:
+                return {"ok": True}
+
+            def get_board_snapshot(self, **kwargs) -> dict[str, object]:
+                return {"ok": True}
+
+            def search_cards(self, **kwargs) -> dict[str, object]:
+                return {"ok": True}
+
+            def get_card(self, card_id: str) -> dict[str, object]:
+                return {"ok": True, "card_id": card_id}
+
+            def get_card_context(self, card_id: str, **kwargs) -> dict[str, object]:
+                return {"ok": True, "card_id": card_id}
+
+            def create_card(self, **kwargs) -> dict[str, object]:
+                return {"ok": True}
+
+            def update_card(self, **kwargs) -> dict[str, object]:
+                return {"ok": True}
+
+            def move_card(self, **kwargs) -> dict[str, object]:
+                return {"ok": True}
+
+            def archive_card(self, **kwargs) -> dict[str, object]:
+                return {"ok": True}
+
+            def restore_card(self, **kwargs) -> dict[str, object]:
+                return {"ok": True}
+
+            def list_repair_orders(self, **kwargs) -> dict[str, object]:
+                return {"ok": True}
+
+            def get_repair_order(self, card_id: str) -> dict[str, object]:
+                return {"ok": True, "card_id": card_id}
+
+            def update_repair_order(self, **kwargs) -> dict[str, object]:
+                return {"ok": True}
+
+            def replace_repair_order_works(self, **kwargs) -> dict[str, object]:
+                return {"ok": True}
+
+            def replace_repair_order_materials(self, **kwargs) -> dict[str, object]:
+                return {"ok": True}
+
+            def set_repair_order_status(self, **kwargs) -> dict[str, object]:
+                return {"ok": True}
+
+            def list_cashboxes(self, **kwargs) -> dict[str, object]:
+                return {"ok": True}
+
+            def get_cashbox(self, cashbox_id: str, **kwargs) -> dict[str, object]:
+                return {"ok": True, "cashbox_id": cashbox_id}
+
+            def create_cashbox(self, name: str, **kwargs) -> dict[str, object]:
+                return {"ok": True, "name": name}
+
+            def delete_cashbox(self, cashbox_id: str, **kwargs) -> dict[str, object]:
+                return {"ok": True, "cashbox_id": cashbox_id}
+
+            def create_cash_transaction(self, **kwargs) -> dict[str, object]:
+                return {"ok": True}
+
+        executor = AgentToolExecutor(_FakeBoardApi())
+        prompt = executor.describe_for_prompt(task_type="full_card_enrichment", context_kind="card")
+        self.assertIn("update_card", prompt)
+        self.assertIn("update_repair_order", prompt)
+        self.assertIn("replace_repair_order_works", prompt)
+        self.assertIn("replace_repair_order_materials", prompt)
+        self.assertIn("decode_vin", prompt)
+        self.assertIn("search_cards", prompt)
+        self.assertNotIn("create_cashbox", prompt)
+        self.assertNotIn("delete_column", prompt)
 
 
 if __name__ == "__main__":

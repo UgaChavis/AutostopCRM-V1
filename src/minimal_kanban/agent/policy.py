@@ -22,6 +22,20 @@ _SCENARIO_POLICIES: dict[str, ScenarioPolicy] = {
         allowed_write_targets=("description", "vehicle", "vehicle_profile"),
         source_type="external_vin",
     ),
+    "full_card_enrichment": ScenarioPolicy(
+        optional_tools=("decode_vin",),
+        allowed_write_targets=(
+            "title",
+            "description",
+            "tags",
+            "vehicle",
+            "vehicle_profile",
+            "repair_order",
+            "repair_order_works",
+            "repair_order_materials",
+        ),
+        source_type="crm",
+    ),
     "parts_lookup": ScenarioPolicy(
         required_tools=("find_part_numbers",),
         optional_tools=("estimate_price_ru", "lookup_part_prices"),

@@ -132,7 +132,7 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertIn("- rename_column", text)
         self.assertIn("- delete_column", text)
         self.assertIn("- bulk_move_cards", text)
-        self.assertIn("- autofill_repair_order", text)
+        self.assertNotIn("autofill_repair_order", text)
         self.assertIn("[RECOMMENDED FIRST PROMPT]", text)
         self.assertIn("First call ping_connector.", text)
         self.assertIn("Then call bootstrap_context.", text)
@@ -142,11 +142,6 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertIn("get_board_content(include_archived=true)", text)
         self.assertIn("get_board_events(event_limit=100)", text)
         self.assertIn("get_board_snapshot(compact=true)", text)
-        self.assertIn(
-            "primarily from the card body: vehicle, title, description, and optional raw_text", text
-        )
-        self.assertIn("vehicle must hold only make/model", text)
-        self.assertIn("title must hold only the short essence of the card, issue, or task", text)
         self.assertIn(
             "make_display, model_display, production_year, vin, engine_model, gearbox_model, drivetrain, and oem_notes",
             text,
@@ -232,11 +227,12 @@ class ConnectionCardTests(unittest.TestCase):
                 for note in connector_data["notes"]
             )
         )
-        self.assertEqual(len(MCP_TOOL_NAMES), 49)
+        self.assertEqual(len(MCP_TOOL_NAMES), 47)
         self.assertIn("get_board_content", MCP_TOOL_NAMES)
         self.assertIn("get_board_events", MCP_TOOL_NAMES)
         self.assertIn("cleanup_card_content", MCP_TOOL_NAMES)
-        self.assertIn("autofill_repair_order", MCP_TOOL_NAMES)
+        self.assertNotIn("autofill_repair_order", MCP_TOOL_NAMES)
+        self.assertNotIn("autofill_vehicle_data", MCP_TOOL_NAMES)
         self.assertIn("get_card_context", MCP_TOOL_NAMES)
         self.assertIn("get_repair_order_text", MCP_TOOL_NAMES)
         self.assertIn("replace_repair_order_works", MCP_TOOL_NAMES)

@@ -298,10 +298,15 @@ class ApiServerTests(unittest.TestCase):
         prompt_text = str(
             payload.get("task_text", payload.get("prompt", payload.get("ai_autofill_prompt", "")))
         )
-        self.assertIn("VIN", prompt_text)
-        self.assertNotIn("parts", prompt_text.lower())
-        self.assertNotIn("dtc", prompt_text.lower())
-        self.assertNotIn("maintenance", prompt_text.lower())
+        self.assertIn("полное заполнение", prompt_text.lower())
+        self.assertIn("update_card", prompt_text)
+        self.assertIn("update_repair_order", prompt_text)
+        self.assertIn("replace_repair_order_works", prompt_text)
+        self.assertIn("replace_repair_order_materials", prompt_text)
+        self.assertEqual(payload["scenario_id"], "full_card_enrichment")
+        self.assertEqual(agent_control.enqueue_card_autofill_task.call_args.kwargs["purpose"], "full_card_enrichment")
+        self.assertEqual(agent_control.enqueue_card_autofill_task.call_args.kwargs["source"], "ui_full_card_enrichment")
+        self.assertEqual(payload["vehicle"], created["data"]["card"]["vehicle"])
 
     def test_head_root_and_health_are_supported(self) -> None:
         parsed = urlsplit(self.base_url)
@@ -1790,6 +1795,9 @@ class ApiServerTests(unittest.TestCase):
                     "production_year": 2014,
                     "vin": "JSAZC72S001234567",
                     "engine_code": "K12B",
+                    "registration_plate": "A123BC77",
+                    "pts_series": "77AA",
+                    "pts_number": "123456",
                 },
             },
         )
@@ -1797,6 +1805,7 @@ class ApiServerTests(unittest.TestCase):
         card_id = created["data"]["card"]["id"]
         self.assertEqual(created["data"]["card"]["vehicle"], "Suzuki Swift 2014")
         self.assertEqual(created["data"]["card"]["vehicle_profile"]["vin"], "JSAZC72S001234567")
+        self.assertEqual(created["data"]["card"]["vehicle_profile"]["registration_plate"], "A123BC77")
         self.assertEqual(
             created["data"]["card"]["vehicle_profile_compact"]["vin"], "JSAZC72S001234567"
         )
@@ -1809,12 +1818,16 @@ class ApiServerTests(unittest.TestCase):
                     "engine_code": "K12C",
                     "gearbox_model": "A6GF1",
                     "manual_fields": ["engine_code"],
+                    "pts_series": "77AA",
+                    "pts_number": "765432",
                 },
             },
         )
         self.assertEqual(status, 200)
         self.assertEqual(updated["data"]["card"]["vehicle_profile"]["engine_code"], "K12C")
         self.assertEqual(updated["data"]["card"]["vehicle_profile"]["gearbox_model"], "A6GF1")
+        self.assertEqual(updated["data"]["card"]["vehicle_profile"]["pts_series"], "77AA")
+        self.assertEqual(updated["data"]["card"]["vehicle_profile"]["pts_number"], "765432")
         self.assertEqual(
             updated["data"]["card"]["vehicle_profile_compact"]["gearbox_model"], "A6GF1"
         )

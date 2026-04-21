@@ -691,6 +691,17 @@ class AgentToolExecutor:
                     "fetch_page_excerpt",
                 }
             )
+        elif normalized_type == "full_card_enrichment":
+            allowed = (
+                core_board
+                | {
+                    "update_card",
+                    "update_repair_order",
+                    "replace_repair_order_works",
+                    "replace_repair_order_materials",
+                }
+                | automotive
+            )
         elif normalized_type == "repair_order_assist":
             allowed = card_update | repair_order | automotive
         elif normalized_type == "cash_review":

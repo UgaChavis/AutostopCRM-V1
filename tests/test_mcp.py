@@ -38,8 +38,6 @@ from minimal_kanban.storage.json_store import JsonStore
 
 EXPECTED_MCP_TOOLS = {
     "archive_card",
-    "autofill_repair_order",
-    "autofill_vehicle_data",
     "bootstrap_context",
     "bulk_move_cards",
     "cleanup_card_content",
@@ -206,7 +204,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 49)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 47)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 self.assertTrue(tool_map["ping_connector"].annotations.readOnlyHint)
                 self.assertFalse(tool_map["ping_connector"].annotations.destructiveHint)
@@ -221,9 +219,8 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(
                     "default event_limit is 100", tool_map["get_board_events"].description
                 )
-                self.assertIn(
-                    "card body content first", tool_map["autofill_vehicle_data"].description
-                )
+                self.assertNotIn("autofill_vehicle_data", tool_map)
+                self.assertNotIn("autofill_repair_order", tool_map)
 
                 ping = await session.call_tool("ping_connector", {})
                 self.assertFalse(ping.isError)
@@ -626,15 +623,6 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertIn("verify", cleanup.structuredContent["data"]["meta"])
 
-                autofilled_repair_order = await session.call_tool(
-                    "autofill_repair_order",
-                    {"card_id": card_id, "overwrite": False, "actor_name": "ОПЕРАТОР"},
-                )
-                self.assertTrue(autofilled_repair_order.structuredContent["ok"])
-                self.assertEqual(
-                    autofilled_repair_order.structuredContent["data"]["repair_order"]["number"], "1"
-                )
-
                 created_cashbox = await session.call_tool(
                     "create_cashbox", {"name": "Безналичный", "actor_name": "ОПЕРАТОР"}
                 )
@@ -897,40 +885,6 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                             "repair_orders"
                         ]
                     )
-                )
-
-                with patch.object(
-                    self.service._vehicle_profiles, "_enrich_from_vin_decode", return_value=None
-                ):
-                    autofilled = await session.call_tool(
-                        "autofill_vehicle_data",
-                        {
-                            "raw_text": "Suzuki Swift 2014 VIN JSAZC72S001234567",
-                            "vehicle_profile": {
-                                "engine_code": "CUSTOM",
-                                "manual_fields": ["engine_code"],
-                            },
-                        },
-                    )
-                self.assertTrue(autofilled.structuredContent["ok"])
-                self.assertEqual(
-                    autofilled.structuredContent["data"]["vehicle_profile"]["make_display"],
-                    "Suzuki",
-                )
-                self.assertEqual(
-                    autofilled.structuredContent["data"]["vehicle_profile"]["engine_code"], "CUSTOM"
-                )
-
-                mazda_autofilled = await session.call_tool(
-                    "autofill_vehicle_data",
-                    {
-                        "raw_text": "Mazda CX 5 2019 VIN JM3KF123456789012",
-                    },
-                )
-                self.assertTrue(mazda_autofilled.structuredContent["ok"])
-                self.assertEqual(
-                    mazda_autofilled.structuredContent["data"]["vehicle_profile"]["model_display"],
-                    "CX-5",
                 )
 
                 updated_settings = await session.call_tool(

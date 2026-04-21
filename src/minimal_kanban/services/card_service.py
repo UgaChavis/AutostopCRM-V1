@@ -770,6 +770,31 @@ class CardService:
         )
         return result
 
+    def _build_full_card_enrichment_prompt(self, payload: dict[str, object]) -> str:
+        scenario_id = str(payload.get("scenario_id", "") or "").strip().lower()
+        heading = str(payload.get("card_heading", "") or payload.get("title", "") or "").strip()
+        vehicle = str(payload.get("vehicle", "") or "").strip()
+        mini_prompt = str(payload.get("prompt", "") or payload.get("ai_autofill_prompt", "") or "").strip()
+        lines = [
+            "Выполни полное заполнение карточки автосервиса.",
+            "Работай только с этой карточкой и заполни все подтверждаемые поля самостоятельно.",
+            "Сначала прочитай get_card_context(card_id).",
+            "Используй обычные write-команды update_card, update_repair_order, replace_repair_order_works и replace_repair_order_materials.",
+            "Не используй autofill helpers и не выдумывай данные.",
+            "Если часть данных не подтверждается, оставь поле пустым.",
+            "После записи обязательно проверь результат через read-after-write.",
+            "Паспортные поля автомобиля можно заполнять только при явной поддержке контекстом карточки.",
+        ]
+        if heading:
+            lines.append(f"Карточка: {heading}.")
+        if vehicle:
+            lines.append(f"Автомобиль: {vehicle}.")
+        if scenario_id in {"full_card_enrichment", "card_enrichment"}:
+            lines.append("Сценарий: full_card_enrichment.")
+        if mini_prompt:
+            lines.append(f"User mini-prompt: {mini_prompt}")
+        return "\n".join(lines)
+
     def _set_card_ai_autofill_with_agent_control(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
@@ -816,22 +841,27 @@ class CardService:
                 except Exception:
                     server_available = True
             if enabled_requested and enabled and not previous_enabled:
-                self._append_card_ai_log(card, level="RUN", message="Автосопровождение включено.")
+                self._append_card_ai_log(card, level="RUN", message="Полное заполнение карточки включено.")
                 for level, message in self._card_ai_context_messages(card):
                     self._append_card_ai_log(card, level=level, message=message)
                 if self._agent_control is not None:
+                    task_payload = {
+                        "card_id": card.id,
+                        "card_heading": card.heading(),
+                        "title": card.title,
+                        "vehicle": card.vehicle_display(),
+                        "requested_by": actor_name,
+                        "ai_autofill_prompt": card.ai_autofill_prompt,
+                        "ai_log_tail": list(card.ai_autofill_log[-8:]),
+                        "scenario_id": "full_card_enrichment",
+                    }
+                    task_payload["task_text"] = self._build_full_card_enrichment_prompt(task_payload)
                     task = self._agent_control.enqueue_card_autofill_task(
-                        {
-                            "card_id": card.id,
-                            "card_heading": card.heading(),
-                            "title": card.title,
-                            "vehicle": card.vehicle_display(),
-                            "requested_by": actor_name,
-                            "ai_autofill_prompt": card.ai_autofill_prompt,
-                            "ai_log_tail": list(card.ai_autofill_log[-8:]),
-                        },
-                        source="ui_card_autofill",
+                        task_payload,
+                        source="ui_full_card_enrichment",
                         trigger="manual_activate",
+                        purpose="full_card_enrichment",
+                        mode="full_card_enrichment",
                     )
                     if task is not None:
                         launched_task_id = str(task.get("id", "") or "").strip()
@@ -848,25 +878,25 @@ class CardService:
                         self._append_card_ai_log(
                             card,
                             level="RUN",
-                            message="Первый проход запущен.",
+                            message="Полное заполнение карточки запущено.",
                             task_id=launched_task_id,
                         )
                     else:
                         self._append_card_ai_log(
-                            card, level="WAIT", message="Проход уже выполняется."
+                            card, level="WAIT", message="Полное заполнение карточки уже выполняется."
                         )
                 else:
                     self._append_card_ai_log(card, level="WARN", message="Server AI недоступен.")
             self._touch_card(card, actor_name)
             if enabled:
                 card.last_card_fingerprint = self._card_ai_fingerprint(card)
-            event_action = "card_ai_autofill_enabled" if enabled else "card_ai_autofill_disabled"
+            event_action = "card_full_enrichment_enabled" if enabled else "card_full_enrichment_disabled"
             event_message = (
-                f"{actor_name} {'включил' if enabled else 'выключил'} автосопровождение карточки"
+                f"{actor_name} {'включил' if enabled else 'выключил'} полное заполнение карточки"
             )
             if prompt_requested and not enabled_requested:
-                event_action = "card_ai_autofill_prompt_updated"
-                event_message = f"{actor_name} обновил mini-prompt автосопровождения"
+                event_action = "card_full_enrichment_prompt_updated"
+                event_message = f"{actor_name} обновил mini-prompt полного заполнения карточки"
             self._append_event(
                 events,
                 actor_name=actor_name,
@@ -909,25 +939,22 @@ class CardService:
             server_available = bool(self._agent_control is not None)
             launched_task_id = ""
             already_running = False
-            vin_only_prompt = (
-                "Найди VIN в описании карточки, расшифруй его через внешние источники и верни "
-                "только подтвержденные данные для заполнения карточки. Не используй никакие "
-                "другие сценарии."
-            )
             if self._agent_control is not None:
+                task_payload = {
+                    "card_id": card.id,
+                    "card_heading": card.heading(),
+                    "title": card.title,
+                    "vehicle": card.vehicle_display(),
+                    "requested_by": actor_name,
+                    "scenario_id": "full_card_enrichment",
+                }
+                task_payload["task_text"] = self._build_full_card_enrichment_prompt(task_payload)
                 task = self._agent_control.enqueue_card_autofill_task(
-                    {
-                        "card_id": card.id,
-                        "card_heading": card.heading(),
-                        "title": card.title,
-                        "requested_by": actor_name,
-                        "task_text": vin_only_prompt,
-                        "scenario_id": "full_card_enrichment",
-                    },
+                    task_payload,
                     source="ui_full_card_enrichment",
                     trigger="manual_enrichment",
-                    purpose="card_enrichment",
-                    mode="card_enrichment",
+                    purpose="full_card_enrichment",
+                    mode="full_card_enrichment",
                 )
                 if task is not None:
                     launched_task_id = str(task.get("id", "") or "").strip()
@@ -938,7 +965,7 @@ class CardService:
                     self._append_card_ai_log(
                         card,
                         level="RUN",
-                        message="AI-обогащение карточки запущено.",
+                        message="Полное заполнение карточки запущено.",
                         task_id=launched_task_id,
                     )
                     for level, message in self._card_ai_context_messages(card):
@@ -948,13 +975,13 @@ class CardService:
                 else:
                     already_running = True
                     latest_task = self._agent_control.latest_task_for_card(
-                        card.id, purpose="card_enrichment"
+                        card.id, purpose="full_card_enrichment"
                     )
                     launched_task_id = str((latest_task or {}).get("id", "") or "").strip()
                     self._append_card_ai_log(
                         card,
                         level="WAIT",
-                        message="AI-обогащение карточки уже выполняется.",
+                        message="Полное заполнение карточки уже выполняется.",
                         task_id=launched_task_id,
                     )
             else:
@@ -965,7 +992,7 @@ class CardService:
                 actor_name=actor_name,
                 source=source,
                 action="card_full_enrichment_requested",
-                message=f"{actor_name} запустил bounded AI-обогащение карточки",
+                message=f"{actor_name} запустил bounded полное заполнение карточки",
                 card_id=card.id,
                 details={
                     "task_id": launched_task_id,

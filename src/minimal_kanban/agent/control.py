@@ -350,12 +350,18 @@ class AgentControlService:
         normalized_mode = str(mode or "").strip() or normalized_purpose
         if self._storage.has_active_task_for_card(card_id, purpose=normalized_purpose):
             return None
-        task_text = str(
-            payload.get("task_text", "") or ""
-        ).strip() or self._build_card_autofill_prompt(payload)
+        task_text = str(payload.get("task_text", "") or "").strip()
+        if not task_text:
+            if normalized_purpose == "full_card_enrichment":
+                task_text = self._build_full_card_completion_prompt(payload)
+            else:
+                task_text = self._build_card_autofill_prompt(payload)
+        requested_by_default = (
+            "full_card_enrichment" if normalized_purpose == "full_card_enrichment" else "autofill"
+        )
         metadata = {
-            "requested_by": str(payload.get("requested_by", "") or "autofill").strip()
-            or "autofill",
+            "requested_by": str(payload.get("requested_by", "") or requested_by_default).strip()
+            or requested_by_default,
             "purpose": normalized_purpose,
             "scenario_id": str(payload.get("scenario_id", "") or "").strip().lower()
             or "full_card_enrichment",
@@ -1384,4 +1390,31 @@ class AgentControlService:
                 message = str(entry.get("message", "") or "").strip()
                 if message:
                     lines.append(f"- {level}: {message}")
+        return "\n".join(lines)
+
+    def _build_full_card_completion_prompt(self, payload: dict[str, Any]) -> str:
+        scenario_id = str(payload.get("scenario_id", "") or "").strip().lower()
+        heading = str(payload.get("card_heading", "") or payload.get("title", "") or "").strip()
+        vehicle = str(payload.get("vehicle", "") or "").strip()
+        mini_prompt = str(
+            payload.get("prompt", "") or payload.get("task_text", "") or ""
+        ).strip()
+        lines = [
+            "Выполни полное заполнение карточки автосервиса.",
+            "Работай только с этой карточкой и заполни все подтверждаемые поля самостоятельно.",
+            "Сначала прочитай get_card_context(card_id).",
+            "Используй обычные write-команды update_card, update_repair_order, replace_repair_order_works и replace_repair_order_materials.",
+            "Не используй autofill helpers и не выдумывай данные.",
+            "Если часть данных не подтверждается, оставь поле пустым.",
+            "После записи обязательно проверь результат через read-after-write.",
+            "Паспортные поля автомобиля можно заполнять только при явной поддержке контекстом карточки.",
+        ]
+        if heading:
+            lines.append(f"Карточка: {heading}.")
+        if vehicle:
+            lines.append(f"Автомобиль: {vehicle}.")
+        if scenario_id in {"full_card_enrichment", "card_enrichment"}:
+            lines.append("Сценарий: full_card_enrichment.")
+        if mini_prompt:
+            lines.append(f"User mini-prompt: {mini_prompt}")
         return "\n".join(lines)

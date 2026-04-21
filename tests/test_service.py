@@ -513,13 +513,14 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(
             agent_control.autofill_calls[-1]["payload"]["scenario_id"], "full_card_enrichment"
         )
-        self.assertEqual(agent_control.autofill_calls[-1]["purpose"], "card_enrichment")
-        self.assertEqual(agent_control.autofill_calls[-1]["mode"], "card_enrichment")
+        self.assertEqual(agent_control.autofill_calls[-1]["purpose"], "full_card_enrichment")
+        self.assertEqual(agent_control.autofill_calls[-1]["mode"], "full_card_enrichment")
         prompt_text = str(agent_control.autofill_calls[-1]["payload"].get("task_text", ""))
-        self.assertIn("VIN", prompt_text)
-        self.assertNotIn("parts", prompt_text.lower())
-        self.assertNotIn("dtc", prompt_text.lower())
-        self.assertNotIn("maintenance", prompt_text.lower())
+        self.assertIn("полное заполнение", prompt_text.lower())
+        self.assertIn("update_card", prompt_text)
+        self.assertIn("update_repair_order", prompt_text)
+        self.assertIn("replace_repair_order_works", prompt_text)
+        self.assertIn("replace_repair_order_materials", prompt_text)
         self.assertEqual(agent_control.autofill_calls[-1]["source"], "ui_full_card_enrichment")
 
     def test_set_card_ai_autofill_enqueues_agent_task_when_agent_is_attached(self) -> None:
@@ -546,8 +547,10 @@ class CardServiceTests(unittest.TestCase):
         self.assertTrue(result["meta"]["enabled"])
         self.assertTrue(result["meta"]["launched"])
         self.assertTrue(result["meta"]["server_available"])
-        self.assertEqual(agent_control.autofill_calls[-1]["source"], "ui_card_autofill")
+        self.assertEqual(agent_control.autofill_calls[-1]["source"], "ui_full_card_enrichment")
         self.assertEqual(agent_control.autofill_calls[-1]["trigger"], "manual_activate")
+        self.assertEqual(agent_control.autofill_calls[-1]["purpose"], "full_card_enrichment")
+        self.assertEqual(agent_control.autofill_calls[-1]["mode"], "full_card_enrichment")
 
     def test_trigger_due_ai_followups_is_disabled(self) -> None:
         self.assertEqual(self.service.trigger_due_ai_followups(), {"launched": [], "failed": []})
@@ -2658,12 +2661,16 @@ class CardServiceTests(unittest.TestCase):
                     "production_year": 2014,
                     "vin": "JSAZC72S001234567",
                     "engine_code": "K12B",
+                    "registration_plate": "А123ВС77",
+                    "pts_series": "77AA",
+                    "pts_number": "123456",
                 },
             }
         )
 
         self.assertEqual(created["card"]["vehicle"], "Suzuki Swift 2014")
         self.assertEqual(created["card"]["vehicle_profile"]["vin"], "JSAZC72S001234567")
+        self.assertEqual(created["card"]["vehicle_profile"]["registration_plate"], "А123ВС77")
         self.assertEqual(created["card"]["vehicle_profile_compact"]["vin"], "JSAZC72S001234567")
         self.assertEqual(
             created["card"]["vehicle_profile_compact"]["display_name"], "Suzuki Swift 2014"

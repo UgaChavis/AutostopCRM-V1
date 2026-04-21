@@ -10,7 +10,7 @@ from typing import Any
 from ..mcp.client import BoardApiClient, BoardApiTransportError, discover_board_api
 from ..models import utc_now_iso
 from ..services.vehicle_profile_service import VehicleProfileService
-from ..vehicle_profile import normalize_vehicle_notes
+from ..vehicle_profile import VEHICLE_PRIMARY_FIELDS, normalize_vehicle_notes
 from .bridge import normalize_card_enrichment_patch
 from .config import (
     get_agent_board_api_url,
@@ -422,6 +422,51 @@ class AgentRunner:
             task_type=task_type, context_kind=context_kind, metadata=metadata
         )
         if context_kind == "card" and context_data:
+            if task_type == "full_card_enrichment":
+                facts = self._analyze_card_completion_context(
+                    context_data, task_text=str(task.get("task_text", "") or "")
+                )
+                facts["task_type"] = task_type
+                facts["context_kind"] = context_kind
+                confirmed_facts = {
+                    "card_title": str(facts.get("card_title", "") or "").strip(),
+                    "vehicle": str(facts.get("vehicle", "") or "").strip(),
+                    "has_vehicle_profile": bool(facts.get("has_vehicle_profile")),
+                    "has_repair_order": bool(facts.get("has_repair_order")),
+                    "missing_vehicle_fields": list(facts.get("missing_vehicle_fields") or [])[:8],
+                    "missing_repair_order_fields": list(
+                        facts.get("missing_repair_order_fields") or []
+                    )[:8],
+                }
+                summary_bits = [
+                    f"task_type={task_type}",
+                    f"vehicle={'yes' if confirmed_facts['vehicle'] else 'no'}",
+                    f"vehicle_profile={'yes' if confirmed_facts['has_vehicle_profile'] else 'no'}",
+                    f"repair_order={'yes' if confirmed_facts['has_repair_order'] else 'no'}",
+                ]
+                evidence_result = EvidenceResult(
+                    context_kind=context_kind,
+                    card_id=self._cleanup_card_id(metadata),
+                    confirmed_facts=confirmed_facts,
+                    fact_evidence=self._build_card_completion_fact_evidence(
+                        facts, confirmed_facts=confirmed_facts
+                    ),
+                    missing_data=list(
+                        facts.get("missing_vehicle_fields") or []
+                    )[:4]
+                    + list(facts.get("missing_repair_order_fields") or [])[:4],
+                    scenario_signals={},
+                    sensitive_fields=[
+                        "prices",
+                        "part_numbers",
+                        "customer_notes",
+                        "manual_vehicle_fields",
+                    ],
+                    allowed_write_targets=allowed_write_targets,
+                    summary=", ".join(summary_bits),
+                    raw_context_ref=raw_context_ref,
+                )
+                return evidence_result, facts
             facts = self._analyze_card_autofill_context(
                 context_data, task_text=str(task.get("task_text", "") or "")
             )
@@ -553,6 +598,60 @@ class AgentRunner:
             ),
         }
 
+    def _build_card_completion_fact_evidence(
+        self,
+        facts: dict[str, Any],
+        *,
+        confirmed_facts: dict[str, Any],
+    ) -> dict[str, FactEvidence]:
+        vehicle_profile = (
+            facts.get("vehicle_profile") if isinstance(facts.get("vehicle_profile"), dict) else {}
+        )
+        repair_order = (
+            facts.get("repair_order") if isinstance(facts.get("repair_order"), dict) else {}
+        )
+        return {
+            "card_title": FactEvidence(
+                name="card_title",
+                value=confirmed_facts.get("card_title", ""),
+                status="confirmed" if confirmed_facts.get("card_title") else "absent",
+                source="card_context",
+                confidence=1.0 if confirmed_facts.get("card_title") else 0.0,
+            ),
+            "vehicle": FactEvidence(
+                name="vehicle",
+                value=confirmed_facts.get("vehicle", ""),
+                status="confirmed" if confirmed_facts.get("vehicle") else "absent",
+                source="card_context",
+                confidence=1.0 if confirmed_facts.get("vehicle") else 0.0,
+            ),
+            "vehicle_profile": FactEvidence(
+                name="vehicle_profile",
+                value=dict(vehicle_profile),
+                status="confirmed" if vehicle_profile else "absent",
+                source="card_context",
+                confidence=0.95 if vehicle_profile else 0.0,
+                notes=[
+                    "missing: " + ", ".join(confirmed_facts.get("missing_vehicle_fields") or [])
+                ]
+                if confirmed_facts.get("missing_vehicle_fields")
+                else [],
+            ),
+            "repair_order": FactEvidence(
+                name="repair_order",
+                value=dict(repair_order),
+                status="confirmed" if repair_order else "absent",
+                source="card_context",
+                confidence=0.9 if repair_order else 0.0,
+                notes=[
+                    "missing: "
+                    + ", ".join(confirmed_facts.get("missing_repair_order_fields") or [])
+                ]
+                if confirmed_facts.get("missing_repair_order_fields")
+                else [],
+            ),
+        }
+
     def _build_generic_fact_evidence(
         self,
         *,
@@ -666,6 +765,9 @@ class AgentRunner:
         if purpose == "card_autofill":
             notes.append("followup_owner=card_service")
             execution_mode = "structured_card"
+        elif purpose == "full_card_enrichment":
+            notes.append("full_card_completion=model_loop")
+            execution_mode = "model_loop"
         elif purpose == "board_control":
             notes.append("background_owner=board_control")
             execution_mode = "structured_card"
@@ -719,6 +821,8 @@ class AgentRunner:
         facts: dict[str, Any],
     ) -> list[str]:
         purpose = str(metadata.get("purpose", "") or "").strip().lower()
+        if purpose == "full_card_enrichment" or task_type == "full_card_enrichment":
+            return ["full_card_enrichment"]
         autofill_plan = (
             facts.get("autofill_plan") if isinstance(facts.get("autofill_plan"), dict) else {}
         )
@@ -783,6 +887,17 @@ class AgentRunner:
         if context_kind == "card":
             if purpose == "board_control":
                 return ["description", "vehicle", "vehicle_profile"]
+            if purpose == "full_card_enrichment" or task_type == "full_card_enrichment":
+                return [
+                    "title",
+                    "description",
+                    "tags",
+                    "vehicle",
+                    "vehicle_profile",
+                    "repair_order",
+                    "repair_order_works",
+                    "repair_order_materials",
+                ]
             if task_type == "repair_order_assist":
                 return [
                     "description",
@@ -2374,6 +2489,11 @@ class AgentRunner:
 
     def _task_started_message(self, metadata: dict[str, Any]) -> str:
         purpose = str(metadata.get("purpose", "") or "").strip().lower()
+        if purpose == "full_card_enrichment":
+            trigger = str(metadata.get("trigger", "") or "").strip().lower()
+            if trigger == "adaptive_followup":
+                return "Повторный проход полного заполнения карточки запущен."
+            return "Полное заполнение карточки запущено."
         if purpose == "card_autofill":
             trigger = str(metadata.get("trigger", "") or "").strip().lower()
             if trigger == "adaptive_followup":
@@ -2391,6 +2511,8 @@ class AgentRunner:
         self, metadata: dict[str, Any], *, summary: str, applied_updates: list[str]
     ) -> str:
         purpose = str(metadata.get("purpose", "") or "").strip().lower()
+        if purpose == "full_card_enrichment":
+            return "Карточка полностью заполнена." if applied_updates else "Изменений не обнаружено."
         if purpose == "card_autofill":
             return "Карточка обновлена." if applied_updates else "Изменений не обнаружено."
         text = str(summary or "").strip()
@@ -2399,6 +2521,8 @@ class AgentRunner:
     def _task_failed_message(self, task: dict[str, Any], error: Exception) -> str:
         metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
         purpose = str(metadata.get("purpose", "") or "").strip().lower()
+        if purpose == "full_card_enrichment":
+            return "Ошибка полного заполнения карточки."
         if purpose == "card_autofill":
             return "Ошибка автосопровождения."
         message = str(error or "").strip()
@@ -2585,6 +2709,82 @@ class AgentRunner:
                 else "По симптомам полезного внешнего контекста не найдено."
             )
         return ""
+
+    def _analyze_card_completion_context(
+        self, context_data: dict[str, Any], *, task_text: str = ""
+    ) -> dict[str, Any]:
+        card = context_data.get("card") if isinstance(context_data.get("card"), dict) else {}
+        repair_order = (
+            card.get("repair_order") if isinstance(card.get("repair_order"), dict) else {}
+        )
+        vehicle_profile = (
+            card.get("vehicle_profile") if isinstance(card.get("vehicle_profile"), dict) else {}
+        )
+        repair_order_text = (
+            context_data.get("repair_order_text")
+            if isinstance(context_data.get("repair_order_text"), dict)
+            else {}
+        )
+        visible_vehicle_fields = [
+            field_name
+            for field_name in VEHICLE_PRIMARY_FIELDS
+            if field_name
+            not in {
+                "source_summary",
+                "source_confidence",
+                "source_links_or_refs",
+                "data_completion_state",
+            }
+        ]
+        missing_vehicle_fields = [
+            field_name
+            for field_name in visible_vehicle_fields
+            if not str(vehicle_profile.get(field_name, "") or "").strip()
+        ]
+        repair_order_fields = [
+            "client",
+            "phone",
+            "vehicle",
+            "license_plate",
+            "vin",
+            "mileage",
+            "reason",
+            "client_information",
+            "note",
+            "payment_method",
+        ]
+        missing_repair_order_fields = [
+            field_name
+            for field_name in repair_order_fields
+            if not str(repair_order.get(field_name, "") or "").strip()
+        ]
+        completion_text = "\n".join(
+            part
+            for part in (
+                str(card.get("title", "") or "").strip(),
+                str(card.get("vehicle", "") or "").strip(),
+                str(card.get("description", "") or "").strip(),
+                str(repair_order.get("reason", "") or "").strip(),
+                str(repair_order.get("client_information", "") or "").strip(),
+                str(repair_order.get("note", "") or "").strip(),
+                str(repair_order_text.get("text", "") or "").strip(),
+                str(task_text or "").strip(),
+            )
+            if part
+        )
+        return {
+            "card": card,
+            "vehicle": str(card.get("vehicle", "") or "").strip(),
+            "card_title": str(card.get("title", "") or "").strip(),
+            "vehicle_profile": vehicle_profile,
+            "repair_order": repair_order,
+            "repair_order_text": repair_order_text,
+            "missing_vehicle_fields": missing_vehicle_fields,
+            "missing_repair_order_fields": missing_repair_order_fields,
+            "has_vehicle_profile": bool(vehicle_profile),
+            "has_repair_order": bool(repair_order),
+            "completion_text": completion_text,
+        }
 
     def _analyze_card_autofill_context(
         self, context_data: dict[str, Any], *, task_text: str = ""
@@ -4232,7 +4432,10 @@ class AgentRunner:
         return "\n\n".join(deduped)
 
     def _classify_task(self, task: dict[str, Any], metadata: dict[str, Any]) -> str:
-        if str(metadata.get("purpose", "") or "").strip().lower() in {
+        purpose = str(metadata.get("purpose", "") or "").strip().lower()
+        if purpose in {"full_card_enrichment", "card_enrichment"}:
+            return "full_card_enrichment"
+        if purpose in {
             "card_autofill",
             "board_control",
         }:

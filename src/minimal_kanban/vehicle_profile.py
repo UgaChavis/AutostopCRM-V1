@@ -28,6 +28,13 @@ VEHICLE_PRIMARY_FIELDS: tuple[str, ...] = (
     "customer_phone",
     "customer_name",
     "vin",
+    "registration_plate",
+    "pts_series",
+    "pts_number",
+    "sts_series",
+    "sts_number",
+    "body_number",
+    "chassis_number",
     "engine_code",
     "engine_model",
     "engine_displacement_l",
@@ -251,6 +258,13 @@ class VehicleProfile:
     customer_phone: str = ""
     customer_name: str = ""
     vin: str = ""
+    registration_plate: str = ""
+    pts_series: str = ""
+    pts_number: str = ""
+    sts_series: str = ""
+    sts_number: str = ""
+    body_number: str = ""
+    chassis_number: str = ""
     engine_code: str = ""
     engine_model: str = ""
     engine_displacement_l: float | None = None
@@ -291,6 +305,13 @@ class VehicleProfile:
                 self.customer_phone,
                 self.customer_name,
                 self.vin,
+                self.registration_plate,
+                self.pts_series,
+                self.pts_number,
+                self.sts_series,
+                self.sts_number,
+                self.body_number,
+                self.chassis_number,
                 self.engine_code,
                 self.engine_model,
                 self.engine_displacement_l,
@@ -328,6 +349,13 @@ class VehicleProfile:
             "customer_phone": self.customer_phone,
             "customer_name": self.customer_name,
             "vin": vin,
+            "registration_plate": self.registration_plate,
+            "pts_series": self.pts_series,
+            "pts_number": self.pts_number,
+            "sts_series": self.sts_series,
+            "sts_number": self.sts_number,
+            "body_number": self.body_number,
+            "chassis_number": self.chassis_number,
             "vin_is_suspect": vin_is_suspect,
             "engine_code": self.engine_code,
             "engine_model": self.engine_model,
@@ -411,6 +439,13 @@ class VehicleProfile:
             customer_phone=normalize_vehicle_text(payload.get("customer_phone")),
             customer_name=normalize_vehicle_text(payload.get("customer_name")),
             vin=vin,
+            registration_plate=normalize_vehicle_text(payload.get("registration_plate")),
+            pts_series=normalize_vehicle_text(payload.get("pts_series")),
+            pts_number=normalize_vehicle_text(payload.get("pts_number")),
+            sts_series=normalize_vehicle_text(payload.get("sts_series")),
+            sts_number=normalize_vehicle_text(payload.get("sts_number")),
+            body_number=normalize_vehicle_text(payload.get("body_number")),
+            chassis_number=normalize_vehicle_text(payload.get("chassis_number")),
             engine_code=normalize_vehicle_text(payload.get("engine_code")),
             engine_model=normalize_vehicle_text(payload.get("engine_model")),
             engine_displacement_l=normalize_vehicle_float(payload.get("engine_displacement_l")),

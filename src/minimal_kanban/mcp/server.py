@@ -53,6 +53,13 @@ class VehicleProfilePayload(BaseModel):
     customer_phone: str | None = Field(default=None, max_length=120)
     customer_name: str | None = Field(default=None, max_length=120)
     vin: str | None = Field(default=None, max_length=32)
+    registration_plate: str | None = Field(default=None, max_length=120)
+    pts_series: str | None = Field(default=None, max_length=120)
+    pts_number: str | None = Field(default=None, max_length=120)
+    sts_series: str | None = Field(default=None, max_length=120)
+    sts_number: str | None = Field(default=None, max_length=120)
+    body_number: str | None = Field(default=None, max_length=120)
+    chassis_number: str | None = Field(default=None, max_length=120)
     engine_code: str | None = Field(default=None, max_length=120)
     engine_model: str | None = Field(default=None, max_length=120)
     engine_displacement_l: float | None = Field(default=None, ge=0, le=20)
@@ -1249,7 +1256,7 @@ def create_mcp_server(
     @server.tool(
         name="get_board_context",
         description=_scoped_description(
-            "Return the board context for this connector only: board name, scope, allowed columns, counts, scope rule, and the compact 1.1 vehicle profile schema with the card_content_first autofill mode. Call this before write operations."
+            "Return the board context for this connector only: board name, scope, allowed columns, counts, scope rule, and the compact 1.1 vehicle profile schema with the card_content_first UI flow. Call this before write operations."
         ),
         annotations=_read_tool_annotations("Board Context"),
         structured_output=True,
@@ -1349,7 +1356,7 @@ def create_mcp_server(
     @server.tool(
         name="delete_cashbox",
         description=_scoped_description(
-            "Delete a cashbox from the current board instance together with its transaction history."
+            "Delete an empty cashbox from the current board instance."
         ),
         annotations=_write_tool_annotations("Delete Cashbox", destructive=True),
         structured_output=True,
@@ -1677,43 +1684,6 @@ def create_mcp_server(
         )
 
     @server.tool(
-        name="autofill_vehicle_data",
-        description=_scoped_description(
-            "Build a normalized vehicle profile draft for the current Minimal Kanban board. "
-            "Primary flow: analyze the card body content first (vehicle, title, description, raw_text), then enrich missing fields from reliable references, and merge safely with manual values. "
-            "vehicle should contain only make/model, while title should contain only the short essence of the card, issue, or task. "
-            "An image payload is only an optional fallback for external non-UI clients."
-        ),
-        annotations=_read_tool_annotations("Autofill Vehicle Data"),
-        structured_output=True,
-    )
-    def autofill_vehicle_data(
-        raw_text: str = "",
-        image_base64: str | None = None,
-        image_filename: str | None = None,
-        image_mime_type: str | None = None,
-        vehicle_profile: VehicleProfilePayload | None = None,
-        vehicle: str | None = None,
-        title: str | None = None,
-        description: str | None = None,
-    ) -> JsonEnvelope:
-        return _relay_board_call(
-            "autofill_vehicle_data",
-            lambda: board_api.autofill_vehicle_data(
-                raw_text=raw_text,
-                image_base64=image_base64,
-                image_filename=image_filename,
-                image_mime_type=image_mime_type,
-                vehicle_profile=vehicle_profile.model_dump(exclude_none=True)
-                if vehicle_profile is not None
-                else None,
-                vehicle=vehicle,
-                title=title,
-                description=description,
-            ),
-        )
-
-    @server.tool(
         name="create_card",
         description=_scoped_description(
             "Create a card on the current Minimal Kanban board with vehicle, title, description, optional tags, optional target column, optional vehicle_profile, and a deadline. "
@@ -1789,21 +1759,22 @@ def create_mcp_server(
     @server.tool(
         name="update_repair_order",
         description=_scoped_description(
-            "Patch the structured repair order of one card on the current Minimal Kanban board. Use this for header fields and client-facing information; unspecified fields remain unchanged."
+            "Patch the structured repair order of one card on the current Minimal Kanban board. Pass a JSON object with only the fields to change; unspecified fields remain unchanged."
         ),
         annotations=_write_tool_annotations("Update Repair Order"),
         structured_output=True,
     )
     def update_repair_order(
         card_id: str,
-        repair_order: RepairOrderPatchPayload,
+        repair_order: dict[str, Any],
         actor_name: str | None = None,
     ) -> JsonEnvelope:
+        repair_order_payload = RepairOrderPatchPayload.model_validate(repair_order)
         return _relay_board_call(
             "update_repair_order",
             lambda: board_api.update_repair_order(
                 card_id=card_id,
-                repair_order=repair_order.model_dump(exclude_none=True),
+                repair_order=repair_order_payload.model_dump(exclude_none=True),
                 actor_name=actor_name,
             ),
         )
@@ -1869,26 +1840,6 @@ def create_mcp_server(
                 card_id=card_id,
                 rows=[row.model_dump() for row in rows],
                 actor_name=actor_name,
-            ),
-        )
-
-    @server.tool(
-        name="autofill_repair_order",
-        description=_scoped_description(
-            "Autofill the repair order of one card from card text and vehicle profile data. By default only empty fields are filled."
-        ),
-        annotations=_write_tool_annotations("Autofill Repair Order"),
-        structured_output=True,
-    )
-    def autofill_repair_order(
-        card_id: str,
-        overwrite: bool = False,
-        actor_name: str | None = None,
-    ) -> JsonEnvelope:
-        return _relay_board_call(
-            "autofill_repair_order",
-            lambda: board_api.autofill_repair_order(
-                card_id=card_id, overwrite=overwrite, actor_name=actor_name
             ),
         )
 

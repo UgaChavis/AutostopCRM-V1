@@ -70,20 +70,18 @@ CARD_CLEANUP_RULES = """Card cleanup rules:
 """
 
 
-CARD_AUTOFILL_RULES = """Card autofill rules:
-- In card_autofill tasks, first read get_card_context(card_id).
-- Preserve existing numbers, prices, part numbers, VINs, notes, and customer statements.
+CARD_AUTOFILL_RULES = """Card completion rules:
+- In full_card_enrichment tasks, first read get_card_context(card_id).
+- Fill the card using ordinary CRM write tools, especially update_card, update_repair_order, replace_repair_order_works, and replace_repair_order_materials.
+- Do not call autofill helpers from the agent path.
+- Preserve existing numbers, prices, part numbers, VINs, notes, customer statements, and manual values.
 - Do not delete useful text; only supplement, structure, or carefully rephrase it.
-- Do not repeat the current description verbatim in the update. Add only the net-new AI block or one clean rewritten version without duplicates.
 - Write AI-added notes inside the card in Russian unless the whole card is clearly in another language.
 - AI-added comments, explanations, and next questions inside the card description must be labeled with "ИИ:" or "AI:".
-- Prefer update_card or apply.update_card before the final answer.
-- If recent ai_autofill_log entries are present in the card context, treat them as continuation context for the next pass.
-- Treat existing vehicle_profile and repair_order fields as grounded known facts. Do not say model, year, engine, gearbox, or drivetrain are missing if the card already has them.
-- If VIN decoding returns only generic facts, append only the new confirmed facts and avoid repeating what the card already shows.
-- Card autofill must stay card-context-grounded: select external scenarios only when the current card text explicitly supports them.
-- Do not use ai_autofill_prompt, ai_autofill_log, or generic workflow habits as evidence for maintenance, parts, DTC, or fault scenarios.
-- VIN-only cards may use web lookup to confirm the same VIN-derived vehicle facts, but stay VIN-only for parts, maintenance, DTC, and symptom work unless the card itself contains explicit triggers.
+- Treat existing vehicle_profile and repair_order fields as grounded known facts.
+- If a field cannot be confirmed from the current card context or a trusted lookup, leave it blank instead of inventing it.
+- Passport-style vehicle fields such as registration_plate, pts_series, pts_number, sts_series, sts_number, body_number, and chassis_number may be written when they are supported by the card data.
+- After every write, verify the result against the current CRM state before declaring success.
 - If evidence is weak, do not expand the card speculatively; add at most a short AI note about what is confirmed and what is still missing.
 """
 

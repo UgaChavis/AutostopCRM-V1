@@ -6094,7 +6094,7 @@ BOARD_WEB_APP_HTML = "".join(
                   + '</button>'
                   + '<div class="agent-autofill-panel">'
                     + '<div class="agent-autofill-panel__top">'
-                      + '<button class="btn btn--ghost agent-autofill-button" id="agentAutofillButton" type="button">АВТОЗАПОЛНЕНИЕ</button>'
+                      + '<button class="btn btn--ghost agent-autofill-button" id="agentAutofillButton" type="button">ПОЛНОЕ ЗАПОЛНЕНИЕ</button>'
                       + '<button class="agent-autofill-gear" id="agentAutofillPromptToggle" type="button" title="Mini-prompt" aria-label="Mini-prompt">?</button>'
                     + '</div>'
                     + '<div class="agent-autofill-status" id="agentAutofillStatus" data-state="offline">SERVER AI OFFLINE</div>'
@@ -9312,9 +9312,9 @@ BOARD_WEB_APP_HTML = "".join(
         const metadata = item?.metadata && typeof item.metadata === 'object' ? item.metadata : {};
         const context = metadata.context && typeof metadata.context === 'object' ? metadata.context : {};
         const status = String(item?.status || '').trim().toLowerCase();
-        if (String(metadata.purpose || '').trim().toLowerCase() !== 'card_autofill') return false;
+        const purpose = String(metadata.purpose || '').trim().toLowerCase();
+        if (purpose !== 'card_autofill' && purpose !== 'full_card_enrichment') return false;
         if (String(context.card_id || '').trim() !== cardId) return false;
-        if (!isFullCardEnrichmentTask(item)) return false;
         if (includeTerminal) return true;
         return status === 'pending' || status === 'running';
       }) || null;
@@ -9759,7 +9759,7 @@ BOARD_WEB_APP_HTML = "".join(
       const displayActive = Boolean(active || activeTask);
       const untilText = String(card?.ai_autofill_until || '').trim();
       const countdown = displayActive ? formatAgentCountdown(untilText) : '';
-      let buttonLabel = displayActive ? 'АВТО' : 'АВТОЗАПОЛНЕНИЕ';
+      let buttonLabel = 'ПОЛНОЕ ЗАПОЛНЕНИЕ';
       let statusText = 'ОТКРОЙ КАРТОЧКУ';
       let stateValue = 'offline';
       let disabled = !String(card?.id || '').trim();
@@ -9771,9 +9771,8 @@ BOARD_WEB_APP_HTML = "".join(
           disabled = false;
         } else if (active) {
           const nextRunText = formatAgentClock(card?.ai_next_run_at || '');
-          statusText = nextRunText ? ('ОЖИДАНИЕ · ' + nextRunText) : 'АВТОСОПРОВОЖДЕНИЕ АКТИВНО';
+          statusText = nextRunText ? ('ОЖИДАНИЕ · ' + nextRunText) : 'ПОЛНОЕ ЗАПОЛНЕНИЕ АКТИВНО';
           stateValue = 'waiting';
-          buttonLabel = 'АВТО';
           disabled = false;
         } else if (!agentReady && availabilityReason === 'configured_but_worker_idle') {
           statusText = 'SERVER AI STARTING';
@@ -9856,7 +9855,7 @@ BOARD_WEB_APP_HTML = "".join(
     async function toggleAgentCardAutofill() {
       const card = currentAgentContextCard();
       const cardId = String(card?.id || '').trim();
-      if (!cardId) return setStatus('ОТКРОЙ КАРТОЧКУ ДЛЯ АВТОЗАПОЛНЕНИЯ.', true);
+      if (!cardId) return setStatus('ОТКРОЙ КАРТОЧКУ ДЛЯ ПОЛНОГО ЗАПОЛНЕНИЯ.', true);
       const nextEnabled = !(Boolean(card?.ai_autofill_active) || Boolean(currentCardAutofillTask(state.agentLatestTasks)));
       try {
         if (els.agentAutofillButton) els.agentAutofillButton.disabled = true;
@@ -9880,7 +9879,7 @@ BOARD_WEB_APP_HTML = "".join(
               id: state.agentTaskId,
               status: 'running',
               metadata: {
-                purpose: 'card_autofill',
+                purpose: 'full_card_enrichment',
                 trigger: 'manual_activate',
                 context: { kind: 'card', card_id: cardId },
               },
@@ -9891,7 +9890,8 @@ BOARD_WEB_APP_HTML = "".join(
           state.agentLatestTasks = (Array.isArray(state.agentLatestTasks) ? state.agentLatestTasks : []).filter((item) => {
             const metadata = item?.metadata && typeof item.metadata === 'object' ? item.metadata : {};
             const context = metadata.context && typeof metadata.context === 'object' ? metadata.context : {};
-            return !(String(metadata.purpose || '').trim().toLowerCase() === 'card_autofill'
+            const purpose = String(metadata.purpose || '').trim().toLowerCase();
+            return !((purpose === 'card_autofill' || purpose === 'full_card_enrichment')
               && String(context.card_id || '').trim() === cardId);
           });
         }
@@ -9912,7 +9912,7 @@ BOARD_WEB_APP_HTML = "".join(
           };
         }
         renderAgentAutofillControls(state.agentStatusPayload || {});
-        setStatus(nextEnabled ? 'АВТОСОПРОВОЖДЕНИЕ ВКЛЮЧЕНО НА 4 ЧАСА.' : 'АВТОСОПРОВОЖДЕНИЕ ОТКЛЮЧЕНО.', false);
+        setStatus(nextEnabled ? 'ПОЛНОЕ ЗАПОЛНЕНИЕ ВКЛЮЧЕНО НА 4 ЧАСА.' : 'ПОЛНОЕ ЗАПОЛНЕНИЕ ОТКЛЮЧЕНО.', false);
         await refreshAgentModalState();
       } catch (error) {
         setStatus(error.message, true);
@@ -10347,9 +10347,9 @@ BOARD_WEB_APP_HTML = "".join(
         const metadata = item?.metadata && typeof item.metadata === 'object' ? item.metadata : {};
         const context = metadata.context && typeof metadata.context === 'object' ? metadata.context : {};
         const status = String(item?.status || '').trim().toLowerCase();
-        return String(metadata.purpose || '').trim().toLowerCase() === 'card_autofill'
+        const purpose = String(metadata.purpose || '').trim().toLowerCase();
+        return (purpose === 'card_autofill' || purpose === 'full_card_enrichment')
           && String(context.card_id || '').trim() === cardId
-          && !isFullCardEnrichmentTask(item)
           && (status === 'pending' || status === 'running');
       }) || null;
     }
