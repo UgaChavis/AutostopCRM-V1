@@ -37,11 +37,10 @@ services:
     container_name: autostopcrm-telegram-ai
     build: .
     restart: always
-    command: ["python", "main_telegram_ai.py"]
+    command: ["sh", "-lc", "set -a; . /run/telegram-ai.env; exec python main_telegram_ai.py"]
     depends_on:
       autostopcrm:
         condition: service_healthy
-    env_file:
-      - telegram-ai.env
     volumes:
+      - "./telegram-ai.env:/run/telegram-ai.env:ro"
       - "${AUTOSTOP_DATA_DIR:-./data}:/root/.minimal-kanban"

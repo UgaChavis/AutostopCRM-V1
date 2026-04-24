@@ -17,8 +17,11 @@ class DeployScriptTests(unittest.TestCase):
         compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
         self.assertIn("autostopcrm-telegram-ai:", compose)
-        self.assertIn('command: ["python", "main_telegram_ai.py"]', compose)
-        self.assertIn("env_file:", compose)
+        self.assertIn(
+            'command: ["sh", "-lc", "set -a; . /run/telegram-ai.env; exec python main_telegram_ai.py"]',
+            compose,
+        )
+        self.assertIn("telegram-ai.env:/run/telegram-ai.env:ro", compose)
         self.assertIn("telegram-ai.env", compose)
 
 
