@@ -2522,6 +2522,35 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(response["error"]["code"], "repair_order_payment_required")
         self.assertIn("выполнить оплату", response["error"]["message"].lower())
 
+    def test_repair_order_update_route_rejects_unpaid_closed_status(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {
+                "vehicle": "Toyota Camry",
+                "title": "Обход закрытия",
+                "deadline": {"hours": 4},
+            },
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        status, response = self.request(
+            "/api/update_repair_order",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "status": "closed",
+                    "works": [
+                        {"name": "Диагностика", "quantity": "1", "price": "1500", "total": ""}
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(status, 409)
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error"]["code"], "repair_order_payment_required")
+
     def test_repair_order_list_route_supports_query_sort_and_tags(self) -> None:
         status, first = self.request(
             "/api/create_card",

@@ -138,7 +138,7 @@ Patch / verify / follow-up
 
 | ID | Модуль | Версия | Статус | Ключевые файлы |
 |---|---|---:|---|---|
-| `1` | Platform Runtime | `v1.2` | stable | `main.py`, `main_mcp.py`, `main_agent.py`, `src/minimal_kanban/app.py` |
+| `1` | Platform Runtime | `v1.2` | stable | `main.py`, `main_mcp.py`, `src/minimal_kanban/app.py`, `src/minimal_kanban/mcp/main.py` |
 | `2` | Board Core | `v1.5` | stable | `src/minimal_kanban/services/card_service.py`, `src/minimal_kanban/services/column_service.py` |
 | `3` | Workshop Operations | `v1.4` | active | `src/minimal_kanban/vehicle_profile.py`, `src/minimal_kanban/repair_order.py`, `src/minimal_kanban/printing/service.py` |
 | `4` | API and Access Control | `v1.4` | stable | `src/minimal_kanban/api/server.py`, `src/minimal_kanban/operator_auth.py` |
@@ -156,7 +156,7 @@ Patch / verify / follow-up
 
 - desktop bootstrap
 - MCP-only runtime
-- standalone AI worker runtime
+- поддержка agent runtime через `src/minimal_kanban/agent/*`; отдельного entrypoint `main_agent.py` в этой ветке нет
 - settings/publication bootstrapping
 - containerized deployment via `docker-compose`
 
@@ -164,7 +164,7 @@ Patch / verify / follow-up
 
 - `main.py`
 - `main_mcp.py`
-- `main_agent.py`
+- `src/minimal_kanban/mcp/main.py`
 - `src/minimal_kanban/app.py`
 - `docker-compose.yml`
 - `deploy.sh`
@@ -464,7 +464,6 @@ minimal-kanban/
   docker-compose.yml
   main.py
   main_mcp.py
-  main_agent.py
   scripts/
     run_dev.ps1
     run_mcp_server.ps1

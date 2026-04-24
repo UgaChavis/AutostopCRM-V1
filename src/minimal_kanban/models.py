@@ -75,9 +75,17 @@ def utc_now_iso() -> str:
 def parse_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
+    raw = str(value).strip()
     try:
-        parsed = datetime.fromisoformat(str(value))
+        parsed = datetime.fromisoformat(raw)
     except (TypeError, ValueError):
+        for date_format in ("%d.%m.%Y %H:%M", "%d.%m.%Y"):
+            try:
+                parsed = datetime.strptime(raw, date_format)
+                local_tz = datetime.now().astimezone().tzinfo or UTC
+                return parsed.replace(tzinfo=local_tz)
+            except ValueError:
+                continue
         return None
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)

@@ -5785,6 +5785,11 @@ class CardService:
             )
         if settings is not None:
             order = self._apply_repair_order_payroll_snapshot(order, settings)
+        if (
+            previous_order.status != REPAIR_ORDER_STATUS_CLOSED
+            and order.status == REPAIR_ORDER_STATUS_CLOSED
+        ):
+            self._ensure_repair_order_can_change_status(card, order.status, order=order)
         if order.to_storage_dict() == previous_order.to_storage_dict():
             return False
         card.repair_order = order
@@ -5809,9 +5814,10 @@ class CardService:
 
     def _repair_order_payment_financial_signature(
         self, payment: RepairOrderPayment
-    ) -> tuple[str, str, str]:
+    ) -> tuple[str, str, str, str]:
         return (
             payment.amount or "",
+            payment.paid_at or "",
             payment.note or "",
             payment.cashbox_id or "",
         )
@@ -7225,8 +7231,11 @@ class CardService:
             details={"card_id": card.id, "repair_order_number": repair_order_number},
         )
 
-    def _ensure_repair_order_can_change_status(self, card: Card, status: str) -> None:
-        if status != REPAIR_ORDER_STATUS_CLOSED or card.repair_order.is_paid():
+    def _ensure_repair_order_can_change_status(
+        self, card: Card, status: str, *, order: RepairOrder | None = None
+    ) -> None:
+        checked_order = order or card.repair_order
+        if status != REPAIR_ORDER_STATUS_CLOSED or checked_order.is_paid():
             return
         self._fail(
             "repair_order_payment_required",
@@ -7234,8 +7243,8 @@ class CardService:
             status_code=409,
             details={
                 "card_id": card.id,
-                "due_total": card.repair_order.due_total_amount(),
-                "payment_status": card.repair_order.payment_status(),
+                "due_total": checked_order.due_total_amount(),
+                "payment_status": checked_order.payment_status(),
             },
         )
 

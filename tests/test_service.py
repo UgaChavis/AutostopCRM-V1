@@ -293,6 +293,9 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("открыт заказ-наряд", raised.exception.message)
 
     def test_archive_card_allows_closed_repair_order(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
         created = self.service.create_card(
             {
                 "vehicle": "KIA RIO",
@@ -311,6 +314,14 @@ class CardServiceTests(unittest.TestCase):
                     "client": "Иван Иванов",
                     "vehicle": "KIA RIO",
                     "works": [{"name": "Диагностика", "quantity": "1", "price": "2000"}],
+                    "payments": [
+                        {
+                            "amount": "2000",
+                            "paid_at": "06.04.2026 10:00",
+                            "payment_method": "cash",
+                            "cashbox_id": cashbox["id"],
+                        }
+                    ],
                 },
             }
         )
@@ -343,6 +354,29 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "repair_order_payment_required")
         self.assertEqual(raised.exception.status_code, 409)
         self.assertIn("выполнить оплату", raised.exception.message.lower())
+
+    def test_update_repair_order_rejects_unpaid_closed_status(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota Corolla",
+                "title": "Обход закрытия",
+                "deadline": {"hours": 2},
+            }
+        )
+
+        with self.assertRaises(ServiceError) as raised:
+            self.service.update_repair_order(
+                {
+                    "card_id": created["card"]["id"],
+                    "repair_order": {
+                        "status": "closed",
+                        "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+                    },
+                }
+            )
+
+        self.assertEqual(raised.exception.code, "repair_order_payment_required")
+        self.assertEqual(raised.exception.status_code, 409)
 
     def test_create_card_does_not_materialize_repair_order_before_first_open(self) -> None:
         created = self.service.create_card(
@@ -2970,6 +3004,67 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(cash_details["statistics"]["income_total_minor"], 100000)
         self.assertEqual(cashless_details["statistics"]["income_total_minor"], 200000)
         self.assertEqual(card_details["statistics"]["income_total_minor"], 300000)
+
+    def test_repair_order_payment_date_change_recreates_cash_transaction(self) -> None:
+        cashbox = self.service.create_cashbox(
+            {"name": "Касса наличных оплат", "actor_name": "ADMIN"}
+        )["cashbox"]
+        card = self.service.create_card(
+            {"vehicle": "TOYOTA CAMRY", "title": "Оплата", "deadline": {"hours": 2}}
+        )["card"]
+        base_payment = {
+            "amount": "1000",
+            "paid_at": "06.04.2026 10:00",
+            "note": "Аванс",
+            "payment_method": "cash",
+            "cashbox_id": cashbox["id"],
+            "actor_name": "ADMIN",
+        }
+
+        first_order = self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "works": [{"name": "Работы", "quantity": "1", "price": "6000"}],
+                    "payments": [base_payment],
+                },
+            }
+        )["card"]["repair_order"]
+        first_payment = first_order["payments"][0]
+        first_transaction_id = first_payment["cash_transaction_id"]
+        first_details = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(first_details["cashbox"]["statistics"]["transactions_total"], 1)
+        self.assertTrue(
+            first_details["transactions"][0]["created_at"].startswith("2026-04-06T10:00:00")
+        )
+
+        second_order = self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "works": [{"name": "Работы", "quantity": "1", "price": "6000"}],
+                    "payments": [
+                        {
+                            **base_payment,
+                            "id": first_payment["id"],
+                            "paid_at": "07.04.2026 11:15",
+                        }
+                    ],
+                },
+            }
+        )["card"]["repair_order"]
+        second_payment = second_order["payments"][0]
+        second_details = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+
+        self.assertNotEqual(second_payment["cash_transaction_id"], first_transaction_id)
+        self.assertEqual(second_details["cashbox"]["statistics"]["transactions_total"], 1)
+        self.assertTrue(
+            second_details["transactions"][0]["created_at"].startswith("2026-04-07T11:15:00")
+        )
 
     def test_repair_order_payment_summary_handles_cash_cashless_and_mixed_payments(self) -> None:
         cashless_cashbox = self.service.create_cashbox(
