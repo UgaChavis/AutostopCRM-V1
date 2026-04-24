@@ -29,7 +29,8 @@ from minimal_kanban.telegram_ai.auth import TelegramAuthService
 from minimal_kanban.telegram_ai.config import TelegramAIConfig
 from minimal_kanban.telegram_ai.context import CRMContextBuilder
 from minimal_kanban.telegram_ai.crm_tools import CRMToolError, CRMToolRegistry
-from minimal_kanban.telegram_ai.models import DownloadedAttachment, TelegramAttachment
+from minimal_kanban.telegram_ai.memory import TelegramAIConversationMemory
+from minimal_kanban.telegram_ai.models import DownloadedAttachment, RunContext, TelegramAttachment
 from minimal_kanban.telegram_ai.normalizer import normalize_update
 from minimal_kanban.telegram_ai.openai_client import TelegramAIOpenAIClient
 from minimal_kanban.telegram_ai.orchestrator import TelegramAIOrchestrator
@@ -66,6 +67,7 @@ def build_config(
         autopilot_enabled=False,
         autopilot_interval_minutes=30,
         web_search_enabled=False,
+        conversation_memory_limit=12,
     )
 
 
@@ -74,9 +76,14 @@ class FakeModelClient:
 
     def __init__(self) -> None:
         self.decide_calls = 0
+        self.decisions: list[dict[str, object]] = []
+        self.received_contexts: list[dict[str, object]] = []
 
     def decide(self, **kwargs):
         self.decide_calls += 1
+        self.received_contexts.append(kwargs.get("crm_context") or {})
+        if self.decisions:
+            return self.decisions.pop(0)
         return {
             "intent": "no_action",
             "confidence": "high",
@@ -231,6 +238,90 @@ class TelegramAIOrchestratorTests(unittest.TestCase):
             self.assertIn("Telegram AI worker активен", response)
             self.assertEqual(model.decide_calls, 0)
 
+    def test_follow_up_receives_conversation_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = build_config(temp_dir, owner_ids=frozenset({1001}))
+            audit = TelegramAIAuditService(config.audit_file)
+            model = FakeModelClient()
+            model.decisions = [
+                {
+                    "intent": "create_card",
+                    "confidence": "high",
+                    "actions": [
+                        {
+                            "tool": "create_card",
+                            "arguments": {"title": "Camry"},
+                            "reason": "test",
+                        }
+                    ],
+                    "telegram_response": "Создал карточку.",
+                    "requires_human_confirmation": False,
+                },
+                {
+                    "intent": "update_card",
+                    "confidence": "high",
+                    "actions": [],
+                    "telegram_response": "Вижу предыдущую карточку.",
+                    "requires_human_confirmation": False,
+                },
+            ]
+            logger = logging.getLogger("test.telegram_memory")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            store = JsonStore(state_file=Path(temp_dir) / "state.json", logger=logger)
+            service = CardService(store, logger)
+            port = reserve_port()
+            server = ApiServer(service, logger, start_port=port, fallback_limit=1)
+            server.start()
+            try:
+                client = BoardApiClient(
+                    server.base_url, logger=logger, default_source="telegram_ai"
+                )
+                orchestrator = TelegramAIOrchestrator(
+                    auth=TelegramAuthService(config),
+                    model_client=model,
+                    context_builder=CRMContextBuilder(client),
+                    tool_registry=CRMToolRegistry(client, actor_name="TEST_TELEGRAM_AI"),
+                    audit=audit,
+                    memory=TelegramAIConversationMemory(config.conversation_file, limit=5),
+                )
+                first = normalize_update(
+                    {
+                        "update_id": 1,
+                        "message": {
+                            "message_id": 2,
+                            "chat": {"id": 3},
+                            "from": {"id": 1001},
+                            "text": "Создай карточку Camry",
+                        },
+                    }
+                )
+                second = normalize_update(
+                    {
+                        "update_id": 2,
+                        "message": {
+                            "message_id": 3,
+                            "chat": {"id": 3},
+                            "from": {"id": 1001},
+                            "text": "Добавь туда описание",
+                        },
+                    }
+                )
+
+                orchestrator.handle(first)
+                orchestrator.handle(second)
+            finally:
+                server.stop()
+
+            second_context = model.received_contexts[1]
+            memory_rows = second_context.get("conversation_memory")
+            self.assertIsInstance(memory_rows, list)
+            self.assertEqual(
+                memory_rows[0]["tool_results"][0]["ids"]["card_id"],
+                service.get_cards()["cards"][0]["id"],
+            )
+
 
 class TelegramAITranscriptionTests(unittest.TestCase):
     def test_voice_ogg_is_converted_before_transcription_upload(self) -> None:
@@ -331,6 +422,53 @@ class TelegramAIResponsesPayloadTests(unittest.TestCase):
             self.assertIn("json", json.dumps(payload["input"], ensure_ascii=False).lower())
             self.assertEqual(payload["reasoning"], {"effort": "medium"})
             self.assertEqual(result["intent"], "no_action")
+
+
+class TelegramAIConversationMemoryTests(unittest.TestCase):
+    def test_memory_stores_compact_run_and_filters_by_chat(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            normalized = normalize_update(
+                {
+                    "update_id": 1,
+                    "message": {
+                        "message_id": 2,
+                        "chat": {"id": 30},
+                        "from": {"id": 1001},
+                        "text": "Создай карточку Camry",
+                    },
+                }
+            )
+            context = RunContext(
+                run_id="tgai_test",
+                role="owner",
+                normalized_input=normalized,
+                model_decision={"intent": "create_card", "telegram_response": "Создал."},
+                tool_calls=[
+                    {
+                        "tool": "create_card",
+                        "arguments": {"title": "Camry", "description": "x" * 1000},
+                    }
+                ],
+                tool_results=[
+                    {
+                        "tool": "create_card",
+                        "verify": {"passed": True},
+                        "result": {"data": {"card": {"id": "card-1", "title": "Camry"}}},
+                    }
+                ],
+                final_status="completed",
+                telegram_response="Сделано.",
+            )
+            memory = TelegramAIConversationMemory(
+                Path(temp_dir) / "conversation.jsonl",
+                limit=5,
+            )
+
+            memory.append_run(context)
+
+            rows = memory.recent(chat_id=30, user_id=1001)
+            self.assertEqual(rows[0]["tool_results"][0]["ids"]["card_id"], "card-1")
+            self.assertEqual(memory.recent(chat_id=31, user_id=1001), [])
 
 
 class TelegramAIResponseTests(unittest.TestCase):

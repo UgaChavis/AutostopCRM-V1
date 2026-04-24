@@ -11,6 +11,7 @@
 - CRM write path: только через `BoardApiClient` и локальный HTTP API
 - audit: `/root/.minimal-kanban/telegram_ai/audit.jsonl` внутри production volume
 - state: `/root/.minimal-kanban/telegram_ai/state.json`
+- conversation memory: `/root/.minimal-kanban/telegram_ai/conversation.jsonl`
 - downloads/temp: `/root/.minimal-kanban/telegram_ai/downloads`
 
 Старый green-button/VIN agent не является основой новой системы. Он оставлен как legacy/compatibility слой, чтобы не ломать текущую CRM и MCP поверхность.
@@ -58,6 +59,7 @@ AUTOSTOP_AI_MODEL=gpt-5.4-mini
 AUTOSTOP_AI_REASONING_EFFORT=medium
 AUTOSTOP_AI_MAX_BATCH_CARDS=20
 AUTOSTOP_AI_AUDIT_ENABLED=1
+AUTOSTOP_AI_CONVERSATION_MEMORY_LIMIT=12
 AUTOSTOP_CRM_API_BASE_URL=http://autostopcrm:41731
 ```
 
@@ -84,6 +86,7 @@ If owner IDs, bot token, or OpenAI key are missing, the worker stays in safe-dis
 - `context.py`: compact CRM context builder from board snapshot/review/search
 - `crm_tools.py`: explicit CRM tool registry, validation, execution, verification
 - `audit.py`: redacted JSONL audit per run
+- `memory.py`: compact per-chat conversation memory for follow-up commands
 - `orchestrator.py`: command flow, media enrichment, model decision, tool execution
 - `worker.py`: long-running polling process
 - `autopilot.py`: disabled-by-default skeleton using the same future pipeline
@@ -185,6 +188,8 @@ Natural commands go to the model, for example:
 ```
 
 Voice messages are transcribed and then processed as normal text.
+
+Conversation memory is enabled by default. The worker stores compact per-chat history so follow-up commands like `добавь туда описание`, `перенеси её`, or `прикрепи к этой карточке` can reuse recent verified card ids and actions. The memory stores summaries and ids, not raw file bytes.
 
 Photo messages are sent through vision extraction first; extracted facts are passed into the same CRM decision flow. If the user asks to save the photo to a card, the worker uses `attach_telegram_photo_to_card` and stores the original image as a CRM attachment.
 

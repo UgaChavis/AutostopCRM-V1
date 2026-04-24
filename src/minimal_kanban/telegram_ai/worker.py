@@ -11,6 +11,7 @@ from .auth import TelegramAuthService
 from .config import TelegramAIConfig, load_config, redact_secret
 from .context import CRMContextBuilder
 from .crm_tools import CRMToolRegistry
+from .memory import TelegramAIConversationMemory
 from .models import DownloadedAttachment
 from .normalizer import normalize_update
 from .openai_client import TelegramAIOpenAIClient
@@ -61,6 +62,10 @@ class TelegramAIWorker:
             self._config.audit_file,
             enabled=self._config.audit_enabled,
         )
+        memory = TelegramAIConversationMemory(
+            self._config.conversation_file,
+            limit=self._config.conversation_memory_limit,
+        )
         board_api = BoardApiClient(
             self._config.crm_api_base_url,
             bearer_token=self._config.crm_api_bearer_token,
@@ -79,6 +84,7 @@ class TelegramAIWorker:
                 image_analyzer=model_client.analyze_image,
             ),
             audit=audit,
+            memory=memory,
         )
         self._logger.info(
             "telegram_ai.started crm_api=%s model=%s owner_ids=%s token=%s",

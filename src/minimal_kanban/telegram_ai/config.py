@@ -15,6 +15,7 @@ from ..config import (
 DEFAULT_TELEGRAM_POLL_TIMEOUT_SECONDS = 25
 DEFAULT_TELEGRAM_REQUEST_TIMEOUT_SECONDS = 35
 DEFAULT_MAX_BATCH_CARDS = 20
+DEFAULT_CONVERSATION_MEMORY_LIMIT = 12
 
 
 def _env_flag(name: str, *, default: bool = False) -> bool:
@@ -92,6 +93,7 @@ class TelegramAIConfig:
     autopilot_enabled: bool
     autopilot_interval_minutes: int
     web_search_enabled: bool
+    conversation_memory_limit: int
 
     @property
     def audit_file(self) -> Path:
@@ -104,6 +106,10 @@ class TelegramAIConfig:
     @property
     def downloads_dir(self) -> Path:
         return self.data_dir / "downloads"
+
+    @property
+    def conversation_file(self) -> Path:
+        return self.data_dir / "conversation.jsonl"
 
     @property
     def is_ready(self) -> bool:
@@ -149,6 +155,11 @@ def load_config() -> TelegramAIConfig:
             "AUTOSTOP_AI_AUTOPILOT_INTERVAL_MINUTES", 30, minimum=1
         ),
         web_search_enabled=_env_flag("AUTOSTOP_AI_WEB_SEARCH_ENABLED", default=False),
+        conversation_memory_limit=_env_int(
+            "AUTOSTOP_AI_CONVERSATION_MEMORY_LIMIT",
+            DEFAULT_CONVERSATION_MEMORY_LIMIT,
+            minimum=0,
+        ),
     )
 
 

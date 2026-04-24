@@ -7,6 +7,7 @@ from .audit import TelegramAIAuditService
 from .auth import ROLE_UNAUTHORIZED, TelegramAuthService
 from .context import CRMContextBuilder
 from .crm_tools import CRMToolError, CRMToolRegistry
+from .memory import TelegramAIConversationMemory
 from .models import DownloadedAttachment, NormalizedTelegramInput, RunContext
 from .openai_client import TelegramAIModelError, TelegramAIOpenAIClient
 from .response import build_execution_response, build_recent_actions_response
@@ -31,12 +32,14 @@ class TelegramAIOrchestrator:
         context_builder: CRMContextBuilder,
         tool_registry: CRMToolRegistry,
         audit: TelegramAIAuditService,
+        memory: TelegramAIConversationMemory | None = None,
     ) -> None:
         self._auth = auth
         self._model_client = model_client
         self._context_builder = context_builder
         self._tool_registry = tool_registry
         self._audit = audit
+        self._memory = memory
 
     def handle(
         self,
@@ -70,6 +73,7 @@ class TelegramAIOrchestrator:
                 context.telegram_response = builtin_response
                 return builtin_response
             crm_context = self._context_builder.build(command_text=command_text)
+            self._attach_conversation_memory(crm_context, normalized_input)
             context.context_summary = self._context_builder.summary(crm_context)
             decision = self._model_client.decide(
                 command_text=command_text,
@@ -122,7 +126,21 @@ class TelegramAIOrchestrator:
         finally:
             if hasattr(self._tool_registry, "clear_run_media"):
                 self._tool_registry.clear_run_media()
+            if self._memory is not None:
+                self._memory.append_run(context)
             self._audit.write_run(context)
+
+    def _attach_conversation_memory(
+        self, crm_context: dict[str, Any], normalized_input: NormalizedTelegramInput
+    ) -> None:
+        if self._memory is None:
+            return
+        memory_rows = self._memory.recent(
+            chat_id=normalized_input.chat_id,
+            user_id=normalized_input.user_id,
+        )
+        if memory_rows:
+            crm_context["conversation_memory"] = memory_rows
 
     def _enrich_from_media(
         self,
