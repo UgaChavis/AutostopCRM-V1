@@ -810,6 +810,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="filePreviewPanel"', BOARD_WEB_APP_HTML)
         self.assertIn('id="filePreviewImage"', BOARD_WEB_APP_HTML)
         self.assertIn('id="filePreviewCloseButton"', BOARD_WEB_APP_HTML)
+        self.assertIn("body.is-file-preview-open", BOARD_WEB_APP_HTML)
+        self.assertIn("position: fixed;", BOARD_WEB_APP_HTML)
+        self.assertIn("0 0 0 9999px rgba(4, 6, 5, 0.68)", BOARD_WEB_APP_HTML)
+        self.assertIn("document.body.classList.toggle('is-file-preview-open', isVisible);", BOARD_WEB_APP_HTML)
         self.assertIn(
             'accept=".png,.jpg,.jpeg,.webp,.gif,.txt,.pdf,.doc,.docx,.xls,.xlsx', BOARD_WEB_APP_HTML
         )
@@ -826,6 +830,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function attachmentIsPreviewable(attachment)", BOARD_WEB_APP_HTML)
         self.assertIn("function clearFilePreview({ sync = true } = {})", BOARD_WEB_APP_HTML)
         self.assertIn("function syncFilePreview(card = state.activeCard)", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleFilePreviewKeydown(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("document.addEventListener('keydown', handleFilePreviewKeydown);", BOARD_WEB_APP_HTML)
         self.assertIn(
             "async function previewActiveCardAttachment(attachmentId)", BOARD_WEB_APP_HTML
         )

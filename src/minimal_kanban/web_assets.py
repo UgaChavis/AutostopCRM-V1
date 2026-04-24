@@ -3510,21 +3510,41 @@ BOARD_WEB_APP_HTML = "".join(
     .file-zone-panel {
       gap: 12px;
     }
+    body.is-file-preview-open {
+      overflow: hidden;
+    }
     .file-preview {
-      border: 1px solid rgba(167, 178, 132, 0.18);
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      width: min(1280px, calc(100vw - 40px));
+      max-height: calc(100dvh - 40px);
+      z-index: 30;
+      transform: translate(-50%, -50%);
+      border: 1px solid rgba(167, 178, 132, 0.36);
       background:
-        linear-gradient(180deg, rgba(255,255,255,0.025), transparent 38%),
-        rgba(0,0,0,0.2);
-      padding: 12px;
+        linear-gradient(180deg, rgba(255,255,255,0.045), transparent 34%),
+        rgba(13, 19, 15, 0.98);
+      padding: 16px;
       display: grid;
-      gap: 10px;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 12px;
+      box-shadow:
+        0 0 0 9999px rgba(4, 6, 5, 0.68),
+        0 24px 90px rgba(0, 0, 0, 0.58),
+        inset 0 0 0 1px rgba(255,255,255,0.025);
     }
     .file-preview__head {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: space-between;
       gap: 10px;
       flex-wrap: wrap;
+    }
+    #filePreviewCloseButton {
+      min-width: 132px;
+      min-height: 42px;
+      font-weight: 700;
     }
     .file-preview__meta {
       color: var(--text-soft);
@@ -3532,7 +3552,7 @@ BOARD_WEB_APP_HTML = "".join(
       line-height: 1.45;
     }
     .file-preview__stage {
-      min-height: 220px;
+      min-height: min(640px, calc(100dvh - 150px));
       display: grid;
       place-items: center;
       padding: 12px;
@@ -3555,8 +3575,8 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .file-preview__image {
       display: block;
-      max-width: min(100%, 1180px);
-      max-height: 72vh;
+      max-width: 100%;
+      max-height: calc(100dvh - 190px);
       width: auto;
       height: auto;
       object-fit: contain;
@@ -4235,6 +4255,23 @@ BOARD_WEB_APP_HTML = "".join(
       .employees-field--active { padding-top: 0; }
       .signal-grid { grid-template-columns: repeat(2, 1fr); }
       .column { width: 336px; min-width: 336px; }
+      .file-preview {
+        width: calc(100vw - 16px);
+        max-height: calc(100dvh - 16px);
+        padding: 10px;
+      }
+      .file-preview__head {
+        align-items: stretch;
+      }
+      #filePreviewCloseButton {
+        width: 100%;
+      }
+      .file-preview__stage {
+        min-height: calc(100dvh - 190px);
+      }
+      .file-preview__image {
+        max-height: calc(100dvh - 220px);
+      }
     }
     @media (hover: none) {
       .column__rename,
@@ -13472,6 +13509,7 @@ BOARD_WEB_APP_HTML = "".join(
       }
       const isVisible = Boolean(preview.loading || preview.objectUrl || preview.error);
       els.filePreviewPanel.classList.toggle('hidden', !isVisible);
+      document.body.classList.toggle('is-file-preview-open', isVisible);
       if (!isVisible) {
         els.filePreviewTitle.textContent = 'ПРОСМОТР';
         els.filePreviewMeta.textContent = '';
@@ -13509,6 +13547,14 @@ BOARD_WEB_APP_HTML = "".join(
       }
       els.filePreviewImage.alt = 'Предпросмотр файла ' + fileName;
       els.filePreviewImage.hidden = false;
+    }
+
+    function handleFilePreviewKeydown(event) {
+      if (event.key !== 'Escape') return;
+      const previewOpen = Boolean(state.filePreview?.loading || state.filePreview?.objectUrl || state.filePreview?.error);
+      if (!previewOpen) return;
+      event.preventDefault();
+      clearFilePreview();
     }
 
     async function previewActiveCardAttachment(attachmentId) {
@@ -16381,6 +16427,7 @@ function renderCompactArchiveRows(cards) {
     els.fileDropzone.addEventListener('dragleave', handleFileDropzoneDragLeave);
     els.fileDropzone.addEventListener('drop', handleFileDropzoneDrop);
     els.fileDropzone.addEventListener('paste', handleFileDropzonePaste);
+    document.addEventListener('keydown', handleFilePreviewKeydown);
     els.repairOrdersList.addEventListener('keydown', handleRepairOrdersListKeydown);
     els.stickyModal.addEventListener('click', handleStickyModalOverlayClick);
     els.repairOrderModal.addEventListener('click', handleRepairOrderModalOverlayClick);
