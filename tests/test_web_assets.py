@@ -813,6 +813,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("body.is-file-preview-open", BOARD_WEB_APP_HTML)
         self.assertIn("position: fixed;", BOARD_WEB_APP_HTML)
         self.assertIn("0 0 0 9999px rgba(4, 6, 5, 0.68)", BOARD_WEB_APP_HTML)
+        self.assertIn(".file-row__thumb", BOARD_WEB_APP_HTML)
+        self.assertIn("class=\"file-row__thumb-image\"", BOARD_WEB_APP_HTML)
+        self.assertIn("loading=\"lazy\" decoding=\"async\"", BOARD_WEB_APP_HTML)
         self.assertIn("document.body.classList.toggle('is-file-preview-open', isVisible);", BOARD_WEB_APP_HTML)
         self.assertIn(
             'accept=".png,.jpg,.jpeg,.webp,.gif,.txt,.pdf,.doc,.docx,.xls,.xlsx', BOARD_WEB_APP_HTML
@@ -828,10 +831,13 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function syncFileDropzone(card = state.activeCard)", BOARD_WEB_APP_HTML)
         self.assertIn("function attachmentDownloadPath(cardId, attachmentId)", BOARD_WEB_APP_HTML)
         self.assertIn("function attachmentIsPreviewable(attachment)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderAttachmentThumbnailHtml(attachment, downloadUrl)", BOARD_WEB_APP_HTML)
         self.assertIn("function clearFilePreview({ sync = true } = {})", BOARD_WEB_APP_HTML)
         self.assertIn("function syncFilePreview(card = state.activeCard)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleFilePreviewKeydown(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleAttachmentThumbnailError(event)", BOARD_WEB_APP_HTML)
         self.assertIn("document.addEventListener('keydown', handleFilePreviewKeydown);", BOARD_WEB_APP_HTML)
+        self.assertIn("document.addEventListener('error', handleAttachmentThumbnailError, true);", BOARD_WEB_APP_HTML)
         self.assertIn(
             "async function previewActiveCardAttachment(attachmentId)", BOARD_WEB_APP_HTML
         )
@@ -856,7 +862,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("await refreshActiveCardFiles();", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "await previewActiveCardAttachment(target.dataset.previewFile);", BOARD_WEB_APP_HTML
+            "await previewActiveCardAttachment(previewFileTarget.dataset.previewFile);", BOARD_WEB_APP_HTML
         )
         self.assertIn(
             "await removeActiveCardAttachment(target.dataset.removeFile);", BOARD_WEB_APP_HTML
@@ -885,7 +891,8 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn('data-preview-file="', BOARD_WEB_APP_HTML)
-        self.assertIn("if (target.dataset.previewFile && state.editingId) {", BOARD_WEB_APP_HTML)
+        self.assertIn("const previewFileTarget = target.closest('[data-preview-file]');", BOARD_WEB_APP_HTML)
+        self.assertIn("if (previewFileTarget && state.editingId) {", BOARD_WEB_APP_HTML)
         self.assertIn("if (target.dataset.closeFilePreview) {", BOARD_WEB_APP_HTML)
         self.assertIn("if (target.dataset.removeFile && state.editingId) {", BOARD_WEB_APP_HTML)
 

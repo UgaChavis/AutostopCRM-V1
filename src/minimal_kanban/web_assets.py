@@ -3503,9 +3503,82 @@ BOARD_WEB_APP_HTML = "".join(
       display: grid;
       gap: 6px;
     }
+    .file-row {
+      grid-template-columns: 132px minmax(0, 1fr);
+      gap: 10px 12px;
+      align-items: stretch;
+    }
     .file-row.is-previewing {
       border-color: rgba(167, 178, 132, 0.44);
       box-shadow: inset 0 0 0 1px rgba(167, 178, 132, 0.12);
+    }
+    .file-row__thumb {
+      width: 132px;
+      min-height: 98px;
+      border: 1px solid rgba(167, 178, 132, 0.18);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.025), transparent 42%),
+        rgba(8, 12, 10, 0.72);
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    .file-row__thumb-button {
+      width: 100%;
+      height: 100%;
+      min-height: 98px;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+    }
+    .file-row__thumb-button.is-broken::after {
+      content: 'НЕТ ПРЕВЬЮ';
+      color: var(--text-soft);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      text-align: center;
+      padding: 8px;
+    }
+    .file-row__thumb-button:focus-visible {
+      outline: 1px solid var(--accent);
+      outline-offset: -3px;
+    }
+    .file-row__thumb-image {
+      width: 100%;
+      height: 100%;
+      min-height: 98px;
+      object-fit: cover;
+      display: block;
+    }
+    .file-row__thumb-fallback {
+      color: var(--text-soft);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      text-align: center;
+      padding: 8px;
+    }
+    .file-row__body {
+      min-width: 0;
+      display: grid;
+      gap: 6px;
+      align-content: center;
+    }
+    .file-row__title {
+      color: var(--text);
+      font-weight: 700;
+      word-break: break-word;
+    }
+    .file-row__actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
     }
     .file-zone-panel {
       gap: 12px;
@@ -4271,6 +4344,17 @@ BOARD_WEB_APP_HTML = "".join(
       }
       .file-preview__image {
         max-height: calc(100dvh - 220px);
+      }
+      .file-row {
+        grid-template-columns: 104px minmax(0, 1fr);
+      }
+      .file-row__thumb {
+        width: 104px;
+        min-height: 82px;
+      }
+      .file-row__thumb-button,
+      .file-row__thumb-image {
+        min-height: 82px;
       }
     }
     @media (hover: none) {
@@ -13475,6 +13559,15 @@ BOARD_WEB_APP_HTML = "".join(
       return ATTACHMENT_PREVIEWABLE_EXTENSIONS.has(attachmentExtension(attachment.file_name || attachment.name || ''));
     }
 
+    function renderAttachmentThumbnailHtml(attachment, downloadUrl) {
+      if (!attachmentIsPreviewable(attachment)) {
+        return '<div class="file-row__thumb"><div class="file-row__thumb-fallback">ФАЙЛ</div></div>';
+      }
+      const fileName = String(attachment?.file_name || attachment?.name || 'Вложение').trim() || 'Вложение';
+      const previewUrl = withAccessToken(downloadUrl);
+      return '<div class="file-row__thumb"><button class="file-row__thumb-button" type="button" data-preview-file="' + escapeHtml(attachment.id) + '" title="Открыть просмотр: ' + escapeHtml(fileName) + '"><img class="file-row__thumb-image" src="' + escapeHtml(previewUrl) + '" alt="Миниатюра файла ' + escapeHtml(fileName) + '" loading="lazy" decoding="async"></button></div>';
+    }
+
     function revokeFilePreviewObjectUrl() {
       const objectUrl = String(state.filePreview?.objectUrl || '').trim();
       if (!objectUrl) return;
@@ -13557,6 +13650,14 @@ BOARD_WEB_APP_HTML = "".join(
       clearFilePreview();
     }
 
+    function handleAttachmentThumbnailError(event) {
+      const image = event.target;
+      if (!(image instanceof HTMLImageElement) || !image.classList.contains('file-row__thumb-image')) return;
+      image.hidden = true;
+      image.removeAttribute('src');
+      image.closest('.file-row__thumb-button')?.classList.add('is-broken');
+    }
+
     async function previewActiveCardAttachment(attachmentId) {
       const attachment = findCardAttachment(state.activeCard, attachmentId);
       if (!state.editingId || !attachment) {
@@ -13624,10 +13725,11 @@ BOARD_WEB_APP_HTML = "".join(
         ? attachments.map((item) => {
             const downloadUrl = attachmentDownloadPath(card.id, item.id);
             const previewOpen = String(state.filePreview?.attachmentId || '') === String(item.id || '') && (state.filePreview.loading || state.filePreview.objectUrl || state.filePreview.error);
+            const thumbnailHtml = renderAttachmentThumbnailHtml(item, downloadUrl);
             const previewButtonHtml = attachmentIsPreviewable(item)
               ? '<button class="btn btn--ghost' + (previewOpen ? ' is-active' : '') + '" type="button" data-preview-file="' + escapeHtml(item.id) + '">' + (previewOpen ? 'СКРЫТЬ' : 'ПРОСМОТР') + '</button>'
               : '';
-            return '<div class="file-row' + (previewOpen ? ' is-previewing' : '') + '"><div>' + escapeHtml(item.file_name) + '</div><div class="log-row__meta">' + escapeHtml(formatDate(item.created_at)) + ' · ' + escapeHtml(formatBytes(item.size_bytes || 0)) + '</div><div style="display:flex; gap:8px; flex-wrap:wrap;">' + previewButtonHtml + '<a class="btn" href="' + downloadUrl + '">СКАЧАТЬ</a><button class="btn btn--danger" type="button" data-remove-file="' + escapeHtml(item.id) + '">УДАЛИТЬ</button></div></div>';
+            return '<div class="file-row' + (previewOpen ? ' is-previewing' : '') + '">' + thumbnailHtml + '<div class="file-row__body"><div class="file-row__title">' + escapeHtml(item.file_name) + '</div><div class="log-row__meta">' + escapeHtml(formatDate(item.created_at)) + ' · ' + escapeHtml(formatBytes(item.size_bytes || 0)) + '</div><div class="file-row__actions">' + previewButtonHtml + '<a class="btn" href="' + downloadUrl + '">СКАЧАТЬ</a><button class="btn btn--danger" type="button" data-remove-file="' + escapeHtml(item.id) + '">УДАЛИТЬ</button></div></div></div>';
           }).join('')
         : '<div class="log-row__meta">ФАЙЛОВ НЕТ.</div>';
       syncFilePreview(card);
@@ -14965,8 +15067,9 @@ function renderCompactArchiveRows(cards) {
         addSuggestedTag({ label: target.dataset.suggestTag, color: target.dataset.suggestColor });
         return true;
       }
-      if (target.dataset.previewFile && state.editingId) {
-        await previewActiveCardAttachment(target.dataset.previewFile);
+      const previewFileTarget = target.closest('[data-preview-file]');
+      if (previewFileTarget && state.editingId) {
+        await previewActiveCardAttachment(previewFileTarget.dataset.previewFile);
         return true;
       }
       if (target.dataset.closeFilePreview) {
@@ -16428,6 +16531,7 @@ function renderCompactArchiveRows(cards) {
     els.fileDropzone.addEventListener('drop', handleFileDropzoneDrop);
     els.fileDropzone.addEventListener('paste', handleFileDropzonePaste);
     document.addEventListener('keydown', handleFilePreviewKeydown);
+    document.addEventListener('error', handleAttachmentThumbnailError, true);
     els.repairOrdersList.addEventListener('keydown', handleRepairOrdersListKeydown);
     els.stickyModal.addEventListener('click', handleStickyModalOverlayClick);
     els.repairOrderModal.addEventListener('click', handleRepairOrderModalOverlayClick);
