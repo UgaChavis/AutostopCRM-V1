@@ -11701,6 +11701,18 @@ BOARD_WEB_APP_HTML = "".join(
       return profile?.production_year ? (base + ' ' + profile.production_year) : base;
     }
 
+    function splitVehicleDisplayName(value, productionYear = null) {
+      let text = String(value || '').trim().replace(/\\s+/g, ' ');
+      const year = Number(productionYear || 0);
+      if (year && text.endsWith(String(year))) text = text.slice(0, -String(year).length).trim();
+      if (!text) return { make_display: '', model_display: '' };
+      const parts = text.split(/\\s+/, 2);
+      return {
+        make_display: parts[0] || '',
+        model_display: text.slice((parts[0] || '').length).trim(),
+      };
+    }
+
     function vehicleCompletionLabel(value) {
       return VEHICLE_COMPLETION_LABELS[String(value || '').trim()] || 'данные уточняются';
     }
@@ -11883,6 +11895,22 @@ BOARD_WEB_APP_HTML = "".join(
       VEHICLE_PRIMARY_FIELDS.forEach((fieldName) => {
         profile[fieldName] = readVehicleFieldValue(fieldName);
       });
+      const displayName = String(profile.display_name || '').trim();
+      if (displayName) {
+        const displayParts = splitVehicleDisplayName(displayName, profile.production_year);
+        profile.make_display = displayParts.make_display;
+        profile.model_display = displayParts.model_display;
+        const manualFields = new Set(profile.manual_fields || []);
+        const fieldSources = profile.field_sources && typeof profile.field_sources === 'object' ? profile.field_sources : {};
+        if (manualFields.has('display_name')) {
+          manualFields.add('make_display');
+          manualFields.add('model_display');
+          fieldSources.make_display = fieldSources.display_name || 'manual_ui';
+          fieldSources.model_display = fieldSources.display_name || 'manual_ui';
+          profile.manual_fields = Array.from(manualFields).sort();
+          profile.field_sources = fieldSources;
+        }
+      }
       const warnings = Array.isArray(profile.warnings) ? profile.warnings.filter((item) => item !== 'VIN требует ручной проверки.') : [];
       if (vinLooksSuspicious(profile.vin)) warnings.push('VIN требует ручной проверки.');
       profile.warnings = warnings;

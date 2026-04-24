@@ -391,7 +391,9 @@ class VehicleProfileService:
             normalize_vehicle_int(raw.get("production_year")),
         )
         if display_name_present and (display_name_manual or display_name != current_display):
-            make_display, model_display = split_vehicle_display_alias(display_name)
+            make_display, model_display = split_vehicle_display_alias(
+                display_name, normalize_vehicle_int(raw.get("production_year"))
+            )
             raw["make_display"] = make_display
             raw["model_display"] = model_display
 

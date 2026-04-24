@@ -593,6 +593,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("{ name: 'generation_or_platform'", BOARD_WEB_APP_HTML)
         self.assertIn("function autofillVehicleProfile()", BOARD_WEB_APP_HTML)
         self.assertIn("vehicle_profile: vehicleProfile,", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function splitVehicleDisplayName(value, productionYear = null)", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("profile.make_display = displayParts.make_display;", BOARD_WEB_APP_HTML)
+        self.assertIn("profile.model_display = displayParts.model_display;", BOARD_WEB_APP_HTML)
 
     def test_vehicle_panel_hides_empty_summary_and_first_group_title(self) -> None:
         self.assertIn("VEHICLE_FIELD_GROUPS[0].title = '';", BOARD_WEB_APP_HTML)

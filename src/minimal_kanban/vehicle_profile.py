@@ -249,10 +249,14 @@ def build_vehicle_display(
     return display
 
 
-def split_vehicle_display_alias(value) -> tuple[str, str]:
+def split_vehicle_display_alias(value, production_year: int | None = None) -> tuple[str, str]:
     text = normalize_vehicle_text(value)
     if not text:
         return "", ""
+    if production_year:
+        year_suffix = str(production_year)
+        if text.endswith(year_suffix):
+            text = text[: -len(year_suffix)].strip()
     parts = text.split(maxsplit=1)
     if len(parts) == 1:
         return parts[0], ""
@@ -430,7 +434,10 @@ class VehicleProfile:
         if not isinstance(payload, dict):
             return cls()
         vin, _, vin_warnings = soft_validate_vin(payload.get("vin"))
-        display_make, display_model = split_vehicle_display_alias(payload.get("display_name"))
+        production_year = normalize_vehicle_int(payload.get("production_year"))
+        display_make, display_model = split_vehicle_display_alias(
+            payload.get("display_name"), production_year
+        )
         make_display = normalize_vehicle_text(payload.get("make_display")) or display_make
         model_display = normalize_vehicle_text(payload.get("model_display")) or display_model
         registration_plate = normalize_vehicle_text(payload.get("registration_plate"))
@@ -450,7 +457,7 @@ class VehicleProfile:
             make_display=make_display,
             model_display=model_display,
             generation_or_platform=normalize_vehicle_text(payload.get("generation_or_platform")),
-            production_year=normalize_vehicle_int(payload.get("production_year")),
+            production_year=production_year,
             mileage=normalize_vehicle_int(payload.get("mileage")),
             customer_phone=normalize_vehicle_text(payload.get("customer_phone")),
             customer_name=normalize_vehicle_text(payload.get("customer_name")),

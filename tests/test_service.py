@@ -2774,6 +2774,47 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(profile["field_sources"]["make_display"], "manual_ui")
         self.assertEqual(profile["field_sources"]["registration_plate"], "manual_ui")
 
+    def test_update_card_persists_vehicle_profile_display_name_from_full_ui_payload(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota Camry 2014",
+                "title": "Паспорт автомобиля",
+                "description": "Проверка полного payload формы",
+                "deadline": {"hours": 6},
+                "vehicle_profile": {
+                    "make_display": "Toyota",
+                    "model_display": "Camry",
+                    "production_year": 2014,
+                },
+            }
+        )["card"]
+
+        updated = self.service.update_card(
+            {
+                "card_id": created["id"],
+                "actor_name": "UI",
+                "source": "ui",
+                "vehicle": created["vehicle"],
+                "title": created["title"],
+                "description": created["description"],
+                "deadline": {"hours": 6},
+                "tags": [],
+                "vehicle_profile": {
+                    **created["vehicle_profile"],
+                    "display_name": "Honda Fit",
+                    "manual_fields": ["display_name"],
+                    "field_sources": {"display_name": "manual_ui"},
+                },
+            }
+        )["card"]
+        reopened = self.service.get_card({"card_id": created["id"]})["card"]
+
+        self.assertEqual(updated["vehicle_profile"]["display_name"], "Honda Fit 2014")
+        self.assertEqual(updated["vehicle_profile"]["make_display"], "Honda")
+        self.assertEqual(updated["vehicle_profile"]["model_display"], "Fit")
+        self.assertEqual(reopened["vehicle_profile"]["display_name"], "Honda Fit 2014")
+        self.assertEqual(reopened["vehicle"], "Honda Fit 2014")
+
     def test_update_card_stores_repair_order_and_persists_it(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Безналичный", "actor_name": "ADMIN"})[
             "cashbox"
