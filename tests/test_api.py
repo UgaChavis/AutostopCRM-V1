@@ -3053,6 +3053,53 @@ class ApiServerAuthTests(unittest.TestCase):
                     self.assertIn(quote(file_name, safe=""), header)
                     self.assertIn("X-Content-Type-Options", response.headers)
 
+    def test_attachment_read_routes_return_bounded_agent_payload(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"title": "Attachment agent read", "deadline": {"hours": 2}},
+            token="secret-token",
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+        status, upload = self.request(
+            "/api/add_card_attachment",
+            {
+                "card_id": card_id,
+                "file_name": "agent-note.txt",
+                "mime_type": "text/plain",
+                "content_base64": base64.b64encode(minimal_text_bytes()).decode("ascii"),
+            },
+            token="secret-token",
+        )
+        self.assertEqual(status, 200)
+        attachment_id = upload["data"]["attachment"]["id"]
+
+        status, listed = self.request(
+            "/api/list_card_attachments",
+            {"card_id": card_id},
+            token="secret-token",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(listed["data"]["attachments"][0]["content_kind"], "text")
+
+        status, metadata = self.request(
+            "/api/get_card_attachment",
+            {"card_id": card_id, "attachment_id": attachment_id},
+            token="secret-token",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(metadata["data"]["attachment"]["id"], attachment_id)
+        self.assertIn("sha256", metadata["data"]["attachment"])
+
+        status, read = self.request(
+            "/api/read_card_attachment",
+            {"card_id": card_id, "attachment_id": attachment_id, "max_chars": 12},
+            token="secret-token",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(read["data"]["content"]["text"], "Привет, влож")
+        self.assertTrue(read["data"]["content"]["text_truncated"])
+
     def test_attachment_api_rejects_disallowed_and_mismatched_files(self) -> None:
         status, created = self.request(
             "/api/create_card",

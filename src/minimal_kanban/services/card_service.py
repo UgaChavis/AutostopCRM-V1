@@ -9,6 +9,7 @@ import shutil
 import threading
 import time
 import uuid
+import xml.etree.ElementTree as ET
 import zipfile
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -448,6 +449,11 @@ _ATTACHMENT_EXTENSION_TO_TYPE = {
     for extension in spec["extensions"]
 }
 _OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+_ATTACHMENT_READ_DEFAULT_CHARS = 12_000
+_ATTACHMENT_READ_MAX_CHARS = 50_000
+_ATTACHMENT_BASE64_DEFAULT_BYTES = 1_048_576
+_ATTACHMENT_BASE64_MAX_BYTES = 4_194_304
+_ATTACHMENT_XML_READ_MAX_BYTES = 5_000_000
 
 
 class ServiceError(Exception):
@@ -4098,6 +4104,146 @@ class CardService:
                 )
             return attachment_path, attachment
 
+    def list_card_attachments(self, payload: dict | None = None) -> dict:
+        payload = dict(payload or {})
+        include_removed = normalize_bool(payload.get("include_removed"), default=False)
+        with self._lock:
+            bundle = self._store.read_bundle()
+            card = self._find_card(bundle["cards"], payload.get("card_id"))
+            attachments = card.attachments if include_removed else card.active_attachments()
+            items = [
+                self._attachment_agent_dict(card.id, attachment)
+                for attachment in attachments
+                if include_removed or not attachment.removed
+            ]
+            return {
+                "card": self._serialize_card(
+                    card,
+                    bundle["events"],
+                    column_labels=self._column_labels(bundle["columns"]),
+                ),
+                "attachments": items,
+                "meta": {
+                    "card_id": card.id,
+                    "include_removed": include_removed,
+                    "total": len(items),
+                    "read_tool": "read_card_attachment",
+                    "metadata_tool": "get_card_attachment",
+                },
+            }
+
+    def get_card_attachment(self, payload: dict | None = None) -> dict:
+        payload = dict(payload or {})
+        with self._lock:
+            bundle = self._store.read_bundle()
+            card = self._find_card(bundle["cards"], payload.get("card_id"))
+            attachment = self._find_attachment(card, payload.get("attachment_id"))
+            if attachment.removed:
+                self._fail(
+                    "not_found",
+                    "Файл был удалён из карточки.",
+                    status_code=404,
+                    details={"attachment_id": attachment.id},
+                )
+            attachment_path = self._require_attachment_file(card.id, attachment)
+            attachment_path, repaired = self._repair_attachment_metadata(
+                card.id, attachment, attachment_path
+            )
+            if repaired:
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=bundle["cards"],
+                    events=bundle["events"],
+                )
+            return {
+                "card": self._serialize_card(
+                    card,
+                    bundle["events"],
+                    column_labels=self._column_labels(bundle["columns"]),
+                ),
+                "attachment": self._attachment_agent_dict(
+                    card.id, attachment, attachment_path=attachment_path
+                ),
+            }
+
+    def read_card_attachment(self, payload: dict | None = None) -> dict:
+        payload = dict(payload or {})
+        mode = normalize_text(payload.get("mode"), default="preview", limit=24).lower()
+        if mode not in {"preview", "text", "base64", "auto"}:
+            self._fail(
+                "validation_error",
+                "Параметр mode должен быть preview, text, base64 или auto.",
+                details={"field": "mode"},
+            )
+        max_chars = self._validated_numeric_limit(
+            payload.get("max_chars"),
+            field="max_chars",
+            default=_ATTACHMENT_READ_DEFAULT_CHARS,
+            maximum=_ATTACHMENT_READ_MAX_CHARS,
+        )
+        max_base64_bytes = self._validated_numeric_limit(
+            payload.get("max_base64_bytes"),
+            field="max_base64_bytes",
+            default=_ATTACHMENT_BASE64_DEFAULT_BYTES,
+            maximum=_ATTACHMENT_BASE64_MAX_BYTES,
+        )
+        include_base64 = normalize_bool(payload.get("include_base64"), default=False)
+        if mode == "base64":
+            include_base64 = True
+
+        with self._lock:
+            bundle = self._store.read_bundle()
+            card = self._find_card(bundle["cards"], payload.get("card_id"))
+            attachment = self._find_attachment(card, payload.get("attachment_id"))
+            if attachment.removed:
+                self._fail(
+                    "not_found",
+                    "Файл был удалён из карточки.",
+                    status_code=404,
+                    details={"attachment_id": attachment.id},
+                )
+            attachment_path = self._require_attachment_file(card.id, attachment)
+            attachment_path, repaired = self._repair_attachment_metadata(
+                card.id, attachment, attachment_path
+            )
+            if repaired:
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=bundle["cards"],
+                    events=bundle["events"],
+                )
+            content = attachment_path.read_bytes()
+            attachment_meta = self._attachment_agent_dict(
+                card.id, attachment, attachment_path=attachment_path
+            )
+            content_payload = self._attachment_content_payload(
+                attachment=attachment,
+                content=content,
+                mode=mode,
+                max_chars=max_chars,
+                include_base64=include_base64,
+                max_base64_bytes=max_base64_bytes,
+            )
+            return {
+                "card": self._serialize_card(
+                    card,
+                    bundle["events"],
+                    column_labels=self._column_labels(bundle["columns"]),
+                ),
+                "attachment": attachment_meta,
+                "content": content_payload,
+                "meta": {
+                    "card_id": card.id,
+                    "attachment_id": attachment.id,
+                    "mode": mode,
+                    "max_chars": max_chars,
+                    "include_base64": include_base64,
+                    "max_base64_bytes": max_base64_bytes,
+                },
+            }
+
     def get_onboarding_seen(self) -> bool:
         with self._lock:
             return bool(self._store.get_setting("has_seen_onboarding", False))
@@ -7747,6 +7893,344 @@ class CardService:
             return self._resolved_card_vehicle_label("", next_profile)
         return self._validated_vehicle(current_vehicle)
 
+    def _attachment_agent_dict(
+        self,
+        card_id: str,
+        attachment: Attachment,
+        *,
+        attachment_path: Path | None = None,
+    ) -> dict[str, Any]:
+        attachment_type = self._attachment_type_from_metadata(attachment)
+        content_kind = self._attachment_content_kind(attachment_type)
+        payload = {
+            "id": attachment.id,
+            "card_id": card_id,
+            "file_name": attachment.file_name,
+            "mime_type": attachment.mime_type,
+            "size_bytes": attachment.size_bytes,
+            "created_at": attachment.created_at,
+            "created_by": attachment.created_by,
+            "removed": attachment.removed,
+            "removed_at": attachment.removed_at,
+            "removed_by": attachment.removed_by,
+            "extension": self._attachment_extension(attachment.file_name),
+            "content_type": attachment_type,
+            "content_kind": content_kind,
+            "readable_as_text": content_kind in {"text", "pdf", "docx", "xlsx"},
+            "supports_base64": True,
+            "download_path": f"/api/attachment?card_id={card_id}&attachment_id={attachment.id}",
+        }
+        if attachment_path is not None:
+            payload["exists_on_disk"] = attachment_path.exists()
+            if attachment_path.exists():
+                payload["sha256"] = hashlib.sha256(attachment_path.read_bytes()).hexdigest()
+        return payload
+
+    def _attachment_content_payload(
+        self,
+        *,
+        attachment: Attachment,
+        content: bytes,
+        mode: str,
+        max_chars: int,
+        include_base64: bool,
+        max_base64_bytes: int,
+    ) -> dict[str, Any]:
+        attachment_type = self._attachment_type_from_metadata(attachment)
+        content_kind = self._attachment_content_kind(attachment_type)
+        payload: dict[str, Any] = {
+            "mode": mode,
+            "content_kind": content_kind,
+            "content_type": attachment_type,
+            "size_bytes": len(content),
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "text": "",
+            "text_length": 0,
+            "text_truncated": False,
+            "encoding": "",
+            "extraction_status": "unsupported",
+            "extraction_warnings": [],
+            "base64_included": False,
+        }
+        if content_kind == "image":
+            payload["image"] = self._attachment_image_metadata(content, attachment_type)
+            payload["extraction_status"] = "image_binary"
+            payload["extraction_warnings"].append(
+                "Изображение не распознается OCR на стороне CRM; используйте base64/data_url для vision-модели агента."
+            )
+        elif content_kind == "text":
+            text, encoding = self._decode_attachment_text(content)
+            self._set_truncated_attachment_text(payload, text, max_chars)
+            payload["encoding"] = encoding
+            payload["extraction_status"] = "ok"
+        elif content_kind == "docx":
+            text = self._extract_docx_text(content)
+            self._set_truncated_attachment_text(payload, text, max_chars)
+            payload["encoding"] = "office-openxml"
+            payload["extraction_status"] = "ok" if text.strip() else "empty"
+        elif content_kind == "xlsx":
+            text = self._extract_xlsx_text(content)
+            self._set_truncated_attachment_text(payload, text, max_chars)
+            payload["encoding"] = "office-openxml"
+            payload["extraction_status"] = "ok" if text.strip() else "empty"
+        elif content_kind == "pdf":
+            text = self._extract_pdf_text(content)
+            self._set_truncated_attachment_text(payload, text, max_chars)
+            payload["encoding"] = "pdf-best-effort"
+            payload["extraction_status"] = "best_effort" if text.strip() else "unsupported"
+            if not text.strip():
+                payload["extraction_warnings"].append(
+                    "PDF не содержит простого текстового слоя, который можно извлечь штатными средствами."
+                )
+        elif content_kind == "office_legacy":
+            payload["extraction_warnings"].append(
+                "Старые DOC/XLS сохранены как бинарные OLE-файлы; для чтения агентом загрузите DOCX/XLSX или используйте base64."
+            )
+
+        if include_base64:
+            if len(content) <= max_base64_bytes:
+                encoded = base64.b64encode(content).decode("ascii")
+                mime_type = attachment.mime_type or "application/octet-stream"
+                payload["base64"] = encoded
+                payload["data_url"] = f"data:{mime_type};base64,{encoded}"
+                payload["base64_included"] = True
+            else:
+                payload["base64_omitted_reason"] = (
+                    f"file_size_exceeds_limit:{len(content)}>{max_base64_bytes}"
+                )
+        return payload
+
+    def _set_truncated_attachment_text(
+        self, payload: dict[str, Any], text: str, max_chars: int
+    ) -> None:
+        text = str(text or "")
+        payload["text_length"] = len(text)
+        if len(text) > max_chars:
+            payload["text"] = text[:max_chars]
+            payload["text_truncated"] = True
+        else:
+            payload["text"] = text
+            payload["text_truncated"] = False
+
+    def _attachment_type_from_metadata(self, attachment: Attachment) -> str:
+        extension = self._attachment_extension(attachment.file_name)
+        if extension in _ATTACHMENT_EXTENSION_TO_TYPE:
+            return _ATTACHMENT_EXTENSION_TO_TYPE[extension]
+        mime_type = self._normalized_attachment_mime_type(attachment.mime_type)
+        for type_name, spec in _ATTACHMENT_TYPE_SPECS.items():
+            if mime_type in spec["mime_types"]:
+                return type_name
+        return "binary"
+
+    def _attachment_content_kind(self, attachment_type: str) -> str:
+        if attachment_type in {"png", "jpeg", "gif", "webp"}:
+            return "image"
+        if attachment_type == "txt":
+            return "text"
+        if attachment_type in {"pdf", "docx", "xlsx"}:
+            return attachment_type
+        if attachment_type in {"doc", "xls"}:
+            return "office_legacy"
+        return "binary"
+
+    def _decode_attachment_text(self, content: bytes) -> tuple[str, str]:
+        encodings = ("utf-8-sig", "utf-8", "cp1251", "utf-16", "latin-1")
+        for encoding in encodings:
+            try:
+                decoded = content.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+            return decoded, encoding
+        return content.decode("utf-8", errors="replace"), "utf-8-replace"
+
+    def _extract_docx_text(self, content: bytes) -> str:
+        try:
+            with zipfile.ZipFile(BytesIO(content)) as archive:
+                info = archive.getinfo("word/document.xml")
+                if info.file_size > _ATTACHMENT_XML_READ_MAX_BYTES:
+                    return ""
+                root = ET.fromstring(archive.read(info))
+        except (KeyError, OSError, ET.ParseError, zipfile.BadZipFile):
+            return ""
+        lines: list[str] = []
+        for paragraph in root.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p"):
+            parts = [
+                node.text or ""
+                for node in paragraph.iter(
+                    "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
+                )
+            ]
+            line = "".join(parts).strip()
+            if line:
+                lines.append(line)
+        if lines:
+            return "\n".join(lines)
+        return "\n".join(
+            (node.text or "").strip()
+            for node in root.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t")
+            if (node.text or "").strip()
+        )
+
+    def _extract_xlsx_text(self, content: bytes) -> str:
+        try:
+            with zipfile.ZipFile(BytesIO(content)) as archive:
+                shared_strings = self._xlsx_shared_strings(archive)
+                rows: list[str] = []
+                worksheet_names = sorted(
+                    name
+                    for name in archive.namelist()
+                    if name.startswith("xl/worksheets/") and name.endswith(".xml")
+                )
+                for worksheet_name in worksheet_names[:20]:
+                    info = archive.getinfo(worksheet_name)
+                    if info.file_size > _ATTACHMENT_XML_READ_MAX_BYTES:
+                        continue
+                    root = ET.fromstring(archive.read(info))
+                    sheet_label = PurePath(worksheet_name).stem
+                    cells: list[str] = []
+                    for cell in root.iter(
+                        "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c"
+                    ):
+                        value = self._xlsx_cell_text(cell, shared_strings)
+                        if value:
+                            ref = cell.attrib.get("r", "")
+                            cells.append(f"{ref}: {value}" if ref else value)
+                    if cells:
+                        rows.append(f"[{sheet_label}]\n" + "\n".join(cells))
+                return "\n\n".join(rows)
+        except (OSError, ET.ParseError, zipfile.BadZipFile):
+            return ""
+        return ""
+
+    def _xlsx_shared_strings(self, archive: zipfile.ZipFile) -> list[str]:
+        try:
+            info = archive.getinfo("xl/sharedStrings.xml")
+            if info.file_size > _ATTACHMENT_XML_READ_MAX_BYTES:
+                return []
+            root = ET.fromstring(archive.read(info))
+        except (KeyError, OSError, ET.ParseError):
+            return []
+        result: list[str] = []
+        for item in root.iter("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}si"):
+            parts = [
+                node.text or ""
+                for node in item.iter(
+                    "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t"
+                )
+            ]
+            result.append("".join(parts))
+        return result
+
+    def _xlsx_cell_text(self, cell: ET.Element, shared_strings: list[str]) -> str:
+        cell_type = cell.attrib.get("t", "")
+        if cell_type == "inlineStr":
+            parts = [
+                node.text or ""
+                for node in cell.iter(
+                    "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t"
+                )
+            ]
+            return "".join(parts).strip()
+        value_node = cell.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}v")
+        raw_value = (value_node.text or "").strip() if value_node is not None else ""
+        if cell_type == "s" and raw_value.isdigit():
+            index = int(raw_value)
+            if 0 <= index < len(shared_strings):
+                return shared_strings[index].strip()
+        return raw_value
+
+    def _extract_pdf_text(self, content: bytes) -> str:
+        snippets: list[str] = []
+        for match in re.finditer(rb"\((?:\\.|[^\\)])*\)\s*Tj", content):
+            snippets.append(self._decode_pdf_literal(match.group(0).rsplit(b")", 1)[0][1:]))
+        for match in re.finditer(rb"\[(.*?)\]\s*TJ", content, flags=re.DOTALL):
+            for literal in re.finditer(rb"\((?:\\.|[^\\)])*\)", match.group(1)):
+                snippets.append(self._decode_pdf_literal(literal.group(0)[1:-1]))
+        return "\n".join(item for item in snippets if item.strip())
+
+    def _decode_pdf_literal(self, value: bytes) -> str:
+        replacements = {
+            b"\\n": b"\n",
+            b"\\r": b"\r",
+            b"\\t": b"\t",
+            b"\\b": b"\b",
+            b"\\f": b"\f",
+            b"\\(": b"(",
+            b"\\)": b")",
+            b"\\\\": b"\\",
+        }
+        for old, new in replacements.items():
+            value = value.replace(old, new)
+        return value.decode("utf-8", errors="replace")
+
+    def _attachment_image_metadata(self, content: bytes, attachment_type: str) -> dict[str, Any]:
+        dimensions = self._attachment_image_dimensions(content, attachment_type)
+        return {
+            "width": dimensions[0] if dimensions else None,
+            "height": dimensions[1] if dimensions else None,
+        }
+
+    def _attachment_image_dimensions(
+        self, content: bytes, attachment_type: str
+    ) -> tuple[int, int] | None:
+        if attachment_type == "png" and len(content) >= 24 and content.startswith(b"\x89PNG\r\n\x1a\n"):
+            return int.from_bytes(content[16:20], "big"), int.from_bytes(content[20:24], "big")
+        if attachment_type == "gif" and len(content) >= 10:
+            return int.from_bytes(content[6:8], "little"), int.from_bytes(content[8:10], "little")
+        if attachment_type == "jpeg":
+            return self._jpeg_dimensions(content)
+        if attachment_type == "webp":
+            return self._webp_dimensions(content)
+        return None
+
+    def _jpeg_dimensions(self, content: bytes) -> tuple[int, int] | None:
+        if len(content) < 4 or not content.startswith(b"\xff\xd8"):
+            return None
+        position = 2
+        while position + 9 < len(content):
+            if content[position] != 0xFF:
+                position += 1
+                continue
+            marker = content[position + 1]
+            position += 2
+            if marker in {0xD8, 0xD9}:
+                continue
+            if position + 2 > len(content):
+                return None
+            segment_length = int.from_bytes(content[position : position + 2], "big")
+            if segment_length < 2:
+                return None
+            if marker in {
+                0xC0,
+                0xC1,
+                0xC2,
+                0xC3,
+                0xC5,
+                0xC6,
+                0xC7,
+                0xC9,
+                0xCA,
+                0xCB,
+                0xCD,
+                0xCE,
+                0xCF,
+            } and position + 7 <= len(content):
+                height = int.from_bytes(content[position + 3 : position + 5], "big")
+                width = int.from_bytes(content[position + 5 : position + 7], "big")
+                return width, height
+            position += segment_length
+        return None
+
+    def _webp_dimensions(self, content: bytes) -> tuple[int, int] | None:
+        if len(content) < 30 or not (content.startswith(b"RIFF") and content[8:12] == b"WEBP"):
+            return None
+        chunk = content[12:16]
+        if chunk == b"VP8X" and len(content) >= 30:
+            width = int.from_bytes(content[24:27], "little") + 1
+            height = int.from_bytes(content[27:30], "little") + 1
+            return width, height
+        return None
+
     def _attachment_path(self, card_id: str, stored_name: str) -> Path:
         return self._attachments_dir / card_id / stored_name
 
@@ -8362,6 +8846,27 @@ class CardService:
                 "validation_error",
                 f"Параметр limit должен быть в диапазоне от 1 до {maximum}.",
                 details={"field": "limit"},
+            )
+        return limit
+
+    def _validated_numeric_limit(
+        self, value, *, field: str, default: int, maximum: int
+    ) -> int:
+        if value in (None, ""):
+            return default
+        try:
+            limit = int(value)
+        except (TypeError, ValueError):
+            self._fail(
+                "validation_error",
+                f"Параметр {field} должен быть целым числом.",
+                details={"field": field},
+            )
+        if limit < 1 or limit > maximum:
+            self._fail(
+                "validation_error",
+                f"Параметр {field} должен быть в диапазоне от 1 до {maximum}.",
+                details={"field": field},
             )
         return limit
 

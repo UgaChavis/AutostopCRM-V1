@@ -1,15 +1,17 @@
 # AutoStop CRM MCP Workflows
 
-Дата: 19.04.2026
+Дата: 25.04.2026
 
 Практические сценарии для GPT-чата, который работает с AutoStop CRM через MCP.
 
 ## 1. Быстрый старт работы с доской
 
 1. `bootstrap_context`
-2. `get_board_content(include_archived=true)`
-3. `get_board_events(event_limit=100, include_archived=true)`
-4. Если нужен краткий операционный взгляд: `review_board`
+2. `review_board`
+3. `get_board_context`
+4. `get_board_events(event_limit=20..50, include_archived=true)` только если нужен журнал изменений
+
+Если нужен полный экспорт, уже потом использовать `get_board_content(include_archived=true)` и `get_board_events(event_limit=100, include_archived=true)`.
 
 Результат: GPT знает текущее состояние карточек, архив, столбцы и последние изменения.
 
@@ -44,8 +46,23 @@
 
 Правило: replace-команды полностью заменяют таблицу, поэтому GPT должен передавать весь новый список строк.
 Правило: `update_repair_order` должен оставаться коротким и структурным. Длинный текст лучше держать в `description`, `note` или отдельном комментарии карточки.
+Правило: `get_repair_order` может материализовать заказ-наряд из карточки, если его еще не было. Если нужен только текст уже существующего заказа-наряда, использовать `get_repair_order_text`.
 
-## 5. Работа с кассами
+## 5. Прочитать вложение карточки
+
+1. `get_card_context(card_id, event_limit=10, include_repair_order_text=false)`.
+2. Проверить `attachment_count` и attachment summaries.
+3. `list_card_attachments(card_id)`.
+4. Выбрать конкретный `attachment_id`.
+5. `get_card_attachment(card_id, attachment_id)`, если нужно подтвердить тип, размер, `sha256` или download path.
+6. `read_card_attachment(card_id, attachment_id, mode="preview", max_chars=12000)`.
+7. Если файл изображение и агент должен его визуально разобрать: повторить `read_card_attachment(..., mode="base64", max_base64_bytes=1048576)`.
+
+Правило: не читать все вложения подряд. Сначала список, потом один выбранный файл.
+Правило: base64 включать только для конкретного изображения или бинарного файла, когда это действительно нужно.
+Правило: PDF читается best-effort. Если текст пустой, возможно это скан, тогда агент должен запросить изображение/base64 или попросить пользователя загрузить текстовый вариант.
+
+## 6. Работа с кассами
 
 1. `list_cashboxes(limit=200)` для общей картины.
 2. `get_cashbox(cashbox_id, transaction_limit=300)` для журнала.
@@ -54,7 +71,7 @@
 
 Правило: `delete_cashbox` использовать только для пустой кассы без движений.
 
-## 6. Движение карточек по доске
+## 7. Движение карточек по доске
 
 1. `list_columns` или `get_board_context` для допустимых столбцов.
 2. `move_card(card_id, column, before_card_id=...)` для одной карточки.
@@ -63,7 +80,7 @@
 
 Правило: для массовых операций использовать `bulk_move_cards`, чтобы не делать длинные цепочки вызовов.
 
-## 7. Архив и просрочка
+## 8. Архив и просрочка
 
 1. `list_overdue_cards` для просроченных активных карточек.
 2. `set_card_deadline` для точной смены срока.
@@ -74,7 +91,7 @@
 
 Правило: archive/destructive действия требуют явного подтверждения пользователя.
 
-## 8. Стикеры
+## 9. Стикеры
 
 1. `create_sticky(text, deadline, x, y)`.
 2. `update_sticky(sticky_id, text=..., deadline=...)`.
@@ -83,9 +100,9 @@
 
 Стикеры входят в `get_board_content` и `get_board_snapshot`.
 
-## 9. Как GPT должен отвечать пользователю
+## 10. Как GPT должен отвечать пользователю
 
 - Сначала кратко сообщать, какие данные прочитаны.
-- Перед write/destructive действием назвать точный объект: `card_id`, `column_id`, `cashbox_id`.
+- Перед write/destructive действием назвать точный объект: `card_id`, `column`, `cashbox_id`.
 - После write-команды читать результат и подтверждать конкретное изменение.
 - Если команда вернула `ok=false`, показывать `error.code` и понятное объяснение, не повторять вызов вслепую.

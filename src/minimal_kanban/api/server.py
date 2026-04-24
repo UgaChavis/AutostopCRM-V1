@@ -245,6 +245,9 @@ class ApiServer:
             "/api/list_overdue_cards": service.list_overdue_cards,
             "/api/add_card_attachment": service.add_card_attachment,
             "/api/remove_card_attachment": service.remove_card_attachment,
+            "/api/list_card_attachments": service.list_card_attachments,
+            "/api/get_card_attachment": service.get_card_attachment,
+            "/api/read_card_attachment": service.read_card_attachment,
         }
         proxied_write_routes = {
             "/api/create_card",

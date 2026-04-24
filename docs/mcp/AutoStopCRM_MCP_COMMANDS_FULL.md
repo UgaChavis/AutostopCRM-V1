@@ -1,8 +1,24 @@
 # AutoStop CRM MCP Commands Full Reference
 
-Дата: 19.04.2026
+Дата: 25.04.2026
 
-Полный справочник MCP-команд AutoStop CRM. Всего команд: 47.
+Полный справочник MCP-команд AutoStop CRM. Всего команд: 50.
+
+## Как не перегружать коннектор
+
+Не все команды одинаково тяжелые. Для обычной работы лучше держать приоритет таким:
+
+1. `ping_connector`, `bootstrap_context`, `get_runtime_status`
+2. `get_board_context`, `review_board`, `search_cards`, `get_cards(compact=true)`
+3. `get_card_context`, `list_card_attachments`, `get_card_attachment`, `read_card_attachment`, `get_repair_order`, `get_card_log`, `get_repair_order_text`
+4. `get_board_snapshot`, `get_board_content`, `get_board_events`, `get_gpt_wall`
+
+Правило простое:
+
+- сначала короткая диагностика;
+- потом точечный read;
+- потом тяжелый экспорт;
+- если нужен большой обзор, лучше собирать его из `review_board` + `get_board_context` + `get_card_context`, а не сразу дергать `get_gpt_wall`.
 
 ## Контекст и диагностика
 
@@ -11,18 +27,18 @@
 | `get_connector_identity` | read | Жесткая идентичность коннектора: имя, board scope, resource URL, правило одной доски. |
 | `ping_connector` | read | Самая легкая проверка доступности MCP. Возвращает `pong`. |
 | `bootstrap_context` | read | Стартовый пакет для GPT: identity, board context, preview стены, recommended write flow. |
-| `get_runtime_status` | read | Диагностика runtime: API health, board counts, endpoint visibility, connector metadata. |
+| `get_runtime_status` | read | Диагностика runtime: API health, board counts, endpoint visibility, connector metadata. Это короткая безопасная проверка. |
 
 ## Доска, Markdown-стена и поиск
 
 | Команда | Тип | Что дает |
 | --- | --- | --- |
 | `get_board_context` | read | Контекст доски: имя, scope, столбцы, счетчики, schema vehicle profile, правила autofill. |
-| `get_board_snapshot` | read | Структурированный snapshot: столбцы, активные карточки, архивный хвост, стикеры, settings. |
-| `review_board` | read | Операционный обзор: summary, загрузка по столбцам, alerts, priority cards, recent events. |
-| `get_board_content` | read | Hidden machine wall в Markdown: карточки по столбцам, архивные карточки, стикеры, vehicle profile compact. |
-| `get_board_events` | read | Markdown-журнал событий, по умолчанию последние 100, порядок `newest_first`. |
-| `get_gpt_wall` | read | Совместимый агрегатор `board_content` + `event_log` в Markdown. |
+| `get_board_snapshot` | read | Структурированный snapshot: столбцы, активные карточки, архивный хвост, стикеры, settings. Тяжелая команда, лучше использовать с `compact=true` и без архива, если нужен быстрый обзор. |
+| `review_board` | read | Операционный обзор: summary, загрузка по столбцам, alerts, priority cards, recent events. Это одна из лучших команд для регулярной проверки. |
+| `get_board_content` | read | Hidden machine wall в Markdown: карточки по столбцам, архивные карточки, стикеры, vehicle profile compact. Тяжелый экспорт стены без журнала событий. |
+| `get_board_events` | read | Markdown-журнал событий, по умолчанию последние 100, порядок `newest_first`. Для обычной работы держи limit ниже. |
+| `get_gpt_wall` | read | Совместимый агрегатор `board_content` + `event_log` в Markdown. Это самый тяжелый read-инструмент, используй только когда нужен единый большой dump. |
 | `search_cards` | read | Поиск карточек по query и фильтрам: column, tag, indicator, status, include_archived. Лучше работает с русско-латинскими вариантами названий и маркеров. |
 | `update_board_settings` | write | Обновляет настройки доски; сейчас используется для `board_scale`. |
 
@@ -30,10 +46,13 @@
 
 | Команда | Тип | Что дает |
 | --- | --- | --- |
-| `get_cards` | read | Список карточек. По умолчанию compact payload для GPT-safe сканов. |
-| `get_card` | read | Одна карточка по `card_id`, включая полный `vehicle_profile` и `vehicle_profile_compact`. |
-| `get_card_context` | read | Фокусный контекст карточки: card data, events, attachments, board context, repair-order text. |
-| `get_card_log` | read | Audit log одной карточки с лимитом событий. |
+| `get_cards` | read | Список карточек. Для быстрых сканов держи `compact=true`. |
+| `get_card` | read | Одна карточка по `card_id`, включая полный `vehicle_profile` и `vehicle_profile_compact`. Тяжелее, чем `get_card_context`, если нужен только контекст. |
+| `get_card_context` | read | Фокусный контекст карточки: card data, events, attachments, board context, repair-order text. Это обычно лучший выбор для одной карточки. |
+| `list_card_attachments` | read | Безопасный список вложений одной карточки без байтов файла: id, имя, MIME, размер, content_kind, readable_as_text, download_path. |
+| `get_card_attachment` | read | Метаданные одного вложения: content_kind, размер, `sha256`, download_path, наличие файла на диске. Файл не возвращается. |
+| `read_card_attachment` | read | Читает выбранное вложение bounded-режимом. TXT/DOCX/XLSX возвращают текст, PDF - best-effort text, изображения - размеры и опциональный `base64/data_url`. |
+| `get_card_log` | read | Audit log одной карточки с лимитом событий. Для частного расследования обычно легче, чем `get_board_events`. |
 | `create_card` | write | Создает карточку с vehicle, title, description, tags, deadline, column, vehicle_profile. |
 | `update_card` | write | Обновляет vehicle, title, description, tags, deadline, vehicle_profile. |
 | `cleanup_card_content` | write | Локальная нормализация карточки: описание, очевидные поля, verify patch. |
@@ -64,12 +83,39 @@
 | Команда | Тип | Что дает |
 | --- | --- | --- |
 | `list_repair_orders` | read | Список заказ-нарядов с фильтром status, поиском, сортировкой, card links. |
-| `get_repair_order` | read | Структурированный заказ-наряд одной карточки. |
-| `get_repair_order_text` | read | Текстовая версия заказ-наряда и file metadata. |
+| `get_repair_order` | read | Структурированный заказ-наряд одной карточки. Если заказ-наряда еще нет, команда может создать его из карточки и сохранить текстовый файл. |
+| `get_repair_order_text` | read | Текстовая версия заказ-наряда и file metadata. Не создает новый заказ-наряд, но может обновить текстовый файл при чтении. Используй, когда нужен именно полный текст. |
 | `update_repair_order` | write | Патчит header/client/payment/status-информацию заказ-наряда. Используй короткий структурный patch. |
 | `replace_repair_order_works` | write | Полностью заменяет таблицу работ. |
 | `replace_repair_order_materials` | write | Полностью заменяет таблицу материалов. |
 | `set_repair_order_status` | write | Ставит заказ-наряду `open` или `closed`; закрытие требует корректной оплаты. |
+
+## Вложения карточек
+
+Правильный flow для агента:
+
+1. Получить карточку через `get_card_context(card_id)` или `get_card(card_id)`.
+2. Если в карточке есть вложения, вызвать `list_card_attachments(card_id)`.
+3. Выбрать конкретный `attachment_id` по имени, типу или размеру.
+4. При необходимости проверить файл через `get_card_attachment(card_id, attachment_id)`.
+5. Только потом читать содержимое через `read_card_attachment`.
+
+Параметры `read_card_attachment`:
+
+- `card_id`: id карточки.
+- `attachment_id`: id вложения.
+- `mode`: `preview`, `text`, `base64`, `auto`.
+- `max_chars`: максимум символов текста, по умолчанию `12000`, максимум `50000`.
+- `include_base64`: включить `base64/data_url`; по умолчанию `false`.
+- `max_base64_bytes`: максимум размера файла для base64, по умолчанию `1048576`, максимум `4194304`.
+
+Ограничения и правила:
+
+- Не использовать `mode=base64` как первый шаг. Сначала читать метаданные.
+- Для TXT/DOCX/XLSX инструмент возвращает нормальный текст.
+- Для PDF извлечение best-effort: если PDF сканированный или со сложным сжатием, текст может быть пустым.
+- Для PNG/JPG/GIF/WEBP CRM не делает OCR. Агент получает размеры и может запросить `data_url` для своей vision-модели.
+- Старые DOC/XLS считаются `office_legacy`: лучше попросить пользователя заменить их на DOCX/XLSX или читать через base64 внешним инструментом.
 
 ## Что не входит в MCP runtime
 

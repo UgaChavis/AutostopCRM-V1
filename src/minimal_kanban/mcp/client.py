@@ -102,6 +102,42 @@ class BoardApiClient:
     def get_card(self, card_id: str) -> dict:
         return self._request("/api/get_card", {"card_id": card_id})
 
+    def list_card_attachments(
+        self, card_id: str, *, include_removed: bool = False
+    ) -> dict:
+        return self._request(
+            "/api/list_card_attachments",
+            {"card_id": card_id, "include_removed": include_removed},
+        )
+
+    def get_card_attachment(self, card_id: str, attachment_id: str) -> dict:
+        return self._request(
+            "/api/get_card_attachment",
+            {"card_id": card_id, "attachment_id": attachment_id},
+        )
+
+    def read_card_attachment(
+        self,
+        card_id: str,
+        attachment_id: str,
+        *,
+        mode: str = "preview",
+        max_chars: int = 12_000,
+        include_base64: bool = False,
+        max_base64_bytes: int = 1_048_576,
+    ) -> dict:
+        return self._request(
+            "/api/read_card_attachment",
+            {
+                "card_id": card_id,
+                "attachment_id": attachment_id,
+                "mode": mode,
+                "max_chars": max_chars,
+                "include_base64": include_base64,
+                "max_base64_bytes": max_base64_bytes,
+            },
+        )
+
     def get_card_context(
         self,
         card_id: str,

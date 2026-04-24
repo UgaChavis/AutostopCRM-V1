@@ -54,6 +54,7 @@ EXPECTED_MCP_TOOLS = {
     "get_board_events",
     "get_board_snapshot",
     "get_card",
+    "get_card_attachment",
     "get_card_context",
     "get_card_log",
     "get_cards",
@@ -64,6 +65,7 @@ EXPECTED_MCP_TOOLS = {
     "get_repair_order_text",
     "get_runtime_status",
     "list_archived_cards",
+    "list_card_attachments",
     "list_cashboxes",
     "list_columns",
     "list_overdue_cards",
@@ -76,6 +78,7 @@ EXPECTED_MCP_TOOLS = {
     "replace_repair_order_works",
     "restore_card",
     "review_board",
+    "read_card_attachment",
     "search_cards",
     "set_card_deadline",
     "set_card_indicator",
@@ -204,7 +207,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 47)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 50)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 self.assertTrue(tool_map["ping_connector"].annotations.readOnlyHint)
                 self.assertFalse(tool_map["ping_connector"].annotations.destructiveHint)
@@ -213,6 +216,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(tool_map["create_card"].annotations.readOnlyHint)
                 self.assertTrue(tool_map["delete_sticky"].annotations.destructiveHint)
                 self.assertIn("vehicle_profile_compact", tool_map["get_card"].description)
+                self.assertTrue(tool_map["read_card_attachment"].annotations.readOnlyHint)
                 self.assertIn("hidden machine wall", tool_map["get_board_content"].description)
                 self.assertIn("Markdown", tool_map["get_board_content"].description)
                 self.assertIn("hidden machine wall", tool_map["get_board_events"].description)
@@ -1225,6 +1229,71 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("repair_order", full_card)
                 self.assertIn("vehicle_profile", full_card)
                 self.assertIn("attachments", full_card)
+
+    async def test_mcp_attachment_read_tools_reach_backend(self) -> None:
+        async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
+            async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
+                created_card = await session.call_tool(
+                    "create_card",
+                    {
+                        "vehicle": "BMW",
+                        "title": "MCP attachment read",
+                        "description": "Attachment check",
+                        "deadline": {"hours": 1},
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(created_card.isError)
+                card_id = created_card.structuredContent["data"]["card"]["id"]
+                added = self.service.add_card_attachment(
+                    {
+                        "card_id": card_id,
+                        "file_name": "agent-note.txt",
+                        "mime_type": "text/plain",
+                        "content_base64": base64.b64encode(
+                            b"AutoStop attachment text for MCP agent"
+                        ).decode("ascii"),
+                    }
+                )
+                attachment_id = added["attachment"]["id"]
+
+                listed = await session.call_tool(
+                    "list_card_attachments", {"card_id": card_id}
+                )
+                self.assertFalse(listed.isError)
+                self.assertTrue(listed.structuredContent["ok"])
+                self.assertEqual(
+                    listed.structuredContent["data"]["attachments"][0]["id"], attachment_id
+                )
+                self.assertEqual(
+                    listed.structuredContent["data"]["attachments"][0]["content_kind"], "text"
+                )
+
+                metadata = await session.call_tool(
+                    "get_card_attachment",
+                    {"card_id": card_id, "attachment_id": attachment_id},
+                )
+                self.assertFalse(metadata.isError)
+                self.assertEqual(
+                    metadata.structuredContent["data"]["attachment"]["sha256"],
+                    hashlib.sha256(b"AutoStop attachment text for MCP agent").hexdigest(),
+                )
+
+                read = await session.call_tool(
+                    "read_card_attachment",
+                    {
+                        "card_id": card_id,
+                        "attachment_id": attachment_id,
+                        "mode": "text",
+                        "max_chars": 1000,
+                    },
+                )
+                self.assertFalse(read.isError)
+                self.assertTrue(read.structuredContent["ok"])
+                self.assertIn("AutoStop attachment text", read.structuredContent["data"]["content"]["text"])
+                self.assertEqual(
+                    read.structuredContent["data"]["content"]["extraction_status"], "ok"
+                )
 
     async def test_mcp_cleanup_tool_reaches_backend(self) -> None:
         async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:

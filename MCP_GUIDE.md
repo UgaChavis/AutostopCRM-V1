@@ -40,7 +40,60 @@ JsonStore
 
 ## Доступные MCP tools
 
-Текущий runtime-tool inventory: `47` tools.
+Текущий runtime-tool inventory: `50` tools.
+
+## Как выбирать команды без лишнего payload
+
+Сейчас у коннектора уже достаточно инструментов, поэтому полезнее не добавлять новые, а вызывать существующие в правильном порядке.
+
+### Легкие команды для старта и повседневной работы
+
+- `ping_connector`
+- `get_connector_identity`
+- `bootstrap_context`
+- `get_runtime_status`
+- `get_board_context`
+- `review_board`
+- `list_columns`
+- `search_cards`
+- `get_cards(compact=true)`
+
+### Команды для точечного чтения
+
+- `get_card_context`
+- `get_card`
+- `list_card_attachments`
+- `get_card_attachment`
+- `read_card_attachment`
+- `get_card_log`
+- `get_repair_order`
+- `list_repair_orders`
+- `get_repair_order_text`
+- `list_overdue_cards`
+- `list_archived_cards`
+
+### Тяжелые команды, которые стоит вызывать редко
+
+- `get_gpt_wall`
+- `get_board_content`
+- `get_board_snapshot`
+- `get_board_events`
+- `get_card` в полном режиме
+- `get_card_context` с длинной историей
+
+Правило по умолчанию:
+
+1. сначала брать короткий диагностический инструмент;
+2. потом узкий поиск или фокусный read;
+3. только после этого открывать тяжелый экспорт.
+
+Для тяжелых инструментов держите лимиты как можно ниже:
+
+- `get_gpt_wall`: `include_archived=false`, `event_limit=10..20`
+- `get_board_content`: `include_archived=false`, `view_mode=agent`
+- `get_board_events`: `event_limit=20..50` для обычной работы
+- `get_board_snapshot`: `compact=true`, `include_archive=false`, `archive_limit` минимально нужный
+- `get_card_context`: `event_limit=5..20`, `include_repair_order_text=false`, если текст не нужен
 
 ### Служебные и диагностические
 
@@ -58,6 +111,9 @@ JsonStore
 - `get_cards`
 - `get_card`
 - `get_card_context`
+- `list_card_attachments`
+- `get_card_attachment`
+- `read_card_attachment`
 - `get_board_snapshot`
 - `get_board_context`
 - `review_board`
@@ -76,6 +132,26 @@ JsonStore
 - `bulk_move_cards`
 - `archive_card`
 - `restore_card`
+
+### Вложения карточек
+
+- `list_card_attachments`
+- `get_card_attachment`
+- `read_card_attachment`
+
+Правильный порядок чтения вложений:
+
+1. `get_card_context(card_id)` или `get_card(card_id)`, чтобы понять, есть ли вложения.
+2. `list_card_attachments(card_id)`, чтобы получить безопасный список файлов без байтов.
+3. `get_card_attachment(card_id, attachment_id)`, если нужны размер, `sha256`, тип и download path.
+4. `read_card_attachment(card_id, attachment_id, mode="preview"|"text"|"base64")`, только для выбранного файла.
+
+Ограничения:
+
+- `read_card_attachment` возвращает bounded text для TXT/DOCX/XLSX и best-effort text для простых PDF.
+- Изображения не проходят OCR внутри CRM; инструмент возвращает размеры и может отдать `base64/data_url`, если включить `include_base64=true` или `mode="base64"`.
+- Не включайте base64 по умолчанию. Для изображений используйте его только когда агент действительно будет анализировать файл vision-моделью.
+- Держите `max_chars` и `max_base64_bytes` минимально достаточными.
 
 ### Sticky notes
 

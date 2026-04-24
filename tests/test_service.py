@@ -3886,6 +3886,70 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(repaired_attachment.file_name, "Persistence финал.docx")
         self.assertEqual(repaired_path.read_bytes(), payload)
 
+    def test_agent_attachment_read_extracts_text_office_and_image_payloads(self) -> None:
+        service = self._build_service()
+        created = service.create_card(
+            {"vehicle": "VW", "title": "Agent attachment read", "deadline": {"hours": 2}}
+        )
+        card_id = created["card"]["id"]
+        text_attachment = service.add_card_attachment(
+            {
+                "card_id": card_id,
+                "file_name": "client-note.txt",
+                "mime_type": "text/plain",
+                "content_base64": base64.b64encode(minimal_text_bytes()).decode("ascii"),
+            }
+        )["attachment"]
+        docx_attachment = service.add_card_attachment(
+            {
+                "card_id": card_id,
+                "file_name": "agent-report.docx",
+                "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "content_base64": base64.b64encode(
+                    minimal_docx_bytes("Agent DOCX text")
+                ).decode("ascii"),
+            }
+        )["attachment"]
+        image_attachment = service.add_card_attachment(
+            {
+                "card_id": card_id,
+                "file_name": "photo.png",
+                "mime_type": "image/png",
+                "content_base64": base64.b64encode(PNG_1X1_BYTES).decode("ascii"),
+            }
+        )["attachment"]
+
+        listed = service.list_card_attachments({"card_id": card_id})
+        self.assertEqual(listed["meta"]["total"], 3)
+        listed_by_id = {item["id"]: item for item in listed["attachments"]}
+        self.assertEqual(listed_by_id[text_attachment["id"]]["content_kind"], "text")
+        self.assertTrue(listed_by_id[docx_attachment["id"]]["readable_as_text"])
+        self.assertEqual(listed_by_id[image_attachment["id"]]["content_kind"], "image")
+
+        text_read = service.read_card_attachment(
+            {"card_id": card_id, "attachment_id": text_attachment["id"], "mode": "text"}
+        )
+        self.assertIn("AutoStop CRM", text_read["content"]["text"])
+        self.assertEqual(text_read["content"]["extraction_status"], "ok")
+
+        docx_read = service.read_card_attachment(
+            {"card_id": card_id, "attachment_id": docx_attachment["id"], "mode": "text"}
+        )
+        self.assertIn("Agent DOCX text", docx_read["content"]["text"])
+        self.assertEqual(docx_read["content"]["encoding"], "office-openxml")
+
+        image_read = service.read_card_attachment(
+            {
+                "card_id": card_id,
+                "attachment_id": image_attachment["id"],
+                "mode": "base64",
+                "max_base64_bytes": 10000,
+            }
+        )
+        self.assertEqual(image_read["content"]["image"], {"width": 1, "height": 1})
+        self.assertTrue(image_read["content"]["base64_included"])
+        self.assertTrue(image_read["content"]["data_url"].startswith("data:image/png;base64,"))
+
     def test_get_card_context_returns_repair_order_text_and_board_context(self) -> None:
         created = self.service.create_card(
             {
