@@ -534,6 +534,11 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML.index("const cachedCard = snapshotCardById(normalizedCardId);"),
             BOARD_WEB_APP_HTML.index("const data = await cardRequest;"),
         )
+        self.assertIn("} else if (data?.card?.id) {", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "state.activeCard = data.card;\n        applyCardModalState(data.card);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "const createInTrigger = target.closest('[data-create-in]');", BOARD_WEB_APP_HTML
         )

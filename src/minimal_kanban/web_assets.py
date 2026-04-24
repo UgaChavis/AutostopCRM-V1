@@ -13772,6 +13772,7 @@ function renderCompactArchiveRows(cards) {
         }
       } else if (data?.card?.id) {
         state.activeCard = data.card;
+        applyCardModalState(data.card);
       }
       if (openRepairOrder && !repairOrderTask) {
         state.repairOrderParentLayer = String(repairOrderParentLayer || (openCardModalEl ? 'card' : '')).trim();
