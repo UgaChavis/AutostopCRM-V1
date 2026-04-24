@@ -496,6 +496,109 @@ class TelegramAICRMToolTests(unittest.TestCase):
         self.assertEqual(captured["mime_type"], "image/png")
         self.assertEqual(analyzed["result"]["data"]["image_facts"]["confidence"], "high")
 
+    def test_registry_exposes_extended_board_sticky_cashbox_and_archive_tools(self) -> None:
+        registry = CRMToolRegistry(self.client, actor_name="TEST_TELEGRAM_AI")
+        names = {definition.name for definition in registry.definitions}
+        self.assertIn("review_board", names)
+        self.assertIn("bulk_move_cards", names)
+        self.assertIn("create_sticky", names)
+        self.assertIn("create_cash_transaction", names)
+
+        first = registry.execute(
+            {"tool": "create_card", "arguments": {"title": "Bulk one"}},
+            role="owner",
+        )["result"]["data"]["card"]["id"]
+        second = registry.execute(
+            {"tool": "create_card", "arguments": {"title": "Bulk two"}},
+            role="owner",
+        )["result"]["data"]["card"]["id"]
+        bulk = registry.execute(
+            {
+                "tool": "bulk_move_cards",
+                "arguments": {"card_ids": [first, second], "column": "in_progress"},
+            },
+            role="owner",
+        )
+        self.assertTrue(bulk["verify"]["passed"])
+
+        archived = registry.execute(
+            {"tool": "archive_card", "arguments": {"card_id": first}},
+            role="owner",
+        )
+        self.assertTrue(archived["verify"]["passed"])
+        restored = registry.execute(
+            {"tool": "restore_card", "arguments": {"card_id": first, "column": "in_progress"}},
+            role="owner",
+        )
+        self.assertTrue(restored["verify"]["passed"])
+
+        column = registry.execute(
+            {"tool": "create_column", "arguments": {"label": "Telegram AI test column"}},
+            role="owner",
+        )
+        self.assertTrue(column["verify"]["passed"])
+        column_id = column["result"]["data"]["column"]["id"]
+        renamed = registry.execute(
+            {
+                "tool": "rename_column",
+                "arguments": {"column_id": column_id, "label": "Telegram AI renamed"},
+            },
+            role="owner",
+        )
+        self.assertTrue(renamed["verify"]["passed"])
+
+        sticky = registry.execute(
+            {
+                "tool": "create_sticky",
+                "arguments": {
+                    "text": "Telegram sticky",
+                    "x": 10,
+                    "y": 20,
+                    "deadline": {"hours": 1},
+                },
+            },
+            role="owner",
+        )
+        self.assertTrue(sticky["verify"]["passed"])
+        sticky_id = sticky["result"]["data"]["sticky"]["id"]
+        moved_sticky = registry.execute(
+            {"tool": "move_sticky", "arguments": {"sticky_id": sticky_id, "x": 40, "y": 50}},
+            role="owner",
+        )
+        self.assertTrue(moved_sticky["verify"]["passed"])
+
+        cashbox = registry.execute(
+            {"tool": "create_cashbox", "arguments": {"name": "Telegram AI cashbox"}},
+            role="owner",
+        )
+        self.assertTrue(cashbox["verify"]["passed"])
+        cashbox_id = cashbox["result"]["data"]["cashbox"]["id"]
+        transaction = registry.execute(
+            {
+                "tool": "create_cash_transaction",
+                "arguments": {
+                    "cashbox_id": cashbox_id,
+                    "direction": "income",
+                    "amount_minor": 1000,
+                    "note": "Telegram AI test",
+                },
+            },
+            role="owner",
+        )
+        self.assertTrue(transaction["verify"]["passed"])
+
+        for tool in (
+            "get_board_context",
+            "review_board",
+            "get_cards",
+            "list_columns",
+            "list_archived_cards",
+            "list_repair_orders",
+            "list_cashboxes",
+        ):
+            result = registry.execute({"tool": tool, "arguments": {}}, role="owner")
+            self.assertIn("result", result)
+
     def test_registry_rejects_unknown_and_non_owner_write(self) -> None:
         registry = CRMToolRegistry(self.client, actor_name="TEST_TELEGRAM_AI")
 

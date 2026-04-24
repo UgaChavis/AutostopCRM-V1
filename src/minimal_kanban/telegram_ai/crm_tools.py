@@ -47,17 +47,42 @@ class CRMToolRegistry:
         self._run_media: list[DownloadedAttachment] = []
         self._handlers: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
             "get_board_snapshot": self._get_board_snapshot,
+            "get_board_context": self._get_board_context,
+            "get_board_content": self._get_board_content,
+            "get_board_events": self._get_board_events,
+            "review_board": self._review_board,
+            "get_gpt_wall": self._get_gpt_wall,
+            "get_cards": self._get_cards,
+            "get_card": self._get_card,
             "search_cards": self._search_cards,
             "get_card_context": self._get_card_context,
+            "get_card_log": self._get_card_log,
             "list_card_attachments": self._list_card_attachments,
             "get_card_attachment": self._get_card_attachment,
             "read_card_attachment": self._read_card_attachment,
             "analyze_card_image_attachment": self._analyze_card_image_attachment,
+            "list_columns": self._list_columns,
+            "list_archived_cards": self._list_archived_cards,
+            "list_repair_orders": self._list_repair_orders,
+            "get_repair_order_text": self._get_repair_order_text,
+            "list_cashboxes": self._list_cashboxes,
+            "get_cashbox": self._get_cashbox,
             "create_card": self._create_card,
             "update_card": self._update_card,
             "move_card": self._move_card,
+            "bulk_move_cards": self._bulk_move_cards,
             "archive_card": self._archive_card,
+            "restore_card": self._restore_card,
+            "cleanup_card_content": self._cleanup_card_content,
             "attach_telegram_photo_to_card": self._attach_telegram_photo_to_card,
+            "create_column": self._create_column,
+            "rename_column": self._rename_column,
+            "create_sticky": self._create_sticky,
+            "update_sticky": self._update_sticky,
+            "move_sticky": self._move_sticky,
+            "create_cashbox": self._create_cashbox,
+            "create_cash_transaction": self._create_cash_transaction,
+            "update_board_settings": self._update_board_settings,
             "set_card_deadline": self._set_card_deadline,
             "set_card_indicator": self._set_card_indicator,
             "list_overdue_cards": self._list_overdue_cards,
@@ -74,13 +99,60 @@ class CRMToolRegistry:
             CRMToolDefinition(
                 "get_board_snapshot", "Read compact board snapshot.", {"compact": "optional bool"}
             ),
+            CRMToolDefinition("get_board_context", "Read board schema and counters.", {}),
+            CRMToolDefinition(
+                "get_board_content",
+                "Read board machine wall markdown.",
+                {"include_archived": "optional bool", "view_mode": "optional string"},
+            ),
+            CRMToolDefinition(
+                "get_board_events",
+                "Read board event log.",
+                {"event_limit": "optional int", "include_archived": "optional bool"},
+            ),
+            CRMToolDefinition(
+                "review_board",
+                "Read operational board review with alerts and priority cards.",
+                {
+                    "stale_hours": "optional int",
+                    "overload_threshold": "optional int",
+                    "priority_limit": "optional int",
+                    "recent_event_limit": "optional int",
+                },
+            ),
+            CRMToolDefinition(
+                "get_gpt_wall",
+                "Read combined board content and event log. Use only when a broad dump is needed.",
+                {"include_archived": "optional bool", "event_limit": "optional int"},
+            ),
+            CRMToolDefinition(
+                "get_cards",
+                "Read cards list.",
+                {"include_archived": "optional bool", "compact": "optional bool"},
+            ),
+            CRMToolDefinition(
+                "get_card", "Read one full card by id.", {"card_id": "required string"}
+            ),
             CRMToolDefinition(
                 "search_cards",
                 "Search cards by query.",
-                {"query": "required string", "limit": "optional int"},
+                {
+                    "query": "required string",
+                    "limit": "optional int",
+                    "include_archived": "optional bool",
+                    "column": "optional string",
+                    "tag": "optional string",
+                    "indicator": "optional string",
+                    "status": "optional string",
+                },
             ),
             CRMToolDefinition(
                 "get_card_context", "Read one focused card context.", {"card_id": "required string"}
+            ),
+            CRMToolDefinition(
+                "get_card_log",
+                "Read one card audit log.",
+                {"card_id": "required string", "limit": "optional int"},
             ),
             CRMToolDefinition(
                 "list_card_attachments",
@@ -116,7 +188,43 @@ class CRMToolRegistry:
                 "list_overdue_cards", "List overdue cards.", {"include_archived": "optional bool"}
             ),
             CRMToolDefinition(
+                "list_columns",
+                "List CRM board columns.",
+                {},
+            ),
+            CRMToolDefinition(
+                "list_archived_cards",
+                "List archived cards.",
+                {"limit": "optional int", "compact": "optional bool"},
+            ),
+            CRMToolDefinition(
+                "list_repair_orders",
+                "List repair orders.",
+                {
+                    "limit": "optional int",
+                    "status": "optional string",
+                    "query": "optional string",
+                    "sort_by": "optional string",
+                    "sort_dir": "optional string",
+                },
+            ),
+            CRMToolDefinition(
                 "get_repair_order", "Read repair order by card id.", {"card_id": "required string"}
+            ),
+            CRMToolDefinition(
+                "get_repair_order_text",
+                "Read printable repair order text by card id.",
+                {"card_id": "required string"},
+            ),
+            CRMToolDefinition(
+                "list_cashboxes",
+                "List cashboxes and balances.",
+                {"limit": "optional int"},
+            ),
+            CRMToolDefinition(
+                "get_cashbox",
+                "Read cashbox details and transactions.",
+                {"cashbox_id": "required string", "transaction_limit": "optional int"},
             ),
             CRMToolDefinition(
                 "create_card",
@@ -157,8 +265,26 @@ class CRMToolRegistry:
                 write=True,
             ),
             CRMToolDefinition(
+                "bulk_move_cards",
+                "Move several cards to one column.",
+                {"card_ids": "required array", "column": "required string"},
+                write=True,
+            ),
+            CRMToolDefinition(
                 "archive_card",
                 "Archive CRM card; never hard delete.",
+                {"card_id": "required string"},
+                write=True,
+            ),
+            CRMToolDefinition(
+                "restore_card",
+                "Restore archived CRM card.",
+                {"card_id": "required string", "column": "optional string"},
+                write=True,
+            ),
+            CRMToolDefinition(
+                "cleanup_card_content",
+                "Normalize one card content through CRM service cleanup.",
                 {"card_id": "required string"},
                 write=True,
             ),
@@ -170,6 +296,69 @@ class CRMToolRegistry:
                     "media_index": "optional int, default 0",
                     "file_name": "optional string",
                 },
+                write=True,
+            ),
+            CRMToolDefinition(
+                "create_column",
+                "Create CRM board column.",
+                {"label": "required string"},
+                write=True,
+            ),
+            CRMToolDefinition(
+                "rename_column",
+                "Rename CRM board column.",
+                {"column_id": "required string", "label": "required string"},
+                write=True,
+            ),
+            CRMToolDefinition(
+                "create_sticky",
+                "Create board sticky note.",
+                {
+                    "text": "required string",
+                    "x": "optional int",
+                    "y": "optional int",
+                    "deadline": "required object",
+                },
+                write=True,
+            ),
+            CRMToolDefinition(
+                "update_sticky",
+                "Update sticky text or deadline.",
+                {
+                    "sticky_id": "required string",
+                    "text": "optional string",
+                    "deadline": "optional object",
+                },
+                write=True,
+            ),
+            CRMToolDefinition(
+                "move_sticky",
+                "Move sticky note on board.",
+                {"sticky_id": "required string", "x": "required int", "y": "required int"},
+                write=True,
+            ),
+            CRMToolDefinition(
+                "create_cashbox",
+                "Create cashbox.",
+                {"name": "required string"},
+                write=True,
+            ),
+            CRMToolDefinition(
+                "create_cash_transaction",
+                "Create cashbox income or expense transaction.",
+                {
+                    "cashbox_id": "required string",
+                    "direction": "required string income|expense",
+                    "amount_minor": "optional int",
+                    "amount": "optional string|number",
+                    "note": "optional string",
+                },
+                write=True,
+            ),
+            CRMToolDefinition(
+                "update_board_settings",
+                "Update board settings. Currently supports board_scale.",
+                {"board_scale": "required number"},
                 write=True,
             ),
             CRMToolDefinition(
@@ -359,6 +548,18 @@ class CRMToolRegistry:
             return self._verify_card_exists(card_id)
         if tool_name in {"update_card", "set_card_deadline", "set_card_indicator"}:
             return self._verify_card_exists(str(arguments.get("card_id") or ""))
+        if tool_name == "bulk_move_cards":
+            card_ids = (
+                arguments.get("card_ids") if isinstance(arguments.get("card_ids"), list) else []
+            )
+            expected_column = str(arguments.get("column") or "")
+            payloads = [self._read_card(str(card_id)) for card_id in card_ids]
+            cards = [_api_data(payload).get("card", {}) for payload in payloads]
+            return {
+                "passed": bool(cards)
+                and all(str(card.get("column") or "") == expected_column for card in cards),
+                "message": "all cards matched column",
+            }
         if tool_name == "move_card":
             card_payload = self._read_card(str(arguments.get("card_id") or ""))
             card = _api_data(card_payload).get("card", {})
@@ -373,6 +574,8 @@ class CRMToolRegistry:
             card_payload = self._read_card(str(arguments.get("card_id") or ""))
             card = _api_data(card_payload).get("card", {})
             return {"passed": bool(card.get("archived")), "message": "archived flag checked"}
+        if tool_name in {"restore_card", "cleanup_card_content"}:
+            return self._verify_card_exists(str(arguments.get("card_id") or ""))
         if tool_name == "attach_telegram_photo_to_card":
             data = _api_data(result)
             attachment = data.get("attachment") if isinstance(data.get("attachment"), dict) else {}
@@ -390,6 +593,17 @@ class CRMToolRegistry:
         }:
             payload = self._board_api.get_repair_order(str(arguments.get("card_id") or ""))
             return {"passed": _api_ok(payload), "message": "repair order read-back checked"}
+        if tool_name in {
+            "create_column",
+            "rename_column",
+            "create_sticky",
+            "update_sticky",
+            "move_sticky",
+            "create_cashbox",
+            "create_cash_transaction",
+            "update_board_settings",
+        }:
+            return {"passed": _api_ok(result), "message": "CRM API accepted write"}
         return {"passed": True, "message": "no specific verifier"}
 
     def _verify_card_exists(self, card_id: str) -> dict[str, Any]:
@@ -422,9 +636,12 @@ class CRMToolRegistry:
         return None
 
     def _validate_batch(self, tool_name: str, arguments: dict[str, Any]) -> None:
-        if tool_name != "move_card":
+        if tool_name == "move_card":
+            card_ids = arguments.get("card_ids")
+        elif tool_name == "bulk_move_cards":
+            card_ids = arguments.get("card_ids")
+        else:
             return
-        card_ids = arguments.get("card_ids")
         if isinstance(card_ids, list) and len(card_ids) > self._max_batch_cards:
             raise CRMToolError(
                 f"Batch card limit exceeded: {len(card_ids)} > {self._max_batch_cards}"
@@ -433,15 +650,63 @@ class CRMToolRegistry:
     def _get_board_snapshot(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.get_board_snapshot(compact=bool(arguments.get("compact", True)))
 
+    def _get_board_context(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.get_board_context()
+
+    def _get_board_content(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.get_board_content(
+            include_archived=bool(arguments.get("include_archived", True)),
+            view_mode=str(arguments.get("view_mode") or "agent"),
+        )
+
+    def _get_board_events(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.get_board_events(
+            event_limit=int(arguments.get("event_limit") or 100),
+            include_archived=bool(arguments.get("include_archived", True)),
+        )
+
+    def _review_board(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.review_board(
+            stale_hours=_optional_int(arguments, "stale_hours"),
+            overload_threshold=_optional_int(arguments, "overload_threshold"),
+            priority_limit=_optional_int(arguments, "priority_limit"),
+            recent_event_limit=_optional_int(arguments, "recent_event_limit"),
+        )
+
+    def _get_gpt_wall(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.get_gpt_wall(
+            include_archived=bool(arguments.get("include_archived", True)),
+            event_limit=_optional_int(arguments, "event_limit"),
+        )
+
+    def _get_cards(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.get_cards(
+            include_archived=bool(arguments.get("include_archived", False)),
+            compact=bool(arguments.get("compact", True)),
+        )
+
+    def _get_card(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.get_card(str(arguments.get("card_id") or ""))
+
     def _search_cards(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.search_cards(
             query=str(arguments.get("query") or ""),
             limit=int(arguments.get("limit") or 10),
             include_archived=bool(arguments.get("include_archived", False)),
+            column=_optional_text(arguments, "column"),
+            tag=_optional_text(arguments, "tag"),
+            indicator=_optional_text(arguments, "indicator"),
+            status=_optional_text(arguments, "status"),
         )
 
     def _get_card_context(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.get_card_context(str(arguments.get("card_id") or ""))
+
+    def _get_card_log(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.get_card_log(
+            str(arguments.get("card_id") or ""),
+            limit=_optional_int(arguments, "limit"),
+        )
 
     def _list_card_attachments(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.list_card_attachments(
@@ -485,6 +750,36 @@ class CRMToolRegistry:
         )
         return {"ok": True, "data": {"image_facts": facts, "source_attachment": content}}
 
+    def _list_columns(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.list_columns()
+
+    def _list_archived_cards(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.list_archived_cards(
+            limit=_optional_int(arguments, "limit"),
+            compact=_optional_bool(arguments, "compact"),
+        )
+
+    def _list_repair_orders(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.list_repair_orders(
+            limit=_optional_int(arguments, "limit"),
+            status=_optional_text(arguments, "status"),
+            query=_optional_text(arguments, "query"),
+            sort_by=_optional_text(arguments, "sort_by"),
+            sort_dir=_optional_text(arguments, "sort_dir"),
+        )
+
+    def _get_repair_order_text(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.get_repair_order_text(str(arguments.get("card_id") or ""))
+
+    def _list_cashboxes(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.list_cashboxes(limit=_optional_int(arguments, "limit"))
+
+    def _get_cashbox(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.get_cashbox(
+            str(arguments.get("cashbox_id") or ""),
+            transaction_limit=_optional_int(arguments, "transaction_limit"),
+        )
+
     def _create_card(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.create_card(
             title=str(arguments.get("title") or "").strip(),
@@ -525,9 +820,30 @@ class CRMToolRegistry:
             actor_name=self._actor_name,
         )
 
+    def _bulk_move_cards(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        card_ids = arguments.get("card_ids") if isinstance(arguments.get("card_ids"), list) else []
+        return self._board_api.bulk_move_cards(
+            card_ids=[str(card_id) for card_id in card_ids],
+            column=str(arguments.get("column") or ""),
+            actor_name=self._actor_name,
+        )
+
     def _archive_card(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.archive_card(
             card_id=str(arguments.get("card_id") or ""), actor_name=self._actor_name
+        )
+
+    def _restore_card(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.restore_card(
+            card_id=str(arguments.get("card_id") or ""),
+            column=_optional_text(arguments, "column"),
+            actor_name=self._actor_name,
+        )
+
+    def _cleanup_card_content(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.cleanup_card_content(
+            card_id=str(arguments.get("card_id") or ""),
+            actor_name=self._actor_name,
         )
 
     def _attach_telegram_photo_to_card(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -558,6 +874,70 @@ class CRMToolRegistry:
         return self._board_api.set_card_indicator(
             card_id=str(arguments.get("card_id") or ""),
             indicator=str(arguments.get("indicator") or ""),
+            actor_name=self._actor_name,
+        )
+
+    def _create_column(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.create_column(
+            label=str(arguments.get("label") or arguments.get("name") or ""),
+            actor_name=self._actor_name,
+        )
+
+    def _rename_column(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.rename_column(
+            str(arguments.get("column_id") or ""),
+            str(arguments.get("label") or ""),
+            actor_name=self._actor_name,
+        )
+
+    def _create_sticky(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.create_sticky(
+            text=str(arguments.get("text") or ""),
+            x=int(arguments.get("x") or 0),
+            y=int(arguments.get("y") or 0),
+            deadline=arguments.get("deadline")
+            if isinstance(arguments.get("deadline"), dict)
+            else {},
+            actor_name=self._actor_name,
+        )
+
+    def _update_sticky(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.update_sticky(
+            sticky_id=str(arguments.get("sticky_id") or ""),
+            text=_optional_text(arguments, "text"),
+            deadline=arguments.get("deadline")
+            if isinstance(arguments.get("deadline"), dict)
+            else None,
+            actor_name=self._actor_name,
+        )
+
+    def _move_sticky(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.move_sticky(
+            sticky_id=str(arguments.get("sticky_id") or ""),
+            x=int(arguments.get("x") or 0),
+            y=int(arguments.get("y") or 0),
+            actor_name=self._actor_name,
+        )
+
+    def _create_cashbox(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.create_cashbox(
+            str(arguments.get("name") or ""),
+            actor_name=self._actor_name,
+        )
+
+    def _create_cash_transaction(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.create_cash_transaction(
+            cashbox_id=str(arguments.get("cashbox_id") or ""),
+            direction=str(arguments.get("direction") or ""),
+            amount_minor=_optional_int(arguments, "amount_minor"),
+            amount=arguments.get("amount"),
+            note=str(arguments.get("note") or ""),
+            actor_name=self._actor_name,
+        )
+
+    def _update_board_settings(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.update_board_settings(
+            board_scale=float(arguments.get("board_scale") or 1.0),
             actor_name=self._actor_name,
         )
 
@@ -623,6 +1003,21 @@ def _optional_text(arguments: dict[str, Any], key: str) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _optional_int(arguments: dict[str, Any], key: str) -> int | None:
+    if key not in arguments:
+        return None
+    try:
+        return int(arguments.get(key))
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_bool(arguments: dict[str, Any], key: str) -> bool | None:
+    if key not in arguments:
+        return None
+    return bool(arguments.get(key))
 
 
 def _telegram_photo_name(item: DownloadedAttachment) -> str:

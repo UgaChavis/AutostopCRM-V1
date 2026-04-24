@@ -233,9 +233,10 @@ def _decision_instructions(*, role: str, tool_catalog: list[dict[str, Any]]) -> 
         "For normal owner commands, act directly.\n"
         "When image_facts.telegram_media is present and the user asks to save or attach the photo to a card, use attach_telegram_photo_to_card with the matching media_index.\n"
         "When the user asks to inspect an image already stored in a card, use list_card_attachments/get_card_attachment/read_card_attachment or analyze_card_image_attachment.\n"
+        "Use board/report tools for summaries, card tools for operational card work, sticky/column tools for board layout, cashbox tools for cash operations, and repair-order tools only for repair-order data.\n"
         "Return only one JSON object with this shape:\n"
         "{"
-        '"intent":"create_card|update_card|move_card|archive_card|repair_order_update|board_report|multi_action|no_action",'
+        '"intent":"board_report|card_read|create_card|update_card|move_card|archive_card|restore_card|attachment_work|sticky_work|column_work|cashbox_work|repair_order_update|multi_action|no_action",'
         '"confidence":"high|medium|low",'
         '"actions":[{"tool":"tool_name","arguments":{},"reason":"short reason"}],'
         '"telegram_response":"short Russian response to send after execution or question when no action",'

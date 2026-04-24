@@ -93,22 +93,47 @@ If owner IDs, bot token, or OpenAI key are missing, the worker stays in safe-dis
 Read tools:
 
 - `get_board_snapshot`
+- `get_board_context`
+- `get_board_content`
+- `get_board_events`
+- `review_board`
+- `get_gpt_wall`
+- `get_cards`
+- `get_card`
 - `search_cards`
 - `get_card_context`
+- `get_card_log`
 - `list_card_attachments`
 - `get_card_attachment`
 - `read_card_attachment`
 - `analyze_card_image_attachment`
 - `list_overdue_cards`
+- `list_columns`
+- `list_archived_cards`
+- `list_repair_orders`
 - `get_repair_order`
+- `get_repair_order_text`
+- `list_cashboxes`
+- `get_cashbox`
 
 Write tools:
 
 - `create_card`
 - `update_card`
 - `move_card`
+- `bulk_move_cards`
 - `archive_card`
+- `restore_card`
+- `cleanup_card_content`
 - `attach_telegram_photo_to_card`
+- `create_column`
+- `rename_column`
+- `create_sticky`
+- `update_sticky`
+- `move_sticky`
+- `create_cashbox`
+- `create_cash_transaction`
+- `update_board_settings`
 - `set_card_deadline`
 - `set_card_indicator`
 - `update_repair_order`
