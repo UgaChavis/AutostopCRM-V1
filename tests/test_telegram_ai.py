@@ -37,6 +37,7 @@ from minimal_kanban.telegram_ai.normalizer import normalize_update
 from minimal_kanban.telegram_ai.openai_client import TelegramAIModelError, TelegramAIOpenAIClient
 from minimal_kanban.telegram_ai.orchestrator import TelegramAIOrchestrator
 from minimal_kanban.telegram_ai.response import build_execution_response
+from minimal_kanban.telegram_ai.worker import TelegramAIWorker
 
 
 def reserve_port() -> int:
@@ -737,6 +738,44 @@ class TelegramAIOrchestratorTests(unittest.TestCase):
                 search_context["conversation_state"]["last_card"]["id"],
                 card_id,
             )
+
+    def test_worker_sends_failure_reply_when_update_pipeline_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = build_config(temp_dir, owner_ids=frozenset({1001}))
+            logger = logging.getLogger("test.telegram_worker")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            worker = TelegramAIWorker(config, logger=logger)
+
+            class FakeTelegram:
+                def __init__(self) -> None:
+                    self.sent_messages: list[dict[str, object]] = []
+
+                def send_message(self, **kwargs) -> dict[str, object]:
+                    self.sent_messages.append(kwargs)
+                    return {"ok": True}
+
+            class FakeOrchestrator:
+                def handle(self, normalized_input, *, downloaded_attachments=None) -> str:
+                    raise RuntimeError("boom")
+
+            telegram = FakeTelegram()
+            update = {
+                "update_id": 1,
+                "message": {
+                    "message_id": 2,
+                    "chat": {"id": 3},
+                    "from": {"id": 1001},
+                    "text": "Найди передние тормозные колодки",
+                },
+            }
+
+            worker._handle_update(telegram, FakeOrchestrator(), update)
+
+            self.assertEqual(len(telegram.sent_messages), 1)
+            self.assertIn("Не выполнил", str(telegram.sent_messages[0]["text"]))
+            self.assertIn("сбой обработки запроса", str(telegram.sent_messages[0]["text"]))
 
     def test_final_response_is_built_after_tool_execution(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

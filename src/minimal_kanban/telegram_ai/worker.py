@@ -128,13 +128,21 @@ class TelegramAIWorker:
         normalized = normalize_update(update)
         if normalized is None:
             return
-        downloaded = self._download_attachments(telegram, normalized.attachments)
-        response = orchestrator.handle(normalized, downloaded_attachments=downloaded)
-        telegram.send_message(
-            chat_id=normalized.chat_id,
-            text=response,
-            reply_to_message_id=normalized.message_id,
-        )
+        response = ""
+        try:
+            downloaded = self._download_attachments(telegram, normalized.attachments)
+            response = orchestrator.handle(normalized, downloaded_attachments=downloaded)
+        except Exception as exc:  # pragma: no cover - long-running safety net
+            self._logger.exception("telegram_ai.update_error error=%s", exc)
+            response = "Не выполнил.\nПричина: сбой обработки запроса."
+        try:
+            telegram.send_message(
+                chat_id=normalized.chat_id,
+                text=response,
+                reply_to_message_id=normalized.message_id,
+            )
+        except TelegramApiError as exc:
+            self._logger.warning("telegram_ai.send_error error=%s", exc)
 
     def _download_attachments(
         self, telegram: TelegramBotClient, attachments

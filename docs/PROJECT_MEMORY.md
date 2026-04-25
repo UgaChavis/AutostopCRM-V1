@@ -32,6 +32,7 @@ Use this file for durable notes that should not be rediscovered every session.
 - direct internet-search now retries transient OpenAI `429`/timeout errors before falling back to the base model, so short rate-limit spikes do not surface as hard failures
 - direct internet-search Telegram replies should not include raw URLs or markdown links; sources are shown as readable names only
 - Telegram AI card-read replies must be human-readable summaries, not execution logs: hide tool names, verification marks, raw status/tag/deadline fields, and technical column ids like `column_6`
+- the Telegram worker now catches unexpected update-pipeline errors and still sends a fallback failure reply instead of going silent
 - the old AutostopAI repository and VIN/green-button worker experiments are legacy context only; do not use them as the base for new product work
 - the card indicator flow can remain as compatibility behavior, but new AI work should go through the Telegram Board Manager unless the user explicitly reopens the card-button feature
 - the CRM deploy path in this repo targets `/opt/autostopcrm`; it now includes both `autostopcrm` and the optional in-repo `autostopcrm-telegram-ai` service
