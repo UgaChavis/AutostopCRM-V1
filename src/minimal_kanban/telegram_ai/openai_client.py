@@ -47,8 +47,6 @@ You are AutoStop CRM Telegram AI Board Manager.
 Language: Russian.
 The user explicitly asks for internet research. Use web search and answer now.
 Do not create CRM actions. Do not promise to send later.
-Return only JSON with this shape:
-{"telegram_response":"final answer with key facts and source links"}
 Keep the answer practical and concise. Include source names or URLs when available.
 """.strip()
         user_payload = {
@@ -56,7 +54,7 @@ Keep the answer practical and concise. Include source names or URLs when availab
             "role": role,
             "mode": "internet_search",
         }
-        payload = self._responses_json(
+        return self._responses_text(
             model=self._model,
             instructions=instructions,
             input_messages=[
@@ -67,7 +65,6 @@ Keep the answer practical and concise. Include source names or URLs when availab
             ],
             web_search=True,
         )
-        return str(payload.get("telegram_response") or "").strip()
 
     def decide(
         self,
@@ -94,6 +91,7 @@ Keep the answer practical and concise. Include source names or URLs when availab
                     "content": json.dumps(user_payload, ensure_ascii=False, sort_keys=True),
                 }
             ],
+            web_search=False,
         )
 
     def final_response(
@@ -161,6 +159,7 @@ Use empty strings or empty arrays when a fact is not visible. Do not invent fact
                     ],
                 }
             ],
+            web_search=False,
         )
 
     def transcribe_audio(self, *, audio_bytes: bytes, filename: str, mime_type: str = "") -> str:
@@ -251,13 +250,34 @@ Use empty strings or empty arrays when a fact is not visible. Do not invent fact
         model: str,
         instructions: str,
         input_messages: list[dict[str, Any]],
-        web_search: bool = True,
+        web_search: bool = False,
     ) -> dict[str, Any]:
+        if web_search:
+            raise TelegramAIModelError("JSON responses cannot be combined with web search.")
         payload: dict[str, Any] = {
             "model": model,
             "instructions": instructions,
             "input": _ensure_json_keyword_in_input(input_messages),
             "text": {"format": {"type": "json_object"}},
+            "reasoning": {"effort": self._reasoning_effort},
+            "store": False,
+        }
+        response_payload = self._post_with_retry("/responses", payload)
+        output_text = _extract_output_text(response_payload)
+        return _parse_json(output_text)
+
+    def _responses_text(
+        self,
+        *,
+        model: str,
+        instructions: str,
+        input_messages: list[dict[str, Any]],
+        web_search: bool = False,
+    ) -> str:
+        payload: dict[str, Any] = {
+            "model": model,
+            "instructions": instructions,
+            "input": input_messages,
             "reasoning": {"effort": self._reasoning_effort},
             "store": False,
         }
@@ -269,8 +289,7 @@ Use empty strings or empty arrays when a fact is not visible. Do not invent fact
                 }
             ]
         response_payload = self._post_with_retry("/responses", payload)
-        output_text = _extract_output_text(response_payload)
-        return _parse_json(output_text)
+        return _extract_output_text(response_payload)
 
     def _post_with_retry(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         headers = {

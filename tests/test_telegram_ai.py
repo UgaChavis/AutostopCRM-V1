@@ -566,12 +566,7 @@ class TelegramAIResponsesPayloadTests(unittest.TestCase):
             def fake_post_with_retry(path: str, payload: dict[str, object]) -> dict[str, object]:
                 captured["path"] = path
                 captured["payload"] = payload
-                return {
-                    "output_text": json.dumps(
-                        {"telegram_response": "Найдено: source.example"},
-                        ensure_ascii=False,
-                    )
-                }
+                return {"output_text": "Найдено: source.example"}
 
             with patch.object(
                 TelegramAIOpenAIClient, "_post_with_retry", side_effect=fake_post_with_retry
