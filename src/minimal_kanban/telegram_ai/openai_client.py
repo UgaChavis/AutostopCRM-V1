@@ -107,7 +107,7 @@ If the exact part number is not confirmed, say that clearly and list what data i
                                 else 75.0
                             ),
                         ),
-                        max_attempts=1,
+                        max_attempts=2,
                     )
                 )
             except TelegramAIModelError as exc:
@@ -400,8 +400,29 @@ Use empty strings or empty arrays when a fact is not visible. Do not invent fact
             except (httpx.HTTPError, ValueError) as exc:
                 last_error = exc
             if attempt < attempts:
-                time.sleep(0.6 * attempt)
+                time.sleep(_retry_delay_seconds(last_error, attempt))
         raise TelegramAIModelError(f"OpenAI request failed: {last_error}") from last_error
+
+
+def _retry_delay_seconds(error: Exception | None, attempt: int) -> float:
+    retry_after = _retry_after_seconds(error)
+    if retry_after is not None:
+        return retry_after
+    if isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 429:
+        return min(6.0, 1.5 * attempt * attempt)
+    return 0.6 * attempt
+
+
+def _retry_after_seconds(error: Exception | None) -> float | None:
+    if not isinstance(error, httpx.HTTPStatusError):
+        return None
+    header_value = str(error.response.headers.get("retry-after") or "").strip()
+    if not header_value:
+        return None
+    try:
+        return max(0.0, float(header_value))
+    except ValueError:
+        return None
 
 
 def _decision_instructions(*, role: str, tool_catalog: list[dict[str, Any]]) -> str:

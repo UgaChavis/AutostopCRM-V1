@@ -29,6 +29,7 @@ Use this file for durable notes that should not be rediscovered every session.
 - Telegram AI now also attaches `conversation_state.last_vin` when the previous verified card result includes a VIN, so follow-up commands can reuse the already-seen VIN instead of asking the user to resend it
 - Telegram AI escalates complex multi-step/VIN/OEM/parts/research CRM-planning commands from `AUTOSTOP_AI_MODEL` to `AUTOSTOP_AI_STRONG_MODEL` with `AUTOSTOP_AI_STRONG_REASONING_EFFORT`
 - direct internet-search uses the base model for simple lookups, but complex VIN/OEM/parts searches now use the strong model with high reasoning and fall back once to the base model on transient OpenAI failure
+- direct internet-search now retries transient OpenAI `429`/timeout errors before falling back to the base model, so short rate-limit spikes do not surface as hard failures
 - direct internet-search Telegram replies should not include raw URLs or markdown links; sources are shown as readable names only
 - Telegram AI card-read replies must be human-readable summaries, not execution logs: hide tool names, verification marks, raw status/tag/deadline fields, and technical column ids like `column_6`
 - the old AutostopAI repository and VIN/green-button worker experiments are legacy context only; do not use them as the base for new product work

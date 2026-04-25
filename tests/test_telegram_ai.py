@@ -10,6 +10,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import httpx
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 TESTS = ROOT / "tests"
@@ -916,6 +918,35 @@ class TelegramAIResponsesPayloadTests(unittest.TestCase):
             self.assertEqual(payload["reasoning"], {"effort": "medium"})
             self.assertEqual(result["intent"], "no_action")
 
+    def test_post_with_retry_retries_transient_429(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = build_config(temp_dir)
+            client = TelegramAIOpenAIClient(config)
+            attempts = {"count": 0}
+
+            class FakeClient:
+                def __init__(self, *args, **kwargs) -> None:
+                    return None
+
+                def __enter__(self) -> FakeClient:
+                    return self
+
+                def __exit__(self, exc_type, exc, tb) -> bool:
+                    return False
+
+                def post(self, url: str, headers=None, json=None) -> httpx.Response:
+                    attempts["count"] += 1
+                    request = httpx.Request("POST", url)
+                    if attempts["count"] == 1:
+                        return httpx.Response(429, request=request, headers={"Retry-After": "0"})
+                    return httpx.Response(200, request=request, json={"output_text": "ok"})
+
+            with patch("minimal_kanban.telegram_ai.openai_client.httpx.Client", FakeClient):
+                payload = client._post_with_retry("/responses", {"model": "gpt-5.4-mini"}, max_attempts=2)
+
+            self.assertEqual(payload["output_text"], "ok")
+            self.assertEqual(attempts["count"], 2)
+
     def test_simple_decide_uses_base_model(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = build_config(temp_dir)
@@ -1211,8 +1242,8 @@ class TelegramAIResponsesPayloadTests(unittest.TestCase):
 
             self.assertEqual(result, "Найдено на базовой модели")
             self.assertEqual(seen_models, ["gpt-5.4", "gpt-5.4-mini"])
-            self.assertEqual(seen_kwargs[0]["max_attempts"], 1)
-            self.assertEqual(seen_kwargs[1]["max_attempts"], 1)
+            self.assertEqual(seen_kwargs[0]["max_attempts"], 2)
+            self.assertEqual(seen_kwargs[1]["max_attempts"], 2)
 
 
 class TelegramAIInternetSearchToolTests(unittest.TestCase):
