@@ -106,7 +106,7 @@ If the exact part number is not confirmed, say that clearly and list what data i
                                 else 60.0
                             ),
                         ),
-                        max_attempts=2,
+                        max_attempts=3,
                     )
                 )
             except TelegramAIModelError as exc:
@@ -408,7 +408,7 @@ def _retry_delay_seconds(error: Exception | None, attempt: int) -> float:
     if retry_after is not None:
         return retry_after
     if isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 429:
-        return min(6.0, 1.5 * attempt * attempt)
+        return min(30.0, 5.0 * attempt * attempt)
     return 0.6 * attempt
 
 
