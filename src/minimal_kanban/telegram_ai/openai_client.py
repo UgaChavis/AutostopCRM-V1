@@ -106,7 +106,7 @@ If the exact part number is not confirmed, say that clearly and list what data i
                                 else 60.0
                             ),
                         ),
-                        max_attempts=1,
+                        max_attempts=2,
                     )
                 )
             except TelegramAIModelError as exc:

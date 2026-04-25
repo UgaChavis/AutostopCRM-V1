@@ -1356,8 +1356,8 @@ class TelegramAIResponsesPayloadTests(unittest.TestCase):
 
             self.assertEqual(result, "Найдено на базовой модели")
             self.assertEqual(seen_models, ["gpt-5.4", "gpt-5.4-mini"])
-            self.assertEqual(seen_kwargs[0]["max_attempts"], 1)
-            self.assertEqual(seen_kwargs[1]["max_attempts"], 1)
+            self.assertEqual(seen_kwargs[0]["max_attempts"], 2)
+            self.assertEqual(seen_kwargs[1]["max_attempts"], 2)
 
 
 class TelegramAIInternetSearchToolTests(unittest.TestCase):
