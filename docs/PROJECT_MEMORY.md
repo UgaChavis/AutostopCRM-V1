@@ -25,6 +25,7 @@ Use this file for durable notes that should not be rediscovered every session.
 - Telegram AI must answer from completed `tool_results`, not from the pre-tool model promise; deferred phrases like `сейчас пришлю` are treated as a bug because the worker sends one reply per update
 - Telegram AI has a direct internet-search route for explicit commands like `найди в интернете`/`загугли`; it uses OpenAI `web_search_preview`, skips CRM tools, and returns the result in the same Telegram reply
 - Telegram AI also exposes `internet_search` as a model tool, so the decision JSON can request web search without relying only on the pre-route detector
+- Telegram AI now attaches a compact `conversation_state.last_card` from the previous card/search result so follow-up commands like "this card" or "that one" can reuse the last selected card instead of asking for it again
 - Telegram AI escalates complex multi-step/VIN/OEM/parts/research CRM-planning commands from `AUTOSTOP_AI_MODEL` to `AUTOSTOP_AI_STRONG_MODEL` with `AUTOSTOP_AI_STRONG_REASONING_EFFORT`
 - direct internet-search is intentionally kept on the base model `gpt-5.4-mini` with low search context and one retry; live tests showed strong-model web-search could timeout or return 429, so do not restore strong web-search without a production smoke test
 - the old AutostopAI repository and VIN/green-button worker experiments are legacy context only; do not use them as the base for new product work

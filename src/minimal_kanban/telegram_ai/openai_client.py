@@ -378,6 +378,7 @@ def _decision_instructions(*, role: str, tool_catalog: list[dict[str, Any]]) -> 
         "Use board/report tools for summaries, card tools for operational card work, sticky/column tools for board layout, cashbox tools for cash operations, and repair-order tools only for repair-order data.\n"
         "Use internet_search when the user wants external web research, parts, prices, official sites, sources, or other non-CRM lookup. Do not answer that internet search is unavailable when the tool catalog includes internet_search.\n"
         "Use crm_context.conversation_memory to resolve references such as 'this card', 'there', 'the previous one', and follow-up commands. Prefer ids from recent verified tool results when the user refers to previous work.\n"
+        "If crm_context.conversation_state.last_card exists, treat it as the active card for follow-up commands unless the user explicitly names a different card. If crm_context.conversation_state.card_candidates exists and there is no single last_card, use the candidates to avoid asking the user to restate the search from scratch.\n"
         "Return only one JSON object with this shape:\n"
         "{"
         '"intent":"board_report|card_read|create_card|update_card|move_card|archive_card|restore_card|attachment_work|sticky_work|column_work|cashbox_work|repair_order_update|internet_search|multi_action|no_action",'

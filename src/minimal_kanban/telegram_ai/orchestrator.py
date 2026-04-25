@@ -7,7 +7,7 @@ from .audit import TelegramAIAuditService
 from .auth import ROLE_UNAUTHORIZED, TelegramAuthService
 from .context import CRMContextBuilder
 from .crm_tools import CRMToolError, CRMToolRegistry
-from .memory import TelegramAIConversationMemory
+from .memory import TelegramAIConversationMemory, latest_card_state
 from .models import DownloadedAttachment, NormalizedTelegramInput, RunContext
 from .openai_client import TelegramAIModelError, TelegramAIOpenAIClient
 from .response import build_execution_response, build_recent_actions_response
@@ -154,6 +154,9 @@ class TelegramAIOrchestrator:
         )
         if memory_rows:
             crm_context["conversation_memory"] = memory_rows
+            conversation_state = latest_card_state(memory_rows)
+            if conversation_state:
+                crm_context["conversation_state"] = conversation_state
 
     def _enrich_from_media(
         self,

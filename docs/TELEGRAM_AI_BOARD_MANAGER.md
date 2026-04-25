@@ -178,6 +178,12 @@ first slice for later scenarios like:
 The second scenario still needs a composed flow: `get_card_context -> extract
 vehicle/VIN facts -> internet_search -> optional CRM note/update`.
 
+Follow-up context note:
+
+- the worker stores a compact `conversation_state.last_card` from the most recent card/search result
+- the model is instructed to reuse that card for follow-up commands such as `this card`, `that one`, `the previous card`, or `add description` unless the user explicitly names a different card
+- if the previous run only produced multiple search candidates, the worker also exposes `conversation_state.card_candidates` so the model can ask a targeted clarification instead of restarting the search
+
 Production stabilization note:
 
 - Web-search intentionally uses the base model `AUTOSTOP_AI_MODEL` and a low search context size.

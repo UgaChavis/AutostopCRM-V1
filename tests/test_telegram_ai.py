@@ -437,6 +437,106 @@ class TelegramAIOrchestratorTests(unittest.TestCase):
                 service.get_cards()["cards"][0]["id"],
             )
 
+    def test_search_follow_up_receives_last_card_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = build_config(temp_dir, owner_ids=frozenset({1001}))
+            audit = TelegramAIAuditService(config.audit_file)
+            model = FakeModelClient()
+            model.decisions = [
+                {
+                    "intent": "card_read",
+                    "confidence": "high",
+                    "actions": [
+                        {
+                            "tool": "search_cards",
+                            "arguments": {"query": "Camry", "limit": 5},
+                            "reason": "find the target card",
+                        }
+                    ],
+                    "telegram_response": "Нашёл карточку Camry.",
+                    "requires_human_confirmation": False,
+                },
+                {
+                    "intent": "no_action",
+                    "confidence": "high",
+                    "actions": [],
+                    "telegram_response": "Понял.",
+                    "requires_human_confirmation": False,
+                },
+            ]
+            logger = logging.getLogger("test.telegram_search_memory")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            store = JsonStore(state_file=Path(temp_dir) / "state.json", logger=logger)
+            service = CardService(store, logger)
+            created = service.create_card(
+                {
+                    "title": "Camry",
+                    "vehicle": "Toyota Camry",
+                    "description": "Найти и отработать follow-up контекст.",
+                    "deadline": {"days": 1},
+                }
+            )
+            card_id = created["card"]["id"]
+            port = reserve_port()
+            server = ApiServer(service, logger, start_port=port, fallback_limit=1)
+            server.start()
+            try:
+                client = BoardApiClient(
+                    server.base_url, logger=logger, default_source="telegram_ai"
+                )
+                orchestrator = TelegramAIOrchestrator(
+                    auth=TelegramAuthService(config),
+                    model_client=model,
+                    context_builder=CRMContextBuilder(client),
+                    tool_registry=CRMToolRegistry(client, actor_name="TEST_TELEGRAM_AI"),
+                    audit=audit,
+                    memory=TelegramAIConversationMemory(config.conversation_file, limit=5),
+                )
+                first = normalize_update(
+                    {
+                        "update_id": 1,
+                        "message": {
+                            "message_id": 2,
+                            "chat": {"id": 3},
+                            "from": {"id": 1001},
+                            "text": "Найди карточку Camry",
+                        },
+                    }
+                )
+                second = normalize_update(
+                    {
+                        "update_id": 2,
+                        "message": {
+                            "message_id": 3,
+                            "chat": {"id": 3},
+                            "from": {"id": 1001},
+                            "text": "Добавь туда описание",
+                        },
+                    }
+                )
+
+                orchestrator.handle(first)
+                orchestrator.handle(second)
+            finally:
+                server.stop()
+
+            second_context = model.received_contexts[1]
+            state = second_context.get("conversation_state")
+            self.assertIsInstance(state, dict)
+            assert isinstance(state, dict)
+            self.assertEqual(state["last_card"]["id"], card_id)
+            self.assertEqual(state["last_card"]["title"], "Camry")
+            self.assertIn("card_candidates", state)
+            self.assertGreaterEqual(len(state["card_candidates"]), 1)
+            self.assertEqual(
+                second_context["conversation_memory"][0]["tool_results"][0]["references"][
+                    "selected_card"
+                ]["id"],
+                card_id,
+            )
+
     def test_final_response_is_built_after_tool_execution(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = build_config(temp_dir, owner_ids=frozenset({1001}))
