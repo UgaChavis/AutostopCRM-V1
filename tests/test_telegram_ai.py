@@ -678,7 +678,7 @@ class TelegramAIResponsesPayloadTests(unittest.TestCase):
             assert isinstance(payload, dict)
             self.assertEqual(payload["tools"][0]["type"], "web_search_preview")
 
-    def test_complex_internet_search_uses_strong_model_with_web_search(self) -> None:
+    def test_complex_internet_search_uses_base_model_with_strong_reasoning(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = TelegramAIConfig(
                 **{
@@ -711,11 +711,11 @@ class TelegramAIResponsesPayloadTests(unittest.TestCase):
             payload = captured["payload"]
             self.assertIsInstance(payload, dict)
             assert isinstance(payload, dict)
-            self.assertEqual(payload["model"], "gpt-5.4")
+            self.assertEqual(payload["model"], "gpt-5.4-mini")
             self.assertEqual(payload["reasoning"], {"effort": "high"})
             self.assertEqual(payload["tools"][0]["type"], "web_search_preview")
 
-    def test_complex_internet_search_falls_back_to_base_model(self) -> None:
+    def test_complex_internet_search_retries_base_model_once(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = TelegramAIConfig(
                 **{
@@ -734,7 +734,7 @@ class TelegramAIResponsesPayloadTests(unittest.TestCase):
             ) -> dict[str, object]:
                 seen_models.append(str(payload.get("model") or ""))
                 seen_kwargs.append(kwargs)
-                if payload.get("model") == "gpt-5.4":
+                if len(seen_models) == 1:
                     raise TelegramAIModelError("OpenAI request failed: timeout")
                 return {"output_text": "Найдено на базовой модели"}
 
@@ -750,7 +750,7 @@ class TelegramAIResponsesPayloadTests(unittest.TestCase):
                 )
 
             self.assertEqual(result, "Найдено на базовой модели")
-            self.assertEqual(seen_models, ["gpt-5.4", "gpt-5.4-mini"])
+            self.assertEqual(seen_models, ["gpt-5.4-mini", "gpt-5.4-mini"])
             self.assertEqual(seen_kwargs[0]["max_attempts"], 1)
             self.assertEqual(seen_kwargs[1]["max_attempts"], 1)
 

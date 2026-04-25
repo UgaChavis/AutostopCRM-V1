@@ -60,15 +60,17 @@ Keep the answer practical and concise. Include source names or URLs when availab
             "role": role,
             "mode": "internet_search",
         }
-        model = self._model_for_command(command_text)
-        candidates = [model]
-        if model != self._model:
-            candidates.append(self._model)
+        model = self._model
+        reasoning_effort = (
+            self._strong_reasoning_effort
+            if _is_complex_command(command_text)
+            else self._reasoning_effort
+        )
         last_error: TelegramAIModelError | None = None
-        for candidate in candidates:
+        for _attempt in range(2):
             try:
                 return self._responses_text(
-                    model=candidate,
+                    model=model,
                     instructions=instructions,
                     input_messages=[
                         {
@@ -77,7 +79,7 @@ Keep the answer practical and concise. Include source names or URLs when availab
                         }
                     ],
                     web_search=True,
-                    reasoning_effort=self._reasoning_for_model(candidate),
+                    reasoning_effort=reasoning_effort,
                     request_timeout_seconds=max(self._timeout_seconds, 75.0),
                     max_attempts=1,
                 )
