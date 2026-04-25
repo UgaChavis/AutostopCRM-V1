@@ -201,7 +201,8 @@ class TelegramAIOrchestrator:
             return (
                 "Telegram AI worker активен.\n"
                 f"Роль: {context.role}.\n"
-                f"Модель: {self._model_client.model}."
+                f"Модель: {self._model_client.model}.\n"
+                f"Сильная модель: {getattr(self._model_client, 'strong_model', '-')}."
             )
         if (
             "что ты сделал" in lowered

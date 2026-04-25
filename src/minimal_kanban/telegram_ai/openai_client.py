@@ -25,9 +25,11 @@ class TelegramAIOpenAIClient:
         self._api_key = config.openai_api_key
         self._base_url = config.openai_base_url.rstrip("/")
         self._model = config.model
+        self._strong_model = config.strong_model or config.model
         self._vision_model = config.vision_model
         self._transcription_model = config.transcription_model
         self._reasoning_effort = config.reasoning_effort
+        self._strong_reasoning_effort = config.strong_reasoning_effort or config.reasoning_effort
         self._timeout_seconds = config.openai_request_timeout_seconds
         self._web_search_enabled = config.web_search_enabled
 
@@ -38,6 +40,10 @@ class TelegramAIOpenAIClient:
     @property
     def web_search_enabled(self) -> bool:
         return self._web_search_enabled
+
+    @property
+    def strong_model(self) -> str:
+        return self._strong_model
 
     def internet_search(self, *, command_text: str, role: str) -> str:
         if not self._web_search_enabled:
@@ -54,8 +60,9 @@ Keep the answer practical and concise. Include source names or URLs when availab
             "role": role,
             "mode": "internet_search",
         }
+        model = self._model_for_command(command_text)
         return self._responses_text(
-            model=self._model,
+            model=model,
             instructions=instructions,
             input_messages=[
                 {
@@ -64,6 +71,7 @@ Keep the answer practical and concise. Include source names or URLs when availab
                 }
             ],
             web_search=True,
+            reasoning_effort=self._reasoning_for_model(model),
         )
 
     def decide(
@@ -82,8 +90,9 @@ Keep the answer practical and concise. Include source names or URLs when availab
             "crm_context": crm_context,
             "image_facts": image_facts or {},
         }
+        model = self._model_for_command(command_text)
         return self._responses_json(
-            model=self._model,
+            model=model,
             instructions=instructions,
             input_messages=[
                 {
@@ -92,6 +101,7 @@ Keep the answer practical and concise. Include source names or URLs when availab
                 }
             ],
             web_search=False,
+            reasoning_effort=self._reasoning_for_model(model),
         )
 
     def final_response(
@@ -120,8 +130,9 @@ Keep the answer compact, but complete enough that no second message is needed.
             "model_decision": model_decision,
             "tool_results": _compact_for_final_response(tool_results),
         }
+        model = self._model_for_command(command_text)
         payload = self._responses_json(
-            model=self._model,
+            model=model,
             instructions=instructions,
             input_messages=[
                 {
@@ -130,6 +141,7 @@ Keep the answer compact, but complete enough that no second message is needed.
                 }
             ],
             web_search=False,
+            reasoning_effort=self._reasoning_for_model(model),
         )
         return str(payload.get("telegram_response") or "").strip()
 
@@ -251,6 +263,7 @@ Use empty strings or empty arrays when a fact is not visible. Do not invent fact
         instructions: str,
         input_messages: list[dict[str, Any]],
         web_search: bool = False,
+        reasoning_effort: str | None = None,
     ) -> dict[str, Any]:
         if web_search:
             raise TelegramAIModelError("JSON responses cannot be combined with web search.")
@@ -259,7 +272,7 @@ Use empty strings or empty arrays when a fact is not visible. Do not invent fact
             "instructions": instructions,
             "input": _ensure_json_keyword_in_input(input_messages),
             "text": {"format": {"type": "json_object"}},
-            "reasoning": {"effort": self._reasoning_effort},
+            "reasoning": {"effort": reasoning_effort or self._reasoning_effort},
             "store": False,
         }
         response_payload = self._post_with_retry("/responses", payload)
@@ -273,12 +286,13 @@ Use empty strings or empty arrays when a fact is not visible. Do not invent fact
         instructions: str,
         input_messages: list[dict[str, Any]],
         web_search: bool = False,
+        reasoning_effort: str | None = None,
     ) -> str:
         payload: dict[str, Any] = {
             "model": model,
             "instructions": instructions,
             "input": input_messages,
-            "reasoning": {"effort": self._reasoning_effort},
+            "reasoning": {"effort": reasoning_effort or self._reasoning_effort},
             "store": False,
         }
         if web_search and self._web_search_enabled:
@@ -290,6 +304,16 @@ Use empty strings or empty arrays when a fact is not visible. Do not invent fact
             ]
         response_payload = self._post_with_retry("/responses", payload)
         return _extract_output_text(response_payload)
+
+    def _model_for_command(self, command_text: str) -> str:
+        if _is_complex_command(command_text) and self._strong_model:
+            return self._strong_model
+        return self._model
+
+    def _reasoning_for_model(self, model: str) -> str:
+        if model == self._strong_model and model != self._model:
+            return self._strong_reasoning_effort
+        return self._reasoning_effort
 
     def _post_with_retry(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         headers = {
@@ -340,6 +364,49 @@ def _decision_instructions(*, role: str, tool_catalog: list[dict[str, Any]]) -> 
         f"{json.dumps(tool_catalog, ensure_ascii=False, sort_keys=True)}\n"
         f"Current role: {role}."
     )
+
+
+def _is_complex_command(command_text: str) -> bool:
+    text = str(command_text or "").strip().lower()
+    if not text:
+        return False
+    score = 0
+    if len(text) >= 220:
+        score += 2
+    elif len(text) >= 140:
+        score += 1
+    strong_markers = (
+        "сначала",
+        "потом",
+        "после этого",
+        "затем",
+        "несколько шагов",
+        "пошагово",
+        "проанализируй",
+        "сравни",
+        "подбери",
+        "найди запчаст",
+        "аналоги",
+        "оригинал",
+        "oem",
+        "vin",
+        "заказ-наряд",
+        "по всем карточкам",
+        "все карточки",
+        "интернет",
+        "источники",
+        "ссылки",
+        "с учетом",
+        "сформируй",
+        "заполни",
+        "обнови",
+        "прикрепи",
+    )
+    score += sum(1 for marker in strong_markers if marker in text)
+    separators = text.count(",") + text.count(";") + text.count(" и ") + text.count(" а также ")
+    if separators >= 4:
+        score += 1
+    return score >= 2
 
 
 def _compact_for_final_response(tool_results: list[dict[str, Any]]) -> list[dict[str, Any]]:

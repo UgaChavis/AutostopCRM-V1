@@ -57,7 +57,9 @@ Recommended:
 
 ```env
 AUTOSTOP_AI_MODEL=gpt-5.4-mini
+AUTOSTOP_AI_STRONG_MODEL=gpt-5.4
 AUTOSTOP_AI_REASONING_EFFORT=medium
+AUTOSTOP_AI_STRONG_REASONING_EFFORT=high
 AUTOSTOP_AI_MAX_BATCH_CARDS=20
 AUTOSTOP_AI_AUDIT_ENABLED=1
 AUTOSTOP_AI_CONVERSATION_MEMORY_LIMIT=12
@@ -137,6 +139,26 @@ first slice for later scenarios like:
 
 The second scenario still needs a composed flow: `get_card_context -> extract
 vehicle/VIN facts -> internet_search -> optional CRM note/update`.
+
+## Model escalation
+
+The worker uses two decision tiers:
+
+- base model: `AUTOSTOP_AI_MODEL`, default `gpt-5.4-mini`
+- strong model: `AUTOSTOP_AI_STRONG_MODEL`, default `gpt-5.4`
+
+Normal short commands use the base model. Complex commands use the strong model
+and `AUTOSTOP_AI_STRONG_REASONING_EFFORT`, default `high`.
+
+Current complexity signals:
+
+- long command text
+- multi-step wording: `сначала`, `потом`, `затем`, `пошагово`
+- research/analysis wording: `проанализируй`, `сравни`, `источники`, `ссылки`
+- vehicle parts wording: `VIN`, `OEM`, `оригинал`, `аналоги`, `найди запчасти`
+- mass or risky CRM work: `все карточки`, `по всем карточкам`, `заполни`, `обнови`
+
+This applies to CRM decisions, internet search, and final answer synthesis.
 
 ## CRM tool registry v1
 
@@ -269,6 +291,7 @@ Covered:
 - filtering stale future-promise phrases from model output
 - direct internet-search command routing
 - Responses API payload includes `web_search_preview` when internet search is enabled
+- automatic strong-model escalation for complex Telegram requests
 
 ## Production deployment
 

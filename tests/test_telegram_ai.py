@@ -53,9 +53,11 @@ def build_config(
         openai_api_key="openai-key",
         openai_base_url="https://api.openai.com/v1",
         model="gpt-5.4-mini",
+        strong_model="gpt-5.4",
         vision_model="gpt-5.4-mini",
         transcription_model="gpt-4o-mini-transcribe",
         reasoning_effort="medium",
+        strong_reasoning_effort="high",
         crm_api_base_url="http://127.0.0.1:41731",
         crm_api_bearer_token=None,
         data_dir=Path(temp_dir) / "telegram_ai",
@@ -551,6 +553,83 @@ class TelegramAIResponsesPayloadTests(unittest.TestCase):
             self.assertEqual(payload["reasoning"], {"effort": "medium"})
             self.assertEqual(result["intent"], "no_action")
 
+    def test_simple_decide_uses_base_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = build_config(temp_dir)
+            client = TelegramAIOpenAIClient(config)
+            captured: dict[str, object] = {}
+
+            def fake_post_with_retry(path: str, payload: dict[str, object]) -> dict[str, object]:
+                captured["payload"] = payload
+                return {
+                    "output_text": json.dumps(
+                        {
+                            "intent": "no_action",
+                            "confidence": "high",
+                            "actions": [],
+                            "telegram_response": "ok",
+                            "requires_human_confirmation": False,
+                        },
+                        ensure_ascii=False,
+                    )
+                }
+
+            with patch.object(
+                TelegramAIOpenAIClient, "_post_with_retry", side_effect=fake_post_with_retry
+            ):
+                client.decide(
+                    command_text="Кратко по доске",
+                    role="owner",
+                    crm_context={},
+                    tool_catalog=[],
+                )
+
+            payload = captured["payload"]
+            self.assertIsInstance(payload, dict)
+            assert isinstance(payload, dict)
+            self.assertEqual(payload["model"], "gpt-5.4-mini")
+            self.assertEqual(payload["reasoning"], {"effort": "medium"})
+
+    def test_complex_decide_uses_strong_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = build_config(temp_dir)
+            client = TelegramAIOpenAIClient(config)
+            captured: dict[str, object] = {}
+
+            def fake_post_with_retry(path: str, payload: dict[str, object]) -> dict[str, object]:
+                captured["payload"] = payload
+                return {
+                    "output_text": json.dumps(
+                        {
+                            "intent": "multi_action",
+                            "confidence": "high",
+                            "actions": [],
+                            "telegram_response": "ok",
+                            "requires_human_confirmation": False,
+                        },
+                        ensure_ascii=False,
+                    )
+                }
+
+            with patch.object(
+                TelegramAIOpenAIClient, "_post_with_retry", side_effect=fake_post_with_retry
+            ):
+                client.decide(
+                    command_text=(
+                        "Сначала зайди в карточку, возьми VIN, потом найди запчасти, "
+                        "сравни OEM и аналоги, проверь источники и сформируй ответ."
+                    ),
+                    role="owner",
+                    crm_context={},
+                    tool_catalog=[],
+                )
+
+            payload = captured["payload"]
+            self.assertIsInstance(payload, dict)
+            assert isinstance(payload, dict)
+            self.assertEqual(payload["model"], "gpt-5.4")
+            self.assertEqual(payload["reasoning"], {"effort": "high"})
+
     def test_internet_search_payload_uses_web_search_tool(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = build_config(temp_dir)
@@ -581,6 +660,39 @@ class TelegramAIResponsesPayloadTests(unittest.TestCase):
             payload = captured["payload"]
             self.assertIsInstance(payload, dict)
             assert isinstance(payload, dict)
+            self.assertEqual(payload["tools"][0]["type"], "web_search_preview")
+
+    def test_complex_internet_search_uses_strong_model_with_web_search(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = TelegramAIConfig(
+                **{
+                    **build_config(temp_dir).__dict__,
+                    "web_search_enabled": True,
+                }
+            )
+            client = TelegramAIOpenAIClient(config)
+            captured: dict[str, object] = {}
+
+            def fake_post_with_retry(path: str, payload: dict[str, object]) -> dict[str, object]:
+                captured["payload"] = payload
+                return {"output_text": "Найдено"}
+
+            with patch.object(
+                TelegramAIOpenAIClient, "_post_with_retry", side_effect=fake_post_with_retry
+            ):
+                client.internet_search(
+                    command_text=(
+                        "Найди в интернете запчасти по VIN, сравни оригинал и аналоги, "
+                        "дай ссылки на источники."
+                    ),
+                    role="owner",
+                )
+
+            payload = captured["payload"]
+            self.assertIsInstance(payload, dict)
+            assert isinstance(payload, dict)
+            self.assertEqual(payload["model"], "gpt-5.4")
+            self.assertEqual(payload["reasoning"], {"effort": "high"})
             self.assertEqual(payload["tools"][0]["type"], "web_search_preview")
 
 

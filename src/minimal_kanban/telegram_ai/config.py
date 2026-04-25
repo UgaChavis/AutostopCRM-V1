@@ -79,9 +79,11 @@ class TelegramAIConfig:
     openai_api_key: str | None
     openai_base_url: str
     model: str
+    strong_model: str
     vision_model: str
     transcription_model: str
     reasoning_effort: str
+    strong_reasoning_effort: str
     crm_api_base_url: str
     crm_api_bearer_token: str | None
     data_dir: Path
@@ -118,6 +120,7 @@ class TelegramAIConfig:
 
 def load_config() -> TelegramAIConfig:
     model = _env_text("AUTOSTOP_AI_MODEL") or _env_text("OPENAI_MODEL") or DEFAULT_OPENAI_MODEL
+    strong_model = _env_text("AUTOSTOP_AI_STRONG_MODEL") or model.replace("-mini", "") or model
     data_dir = get_app_data_dir() / "telegram_ai"
     return TelegramAIConfig(
         enabled=_env_flag("AUTOSTOP_TELEGRAM_AI_ENABLED", default=False),
@@ -126,10 +129,12 @@ def load_config() -> TelegramAIConfig:
         openai_api_key=_env_text("OPENAI_API_KEY") or _env_text("AUTOSTOP_OPENAI_API_KEY") or None,
         openai_base_url=(_env_text("OPENAI_BASE_URL") or DEFAULT_OPENAI_BASE_URL).rstrip("/"),
         model=model,
+        strong_model=strong_model,
         vision_model=_env_text("AUTOSTOP_AI_VISION_MODEL") or model,
         transcription_model=_env_text("AUTOSTOP_AI_TRANSCRIPTION_MODEL")
         or "gpt-4o-mini-transcribe",
         reasoning_effort=_env_text("AUTOSTOP_AI_REASONING_EFFORT") or "medium",
+        strong_reasoning_effort=_env_text("AUTOSTOP_AI_STRONG_REASONING_EFFORT") or "high",
         crm_api_base_url=_default_crm_api_base_url(),
         crm_api_bearer_token=_env_text("AUTOSTOP_CRM_API_BEARER_TOKEN") or get_api_bearer_token(),
         data_dir=data_dir,
