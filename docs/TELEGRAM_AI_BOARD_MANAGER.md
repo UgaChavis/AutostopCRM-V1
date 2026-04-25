@@ -188,10 +188,10 @@ Follow-up context note:
 
 Production stabilization note:
 
-- Web-search intentionally uses the base model `AUTOSTOP_AI_MODEL` and a low search context size.
-- Complex CRM planning can use `AUTOSTOP_AI_STRONG_MODEL`, but direct web-search is kept fast and stable because strong-model web-search caused live timeouts/429s.
-- Web-search retries once on the base model before surfacing an error to Telegram.
-- Do not re-enable strong-model web-search without a live timeout/429 smoke test.
+- Simple web-search uses the base model `AUTOSTOP_AI_MODEL` and a low search context size.
+- Complex web-search for VIN, OEM, parts, compatibility, analogs, and source comparison uses `AUTOSTOP_AI_STRONG_MODEL` with `AUTOSTOP_AI_STRONG_REASONING_EFFORT`.
+- If the strong web-search call fails with a transient OpenAI error, the worker falls back once to the base model before surfacing an error to Telegram.
+- Direct web-search answers are prompted as Telegram-ready text with short sections, readable source names/URLs, and optional emoji.
 
 ## Model escalation
 
@@ -213,12 +213,12 @@ Current complexity signals:
 
 This applies to CRM decisions and final answer synthesis.
 
-Important current exception:
+Direct `internet_search` model choice:
 
-- direct `internet_search` does **not** use the strong model on production
-- it uses `AUTOSTOP_AI_MODEL` with normal reasoning for stability
-- strong escalation still applies to CRM tool decisions and final response synthesis
-- `/status` now reports whether internet search is enabled in the current runtime
+- simple lookup: `AUTOSTOP_AI_MODEL`
+- complex parts/VIN/OEM lookup: `AUTOSTOP_AI_STRONG_MODEL`
+- transient strong-model failure: one fallback call through `AUTOSTOP_AI_MODEL`
+- `/status` reports whether internet search is enabled in the current runtime
 
 ## CRM tool registry v1
 

@@ -61,7 +61,14 @@ The user explicitly asks for internet research. Use web search and answer now.
 Do not create CRM actions. Do not promise to send later.
 If crm_context.conversation_state.last_vin exists, use it as the VIN for this request and do not ask the user to resend it.
 If crm_context.conversation_state.last_card exists, use that card as the source of the VIN and related vehicle facts.
-Keep the answer practical and concise. Include source names or URLs when available.
+Write a clean Telegram-ready answer. Emoji are allowed and preferred.
+Use this structure when it fits:
+🔎 Коротко: one direct conclusion.
+✅ Найдено: exact part numbers, names, or facts.
+🧩 Почему подходит: short compatibility reasoning, VIN/vehicle facts, limits.
+📎 Источники: 2-4 readable source names or URLs.
+Keep each bullet on its own line. Do not use markdown tables. Do not output raw citation clutter, utm parameters, duplicated links, or broken bracket syntax.
+If the exact part number is not confirmed, say that clearly and list what data is missing.
 """.strip()
         user_payload = {
             "command_text": command_text,
@@ -69,9 +76,11 @@ Keep the answer practical and concise. Include source names or URLs when availab
             "mode": "internet_search",
             **_compact_search_context(crm_context or {}),
         }
-        model = self._model
+        primary_model = self._model_for_internet_search(command_text, user_payload)
+        fallback_model = self._model if primary_model != self._model else None
+        models = [primary_model, *([fallback_model] if fallback_model else [primary_model])]
         last_error: TelegramAIModelError | None = None
-        for _attempt in range(2):
+        for model in models:
             try:
                 return self._responses_text(
                     model=model,
@@ -83,8 +92,11 @@ Keep the answer practical and concise. Include source names or URLs when availab
                         }
                     ],
                     web_search=True,
-                    reasoning_effort=self._reasoning_effort,
-                    request_timeout_seconds=max(self._timeout_seconds, 75.0),
+                    reasoning_effort=self._reasoning_for_model(model),
+                    request_timeout_seconds=max(
+                        self._timeout_seconds,
+                        120.0 if model == self._strong_model and model != self._model else 75.0,
+                    ),
                     max_attempts=1,
                 )
             except TelegramAIModelError as exc:
@@ -334,6 +346,11 @@ Use empty strings or empty arrays when a fact is not visible. Do not invent fact
             return self._strong_model
         return self._model
 
+    def _model_for_internet_search(self, command_text: str, payload: dict[str, Any]) -> str:
+        if self._strong_model and _is_complex_internet_search(command_text, payload):
+            return self._strong_model
+        return self._model
+
     def _reasoning_for_model(self, model: str) -> str:
         if model == self._strong_model and model != self._model:
             return self._strong_reasoning_effort
@@ -441,6 +458,41 @@ def _is_complex_command(command_text: str) -> bool:
     score += sum(1 for marker in strong_markers if marker in text)
     separators = text.count(",") + text.count(";") + text.count(" и ") + text.count(" а также ")
     if separators >= 4:
+        score += 1
+    return score >= 2
+
+
+def _is_complex_internet_search(command_text: str, payload: dict[str, Any]) -> bool:
+    text = str(command_text or "").strip().lower()
+    if not text:
+        return False
+    if payload.get("resolved_vin"):
+        return True
+    score = 0
+    strong_markers = (
+        "vin",
+        "вин",
+        "oem",
+        "оригинал",
+        "оригинальный",
+        "аналог",
+        "аналоги",
+        "запчаст",
+        "артикул",
+        "каталог",
+        "совместим",
+        "подходит",
+        "сравни",
+        "источники",
+        "ссылки",
+        "масляный фильтр",
+        "воздушный фильтр",
+        "тормоз",
+    )
+    score += sum(1 for marker in strong_markers if marker in text)
+    if len(text) >= 120:
+        score += 1
+    if text.count(",") + text.count(";") + text.count(" и ") >= 3:
         score += 1
     return score >= 2
 

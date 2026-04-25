@@ -28,7 +28,7 @@ Use this file for durable notes that should not be rediscovered every session.
 - Telegram AI now attaches a compact `conversation_state.last_card` from the previous card/search result so follow-up commands like "this card" or "that one" can reuse the last selected card instead of asking for it again
 - Telegram AI now also attaches `conversation_state.last_vin` when the previous verified card result includes a VIN, so follow-up commands can reuse the already-seen VIN instead of asking the user to resend it
 - Telegram AI escalates complex multi-step/VIN/OEM/parts/research CRM-planning commands from `AUTOSTOP_AI_MODEL` to `AUTOSTOP_AI_STRONG_MODEL` with `AUTOSTOP_AI_STRONG_REASONING_EFFORT`
-- direct internet-search is intentionally kept on the base model `gpt-5.4-mini` with low search context and one retry; live tests showed strong-model web-search could timeout or return 429, so do not restore strong web-search without a production smoke test
+- direct internet-search uses the base model for simple lookups, but complex VIN/OEM/parts searches now use the strong model with high reasoning and fall back once to the base model on transient OpenAI failure
 - the old AutostopAI repository and VIN/green-button worker experiments are legacy context only; do not use them as the base for new product work
 - the card indicator flow can remain as compatibility behavior, but new AI work should go through the Telegram Board Manager unless the user explicitly reopens the card-button feature
 - the CRM deploy path in this repo targets `/opt/autostopcrm`; it now includes both `autostopcrm` and the optional in-repo `autostopcrm-telegram-ai` service
