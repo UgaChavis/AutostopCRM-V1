@@ -86,6 +86,7 @@ class FakeModelClient:
         self.internet_search_calls = 0
         self.internet_search_responses: list[str] = []
         self.received_search_commands: list[str] = []
+        self.received_search_contexts: list[dict[str, object]] = []
 
     def decide(self, **kwargs):
         self.decide_calls += 1
@@ -116,6 +117,7 @@ class FakeModelClient:
     def internet_search(self, **kwargs) -> str:
         self.internet_search_calls += 1
         self.received_search_commands.append(str(kwargs.get("command_text") or ""))
+        self.received_search_contexts.append(kwargs.get("crm_context") or {})
         if self.internet_search_responses:
             return self.internet_search_responses.pop(0)
         return "Ответ интернет-поиска"
@@ -635,6 +637,105 @@ class TelegramAIOrchestratorTests(unittest.TestCase):
                 "WAUZZZ8V0JA000001",
             )
 
+    def test_internet_search_follow_up_uses_last_vin_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = build_config(temp_dir, owner_ids=frozenset({1001}))
+            audit = TelegramAIAuditService(config.audit_file)
+            model = FakeModelClient()
+            model.internet_search_responses = [
+                "Нашёл источник по VIN.",
+            ]
+            logger = logging.getLogger("test.telegram_vin_internet")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            store = JsonStore(state_file=Path(temp_dir) / "state.json", logger=logger)
+            service = CardService(store, logger)
+            created = service.create_card(
+                {
+                    "title": "VIN internet card",
+                    "vehicle": "Toyota Prado",
+                    "vehicle_profile": {"vin": "JTEBU3FJ60K123456"},
+                    "deadline": {"days": 1},
+                }
+            )
+            card_id = created["card"]["id"]
+            model.decisions = [
+                {
+                    "intent": "card_read",
+                    "confidence": "high",
+                    "actions": [
+                        {
+                            "tool": "get_card_context",
+                            "arguments": {"card_id": card_id},
+                            "reason": "read the card before web search",
+                        }
+                    ],
+                    "telegram_response": "Смотрю карточку.",
+                    "requires_human_confirmation": False,
+                }
+            ]
+            port = reserve_port()
+            server = ApiServer(service, logger, start_port=port, fallback_limit=1)
+            server.start()
+            try:
+                client = BoardApiClient(
+                    server.base_url, logger=logger, default_source="telegram_ai"
+                )
+                orchestrator = TelegramAIOrchestrator(
+                    auth=TelegramAuthService(config),
+                    model_client=model,
+                    context_builder=CRMContextBuilder(client),
+                    tool_registry=CRMToolRegistry(client, actor_name="TEST_TELEGRAM_AI"),
+                    audit=audit,
+                    memory=TelegramAIConversationMemory(config.conversation_file, limit=5),
+                )
+                first = normalize_update(
+                    {
+                        "update_id": 20,
+                        "message": {
+                            "message_id": 21,
+                            "chat": {"id": 22},
+                            "from": {"id": 1001},
+                            "text": "Открой карточку и запомни VIN",
+                        },
+                    }
+                )
+                second = normalize_update(
+                    {
+                        "update_id": 21,
+                        "message": {
+                            "message_id": 22,
+                            "chat": {"id": 22},
+                            "from": {"id": 1001},
+                            "text": "Найди в интернете по этому VIN оригинальный масляный фильтр",
+                        },
+                    }
+                )
+
+                orchestrator.handle(first)
+                response = orchestrator.handle(second)
+            finally:
+                server.stop()
+
+            self.assertIn("Нашёл источник по VIN", response)
+            self.assertEqual(model.internet_search_calls, 1)
+            self.assertEqual(
+                model.received_search_commands[0],
+                "Найди в интернете по этому VIN оригинальный масляный фильтр",
+            )
+            search_context = model.received_search_contexts[0]
+            self.assertIsInstance(search_context, dict)
+            assert isinstance(search_context, dict)
+            self.assertEqual(
+                search_context["conversation_state"]["last_vin"],
+                "JTEBU3FJ60K123456",
+            )
+            self.assertEqual(
+                search_context["conversation_state"]["last_card"]["id"],
+                card_id,
+            )
+
     def test_final_response_is_built_after_tool_execution(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = build_config(temp_dir, owner_ids=frozenset({1001}))
@@ -935,6 +1036,57 @@ class TelegramAIResponsesPayloadTests(unittest.TestCase):
             self.assertIsInstance(payload, dict)
             assert isinstance(payload, dict)
             self.assertEqual(payload["tools"][0]["type"], "web_search_preview")
+
+    def test_internet_search_payload_includes_follow_up_vin_context(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = TelegramAIConfig(
+                **{
+                    **build_config(temp_dir).__dict__,
+                    "web_search_enabled": True,
+                }
+            )
+            client = TelegramAIOpenAIClient(config)
+            captured: dict[str, object] = {}
+
+            def fake_post_with_retry(
+                path: str,
+                payload: dict[str, object],
+                **kwargs: object,
+            ) -> dict[str, object]:
+                captured["payload"] = payload
+                return {"output_text": "Найдено: source.example"}
+
+            with patch.object(
+                TelegramAIOpenAIClient, "_post_with_retry", side_effect=fake_post_with_retry
+            ):
+                client.internet_search(
+                    command_text="Найди в интернете по этому VIN оригинальный фильтр",
+                    role="owner",
+                    crm_context={
+                        "conversation_state": {
+                            "last_vin": "JTEBU3FJ60K123456",
+                            "last_card": {
+                                "id": "card-77",
+                                "title": "VIN Test",
+                                "vehicle": "Toyota Prado",
+                            },
+                        }
+                    },
+                )
+
+            payload = captured["payload"]
+            self.assertIsInstance(payload, dict)
+            assert isinstance(payload, dict)
+            input_messages = payload["input"]
+            self.assertIsInstance(input_messages, list)
+            assert isinstance(input_messages, list)
+            user_content = input_messages[0]["content"]
+            self.assertIsInstance(user_content, str)
+            assert isinstance(user_content, str)
+            user_payload = json.loads(user_content)
+            self.assertEqual(user_payload["resolved_vin"], "JTEBU3FJ60K123456")
+            self.assertEqual(user_payload["resolved_card"]["id"], "card-77")
+            self.assertEqual(user_payload["conversation_state"]["last_vin"], "JTEBU3FJ60K123456")
 
     def test_complex_internet_search_uses_base_model_with_fast_reasoning(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

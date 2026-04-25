@@ -74,12 +74,18 @@ class TelegramAIOrchestrator:
                 context.final_status = "completed"
                 context.telegram_response = builtin_response
                 return builtin_response
-            internet_response = self._handle_internet_search(command_text, context)
+            crm_context: dict[str, Any] = {}
+            self._attach_conversation_memory(crm_context, normalized_input)
+            internet_response = self._handle_internet_search(
+                command_text,
+                context,
+                crm_context=crm_context,
+            )
             if internet_response is not None:
                 context.final_status = "completed"
                 context.telegram_response = internet_response
                 return internet_response
-            crm_context = self._context_builder.build(command_text=command_text)
+            crm_context.update(self._context_builder.build(command_text=command_text))
             self._attach_conversation_memory(crm_context, normalized_input)
             context.context_summary = self._context_builder.summary(crm_context)
             decision = self._model_client.decide(
@@ -225,7 +231,13 @@ class TelegramAIOrchestrator:
             return self._rollback_last_action(context)
         return None
 
-    def _handle_internet_search(self, command_text: str, context: RunContext) -> str | None:
+    def _handle_internet_search(
+        self,
+        command_text: str,
+        context: RunContext,
+        *,
+        crm_context: dict[str, Any] | None = None,
+    ) -> str | None:
         if not _looks_like_internet_search(command_text):
             return None
         context.model_decision = {
@@ -236,6 +248,7 @@ class TelegramAIOrchestrator:
         response = self._model_client.internet_search(
             command_text=command_text,
             role=context.role,
+            crm_context=crm_context or {},
         )
         return str(response or "").strip() or "Поиск выполнен, но модель не вернула текст ответа."
 

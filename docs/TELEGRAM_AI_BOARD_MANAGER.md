@@ -182,6 +182,7 @@ Follow-up context note:
 
 - the worker stores a compact `conversation_state.last_card` from the most recent card/search result
 - the worker also stores `conversation_state.last_vin` when a recent verified card result includes a VIN, so follow-up commands like "use this VIN" can reuse it without asking again
+- direct internet-search also receives the same follow-up state, so phrases like "найди по этому VIN" can reuse `conversation_state.last_vin` instead of asking the user to resend the VIN
 - the model is instructed to reuse that card for follow-up commands such as `this card`, `that one`, `the previous card`, or `add description` unless the user explicitly names a different card
 - if the previous run only produced multiple search candidates, the worker also exposes `conversation_state.card_candidates` so the model can ask a targeted clarification instead of restarting the search
 

@@ -45,7 +45,13 @@ class TelegramAIOpenAIClient:
     def strong_model(self) -> str:
         return self._strong_model
 
-    def internet_search(self, *, command_text: str, role: str) -> str:
+    def internet_search(
+        self,
+        *,
+        command_text: str,
+        role: str,
+        crm_context: dict[str, Any] | None = None,
+    ) -> str:
         if not self._web_search_enabled:
             raise TelegramAIModelError("OpenAI web search is disabled.")
         instructions = """
@@ -53,12 +59,15 @@ You are AutoStop CRM Telegram AI Board Manager.
 Language: Russian.
 The user explicitly asks for internet research. Use web search and answer now.
 Do not create CRM actions. Do not promise to send later.
+If crm_context.conversation_state.last_vin exists, use it as the VIN for this request and do not ask the user to resend it.
+If crm_context.conversation_state.last_card exists, use that card as the source of the VIN and related vehicle facts.
 Keep the answer practical and concise. Include source names or URLs when available.
 """.strip()
         user_payload = {
             "command_text": command_text,
             "role": role,
             "mode": "internet_search",
+            **_compact_search_context(crm_context or {}),
         }
         model = self._model
         last_error: TelegramAIModelError | None = None
@@ -442,6 +451,53 @@ def _compact_for_final_response(tool_results: list[dict[str, Any]]) -> list[dict
         if not isinstance(item, dict):
             continue
         compact.append(_compact_value(item, max_depth=6))
+    return compact
+
+
+def _compact_search_context(crm_context: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(crm_context, dict):
+        return {}
+    compact: dict[str, Any] = {}
+    conversation_state = (
+        crm_context.get("conversation_state")
+        if isinstance(crm_context.get("conversation_state"), dict)
+        else {}
+    )
+    if conversation_state:
+        state: dict[str, Any] = {}
+        last_card = conversation_state.get("last_card")
+        if isinstance(last_card, dict):
+            state["last_card"] = {
+                key: last_card.get(key)
+                for key in ("id", "title", "vehicle", "column", "status", "vin")
+                if last_card.get(key) not in (None, "", [], {})
+            }
+        last_vin = conversation_state.get("last_vin")
+        if last_vin not in (None, "", [], {}):
+            state["last_vin"] = str(last_vin)
+        card_candidates = conversation_state.get("card_candidates")
+        if isinstance(card_candidates, list) and card_candidates:
+            state["card_candidates"] = [
+                {
+                    key: item.get(key)
+                    for key in ("id", "title", "vehicle", "column", "status", "vin")
+                    if isinstance(item, dict) and item.get(key) not in (None, "", [], {})
+                }
+                for item in card_candidates[:5]
+                if isinstance(item, dict)
+            ]
+        if state:
+            compact["conversation_state"] = state
+            last_vin = state.get("last_vin")
+            if last_vin not in (None, "", [], {}):
+                compact["resolved_vin"] = str(last_vin)
+            last_card = state.get("last_card")
+            if isinstance(last_card, dict):
+                compact["resolved_card"] = {
+                    key: last_card.get(key)
+                    for key in ("id", "title", "vehicle", "column", "status", "vin")
+                    if last_card.get(key) not in (None, "", [], {})
+                }
     return compact
 
 
