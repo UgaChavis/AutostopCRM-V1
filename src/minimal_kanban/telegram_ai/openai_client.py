@@ -162,6 +162,8 @@ Do not create new actions and do not ask the user to wait.
 Return only JSON with this shape:
 {"telegram_response":"short final answer with the actual result from tool_results"}
 If tool_results contain card text, repair order text, card list, counts, or write results, include the useful result directly.
+Write for a human, not for a developer. Do not mention internal tool names, ids, status values, tags, deadline timestamps, column ids, verification marks, or raw JSON fields unless the user explicitly asked for technical details.
+For a card read, prefer a short readable summary: card title, vehicle, VIN if present, current column label if meaningful, and a compact description.
 Keep the answer compact, but complete enough that no second message is needed.
 """.strip()
         user_payload = {

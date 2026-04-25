@@ -1311,6 +1311,54 @@ class TelegramAIResponseTests(unittest.TestCase):
         self.assertIn("Клиент просит проверить тормоза", response)
         self.assertNotIn("Сейчас пришлю", response)
 
+    def test_card_read_result_is_human_readable_without_internal_fields(self) -> None:
+        response = build_execution_response(
+            model_decision={"telegram_response": "Сделано."},
+            tool_results=[
+                {
+                    "tool": "get_card",
+                    "verify": {"passed": True},
+                    "result": {
+                        "data": {
+                            "card": {
+                                "id": "C-244DACF8",
+                                "title": "тестовая карточка",
+                                "vehicle": "Toyota Corolla",
+                                "column": "column_6",
+                                "column_label": "В работе",
+                                "description": "Toyota Corolla 2016. Тестовая карточка.",
+                                "vehicle_profile": {
+                                    "vin": "JTDBR32E302123456",
+                                    "make_display": "Toyota",
+                                    "model_display": "Corolla",
+                                    "production_year": "2016",
+                                    "drivetrain": "FWD",
+                                },
+                                "status": "open",
+                                "tags": [{"label": "TEST"}],
+                                "deadline": {"target": "2026-04-25T14:17:24"},
+                            }
+                        }
+                    },
+                }
+            ],
+            status="completed",
+        )
+
+        self.assertIn("Карточка: тестовая карточка", response)
+        self.assertIn("Авто: Toyota Corolla", response)
+        self.assertIn("VIN: JTDBR32E302123456", response)
+        self.assertIn("Колонка: В работе", response)
+        self.assertIn("Описание:", response)
+        self.assertNotIn("Сделано", response)
+        self.assertNotIn("get_card", response)
+        self.assertNotIn("проверено", response)
+        self.assertNotIn("column_6", response)
+        self.assertNotIn("Статус", response)
+        self.assertNotIn("open", response)
+        self.assertNotIn("tags", response)
+        self.assertNotIn("deadline", response)
+
     def test_image_analysis_result_is_surfaced_in_telegram_reply(self) -> None:
         response = build_execution_response(
             model_decision={"telegram_response": "Проверил фото."},

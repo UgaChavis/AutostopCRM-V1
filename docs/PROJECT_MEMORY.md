@@ -30,6 +30,7 @@ Use this file for durable notes that should not be rediscovered every session.
 - Telegram AI escalates complex multi-step/VIN/OEM/parts/research CRM-planning commands from `AUTOSTOP_AI_MODEL` to `AUTOSTOP_AI_STRONG_MODEL` with `AUTOSTOP_AI_STRONG_REASONING_EFFORT`
 - direct internet-search uses the base model for simple lookups, but complex VIN/OEM/parts searches now use the strong model with high reasoning and fall back once to the base model on transient OpenAI failure
 - direct internet-search Telegram replies should not include raw URLs or markdown links; sources are shown as readable names only
+- Telegram AI card-read replies must be human-readable summaries, not execution logs: hide tool names, verification marks, raw status/tag/deadline fields, and technical column ids like `column_6`
 - the old AutostopAI repository and VIN/green-button worker experiments are legacy context only; do not use them as the base for new product work
 - the card indicator flow can remain as compatibility behavior, but new AI work should go through the Telegram Board Manager unless the user explicitly reopens the card-button feature
 - the CRM deploy path in this repo targets `/opt/autostopcrm`; it now includes both `autostopcrm` and the optional in-repo `autostopcrm-telegram-ai` service

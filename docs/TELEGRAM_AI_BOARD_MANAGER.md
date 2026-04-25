@@ -135,6 +135,11 @@ from the real tool results. Read tools such as `get_card`, `get_card_context`,
 `get_repair_order_text`, `get_cards`, `search_cards`, and board reports must
 surface useful data directly in the same Telegram reply.
 
+For card reads, the reply must look like a short human summary, not a tool log.
+Do not show internal tool names, verification marks, raw ids, `status`, tags,
+deadline payloads, or technical column ids such as `column_6`. Prefer title,
+vehicle, VIN, meaningful column label, and a compact description.
+
 ## Internet search mode
 
 The worker has a direct internet-search route before CRM tool planning, and the

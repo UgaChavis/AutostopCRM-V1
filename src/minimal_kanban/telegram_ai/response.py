@@ -18,6 +18,8 @@ _PROMISE_MARKERS = (
     "come back later",
 )
 
+_CARD_READ_TOOLS = {"get_card", "get_card_context"}
+
 
 def build_execution_response(
     *,
@@ -31,6 +33,10 @@ def build_execution_response(
     if not tool_results:
         response = _sanitize_model_response(model_decision.get("telegram_response"))
         return response or "Принял. Действий по CRM не требуется."
+    if len(tool_results) == 1 and str(tool_results[0].get("tool") or "") in _CARD_READ_TOOLS:
+        detail = _tool_result_detail(tool_results[0])
+        if detail:
+            return detail
     lines = ["Сделано."]
     for item in tool_results[:8]:
         tool_name = str(item.get("tool") or "")
@@ -107,16 +113,13 @@ def _format_card_detail(card: dict[str, Any]) -> str:
     lines: list[str] = []
     title = str(card.get("title") or card.get("heading") or "").strip()
     vehicle = str(card.get("vehicle") or "").strip()
-    column = str(card.get("column") or card.get("column_label") or "").strip()
+    column = _human_column(card)
     card_id = str(card.get("id") or "").strip()
-    header_parts = [part for part in (title, vehicle, column) if part]
-    if header_parts:
-        lines.append("  Карточка: " + " | ".join(header_parts))
-    elif card_id:
-        lines.append("  Карточка: " + card_id)
-    description = str(card.get("description") or "").strip()
-    if description:
-        lines.append("  Описание:\n" + _truncate(description, limit=1600))
+    header = title or vehicle or card_id
+    if header:
+        lines.append(f"🔎 Карточка: {header}")
+    if vehicle and vehicle != title:
+        lines.append(f"🚗 Авто: {vehicle}")
     profile = card.get("vehicle_profile") if isinstance(card.get("vehicle_profile"), dict) else {}
     if not profile:
         compact_profile = (
@@ -127,7 +130,40 @@ def _format_card_detail(card: dict[str, Any]) -> str:
         profile = compact_profile if compact_profile else {}
     profile_lines = _vehicle_profile_lines(profile)
     if profile_lines:
-        lines.append("  Паспорт авто: " + "; ".join(profile_lines))
+        lines.extend(profile_lines)
+    if column:
+        lines.append(f"📍 Колонка: {column}")
+    description = _clean_description(str(card.get("description") or "").strip())
+    if description:
+        lines.append("📝 Описание:")
+        lines.append(_truncate(description, limit=900))
+    if not lines and card_id:
+        lines.append("🔎 Карточка: " + card_id)
+    return "\n".join(lines)
+
+
+def _human_column(card: dict[str, Any]) -> str:
+    column_label = str(card.get("column_label") or "").strip()
+    if column_label and not _looks_technical(column_label):
+        return column_label
+    column = str(card.get("column") or "").strip()
+    return "" if _looks_technical(column) else column
+
+
+def _looks_technical(value: str) -> bool:
+    lowered = str(value or "").strip().lower()
+    return not lowered or lowered.startswith("column_") or lowered in {"open", "closed"}
+
+
+def _clean_description(description: str) -> str:
+    text = str(description or "").strip()
+    if not text:
+        return ""
+    lines = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line:
+            lines.append(line)
     return "\n".join(lines)
 
 
@@ -145,7 +181,8 @@ def _vehicle_profile_lines(profile: dict[str, Any]) -> list[str]:
     for key, label in labels.items():
         value = profile.get(key)
         if value not in (None, "", [], {}):
-            lines.append(f"{label}: {value}")
+            prefix = "🆔 " if key == "vin" else "• "
+            lines.append(f"{prefix}{label}: {value}")
     return lines[:8]
 
 
