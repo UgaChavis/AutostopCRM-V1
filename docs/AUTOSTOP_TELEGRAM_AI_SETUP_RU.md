@@ -5,7 +5,7 @@
 ## Текущая рабочая точка
 
 - branch: `autostopcrm-v1`
-- latest verified Telegram AI checkpoint: `fa3f574`
+- latest verified Telegram AI checkpoint: `b159b48`
 - production repo: `/opt/autostopcrm`
 - CRM: `https://crm.autostopcrm.ru`
 - MCP: `https://crm.autostopcrm.ru/mcp`

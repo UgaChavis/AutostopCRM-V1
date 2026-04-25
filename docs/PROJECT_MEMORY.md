@@ -34,7 +34,7 @@ Use this file for durable notes that should not be rediscovered every session.
 
 ## Telegram AI Checkpoint: 2026-04-25
 
-- commit synced locally, on GitHub, and on production: `fa3f574`
+- commit synced locally, on GitHub, and on production: `b159b48`
 - production repo: `/opt/autostopcrm`
 - production services: `autostopcrm`, `autostopcrm-telegram-ai`
 - live CRM URL: `https://crm.autostopcrm.ru`
