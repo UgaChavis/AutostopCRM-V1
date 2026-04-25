@@ -360,6 +360,86 @@ class TelegramAIOrchestratorTests(unittest.TestCase):
             self.assertIn("Интернет-поиск", response)
             self.assertIn("неизвестно", response)
 
+    def test_ping_command_does_not_require_openai(self) -> None:
+        class FailingModel(FakeModelClient):
+            def decide(self, **kwargs):
+                raise TelegramAIModelError("OpenAI request failed: 429 Too Many Requests")
+
+        class EmptyContextBuilder:
+            def build(self, *, command_text: str):
+                return {"board_snapshot": {"cards": []}, "board_review": {}}
+
+            def summary(self, context):
+                return {"cards_visible": 0, "columns_visible": 0}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = build_config(temp_dir, owner_ids=frozenset({1001}))
+            model = FailingModel()
+            orchestrator = TelegramAIOrchestrator(
+                auth=TelegramAuthService(config),
+                model_client=model,
+                context_builder=EmptyContextBuilder(),
+                tool_registry=object(),
+                audit=TelegramAIAuditService(config.audit_file),
+            )
+            normalized = normalize_update(
+                {
+                    "update_id": 4,
+                    "message": {
+                        "message_id": 5,
+                        "chat": {"id": 6},
+                        "from": {"id": 1001},
+                        "text": "ты на связи?",
+                    },
+                }
+            )
+
+            response = orchestrator.handle(normalized)
+
+            self.assertIn("На связи", response)
+            self.assertNotIn("429", response)
+
+    def test_active_card_count_uses_crm_context_without_openai(self) -> None:
+        class FailingModel(FakeModelClient):
+            def decide(self, **kwargs):
+                raise AssertionError("OpenAI should not be called for active card count.")
+
+        class CountContextBuilder:
+            def build(self, *, command_text: str):
+                return {
+                    "board_snapshot": {"cards": [{"id": "1"}, {"id": "2"}, {"id": "3"}]},
+                    "board_review": {},
+                    "search_results": {},
+                }
+
+            def summary(self, context):
+                return {"cards_visible": 3, "columns_visible": 2}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = build_config(temp_dir, owner_ids=frozenset({1001}))
+            orchestrator = TelegramAIOrchestrator(
+                auth=TelegramAuthService(config),
+                model_client=FailingModel(),
+                context_builder=CountContextBuilder(),
+                tool_registry=object(),
+                audit=TelegramAIAuditService(config.audit_file),
+            )
+            normalized = normalize_update(
+                {
+                    "update_id": 5,
+                    "message": {
+                        "message_id": 6,
+                        "chat": {"id": 7},
+                        "from": {"id": 1001},
+                        "text": "Сколько у нас активных карточек?",
+                    },
+                }
+            )
+
+            response = orchestrator.handle(normalized)
+
+            self.assertEqual(response, "Активных карточек: 3.")
+
     def test_follow_up_receives_conversation_memory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = build_config(temp_dir, owner_ids=frozenset({1001}))
