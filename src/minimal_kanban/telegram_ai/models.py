@@ -82,6 +82,7 @@ class RunContext:
     role: str
     normalized_input: NormalizedTelegramInput
     transcribed_text: str = ""
+    voice_transcription_error: str = ""
     image_facts: dict[str, Any] = field(default_factory=dict)
     context_summary: dict[str, Any] = field(default_factory=dict)
     model_decision: dict[str, Any] = field(default_factory=dict)

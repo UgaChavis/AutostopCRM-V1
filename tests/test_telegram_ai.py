@@ -852,6 +852,60 @@ class TelegramAIOrchestratorTests(unittest.TestCase):
             self.assertIn("Клиент просит проверить тормоза", response)
             self.assertNotIn("Сейчас пришлю", response)
 
+    def test_voice_transcription_failure_returns_friendly_reply(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = build_config(temp_dir, owner_ids=frozenset({1001}))
+
+            class FakeAudit:
+                def __init__(self) -> None:
+                    self.runs: list[object] = []
+
+                def write_run(self, context) -> None:
+                    self.runs.append(context)
+
+            class VoiceFailModelClient(FakeModelClient):
+                def transcribe_audio(self, **kwargs) -> str:
+                    raise TelegramAIModelError("OpenAI transcription request failed.")
+
+            orchestrator = TelegramAIOrchestrator(
+                auth=TelegramAuthService(config),
+                model_client=VoiceFailModelClient(),
+                context_builder=object(),
+                tool_registry=object(),
+                audit=FakeAudit(),
+                memory=None,
+            )
+            normalized = normalize_update(
+                {
+                    "update_id": 41,
+                    "message": {
+                        "message_id": 42,
+                        "chat": {"id": 43},
+                        "from": {"id": 1001},
+                        "voice": {
+                            "file_id": "voice-1",
+                            "file_unique_id": "v1",
+                            "mime_type": "audio/ogg",
+                        },
+                    },
+                }
+            )
+            assert normalized is not None
+            voice = DownloadedAttachment(
+                attachment=TelegramAttachment(
+                    kind="voice",
+                    file_id="voice-1",
+                    mime_type="audio/ogg",
+                    file_name="voice.ogg",
+                ),
+                content=b"ogg-bytes",
+            )
+
+            response = orchestrator.handle(normalized, downloaded_attachments=[voice])
+
+            self.assertIn("Не смог распознать голосовое сообщение", response)
+            self.assertNotIn("OpenAI", response)
+
 
 class TelegramAITranscriptionTests(unittest.TestCase):
     def test_voice_ogg_is_uploaded_directly_for_transcription(self) -> None:

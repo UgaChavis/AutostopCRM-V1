@@ -69,6 +69,10 @@ class TelegramAIOrchestrator:
                 context,
                 downloaded_attachments or [],
             )
+            if context.voice_transcription_error and not command_text.strip():
+                context.final_status = "completed"
+                context.telegram_response = context.voice_transcription_error
+                return context.telegram_response
             builtin_response = self._handle_builtin(command_text, context)
             if builtin_response is not None:
                 context.final_status = "completed"
@@ -173,11 +177,18 @@ class TelegramAIOrchestrator:
         text = str(command_text or "").strip()
         for item in attachments:
             if item.attachment.kind == "voice":
-                transcript = self._model_client.transcribe_audio(
-                    audio_bytes=item.content,
-                    filename=item.file_name,
-                    mime_type=item.mime_type,
-                )
+                try:
+                    transcript = self._model_client.transcribe_audio(
+                        audio_bytes=item.content,
+                        filename=item.file_name,
+                        mime_type=item.mime_type,
+                    )
+                except TelegramAIModelError:
+                    context.voice_transcription_error = (
+                        "Не смог распознать голосовое сообщение сейчас. "
+                        "Пришлите текстом или повторите позже."
+                    )
+                    continue
                 context.transcribed_text = transcript
                 text = f"{text}\n{transcript}".strip()
             elif item.attachment.kind == "photo":
