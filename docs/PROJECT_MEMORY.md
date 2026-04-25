@@ -24,11 +24,35 @@ Use this file for durable notes that should not be rediscovered every session.
 - every write run should record redacted JSONL audit in `telegram_ai/audit.jsonl` and verify writes by reading CRM state back through the API
 - Telegram AI must answer from completed `tool_results`, not from the pre-tool model promise; deferred phrases like `сейчас пришлю` are treated as a bug because the worker sends one reply per update
 - Telegram AI has a direct internet-search route for explicit commands like `найди в интернете`/`загугли`; it uses OpenAI `web_search_preview`, skips CRM tools, and returns the result in the same Telegram reply
-- Telegram AI escalates complex multi-step/VIN/OEM/parts/research commands from `AUTOSTOP_AI_MODEL` to `AUTOSTOP_AI_STRONG_MODEL` with `AUTOSTOP_AI_STRONG_REASONING_EFFORT`
+- Telegram AI escalates complex multi-step/VIN/OEM/parts/research CRM-planning commands from `AUTOSTOP_AI_MODEL` to `AUTOSTOP_AI_STRONG_MODEL` with `AUTOSTOP_AI_STRONG_REASONING_EFFORT`
+- direct internet-search is intentionally kept on the base model `gpt-5.4-mini` with low search context and one retry; live tests showed strong-model web-search could timeout or return 429, so do not restore strong web-search without a production smoke test
 - the old AutostopAI repository and VIN/green-button worker experiments are legacy context only; do not use them as the base for new product work
 - the card indicator flow can remain as compatibility behavior, but new AI work should go through the Telegram Board Manager unless the user explicitly reopens the card-button feature
 - the CRM deploy path in this repo targets `/opt/autostopcrm`; it now includes both `autostopcrm` and the optional in-repo `autostopcrm-telegram-ai` service
 - `agent/remodel.py` now uses `StrEnum` for its AI enum sets, and the surrounding `agent/*` modules were reformatted so import blocks stay canonical without touching behavior
+
+## Telegram AI Checkpoint: 2026-04-25
+
+- commit synced locally, on GitHub, and on production: `fa3f574`
+- production repo: `/opt/autostopcrm`
+- production services: `autostopcrm`, `autostopcrm-telegram-ai`
+- live CRM URL: `https://crm.autostopcrm.ru`
+- live MCP URL: `https://crm.autostopcrm.ru/mcp`
+- local full suite result before documentation pass: `431/431 OK`
+- production live check before documentation pass:
+  - site `200 OK`
+  - API OK, active cards `60`
+  - MCP OK, tool count `50`
+  - anonymous public writes blocked with `401`
+  - Telegram AI container running
+- live web-search smoke inside `autostopcrm-telegram-ai` succeeded for a Prado J150 air-filter query and returned OEM `17801-30080` with sources
+- next likely feature: composed parts-search flow through Telegram:
+  1. user references a card or asks for a part
+  2. agent reads CRM card/context
+  3. agent extracts VIN/vehicle facts
+  4. agent performs internet search
+  5. agent replies with sources
+  6. optional follow-up writes a compact note or attachment to CRM
 
 ## Current Known Cautions
 

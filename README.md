@@ -151,11 +151,19 @@ The active server-side AI expansion is now Telegram-first:
 - owner sends text, voice, or photo to the Telegram bot
 - worker authorizes by Telegram user ID
 - worker asks OpenAI for a structured decision
+- explicit `найди в интернете` / `загугли` commands use OpenAI `web_search_preview`
 - CRM writes go through the explicit tool registry and local HTTP API
 - every write is verified by read-back
 - every run is written to `telegram_ai/audit.jsonl`
+- compact per-chat memory is stored for follow-up commands
 
 The worker runs as a separate Docker service named `autostopcrm-telegram-ai` and opens no public port.
+
+Current production note:
+
+- complex CRM planning can escalate from `gpt-5.4-mini` to `gpt-5.4`
+- direct internet search intentionally stays on `gpt-5.4-mini` with low search context for stability
+- latest verified Telegram AI stabilization checkpoint: `fa3f574`
 
 ## Legacy Card Cleanup
 

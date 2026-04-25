@@ -387,15 +387,20 @@ Telegram update
 - CRM writes проходят только через `BoardApiClient` и проверяются read-after-write
 - OpenAI слой поддерживает text decision, voice transcription и photo/vision extraction
 - audit пишет redacted JSONL по каждому run и не хранит секреты
+- conversation memory сохраняет компактный контекст чата для follow-up команд
+- финальный Telegram-ответ строится после фактического выполнения tools, чтобы бот не обещал `сейчас пришлю` без результата
+- прямой internet-search включён для явных команд `найди в интернете` / `загугли`
+- сложные CRM-команды могут переключаться на `gpt-5.4`, но direct web-search оставлен на `gpt-5.4-mini` с low search context из-за live timeout/429 на сильной модели
 
 ### 7.3 Куда двигать AI дальше
 
 Приоритетные AI-задачи:
 
-1. Telegram live smoke с реальным bot token, owner ID и OpenAI key.
+1. Composed parts-search flow: прочитать карточку, взять VIN/описание, выйти в интернет, вернуть артикулы/источники и опционально записать заметку в CRM.
 2. Уточнение structured tool schema после первых реальных команд владельца.
 3. Расширение обработки документов/PDF из Telegram без прямых storage writes.
 4. Ужесточение rollback/audit отчётности после production-pass.
+5. Отдельный credential-rotation pass для production admin credentials.
 
 ## 8. Параллельные дорожки разработки
 
@@ -441,10 +446,14 @@ Telegram update
 - MCP surface
 - production deployment flow
 - Telegram AI worker foundation
+- Telegram text/voice/photo command path
+- Telegram direct internet-search path
+- Telegram AI audit and conversation memory
 
 ### Что находится в активной доработке
 
 - Telegram AI command quality and tool coverage
+- composed CRM-context + internet-search workflows for parts/VIN requests
 - browser workspace ergonomics
 - employees/payroll UX polish
 - documentation freshness versus moving branch head

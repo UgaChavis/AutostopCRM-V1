@@ -138,6 +138,7 @@ Core rule:
 
 - `src/minimal_kanban/telegram_ai/`: Telegram polling, auth, OpenAI calls, CRM tool registry, verification and audit
 - `docs/TELEGRAM_AI_BOARD_MANAGER.md`: technical runtime map, env variables, tools and test commands
+- `docs/AUTOSTOP_TELEGRAM_AI_SETUP_RU.md`: Russian setup and production verification guide committed to GitHub
 - `C:\Users\User\Desktop\AUTOSTOP_TELEGRAM_AI_SETUP_RU.md`: Russian setup/runbook for creating the Telegram bot and starting the worker
 
 ### Retired agent layer
@@ -165,9 +166,12 @@ Current active AI direction:
 - Telegram AI Board Manager is the new main AI runtime
 - it runs as `main_telegram_ai.py` or Docker service `autostopcrm-telegram-ai`
 - it receives owner commands through Telegram long polling
-- it calls OpenAI for structured decisions, voice transcription, and photo/vision extraction
+- it calls OpenAI for structured decisions, voice transcription, photo/vision extraction, and explicit internet search
 - it writes to CRM only through the local HTTP API and verifies writes by read-back
 - every run writes redacted audit under `telegram_ai/audit.jsonl`
+- it keeps compact per-chat memory so follow-up commands can refer to recent cards/actions
+- it answers from completed tool results; future-promise phrases like `сейчас пришлю` are treated as a bug
+- direct internet-search uses the base model for stability; complex CRM planning can escalate to the strong model
 
 Compatibility behavior:
 
@@ -192,6 +196,12 @@ Latest completed wave, in practical terms:
 
 Latest completed stabilization wave:
 
+- Telegram AI final replies were moved after actual CRM tool execution, so the bot no longer says `сейчас пришлю` and then loses the result
+- Telegram AI conversation memory was added for same-chat follow-up commands
+- Telegram AI direct internet-search was added for explicit commands like `найди в интернете`, using OpenAI `web_search_preview`
+- Telegram AI complex CRM decisions can escalate from `gpt-5.4-mini` to `gpt-5.4`
+- Telegram AI web-search was stabilized after live timeout/429 failures: direct web-search now uses the base model with low search context and one retry
+- production was synced and redeployed at `fa3f574`; live diagnostics passed for site/API/MCP/Telegram AI
 - repair-order modal stack from `desktop -> repair orders -> repair order -> nested windows` was fixed in UI shell so the repair-orders list remains the real parent layer
 - opening a repair order from the list no longer intentionally closes the list first or leaves the user falling back into an unexpected card layer
 - cashbox journal API and UI were added for the latest `3` months, including formatted modal text and text-file download
@@ -200,6 +210,12 @@ Latest completed stabilization wave:
 
 Most recent important commits in the current line:
 
+- `fa3f574` `Make Telegram AI web search faster`
+- `112f871` `Stabilize Telegram AI web search model`
+- `7ccd981` `Add Telegram AI web search fallback`
+- `e2081df` `Escalate complex Telegram AI requests to strong model`
+- `dfbd65b` `Fix Telegram AI web search response mode`
+- `7c3e02d` `Add direct Telegram AI internet search`
 - `1796ec9` `Fix board column drag capture area`
 - `04d3cd9` `Add board column drag and drop reordering`
 - `ca8a725` `Fix employees create mode overwrite path`

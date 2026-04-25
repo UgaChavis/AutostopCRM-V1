@@ -72,6 +72,7 @@ AUTOSTOP_TELEGRAM_OWNER_IDS=123456789
 OPENAI_API_KEY=...
 AUTOSTOP_AI_MODEL=gpt-5.4-mini
 AUTOSTOP_AI_STRONG_MODEL=gpt-5.4
+AUTOSTOP_AI_WEB_SEARCH_ENABLED=1
 AUTOSTOP_AI_STRONG_REASONING_EFFORT=high
 ```
 
@@ -82,7 +83,27 @@ docker compose ps
 docker compose logs --tail=100 autostopcrm-telegram-ai
 ```
 
-Full setup notes for the operator are in `C:\Users\User\Desktop\AUTOSTOP_TELEGRAM_AI_SETUP_RU.md`; the technical map is `docs/TELEGRAM_AI_BOARD_MANAGER.md`.
+Current Telegram AI behavior:
+
+- text, voice, photo, CRM tools, audit, rollback basics, and conversation memory are implemented
+- explicit `найди в интернете` / `загугли` commands use OpenAI `web_search_preview`
+- complex CRM-planning commands can escalate to `AUTOSTOP_AI_STRONG_MODEL`
+- direct internet search intentionally stays on `AUTOSTOP_AI_MODEL` with a low search context and one retry; this avoids the live strong-model web-search timeout/429 failure mode
+
+Useful live smoke after deploy:
+
+```bash
+docker compose exec -T autostopcrm-telegram-ai sh -lc 'set -a; . /run/telegram-ai.env; cd /app; PYTHONPATH=/app/src python - <<'"'"'PY'"'"'
+from minimal_kanban.telegram_ai.config import load_config
+from minimal_kanban.telegram_ai.openai_client import TelegramAIOpenAIClient
+client = TelegramAIOpenAIClient(load_config())
+print(client.internet_search(command_text="Найди в интернете официальный сайт Toyota и ответь одной строкой с источником.", role="owner")[:800])
+PY'
+```
+
+Full setup notes for the operator are in `docs/AUTOSTOP_TELEGRAM_AI_SETUP_RU.md`.
+The desktop copy is `C:\Users\User\Desktop\AUTOSTOP_TELEGRAM_AI_SETUP_RU.md`.
+The technical map is `docs/TELEGRAM_AI_BOARD_MANAGER.md`.
 
 ## Production Cautions
 

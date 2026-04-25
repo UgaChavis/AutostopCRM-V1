@@ -77,13 +77,19 @@ The active AI product direction is now the Telegram AI Board Manager:
 - run `main_telegram_ai.py` or Docker service `autostopcrm-telegram-ai`
 - receive text, voice, or photo commands from the authorized Telegram owner
 - call OpenAI for a structured decision
+- call OpenAI web-search for explicit internet-search commands
 - execute CRM tools only through the local HTTP API
 - verify writes and record redacted audit
+- keep compact per-chat memory for follow-up Telegram commands
+- answer from real tool results, not from pre-tool promises
 
 The older lower-right card enrichment button remains compatibility behavior, but it is not the base for new AI development.
 
 ## Recent Practical Changes
 
+- Telegram AI direct internet-search is active for phrases like `найди в интернете` and `загугли`
+- Telegram AI complex CRM planning can use strong model `gpt-5.4`, while direct web-search stays on `gpt-5.4-mini` for production stability
+- Telegram AI live web-search was verified on production with an auto-parts query after timeout/429 stabilization
 - employees module now supports up to `15` employees without stale-ID overwrite on create
 - employees workspace was rebuilt into a clearer master-detail layout
 - board columns can now be reordered left-to-right with native drag-and-drop
@@ -94,8 +100,10 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - last known full-suite baseline before this update cycle was green
 - latest targeted local regressions for `service + api + web_assets` are green
 - latest targeted `service + api + web_assets + MCP` runs are green
+- latest full local regression after Telegram AI stabilization: `431/431 OK`
+- latest synced production checkpoint for Telegram AI stabilization: `fa3f574`
 - production site: `200 OK`
-- production MCP: verify current tool count from live runtime before assuming a stale number
+- production MCP at last verification: OK with `50` tools
 - this deployment path covers the CRM repo at `/opt/autostopcrm` and its optional in-repo Telegram AI worker; VPN helpers are separate deploy targets
 
 ## Documentation Layout
@@ -110,6 +118,8 @@ Primary active docs kept in the repo root:
 - `API_GUIDE.md`
 - `MCP_GUIDE.md`
 - `README_SETTINGS.md`
+- `docs/TELEGRAM_AI_BOARD_MANAGER.md`
+- `docs/AUTOSTOP_TELEGRAM_AI_SETUP_RU.md`
 
 Obsolete root-level release docs and duplicated doc bundles were removed during the April 2026 cleanup pass.
 
@@ -117,6 +127,7 @@ Obsolete root-level release docs and duplicated doc bundles were removed during 
 
 - production still uses the default admin account and needs a separate credential rotation pass
 - the CRM now depends on the external/shared agent runtime being started if you want the enrichment flow to complete end-to-end
+- direct Telegram AI web-search is intentionally tuned for reliability, not maximum reasoning; do not switch it back to strong-model search without live timeout and 429 checks
 
 ## Rule For Future Updates
 

@@ -13,8 +13,32 @@
 - state: `/root/.minimal-kanban/telegram_ai/state.json`
 - conversation memory: `/root/.minimal-kanban/telegram_ai/conversation.jsonl`
 - downloads/temp: `/root/.minimal-kanban/telegram_ai/downloads`
+- current verified production commit after Telegram AI stabilization: `fa3f574`
 
 Старый green-button/VIN agent не является основой новой системы. Он оставлен как legacy/compatibility слой, чтобы не ломать текущую CRM и MCP поверхность.
+
+## Current checkpoint: 2026-04-25
+
+This is the point a new developer/agent should resume from:
+
+- local branch, GitHub branch, and production were aligned on `autostopcrm-v1` at `fa3f574`
+- full local regression suite passed: `431/431 OK`
+- production live diagnostics passed:
+  - public site `https://crm.autostopcrm.ru`: `200 OK`
+  - local API: OK
+  - public anonymous writes: blocked with `401`
+  - MCP: OK, `50` tools
+  - Docker services: `autostopcrm` healthy, `autostopcrm-telegram-ai` running
+- live Telegram AI web-search smoke passed inside the production container:
+  - query: `Найди в интернете артикул воздушного фильтра для Toyota Land Cruiser Prado J150 2010 дизель 3.0`
+  - result included OEM `17801-30080` and source link
+- important production caution remains: default admin credentials are still enabled and should be rotated in a separate controlled pass
+
+Current product goal:
+
+- Telegram AI is the active AI layer for owner-controlled CRM operations.
+- It must handle text, voice, photo, conversation follow-ups, CRM reads/writes, audit, rollback basics, and explicit internet-search commands.
+- Next feature direction is a composed parts-search flow: read a CRM card, extract vehicle/VIN context, perform internet search for requested parts, and optionally write a compact note/attachment back to CRM.
 
 ## Runtime flow
 
@@ -140,6 +164,13 @@ first slice for later scenarios like:
 The second scenario still needs a composed flow: `get_card_context -> extract
 vehicle/VIN facts -> internet_search -> optional CRM note/update`.
 
+Production stabilization note:
+
+- Web-search intentionally uses the base model `AUTOSTOP_AI_MODEL` and a low search context size.
+- Complex CRM planning can use `AUTOSTOP_AI_STRONG_MODEL`, but direct web-search is kept fast and stable because strong-model web-search caused live timeouts/429s.
+- Web-search retries once on the base model before surfacing an error to Telegram.
+- Do not re-enable strong-model web-search without a live timeout/429 smoke test.
+
 ## Model escalation
 
 The worker uses two decision tiers:
@@ -158,7 +189,13 @@ Current complexity signals:
 - vehicle parts wording: `VIN`, `OEM`, `оригинал`, `аналоги`, `найди запчасти`
 - mass or risky CRM work: `все карточки`, `по всем карточкам`, `заполни`, `обнови`
 
-This applies to CRM decisions, internet search, and final answer synthesis.
+This applies to CRM decisions and final answer synthesis.
+
+Important current exception:
+
+- direct `internet_search` does **not** use the strong model on production
+- it uses `AUTOSTOP_AI_MODEL` with normal reasoning for stability
+- strong escalation still applies to CRM tool decisions and final response synthesis
 
 ## CRM tool registry v1
 
@@ -292,6 +329,23 @@ Covered:
 - direct internet-search command routing
 - Responses API payload includes `web_search_preview` when internet search is enabled
 - automatic strong-model escalation for complex Telegram requests
+- web-search uses the base model with fast reasoning and retries once
+- voice `.ogg` conversion before transcription
+- photo attachment and card-image analysis tool paths
+
+Current known green commands:
+
+```powershell
+.\.venv\Scripts\python.exe -m ruff check src\minimal_kanban\telegram_ai tests\test_telegram_ai.py
+.\.venv\Scripts\python.exe -m unittest tests.test_telegram_ai -v
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Latest known results on `fa3f574`:
+
+- focused Telegram AI tests: `25/25 OK`
+- full test suite: `431/431 OK`
+- ruff: OK
 
 ## Production deployment
 
@@ -333,3 +387,5 @@ Rollback is intentionally not a raw storage edit and does not promise universal 
 - documents/PDFs from Telegram are normalized but not fully processed yet
 - Telegram worker uses polling; webhook mode is intentionally deferred
 - model output is validated at tool-name/role level, but deeper per-field schemas can be tightened in later passes
+- direct web-search currently answers in Telegram only; it does not yet combine with CRM card context in one automatic tool chain
+- parts-search by card/VIN is the next composed workflow, not fully implemented yet
