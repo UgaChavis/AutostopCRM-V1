@@ -537,6 +537,104 @@ class TelegramAIOrchestratorTests(unittest.TestCase):
                 card_id,
             )
 
+    def test_card_context_follow_up_receives_last_vin_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = build_config(temp_dir, owner_ids=frozenset({1001}))
+            audit = TelegramAIAuditService(config.audit_file)
+            model = FakeModelClient()
+            logger = logging.getLogger("test.telegram_vin_memory")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            store = JsonStore(state_file=Path(temp_dir) / "state.json", logger=logger)
+            service = CardService(store, logger)
+            created = service.create_card(
+                {
+                    "title": "VIN card",
+                    "vehicle": "Toyota Camry",
+                    "vehicle_profile": {"vin": "WAUZZZ8V0JA000001"},
+                    "deadline": {"days": 1},
+                }
+            )
+            card_id = created["card"]["id"]
+            model.decisions = [
+                {
+                    "intent": "card_read",
+                    "confidence": "high",
+                    "actions": [
+                        {
+                            "tool": "get_card_context",
+                            "arguments": {"card_id": card_id},
+                            "reason": "read the card before using its VIN",
+                        }
+                    ],
+                    "telegram_response": "Смотрю карточку.",
+                    "requires_human_confirmation": False,
+                },
+                {
+                    "intent": "no_action",
+                    "confidence": "high",
+                    "actions": [],
+                    "telegram_response": "VIN уже есть в контексте.",
+                    "requires_human_confirmation": False,
+                },
+            ]
+            port = reserve_port()
+            server = ApiServer(service, logger, start_port=port, fallback_limit=1)
+            server.start()
+            try:
+                client = BoardApiClient(
+                    server.base_url, logger=logger, default_source="telegram_ai"
+                )
+                orchestrator = TelegramAIOrchestrator(
+                    auth=TelegramAuthService(config),
+                    model_client=model,
+                    context_builder=CRMContextBuilder(client),
+                    tool_registry=CRMToolRegistry(client, actor_name="TEST_TELEGRAM_AI"),
+                    audit=audit,
+                    memory=TelegramAIConversationMemory(config.conversation_file, limit=5),
+                )
+                first = normalize_update(
+                    {
+                        "update_id": 10,
+                        "message": {
+                            "message_id": 11,
+                            "chat": {"id": 12},
+                            "from": {"id": 1001},
+                            "text": "Открой карточку и возьми VIN",
+                        },
+                    }
+                )
+                second = normalize_update(
+                    {
+                        "update_id": 11,
+                        "message": {
+                            "message_id": 12,
+                            "chat": {"id": 12},
+                            "from": {"id": 1001},
+                            "text": "Теперь используй этот VIN для поиска",
+                        },
+                    }
+                )
+
+                orchestrator.handle(first)
+                orchestrator.handle(second)
+            finally:
+                server.stop()
+
+            second_context = model.received_contexts[1]
+            state = second_context.get("conversation_state")
+            self.assertIsInstance(state, dict)
+            assert isinstance(state, dict)
+            self.assertEqual(state["last_card"]["id"], card_id)
+            self.assertEqual(state["last_vin"], "WAUZZZ8V0JA000001")
+            self.assertEqual(
+                second_context["conversation_memory"][0]["tool_results"][0]["references"][
+                    "last_vin"
+                ],
+                "WAUZZZ8V0JA000001",
+            )
+
     def test_final_response_is_built_after_tool_execution(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = build_config(temp_dir, owner_ids=frozenset({1001}))

@@ -157,6 +157,9 @@ def _result_summary(data: dict[str, Any]) -> dict[str, Any]:
                 )
                 if value.get(field)
             }
+            vin = _extract_vin(value)
+            if vin:
+                summary[key]["vin"] = vin
     if isinstance(data.get("summary"), dict):
         summary["summary"] = data.get("summary")
     cards = _first_list(data, ("cards", "results", "items", "overdue_cards"))
@@ -192,6 +195,11 @@ def _extract_references(tool_name: str, data: dict[str, Any]) -> dict[str, Any]:
             references["card_candidates"] = card_refs
             if len(card_refs) == 1:
                 references["selected_card"] = card_refs[0]
+    vin = _extract_vin(card) if isinstance(card, dict) else ""
+    if not vin and cards and len(cards) == 1 and isinstance(cards[0], dict):
+        vin = _extract_vin(cards[0])
+    if vin:
+        references["last_vin"] = vin
     return references
 
 
@@ -199,6 +207,9 @@ def _card_reference(card: dict[str, Any], *, include_match: bool) -> dict[str, A
     if not card:
         return {}
     reference = _card_summary(card)
+    vin = _extract_vin(card)
+    if vin:
+        reference["vin"] = vin
     if include_match:
         match = card.get("match") if isinstance(card.get("match"), dict) else {}
         if match:
@@ -221,6 +232,9 @@ def _card_summary(card: dict[str, Any]) -> dict[str, Any]:
         value = card.get(key)
         if value not in (None, "", [], {}):
             summary[key] = value
+    vin = _extract_vin(card)
+    if vin:
+        summary["vin"] = vin
     if "archived" in card:
         summary["archived"] = bool(card.get("archived"))
     return summary
@@ -257,16 +271,50 @@ def latest_card_state(rows: list[dict[str, Any]]) -> dict[str, Any]:
                     "source_run_id": row.get("run_id"),
                     "source_tool": tool_result.get("tool"),
                 }
+                vin = _reference_vin(selected_card)
+                if not vin and card_candidates:
+                    vin = _reference_vin(card_candidates[0])
+                if vin:
+                    state["last_vin"] = vin
                 if card_candidates:
                     state["card_candidates"] = card_candidates[:5]
                 return state
             if card_candidates:
-                return {
+                state = {
                     "card_candidates": card_candidates[:5],
                     "source_run_id": row.get("run_id"),
                     "source_tool": tool_result.get("tool"),
                 }
+                vin = _reference_vin(card_candidates[0])
+                if vin:
+                    state["last_vin"] = vin
+                return state
     return {}
+
+
+def _extract_vin(card: dict[str, Any]) -> str:
+    if not isinstance(card, dict):
+        return ""
+    for key in ("vehicle_profile", "vehicle_profile_compact"):
+        profile = card.get(key)
+        if not isinstance(profile, dict):
+            continue
+        vin = profile.get("vin")
+        if vin not in (None, "", [], {}):
+            return str(vin).strip().upper()
+    vin = card.get("vin")
+    if vin not in (None, "", [], {}):
+        return str(vin).strip().upper()
+    return ""
+
+
+def _reference_vin(reference: dict[str, Any]) -> str:
+    if not isinstance(reference, dict):
+        return ""
+    vin = reference.get("vin")
+    if vin not in (None, "", [], {}):
+        return str(vin).strip().upper()
+    return ""
 
 
 def _compact_value(value: Any) -> Any:

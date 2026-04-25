@@ -118,6 +118,13 @@ def _format_card_detail(card: dict[str, Any]) -> str:
     if description:
         lines.append("  Описание:\n" + _truncate(description, limit=1600))
     profile = card.get("vehicle_profile") if isinstance(card.get("vehicle_profile"), dict) else {}
+    if not profile:
+        compact_profile = (
+            card.get("vehicle_profile_compact")
+            if isinstance(card.get("vehicle_profile_compact"), dict)
+            else {}
+        )
+        profile = compact_profile if compact_profile else {}
     profile_lines = _vehicle_profile_lines(profile)
     if profile_lines:
         lines.append("  Паспорт авто: " + "; ".join(profile_lines))
