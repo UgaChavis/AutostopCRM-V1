@@ -69,7 +69,7 @@ Optional:
 ```env
 AUTOSTOP_AI_VISION_MODEL=gpt-5.4-mini
 AUTOSTOP_AI_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
-AUTOSTOP_AI_WEB_SEARCH_ENABLED=0
+AUTOSTOP_AI_WEB_SEARCH_ENABLED=1
 AUTOSTOP_AI_AUTOPILOT_ENABLED=0
 AUTOSTOP_AI_AUTOPILOT_INTERVAL_MINUTES=30
 OPENAI_BASE_URL=https://api.openai.com/v1
@@ -108,6 +108,35 @@ If the final model pass fails, `response.py` falls back to deterministic summari
 from the real tool results. Read tools such as `get_card`, `get_card_context`,
 `get_repair_order_text`, `get_cards`, `search_cards`, and board reports must
 surface useful data directly in the same Telegram reply.
+
+## Internet search mode
+
+The worker has a direct internet-search route before CRM tool planning. It is
+triggered by explicit phrases such as:
+
+- `найди в интернете`
+- `поищи в интернете`
+- `проверь в интернете`
+- `загугли`
+- `посмотри в интернете`
+- `web search`
+
+Flow:
+
+```text
+Telegram command -> internet_search -> OpenAI Responses API with web_search_preview -> final Telegram reply
+```
+
+This route does not execute CRM writes and does not call CRM tools. It is the
+first slice for later scenarios like:
+
+```text
+найди в интернете воздушный фильтр для Toyota Corolla
+зайди в карточку, возьми VIN и найди запчасть
+```
+
+The second scenario still needs a composed flow: `get_card_context -> extract
+vehicle/VIN facts -> internet_search -> optional CRM note/update`.
 
 ## CRM tool registry v1
 
@@ -238,6 +267,8 @@ Covered:
 - compact context builder read path
 - final Telegram response after CRM tool execution
 - filtering stale future-promise phrases from model output
+- direct internet-search command routing
+- Responses API payload includes `web_search_preview` when internet search is enabled
 
 ## Production deployment
 

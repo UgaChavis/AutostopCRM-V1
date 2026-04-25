@@ -23,6 +23,7 @@ Use this file for durable notes that should not be rediscovered every session.
 - all Telegram AI writes must use the explicit CRM tool registry and `BoardApiClient`; raw JSON storage writes, shell commands, hard delete, and secret disclosure are out of scope
 - every write run should record redacted JSONL audit in `telegram_ai/audit.jsonl` and verify writes by reading CRM state back through the API
 - Telegram AI must answer from completed `tool_results`, not from the pre-tool model promise; deferred phrases like `сейчас пришлю` are treated as a bug because the worker sends one reply per update
+- Telegram AI has a direct internet-search route for explicit commands like `найди в интернете`/`загугли`; it uses OpenAI `web_search_preview`, skips CRM tools, and returns the result in the same Telegram reply
 - the old AutostopAI repository and VIN/green-button worker experiments are legacy context only; do not use them as the base for new product work
 - the card indicator flow can remain as compatibility behavior, but new AI work should go through the Telegram Board Manager unless the user explicitly reopens the card-button feature
 - the CRM deploy path in this repo targets `/opt/autostopcrm`; it now includes both `autostopcrm` and the optional in-repo `autostopcrm-telegram-ai` service

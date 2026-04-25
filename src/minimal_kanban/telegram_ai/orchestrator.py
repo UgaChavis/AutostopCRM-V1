@@ -72,6 +72,11 @@ class TelegramAIOrchestrator:
                 context.final_status = "completed"
                 context.telegram_response = builtin_response
                 return builtin_response
+            internet_response = self._handle_internet_search(command_text, context)
+            if internet_response is not None:
+                context.final_status = "completed"
+                context.telegram_response = internet_response
+                return internet_response
             crm_context = self._context_builder.build(command_text=command_text)
             self._attach_conversation_memory(crm_context, normalized_input)
             context.context_summary = self._context_builder.summary(crm_context)
@@ -208,6 +213,20 @@ class TelegramAIOrchestrator:
             return self._rollback_last_action(context)
         return None
 
+    def _handle_internet_search(self, command_text: str, context: RunContext) -> str | None:
+        if not _looks_like_internet_search(command_text):
+            return None
+        context.model_decision = {
+            "intent": "internet_search",
+            "actions": [],
+            "telegram_response": "",
+        }
+        response = self._model_client.internet_search(
+            command_text=command_text,
+            role=context.role,
+        )
+        return str(response or "").strip() or "Поиск выполнен, но модель не вернула текст ответа."
+
     def _with_final_tool_response(
         self,
         *,
@@ -269,3 +288,27 @@ def _normalized_actions(decision: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return normalized
+
+
+def _looks_like_internet_search(command_text: str) -> bool:
+    text = str(command_text or "").strip().lower()
+    if not text:
+        return False
+    markers = (
+        "найди в интернете",
+        "поищи в интернете",
+        "поиск в интернете",
+        "выйди в интернет",
+        "зайди в интернет",
+        "загугли",
+        "погугли",
+        "посмотри в интернете",
+        "проверь в интернете",
+        "найди актуальную",
+        "актуальная информация",
+        "найди информацию в сети",
+        "поищи в сети",
+        "web search",
+        "internet search",
+    )
+    return any(marker in text for marker in markers)

@@ -154,7 +154,7 @@ def load_config() -> TelegramAIConfig:
         autopilot_interval_minutes=_env_int(
             "AUTOSTOP_AI_AUTOPILOT_INTERVAL_MINUTES", 30, minimum=1
         ),
-        web_search_enabled=_env_flag("AUTOSTOP_AI_WEB_SEARCH_ENABLED", default=False),
+        web_search_enabled=_env_flag("AUTOSTOP_AI_WEB_SEARCH_ENABLED", default=True),
         conversation_memory_limit=_env_int(
             "AUTOSTOP_AI_CONVERSATION_MEMORY_LIMIT",
             DEFAULT_CONVERSATION_MEMORY_LIMIT,

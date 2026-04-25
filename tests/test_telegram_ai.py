@@ -81,6 +81,9 @@ class FakeModelClient:
         self.final_response_calls = 0
         self.final_responses: list[str] = []
         self.received_tool_results: list[list[dict[str, object]]] = []
+        self.internet_search_calls = 0
+        self.internet_search_responses: list[str] = []
+        self.received_search_commands: list[str] = []
 
     def decide(self, **kwargs):
         self.decide_calls += 1
@@ -107,6 +110,13 @@ class FakeModelClient:
         if self.final_responses:
             return self.final_responses.pop(0)
         return ""
+
+    def internet_search(self, **kwargs) -> str:
+        self.internet_search_calls += 1
+        self.received_search_commands.append(str(kwargs.get("command_text") or ""))
+        if self.internet_search_responses:
+            return self.internet_search_responses.pop(0)
+        return "Ответ интернет-поиска"
 
 
 class TelegramAINormalizerTests(unittest.TestCase):
@@ -247,6 +257,39 @@ class TelegramAIOrchestratorTests(unittest.TestCase):
 
             self.assertIn("Telegram AI worker активен", response)
             self.assertEqual(model.decide_calls, 0)
+
+    def test_internet_search_command_skips_crm_tools_and_returns_search_answer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = build_config(temp_dir, owner_ids=frozenset({1001}))
+            model = FakeModelClient()
+            model.internet_search_responses = [
+                "Нашёл в интернете: пример результата. Источник: example.com"
+            ]
+            orchestrator = TelegramAIOrchestrator(
+                auth=TelegramAuthService(config),
+                model_client=model,
+                context_builder=object(),
+                tool_registry=object(),
+                audit=TelegramAIAuditService(config.audit_file),
+            )
+            normalized = normalize_update(
+                {
+                    "update_id": 1,
+                    "message": {
+                        "message_id": 2,
+                        "chat": {"id": 3},
+                        "from": {"id": 1001},
+                        "text": "Найди в интернете лучшие воздушные фильтры для Toyota",
+                    },
+                }
+            )
+
+            response = orchestrator.handle(normalized)
+
+            self.assertIn("Нашёл в интернете", response)
+            self.assertEqual(model.internet_search_calls, 1)
+            self.assertEqual(model.decide_calls, 0)
+            self.assertIn("воздушные фильтры", model.received_search_commands[0])
 
     def test_follow_up_receives_conversation_memory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -507,6 +550,43 @@ class TelegramAIResponsesPayloadTests(unittest.TestCase):
             self.assertIn("json", json.dumps(payload["input"], ensure_ascii=False).lower())
             self.assertEqual(payload["reasoning"], {"effort": "medium"})
             self.assertEqual(result["intent"], "no_action")
+
+    def test_internet_search_payload_uses_web_search_tool(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = build_config(temp_dir)
+            config = TelegramAIConfig(
+                **{
+                    **config.__dict__,
+                    "web_search_enabled": True,
+                }
+            )
+            client = TelegramAIOpenAIClient(config)
+            captured: dict[str, object] = {}
+
+            def fake_post_with_retry(path: str, payload: dict[str, object]) -> dict[str, object]:
+                captured["path"] = path
+                captured["payload"] = payload
+                return {
+                    "output_text": json.dumps(
+                        {"telegram_response": "Найдено: source.example"},
+                        ensure_ascii=False,
+                    )
+                }
+
+            with patch.object(
+                TelegramAIOpenAIClient, "_post_with_retry", side_effect=fake_post_with_retry
+            ):
+                result = client.internet_search(
+                    command_text="Найди в интернете новости Toyota",
+                    role="owner",
+                )
+
+            self.assertEqual(result, "Найдено: source.example")
+            self.assertEqual(captured["path"], "/responses")
+            payload = captured["payload"]
+            self.assertIsInstance(payload, dict)
+            assert isinstance(payload, dict)
+            self.assertEqual(payload["tools"][0]["type"], "web_search_preview")
 
 
 class TelegramAIConversationMemoryTests(unittest.TestCase):

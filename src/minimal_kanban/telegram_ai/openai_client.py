@@ -35,6 +35,40 @@ class TelegramAIOpenAIClient:
     def model(self) -> str:
         return self._model
 
+    @property
+    def web_search_enabled(self) -> bool:
+        return self._web_search_enabled
+
+    def internet_search(self, *, command_text: str, role: str) -> str:
+        if not self._web_search_enabled:
+            raise TelegramAIModelError("OpenAI web search is disabled.")
+        instructions = """
+You are AutoStop CRM Telegram AI Board Manager.
+Language: Russian.
+The user explicitly asks for internet research. Use web search and answer now.
+Do not create CRM actions. Do not promise to send later.
+Return only JSON with this shape:
+{"telegram_response":"final answer with key facts and source links"}
+Keep the answer practical and concise. Include source names or URLs when available.
+""".strip()
+        user_payload = {
+            "command_text": command_text,
+            "role": role,
+            "mode": "internet_search",
+        }
+        payload = self._responses_json(
+            model=self._model,
+            instructions=instructions,
+            input_messages=[
+                {
+                    "role": "user",
+                    "content": json.dumps(user_payload, ensure_ascii=False, sort_keys=True),
+                }
+            ],
+            web_search=True,
+        )
+        return str(payload.get("telegram_response") or "").strip()
+
     def decide(
         self,
         *,
