@@ -308,12 +308,14 @@ PRINTING_WEB_MODULE_HTML = r"""
               <div class="field field--compact"><label for="printProfileLegalName">Юр. лицо</label><input id="printProfileLegalName" type="text" maxlength="160"></div>
               <div class="field field--compact"><label for="printProfileAddress">Адрес</label><input id="printProfileAddress" type="text" maxlength="240"></div>
               <div class="repair-order-print-settings__row"><div class="field field--compact"><label for="printProfilePhone">Телефон</label><input id="printProfilePhone" type="text" maxlength="80"></div><div class="field field--compact"><label for="printProfileReceptionPhone">Телефон ресепшена</label><input id="printProfileReceptionPhone" type="text" maxlength="80"></div></div>
-              <div class="field field--compact"><label for="printProfileEmail">Email</label><input id="printProfileEmail" type="text" maxlength="120"></div>
+              <div class="repair-order-print-settings__row"><div class="field field--compact"><label for="printProfileSparePartsPhone">Телефон запчастей</label><input id="printProfileSparePartsPhone" type="text" maxlength="80"></div><div class="field field--compact"><label for="printProfileWebsite">Сайт</label><input id="printProfileWebsite" type="text" maxlength="120"></div></div>
+              <div class="repair-order-print-settings__row"><div class="field field--compact"><label for="printProfileEmail">Email</label><input id="printProfileEmail" type="text" maxlength="120"></div><div class="field field--compact"><label for="printProfileWorkHours">Режим</label><input id="printProfileWorkHours" type="text" maxlength="160"></div></div>
               <div class="repair-order-print-settings__row"><div class="field field--compact"><label for="printProfileInn">ИНН</label><input id="printProfileInn" type="text" maxlength="32"></div><div class="field field--compact"><label for="printProfileKpp">КПП</label><input id="printProfileKpp" type="text" maxlength="32"></div></div>
               <div class="field field--compact"><label for="printProfileOgrn">ОГРН</label><input id="printProfileOgrn" type="text" maxlength="32"></div>
               <div class="repair-order-print-settings__row"><div class="field field--compact"><label for="printProfileBankName">Банк</label><input id="printProfileBankName" type="text" maxlength="160"></div><div class="field field--compact"><label for="printProfileBik">БИК</label><input id="printProfileBik" type="text" maxlength="32"></div></div>
               <div class="repair-order-print-settings__row"><div class="field field--compact"><label for="printProfileSettlementAccount">Р/с</label><input id="printProfileSettlementAccount" type="text" maxlength="64"></div><div class="field field--compact"><label for="printProfileCorrespondentAccount">К/с</label><input id="printProfileCorrespondentAccount" type="text" maxlength="64"></div></div>
               <div class="field field--compact"><label for="printProfileTaxLabel">Налоговый режим</label><input id="printProfileTaxLabel" type="text" maxlength="48"></div>
+              <div class="field field--compact"><label for="printProfilePaymentPurpose">Назначение платежа</label><input id="printProfilePaymentPurpose" type="text" maxlength="240"></div>
               <button class="btn btn--ghost" id="repairOrderPrintSaveSettingsButton" type="button">СОХРАНИТЬ НАСТРОЙКИ</button>
             </section>
           </div>
@@ -498,7 +500,10 @@ _PRINTING_SCRIPT_PART1 = r"""
       profileAddress: document.getElementById('printProfileAddress'),
       profilePhone: document.getElementById('printProfilePhone'),
       profileReceptionPhone: document.getElementById('printProfileReceptionPhone'),
+      profileSparePartsPhone: document.getElementById('printProfileSparePartsPhone'),
       profileEmail: document.getElementById('printProfileEmail'),
+      profileWebsite: document.getElementById('printProfileWebsite'),
+      profileWorkHours: document.getElementById('printProfileWorkHours'),
       profileInn: document.getElementById('printProfileInn'),
       profileKpp: document.getElementById('printProfileKpp'),
       profileOgrn: document.getElementById('printProfileOgrn'),
@@ -507,6 +512,7 @@ _PRINTING_SCRIPT_PART1 = r"""
       profileSettlementAccount: document.getElementById('printProfileSettlementAccount'),
       profileCorrespondentAccount: document.getElementById('printProfileCorrespondentAccount'),
       profileTaxLabel: document.getElementById('printProfileTaxLabel'),
+      profilePaymentPurpose: document.getElementById('printProfilePaymentPurpose'),
       templateModal: document.getElementById('printTemplateEditorModal'),
       templateCloseX: document.getElementById('printTemplateEditorCloseX'),
       templateDocumentType: document.getElementById('printTemplateDocumentType'),
@@ -565,6 +571,11 @@ _PRINTING_SCRIPT_PART1 = r"""
       { label: 'Компания', value: '{{service.company_name}}' },
       { label: 'Адрес сервиса', value: '{{service.address}}' },
       { label: 'Телефон ресепшена', value: '{{service.reception_phone}}' },
+      { label: 'Телефон запчастей', value: '{{service.spare_parts_phone}}' },
+      { label: 'Сайт', value: '{{service.website}}' },
+      { label: 'Банк', value: '{{service.bank_name}}' },
+      { label: 'Расчетный счет', value: '{{service.settlement_account}}' },
+      { label: 'Условия приема', value: '{{{repair_order.acceptance_terms_html}}}' },
     ];
 
     function buildPrintTemplateVisualEditorHtml(content) {
@@ -733,7 +744,10 @@ _PRINTING_SCRIPT_PART1 = r"""
           address: printEls.profileAddress?.value || '',
           phone: printEls.profilePhone?.value || '',
           reception_phone: printEls.profileReceptionPhone?.value || '',
+          spare_parts_phone: printEls.profileSparePartsPhone?.value || '',
           email: printEls.profileEmail?.value || '',
+          website: printEls.profileWebsite?.value || '',
+          work_hours: printEls.profileWorkHours?.value || '',
           inn: printEls.profileInn?.value || '',
           kpp: printEls.profileKpp?.value || '',
           ogrn: printEls.profileOgrn?.value || '',
@@ -742,6 +756,7 @@ _PRINTING_SCRIPT_PART1 = r"""
           settlement_account: printEls.profileSettlementAccount?.value || '',
           correspondent_account: printEls.profileCorrespondentAccount?.value || '',
           tax_label: printEls.profileTaxLabel?.value || '',
+          payment_purpose: printEls.profilePaymentPurpose?.value || '',
         },
       };
     }
@@ -933,7 +948,10 @@ _PRINTING_SCRIPT_PART2 = r"""
       if (printEls.profileAddress) printEls.profileAddress.value = profile.address || '';
       if (printEls.profilePhone) printEls.profilePhone.value = profile.phone || '';
       if (printEls.profileReceptionPhone) printEls.profileReceptionPhone.value = profile.reception_phone || '';
+      if (printEls.profileSparePartsPhone) printEls.profileSparePartsPhone.value = profile.spare_parts_phone || '';
       if (printEls.profileEmail) printEls.profileEmail.value = profile.email || '';
+      if (printEls.profileWebsite) printEls.profileWebsite.value = profile.website || '';
+      if (printEls.profileWorkHours) printEls.profileWorkHours.value = profile.work_hours || '';
       if (printEls.profileInn) printEls.profileInn.value = profile.inn || '';
       if (printEls.profileKpp) printEls.profileKpp.value = profile.kpp || '';
       if (printEls.profileOgrn) printEls.profileOgrn.value = profile.ogrn || '';
@@ -942,6 +960,7 @@ _PRINTING_SCRIPT_PART2 = r"""
       if (printEls.profileSettlementAccount) printEls.profileSettlementAccount.value = profile.settlement_account || '';
       if (printEls.profileCorrespondentAccount) printEls.profileCorrespondentAccount.value = profile.correspondent_account || '';
       if (printEls.profileTaxLabel) printEls.profileTaxLabel.value = profile.tax_label || '';
+      if (printEls.profilePaymentPurpose) printEls.profilePaymentPurpose.value = profile.payment_purpose || '';
       renderRepairOrderPrintDocuments();
       renderRepairOrderPrintTemplateSelect();
       renderPrintTemplateDocumentTypeOptions();

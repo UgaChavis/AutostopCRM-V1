@@ -21,6 +21,12 @@ BUILTIN_PRINT_DOCUMENTS: tuple[PrintDocumentDefinition, ...] = (
         default_template_id="builtin:repair_order:standard",
     ),
     PrintDocumentDefinition(
+        id="vehicle_acceptance_act",
+        label="Акт приема автомобиля",
+        description="Прием автомобиля в работу, фотофиксация и важные условия.",
+        default_template_id="builtin:vehicle_acceptance_act:standard",
+    ),
+    PrintDocumentDefinition(
         id="invoice",
         label="Счет на оплату",
         description="Печатная форма счета с итоговой суммой по заказу.",
@@ -43,6 +49,12 @@ BUILTIN_PRINT_DOCUMENTS: tuple[PrintDocumentDefinition, ...] = (
         label="Акт выполненных работ",
         description="Подтверждение выполненных работ и итоговой стоимости.",
         default_template_id="builtin:completion_act:standard",
+    ),
+    PrintDocumentDefinition(
+        id="parts_sale",
+        label="Продажа запчастей",
+        description="Документ продажи запчастей и материалов без привязки к автомобилю.",
+        default_template_id="builtin:parts_sale:standard",
     ),
 )
 
@@ -145,6 +157,21 @@ PRINT_BASE_STYLES = """
     background: rgba(255,255,255,0.65);
     width: 33.333%;
   }
+  .doc-bank-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    margin-bottom: 14px;
+    font-size: 10.5px;
+  }
+  .doc-bank-table td {
+    border: 1px solid var(--paper-line-strong);
+    padding: 6px 8px;
+    vertical-align: top;
+  }
+  .doc-bank-table__label { color: var(--paper-soft); font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .doc-checkbox-row { display: flex; gap: 18px; align-items: center; font-weight: 700; }
+  .doc-checkbox { display: inline-block; width: 12px; height: 12px; border: 1px solid var(--paper-line-strong); margin-right: 6px; vertical-align: -2px; }
   .doc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
   .doc-card { border: 1px solid var(--paper-line); border-radius: 8px; padding: 8px 10px; min-height: 54px; background: rgba(255,255,255,0.65); }
   .doc-card--wide { grid-column: span 3; }
@@ -224,8 +251,9 @@ PRINT_BASE_STYLES = """
   .doc-signatures-table td { width: 50%; vertical-align: top; padding-right: 12px; }
   .doc-signatures-table td + td { padding-left: 12px; padding-right: 0; }
   .doc-signature-line { border-bottom: 1px solid var(--paper-line-strong); height: 30px; }
+  .doc-signature-caption { color: var(--paper-soft); font-size: 10px; margin-top: 5px; }
   .doc-hint { color: var(--paper-soft); font-size: 11px; }
-  .doc-page-break { display: block; height: 0; page-break-after: always; }
+  .doc-page-break { display: block; height: 0; clear: both; page-break-before: always; page-break-after: always; }
   @page { size: A4; margin: 9mm; }
 """.strip()
 
@@ -278,7 +306,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
           <tr>
             <td style="width:104px; vertical-align:top; padding-right:12px;">
               <div class="doc-brand-mark">
-                {{#service.brand_logo_data_uri}}<img src="{{service.brand_logo_data_uri}}" alt="AutoStop АВТОТЕХЦЕНТР №1">{{/service.brand_logo_data_uri}}
+                {{#service.brand_logo_data_uri}}<img src="{{service.brand_logo_data_uri}}" width="70" height="70" style="width:70px;height:70px;" alt="AutoStop АВТОТЕХЦЕНТР №1">{{/service.brand_logo_data_uri}}
                 {{^service.brand_logo_data_uri}}<div class="doc-brand-mark__fallback">AutoStop</div>{{/service.brand_logo_data_uri}}
               </div>
             </td>
@@ -343,8 +371,9 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     {{#totals.has_prepayment}}<tr><td>Предоплата</td><td>{{totals.prepayment_display}}</td></tr>{{/totals.has_prepayment}}
     <tr class="doc-totals-table__grand"><td>К доплате</td><td>{{totals.due_display}}</td></tr>
   </table>
-  <!-- AUTOSTOPCRM_PAGE_BREAK -->
-  <div class="doc-page-break"></div>
+</div>
+<!-- AUTOSTOPCRM_PAGE_BREAK -->
+<div class="document-page">
   <section class="doc-section doc-section--warranty">
     <h2 class="doc-section__title">Гарантийные условия</h2>
     <div class="doc-terms">{{{repair_order.warranty_terms_html}}}</div>
@@ -370,20 +399,115 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
             """,
         ),
         _record(
+            "vehicle_acceptance_act",
+            "standard",
+            "Акт приема автомобиля в работу",
+            """
+<div class="document-page">
+  <table class="doc-head-table">
+    <tr>
+      <td class="doc-head-table__left">
+        <table class="doc-head-table" style="margin-bottom:0;">
+          <tr>
+            <td style="width:96px; vertical-align:top; padding-right:12px;">
+              <div class="doc-brand-mark">
+                {{#service.brand_logo_data_uri}}<img src="{{service.brand_logo_data_uri}}" width="70" height="70" style="width:70px;height:70px;" alt="AutoStop">{{/service.brand_logo_data_uri}}
+                {{^service.brand_logo_data_uri}}<div class="doc-brand-mark__fallback">AutoStop</div>{{/service.brand_logo_data_uri}}
+              </div>
+            </td>
+            <td style="vertical-align:top;">
+              <div class="doc-kicker">Прием автомобиля</div>
+              <h1 class="doc-title">Акт приема-передачи автомобиля в работу</h1>
+              <div class="doc-subtitle">№ {{repair_order.number_display}} от {{dates.document_date_display}}</div>
+            </td>
+          </tr>
+        </table>
+      </td>
+      <td class="doc-head-table__right">
+        <div class="doc-service">
+          <div class="doc-service__name">{{service.legal_name}}</div>
+          <div class="doc-service__meta">{{service.address}}</div>
+          <div class="doc-service__meta">Ресепшн: {{service.reception_phone}}</div>
+        </div>
+      </td>
+    </tr>
+  </table>
+  <table class="doc-meta-table">
+    <tr>
+      <td><div class="doc-label">Заказчик</div><div class="doc-value">{{client.name_display}}</div></td>
+      <td><div class="doc-label">Телефон</div><div class="doc-value">{{client.phone_display}}</div></td>
+      <td><div class="doc-label">Ориентировочная стоимость</div><div class="doc-value">{{vehicle_acceptance_act.estimated_cost_display}}</div></td>
+    </tr>
+    <tr>
+      <td><div class="doc-label">Марка / модель</div><div class="doc-value">{{vehicle.display_name}}</div></td>
+      <td><div class="doc-label">VIN</div><div class="doc-value">{{vehicle.vin_display}}</div></td>
+      <td><div class="doc-label">Госномер / пробег</div><div class="doc-value">{{vehicle.license_plate_display}} / {{vehicle.mileage_display}}</div></td>
+    </tr>
+  </table>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Какой ремонт необходимо выполнить?</h2>
+    <div class="doc-note">{{{repair_order.reason_html}}}</div>
+  </section>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Фотофиксация состояния автомобиля</h2>
+    <div class="doc-note">
+      <div class="doc-checkbox-row"><span><span class="doc-checkbox"></span>ДА</span><span><span class="doc-checkbox"></span>НЕТ</span></div>
+      <div class="doc-hint">Претензии по повреждениям кузова принимаются только если фотофиксация проведена при сдаче автомобиля совместно с представителем сервиса.</div>
+    </div>
+  </section>
+  <section class="doc-section doc-section--warranty">
+    <h2 class="doc-section__title">Ознакомьтесь, это важно</h2>
+    <div class="doc-terms">{{{repair_order.acceptance_terms_html}}}</div>
+  </section>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Подтверждение</h2>
+    <table class="doc-signatures-table">
+      <tr>
+        <td>
+          <div class="doc-signatures__role">Клиент</div>
+          <div class="doc-signature-line">&nbsp;</div>
+          <div class="doc-signature-caption">С условиями приема автомобиля согласен</div>
+        </td>
+        <td>
+          <div class="doc-signatures__role">Администратор</div>
+          <div class="doc-signature-line">&nbsp;</div>
+          <div class="doc-signature-caption">Автомобиль принял</div>
+        </td>
+      </tr>
+    </table>
+  </section>
+</div>
+            """,
+        ),
+        _record(
             "invoice",
             "standard",
             "Стандартный счет",
             """
 <div class="document-page">
+  <table class="doc-bank-table">
+    <tr>
+      <td colspan="2"><strong>{{service.bank_name}}</strong><div class="doc-bank-table__label">Банк получателя</div></td>
+      <td><strong>БИК</strong><br>{{service.bik}}</td>
+      <td><strong>Сч. №</strong><br>{{service.correspondent_account}}</td>
+    </tr>
+    <tr>
+      <td><strong>ИНН {{service.inn}}</strong></td>
+      <td><strong>КПП {{service.kpp}}</strong></td>
+      <td colspan="2"><strong>Сч. №</strong><br>{{service.settlement_account}}</td>
+    </tr>
+    <tr>
+      <td colspan="4"><strong>{{service.legal_name}}</strong><div class="doc-bank-table__label">Получатель</div></td>
+    </tr>
+  </table>
   <header class="doc-head">
-    <div><h1 class="doc-title">Счет на оплату</h1><div class="doc-subtitle">№ {{repair_order.number_display}} от {{dates.document_date_display}}</div></div>
-    <div class="doc-service"><div class="doc-service__name">{{service.company_name}}</div><div class="doc-service__meta">{{service.legal_name}}</div><div class="doc-service__meta">ИНН {{service.inn}} КПП {{service.kpp}}</div><div class="doc-service__meta">{{service.address}}</div></div>
+    <div><h1 class="doc-title">Счет на оплату № {{repair_order.number_display}}</h1><div class="doc-subtitle">от {{dates.document_date_display}}</div></div>
+    <div class="doc-service"><div class="doc-service__name">{{service.company_name}}</div><div class="doc-service__meta">{{service.address}}</div><div class="doc-service__meta">Тел. {{service.reception_phone}} · {{service.website}}</div></div>
   </header>
   <section class="doc-grid">
-    <div class="doc-card doc-card--wide"><div class="doc-label">Плательщик</div><div class="doc-value">{{client.name_display}} · {{client.phone_display}}</div></div>
+    <div class="doc-card doc-card--wide"><div class="doc-label">Поставщик</div><div class="doc-value">{{service.legal_name}}, ИНН {{service.inn}}, {{service.address}}, тел. {{service.reception_phone}}</div></div>
+    <div class="doc-card doc-card--wide"><div class="doc-label">Покупатель</div><div class="doc-value">{{client.name_display}} · {{client.phone_display}}</div></div>
     <div class="doc-card doc-card--wide"><div class="doc-label">Автомобиль</div><div class="doc-value">{{vehicle.display_name}} · {{vehicle.license_plate_display}} · VIN {{vehicle.vin_display}}</div></div>
-    <div class="doc-card"><div class="doc-label">Форма оплаты</div><div class="doc-value">{{repair_order.payment_method_label}}</div></div>
-    <div class="doc-card"><div class="doc-label">Предоплата</div><div class="doc-value">{{repair_order.prepayment_display}}</div></div>
   </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Позиции счета</h2>
@@ -393,8 +517,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     </tbody><tfoot><tr><td colspan="3">Стоимость заказ-наряда</td><td class="doc-table__sum">{{totals.subtotal_display}}</td></tr></tfoot></table>
   </section>
   <section class="doc-grid">
-    <div class="doc-card doc-card--wide"><div class="doc-label">Основание</div><div class="doc-value">{{document.description}}</div></div>
-    <div class="doc-card doc-card--wide"><div class="doc-label">Банк</div><div class="doc-value">{{service.bank_name}} · БИК {{service.bik}} · Р/с {{service.settlement_account}} · К/с {{service.correspondent_account}}</div></div>
+    <div class="doc-card doc-card--wide"><div class="doc-label">Назначение платежа</div><div class="doc-value">{{service.payment_purpose}}</div></div>
   </section>
   <section class="doc-totals">
     <div class="doc-totals__row"><span>Без НДС / Налоговый режим</span><span>{{service.tax_label}}</span></div>
@@ -403,6 +526,10 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     <div class="doc-totals__row"><span>Итого по заказ-наряду</span><span>{{totals.grand_display}}</span></div>
     {{#totals.has_prepayment}}<div class="doc-totals__row"><span>Предоплата</span><span>{{totals.prepayment_display}}</span></div>{{/totals.has_prepayment}}
     <div class="doc-totals__row doc-totals__row--grand"><span>К доплате</span><span>{{totals.due_display}}</span></div>
+  </section>
+  <section class="doc-signatures">
+    <div class="doc-signatures__item"><div>Руководитель</div><div class="doc-signature-line">&nbsp;</div><div class="doc-signature-caption">{{service.legal_name}}</div></div>
+    <div class="doc-signatures__item"><div>Бухгалтер</div><div class="doc-signature-line">&nbsp;</div><div class="doc-signature-caption">{{service.legal_name}}</div></div>
   </section>
 </div>
             """,
@@ -520,8 +647,70 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     <div class="doc-totals__row doc-totals__row--grand"><span>К доплате</span><span>{{totals.due_display}}</span></div>
   </section>
   <section class="doc-signatures">
-    <div class="doc-signatures__item"><div>Исполнитель</div><div class="doc-hint">{{service.company_name}}</div></div>
-    <div class="doc-signatures__item"><div>Заказчик</div><div class="doc-hint">{{client.name_display}}</div></div>
+    <div class="doc-signatures__item"><div class="doc-signatures__role">Исполнитель</div><div class="doc-signature-line">&nbsp;</div><div class="doc-signature-caption">{{service.company_name}}</div></div>
+    <div class="doc-signatures__item"><div class="doc-signatures__role">Заказчик</div><div class="doc-signature-line">&nbsp;</div><div class="doc-signature-caption">Работы принял, претензий не имею</div></div>
+  </section>
+</div>
+            """,
+        ),
+        _record(
+            "parts_sale",
+            "standard",
+            "Продажа запчастей без автомобиля",
+            """
+<div class="document-page">
+  <table class="doc-head-table">
+    <tr>
+      <td class="doc-head-table__left">
+        <table class="doc-head-table" style="margin-bottom:0;">
+          <tr>
+            <td style="width:96px; vertical-align:top; padding-right:12px;">
+              <div class="doc-brand-mark">
+                {{#service.brand_logo_data_uri}}<img src="{{service.brand_logo_data_uri}}" width="70" height="70" style="width:70px;height:70px;" alt="AutoStop">{{/service.brand_logo_data_uri}}
+                {{^service.brand_logo_data_uri}}<div class="doc-brand-mark__fallback">AutoStop</div>{{/service.brand_logo_data_uri}}
+              </div>
+            </td>
+            <td style="vertical-align:top;">
+              <div class="doc-kicker">Запасные части</div>
+              <h1 class="doc-title">Продажа запчастей</h1>
+              <div class="doc-subtitle">Документ № {{repair_order.number_display}} от {{dates.document_date_display}}</div>
+            </td>
+          </tr>
+        </table>
+      </td>
+      <td class="doc-head-table__right">
+        <div class="doc-service">
+          <div class="doc-service__name">{{service.company_name}}</div>
+          <div class="doc-service__meta">{{service.legal_name}}</div>
+          <div class="doc-service__meta">Запчасти: {{service.spare_parts_phone}}</div>
+          <div class="doc-service__meta">{{service.website}}</div>
+        </div>
+      </td>
+    </tr>
+  </table>
+  <section class="doc-grid">
+    <div class="doc-card doc-card--wide"><div class="doc-label">Покупатель</div><div class="doc-value">{{parts_sale.buyer_display}} · {{client.phone_display}}</div></div>
+    <div class="doc-card doc-card--wide"><div class="doc-label">Продавец</div><div class="doc-value">{{service.legal_name}}, ИНН {{service.inn}}, {{service.address}}</div></div>
+  </section>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Запчасти / материалы</h2>
+    <table class="doc-table"><colgroup><col><col style="width: 12%"><col style="width: 16%"><col style="width: 16%"></colgroup><thead><tr><th>Наименование</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
+      {{#parts_sale_items}}<tr><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}</td></tr>{{/parts_sale_items}}
+      {{^parts_sale_items}}<tr><td class="doc-table__empty" colspan="4">Запчасти и материалы не указаны</td></tr>{{/parts_sale_items}}
+    </tbody><tfoot><tr><td colspan="3">Итого</td><td class="doc-table__sum">{{totals.materials_display}}</td></tr></tfoot></table>
+  </section>
+  <section class="doc-totals">
+    <div class="doc-totals__row"><span>Товары</span><span>{{totals.materials_display}}</span></div>
+    {{#totals.has_prepayment}}<div class="doc-totals__row"><span>Оплачено</span><span>{{totals.prepayment_display}}</span></div>{{/totals.has_prepayment}}
+    <div class="doc-totals__row doc-totals__row--grand"><span>К оплате</span><span>{{totals.materials_display}}</span></div>
+  </section>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Условия продажи</h2>
+    <div class="doc-terms">{{{parts_sale.terms_html}}}</div>
+  </section>
+  <section class="doc-signatures">
+    <div class="doc-signatures__item"><div class="doc-signatures__role">Продавец</div><div class="doc-signature-line">&nbsp;</div><div class="doc-signature-caption">{{service.company_name}}</div></div>
+    <div class="doc-signatures__item"><div class="doc-signatures__role">Покупатель</div><div class="doc-signature-line">&nbsp;</div><div class="doc-signature-caption">Товар получил, претензий по комплектности не имею</div></div>
   </section>
 </div>
             """,

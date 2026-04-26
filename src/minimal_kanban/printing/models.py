@@ -3,13 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields
 from typing import Any
 
-
 SUPPORTED_PRINT_DOCUMENT_TYPES = (
     "repair_order",
+    "vehicle_acceptance_act",
     "invoice",
     "invoice_factura",
     "inspection_sheet",
     "completion_act",
+    "parts_sale",
 )
 
 
@@ -42,28 +43,35 @@ def _clean_table_rows(value: Any, *, limit_rows: int = 80) -> list[dict[str, str
 
 @dataclass(slots=True)
 class PrintServiceProfile:
-    company_name: str = "AutoStop CRM"
-    legal_name: str = ""
-    address: str = ""
-    phone: str = ""
-    reception_phone: str = ""
-    email: str = ""
-    inn: str = ""
-    kpp: str = ""
-    ogrn: str = ""
-    bank_name: str = ""
-    bik: str = ""
-    settlement_account: str = ""
-    correspondent_account: str = ""
+    company_name: str = "Auto Stop"
+    legal_name: str = "ИП Гришкявичус Константин Владиславович"
+    address: str = "660012, г. Красноярск, ул. Семафорная, 80, стр. 4"
+    phone: str = "2-88-14-15 / +7 (953) 588-14-15"
+    reception_phone: str = "288-14-15"
+    spare_parts_phone: str = "+7 (963) 184-76-76"
+    email: str = "AutoStop24@bk.ru"
+    website: str = "autostop124.ru"
+    work_hours: str = "Пн-Пт 10:00-20:00; Сб 10:00-18:00"
+    inn: str = "246413435608"
+    kpp: str = "не применяется для ИП"
+    ogrn: str = "319246800097453"
+    bank_name: str = "ФИЛИАЛ «НОВОСИБИРСКИЙ» АО «АЛЬФА-БАНК»"
+    bik: str = "045004774"
+    settlement_account: str = "40802810523260001815"
+    correspondent_account: str = "30101810600000000774"
     tax_label: str = "Без НДС"
+    payment_purpose: str = "Оплата за ремонт автомобиля / техническое обслуживание / запасные части по счёту или заказ-наряду."
 
     def __post_init__(self) -> None:
-        self.company_name = _clean_text(self.company_name, limit=120) or "AutoStop CRM"
+        self.company_name = _clean_text(self.company_name, limit=120) or "Auto Stop"
         self.legal_name = _clean_text(self.legal_name, limit=160)
         self.address = _clean_text(self.address, limit=240)
         self.phone = _clean_text(self.phone, limit=80)
         self.reception_phone = _clean_text(self.reception_phone, limit=80)
+        self.spare_parts_phone = _clean_text(self.spare_parts_phone, limit=80)
         self.email = _clean_text(self.email, limit=120)
+        self.website = _clean_text(self.website, limit=120)
+        self.work_hours = _clean_text(self.work_hours, limit=160)
         self.inn = _clean_text(self.inn, limit=32)
         self.kpp = _clean_text(self.kpp, limit=32)
         self.ogrn = _clean_text(self.ogrn, limit=32)
@@ -72,6 +80,7 @@ class PrintServiceProfile:
         self.settlement_account = _clean_text(self.settlement_account, limit=64)
         self.correspondent_account = _clean_text(self.correspondent_account, limit=64)
         self.tax_label = _clean_text(self.tax_label, limit=48) or "Без НДС"
+        self.payment_purpose = _clean_text(self.payment_purpose, limit=240)
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -80,7 +89,10 @@ class PrintServiceProfile:
             "address": self.address,
             "phone": self.phone,
             "reception_phone": self.reception_phone,
+            "spare_parts_phone": self.spare_parts_phone,
             "email": self.email,
+            "website": self.website,
+            "work_hours": self.work_hours,
             "inn": self.inn,
             "kpp": self.kpp,
             "ogrn": self.ogrn,
@@ -89,13 +101,14 @@ class PrintServiceProfile:
             "settlement_account": self.settlement_account,
             "correspondent_account": self.correspondent_account,
             "tax_label": self.tax_label,
+            "payment_purpose": self.payment_purpose,
         }
 
     @classmethod
-    def from_dict(cls, payload: Any) -> "PrintServiceProfile":
+    def from_dict(cls, payload: Any) -> PrintServiceProfile:
         if not isinstance(payload, dict):
             return cls()
-        values = {item.name: payload.get(item.name, "") for item in fields(cls)}
+        values = {item.name: payload[item.name] for item in fields(cls) if item.name in payload}
         return cls(**values)
 
 
@@ -139,7 +152,7 @@ class PrintModuleSettings:
         }
 
     @classmethod
-    def from_dict(cls, payload: Any) -> "PrintModuleSettings":
+    def from_dict(cls, payload: Any) -> PrintModuleSettings:
         if not isinstance(payload, dict):
             return cls()
         return cls(
@@ -189,7 +202,7 @@ class PrintTemplateRecord:
         }
 
     @classmethod
-    def from_dict(cls, payload: Any) -> "PrintTemplateRecord | None":
+    def from_dict(cls, payload: Any) -> PrintTemplateRecord | None:
         if not isinstance(payload, dict):
             return None
         record = cls(
@@ -258,7 +271,7 @@ class InspectionSheetFormData:
         }
 
     @classmethod
-    def from_dict(cls, payload: Any) -> "InspectionSheetFormData":
+    def from_dict(cls, payload: Any) -> InspectionSheetFormData:
         if not isinstance(payload, dict):
             return cls()
         values = {item.name: payload.get(item.name, "") for item in fields(cls)}

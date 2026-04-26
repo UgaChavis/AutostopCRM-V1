@@ -189,6 +189,40 @@ def _repair_order_warranty_terms_html() -> str:
     ).strip()
 
 
+def _vehicle_acceptance_terms_html() -> str:
+    return (
+        """
+<ol class="doc-terms__list">
+  <li><strong>Ценные вещи:</strong> за оставленные в автомобиле ценные вещи и предметы, в том числе деньги, Auto Stop ответственности не несет.</li>
+  <li><strong>Хранение:</strong> срок бесплатного нахождения автомобиля после выполнения работ и уведомления клиента о готовности составляет 2 дня. После этого стоимость хранения автомобиля составляет 150 рублей в сутки.</li>
+  <li><strong>Выдача автомобиля:</strong> автомобиль выдается клиенту только после полной оплаты произведенных работ и использованных материалов.</li>
+  <li><strong>Фотофиксация:</strong> претензии по повреждениям кузова принимаются только при проведении фотофиксации состояния автомобиля при сдаче машины совместно с представителем сервиса. Если фотофиксация не проводилась, претензии по повреждениям после выезда автомобиля из сервиса не принимаются.</li>
+  <li><strong>Доставка деталей:</strong> доставка б/у запчастей, деталей с отдаленных складов, авторазборок и транспортировка деталей клиента выполняются за отдельную плату.</li>
+  <li><strong>Дополнительные работы:</strong> сопутствующие работы стоимостью до 5000 рублей могут выполняться без отдельного согласования с клиентом, если они необходимы для продолжения ремонта.</li>
+  <li><strong>Диагностика:</strong> результаты диагностики и поиска неисправности не являются абсолютными. Сервис предлагает план ремонта, а промежуточные действия оплачиваются клиентом даже если они не дали окончательного результата.</li>
+  <li><strong>Сроки:</strong> согласованные сроки выполнения работ являются ориентировочными и могут меняться в зависимости от поставки запчастей, объема работ и выявленных неисправностей.</li>
+  <li><strong>Ремонтная зона:</strong> нахождение клиента в ремонтной зоне допускается только в присутствии мастера и является эпизодическим.</li>
+  <li><strong>Замененные детали:</strong> снятые детали возвращаются клиенту только по требованию, заявленному до начала ремонта. Если требование не заявлено, детали утилизируются в процессе ремонта.</li>
+  <li><strong>Согласование:</strong> в рамках оговоренной суммы дополнительные нюансы ремонта выполняются на усмотрение мастера и в интересах клиента.</li>
+  <li><strong>Драйв-тест:</strong> оставляя автомобиль в ремонт, клиент соглашается на проверочный выезд по дорогам общего пользования для диагностики, адаптации и контроля результата.</li>
+</ol>
+        """
+    ).strip()
+
+
+def _parts_sale_terms_html() -> str:
+    return (
+        """
+<ol class="doc-terms__list">
+  <li>Документ оформляет продажу запасных частей и материалов без привязки к конкретному автомобилю, если автомобиль в заказе не указан.</li>
+  <li>Покупатель подтверждает получение указанных позиций, комплектность и внешний вид товара проверены при получении.</li>
+  <li>Возврат и обмен товара производится в порядке, предусмотренном законодательством РФ, при сохранении товарного вида и документов на покупку.</li>
+  <li>Гарантийные обязательства производителя или поставщика действуют при соблюдении правил установки и эксплуатации детали.</li>
+</ol>
+        """
+    ).strip()
+
+
 class PrintModuleService:
     """Storage-backed printing module for repair-order documents."""
 
@@ -594,7 +628,11 @@ class PrintModuleService:
     def _combined_document_html(self, payloads: list[dict[str, Any]]) -> str:
         bodies: list[str] = []
         for index, payload in enumerate(payloads):
-            bodies.append(self._extract_body(payload["document_html"]))
+            body = self._extract_body(payload["document_html"]).replace(
+                _PAGE_BREAK_MARKER,
+                '<div class="doc-page-break"></div>',
+            )
+            bodies.append(body)
             if index != len(payloads) - 1:
                 bodies.append('<div class="doc-page-break"></div>')
         return self._wrap_document_html("\n".join(bodies), title="Печать документов AutoStop CRM")
@@ -1045,7 +1083,13 @@ class PrintModuleService:
         findings = self._bullet_points(order.note, fallback_source=order.comment)
         recommendations = self._bullet_points(order.comment)
         issue_points = self._bullet_points(order.reason)
-        missing_fields = self._missing_fields(card, order, works=works, materials=materials)
+        missing_fields = self._missing_fields(
+            card,
+            order,
+            document=document,
+            works=works,
+            materials=materials,
+        )
         inspection_planned_works = self._inspection_sheet_list(inspection_form.planned_works)
         inspection_planned_materials = self._inspection_sheet_list(
             inspection_form.planned_materials
@@ -1093,7 +1137,10 @@ class PrintModuleService:
                 "address": _display(settings.service_profile.address),
                 "phone": _display(settings.service_profile.phone),
                 "reception_phone": _display(settings.service_profile.reception_phone),
+                "spare_parts_phone": _display(settings.service_profile.spare_parts_phone),
                 "email": _display(settings.service_profile.email),
+                "website": _display(settings.service_profile.website),
+                "work_hours": _display(settings.service_profile.work_hours),
                 "inn": _display(settings.service_profile.inn),
                 "kpp": _display(settings.service_profile.kpp),
                 "ogrn": _display(settings.service_profile.ogrn),
@@ -1102,6 +1149,7 @@ class PrintModuleService:
                 "settlement_account": _display(settings.service_profile.settlement_account),
                 "correspondent_account": _display(settings.service_profile.correspondent_account),
                 "tax_label": _display(settings.service_profile.tax_label),
+                "payment_purpose": _display(settings.service_profile.payment_purpose),
                 "brand_logo_data_uri": _brand_logo_data_uri(),
             },
             "document": document.to_dict(),
@@ -1127,6 +1175,7 @@ class PrintModuleService:
                 "client_information_html": _line_breaks_html(order.comment),
                 "note_display": _display(order.note),
                 "warranty_terms_html": _repair_order_warranty_terms_html(),
+                "acceptance_terms_html": _vehicle_acceptance_terms_html(),
                 "payment_summary": payment_summary_display,
             },
             "client": {
@@ -1153,9 +1202,22 @@ class PrintModuleService:
             "works": works,
             "materials": materials,
             "line_items": line_items,
+            "parts_sale_items": materials,
             "issue_points": issue_points,
             "findings": findings,
             "recommendations": recommendations,
+            "vehicle_acceptance_act": {
+                "photo_fixation_yes": "ДА",
+                "photo_fixation_no": "НЕТ",
+                "estimated_cost_display": _money_display(payment_summary["base_total"]),
+                "terms_html": _vehicle_acceptance_terms_html(),
+            },
+            "parts_sale": {
+                "items": materials,
+                "terms_html": _parts_sale_terms_html(),
+                "buyer_display": _display(order.client),
+                "description": "Продажа запасных частей и материалов без привязки к автомобилю.",
+            },
             "inspection_sheet": {
                 **inspection_form.to_dict(),
                 "client_display": _display(inspection_form.client),
@@ -1223,6 +1285,7 @@ class PrintModuleService:
         card: Card,
         order: RepairOrder,
         *,
+        document: PrintDocumentDefinition,
         works: list[dict[str, Any]],
         materials: list[dict[str, Any]],
     ) -> list[str]:
@@ -1231,13 +1294,28 @@ class PrintModuleService:
             missing.append("client")
         if not _normalize_text(order.phone):
             missing.append("phone")
-        if not _normalize_text(order.vehicle or card.vehicle_display()):
+        if document.id not in {"parts_sale"} and not _normalize_text(
+            order.vehicle or card.vehicle_display()
+        ):
             missing.append("vehicle")
-        if not _normalize_text(order.vin):
+        if document.id not in {"parts_sale"} and not _normalize_text(order.vin):
             missing.append("vin")
-        if not works:
+        if (
+            document.id in {"repair_order", "invoice", "invoice_factura", "completion_act"}
+            and not works
+        ):
             missing.append("works")
-        if not materials:
+        if (
+            document.id
+            in {
+                "repair_order",
+                "invoice",
+                "invoice_factura",
+                "completion_act",
+                "parts_sale",
+            }
+            and not materials
+        ):
             missing.append("materials")
         return missing
 

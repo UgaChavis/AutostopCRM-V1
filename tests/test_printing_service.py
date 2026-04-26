@@ -124,7 +124,12 @@ class PrintingServiceTests(unittest.TestCase):
             workspace["documents"][0]["selected_template_id"].startswith("builtin:repair_order")
         )
         self.assertIn("repair_order", workspace["templates"])
-        self.assertEqual(workspace["settings"]["service_profile"]["company_name"], "AutoStop CRM")
+        self.assertEqual(workspace["settings"]["service_profile"]["company_name"], "Auto Stop")
+        self.assertEqual(
+            workspace["settings"]["service_profile"]["legal_name"],
+            "ИП Гришкявичус Константин Владиславович",
+        )
+        self.assertEqual(workspace["settings"]["service_profile"]["reception_phone"], "288-14-15")
         inspection_document = next(
             item for item in workspace["documents"] if item["id"] == "inspection_sheet"
         )
@@ -158,10 +163,7 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Предоплата", preview["documents"][0]["pages"][0]["html"])
         self.assertIn("К доплате", preview["documents"][0]["pages"][0]["html"])
         self.assertTrue(
-            any(
-                "Гарантийные условия" in page["html"]
-                for page in preview["documents"][0]["pages"]
-            )
+            any("Гарантийные условия" in page["html"] for page in preview["documents"][0]["pages"])
         )
         self.assertIn(
             "<strong>30 дней:</strong> гарантия на выполненные работы и замененные запасные части.",
@@ -204,6 +206,46 @@ class PrintingServiceTests(unittest.TestCase):
             self.assertGreaterEqual(document["page_count"], 1)
             self.assertIn("<!doctype html>", document["pages"][0]["html"].lower())
             self.assertIn(document["label"], document["pages"][0]["html"])
+
+    def test_acceptance_act_renders_legal_terms_and_photo_fixation(self) -> None:
+        preview = self.service.preview_documents(
+            self.card,
+            selected_document_ids=["vehicle_acceptance_act"],
+            active_document_id="vehicle_acceptance_act",
+        )
+
+        document = preview["documents"][0]
+        html = document["pages"][0]["html"]
+        self.assertIn("Акт приема-передачи автомобиля в работу", html)
+        self.assertIn("Фотофиксация состояния автомобиля", html)
+        self.assertIn("150 рублей в сутки", html)
+        self.assertIn(
+            "претензии по повреждениям после выезда автомобиля из сервиса не принимаются", html
+        )
+        self.assertNotIn("undefined", html)
+        self.assertNotIn("NaN", html)
+
+    def test_parts_sale_document_uses_material_rows_without_vehicle_requirement(self) -> None:
+        card = build_card()
+        card.repair_order.vehicle = ""
+        card.repair_order.vin = ""
+        card.repair_order.license_plate = ""
+
+        preview = self.service.preview_documents(
+            card,
+            selected_document_ids=["parts_sale"],
+            active_document_id="parts_sale",
+        )
+
+        document = preview["documents"][0]
+        html = document["pages"][0]["html"]
+        self.assertIn("Продажа запчастей", html)
+        self.assertIn("ATF", html)
+        self.assertIn("Фильтр АКПП", html)
+        self.assertNotIn("vehicle", document["missing_fields"])
+        self.assertNotIn("vin", document["missing_fields"])
+        self.assertNotIn("undefined", html)
+        self.assertNotIn("NaN", html)
 
     def test_print_context_omits_material_catalog_number(self) -> None:
         context = self.service._build_document_context(
