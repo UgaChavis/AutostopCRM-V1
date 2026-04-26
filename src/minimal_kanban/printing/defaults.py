@@ -397,7 +397,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
 <!-- AUTOSTOPCRM_PAGE_BREAK -->
 <div class="document-page">
   <section class="doc-section doc-section--warranty">
-    <h2 class="doc-section__title">Гарантийные условия</h2>
+    <h2 class="doc-section__title">Гарантийные и важные условия</h2>
     <div class="doc-terms">{{{repair_order.warranty_terms_html}}}</div>
   </section>
   <section class="doc-section doc-section--signatures">
