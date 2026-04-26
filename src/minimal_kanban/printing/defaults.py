@@ -148,6 +148,16 @@ PRINT_BASE_STYLES = """
   .doc-banner-table td { padding: 10px 12px; vertical-align: middle; }
   .doc-banner-table__phone { color: var(--paper-accent); font-size: 21px; font-weight: 700; line-height: 1.05; }
   .doc-banner-table__copy { color: var(--paper-soft); font-size: 11px; line-height: 1.45; text-align: right; }
+  .doc-invoice-notice {
+    margin-bottom: 12px;
+    border: 1px solid var(--paper-line-strong);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: var(--paper-soft);
+    font-size: 10px;
+    line-height: 1.4;
+    background: rgba(0, 0, 0, 0.02);
+  }
   .doc-meta-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 12px; }
   .doc-meta-table td {
     border: 1px solid var(--paper-line);
@@ -170,6 +180,8 @@ PRINT_BASE_STYLES = """
     vertical-align: top;
   }
   .doc-bank-table__label { color: var(--paper-soft); font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .doc-bank-table__value { line-height: 1.25; margin-top: 2px; word-break: break-word; }
+  .doc-bank-table__value strong { font-size: 11px; }
   .doc-checkbox-row { display: flex; gap: 18px; align-items: center; font-weight: 700; }
   .doc-checkbox { display: inline-block; width: 12px; height: 12px; border: 1px solid var(--paper-line-strong); margin-right: 6px; vertical-align: -2px; }
   .doc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
@@ -240,6 +252,16 @@ PRINT_BASE_STYLES = """
   }
   .doc-totals-table td:last-child { text-align: right; width: 32%; }
   .doc-totals-table__grand td { font-size: 14px; font-weight: 700; background: rgba(0, 0, 0, 0.03); }
+  .doc-invoice-words {
+    margin-top: 10px;
+    border: 1px solid var(--paper-line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: #fcfcfc;
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .doc-invoice-words strong { color: var(--paper-accent); }
   .doc-list { margin: 0; padding-left: 18px; }
   .doc-list li + li { margin-top: 4px; }
   .doc-signatures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; margin-top: 4px; }
@@ -516,6 +538,9 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       </td>
     </tr>
   </table>
+  <div class="doc-invoice-notice">
+    Внимание! Оплата данного счета означает согласие с указанными в нем работами, материалами и условиями поставки. Уведомление об оплате обязательно.
+  </div>
   <table class="doc-bank-table">
     <colgroup>
       <col style="width: 34%">
@@ -549,23 +574,22 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Позиции счета</h2>
-    <table class="doc-table"><thead><tr><th>Наименование</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
-      {{#line_items}}<tr><td>{{section_label}}: {{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}</td></tr>{{/line_items}}
-      {{^line_items}}<tr><td class="doc-table__empty" colspan="4">Нет строк для счета</td></tr>{{/line_items}}
-    </tbody><tfoot><tr><td colspan="3">Стоимость заказ-наряда</td><td class="doc-table__sum">{{totals.subtotal_display}}</td></tr></tfoot></table>
+    <table class="doc-table"><colgroup><col style="width: 7%"><col><col style="width: 12%"><col style="width: 12%"><col style="width: 15%"><col style="width: 16%"></colgroup><thead><tr><th class="doc-table__narrow">№</th><th>Наименование товара, работ, услуг</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__narrow">Ед. изм.</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
+      {{#line_items}}<tr><td class="doc-table__narrow">{{index}}</td><td>{{section_label}}: {{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__narrow">{{unit_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}</td></tr>{{/line_items}}
+      {{^line_items}}<tr><td class="doc-table__empty" colspan="6">Нет строк для счета</td></tr>{{/line_items}}
+    </tbody><tfoot><tr><td colspan="5">Итого</td><td class="doc-table__sum">{{totals.subtotal_display}}</td></tr></tfoot></table>
   </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Назначение платежа</h2>
     <div class="doc-note">{{service.payment_purpose}}</div>
   </section>
   <table class="doc-totals-table">
-    <tr><td>Налоговый режим</td><td>{{service.tax_label}}</td></tr>
-    <tr><td>Стоимость заказ-наряда</td><td>{{totals.subtotal_display}}</td></tr>
-    {{#totals.has_taxes}}<tr><td>Налоги и сборы</td><td>{{totals.taxes_display}}</td></tr>{{/totals.has_taxes}}
-    <tr><td>Итого по заказ-наряду</td><td>{{totals.grand_display}}</td></tr>
+    <tr><td>Итого</td><td>{{totals.subtotal_display}}</td></tr>
+    {{#totals.has_taxes}}<tr><td>В том числе налоги и сборы</td><td>{{totals.taxes_display}}</td></tr>{{/totals.has_taxes}}
     {{#totals.has_prepayment}}<tr><td>Предоплата</td><td>{{totals.prepayment_display}}</td></tr>{{/totals.has_prepayment}}
-    <tr class="doc-totals-table__grand"><td>К доплате</td><td>{{totals.due_display}}</td></tr>
+    <tr class="doc-totals-table__grand"><td>Всего к оплате</td><td>{{totals.due_display}}</td></tr>
   </table>
+  <div class="doc-invoice-words">Сумма прописью: <strong>{{totals.due_words_display}}</strong></div>
   <section class="doc-section">
     <h2 class="doc-section__title">Подписи</h2>
     <table class="doc-signatures-table">
@@ -592,14 +616,46 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
             "Стандартный счет-фактура",
             """
 <div class="document-page">
-  <header class="doc-head">
-    <div><h1 class="doc-title">Счет-фактура</h1><div class="doc-subtitle">Документ по заказ-наряду № {{repair_order.number_display}}</div></div>
-    <div class="doc-service"><div class="doc-service__name">{{service.company_name}}</div><div class="doc-service__meta">{{service.legal_name}}</div><div class="doc-service__meta">ИНН {{service.inn}} · КПП {{service.kpp}} · ОГРН {{service.ogrn}}</div></div>
-  </header>
-  <section class="doc-grid">
-    <div class="doc-card"><div class="doc-label">Покупатель</div><div class="doc-value">{{client.name_display}}</div></div>
-    <div class="doc-card"><div class="doc-label">Контакт</div><div class="doc-value">{{client.phone_display}}</div></div>
-    <div class="doc-card"><div class="doc-label">Дата</div><div class="doc-value">{{dates.document_date_display}}</div></div>
+  <table class="doc-head-table">
+    <tr>
+      <td class="doc-head-table__left">
+        <table class="doc-head-table" style="margin-bottom:0;">
+          <tr>
+            <td style="width:104px; vertical-align:top; padding-right:12px;">
+              <div class="doc-brand-mark">
+                {{#service.brand_logo_data_uri}}<img src="{{service.brand_logo_data_uri}}" width="70" height="70" style="width:70px;height:70px;" alt="AutoStop">{{/service.brand_logo_data_uri}}
+                {{^service.brand_logo_data_uri}}<div class="doc-brand-mark__fallback">AutoStop</div>{{/service.brand_logo_data_uri}}
+              </div>
+            </td>
+            <td style="vertical-align:top;">
+              <div class="doc-brand-copy">
+                <div class="doc-kicker">Бухгалтерский документ</div>
+                <h1 class="doc-title">Счет-фактура</h1>
+                <div class="doc-subtitle">По заказ-наряду № {{repair_order.number_display}} от {{dates.document_date_display}}</div>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+      <td class="doc-head-table__right">
+        <div class="doc-service">
+          <div class="doc-service__name">{{service.company_name}}</div>
+          <div class="doc-service__meta">{{service.legal_name}}</div>
+          <div class="doc-service__meta">Тел. {{service.reception_phone}} · {{service.website}}</div>
+          <div class="doc-service__meta">ИНН {{service.inn}} · КПП {{service.kpp}} · ОГРН {{service.ogrn}}</div>
+        </div>
+      </td>
+    </tr>
+  </table>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Сведения по счету-фактуре</h2>
+    <table class="doc-meta-table">
+      <tr>
+        <td><div class="doc-label">Покупатель</div><div class="doc-value">{{client.name_display}}</div></td>
+        <td><div class="doc-label">Контакт</div><div class="doc-value">{{client.phone_display}}</div></td>
+        <td><div class="doc-label">Дата</div><div class="doc-value">{{dates.document_date_display}}</div></td>
+      </tr>
+    </table>
   </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Номенклатура</h2>
@@ -608,9 +664,39 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       {{^line_items}}<tr><td class="doc-table__empty" colspan="4">Номенклатура не заполнена</td></tr>{{/line_items}}
     </tbody><tfoot><tr><td colspan="3">Всего</td><td class="doc-table__sum">{{totals.grand_display}}</td></tr></tfoot></table>
   </section>
-  <section class="doc-grid">
-    <div class="doc-card doc-card--wide"><div class="doc-label">Автомобиль</div><div class="doc-value">{{vehicle.display_name}} · {{vehicle.license_plate_display}} · VIN {{vehicle.vin_display}}</div></div>
-    <div class="doc-card doc-card--wide"><div class="doc-label">Налоговый режим</div><div class="doc-value">{{service.tax_label}}</div></div>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Сведения по заказу</h2>
+    <table class="doc-meta-table">
+      <tr>
+        <td><div class="doc-label">Автомобиль</div><div class="doc-value">{{vehicle.display_name}} · {{vehicle.license_plate_display}} · VIN {{vehicle.vin_display}}</div></td>
+        <td><div class="doc-label">Налоговый режим</div><div class="doc-value">{{service.tax_label}}</div></td>
+        <td><div class="doc-label">Назначение платежа</div><div class="doc-value">{{service.payment_purpose}}</div></td>
+      </tr>
+    </table>
+  </section>
+  <table class="doc-totals-table">
+    <tr><td>Налоговый режим</td><td>{{service.tax_label}}</td></tr>
+    <tr><td>Итого по счету-фактуре</td><td>{{totals.grand_display}}</td></tr>
+    {{#totals.has_taxes}}<tr><td>Налоги и сборы</td><td>{{totals.taxes_display}}</td></tr>{{/totals.has_taxes}}
+    {{#totals.has_prepayment}}<tr><td>Предоплата</td><td>{{totals.prepayment_display}}</td></tr>{{/totals.has_prepayment}}
+    <tr class="doc-totals-table__grand"><td>К оплате</td><td>{{totals.due_display}}</td></tr>
+  </table>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Подписи</h2>
+    <table class="doc-signatures-table">
+      <tr>
+        <td>
+          <div class="doc-signatures__role">Руководитель</div>
+          <div class="doc-signature-line">&nbsp;</div>
+          <div class="doc-signature-caption">{{service.legal_name}}</div>
+        </td>
+        <td>
+          <div class="doc-signatures__role">Бухгалтер</div>
+          <div class="doc-signature-line">&nbsp;</div>
+          <div class="doc-signature-caption">{{service.legal_name}}</div>
+        </td>
+      </tr>
+    </table>
   </section>
 </div>
             """,
@@ -621,25 +707,64 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
             "Стандартная дефектовочная ведомость",
             """
 <div class="document-page">
-  <header class="doc-head">
-    <div><h1 class="doc-title">Дефектовочная ведомость</h1><div class="doc-subtitle">По заказ-наряду № {{repair_order.number_display}}</div></div>
-    <div class="doc-service"><div class="doc-service__name">{{service.company_name}}</div><div class="doc-service__meta">{{service.address}}</div><div class="doc-service__meta">{{service.phone}}</div></div>
-  </header>
-  <section class="doc-grid">
-    <div class="doc-card"><div class="doc-label">Клиент</div><div class="doc-value">{{inspection_sheet.client_display}}</div></div>
-    <div class="doc-card"><div class="doc-label">Автомобиль</div><div class="doc-value">{{inspection_sheet.vehicle_display}}</div></div>
-    <div class="doc-card"><div class="doc-label">VIN / госномер</div><div class="doc-value">{{inspection_sheet.vin_or_plate_display}}</div></div>
+  <table class="doc-head-table">
+    <tr>
+      <td class="doc-head-table__left">
+        <table class="doc-head-table" style="margin-bottom:0;">
+          <tr>
+            <td style="width:96px; vertical-align:top; padding-right:12px;">
+              <div class="doc-brand-mark">
+                {{#service.brand_logo_data_uri}}<img src="{{service.brand_logo_data_uri}}" width="70" height="70" style="width:70px;height:70px;" alt="AutoStop">{{/service.brand_logo_data_uri}}
+                {{^service.brand_logo_data_uri}}<div class="doc-brand-mark__fallback">AutoStop</div>{{/service.brand_logo_data_uri}}
+              </div>
+            </td>
+            <td style="vertical-align:top;">
+              <div class="doc-brand-copy">
+                <div class="doc-kicker">Диагностика и дефектовка</div>
+                <h1 class="doc-title">Дефектовочная ведомость</h1>
+                <div class="doc-subtitle">По заказ-наряду № {{repair_order.number_display}} от {{dates.document_date_display}}</div>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+      <td class="doc-head-table__right">
+        <div class="doc-service">
+          <div class="doc-service__name">{{service.company_name}}</div>
+          <div class="doc-service__meta">{{service.legal_name}}</div>
+          <div class="doc-service__meta">{{service.address}}</div>
+          <div class="doc-service__meta">Тел. {{service.reception_phone}} · {{service.website}}</div>
+        </div>
+      </td>
+    </tr>
+  </table>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Сведения по заказу</h2>
+    <table class="doc-meta-table">
+      <tr>
+        <td><div class="doc-label">Клиент</div><div class="doc-value">{{inspection_sheet.client_display}}</div></td>
+        <td><div class="doc-label">Автомобиль</div><div class="doc-value">{{inspection_sheet.vehicle_display}}</div></td>
+        <td><div class="doc-label">VIN / госномер</div><div class="doc-value">{{inspection_sheet.vin_or_plate_display}}</div></td>
+      </tr>
+      <tr>
+        <td><div class="doc-label">Работы в плане</div><div class="doc-value">{{inspection_sheet.planned_works_count}} позиций</div></td>
+        <td><div class="doc-label">Материалы в плане</div><div class="doc-value">{{inspection_sheet.planned_materials_count}} позиций</div></td>
+        <td><div class="doc-label">Комментарий мастера</div><div class="doc-value">{{inspection_sheet.master_comment_display}}</div></td>
+      </tr>
+    </table>
   </section>
   <section class="doc-section"><h2 class="doc-section__title">С чем приехал клиент</h2><div class="doc-note">{{{inspection_sheet.complaint_summary_html}}}</div></section>
   <section class="doc-section"><h2 class="doc-section__title">Что выявлено</h2><ul class="doc-list">{{#inspection_sheet.findings}}<li>{{text}}</li>{{/inspection_sheet.findings}}{{^inspection_sheet.findings}}<li>Дефекты не зафиксированы отдельным списком.</li>{{/inspection_sheet.findings}}</ul></section>
   <section class="doc-section"><h2 class="doc-section__title">Рекомендации</h2><ul class="doc-list">{{#inspection_sheet.recommendations}}<li>{{text}}</li>{{/inspection_sheet.recommendations}}{{^inspection_sheet.recommendations}}<li>Дополнительные рекомендации не указаны.</li>{{/inspection_sheet.recommendations}}</ul></section>
   <section class="doc-section">
     <h2 class="doc-section__title">Планируемые работы / материалы</h2>
-    <div class="doc-grid">
-      <div class="doc-card"><div class="doc-label">Работы</div><ul class="doc-list">{{#inspection_sheet.planned_works}}<li>{{text}}</li>{{/inspection_sheet.planned_works}}{{^inspection_sheet.planned_works}}<li>{{meta.works_count}} позиций</li>{{/inspection_sheet.planned_works}}</ul></div>
-      <div class="doc-card"><div class="doc-label">Материалы</div><ul class="doc-list">{{#inspection_sheet.planned_materials}}<li>{{text}}</li>{{/inspection_sheet.planned_materials}}{{^inspection_sheet.planned_materials}}<li>{{meta.materials_count}} позиций</li>{{/inspection_sheet.planned_materials}}</ul></div>
-      <div class="doc-card"><div class="doc-label">Комментарий мастера</div><div class="doc-value">{{inspection_sheet.master_comment_display}}</div></div>
-    </div>
+    <table class="doc-meta-table">
+      <tr>
+        <td><div class="doc-label">Работы</div><ul class="doc-list">{{#inspection_sheet.planned_works}}<li>{{text}}</li>{{/inspection_sheet.planned_works}}{{^inspection_sheet.planned_works}}<li>{{inspection_sheet.planned_works_count}} позиций</li>{{/inspection_sheet.planned_works}}</ul></td>
+        <td><div class="doc-label">Материалы</div><ul class="doc-list">{{#inspection_sheet.planned_materials}}<li>{{text}}</li>{{/inspection_sheet.planned_materials}}{{^inspection_sheet.planned_materials}}<li>{{inspection_sheet.planned_materials_count}} позиций</li>{{/inspection_sheet.planned_materials}}</ul></td>
+        <td><div class="doc-label">Комментарий мастера</div><div class="doc-value">{{inspection_sheet.master_comment_display}}</div></td>
+      </tr>
+    </table>
   </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Перечень необходимых работ</h2>
@@ -654,6 +779,23 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       {{#inspection_sheet.planned_material_rows}}<tr><td class="doc-table__narrow">{{index}}</td><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td></tr>{{/inspection_sheet.planned_material_rows}}
       {{^inspection_sheet.planned_material_rows}}<tr><td class="doc-table__empty" colspan="3">Запчасти и материалы не указаны</td></tr>{{/inspection_sheet.planned_material_rows}}
     </tbody></table>
+  </section>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Подтверждение</h2>
+    <table class="doc-signatures-table">
+      <tr>
+        <td>
+          <div class="doc-signatures__role">Мастер-приемщик</div>
+          <div class="doc-signature-line">&nbsp;</div>
+          <div class="doc-signature-caption">Дефектовка выполнена</div>
+        </td>
+        <td>
+          <div class="doc-signatures__role">Клиент</div>
+          <div class="doc-signature-line">&nbsp;</div>
+          <div class="doc-signature-caption">С результатами ознакомлен</div>
+        </td>
+      </tr>
+    </table>
   </section>
 </div>
             """,

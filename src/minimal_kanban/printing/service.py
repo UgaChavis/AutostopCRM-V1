@@ -36,6 +36,72 @@ _PAGE_BREAK_MARKER = "<!-- AUTOSTOPCRM_PAGE_BREAK -->"
 _SENTENCE_SPLIT_RE = re.compile(r"[\n\r]+|(?<=[.!?])\s+")
 _MONEY_QUANT = Decimal("0.01")
 _BRAND_LOGO_PATH = Path(__file__).resolve().parent / "assets" / "autostop_brand_logo.png"
+_MONEY_UNITS_MALE = (
+    "",
+    "один",
+    "два",
+    "три",
+    "четыре",
+    "пять",
+    "шесть",
+    "семь",
+    "восемь",
+    "девять",
+)
+_MONEY_UNITS_FEMALE = (
+    "",
+    "одна",
+    "две",
+    "три",
+    "четыре",
+    "пять",
+    "шесть",
+    "семь",
+    "восемь",
+    "девять",
+)
+_MONEY_TEENS = (
+    "десять",
+    "одиннадцать",
+    "двенадцать",
+    "тринадцать",
+    "четырнадцать",
+    "пятнадцать",
+    "шестнадцать",
+    "семнадцать",
+    "восемнадцать",
+    "девятнадцать",
+)
+_MONEY_TENS = (
+    "",
+    "",
+    "двадцать",
+    "тридцать",
+    "сорок",
+    "пятьдесят",
+    "шестьдесят",
+    "семьдесят",
+    "восемьдесят",
+    "девяносто",
+)
+_MONEY_HUNDREDS = (
+    "",
+    "сто",
+    "двести",
+    "триста",
+    "четыреста",
+    "пятьсот",
+    "шестьсот",
+    "семьсот",
+    "восемьсот",
+    "девятьсот",
+)
+_MONEY_SCALES = (
+    ("тысяча", "тысячи", "тысяч", True),
+    ("миллион", "миллиона", "миллионов", False),
+    ("миллиард", "миллиарда", "миллиардов", False),
+    ("триллион", "триллиона", "триллионов", False),
+)
 
 
 class PrintModuleError(RuntimeError):
@@ -94,6 +160,81 @@ def _money_display(value: Any) -> str:
     return f"{grouped_whole},{fraction[:2]}" if dot else grouped_whole
 
 
+def _plural_form(number: int, forms: tuple[str, str, str]) -> str:
+    n = abs(int(number))
+    if 11 <= (n % 100) <= 14:
+        return forms[2]
+    last = n % 10
+    if last == 1:
+        return forms[0]
+    if 2 <= last <= 4:
+        return forms[1]
+    return forms[2]
+
+
+def _triplet_words(number: int, *, feminine: bool = False) -> str:
+    number = max(0, min(999, int(number)))
+    words: list[str] = []
+    hundreds = number // 100
+    tens_units = number % 100
+    tens = tens_units // 10
+    units = tens_units % 10
+    if hundreds:
+        words.append(_MONEY_HUNDREDS[hundreds])
+    if 10 <= tens_units <= 19:
+        words.append(_MONEY_TEENS[tens_units - 10])
+    else:
+        if tens:
+            words.append(_MONEY_TENS[tens])
+        if units:
+            words.append((_MONEY_UNITS_FEMALE if feminine else _MONEY_UNITS_MALE)[units])
+    return " ".join(words)
+
+
+def _integer_words(number: int) -> str:
+    number = max(0, int(number))
+    if number == 0:
+        return "ноль"
+    chunks: list[str] = []
+    group_index = 0
+    while number > 0:
+        triplet = number % 1000
+        if triplet:
+            feminine = bool(
+                group_index == 1
+                or (
+                    _MONEY_SCALES[group_index - 1][3]
+                    if group_index > 1 and group_index - 1 < len(_MONEY_SCALES)
+                    else False
+                )
+            )
+            words = _triplet_words(triplet, feminine=feminine)
+            if group_index > 0 and group_index - 1 < len(_MONEY_SCALES):
+                scale_forms = _MONEY_SCALES[group_index - 1][:3]
+                words = f"{words} {_plural_form(triplet, scale_forms)}".strip()
+            chunks.append(words)
+        number //= 1000
+        group_index += 1
+    return " ".join(reversed(chunks)).strip()
+
+
+def _money_words_display(value: Any) -> str:
+    parsed = _parse_decimal(value)
+    if parsed is None:
+        return "—"
+    quantized = parsed.quantize(_MONEY_QUANT)
+    sign = "минус " if quantized < 0 else ""
+    quantized = abs(quantized)
+    whole = int(quantized)
+    cents = int((quantized - whole) * 100)
+    rubles = _integer_words(whole)
+    ruble_word = _plural_form(whole, ("рубль", "рубля", "рублей"))
+    kopeks = f"{cents:02d}"
+    kopek_word = _plural_form(cents, ("копейка", "копейки", "копеек"))
+    text = f"{sign}{rubles} {ruble_word} {kopeks} {kopek_word}"
+    return text[:1].upper() + text[1:] if text else "—"
+
+
 def _line_breaks_html(value: Any, *, fallback: str = "—") -> str:
     text = _normalize_multiline(value, limit=20_000)
     if not text:
@@ -147,6 +288,7 @@ def _repair_row_dict(row: RepairOrderRow, *, section: str, index: int) -> dict[s
         "section_label": "Работы" if section == "works" else "Материалы",
         "name": row.name or "—",
         "quantity": row.quantity,
+        "unit_display": "усл. ед." if section == "works" else "шт.",
         "price": row.price,
         "total": row.total or row.computed_total(),
         "quantity_display": row.quantity or "—",
@@ -1078,7 +1220,7 @@ class PrintModuleService:
             for index, row in enumerate(order.materials)
         ]
         repair_order_payload = _print_safe_repair_order_dict(order)
-        line_items = works + materials
+        line_items = [{**item, "index": index + 1} for index, item in enumerate(works + materials)]
         inspection_form = self._load_inspection_sheet_form(card, order)
         findings = self._bullet_points(order.note, fallback_source=order.comment)
         recommendations = self._bullet_points(order.comment)
@@ -1119,8 +1261,10 @@ class PrintModuleService:
             else payment_summary["cash_due"]
         )
         selected_due_display = _money_display(selected_due)
+        selected_due_words_display = _money_words_display(selected_due)
         grand_total = payment_summary["base_total"] + payment_summary["taxes_and_fees"]
         grand_total_display = _money_display(grand_total)
+        grand_total_words_display = _money_words_display(grand_total)
         total_paid_display = payment_summary_display["total_paid_display"]
         if missing_fields:
             warnings.append("Часть полей не заполнена, проверьте документ перед печатью.")
@@ -1254,8 +1398,10 @@ class PrintModuleService:
                 "subtotal_display": payment_summary_display["base_total_display"],
                 "taxes_display": payment_summary_display["taxes_and_fees_display"],
                 "grand_display": grand_total_display,
+                "grand_words_display": grand_total_words_display,
                 "prepayment_display": total_paid_display,
                 "due_display": selected_due_display,
+                "due_words_display": selected_due_words_display,
                 "base_total_display": payment_summary_display["base_total_display"],
                 "base_paid_cash_display": payment_summary_display["base_paid_cash_display"],
                 "base_paid_noncash_display": payment_summary_display["base_paid_noncash_display"],

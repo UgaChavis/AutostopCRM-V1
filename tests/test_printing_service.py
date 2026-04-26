@@ -192,8 +192,8 @@ class PrintingServiceTests(unittest.TestCase):
             "<strong>30 дней:</strong> гарантия на выполненные работы и замененные запасные части.",
             "".join(page["html"] for page in preview["documents"][0]["pages"]),
         )
-        self.assertIn("Стоимость заказ-наряда", preview["documents"][1]["pages"][0]["html"])
-        self.assertIn("Итого по заказ-наряду", preview["documents"][1]["pages"][0]["html"])
+        self.assertIn("Всего к оплате", preview["documents"][1]["pages"][0]["html"])
+        self.assertIn("Сумма прописью", preview["documents"][1]["pages"][0]["html"])
         self.assertEqual(preview["documents"][0]["missing_fields"], [])
 
     def test_repair_order_template_renders_reception_phone_and_signatures(self) -> None:
@@ -228,8 +228,49 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn('class="doc-brand-mark"', html)
         self.assertIn("БИК", html)
         self.assertIn("Тел. 288-14-15", html)
+        self.assertIn("Внимание! Оплата данного счета", html)
+        self.assertIn("Ед. изм.", html)
+        self.assertIn("Сумма прописью", html)
+        self.assertIn("Всего к оплате", html)
         self.assertIn("Руководитель", html)
         self.assertIn("Бухгалтер", html)
+        self.assertNotIn("undefined", html)
+        self.assertNotIn("NaN", html)
+
+    def test_invoice_factura_template_renders_brand_header_and_totals(self) -> None:
+        preview = self.service.preview_documents(
+            self.card,
+            selected_document_ids=["invoice_factura"],
+            active_document_id="invoice_factura",
+        )
+
+        document = preview["documents"][0]
+        html = document["pages"][0]["html"]
+        self.assertIn("Счет-фактура", html)
+        self.assertIn('class="doc-brand-mark"', html)
+        self.assertIn("Бухгалтерский документ", html)
+        self.assertIn("ОГРН", html)
+        self.assertIn("Налоговый режим", html)
+        self.assertIn("Подписи", html)
+        self.assertNotIn("undefined", html)
+        self.assertNotIn("NaN", html)
+
+    def test_inspection_sheet_template_renders_brand_header_and_confirmation(self) -> None:
+        preview = self.service.preview_documents(
+            self.card,
+            selected_document_ids=["inspection_sheet"],
+            active_document_id="inspection_sheet",
+        )
+
+        document = preview["documents"][0]
+        html = document["pages"][0]["html"]
+        self.assertIn("Дефектовочная ведомость", html)
+        self.assertIn('class="doc-brand-mark"', html)
+        self.assertIn("Диагностика и дефектовка", html)
+        self.assertIn("Сведения по заказу", html)
+        self.assertIn("Подтверждение", html)
+        self.assertIn("Мастер-приемщик", html)
+        self.assertIn("С результатами ознакомлен", html)
         self.assertNotIn("undefined", html)
         self.assertNotIn("NaN", html)
 
