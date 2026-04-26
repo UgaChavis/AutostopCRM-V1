@@ -424,7 +424,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
         <td>
           <div class="doc-signatures__role">Клиент</div>
           <div class="doc-signature-line">&nbsp;</div>
-          <div class="doc-signatures__note">Автомобиль получил, претензий не имею</div>
+          <div class="doc-signatures__note">Автомобиль получил, претензий не имею. Согласие на обработку персональных данных подтверждаю.</div>
         </td>
       </tr>
     </table>
