@@ -186,10 +186,13 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Предоплата", preview["documents"][0]["pages"][0]["html"])
         self.assertIn("К доплате", preview["documents"][0]["pages"][0]["html"])
         self.assertTrue(
-            any("Гарантийные условия" in page["html"] for page in preview["documents"][0]["pages"])
+            any(
+                "Гарантийные и важные условия" in page["html"]
+                for page in preview["documents"][0]["pages"]
+            )
         )
         self.assertIn(
-            "<strong>30 дней:</strong> гарантия на выполненные работы и замененные запасные части.",
+            "<strong>Хранение автомобиля:</strong> после уведомления о готовности первые 2 дня хранения бесплатные, далее стоимость хранения составляет 150 рублей в сутки.",
             "".join(page["html"] for page in preview["documents"][0]["pages"]),
         )
         self.assertIn("Всего к оплате", preview["documents"][1]["pages"][0]["html"])
@@ -286,7 +289,8 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Акт выполненных работ", html)
         self.assertIn('class="doc-brand-mark"', html)
         self.assertIn("Телефон ресепшена", html)
-        self.assertIn("Гарантийные и важные условия", html)
+        self.assertIn("Ключевые условия", html)
+        self.assertIn("30 дней на работы", html)
         self.assertIn("150 рублей в сутки", html)
         self.assertIn("Фотофиксация", html)
         self.assertIn("Сумма прописью", html)

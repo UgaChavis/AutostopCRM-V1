@@ -216,6 +216,10 @@ PRINT_BASE_STYLES = """
     font-size: 10px;
     line-height: 1.38;
   }
+  .doc-terms--compact {
+    font-size: 9.5px;
+    line-height: 1.34;
+  }
   .doc-terms__lead {
     margin: 0 0 6px;
     font-size: 10px;
@@ -226,6 +230,10 @@ PRINT_BASE_STYLES = """
     padding-left: 16px;
     display: grid;
     gap: 4px;
+  }
+  .doc-terms__list--compact {
+    gap: 3px;
+    padding-left: 15px;
   }
   .doc-terms__list li { break-inside: avoid; }
   .doc-terms__list p { margin: 0; }
@@ -393,6 +401,10 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     {{#totals.has_prepayment}}<tr><td>Предоплата</td><td>{{totals.prepayment_display}}</td></tr>{{/totals.has_prepayment}}
     <tr class="doc-totals-table__grand"><td>К доплате</td><td>{{totals.due_display}}</td></tr>
   </table>
+  <section class="doc-section doc-section--warranty doc-section--warranty-summary">
+    <h2 class="doc-section__title">Ключевые условия</h2>
+    <div class="doc-terms doc-terms--compact">{{{repair_order.terms_summary_html}}}</div>
+  </section>
 </div>
 <!-- AUTOSTOPCRM_PAGE_BREAK -->
 <div class="document-page">
@@ -883,6 +895,10 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     <tr class="doc-totals-table__grand"><td>К доплате</td><td>{{totals.due_display}}</td></tr>
   </table>
   <div class="doc-invoice-words">Сумма прописью: <strong>{{totals.due_words_display}}</strong></div>
+  <section class="doc-section doc-section--warranty doc-section--warranty-summary">
+    <h2 class="doc-section__title">Ключевые условия</h2>
+    <div class="doc-terms doc-terms--compact">{{{repair_order.terms_summary_html}}}</div>
+  </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Подписи сторон</h2>
     <table class="doc-signatures-table">

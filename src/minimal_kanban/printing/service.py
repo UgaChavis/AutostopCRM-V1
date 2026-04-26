@@ -335,6 +335,21 @@ def _repair_order_warranty_terms_html() -> str:
     ).strip()
 
 
+def _repair_order_terms_summary_html() -> str:
+    return (
+        """
+<p class="doc-terms__lead">Ключевые условия, на которые клиент соглашается при оформлении заказ-наряда.</p>
+<ol class="doc-terms__list doc-terms__list--compact">
+  <li><strong>Гарантия:</strong> 30 дней на работы и замененные запасные части.</li>
+  <li><strong>Исключения:</strong> запчасти клиента, Б/У и неоригинальные детали гарантией не покрываются.</li>
+  <li><strong>Хранение:</strong> после уведомления о готовности 2 дня бесплатно, затем 150 рублей в сутки.</li>
+  <li><strong>Фотофиксация:</strong> претензии по кузову принимаются только при фотофиксации при сдаче авто.</li>
+  <li><strong>Оплата:</strong> автомобиль выдается после полной оплаты работ и материалов.</li>
+</ol>
+        """
+    ).strip()
+
+
 def _vehicle_acceptance_terms_html() -> str:
     return (
         """
@@ -1322,6 +1337,7 @@ class PrintModuleService:
                 "reason_html": _line_breaks_html(order.reason),
                 "client_information_html": _line_breaks_html(order.comment),
                 "note_display": _display(order.note),
+                "terms_summary_html": _repair_order_terms_summary_html(),
                 "warranty_terms_html": _repair_order_warranty_terms_html(),
                 "acceptance_terms_html": _vehicle_acceptance_terms_html(),
                 "payment_summary": payment_summary_display,
