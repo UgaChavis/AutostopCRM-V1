@@ -196,7 +196,11 @@ class PrintingServiceTests(unittest.TestCase):
             "".join(page["html"] for page in preview["documents"][0]["pages"]),
         )
         self.assertIn(
-            "гидроблок", "".join(page["html"] for page in preview["documents"][0]["pages"])
+            "6 месяцев", "".join(page["html"] for page in preview["documents"][0]["pages"])
+        )
+        self.assertIn("1000 км", "".join(page["html"] for page in preview["documents"][0]["pages"]))
+        self.assertIn(
+            "20-30 тыс. км", "".join(page["html"] for page in preview["documents"][0]["pages"])
         )
         self.assertIn(
             "контрактные", "".join(page["html"] for page in preview["documents"][0]["pages"])
@@ -222,10 +226,8 @@ class PrintingServiceTests(unittest.TestCase):
         document = preview["documents"][0]
         self.assertEqual(document["page_count"], 2)
         self.assertIn("288-14-15", document["pages"][0]["html"])
-        self.assertIn("Автомобиль получил, претензий не имею", document["pages"][1]["html"])
-        self.assertIn(
-            "Согласие на обработку персональных данных подтверждаю", document["pages"][1]["html"]
-        )
+        self.assertIn("Администратор", document["pages"][1]["html"])
+        self.assertIn("Клиент", document["pages"][1]["html"])
 
     def test_invoice_template_renders_brand_header_and_banking_block(self) -> None:
         preview = self.service.preview_documents(
@@ -300,7 +302,8 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Телефон ресепшена", html)
         self.assertIn("Ключевые условия", html)
         self.assertIn("30 дней на работы", html)
-        self.assertIn("гидроблок", html)
+        self.assertIn("6 месяцев", html)
+        self.assertIn("1000 км", html)
         self.assertIn("150 рублей в сутки", html)
         self.assertIn("Фотофиксация", html)
         self.assertIn("Сумма прописью", html)

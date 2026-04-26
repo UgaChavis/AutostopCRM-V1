@@ -91,6 +91,9 @@ PRINT_BASE_STYLES = """
     border: 1px solid rgba(0, 0, 0, 0.05);
     page-break-after: always;
   }
+  .document-page--dense {
+    padding: 9mm 10mm 10mm;
+  }
   .document-page:last-child { page-break-after: auto; }
   .doc-head {
     display: grid;
@@ -206,6 +209,17 @@ PRINT_BASE_STYLES = """
   .doc-value { white-space: pre-wrap; word-break: break-word; }
   .doc-section { margin-bottom: 12px; break-inside: avoid; }
   .doc-section--warranty { break-inside: auto; }
+  .doc-section--warranty .doc-terms {
+    font-size: 8.2px;
+    line-height: 1.22;
+    padding: 6px 9px;
+  }
+  .doc-section--warranty .doc-terms__lead {
+    font-size: 8px;
+  }
+  .doc-section--warranty .doc-terms__list {
+    gap: 1.5px;
+  }
   .doc-section__title { margin: 0 0 6px; font-size: 13px; font-weight: 700; }
   .doc-note { border: 1px solid var(--paper-line); border-radius: 9px; padding: 9px 11px; min-height: 54px; white-space: normal; line-height: 1.5; background: #fcfcfc; }
   .doc-terms {
@@ -273,15 +287,33 @@ PRINT_BASE_STYLES = """
   .doc-list { margin: 0; padding-left: 18px; }
   .doc-list li + li { margin-top: 4px; }
   .doc-signatures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; margin-top: 4px; }
+  .doc-signatures--inline {
+    display: flex;
+    gap: 22px;
+    margin-top: 2px;
+    align-items: baseline;
+    justify-content: space-between;
+    font-size: 10px;
+  }
+  .doc-signatures--inline .doc-signatures__item {
+    padding-top: 0;
+    white-space: nowrap;
+    flex: 1 1 0;
+  }
   .doc-signatures__item { padding-top: 3px; }
-  .doc-signatures__role { font-size: 12px; font-weight: 700; color: var(--paper-accent); }
+  .doc-signatures__role { font-size: 10px; font-weight: 700; color: var(--paper-accent); line-height: 1.15; }
   .doc-signatures__line { border-bottom: 1px solid var(--paper-line-strong); min-height: 28px; margin-top: 10px; }
-  .doc-signatures__note { color: var(--paper-soft); font-size: 10px; line-height: 1.35; margin-top: 6px; }
+  .doc-signatures__note { color: var(--paper-soft); font-size: 9px; line-height: 1.25; margin-top: 4px; }
   .doc-signatures-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
   .doc-signatures-table td { width: 50%; vertical-align: top; padding-right: 12px; }
   .doc-signatures-table td + td { padding-left: 12px; padding-right: 0; }
-  .doc-signature-line { border-bottom: 1px solid var(--paper-line-strong); height: 30px; }
-  .doc-signature-caption { color: var(--paper-soft); font-size: 10px; margin-top: 5px; }
+  .doc-signature-line {
+    border-bottom: 1px solid var(--paper-line-strong);
+    height: 0;
+    min-height: 0;
+    margin-top: 6px;
+  }
+  .doc-signature-caption { color: var(--paper-soft); font-size: 9px; margin-top: 4px; }
   .doc-hint { color: var(--paper-soft); font-size: 11px; }
   .doc-page-break { display: block; height: 0; clear: both; page-break-before: always; page-break-after: always; }
   @page { size: A4; margin: 9mm; }
@@ -328,7 +360,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
             "standard",
             "Стандартный заказ-наряд",
             """
-<div class="document-page">
+<div class="document-page document-page--dense">
   <table class="doc-head-table">
     <tr>
       <td class="doc-head-table__left">
@@ -413,21 +445,10 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     <div class="doc-terms">{{{repair_order.warranty_terms_html}}}</div>
   </section>
   <section class="doc-section doc-section--signatures">
-    <h2 class="doc-section__title">Подписи сторон</h2>
-    <table class="doc-signatures-table">
-      <tr>
-        <td>
-          <div class="doc-signatures__role">Администратор</div>
-          <div class="doc-signature-line">&nbsp;</div>
-          <div class="doc-signatures__note">Подпись / расшифровка</div>
-        </td>
-        <td>
-          <div class="doc-signatures__role">Клиент</div>
-          <div class="doc-signature-line">&nbsp;</div>
-          <div class="doc-signatures__note">Автомобиль получил, претензий не имею. Согласие на обработку персональных данных подтверждаю.</div>
-        </td>
-      </tr>
-    </table>
+    <div class="doc-signatures doc-signatures--inline">
+      <div class="doc-signatures__item">Администратор __________________________</div>
+      <div class="doc-signatures__item">Клиент __________________________</div>
+    </div>
   </section>
 </div>
             """,
