@@ -274,6 +274,24 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertNotIn("undefined", html)
         self.assertNotIn("NaN", html)
 
+    def test_completion_act_template_renders_brand_header_and_signature_block(self) -> None:
+        preview = self.service.preview_documents(
+            self.card,
+            selected_document_ids=["completion_act"],
+            active_document_id="completion_act",
+        )
+
+        document = preview["documents"][0]
+        html = document["pages"][0]["html"]
+        self.assertIn("Акт выполненных работ", html)
+        self.assertIn('class="doc-brand-mark"', html)
+        self.assertIn("Телефон ресепшена", html)
+        self.assertIn("Сумма прописью", html)
+        self.assertIn("Подписи сторон", html)
+        self.assertIn("Работы принял, претензий не имею", html)
+        self.assertNotIn("undefined", html)
+        self.assertNotIn("NaN", html)
+
     def test_preview_supports_all_builtin_document_types(self) -> None:
         preview = self.service.preview_documents(
             self.card,
