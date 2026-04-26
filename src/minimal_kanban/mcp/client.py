@@ -297,11 +297,17 @@ class BoardApiClient:
         )
 
     def get_gpt_wall(
-        self, *, include_archived: bool = True, event_limit: int | None = None
+        self,
+        *,
+        include_archived: bool = True,
+        event_limit: int | None = None,
+        compact: bool | None = None,
     ) -> dict:
         payload: dict[str, object] = {"include_archived": include_archived}
         if event_limit is not None:
             payload["event_limit"] = event_limit
+        if compact is not None:
+            payload["compact"] = compact
         return self._request("/api/get_gpt_wall", payload, method="POST")
 
     def cleanup_card_content(self, *, card_id: str, actor_name: str | None = None) -> dict:

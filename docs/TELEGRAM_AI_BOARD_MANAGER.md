@@ -9,6 +9,7 @@
 - Docker service: `autostopcrm-telegram-ai`
 - Telegram transport: long polling, без публичного webhook-порта
 - CRM write path: только через `BoardApiClient` и локальный HTTP API
+- model-failure fallback treats transient OpenAI outages and rate limits as recoverable paths
 - audit: `/root/.minimal-kanban/telegram_ai/audit.jsonl` внутри production volume
 - state: `/root/.minimal-kanban/telegram_ai/state.json`
 - conversation memory: `/root/.minimal-kanban/telegram_ai/conversation.jsonl`
@@ -239,6 +240,7 @@ Read tools:
 - `get_board_events`
 - `review_board`
 - `get_gpt_wall`
+- `get_gpt_wall` is for broad combined reads; in agent flow it is compact, so prefer `get_board_content` and `get_board_events` first when you can
 - `get_cards`
 - `get_card`
 - `search_cards`
@@ -282,7 +284,7 @@ Write tools:
 - `replace_repair_order_materials`
 - `set_repair_order_status`
 
-All write tools require `role=owner`. There is no mandatory confirmation step for owner, but every write is verified by read-back where possible.
+All write tools require `role=owner`. There is no mandatory confirmation step for owner, but every write is verified by read-back where possible; attachment writes are verified by the card attachment list instead of forcing an immediate file-byte read.
 
 ## Safety boundaries
 

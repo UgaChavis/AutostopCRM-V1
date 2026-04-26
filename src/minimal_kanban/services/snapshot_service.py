@@ -25,6 +25,7 @@ REVIEW_BOARD_OVERLOAD_THRESHOLD_DEFAULT = 5
 REVIEW_BOARD_PRIORITY_LIMIT_DEFAULT = 5
 REVIEW_BOARD_EVENT_LIMIT_DEFAULT = 10
 GPT_WALL_MARKDOWN_LINE_LIMIT = 3000
+GPT_WALL_AGENT_EVENT_LIMIT = 20
 
 
 class SnapshotService:
@@ -641,6 +642,7 @@ class SnapshotService:
             include_archived = self._validated_optional_bool(
                 payload, "include_archived", default=True
             )
+            compact_cards = self._validated_optional_bool(payload, "compact", default=False)
             event_limit = self._validated_limit(
                 payload.get("event_limit"), default=100, maximum=5000
             )
@@ -660,6 +662,7 @@ class SnapshotService:
                 column_labels=column_labels,
                 event_counts=event_counts,
                 viewer_username=viewer_username,
+                compact=compact_cards,
             )
             wall_stickies = [self._serialize_sticky(sticky) for sticky in self._stickies(stickies)]
             wall_events = self._wall_events(events, cards_by_id, column_labels, limit=event_limit)
@@ -678,6 +681,7 @@ class SnapshotService:
                 "stickies": len(wall_stickies),
                 "cards_returned": len(wall_cards),
                 "stickies_returned": len(wall_stickies),
+                "cards_compact": compact_cards,
                 "events_total": len(events),
                 "events_returned": len(wall_events),
                 "has_more_events": len(events) > len(wall_events),
@@ -694,6 +698,7 @@ class SnapshotService:
                 "stickies": meta["stickies"],
                 "cards_returned": meta["cards_returned"],
                 "stickies_returned": meta["stickies_returned"],
+                "cards_compact": meta["cards_compact"],
                 "include_archived": meta["include_archived"],
             }
             event_log_meta = {

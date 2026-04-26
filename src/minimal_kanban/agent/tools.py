@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..mcp.client import BoardApiClient
+from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
 from .automotive_tools import AutomotiveLookupService
 
 
@@ -102,7 +103,7 @@ class AgentToolExecutor:
             ),
             AgentToolDefinition(
                 "get_gpt_wall",
-                "Get board content and event log together.",
+                "Get board content and event log together. Use only for broad dumps; the agent path keeps this compact.",
                 {
                     "include_archived": "optional bool",
                     "event_limit": "optional int",
@@ -371,9 +372,16 @@ class AgentToolExecutor:
         )
 
     def _get_gpt_wall(self, args: dict[str, Any]) -> dict[str, Any]:
+        event_limit = self._maybe_int(args.get("event_limit"))
+        effective_event_limit = (
+            GPT_WALL_AGENT_EVENT_LIMIT
+            if event_limit is None
+            else max(1, min(event_limit, GPT_WALL_AGENT_EVENT_LIMIT))
+        )
         return self._board_api.get_gpt_wall(
             include_archived=bool(args.get("include_archived", True)),
-            event_limit=self._maybe_int(args.get("event_limit")),
+            event_limit=effective_event_limit,
+            compact=True,
         )
 
     def _search_cards(self, args: dict[str, Any]) -> dict[str, Any]:

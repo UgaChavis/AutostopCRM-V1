@@ -318,7 +318,7 @@ class TelegramAIOrchestrator:
     ) -> str:
         text = str(command_text or "").strip()
         lowered = text.lower()
-        if _is_rate_limit_error(error):
+        if _is_transient_model_error(error):
             if _asks_card_search(lowered):
                 search_summary = _search_results_summary(crm_context)
                 if search_summary:
@@ -570,3 +570,27 @@ def _card_vin(card: dict[str, Any]) -> str:
 def _is_rate_limit_error(error: str) -> bool:
     text = str(error or "").lower()
     return "429" in text or "too many requests" in text or "rate limit" in text
+
+
+def _is_transient_model_error(error: str) -> bool:
+    text = str(error or "").lower()
+    return any(
+        marker in text
+        for marker in (
+            "429",
+            "408",
+            "409",
+            "500",
+            "502",
+            "503",
+            "504",
+            "too many requests",
+            "rate limit",
+            "timeout",
+            "timed out",
+            "connection",
+            "service unavailable",
+            "temporarily unavailable",
+            "gateway",
+        )
+    )

@@ -42,7 +42,7 @@ ORCHESTRATION_RULES = """Orchestration rules:
 CONTEXT_RULES = """Context rules:
 - If metadata.context.kind == "card", first use get_card_context(card_id) unless the task already contains enough current card data.
 - In card context, assume "this car", "this card", "this order" refer to the current card.
-- If get_card_context misses the target or is blocked, fall back to get_board_snapshot(compact=true) and then get_board_content(include_archived=true) or get_gpt_wall for the whole board picture.
+- If get_card_context misses the target or is blocked, fall back to get_board_snapshot(compact=true) and then get_board_content(include_archived=true); use get_gpt_wall only when you truly need both sections in one compact dump.
 - Use get_board_events(event_limit=100) when the task depends on recent history or change sequence.
 - Do not switch to whole-board analysis unless the user explicitly asks for it or the card read path needs a board-level fallback.
 - If metadata.context.kind == "board", you may review the whole board.

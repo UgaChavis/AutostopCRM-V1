@@ -22,11 +22,11 @@
 6. `get_card_context` для одной карточки
 7. `list_card_attachments` -> `read_card_attachment` только если нужно прочитать конкретный файл карточки
 8. `get_board_content` или `get_board_events` только когда действительно нужен полный обзор
-9. `get_gpt_wall` только если нужен один большой ответ сразу целиком
+9. `get_gpt_wall` только если нужен ответ с обеими wall-секциями сразу; в agent mode он компактный и ограничивает журнал
 
 ### Что считать тяжелым
 
-- `get_gpt_wall`
+- `get_gpt_wall` в full export mode
 - `get_board_content`
 - `get_board_snapshot`
 - `get_board_events` с большим `event_limit`

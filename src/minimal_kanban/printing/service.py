@@ -1092,6 +1092,7 @@ class PrintModuleService:
                 ),
                 "address": _display(settings.service_profile.address),
                 "phone": _display(settings.service_profile.phone),
+                "reception_phone": _display(settings.service_profile.reception_phone),
                 "email": _display(settings.service_profile.email),
                 "inn": _display(settings.service_profile.inn),
                 "kpp": _display(settings.service_profile.kpp),

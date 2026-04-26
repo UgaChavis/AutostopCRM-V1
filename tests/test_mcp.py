@@ -976,7 +976,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(wall.structuredContent["data"]["meta"]["view_mode"], "agent")
                 self.assertEqual(wall.structuredContent["data"]["meta"]["text_format"], "markdown")
                 self.assertEqual(wall.structuredContent["data"]["meta"]["section_kind"], "gpt_wall")
+                self.assertTrue(wall.structuredContent["data"]["meta"]["cards_compact"])
                 self.assertTrue(wall.structuredContent["data"]["meta"]["text_present"])
+                self.assertNotIn("vehicle_profile", wall_card)
 
                 board_content = await session.call_tool(
                     "get_board_content", {"include_archived": True, "view_mode": "agent"}
@@ -1006,6 +1008,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(
                     board_content.structuredContent["data"]["meta"]["text_format"], "markdown"
                 )
+                self.assertTrue(board_content.structuredContent["data"]["meta"]["cards_compact"])
 
                 board_events = await session.call_tool(
                     "get_board_events", {"event_limit": 50, "include_archived": True}
@@ -1444,7 +1447,11 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 raise BoardApiTransportError("context down")
 
             def get_gpt_wall(
-                self, *, include_archived: bool = True, event_limit: int | None = None
+                self,
+                *,
+                include_archived: bool = True,
+                event_limit: int | None = None,
+                compact: bool | None = None,
             ) -> dict:
                 raise BoardApiTransportError("wall down")
 
@@ -1682,6 +1689,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 *,
                 include_archived: bool = True,
                 event_limit: int | None = None,
+                compact: bool | None = None,
             ) -> dict[str, Any]:
                 raise BoardApiTransportError("wall down")
 
@@ -1771,6 +1779,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 *,
                 include_archived: bool = True,
                 event_limit: int | None = None,
+                compact: bool | None = None,
             ) -> dict[str, Any]:
                 raise BoardApiTransportError("wall down")
 

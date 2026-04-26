@@ -157,14 +157,38 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Налоги и сборы", preview["documents"][0]["pages"][0]["html"])
         self.assertIn("Предоплата", preview["documents"][0]["pages"][0]["html"])
         self.assertIn("К доплате", preview["documents"][0]["pages"][0]["html"])
-        self.assertIn("Гарантийные условия", preview["documents"][0]["pages"][0]["html"])
+        self.assertTrue(
+            any(
+                "Гарантийные условия" in page["html"]
+                for page in preview["documents"][0]["pages"]
+            )
+        )
         self.assertIn(
             "<strong>30 дней:</strong> гарантия на выполненные работы и замененные запасные части.",
-            preview["documents"][0]["pages"][0]["html"],
+            "".join(page["html"] for page in preview["documents"][0]["pages"]),
         )
         self.assertIn("Стоимость заказ-наряда", preview["documents"][1]["pages"][0]["html"])
         self.assertIn("Итого по заказ-наряду", preview["documents"][1]["pages"][0]["html"])
         self.assertEqual(preview["documents"][0]["missing_fields"], [])
+
+    def test_repair_order_template_renders_reception_phone_and_signatures(self) -> None:
+        preview = self.service.preview_documents(
+            self.card,
+            selected_document_ids=["repair_order"],
+            active_document_id="repair_order",
+            print_settings={
+                "service_profile": {
+                    "company_name": "AutoStop",
+                    "phone": "288-14-15",
+                    "reception_phone": "288-14-15",
+                }
+            },
+        )
+
+        document = preview["documents"][0]
+        self.assertEqual(document["page_count"], 2)
+        self.assertIn("288-14-15", document["pages"][0]["html"])
+        self.assertIn("Автомобиль получил, претензий не имею", document["pages"][1]["html"])
 
     def test_preview_supports_all_builtin_document_types(self) -> None:
         preview = self.service.preview_documents(

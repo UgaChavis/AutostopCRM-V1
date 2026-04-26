@@ -46,6 +46,7 @@ class PrintServiceProfile:
     legal_name: str = ""
     address: str = ""
     phone: str = ""
+    reception_phone: str = ""
     email: str = ""
     inn: str = ""
     kpp: str = ""
@@ -61,6 +62,7 @@ class PrintServiceProfile:
         self.legal_name = _clean_text(self.legal_name, limit=160)
         self.address = _clean_text(self.address, limit=240)
         self.phone = _clean_text(self.phone, limit=80)
+        self.reception_phone = _clean_text(self.reception_phone, limit=80)
         self.email = _clean_text(self.email, limit=120)
         self.inn = _clean_text(self.inn, limit=32)
         self.kpp = _clean_text(self.kpp, limit=32)
@@ -77,6 +79,7 @@ class PrintServiceProfile:
             "legal_name": self.legal_name,
             "address": self.address,
             "phone": self.phone,
+            "reception_phone": self.reception_phone,
             "email": self.email,
             "inn": self.inn,
             "kpp": self.kpp,

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..mcp.client import BoardApiClient
+from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
 from .models import DownloadedAttachment
 
 
@@ -124,7 +125,7 @@ class CRMToolRegistry:
             ),
             CRMToolDefinition(
                 "get_gpt_wall",
-                "Read combined board content and event log. Use only when a broad dump is needed.",
+                "Read combined board content and event log. Use only when a broad dump is needed; the agent path keeps this compact.",
                 {"include_archived": "optional bool", "event_limit": "optional int"},
             ),
             *(
@@ -622,8 +623,25 @@ class CRMToolRegistry:
             card_id = str(arguments.get("card_id") or "")
             if not attachment_id or not card_id:
                 return {"passed": False, "message": "attachment id is missing"}
-            payload = self._board_api.get_card_attachment(card_id, attachment_id)
-            return {"passed": _api_ok(payload), "message": "attachment read-back checked"}
+            payload = self._board_api.list_card_attachments(card_id, include_removed=False)
+            if not _api_ok(payload):
+                return {"passed": False, "message": "attachment list read-back failed"}
+            attachments = _api_data(payload).get("attachments")
+            if not isinstance(attachments, list):
+                return {"passed": False, "message": "attachment list is invalid"}
+            matched = next(
+                (
+                    item
+                    for item in attachments
+                    if isinstance(item, dict)
+                    and str(item.get("id") or "") == attachment_id
+                    and not bool(item.get("removed"))
+                ),
+                None,
+            )
+            if matched is None:
+                return {"passed": False, "message": "attachment not found in card listing"}
+            return {"passed": True, "message": "attachment listed on card"}
         if tool_name in {
             "update_repair_order",
             "replace_repair_order_works",
@@ -713,9 +731,12 @@ class CRMToolRegistry:
         )
 
     def _get_gpt_wall(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        event_limit = int(arguments.get("event_limit") or GPT_WALL_AGENT_EVENT_LIMIT)
+        effective_event_limit = max(1, min(event_limit, GPT_WALL_AGENT_EVENT_LIMIT))
         return self._board_api.get_gpt_wall(
             include_archived=bool(arguments.get("include_archived", True)),
-            event_limit=_optional_int(arguments, "event_limit"),
+            event_limit=effective_event_limit,
+            compact=True,
         )
 
     def _get_cards(self, arguments: dict[str, Any]) -> dict[str, Any]:

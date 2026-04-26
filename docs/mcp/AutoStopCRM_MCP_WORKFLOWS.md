@@ -12,6 +12,7 @@
 4. `get_board_events(event_limit=20..50, include_archived=true)` только если нужен журнал изменений
 
 Если нужен полный экспорт, уже потом использовать `get_board_content(include_archived=true)` и `get_board_events(event_limit=100, include_archived=true)`.
+`get_gpt_wall` оставлять для случаев, когда нужен единый ответ с обеими секциями, но не как первый шаг.
 
 Результат: GPT знает текущее состояние карточек, архив, столбцы и последние изменения.
 

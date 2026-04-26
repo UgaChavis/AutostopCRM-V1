@@ -4663,6 +4663,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(wall["meta"]["section_kind"], "gpt_wall")
         self.assertEqual(wall["meta"]["event_order"], "newest_first")
         self.assertTrue(wall["meta"]["include_archived"])
+        self.assertFalse(wall["meta"]["cards_compact"])
         self.assertIn("board_context", wall)
         self.assertIn("sections", wall)
         self.assertIn("board_content", wall["sections"])
@@ -4707,6 +4708,32 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("KIA RIO", wall["text"])
         self.assertIn("ПЛАВАЕТ ХОЛОСТОЙ ХОД", wall["text"])
         self.assertIn("МАСТЕР", wall["text"])
+
+    def test_gpt_wall_can_return_compact_cards_for_agent_reads(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "AUDI A6",
+                "title": "AGENT COMPACT",
+                "description": "Проверка компактного режима стены",
+                "deadline": {"hours": 2},
+                "vehicle_profile": {
+                    "make_display": "Audi",
+                    "model_display": "A6",
+                    "customer_name": "Тестовый клиент",
+                },
+            }
+        )
+        card_id = created["card"]["id"]
+
+        wall = self.service.get_gpt_wall(
+            {"include_archived": True, "event_limit": 20, "compact": True}
+        )
+        wall_card = next(card for card in wall["cards"] if card["id"] == card_id)
+
+        self.assertTrue(wall["meta"]["cards_compact"])
+        self.assertEqual(wall["meta"]["event_limit"], 20)
+        self.assertNotIn("vehicle_profile", wall_card)
+        self.assertIn("vehicle_profile_compact", wall_card)
 
     def test_gpt_wall_defaults_to_markdown_and_archived_cards(self) -> None:
         created = self.service.create_card(

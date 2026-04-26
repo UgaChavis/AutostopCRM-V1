@@ -92,15 +92,15 @@ PRINT_BASE_STYLES = """
   .doc-head__brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
   .doc-brand-mark {
     flex: 0 0 auto;
-    width: 96px;
-    height: 96px;
-    border-radius: 20px;
+    width: 82px;
+    height: 82px;
+    border-radius: 18px;
     border: 1px solid rgba(0, 0, 0, 0.08);
     background: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 9px;
+    padding: 8px;
   }
   .doc-brand-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
   .doc-brand-mark__fallback {
@@ -117,60 +117,116 @@ PRINT_BASE_STYLES = """
     text-transform: uppercase;
   }
   .doc-brand-copy { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-  .doc-kicker { color: var(--paper-soft); font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; }
-  .doc-title { margin: 0; font-size: 24px; line-height: 1.05; font-weight: 700; letter-spacing: 0.01em; }
-  .doc-subtitle { color: var(--paper-soft); font-size: 12px; }
+  .doc-kicker { color: var(--paper-soft); font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; }
+  .doc-title { margin: 0; font-size: 22px; line-height: 1.05; font-weight: 700; letter-spacing: 0.01em; }
+  .doc-subtitle { color: var(--paper-soft); font-size: 11px; }
   .doc-service { text-align: right; max-width: 330px; }
-  .doc-service__name { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+  .doc-service__name { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
   .doc-service__meta { color: var(--paper-soft); white-space: pre-wrap; }
+  .doc-head-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+  .doc-head-table__left { width: 58%; vertical-align: top; padding-right: 12px; }
+  .doc-head-table__right { width: 42%; vertical-align: top; text-align: right; }
+  .doc-banner-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 12px;
+    border: 1px solid var(--paper-line-strong);
+    border-radius: 10px;
+  }
+  .doc-banner-table td { padding: 10px 12px; vertical-align: middle; }
+  .doc-banner-table__phone { color: var(--paper-accent); font-size: 21px; font-weight: 700; line-height: 1.05; }
+  .doc-banner-table__copy { color: var(--paper-soft); font-size: 11px; line-height: 1.45; text-align: right; }
+  .doc-meta-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 12px; }
+  .doc-meta-table td {
+    border: 1px solid var(--paper-line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    vertical-align: top;
+    background: rgba(255,255,255,0.65);
+    width: 33.333%;
+  }
   .doc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
-  .doc-card { border: 1px solid var(--paper-line); border-radius: 9px; padding: 8px 10px; min-height: 60px; background: rgba(255,255,255,0.65); }
+  .doc-card { border: 1px solid var(--paper-line); border-radius: 8px; padding: 8px 10px; min-height: 54px; background: rgba(255,255,255,0.65); }
   .doc-card--wide { grid-column: span 3; }
-  .doc-label { color: var(--paper-soft); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .doc-banner {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: center;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--paper-line-strong);
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.02), rgba(255, 255, 255, 0.96));
+    break-inside: avoid;
+  }
+  .doc-banner__label { color: var(--paper-soft); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px; }
+  .doc-banner__phone { color: var(--paper-accent); font-size: 21px; font-weight: 700; line-height: 1.05; }
+  .doc-banner__copy { color: var(--paper-soft); font-size: 11px; line-height: 1.45; text-align: right; max-width: 260px; }
+  .doc-label { color: var(--paper-soft); font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 5px; }
   .doc-value { white-space: pre-wrap; word-break: break-word; }
-  .doc-section { margin-bottom: 12px; }
-  .doc-section__title { margin: 0 0 7px; font-size: 14px; font-weight: 700; }
-  .doc-note { border: 1px solid var(--paper-line); border-radius: 9px; padding: 10px 12px; min-height: 64px; white-space: normal; line-height: 1.55; background: #fcfcfc; }
+  .doc-section { margin-bottom: 12px; break-inside: avoid; }
+  .doc-section--warranty { break-inside: auto; }
+  .doc-section__title { margin: 0 0 6px; font-size: 13px; font-weight: 700; }
+  .doc-note { border: 1px solid var(--paper-line); border-radius: 9px; padding: 9px 11px; min-height: 54px; white-space: normal; line-height: 1.5; background: #fcfcfc; }
   .doc-terms {
     border: 1px solid rgba(0, 0, 0, 0.09);
     border-radius: 10px;
-    padding: 10px 12px;
+    padding: 9px 11px;
     background: linear-gradient(180deg, rgba(0, 0, 0, 0.015), rgba(255, 255, 255, 0.92));
-    font-size: 11px;
-    line-height: 1.48;
+    font-size: 10px;
+    line-height: 1.38;
   }
   .doc-terms__lead {
-    margin: 0 0 8px;
-    font-size: 11px;
+    margin: 0 0 6px;
+    font-size: 10px;
     color: var(--paper-soft);
   }
   .doc-terms__list {
     margin: 0;
-    padding-left: 18px;
+    padding-left: 16px;
     display: grid;
-    gap: 6px;
+    gap: 4px;
   }
   .doc-terms__list li { break-inside: avoid; }
   .doc-terms__list p { margin: 0; }
   .doc-terms__list strong { color: var(--paper-accent); }
-  .doc-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  .doc-table th, .doc-table td { border: 1px solid var(--paper-line); padding: 7px 8px; vertical-align: top; text-align: left; }
-  .doc-table th { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--paper-accent); background: rgba(0, 0, 0, 0.025); }
+  .doc-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
+  .doc-table th, .doc-table td { border: 1px solid var(--paper-line); padding: 6px 7px; vertical-align: top; text-align: left; }
+  .doc-table th { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--paper-accent); background: rgba(0, 0, 0, 0.025); }
+  .doc-table tbody tr:nth-child(even) td { background: rgba(0, 0, 0, 0.012); }
   .doc-table__narrow { width: 12%; text-align: right !important; font-variant-numeric: tabular-nums; }
   .doc-table__sum { width: 16%; text-align: right !important; font-variant-numeric: tabular-nums; }
   .doc-table__empty { color: var(--paper-soft); text-align: center; }
   .doc-table tfoot td { font-weight: 700; }
-  .doc-totals { margin-top: 12px; margin-left: auto; width: min(380px, 100%); border: 1px solid var(--paper-line-strong); border-radius: 10px; overflow: hidden; }
-  .doc-totals__row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 12px; border-bottom: 1px solid var(--paper-line); font-variant-numeric: tabular-nums; }
+  .doc-totals { margin-top: 10px; margin-left: auto; width: min(400px, 100%); border: 1px solid var(--paper-line-strong); border-radius: 10px; overflow: hidden; }
+  .doc-totals__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 8px 11px; border-bottom: 1px solid var(--paper-line); font-variant-numeric: tabular-nums; }
   .doc-totals__row:last-child { border-bottom: 0; }
-  .doc-totals__row--grand { font-size: 15px; font-weight: 700; background: rgba(0, 0, 0, 0.03); }
+  .doc-totals__row > span:last-child { text-align: right; }
+  .doc-totals__row--grand { font-size: 14px; font-weight: 700; background: rgba(0, 0, 0, 0.03); }
+  .doc-totals-table { width: min(400px, 100%); margin-left: auto; margin-top: 10px; border-collapse: collapse; }
+  .doc-totals-table td {
+    border: 1px solid var(--paper-line);
+    padding: 8px 11px;
+    font-variant-numeric: tabular-nums;
+    background: rgba(255,255,255,0.65);
+  }
+  .doc-totals-table td:last-child { text-align: right; width: 32%; }
+  .doc-totals-table__grand td { font-size: 14px; font-weight: 700; background: rgba(0, 0, 0, 0.03); }
   .doc-list { margin: 0; padding-left: 18px; }
   .doc-list li + li { margin-top: 4px; }
-  .doc-signatures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 24px; }
-  .doc-signatures__item { border-top: 1px solid var(--paper-line-strong); padding-top: 8px; min-height: 36px; }
+  .doc-signatures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; margin-top: 4px; }
+  .doc-signatures__item { padding-top: 3px; }
+  .doc-signatures__role { font-size: 12px; font-weight: 700; color: var(--paper-accent); }
+  .doc-signatures__line { border-bottom: 1px solid var(--paper-line-strong); min-height: 28px; margin-top: 10px; }
+  .doc-signatures__note { color: var(--paper-soft); font-size: 10px; line-height: 1.35; margin-top: 6px; }
+  .doc-signatures-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .doc-signatures-table td { width: 50%; vertical-align: top; padding-right: 12px; }
+  .doc-signatures-table td + td { padding-left: 12px; padding-right: 0; }
+  .doc-signature-line { border-bottom: 1px solid var(--paper-line-strong); height: 30px; }
   .doc-hint { color: var(--paper-soft); font-size: 11px; }
   .doc-page-break { display: block; height: 0; page-break-after: always; }
-  @page { size: A4; margin: 10mm; }
+  @page { size: A4; margin: 9mm; }
 """.strip()
 
 
@@ -215,58 +271,100 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
             "Стандартный заказ-наряд",
             """
 <div class="document-page">
-  <header class="doc-head">
-    <div class="doc-head__brand">
-      <div class="doc-brand-mark">
-        {{#service.brand_logo_data_uri}}<img src="{{service.brand_logo_data_uri}}" alt="AutoStop АВТОТЕХЦЕНТР №1">{{/service.brand_logo_data_uri}}
-        {{^service.brand_logo_data_uri}}<div class="doc-brand-mark__fallback">AutoStop</div>{{/service.brand_logo_data_uri}}
-      </div>
-      <div class="doc-brand-copy">
-        <div class="doc-kicker">Печатная форма</div>
-        <h1 class="doc-title">Заказ-наряд</h1>
-        <div class="doc-subtitle">№ {{repair_order.number_display}} от {{dates.document_date_display}}</div>
-      </div>
-    </div>
-    <div class="doc-service"><div class="doc-service__name">{{service.company_name}}</div><div class="doc-service__meta">{{service.address}}</div><div class="doc-service__meta">{{service.phone}}</div></div>
-  </header>
-  <section class="doc-grid">
-    <div class="doc-card"><div class="doc-label">Клиент</div><div class="doc-value">{{client.name_display}}</div></div>
-    <div class="doc-card"><div class="doc-label">Телефон</div><div class="doc-value">{{client.phone_display}}</div></div>
-    <div class="doc-card"><div class="doc-label">Автомобиль</div><div class="doc-value">{{vehicle.display_name}}</div></div>
-    <div class="doc-card"><div class="doc-label">Госномер</div><div class="doc-value">{{vehicle.license_plate_display}}</div></div>
-    <div class="doc-card"><div class="doc-label">VIN</div><div class="doc-value">{{vehicle.vin_display}}</div></div>
-    <div class="doc-card"><div class="doc-label">Пробег</div><div class="doc-value">{{vehicle.mileage_display}}</div></div>
-    <div class="doc-card"><div class="doc-label">Форма оплаты</div><div class="doc-value">{{repair_order.payment_method_label}}</div></div>
-    <div class="doc-card"><div class="doc-label">Предоплата</div><div class="doc-value">{{repair_order.prepayment_display}}</div></div>
-  </section>
+  <table class="doc-head-table">
+    <tr>
+      <td class="doc-head-table__left">
+        <table class="doc-head-table" style="margin-bottom:0;">
+          <tr>
+            <td style="width:104px; vertical-align:top; padding-right:12px;">
+              <div class="doc-brand-mark">
+                {{#service.brand_logo_data_uri}}<img src="{{service.brand_logo_data_uri}}" alt="AutoStop АВТОТЕХЦЕНТР №1">{{/service.brand_logo_data_uri}}
+                {{^service.brand_logo_data_uri}}<div class="doc-brand-mark__fallback">AutoStop</div>{{/service.brand_logo_data_uri}}
+              </div>
+            </td>
+            <td style="vertical-align:top;">
+              <div class="doc-brand-copy">
+                <div class="doc-kicker">Печатная форма</div>
+                <h1 class="doc-title">Заказ-наряд</h1>
+                <div class="doc-subtitle">№ {{repair_order.number_display}} от {{dates.document_date_display}}</div>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+      <td class="doc-head-table__right">
+        <div class="doc-service"><div class="doc-service__name">{{service.company_name}}</div><div class="doc-service__meta">{{service.address}}</div><div class="doc-service__meta">{{service.phone}}</div></div>
+      </td>
+    </tr>
+  </table>
+  <table class="doc-banner-table">
+    <tr>
+      <td>
+        <div class="doc-banner__label">Телефон ресепшена</div>
+        <div class="doc-banner-table__phone">{{#service.reception_phone}}{{service.reception_phone}}{{/service.reception_phone}}{{^service.reception_phone}}{{service.phone}}{{/service.reception_phone}}</div>
+      </td>
+      <td class="doc-banner-table__copy">Прием автомобиля, запись и вопросы по заказ-наряду</td>
+    </tr>
+  </table>
+  <table class="doc-meta-table">
+    <tr>
+      <td><div class="doc-label">Клиент</div><div class="doc-value">{{client.name_display}}</div></td>
+      <td><div class="doc-label">Телефон</div><div class="doc-value">{{client.phone_display}}</div></td>
+      <td><div class="doc-label">Автомобиль</div><div class="doc-value">{{vehicle.display_name}}</div></td>
+    </tr>
+    <tr>
+      <td><div class="doc-label">Госномер</div><div class="doc-value">{{vehicle.license_plate_display}}</div></td>
+      <td><div class="doc-label">VIN</div><div class="doc-value">{{vehicle.vin_display}}</div></td>
+      <td><div class="doc-label">Пробег</div><div class="doc-value">{{vehicle.mileage_display}}</div></td>
+    </tr>
+  </table>
   <section class="doc-section"><h2 class="doc-section__title">Причина обращения</h2><div class="doc-note">{{{repair_order.reason_html}}}</div></section>
   <section class="doc-section"><h2 class="doc-section__title">Информация для клиента</h2><div class="doc-note">{{{repair_order.client_information_html}}}</div></section>
   <section class="doc-section">
     <h2 class="doc-section__title">Работы</h2>
-    <table class="doc-table"><thead><tr><th>Наименование</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
+    <table class="doc-table"><colgroup><col><col style="width: 12%"><col style="width: 16%"><col style="width: 16%"></colgroup><thead><tr><th>Наименование</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
       {{#works}}<tr><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}</td></tr>{{/works}}
       {{^works}}<tr><td class="doc-table__empty" colspan="4">Работы не указаны</td></tr>{{/works}}
     </tbody><tfoot><tr><td colspan="3">Итого работы</td><td class="doc-table__sum">{{totals.works_display}}</td></tr></tfoot></table>
   </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Материалы / запчасти</h2>
-    <table class="doc-table"><thead><tr><th>Наименование</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
+    <table class="doc-table"><colgroup><col><col style="width: 12%"><col style="width: 16%"><col style="width: 16%"></colgroup><thead><tr><th>Наименование</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
       {{#materials}}<tr><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}</td></tr>{{/materials}}
       {{^materials}}<tr><td class="doc-table__empty" colspan="4">Материалы не указаны</td></tr>{{/materials}}
     </tbody><tfoot><tr><td colspan="3">Итого материалы</td><td class="doc-table__sum">{{totals.materials_display}}</td></tr></tfoot></table>
   </section>
-  <section class="doc-totals">
-    <div class="doc-totals__row"><span>Итого работы</span><span>{{totals.works_display}}</span></div>
-    <div class="doc-totals__row"><span>Итого материалы</span><span>{{totals.materials_display}}</span></div>
-    <div class="doc-totals__row"><span>Стоимость заказ-наряда</span><span>{{totals.subtotal_display}}</span></div>
-    {{#totals.has_taxes}}<div class="doc-totals__row"><span>Налоги и сборы</span><span>{{totals.taxes_display}}</span></div>{{/totals.has_taxes}}
-    <div class="doc-totals__row"><span>Итого по заказ-наряду</span><span>{{totals.grand_display}}</span></div>
-    {{#totals.has_prepayment}}<div class="doc-totals__row"><span>Предоплата</span><span>{{totals.prepayment_display}}</span></div>{{/totals.has_prepayment}}
-    <div class="doc-totals__row doc-totals__row--grand"><span>К доплате</span><span>{{totals.due_display}}</span></div>
-  </section>
+  <table class="doc-totals-table">
+    <tr><td>Итого работы</td><td>{{totals.works_display}}</td></tr>
+    <tr><td>Итого материалы</td><td>{{totals.materials_display}}</td></tr>
+    <tr><td>Стоимость заказ-наряда</td><td>{{totals.subtotal_display}}</td></tr>
+    {{#totals.has_taxes}}<tr><td>Налоги и сборы</td><td>{{totals.taxes_display}}</td></tr>{{/totals.has_taxes}}
+    <tr><td>Итого по заказ-наряду</td><td>{{totals.grand_display}}</td></tr>
+    {{#totals.has_prepayment}}<tr><td>Предоплата</td><td>{{totals.prepayment_display}}</td></tr>{{/totals.has_prepayment}}
+    <tr class="doc-totals-table__grand"><td>К доплате</td><td>{{totals.due_display}}</td></tr>
+  </table>
+  <!-- AUTOSTOPCRM_PAGE_BREAK -->
+  <div class="doc-page-break"></div>
   <section class="doc-section doc-section--warranty">
     <h2 class="doc-section__title">Гарантийные условия</h2>
     <div class="doc-terms">{{{repair_order.warranty_terms_html}}}</div>
+  </section>
+  <section class="doc-section doc-section--signatures">
+    <h2 class="doc-section__title">Подписи сторон</h2>
+    <table class="doc-signatures-table">
+      <tr>
+        <td>
+          <div class="doc-signatures__role">Администратор</div>
+          <div class="doc-signature-line">&nbsp;</div>
+          <div class="doc-signatures__note">Подпись / расшифровка</div>
+        </td>
+        <td>
+          <div class="doc-signatures__role">Клиент</div>
+          <div class="doc-signature-line">&nbsp;</div>
+          <div class="doc-signatures__note">Автомобиль получил, претензий не имею</div>
+        </td>
+      </tr>
+    </table>
   </section>
 </div>
             """,

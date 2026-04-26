@@ -25,6 +25,7 @@ from ..settings_models import derive_allowed_hosts, derive_allowed_origins
 from .auth import build_auth_settings
 from .client import BoardApiClient, BoardApiTransportError
 from .oauth_provider import EmbeddedOAuthAuthorizationServerProvider
+from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
 
 
 class DeadlinePayload(BaseModel):
@@ -1520,7 +1521,7 @@ def create_mcp_server(
         name="get_board_content",
         description=_scoped_description(
             "Return the hidden machine wall board-content section as Markdown for the current Minimal Kanban board: columns, card content, archived card content by default, sticky notes, compact vehicle profiles, and board context, without the event journal. "
-            "Use view_mode=agent for a lighter GPT-oriented read and view_mode=full for a broader export-style dump."
+            "Use view_mode=agent for a lighter GPT-oriented read; that mode keeps cards compact and caps the recent wall slice. Use view_mode=full for a broader export-style dump."
         ),
         annotations=_read_tool_annotations("Board Content"),
         structured_output=True,
@@ -1529,12 +1530,16 @@ def create_mcp_server(
         include_archived: bool = True,
         view_mode: Literal["agent", "full"] = "agent",
     ) -> JsonEnvelope:
-        wall_event_limit = 20 if view_mode == "agent" else 100
+        wall_event_limit = (
+            GPT_WALL_AGENT_EVENT_LIMIT if view_mode == "agent" else 100
+        )
         return _relay_board_call(
             "get_board_content",
             lambda: _extract_gpt_wall_section_response(
                 board_api.get_gpt_wall(
-                    include_archived=include_archived, event_limit=wall_event_limit
+                    include_archived=include_archived,
+                    event_limit=wall_event_limit,
+                    compact=view_mode == "agent",
                 ),
                 section_key="board_content",
             ),
@@ -1600,7 +1605,7 @@ def create_mcp_server(
         name="get_gpt_wall",
         description=_scoped_description(
             "Return the hidden machine wall aggregate for the current Minimal Kanban board as Markdown: full card text, structured board state, newest-first recent events, compact 1.1 vehicle profile summaries for each card, and separated board_content / event_log sections. "
-            "Use view_mode=agent for the normal GPT context flow and view_mode=full for wide diagnostics or exports."
+            "Use view_mode=agent for the normal GPT context flow; that mode keeps cards compact and the event slice short. Use view_mode=full for wide diagnostics or exports."
         ),
         annotations=_read_tool_annotations("GPT Wall"),
         structured_output=True,
@@ -1610,15 +1615,25 @@ def create_mcp_server(
         event_limit: int = 100,
         view_mode: Literal["agent", "full"] = "agent",
     ) -> JsonEnvelope:
+        compact_cards = view_mode == "agent"
+        effective_event_limit = (
+            min(max(1, event_limit), GPT_WALL_AGENT_EVENT_LIMIT)
+            if compact_cards
+            else event_limit
+        )
         return _relay_board_call(
             "get_gpt_wall",
             lambda: _enrich_gpt_wall_response(
-                board_api.get_gpt_wall(include_archived=include_archived, event_limit=event_limit)
+                board_api.get_gpt_wall(
+                    include_archived=include_archived,
+                    event_limit=effective_event_limit,
+                    compact=compact_cards,
+                )
             ),
             error_code="gpt_wall_unreachable",
             params={
                 "include_archived": include_archived,
-                "event_limit": event_limit,
+                "event_limit": effective_event_limit,
                 "view_mode": view_mode,
             },
             transform=lambda response: _with_text_section_meta(
@@ -1627,10 +1642,11 @@ def create_mcp_server(
                 view_mode=view_mode,
                 extra={
                     "include_archived": include_archived,
-                    "event_limit": event_limit,
+                    "event_limit": effective_event_limit,
                     "text_format": "markdown",
                     "section_kind": "gpt_wall",
                     "event_order": "newest_first",
+                    "cards_compact": compact_cards,
                 },
             ),
         )

@@ -307,7 +307,8 @@ PRINTING_WEB_MODULE_HTML = r"""
               <div class="field field--compact"><label for="printProfileCompanyName">Компания</label><input id="printProfileCompanyName" type="text" maxlength="120"></div>
               <div class="field field--compact"><label for="printProfileLegalName">Юр. лицо</label><input id="printProfileLegalName" type="text" maxlength="160"></div>
               <div class="field field--compact"><label for="printProfileAddress">Адрес</label><input id="printProfileAddress" type="text" maxlength="240"></div>
-              <div class="repair-order-print-settings__row"><div class="field field--compact"><label for="printProfilePhone">Телефон</label><input id="printProfilePhone" type="text" maxlength="80"></div><div class="field field--compact"><label for="printProfileEmail">Email</label><input id="printProfileEmail" type="text" maxlength="120"></div></div>
+              <div class="repair-order-print-settings__row"><div class="field field--compact"><label for="printProfilePhone">Телефон</label><input id="printProfilePhone" type="text" maxlength="80"></div><div class="field field--compact"><label for="printProfileReceptionPhone">Телефон ресепшена</label><input id="printProfileReceptionPhone" type="text" maxlength="80"></div></div>
+              <div class="field field--compact"><label for="printProfileEmail">Email</label><input id="printProfileEmail" type="text" maxlength="120"></div>
               <div class="repair-order-print-settings__row"><div class="field field--compact"><label for="printProfileInn">ИНН</label><input id="printProfileInn" type="text" maxlength="32"></div><div class="field field--compact"><label for="printProfileKpp">КПП</label><input id="printProfileKpp" type="text" maxlength="32"></div></div>
               <div class="field field--compact"><label for="printProfileOgrn">ОГРН</label><input id="printProfileOgrn" type="text" maxlength="32"></div>
               <div class="repair-order-print-settings__row"><div class="field field--compact"><label for="printProfileBankName">Банк</label><input id="printProfileBankName" type="text" maxlength="160"></div><div class="field field--compact"><label for="printProfileBik">БИК</label><input id="printProfileBik" type="text" maxlength="32"></div></div>
@@ -496,6 +497,7 @@ _PRINTING_SCRIPT_PART1 = r"""
       profileLegalName: document.getElementById('printProfileLegalName'),
       profileAddress: document.getElementById('printProfileAddress'),
       profilePhone: document.getElementById('printProfilePhone'),
+      profileReceptionPhone: document.getElementById('printProfileReceptionPhone'),
       profileEmail: document.getElementById('printProfileEmail'),
       profileInn: document.getElementById('printProfileInn'),
       profileKpp: document.getElementById('printProfileKpp'),
@@ -562,6 +564,7 @@ _PRINTING_SCRIPT_PART1 = r"""
       { label: 'Итого', value: '{{totals.grand_total_display}}' },
       { label: 'Компания', value: '{{service.company_name}}' },
       { label: 'Адрес сервиса', value: '{{service.address}}' },
+      { label: 'Телефон ресепшена', value: '{{service.reception_phone}}' },
     ];
 
     function buildPrintTemplateVisualEditorHtml(content) {
@@ -729,6 +732,7 @@ _PRINTING_SCRIPT_PART1 = r"""
           legal_name: printEls.profileLegalName?.value || '',
           address: printEls.profileAddress?.value || '',
           phone: printEls.profilePhone?.value || '',
+          reception_phone: printEls.profileReceptionPhone?.value || '',
           email: printEls.profileEmail?.value || '',
           inn: printEls.profileInn?.value || '',
           kpp: printEls.profileKpp?.value || '',
@@ -928,6 +932,7 @@ _PRINTING_SCRIPT_PART2 = r"""
       if (printEls.profileLegalName) printEls.profileLegalName.value = profile.legal_name || '';
       if (printEls.profileAddress) printEls.profileAddress.value = profile.address || '';
       if (printEls.profilePhone) printEls.profilePhone.value = profile.phone || '';
+      if (printEls.profileReceptionPhone) printEls.profileReceptionPhone.value = profile.reception_phone || '';
       if (printEls.profileEmail) printEls.profileEmail.value = profile.email || '';
       if (printEls.profileInn) printEls.profileInn.value = profile.inn || '';
       if (printEls.profileKpp) printEls.profileKpp.value = profile.kpp || '';

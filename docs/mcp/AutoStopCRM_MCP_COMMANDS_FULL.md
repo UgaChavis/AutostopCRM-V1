@@ -18,7 +18,8 @@
 - сначала короткая диагностика;
 - потом точечный read;
 - потом тяжелый экспорт;
-- если нужен большой обзор, лучше собирать его из `review_board` + `get_board_context` + `get_card_context`, а не сразу дергать `get_gpt_wall`.
+- если нужен большой обзор, лучше собирать его из `review_board` + `get_board_context` + `get_card_context`, а не сразу дергать `get_gpt_wall`;
+- `get_gpt_wall` оставляй для случаев, когда нужен единый ответ с обеими hidden machine wall секциями, но в обычном агентском потоке предпочитай `get_board_content` и `get_board_events`.
 
 ## Контекст и диагностика
 
@@ -38,7 +39,7 @@
 | `review_board` | read | Операционный обзор: summary, загрузка по столбцам, alerts, priority cards, recent events. Это одна из лучших команд для регулярной проверки. |
 | `get_board_content` | read | Hidden machine wall в Markdown: карточки по столбцам, архивные карточки, стикеры, vehicle profile compact. Тяжелый экспорт стены без журнала событий. |
 | `get_board_events` | read | Markdown-журнал событий, по умолчанию последние 100, порядок `newest_first`. Для обычной работы держи limit ниже. |
-| `get_gpt_wall` | read | Совместимый агрегатор `board_content` + `event_log` в Markdown. Это самый тяжелый read-инструмент, используй только когда нужен единый большой dump. |
+| `get_gpt_wall` | read | Совместимый агрегатор `board_content` + `event_log` в Markdown. В agent-режиме он урезается до компактных карточек и ограниченного журнала, поэтому для повседневной работы лучше сначала использовать `get_board_content` и `get_board_events`. |
 | `search_cards` | read | Поиск карточек по query и фильтрам: column, tag, indicator, status, include_archived. Лучше работает с русско-латинскими вариантами названий и маркеров. |
 | `update_board_settings` | write | Обновляет настройки доски; сейчас используется для `board_scale`. |
 
