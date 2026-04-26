@@ -215,6 +215,24 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("288-14-15", document["pages"][0]["html"])
         self.assertIn("Автомобиль получил, претензий не имею", document["pages"][1]["html"])
 
+    def test_invoice_template_renders_brand_header_and_banking_block(self) -> None:
+        preview = self.service.preview_documents(
+            self.card,
+            selected_document_ids=["invoice"],
+            active_document_id="invoice",
+        )
+
+        document = preview["documents"][0]
+        html = document["pages"][0]["html"]
+        self.assertIn("Счет на оплату", html)
+        self.assertIn('class="doc-brand-mark"', html)
+        self.assertIn("БИК", html)
+        self.assertIn("Тел. 288-14-15", html)
+        self.assertIn("Руководитель", html)
+        self.assertIn("Бухгалтер", html)
+        self.assertNotIn("undefined", html)
+        self.assertNotIn("NaN", html)
+
     def test_preview_supports_all_builtin_document_types(self) -> None:
         preview = self.service.preview_documents(
             self.card,
