@@ -732,6 +732,18 @@ _PRINTING_SCRIPT_PART1 = r"""
       renderRepairOrderPrintPreview();
     }
 
+    function repairOrderPrintResetPreviewScroll() {
+      if (!printEls.previewFrame) return;
+      try {
+        printEls.previewFrame.contentWindow?.scrollTo(0, 0);
+        const doc = printEls.previewFrame.contentDocument;
+        if (doc?.documentElement) doc.documentElement.scrollTop = 0;
+        if (doc?.body) doc.body.scrollTop = 0;
+      } catch (error) {
+        // Ignore cross-context scroll resets; srcdoc should still render correctly.
+      }
+    }
+
     function repairOrderPrintSettingsPayload() {
       return {
         default_printer: printEls.printerSelect?.value || '',
@@ -1047,6 +1059,7 @@ _PRINTING_SCRIPT_PART2 = r"""
       if (Array.isArray(preview?.missing_fields) && preview.missing_fields.length) warnings.push('Проверьте поля: ' + preview.missing_fields.join(', '));
       printEls.warnings.textContent = warnings.join(' · ');
       printEls.previewFrame.srcdoc = page?.html || '<!doctype html><html lang="ru"><body style="font-family: Segoe UI, sans-serif; padding: 32px; color: #444">Выберите документ для предпросмотра.</body></html>';
+      window.setTimeout(repairOrderPrintResetPreviewScroll, 0);
       printEls.footerMeta.textContent = preview ? ('Документ: ' + (activeDoc?.label || activeId) + '. Страниц: ' + Math.max(1, preview.page_count || preview.pages?.length || 1) + '.') : 'PDF генерируется из шаблона и текущих данных заказ-наряда.';
       applyRepairOrderPrintZoom();
     }
