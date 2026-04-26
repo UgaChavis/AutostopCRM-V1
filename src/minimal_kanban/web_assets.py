@@ -4367,6 +4367,248 @@ BOARD_WEB_APP_HTML = "".join(
         opacity: 0.24;
       }
     }
+    body.is-mobile-lite {
+      overflow: hidden;
+    }
+    body.is-mobile-lite .shell {
+      min-height: 100dvh;
+    }
+    body.is-mobile-lite .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 8px 10px 10px;
+      background: rgba(0, 0, 0, 0.46);
+      backdrop-filter: blur(8px);
+    }
+    body.is-mobile-lite .topbar__left {
+      width: 100%;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    body.is-mobile-lite .gear-button {
+      display: none;
+    }
+    body.is-mobile-lite .brand__title {
+      font-size: 15px;
+      letter-spacing: 0.09em;
+    }
+    body.is-mobile-lite .brand__sub {
+      display: none;
+    }
+    body.is-mobile-lite .topbar__meta,
+    body.is-mobile-lite .status-shell {
+      width: 100%;
+    }
+    body.is-mobile-lite .status-shell .message {
+      width: 100%;
+      justify-content: center;
+    }
+    body.is-mobile-lite .topbar__actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      width: 100%;
+      gap: 6px;
+    }
+    body.is-mobile-lite .topbar__actions .btn {
+      min-height: 40px;
+      padding: 10px 10px;
+      font-size: 11px;
+    }
+    body.is-mobile-lite .topbar__actions .btn:not(#cardButton):not(#archiveButton) {
+      display: none;
+    }
+    body.is-mobile-lite .topbar__actions #cardButton,
+    body.is-mobile-lite .topbar__actions #archiveButton {
+      width: 100%;
+    }
+    body.is-mobile-lite .sticky-dock {
+      display: none;
+    }
+    body.is-mobile-lite .board-scroll {
+      cursor: default;
+      touch-action: pan-y;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+    }
+    body.is-mobile-lite .board {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      width: 100%;
+      min-width: 0;
+      margin: 0;
+      padding: 8px 8px 90px;
+      transform: none;
+    }
+    body.is-mobile-lite .column {
+      width: 100%;
+      min-width: 0;
+      padding: 10px;
+      gap: 10px;
+    }
+    body.is-mobile-lite .column::before {
+      width: 3px;
+    }
+    body.is-mobile-lite .column__head-actions {
+      display: none;
+    }
+    body.is-mobile-lite .column > .btn[data-create-in] {
+      display: none;
+    }
+    body.is-mobile-lite .column__title {
+      font-size: 13px;
+      letter-spacing: 0.09em;
+    }
+    body.is-mobile-lite .column__count {
+      min-width: 28px;
+    }
+    body.is-mobile-lite .column__cards {
+      gap: 8px;
+    }
+    body.is-mobile-lite .empty {
+      min-height: 56px;
+    }
+    body.is-mobile-lite .card {
+      min-height: 124px;
+      padding: 10px;
+    }
+    body.is-mobile-lite .card__desc {
+      -webkit-line-clamp: 3;
+      max-height: calc(1.5em * 3);
+    }
+    body.is-mobile-lite .card__tags {
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    body.is-mobile-lite .card__signal {
+      margin-top: 2px;
+    }
+    body.is-mobile-lite .card__signal-value {
+      font-size: 12px;
+    }
+    body.is-mobile-lite .sticky-layer {
+      display: none;
+    }
+    body.is-mobile-lite .modal {
+      padding: 0;
+    }
+    body.is-mobile-lite .dialog {
+      width: min(100vw, 100%);
+      max-height: 100dvh;
+      padding: 12px;
+      border-radius: 0;
+    }
+    body.is-mobile-lite .dialog--card {
+      width: 100vw;
+      height: 100dvh;
+      max-height: 100dvh;
+      padding: 10px;
+    }
+    body.is-mobile-lite .dialog__head--card {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    body.is-mobile-lite .dialog__tabs--card {
+      align-items: center;
+      gap: 8px;
+    }
+    body.is-mobile-lite .dialog__tabs--card > div {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    body.is-mobile-lite .dialog__tabs--card .tab-btn[data-tab="journal"] {
+      display: none;
+    }
+    body.is-mobile-lite .dialog__tabs--card #cardMetaLine {
+      width: 100%;
+      text-align: left;
+    }
+    body.is-mobile-lite .dialog__foot--card {
+      flex-direction: column-reverse;
+      align-items: stretch;
+    }
+    body.is-mobile-lite .dialog__foot-group {
+      width: 100%;
+    }
+    body.is-mobile-lite .dialog__foot-group--danger,
+    body.is-mobile-lite .dialog__foot-group--main {
+      margin-right: 0;
+      justify-content: stretch;
+    }
+    body.is-mobile-lite .dialog__foot-group--danger .btn,
+    body.is-mobile-lite .dialog__foot-group--main .btn {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+    body.is-mobile-lite .overview-layout {
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+    body.is-mobile-lite .overview-main {
+      max-width: none;
+    }
+    body.is-mobile-lite .grid--overview {
+      grid-template-columns: 1fr;
+    }
+    body.is-mobile-lite .overview-main__meta {
+      grid-template-columns: 1fr;
+    }
+    body.is-mobile-lite .vehicle-panel {
+      max-width: none;
+      width: 100%;
+    }
+    body.is-mobile-lite .vehicle-panel__fields {
+      display: none;
+    }
+    body.is-mobile-lite .vehicle-panel__head {
+      align-items: center;
+      gap: 8px;
+    }
+    body.is-mobile-lite #vehicleAutofillButton,
+    body.is-mobile-lite #cardAgentButton {
+      display: none;
+    }
+    body.is-mobile-lite .vehicle-panel__repair {
+      padding-top: 4px;
+    }
+    body.is-mobile-lite .file-zone-panel {
+      gap: 10px;
+    }
+    body.is-mobile-lite .file-dropzone {
+      min-height: 92px;
+      padding: 12px;
+    }
+    body.is-mobile-lite .file-dropzone::after {
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    body.is-mobile-lite .file-row {
+      grid-template-columns: 76px minmax(0, 1fr);
+    }
+    body.is-mobile-lite .file-row__thumb,
+    body.is-mobile-lite .file-row__thumb-button,
+    body.is-mobile-lite .file-row__thumb-image {
+      width: 76px;
+      min-height: 64px;
+    }
+    body.is-mobile-lite .file-preview {
+      width: 100%;
+      max-height: calc(100dvh - 12px);
+      padding: 12px;
+    }
+    body.is-mobile-lite #filePreviewCloseButton {
+      width: 100%;
+      min-width: 0;
+    }
+    body.is-mobile-lite .file-preview__stage {
+      min-height: calc(100dvh - 168px);
+    }
+    body.is-mobile-lite .file-preview__image {
+      max-height: calc(100dvh - 200px);
+    }
 """,
         PRINTING_WEB_MODULE_STYLE,
         """
@@ -5963,6 +6205,7 @@ BOARD_WEB_APP_HTML = "".join(
         moved: false,
       },
       boardViewportPrimed: false,
+      mobileLite: false,
       stickyDraft: null,
       stickyDrag: {
         active: false,
@@ -6088,6 +6331,9 @@ BOARD_WEB_APP_HTML = "".join(
       { label: 'надо что то сделать', color: 'red' },
     ];
     const CARD_TAG_LIMIT = 3;
+    const MOBILE_LITE_BREAKPOINT = 760;
+    const MOBILE_LITE_MEDIA_QUERY = '(max-width: 760px)';
+    const MOBILE_LITE_USER_AGENT_RE = /Android|webOS|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile/i;
     const REPAIR_ORDER_TAG_LIMIT = 5;
     const REPAIR_ORDER_SORT_FIELDS = ['number', 'opened_at', 'closed_at'];
     const REPAIR_ORDER_SORT_DIRECTIONS = ['asc', 'desc'];
@@ -11078,6 +11324,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function applyBoardScalePreference({ fallbackValue = 1, syncInput = false, persistFallback = false } = {}) {
+      if (state.mobileLite) return applyBoardScale(1, { syncInput: false });
       return applyBoardScale(resolveBoardScalePreference(fallbackValue, { persistFallback }), { syncInput });
     }
 
@@ -11096,6 +11343,39 @@ BOARD_WEB_APP_HTML = "".join(
       if (els.boardScaleValue) els.boardScaleValue.textContent = percent + '%';
       if (syncInput && els.boardScaleInput) els.boardScaleInput.value = String(percent);
       return scale;
+    }
+
+    function detectMobileLiteMode() {
+      try {
+        if (window.matchMedia && window.matchMedia(MOBILE_LITE_MEDIA_QUERY).matches) return true;
+      } catch (_) {
+      }
+      const userAgent = String(navigator.userAgent || '');
+      if (MOBILE_LITE_USER_AGENT_RE.test(userAgent)) return true;
+      return (navigator.maxTouchPoints || 0) > 0 && window.innerWidth <= MOBILE_LITE_BREAKPOINT;
+    }
+
+    function applyMobileLiteMode(nextMode = detectMobileLiteMode()) {
+      const enabled = Boolean(nextMode);
+      const changed = enabled !== state.mobileLite;
+      state.mobileLite = enabled;
+      document.body.classList.toggle('is-mobile-lite', enabled);
+      if (!changed) return enabled;
+      if (enabled) {
+        state.boardPan.active = false;
+        state.boardPan.pointerId = null;
+        state.boardPan.moved = false;
+        state.boardViewportPrimed = false;
+        if (els.boardScroll) els.boardScroll.classList.remove('is-panning');
+        if (els.board) applyBoardScale(1, { syncInput: false });
+      } else if (els.board) {
+        applyBoardScalePreference({ fallbackValue: state.snapshot?.settings?.board_scale ?? 1, syncInput: true, persistFallback: false });
+      }
+      return enabled;
+    }
+
+    function syncMobileLiteMode() {
+      return applyMobileLiteMode(detectMobileLiteMode());
     }
 
     function clampBoardScroll(left = els.boardScroll.scrollLeft, top = els.boardScroll.scrollTop) {
@@ -11120,6 +11400,14 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function boardCanvasLayout() {
+      if (state.mobileLite) {
+        return {
+          left: 0,
+          top: 0,
+          right: 0,
+          bottom: 0,
+        };
+      }
       const clientWidth = Math.max(els.boardScroll.clientWidth, 1);
       const clientHeight = Math.max(els.boardScroll.clientHeight, 1);
       return {
@@ -11131,6 +11419,13 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function applyBoardCanvasLayout() {
+      if (state.mobileLite) {
+        els.board.style.setProperty('--board-gutter-left', '0px');
+        els.board.style.setProperty('--board-gutter-right', '0px');
+        els.board.style.setProperty('--board-gutter-top', '0px');
+        els.board.style.setProperty('--board-gutter-bottom', '0px');
+        return { left: 0, top: 0, right: 0, bottom: 0 };
+      }
       const layout = boardCanvasLayout();
       els.board.style.setProperty('--board-gutter-left', layout.left + 'px');
       els.board.style.setProperty('--board-gutter-right', layout.right + 'px');
@@ -11183,6 +11478,10 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function primeBoardViewport() {
+      if (state.mobileLite) {
+        state.boardViewportPrimed = true;
+        return;
+      }
       if (state.boardViewportPrimed) return;
       const layout = applyBoardCanvasLayout();
       const scrollWidth = els.boardScroll.scrollWidth;
@@ -11199,6 +11498,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function beginBoardPan(event) {
+      if (state.mobileLite) return;
       if (event.button !== 0) return;
       if (!(event.target instanceof HTMLElement)) return;
       if (event.target.closest('.card, .sticky, .sticky__close, .btn, .gear-button, .tab-btn, input, textarea, select, a, [contenteditable="true"]')) return;
@@ -11215,6 +11515,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function moveBoardPan(event) {
+      if (state.mobileLite) return;
       if (!state.boardPan.active || state.boardPan.pointerId !== event.pointerId) return;
       const dx = event.clientX - state.boardPan.startX;
       const dy = event.clientY - state.boardPan.startY;
@@ -11225,6 +11526,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function endBoardPan(event) {
+      if (state.mobileLite) return;
       if (!state.boardPan.active || state.boardPan.pointerId !== event.pointerId) return;
       state.boardPan.active = false;
       state.boardPan.pointerId = null;
@@ -11423,6 +11725,11 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function adjustBoardBounds() {
+      if (state.mobileLite) {
+        els.board.style.minWidth = '';
+        els.board.style.minHeight = '';
+        return;
+      }
       const scale = state.boardScale || 1;
       applyBoardCanvasLayout();
       els.board.style.minWidth = '';
@@ -14478,9 +14785,10 @@ function renderCompactArchiveRows(cards) {
     }
 
     function setTab(name) {
-      state.currentTab = name;
-      document.querySelectorAll('[data-tab]').forEach((button) => button.classList.toggle('is-active', button.dataset.tab === name));
-      document.querySelectorAll('[data-panel]').forEach((panel) => panel.classList.toggle('hidden', panel.dataset.panel !== name));
+      const nextName = state.mobileLite && name === 'journal' ? 'overview' : name;
+      state.currentTab = nextName;
+      document.querySelectorAll('[data-tab]').forEach((button) => button.classList.toggle('is-active', button.dataset.tab === nextName));
+      document.querySelectorAll('[data-panel]').forEach((panel) => panel.classList.toggle('hidden', panel.dataset.panel !== nextName));
     }
 
     function openCardModal(card) {
@@ -16197,6 +16505,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     function handleBoardCardDragStart(event) {
+      if (state.mobileLite) return;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       const card = target.closest('.card');
@@ -16210,6 +16519,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     function handleBoardColumnDragStart(event) {
+      if (state.mobileLite) return;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       if (target.closest('.card')) return;
@@ -16225,6 +16535,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     function handleBoardCardDragOver(event) {
+      if (state.mobileLite) return;
       const draggedCardId = state.boardDragCardId || event.dataTransfer?.getData('text/plain') || '';
       if (!draggedCardId) return;
       event.preventDefault();
@@ -16244,6 +16555,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     function handleBoardColumnDragOver(event) {
+      if (state.mobileLite) return;
       const draggedColumnId = state.boardDragColumnId || event.dataTransfer?.getData('application/x-kanban-column') || '';
       if (!draggedColumnId) return;
       event.preventDefault();
@@ -16268,6 +16580,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     function handleBoardCardDragLeave(event) {
+      if (state.mobileLite) return;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       const column = target.closest('.column');
@@ -16278,6 +16591,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     function handleBoardColumnDragLeave(event) {
+      if (state.mobileLite) return;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       const column = target.closest('.column');
@@ -16288,6 +16602,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     async function handleBoardCardDrop(event) {
+      if (state.mobileLite) return;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       const column = target.closest('.column');
@@ -16304,6 +16619,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     async function handleBoardColumnDrop(event) {
+      if (state.mobileLite) return;
       const draggedColumnId = state.boardDragColumnId || event.dataTransfer?.getData('application/x-kanban-column') || '';
       if (!draggedColumnId) return;
       const target = event.target;
@@ -16702,6 +17018,8 @@ function renderCompactArchiveRows(cards) {
     renderCashboxDetail();
     bindDirectCardModalCloseButtons();
     mountStatusLine();
+    applyMobileLiteMode(detectMobileLiteMode());
+    window.addEventListener('resize', syncMobileLiteMode);
     bootstrapOperatorSession();
     refreshSnapshot(true);
     document.addEventListener('visibilitychange', handleSnapshotVisibilityChange);

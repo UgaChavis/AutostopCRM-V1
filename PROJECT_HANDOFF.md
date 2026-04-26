@@ -207,6 +207,7 @@ Latest completed stabilization wave:
 - cashbox journal API and UI were added for the latest `3` months, including formatted modal text and text-file download
 - repair-order cashless totals now follow the selected rule: cashless path = subtotal + `15%`, taxes reflect that `15%` component, and due totals use the same model across domain, API, UI, and MCP text output
 - MCP repair-order expectations were updated to match the corrected cashless total model
+- mobile-lite board mode now activates automatically on narrow screens and collapses the board into a single-column, low-noise layout with heavy controls hidden by default
 
 Most recent important commits in the current line:
 

@@ -672,6 +672,19 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".vehicle-panel::before { display: none; }", BOARD_WEB_APP_HTML)
         self.assertIn(".dialog--card { width: min(1080px, 100%); }", BOARD_WEB_APP_HTML)
 
+    def test_mobile_lite_mode_collapses_board_and_hides_heavy_controls(self) -> None:
+        self.assertIn("const MOBILE_LITE_BREAKPOINT = 760;", BOARD_WEB_APP_HTML)
+        self.assertIn("function detectMobileLiteMode()", BOARD_WEB_APP_HTML)
+        self.assertIn("function applyMobileLiteMode(nextMode = detectMobileLiteMode())", BOARD_WEB_APP_HTML)
+        self.assertIn("if (state.mobileLite) return applyBoardScale(1, { syncInput: false });", BOARD_WEB_APP_HTML)
+        self.assertIn("body.is-mobile-lite .board {", BOARD_WEB_APP_HTML)
+        self.assertIn("body.is-mobile-lite .column__head-actions {", BOARD_WEB_APP_HTML)
+        self.assertIn("body.is-mobile-lite .dialog--card {", BOARD_WEB_APP_HTML)
+        self.assertIn("body.is-mobile-lite .dialog__tabs--card .tab-btn[data-tab=\"journal\"] {", BOARD_WEB_APP_HTML)
+        self.assertIn("body.is-mobile-lite .vehicle-panel__fields {", BOARD_WEB_APP_HTML)
+        self.assertIn("applyMobileLiteMode(detectMobileLiteMode());", BOARD_WEB_APP_HTML)
+        self.assertIn("window.addEventListener('resize', syncMobileLiteMode);", BOARD_WEB_APP_HTML)
+
     def test_vehicle_panel_uses_larger_readable_typography(self) -> None:
         self.assertIn(".vehicle-panel__summary {", BOARD_WEB_APP_HTML)
         self.assertIn("font-size: 11px;", BOARD_WEB_APP_HTML)
