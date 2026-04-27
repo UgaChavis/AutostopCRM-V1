@@ -138,6 +138,7 @@ The MCP server exposes the current AutoStop CRM board and services as tools over
 - board review and GPT wall
 - cashbox access
 - repair-order access and updates
+- client directory search, profile, vehicle, requisites and card-link tools
 - local card cleanup and bounded board/card reads
 
 The exact runtime inventory is documented in [MCP_GUIDE.md](MCP_GUIDE.md). The user-facing autofill endpoints remain available in the HTTP API and UI, but they are not MCP tools.
@@ -226,7 +227,7 @@ Large client directory import:
 py -3.12 scripts/import_clients_from_markdown.py C:\path\to\clients.md --apply
 ```
 
-The importer reads the cleaned Markdown JSONL format, creates a state backup before writing, preserves legal requisites, phones and saved client vehicles, and supports dry-run by omitting `--apply`.
+The importer reads the cleaned Markdown JSONL format, creates a state backup before writing, preserves legal requisites, phones and saved client vehicles, and supports dry-run by omitting `--apply`. For production-scale directories, client search is designed to use saved profile vehicles before the heavier related-card fallback.
 
 ## Tests and Verification
 

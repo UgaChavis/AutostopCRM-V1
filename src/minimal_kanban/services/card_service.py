@@ -5034,21 +5034,6 @@ class CardService:
                         vehicle.year,
                     ]
                 )
-            related_cards = self._client_related_cards(client, cards) if cards else []
-            for card in related_cards:
-                vehicle_fields.extend(
-                    [
-                        card.vehicle_display(),
-                        card.vehicle_profile.make_display,
-                        card.vehicle_profile.model_display,
-                        card.vehicle_profile.registration_plate,
-                        card.vehicle_profile.vin,
-                        card.repair_order.vehicle,
-                        card.repair_order.license_plate,
-                        card.repair_order.vin,
-                        card.repair_order.number,
-                    ]
-                )
             searchable = [self._normalize_search_text(value) for value in fields if value]
             vehicle_searchable = [
                 self._normalize_search_text(value) for value in vehicle_fields if value
@@ -5095,6 +5080,45 @@ class CardService:
                     score += 10
                 elif query_phone_variants.intersection(self._client_match_keys(client)):
                     score += 10
+            if score == 0 and cards:
+                related_vehicle_fields: list[str] = []
+                for card in self._client_related_cards(client, cards):
+                    related_vehicle_fields.extend(
+                        [
+                            card.vehicle_display(),
+                            card.vehicle_profile.make_display,
+                            card.vehicle_profile.model_display,
+                            card.vehicle_profile.registration_plate,
+                            card.vehicle_profile.vin,
+                            card.repair_order.vehicle,
+                            card.repair_order.license_plate,
+                            card.repair_order.vin,
+                            card.repair_order.number,
+                        ]
+                    )
+                related_searchable = [
+                    self._normalize_search_text(value)
+                    for value in related_vehicle_fields
+                    if value
+                ]
+                related_compact_searchable = [
+                    re.sub(r"[\W_]+", "", value) for value in related_searchable if value
+                ]
+                for variant in query_variants:
+                    if not variant:
+                        continue
+                    for value in related_searchable:
+                        if value == variant:
+                            score += 7
+                        elif variant in value:
+                            score += 5
+                        elif all(part in value for part in variant.split()):
+                            score += 3
+                    compact_variant = re.sub(r"[\W_]+", "", variant)
+                    if compact_variant and any(
+                        compact_variant in value for value in related_compact_searchable
+                    ):
+                        score += 5
             if score > 0:
                 ranked.append((score, client))
         ranked.sort(key=lambda item: (item[0], item[1].updated_at, item[1].name()), reverse=True)

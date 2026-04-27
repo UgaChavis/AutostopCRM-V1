@@ -196,6 +196,8 @@ Latest completed wave, in practical terms:
 - Telegram AI Board Manager was added back as a separate worker service, not as UI-thread logic and not as the old VIN-only agent
 - the clients module now has inline existing-client search in the card editor, plus Chrome autofill suppression on the relevant client/card fields
 - current clients UX also includes vehicle previews, better phone matching, debt summary, and more readable repair-order cards in the profile pane
+- bulk client imports from cleaned Markdown JSONL preserve legal requisites, phones and saved profile vehicles; a state backup is created before every apply run
+- client search is optimized for thousand-entry directories by checking profile fields and saved vehicles before falling back to related card history
 
 Latest completed stabilization wave:
 
@@ -219,6 +221,8 @@ Latest completed stabilization wave:
 
 Most recent important commits in the current line:
 
+- `c8e081a` `Fix repeated client import matching`
+- `1ab93bf` `Add client vehicle import support`
 - `18e1326` `Consolidate MCP docs and remove stale guides`
 - `2261e8d` `Refresh docs after clients and MCP audit`
 - `524b114` `Audit clients module integrations`
@@ -247,7 +251,7 @@ Current stability note:
 
 - this branch is still an incremental production line, not a refactor branch
 - recent work favored local fixes, targeted regression coverage, and production-safe behavior
-- latest client-module audit is covered by local service/API/MCP/web-assets/connection-card tests and full discovery
+- latest client-module and bulk-import pass is covered by local service/API/MCP/web-assets/connection-card tests and full discovery
 
 ## 7. Production Verification Snapshot
 
@@ -287,7 +291,7 @@ Current known verification baseline:
 - latest targeted regressions for `tests.test_service`, `tests.test_api`, and `tests.test_web_assets` are green
 - latest targeted `tests.test_service`, `tests.test_api`, `tests.test_web_assets`, `tests.test_mcp`, and `tests.test_mcp_main` runs are green
 - import smoke for `main.py` and `main_mcp.py` is green
-- latest full-suite validation on the current local clients-module audit pass: `470/470 OK`
+- latest full-suite validation on the current local bulk client import/search optimization pass: `471/471 OK`
 - latest portable release verifier: passed during the current `autostopcrm-v1` quality pass
 
 Main test areas:

@@ -346,7 +346,17 @@ Authorization: Bearer ваш_секрет
   "legal_address": "",
   "actual_address": "",
   "contact_person": "",
-  "contact_position": ""
+  "contact_position": "",
+  "vehicles": [
+    {
+      "vehicle": "Toyota Camry",
+      "brand": "Toyota",
+      "model": "Camry",
+      "vin": "JTDBE32K620654321",
+      "license_plate": "А123ВС124",
+      "year": "2017"
+    }
+  ]
 }
 ```
 
@@ -375,6 +385,7 @@ Authorization: Bearer ваш_секрет
 Назначение: найти клиента по имени, части ФИО, телефону, email, ИНН, названию организации,
 контактному лицу, а также по автомобилю, госномеру или VIN из связанных карточек и сохраненного профиля клиента.
 Телефон ищется в разных форматах: `+7`, `8`, без пробелов, со скобками и дефисами.
+Для больших справочников поиск сначала проверяет собственные поля клиента и сохраненные `vehicles[]`, а связанную историю карточек использует как fallback.
 Компактный ответ содержит `vehicles_preview` — 1-2 связанных автомобиля для UI-подсказок.
 
 Запрос:
@@ -450,7 +461,15 @@ Authorization: Bearer ваш_секрет
   "client_id": "CLIENT_ID",
   "patch": {
     "email": "client@example.com",
-    "comment": "Постоянный клиент"
+    "comment": "Постоянный клиент",
+    "vehicles": [
+      {
+        "brand": "Toyota",
+        "model": "Camry",
+        "vin": "JTDBE32K620654321",
+        "license_plate": "А123ВС124"
+      }
+    ]
   },
   "actor_name": "operator"
 }
