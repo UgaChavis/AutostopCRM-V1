@@ -47,6 +47,8 @@ Use this file for durable notes that should not be rediscovered every session.
 - production services: `autostopcrm`, `autostopcrm-telegram-ai`
 - live CRM URL: `https://crm.autostopcrm.ru`
 - live MCP URL: `https://crm.autostopcrm.ru/mcp`
+- MCP tool count after clients module: `59`
+- clients module is optional-link by design: a card may keep manual customer fields without a `client_id`; agents should search/suggest before creating client profiles
 - local targeted Telegram AI regression result before documentation pass: `48/48 OK`
 - production live check before documentation pass:
   - deploy smoke passed after rebuild

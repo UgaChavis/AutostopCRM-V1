@@ -262,6 +262,60 @@ class CardServiceTests(unittest.TestCase):
         archived = self.service.archive_card({"card_id": card_id})
         self.assertTrue(archived["card"]["archived"])
 
+    def test_clients_can_be_created_searched_and_linked_to_card(self) -> None:
+        client = self.service.create_client(
+            {
+                "client_type": "person",
+                "last_name": "Иванов",
+                "first_name": "Иван",
+                "middle_name": "Иванович",
+                "phone": "+7 913 000-11-22",
+            }
+        )["client"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota Camry",
+                "title": "Диагностика",
+                "description": "Первичный осмотр",
+                "deadline": {"hours": 2},
+                "vehicle_profile": {
+                    "customer_name": "Иванов",
+                    "customer_phone": "+7 913 000-11-22",
+                    "vin": "JTDBE32K620123456",
+                    "registration_plate": "А123ВС124",
+                },
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "",
+                    "phone": "",
+                    "vehicle": "Toyota Camry",
+                    "vin": "JTDBE32K620123456",
+                    "license_plate": "А123ВС124",
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+                },
+            }
+        )
+
+        search = self.service.search_clients({"query": "Иванов", "limit": 5})
+        self.assertEqual(search["clients"][0]["id"], client["id"])
+
+        linked = self.service.link_card_to_client(
+            {"card_id": card_id, "client_id": client["id"], "sync_fields": True}
+        )
+        self.assertEqual(linked["card"]["client_id"], client["id"])
+        self.assertEqual(linked["card"]["repair_order"]["client"], "Иванов Иван Иванович")
+        self.assertEqual(linked["card"]["repair_order"]["phone"], "+7 913 000-11-22")
+
+        profile = self.service.get_client({"client_id": client["id"]})
+        self.assertEqual(profile["client"]["stats"]["repair_orders_total"], 1)
+        self.assertEqual(profile["vehicles"][0]["vin"], "JTDBE32K620123456")
+        self.assertEqual(profile["repair_orders"][0]["card_id"], card_id)
+
     def test_archive_card_rejects_open_repair_order(self) -> None:
         created = self.service.create_card(
             {

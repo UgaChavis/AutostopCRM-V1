@@ -20,6 +20,7 @@ This is the first file a new developer or agent should read in branch `autostopc
 AutoStop CRM is an auto-workshop CRM built around:
 
 - kanban board and card workflow
+- client directory with optional card links, repair history, vehicles and organization requisites
 - drag-and-drop card movement and column reordering
 - vehicle profile enrichment
 - repair orders, works, materials, payments, printing
@@ -103,8 +104,16 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - latest full local regression after Telegram AI stabilization: `431/431 OK`
 - latest synced production checkpoint for Telegram AI stabilization: `fa3f574`
 - production site: `200 OK`
-- production MCP at last verification: OK with `50` tools
+- production MCP at last verification: OK with `59` tools
 - this deployment path covers the CRM repo at `/opt/autostopcrm` and its optional in-repo Telegram AI worker; VPN helpers are separate deploy targets
+
+## Current Clients Module
+
+- topbar button: `КЛИЕНТЫ`
+- supported profiles: physical person, IP, OOO, company
+- cards can stay unlinked for one-off clients or link to a `client_id`
+- client history is derived from explicit `client_id` plus matching customer name/phone in card profile and repair order
+- MCP exposes client search, profile, stats, create/update, card link/unlink and card suggestions
 
 ## Documentation Layout
 

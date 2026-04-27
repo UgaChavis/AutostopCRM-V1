@@ -17,6 +17,7 @@ from ..models import (
     Card,
     CashBox,
     CashTransaction,
+    ClientProfile,
     Column,
     DEFAULT_COLUMN_IDS,
     StickyNote,
@@ -35,9 +36,10 @@ def default_columns() -> list[Column]:
 
 
 DEFAULT_STATE = {
-    "schema_version": 8,
+    "schema_version": 9,
     "columns": [column.to_dict() for column in default_columns()],
     "cards": [],
+    "clients": [],
     "stickies": [],
     "cashboxes": [],
     "cash_transactions": [],
@@ -76,16 +78,18 @@ class JsonStore:
                 state = self._read_state()
                 columns, columns_repaired = self._normalize_columns(state)
                 cards, cards_repaired = self._normalize_cards(state, columns)
+                clients, clients_repaired = self._normalize_clients(state)
                 stickies, stickies_repaired = self._normalize_stickies(state)
                 cashboxes, cashboxes_repaired = self._normalize_cashboxes(state)
                 cash_transactions, cash_transactions_repaired = self._normalize_cash_transactions(state, cashboxes)
                 events, events_repaired = self._normalize_events(state)
                 settings, settings_repaired = self._normalize_settings(state)
-                if columns_repaired or cards_repaired or stickies_repaired or cashboxes_repaired or cash_transactions_repaired or events_repaired or settings_repaired:
+                if columns_repaired or cards_repaired or clients_repaired or stickies_repaired or cashboxes_repaired or cash_transactions_repaired or events_repaired or settings_repaired:
                     state = {
                         "schema_version": DEFAULT_STATE["schema_version"],
                         "columns": [column.to_dict() for column in columns],
                         "cards": [card.to_storage_dict() for card in cards],
+                        "clients": [client.to_storage_dict() for client in clients],
                         "stickies": [sticky.to_storage_dict() for sticky in stickies],
                         "cashboxes": [cashbox.to_storage_dict() for cashbox in cashboxes],
                         "cash_transactions": [transaction.to_storage_dict() for transaction in cash_transactions],
@@ -96,6 +100,7 @@ class JsonStore:
                 return {
                     "columns": columns,
                     "cards": cards,
+                    "clients": clients,
                     "stickies": stickies,
                     "cashboxes": cashboxes,
                     "cash_transactions": cash_transactions,
@@ -108,6 +113,7 @@ class JsonStore:
         *,
         columns: list[Column],
         cards: list[Card],
+        clients: list[ClientProfile] | None = None,
         stickies: list[StickyNote] | None = None,
         cashboxes: list[CashBox] | None = None,
         cash_transactions: list[CashTransaction] | None = None,
@@ -117,8 +123,11 @@ class JsonStore:
         with self._lock:
             with self._process_lock.acquire():
                 current_state: dict[str, Any] | None = None
-                if settings is None or stickies is None or cashboxes is None or cash_transactions is None:
+                if settings is None or clients is None or stickies is None or cashboxes is None or cash_transactions is None:
                     current_state = self._read_state()
+                if clients is None:
+                    assert current_state is not None
+                    clients, _ = self._normalize_clients(current_state)
                 if settings is None:
                     assert current_state is not None
                     settings, _ = self._normalize_settings(current_state)
@@ -133,6 +142,7 @@ class JsonStore:
                     cash_transactions, _ = self._normalize_cash_transactions(current_state, cashboxes or [])
                 normalized_columns = self._normalize_columns_payload(columns)
                 normalized_cards = self._normalize_cards_payload(cards, normalized_columns)
+                normalized_clients = self._normalize_clients_payload(clients or [])
                 normalized_stickies = self._normalize_stickies_payload(stickies or [])
                 normalized_cashboxes = self._normalize_cashboxes_payload(cashboxes or [])
                 normalized_cash_transactions = self._normalize_cash_transactions_payload(cash_transactions or [], normalized_cashboxes)
@@ -141,6 +151,7 @@ class JsonStore:
                     "schema_version": DEFAULT_STATE["schema_version"],
                     "columns": [column.to_dict() for column in normalized_columns],
                     "cards": [card.to_storage_dict() for card in normalized_cards],
+                    "clients": [client.to_storage_dict() for client in normalized_clients],
                     "stickies": [sticky.to_storage_dict() for sticky in normalized_stickies],
                     "cashboxes": [cashbox.to_storage_dict() for cashbox in normalized_cashboxes],
                     "cash_transactions": [transaction.to_storage_dict() for transaction in normalized_cash_transactions],
@@ -151,6 +162,7 @@ class JsonStore:
                 return {
                     "columns": normalized_columns,
                     "cards": normalized_cards,
+                    "clients": normalized_clients,
                     "stickies": normalized_stickies,
                     "cashboxes": normalized_cashboxes,
                     "cash_transactions": normalized_cash_transactions,
@@ -166,6 +178,7 @@ class JsonStore:
         self.write_bundle(
             columns=bundle["columns"],
             cards=cards,
+            clients=bundle["clients"],
             stickies=bundle["stickies"],
             events=bundle["events"],
             settings=bundle["settings"],
@@ -179,6 +192,7 @@ class JsonStore:
         self.write_bundle(
             columns=columns,
             cards=bundle["cards"],
+            clients=bundle["clients"],
             stickies=bundle["stickies"],
             events=bundle["events"],
             settings=bundle["settings"],
@@ -192,6 +206,7 @@ class JsonStore:
         self.write_bundle(
             columns=bundle["columns"],
             cards=bundle["cards"],
+            clients=bundle["clients"],
             stickies=bundle["stickies"],
             events=events,
             settings=bundle["settings"],
@@ -207,6 +222,7 @@ class JsonStore:
         self.write_bundle(
             columns=bundle["columns"],
             cards=bundle["cards"],
+            clients=bundle["clients"],
             stickies=bundle["stickies"],
             events=bundle["events"],
             settings=bundle["settings"],
@@ -220,6 +236,7 @@ class JsonStore:
         self.write_bundle(
             columns=bundle["columns"],
             cards=bundle["cards"],
+            clients=bundle["clients"],
             stickies=stickies,
             cashboxes=bundle["cashboxes"],
             cash_transactions=bundle["cash_transactions"],
@@ -232,6 +249,22 @@ class JsonStore:
 
     def read_cash_transactions(self) -> list[CashTransaction]:
         return self.read_bundle()["cash_transactions"]
+
+    def read_clients(self) -> list[ClientProfile]:
+        return self.read_bundle()["clients"]
+
+    def write_clients(self, clients: list[ClientProfile]) -> None:
+        bundle = self.read_bundle()
+        self.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=clients,
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
 
     def _read_state(self) -> dict:
         if not self._state_file.exists():
@@ -388,6 +421,48 @@ class JsonStore:
         )
         retained_cards = active_cards + archived_cards[:ARCHIVED_CARD_RETENTION_LIMIT]
         return retained_cards, len(retained_cards) != len(cards)
+
+    def _normalize_clients(self, state: dict) -> tuple[list[ClientProfile], bool]:
+        raw_clients = state.get("clients", [])
+        repaired = False
+        if not isinstance(raw_clients, list):
+            raw_clients = []
+            repaired = True
+        clients: list[ClientProfile] = []
+        seen_ids: set[str] = set()
+        for index, item in enumerate(raw_clients):
+            if not isinstance(item, dict):
+                repaired = True
+                self._log_warning("Пропущен поврежденный клиент с индексом %s в state.json.", index)
+                continue
+            try:
+                client = ClientProfile.from_dict(item)
+            except (TypeError, ValueError):
+                repaired = True
+                self._log_warning("Пропущен некорректный клиент с индексом %s в state.json.", index)
+                continue
+            if client.id in seen_ids:
+                repaired = True
+                self._log_warning("Пропущен дублирующийся клиент с id=%s.", client.id)
+                continue
+            seen_ids.add(client.id)
+            clients.append(client)
+            if item != client.to_storage_dict():
+                repaired = True
+        clients.sort(key=lambda item: (item.name().casefold(), item.created_at, item.id))
+        return clients, repaired
+
+    def _normalize_clients_payload(self, clients: list[ClientProfile]) -> list[ClientProfile]:
+        normalized: list[ClientProfile] = []
+        seen_ids: set[str] = set()
+        for client in clients:
+            candidate = ClientProfile.from_dict(client.to_storage_dict())
+            if candidate.id in seen_ids:
+                continue
+            seen_ids.add(candidate.id)
+            normalized.append(candidate)
+        normalized.sort(key=lambda item: (item.name().casefold(), item.created_at, item.id))
+        return normalized
 
     def _normalize_stickies(self, state: dict) -> tuple[list[StickyNote], bool]:
         raw_stickies = state.get("stickies", [])

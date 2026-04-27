@@ -251,6 +251,75 @@ class BoardApiClient:
     def list_cashboxes(self, *, limit: int | None = None) -> dict:
         return self._request_optional_scalar_filter("/api/list_cashboxes", key="limit", value=limit)
 
+    def list_clients(self, *, limit: int | None = None, include_stats: bool = True) -> dict:
+        payload: dict[str, object] = {"include_stats": include_stats}
+        if limit is not None:
+            payload["limit"] = limit
+        return self._request("/api/list_clients", payload)
+
+    def search_clients(self, *, query: str = "", limit: int | None = None) -> dict:
+        payload: dict[str, object] = {"query": query}
+        if limit is not None:
+            payload["limit"] = limit
+        return self._request("/api/search_clients", payload)
+
+    def get_client(self, client_id: str, *, order_limit: int | None = None) -> dict:
+        payload: dict[str, object] = {"client_id": client_id}
+        if order_limit is not None:
+            payload["order_limit"] = order_limit
+        return self._request("/api/get_client", payload)
+
+    def get_client_stats(self, client_id: str) -> dict:
+        return self._request("/api/get_client_stats", {"client_id": client_id})
+
+    def create_client(
+        self, client: dict[str, object], *, actor_name: str | None = None
+    ) -> dict:
+        return self._request_with_identity("/api/create_client", client, actor_name=actor_name)
+
+    def update_client(
+        self, client_id: str, patch: dict[str, object], *, actor_name: str | None = None
+    ) -> dict:
+        payload: dict[str, object] = {"client_id": client_id, **patch}
+        return self._request_with_identity("/api/update_client", payload, actor_name=actor_name)
+
+    def link_card_to_client(
+        self,
+        card_id: str,
+        client_id: str,
+        *,
+        sync_fields: bool = True,
+        overwrite_card_fields: bool = False,
+        actor_name: str | None = None,
+    ) -> dict:
+        return self._request_with_identity(
+            "/api/link_card_to_client",
+            {
+                "card_id": card_id,
+                "client_id": client_id,
+                "sync_fields": sync_fields,
+                "overwrite_card_fields": overwrite_card_fields,
+            },
+            actor_name=actor_name,
+        )
+
+    def unlink_card_from_client(
+        self, card_id: str, *, actor_name: str | None = None
+    ) -> dict:
+        return self._request_with_identity(
+            "/api/unlink_card_from_client", {"card_id": card_id}, actor_name=actor_name
+        )
+
+    def suggest_clients_for_card(
+        self, card_id: str, *, query: str | None = None, limit: int | None = None
+    ) -> dict:
+        payload: dict[str, object] = {"card_id": card_id}
+        if query is not None:
+            payload["query"] = query
+        if limit is not None:
+            payload["limit"] = limit
+        return self._request("/api/suggest_clients_for_card", payload)
+
     def get_cashbox(self, cashbox_id: str, *, transaction_limit: int | None = None) -> dict:
         payload: dict[str, object] = {"cashbox_id": cashbox_id}
         if transaction_limit is not None:

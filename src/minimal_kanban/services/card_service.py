@@ -39,12 +39,16 @@ from ..models import (
     CardTag,
     CashBox,
     CashTransaction,
+    ClientProfile,
     Column,
     StickyNote,
     format_money_minor,
     normalize_actor_name,
     normalize_bool,
     normalize_cash_direction,
+    normalize_client_phone,
+    normalize_client_phones,
+    normalize_client_type,
     normalize_file_name,
     normalize_money_minor,
     normalize_source,
@@ -2064,6 +2068,276 @@ class CardService:
                 },
             }
 
+    def list_clients(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            limit = self._validated_limit(payload.get("limit"), default=200, maximum=1000)
+            include_stats = self._validated_optional_bool(payload, "include_stats", default=True)
+            bundle = self._store.read_bundle()
+            clients = self._ordered_clients(bundle["clients"])
+            return {
+                "clients": [
+                    self._serialize_client(
+                        client,
+                        bundle["cards"],
+                        include_stats=include_stats,
+                        compact=True,
+                    )
+                    for client in clients[:limit]
+                ],
+                "meta": {
+                    "total": len(clients),
+                    "returned": min(len(clients), limit),
+                    "has_more": len(clients) > limit,
+                    "include_stats": include_stats,
+                },
+            }
+
+    def search_clients(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            query = normalize_text(payload.get("query"), default="", limit=240)
+            limit = self._validated_limit(payload.get("limit"), default=10, maximum=100)
+            bundle = self._store.read_bundle()
+            clients = self._ordered_clients(bundle["clients"])
+            matches = self._rank_client_matches(clients, query)
+            selected = [client for _, client in matches[:limit]]
+            return {
+                "clients": [
+                    self._serialize_client(client, bundle["cards"], include_stats=True, compact=True)
+                    for client in selected
+                ],
+                "meta": {
+                    "query": query,
+                    "total": len(matches),
+                    "returned": len(selected),
+                    "has_more": len(matches) > len(selected),
+                },
+            }
+
+    def get_client(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            order_limit = self._validated_limit(payload.get("order_limit"), default=30, maximum=200)
+            bundle = self._store.read_bundle()
+            client = self._find_client(bundle["clients"], payload.get("client_id"))
+            return self._client_profile_payload(client, bundle["cards"], order_limit=order_limit)
+
+    def get_client_stats(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            client = self._find_client(bundle["clients"], payload.get("client_id"))
+            return {
+                "client": self._serialize_client(client, bundle["cards"], include_stats=True, compact=True),
+                "stats": self._client_stats(client, bundle["cards"]),
+            }
+
+    def create_client(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            clients = list(bundle["clients"])
+            events = bundle["events"]
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            client = self._validated_client_profile(payload)
+            clients.append(client)
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="client_created",
+                message=f"{actor_name} создал клиента",
+                card_id=None,
+                details={"client_id": client.id, "client_name": client.name()},
+            )
+            self._save_bundle(
+                bundle,
+                columns=bundle["columns"],
+                cards=bundle["cards"],
+                clients=clients,
+                events=events,
+            )
+            return {
+                "client": self._serialize_client(client, bundle["cards"], include_stats=True),
+                "meta": {"created": True},
+            }
+
+    def update_client(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            clients = list(bundle["clients"])
+            events = bundle["events"]
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            client = self._find_client(clients, payload.get("client_id") or payload.get("id"))
+            before = client.to_storage_dict()
+            merged = {**before, **self._client_patch_payload(payload)}
+            merged["id"] = client.id
+            merged["created_at"] = client.created_at
+            merged["updated_at"] = utc_now_iso()
+            next_client = ClientProfile.from_dict(merged)
+            changed = before != next_client.to_storage_dict()
+            if changed:
+                index = clients.index(client)
+                clients[index] = next_client
+                self._append_event(
+                    events,
+                    actor_name=actor_name,
+                    source=source,
+                    action="client_updated",
+                    message=f"{actor_name} обновил клиента",
+                    card_id=None,
+                    details={"client_id": next_client.id, "client_name": next_client.name()},
+                )
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=bundle["cards"],
+                    clients=clients,
+                    events=events,
+                )
+                client = next_client
+            return {
+                "client": self._serialize_client(client, bundle["cards"], include_stats=True),
+                "meta": {"changed": changed},
+            }
+
+    def link_card_to_client(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            clients = bundle["clients"]
+            events = bundle["events"]
+            card = self._find_card(cards, payload.get("card_id"))
+            client = self._find_client(clients, payload.get("client_id"))
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            sync_fields = self._validated_optional_bool(payload, "sync_fields", default=True)
+            overwrite = self._validated_optional_bool(payload, "overwrite_card_fields", default=False)
+            changed = card.client_id != client.id
+            card.client_id = client.id
+            if sync_fields:
+                changed = self._sync_card_client_fields(card, client, overwrite=overwrite) or changed
+            if changed:
+                self._touch_card(card, actor_name)
+                self._append_event(
+                    events,
+                    actor_name=actor_name,
+                    source=source,
+                    action="card_client_linked",
+                    message=f"{actor_name} связал карточку с клиентом",
+                    card_id=card.id,
+                    details={"client_id": client.id, "client_name": client.name()},
+                )
+                if self._card_has_repair_order(card):
+                    self._ensure_repair_order_text_file(card, force=True)
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=cards,
+                    clients=clients,
+                    events=events,
+                )
+            return {
+                "card": self._serialize_card(
+                    card,
+                    events,
+                    column_labels=self._column_labels(bundle["columns"]),
+                    include_removed_attachments=True,
+                ),
+                "client": self._serialize_client(client, cards, include_stats=True),
+                "meta": {"changed": changed, "sync_fields": sync_fields},
+            }
+
+    def unlink_card_from_client(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            events = bundle["events"]
+            card = self._find_card(cards, payload.get("card_id"))
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            previous_client_id = card.client_id
+            changed = bool(previous_client_id)
+            if changed:
+                card.client_id = ""
+                self._touch_card(card, actor_name)
+                self._append_event(
+                    events,
+                    actor_name=actor_name,
+                    source=source,
+                    action="card_client_unlinked",
+                    message=f"{actor_name} убрал связь карточки с клиентом",
+                    card_id=card.id,
+                    details={"previous_client_id": previous_client_id},
+                )
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=cards,
+                    clients=bundle["clients"],
+                    events=events,
+                )
+            return {
+                "card": self._serialize_card(
+                    card,
+                    events,
+                    column_labels=self._column_labels(bundle["columns"]),
+                    include_removed_attachments=True,
+                ),
+                "meta": {"changed": changed, "previous_client_id": previous_client_id},
+            }
+
+    def suggest_clients_for_card(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            limit = self._validated_limit(payload.get("limit"), default=8, maximum=30)
+            bundle = self._store.read_bundle()
+            card = self._find_card(bundle["cards"], payload.get("card_id"))
+            query = normalize_text(payload.get("query"), default="", limit=240)
+            if not query:
+                query = " ".join(
+                    part
+                    for part in (
+                        card.vehicle_profile.customer_name,
+                        card.vehicle_profile.customer_phone,
+                        card.repair_order.client,
+                        card.repair_order.phone,
+                        card.vehicle_profile.vin,
+                        card.repair_order.vin,
+                        card.repair_order.license_plate,
+                        card.vehicle_profile.registration_plate,
+                    )
+                    if part
+                )
+            if not query.strip():
+                return {
+                    "card": self._serialize_card(
+                        card,
+                        bundle["events"],
+                        column_labels=self._column_labels(bundle["columns"]),
+                        compact=True,
+                    ),
+                    "clients": [],
+                    "meta": {"query": query, "total": 0, "returned": 0},
+                }
+            matches = self._rank_client_matches(bundle["clients"], query)
+            selected = [client for _, client in matches[:limit]]
+            return {
+                "card": self._serialize_card(
+                    card,
+                    bundle["events"],
+                    column_labels=self._column_labels(bundle["columns"]),
+                    compact=True,
+                ),
+                "clients": [
+                    self._serialize_client(client, bundle["cards"], include_stats=True, compact=True)
+                    for client in selected
+                ],
+                "meta": {"query": query, "total": len(matches), "returned": len(selected)},
+            }
+
     def get_card_context(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
@@ -2088,6 +2362,7 @@ class CardService:
             ]
             viewer_username = normalize_actor_name(payload.get("actor_name"), default="") or None
             has_repair_order = self._card_has_repair_order(card)
+            linked_client = self._find_client_or_none(bundle["clients"], card.client_id)
             return {
                 "card": self._serialize_card(
                     card,
@@ -2100,6 +2375,37 @@ class CardService:
                 "events": events,
                 "attachments": active_attachments,
                 "removed_attachments": removed_attachments,
+                "client": (
+                    self._serialize_client(linked_client, bundle["cards"], include_stats=True)
+                    if linked_client is not None
+                    else None
+                ),
+                "client_suggestions": [
+                    self._serialize_client(client, bundle["cards"], include_stats=True, compact=True)
+                    for _, client in self._rank_client_matches(
+                        bundle["clients"],
+                        " ".join(
+                            part
+                            for part in (
+                                card.vehicle_profile.customer_name,
+                                card.vehicle_profile.customer_phone,
+                                card.repair_order.client,
+                                card.repair_order.phone,
+                            )
+                            if part
+                        ),
+                    )[:5]
+                ]
+                if any(
+                    part
+                    for part in (
+                        card.vehicle_profile.customer_name,
+                        card.vehicle_profile.customer_phone,
+                        card.repair_order.client,
+                        card.repair_order.phone,
+                    )
+                )
+                else [],
                 "repair_order_text": (
                     self._repair_order_text_payload(card)
                     if include_repair_order_text and has_repair_order
@@ -4307,6 +4613,330 @@ class CardService:
         payload["column_label"] = (column_labels or {}).get(card.column, card.column)
         return payload
 
+    def _ordered_clients(self, clients: list[ClientProfile]) -> list[ClientProfile]:
+        return sorted(clients, key=lambda item: (item.name().casefold(), item.created_at, item.id))
+
+    def _find_client(
+        self, clients: list[ClientProfile], client_id: str | None
+    ) -> ClientProfile:
+        client = self._find_client_or_none(clients, client_id)
+        if client is None:
+            self._fail(
+                "not_found",
+                "Клиент не найден.",
+                status_code=404,
+                details={"client_id": normalize_text(client_id, default="", limit=128)},
+            )
+        return client
+
+    def _find_client_or_none(
+        self, clients: list[ClientProfile], client_id: str | None
+    ) -> ClientProfile | None:
+        requested_id = normalize_text(client_id, default="", limit=128)
+        if not requested_id:
+            return None
+        requested_short_id = requested_id.upper()
+        for client in clients:
+            if (
+                client.id == requested_id
+                or short_entity_id(client.id, prefix="CL").upper() == requested_short_id
+            ):
+                return client
+        return None
+
+    def _client_patch_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        allowed = {
+            "client_type",
+            "type",
+            "last_name",
+            "first_name",
+            "middle_name",
+            "display_name",
+            "phone",
+            "phones",
+            "email",
+            "comment",
+            "note",
+            "legal_name",
+            "short_name",
+            "inn",
+            "kpp",
+            "ogrn",
+            "ogrnip",
+            "checking_account",
+            "account",
+            "bank_name",
+            "bank",
+            "bik",
+            "correspondent_account",
+            "corr_account",
+            "legal_address",
+            "actual_address",
+            "contact_person",
+            "contact_position",
+        }
+        return {key: value for key, value in payload.items() if key in allowed}
+
+    def _validated_client_profile(self, payload: dict[str, Any]) -> ClientProfile:
+        now_iso = utc_now_iso()
+        raw_payload = self._client_patch_payload(payload)
+        raw_payload["id"] = normalize_text(
+            payload.get("client_id") or payload.get("id") or str(uuid.uuid4()),
+            default=str(uuid.uuid4()),
+            limit=128,
+        )
+        raw_payload["created_at"] = now_iso
+        raw_payload["updated_at"] = now_iso
+        client = ClientProfile.from_dict(raw_payload)
+        if not client.name().strip() or client.name() in {"Без имени", "Без названия"}:
+            self._fail(
+                "validation_error",
+                "У клиента должно быть ФИО или название организации.",
+                details={"field": "display_name"},
+            )
+        return client
+
+    def _client_stats(self, client: ClientProfile, cards: list[Card]) -> dict[str, Any]:
+        related_cards = self._client_related_cards(client, cards)
+        repair_order_cards = [card for card in related_cards if self._card_has_repair_order(card)]
+        closed_orders = [
+            card
+            for card in repair_order_cards
+            if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED
+        ]
+        active_orders = [
+            card
+            for card in repair_order_cards
+            if card.repair_order.status != REPAIR_ORDER_STATUS_CLOSED
+        ]
+        last_visit = ""
+        for card in sorted(
+            repair_order_cards or related_cards,
+            key=lambda item: (
+                item.repair_order.closed_at
+                or item.repair_order.opened_at
+                or item.updated_at
+                or item.created_at,
+                item.id,
+            ),
+            reverse=True,
+        ):
+            last_visit = (
+                card.repair_order.closed_at
+                or card.repair_order.opened_at
+                or card.updated_at
+                or card.created_at
+            )
+            break
+        return {
+            "cards_total": len(related_cards),
+            "repair_orders_total": len(repair_order_cards),
+            "active_repair_orders": len(active_orders),
+            "closed_repair_orders": len(closed_orders),
+            "vehicles_total": len(self._client_vehicles(client, cards)),
+            "last_visit": last_visit,
+        }
+
+    def _client_related_cards(self, client: ClientProfile, cards: list[Card]) -> list[Card]:
+        keys = self._client_match_keys(client)
+        related: list[Card] = []
+        for card in cards:
+            if card.client_id == client.id:
+                related.append(card)
+                continue
+            card_values = self._card_client_values(card)
+            if any(key and key in card_values for key in keys):
+                related.append(card)
+        related.sort(key=lambda item: (item.updated_at, item.created_at, item.id), reverse=True)
+        return related
+
+    def _client_vehicles(self, client: ClientProfile, cards: list[Card]) -> list[dict[str, str]]:
+        vehicles: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for card in self._client_related_cards(client, cards):
+            vehicle = card.vehicle_display() or card.repair_order.vehicle
+            vin = card.vehicle_profile.vin or card.repair_order.vin
+            plate = card.vehicle_profile.registration_plate or card.repair_order.license_plate
+            key = "|".join(part.casefold() for part in (vehicle, vin, plate) if part)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            vehicles.append(
+                {
+                    "vehicle": vehicle,
+                    "vin": vin,
+                    "license_plate": plate,
+                    "card_id": card.id,
+                }
+            )
+        return vehicles
+
+    def _client_orders(self, client: ClientProfile, cards: list[Card]) -> list[dict[str, Any]]:
+        return [
+            self._serialize_repair_order_list_item(card)
+            for card in self._client_related_cards(client, cards)
+            if self._card_has_repair_order(card)
+        ]
+
+    def _serialize_client(
+        self,
+        client: ClientProfile,
+        cards: list[Card],
+        *,
+        include_stats: bool = False,
+        compact: bool = False,
+    ) -> dict[str, Any]:
+        payload = client.to_dict()
+        payload["short_id"] = short_entity_id(client.id, prefix="CL")
+        if include_stats:
+            payload["stats"] = self._client_stats(client, cards)
+        if compact:
+            keep = {
+                "id",
+                "short_id",
+                "client_type",
+                "type_label",
+                "name",
+                "full_name",
+                "display_name",
+                "last_name",
+                "first_name",
+                "middle_name",
+                "phone",
+                "phones",
+                "email",
+                "inn",
+                "kpp",
+                "ogrn",
+                "contact_person",
+                "updated_at",
+                "stats",
+            }
+            return {key: value for key, value in payload.items() if key in keep}
+        return payload
+
+    def _client_profile_payload(
+        self, client: ClientProfile, cards: list[Card], *, order_limit: int
+    ) -> dict[str, Any]:
+        orders = self._client_orders(client, cards)
+        vehicles = self._client_vehicles(client, cards)
+        return {
+            "client": self._serialize_client(client, cards, include_stats=True),
+            "vehicles": vehicles,
+            "repair_orders": orders[:order_limit],
+            "meta": {
+                "repair_orders_total": len(orders),
+                "repair_orders_returned": min(len(orders), order_limit),
+                "vehicles_total": len(vehicles),
+                "order_limit": order_limit,
+            },
+        }
+
+    def _client_match_keys(self, client: ClientProfile) -> set[str]:
+        values = {
+            client.name(),
+            client.full_name(),
+            client.display_name,
+            client.phone,
+            client.email,
+            client.inn,
+            client.contact_person,
+            *client.phones,
+        }
+        keys: set[str] = set()
+        for value in values:
+            normalized = self._normalize_search_text(value)
+            if normalized:
+                keys.add(normalized)
+            phone_digits = re.sub(r"\D+", "", str(value or ""))
+            if len(phone_digits) >= 7:
+                keys.add(phone_digits)
+        return keys
+
+    def _card_client_values(self, card: Card) -> set[str]:
+        values = {
+            card.vehicle_profile.customer_name,
+            card.vehicle_profile.customer_phone,
+            card.repair_order.client,
+            card.repair_order.phone,
+        }
+        normalized_values: set[str] = set()
+        for value in values:
+            normalized = self._normalize_search_text(value)
+            if normalized:
+                normalized_values.add(normalized)
+            phone_digits = re.sub(r"\D+", "", str(value or ""))
+            if len(phone_digits) >= 7:
+                normalized_values.add(phone_digits)
+        return normalized_values
+
+    def _rank_client_matches(
+        self, clients: list[ClientProfile], query: str
+    ) -> list[tuple[int, ClientProfile]]:
+        query = normalize_text(query, default="", limit=500)
+        if not query:
+            return [(1, client) for client in self._ordered_clients(clients)]
+        query_variants = self._search_text_variants(query)
+        query_digits = re.sub(r"\D+", "", query)
+        ranked: list[tuple[int, ClientProfile]] = []
+        for client in clients:
+            fields = [
+                client.name(),
+                client.full_name(),
+                client.display_name,
+                client.phone,
+                " ".join(client.phones),
+                client.email,
+                client.inn,
+                client.ogrn,
+                client.contact_person,
+            ]
+            searchable = [self._normalize_search_text(value) for value in fields if value]
+            score = 0
+            for variant in query_variants:
+                if not variant:
+                    continue
+                for value in searchable:
+                    if value == variant:
+                        score += 8
+                    elif variant in value:
+                        score += 4
+                    elif all(part in value for part in variant.split()):
+                        score += 2
+            if len(query_digits) >= 4:
+                phone_digits = " ".join(re.sub(r"\D+", "", phone) for phone in client.phones)
+                if query_digits in phone_digits:
+                    score += 10
+            if score > 0:
+                ranked.append((score, client))
+        ranked.sort(key=lambda item: (item[0], item[1].updated_at, item[1].name()), reverse=True)
+        return ranked
+
+    def _sync_card_client_fields(
+        self, card: Card, client: ClientProfile, *, overwrite: bool = False
+    ) -> bool:
+        changed = False
+        client_name = client.name()
+        client_phone = client.phone
+        if client_name and (overwrite or not card.vehicle_profile.customer_name):
+            if card.vehicle_profile.customer_name != client_name:
+                card.vehicle_profile.customer_name = client_name
+                changed = True
+        if client_phone and (overwrite or not card.vehicle_profile.customer_phone):
+            if card.vehicle_profile.customer_phone != client_phone:
+                card.vehicle_profile.customer_phone = client_phone
+                changed = True
+        if self._card_has_repair_order(card):
+            if client_name and (overwrite or not card.repair_order.client):
+                if card.repair_order.client != client_name:
+                    card.repair_order.client = client_name
+                    changed = True
+            if client_phone and (overwrite or not card.repair_order.phone):
+                if card.repair_order.phone != client_phone:
+                    card.repair_order.phone = client_phone
+                    changed = True
+        return changed
+
     def _serialize_sticky(self, sticky: StickyNote) -> dict:
         return sticky.to_dict()
 
@@ -5074,6 +5704,7 @@ class CardService:
         *,
         columns: list[Column],
         cards: list[Card],
+        clients: list[ClientProfile] | None = None,
         stickies: list[StickyNote] | None = None,
         cashboxes: list[CashBox] | None = None,
         cash_transactions: list[CashTransaction] | None = None,
@@ -5083,6 +5714,7 @@ class CardService:
         written_bundle = self._store.write_bundle(
             columns=columns,
             cards=cards,
+            clients=bundle["clients"] if clients is None else clients,
             stickies=bundle["stickies"] if stickies is None else stickies,
             cashboxes=bundle["cashboxes"] if cashboxes is None else cashboxes,
             cash_transactions=bundle["cash_transactions"]

@@ -18,6 +18,7 @@ TagColor = Literal["green", "yellow", "red"]
 Status = Literal["ok", "warning", "critical", "expired"]
 AuditSource = Literal["ui", "api", "mcp", "system"]
 CashDirection = Literal["income", "expense"]
+ClientType = Literal["person", "ip", "ooo", "company"]
 
 DEFAULT_COLUMN_IDS: tuple[str, ...] = ("inbox", "in_progress", "control", "done")
 VALID_INDICATORS: tuple[Indicator, ...] = ("green", "yellow", "red")
@@ -25,6 +26,7 @@ VALID_TAG_COLORS: tuple[TagColor, ...] = ("green", "yellow", "red")
 VALID_STATUSES: tuple[Status, ...] = ("ok", "warning", "critical", "expired")
 VALID_AUDIT_SOURCES: tuple[AuditSource, ...] = ("ui", "api", "mcp", "system")
 VALID_CASH_DIRECTIONS: tuple[CashDirection, ...] = ("income", "expense")
+VALID_CLIENT_TYPES: tuple[ClientType, ...] = ("person", "ip", "ooo", "company")
 DEFAULT_INDICATOR: Indicator = "green"
 DEFAULT_TAG_COLOR: TagColor = "green"
 DEFAULT_DEADLINE_TOTAL_SECONDS = 24 * 3600
@@ -47,6 +49,11 @@ ACTOR_NAME_LIMIT = 40
 ATTACHMENT_FILE_NAME_LIMIT = 240
 CASHBOX_NAME_LIMIT = 80
 CASHTRANSACTION_NOTE_LIMIT = 240
+CLIENT_NAME_LIMIT = 120
+CLIENT_FIELD_LIMIT = 160
+CLIENT_NOTE_LIMIT = 2000
+CLIENT_PHONE_LIMIT = 80
+CLIENT_PHONES_LIMIT = 6
 ARCHIVE_PREVIEW_LIMIT = 30
 ARCHIVED_CARD_RETENTION_LIMIT = 300
 AUDIT_EVENT_RETENTION_DAYS = 60
@@ -137,6 +144,28 @@ def normalize_cash_direction(value, *, default: CashDirection = "income") -> Cas
     return direction  # type: ignore[return-value]
 
 
+def normalize_client_type(value, *, default: ClientType = "person") -> ClientType:
+    raw = str(value or "").strip().lower()
+    aliases = {
+        "фл": "person",
+        "физлицо": "person",
+        "person": "person",
+        "individual": "person",
+        "ип": "ip",
+        "ooo": "ooo",
+        "ооо": "ooo",
+        "llc": "ooo",
+        "company": "company",
+        "organization": "company",
+        "организация": "company",
+        "юрлицо": "company",
+    }
+    normalized = aliases.get(raw, raw)
+    if normalized not in VALID_CLIENT_TYPES:
+        return default
+    return normalized  # type: ignore[return-value]
+
+
 def normalize_column(
     value, *, valid_columns: Collection[str] | None = None, default: str = "inbox"
 ) -> ColumnId:
@@ -162,6 +191,37 @@ def normalize_text(value, *, default: str = "", limit: int | None = None) -> str
     if limit is not None:
         text = text[:limit]
     return text
+
+
+def normalize_client_phone(value) -> str:
+    text = normalize_text(value, default="", limit=CLIENT_PHONE_LIMIT)
+    return _SPACES_PATTERN.sub(" ", text)
+
+
+def normalize_client_phones(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raw_items = re.split(r"[\n,;]+", value)
+    elif isinstance(value, list):
+        raw_items = [str(item) for item in value]
+    else:
+        return []
+    phones: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_items:
+        phone = normalize_client_phone(raw)
+        if not phone:
+            continue
+        key = re.sub(r"\D+", "", phone)
+        dedupe_key = key or phone.casefold()
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        phones.append(phone)
+        if len(phones) >= CLIENT_PHONES_LIMIT:
+            break
+    return phones
 
 
 def _sanitize_card_compact_text(value: str) -> str:
@@ -773,6 +833,165 @@ class CashTransaction:
 
 
 @dataclass(slots=True)
+class ClientProfile:
+    id: str
+    client_type: ClientType = "person"
+    last_name: str = ""
+    first_name: str = ""
+    middle_name: str = ""
+    display_name: str = ""
+    phone: str = ""
+    phones: list[str] = field(default_factory=list)
+    email: str = ""
+    comment: str = ""
+    legal_name: str = ""
+    short_name: str = ""
+    inn: str = ""
+    kpp: str = ""
+    ogrn: str = ""
+    checking_account: str = ""
+    bank_name: str = ""
+    bik: str = ""
+    correspondent_account: str = ""
+    legal_address: str = ""
+    actual_address: str = ""
+    contact_person: str = ""
+    contact_position: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+
+    def __post_init__(self) -> None:
+        self.id = normalize_text(self.id, default=str(uuid.uuid4()), limit=128)
+        self.client_type = normalize_client_type(self.client_type)
+        self.last_name = normalize_text(self.last_name, default="", limit=CLIENT_NAME_LIMIT)
+        self.first_name = normalize_text(self.first_name, default="", limit=CLIENT_NAME_LIMIT)
+        self.middle_name = normalize_text(self.middle_name, default="", limit=CLIENT_NAME_LIMIT)
+        self.display_name = normalize_text(self.display_name, default="", limit=CLIENT_FIELD_LIMIT)
+        self.phone = normalize_client_phone(self.phone)
+        self.phones = normalize_client_phones([self.phone, *list(self.phones or [])])
+        self.phone = self.phones[0] if self.phones else self.phone
+        self.email = normalize_text(self.email, default="", limit=CLIENT_FIELD_LIMIT)
+        self.comment = normalize_text(self.comment, default="", limit=CLIENT_NOTE_LIMIT)
+        self.legal_name = normalize_text(self.legal_name, default="", limit=CLIENT_FIELD_LIMIT)
+        self.short_name = normalize_text(self.short_name, default="", limit=CLIENT_FIELD_LIMIT)
+        self.inn = normalize_text(self.inn, default="", limit=CLIENT_FIELD_LIMIT)
+        self.kpp = normalize_text(self.kpp, default="", limit=CLIENT_FIELD_LIMIT)
+        self.ogrn = normalize_text(self.ogrn, default="", limit=CLIENT_FIELD_LIMIT)
+        self.checking_account = normalize_text(
+            self.checking_account, default="", limit=CLIENT_FIELD_LIMIT
+        )
+        self.bank_name = normalize_text(self.bank_name, default="", limit=CLIENT_FIELD_LIMIT)
+        self.bik = normalize_text(self.bik, default="", limit=CLIENT_FIELD_LIMIT)
+        self.correspondent_account = normalize_text(
+            self.correspondent_account, default="", limit=CLIENT_FIELD_LIMIT
+        )
+        self.legal_address = normalize_text(
+            self.legal_address, default="", limit=CLIENT_FIELD_LIMIT
+        )
+        self.actual_address = normalize_text(
+            self.actual_address, default="", limit=CLIENT_FIELD_LIMIT
+        )
+        self.contact_person = normalize_text(
+            self.contact_person, default="", limit=CLIENT_FIELD_LIMIT
+        )
+        self.contact_position = normalize_text(
+            self.contact_position, default="", limit=CLIENT_FIELD_LIMIT
+        )
+        now_iso = utc_now_iso()
+        self.created_at = normalize_text(self.created_at, default=now_iso, limit=64)
+        self.updated_at = normalize_text(self.updated_at, default=self.created_at, limit=64)
+
+    def full_name(self) -> str:
+        parts = [self.last_name, self.first_name, self.middle_name]
+        return " ".join(part for part in parts if part).strip()
+
+    def name(self) -> str:
+        if self.client_type == "person":
+            return self.full_name() or self.display_name or "Без имени"
+        return self.short_name or self.legal_name or self.display_name or "Без названия"
+
+    def type_label(self) -> str:
+        return {
+            "person": "ФЛ",
+            "ip": "ИП",
+            "ooo": "ООО",
+            "company": "ЮЛ",
+        }.get(self.client_type, "ФЛ")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            **self.to_storage_dict(),
+            "name": self.name(),
+            "full_name": self.full_name(),
+            "type_label": self.type_label(),
+        }
+
+    def to_storage_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "client_type": self.client_type,
+            "last_name": self.last_name,
+            "first_name": self.first_name,
+            "middle_name": self.middle_name,
+            "display_name": self.display_name,
+            "phone": self.phone,
+            "phones": list(self.phones),
+            "email": self.email,
+            "comment": self.comment,
+            "legal_name": self.legal_name,
+            "short_name": self.short_name,
+            "inn": self.inn,
+            "kpp": self.kpp,
+            "ogrn": self.ogrn,
+            "checking_account": self.checking_account,
+            "bank_name": self.bank_name,
+            "bik": self.bik,
+            "correspondent_account": self.correspondent_account,
+            "legal_address": self.legal_address,
+            "actual_address": self.actual_address,
+            "contact_person": self.contact_person,
+            "contact_position": self.contact_position,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Any) -> ClientProfile:
+        if not isinstance(payload, dict):
+            raise TypeError("Client payload must be a dictionary.")
+        client_type = normalize_client_type(payload.get("client_type", payload.get("type")))
+        return cls(
+            id=normalize_text(payload.get("id"), default=str(uuid.uuid4()), limit=128),
+            client_type=client_type,
+            last_name=payload.get("last_name", ""),
+            first_name=payload.get("first_name", ""),
+            middle_name=payload.get("middle_name", ""),
+            display_name=payload.get("display_name", payload.get("name", "")),
+            phone=payload.get("phone", ""),
+            phones=payload.get("phones", []),
+            email=payload.get("email", ""),
+            comment=payload.get("comment", payload.get("note", "")),
+            legal_name=payload.get("legal_name", ""),
+            short_name=payload.get("short_name", ""),
+            inn=payload.get("inn", ""),
+            kpp=payload.get("kpp", ""),
+            ogrn=payload.get("ogrn", payload.get("ogrnip", "")),
+            checking_account=payload.get("checking_account", payload.get("account", "")),
+            bank_name=payload.get("bank_name", payload.get("bank", "")),
+            bik=payload.get("bik", ""),
+            correspondent_account=payload.get(
+                "correspondent_account", payload.get("corr_account", "")
+            ),
+            legal_address=payload.get("legal_address", ""),
+            actual_address=payload.get("actual_address", ""),
+            contact_person=payload.get("contact_person", ""),
+            contact_position=payload.get("contact_position", ""),
+            created_at=payload.get("created_at", ""),
+            updated_at=payload.get("updated_at", ""),
+        )
+
+
+@dataclass(slots=True)
 class Card:
     id: str
     title: str
@@ -785,6 +1004,7 @@ class Card:
     deadline_total_seconds: int = DEFAULT_DEADLINE_TOTAL_SECONDS
     position: int = 0
     vehicle: str = ""
+    client_id: str = ""
     vehicle_profile: VehicleProfile = field(default_factory=VehicleProfile)
     repair_order: RepairOrder = field(default_factory=RepairOrder)
     tags: list[CardTag] = field(default_factory=list)
@@ -801,6 +1021,7 @@ class Card:
     ai_autofill_log: list[dict[str, str]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        self.client_id = normalize_text(self.client_id, default="", limit=128)
         self.tags = normalize_tags(self.tags)
         self.position = normalize_int(self.position, default=0, minimum=0)
         self.seen_by_users = normalize_seen_by_users(self.seen_by_users)
@@ -952,6 +1173,7 @@ class Card:
             "short_id": short_entity_id(self.id, prefix="C"),
             "heading": self.heading(),
             "vehicle": vehicle_display,
+            "client_id": self.client_id,
             "title": self.title,
             "description": self.description,
             "description_preview": description_preview,
@@ -1019,6 +1241,7 @@ class Card:
         return {
             "id": self.id,
             "vehicle": self.vehicle,
+            "client_id": self.client_id,
             "vehicle_profile": self.vehicle_profile.to_storage_dict(),
             "repair_order": self.repair_order.to_storage_dict(),
             "title": self.title,
@@ -1109,6 +1332,7 @@ class Card:
             deadline_timestamp=deadline.isoformat(),
             deadline_total_seconds=deadline_total_seconds,
             vehicle=vehicle,
+            client_id=normalize_text(payload.get("client_id"), default="", limit=128),
             vehicle_profile=vehicle_profile,
             repair_order=repair_order,
             tags=normalize_tags(payload.get("tag_items", payload.get("tags"))),

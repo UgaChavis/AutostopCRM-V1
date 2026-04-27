@@ -40,7 +40,7 @@ JsonStore
 
 ## Доступные MCP tools
 
-Текущий runtime-tool inventory: `50` tools.
+Текущий runtime-tool inventory: `59` tools.
 
 ## Как выбирать команды без лишнего payload
 
@@ -57,6 +57,8 @@ JsonStore
 - `list_columns`
 - `search_cards`
 - `get_cards(compact=true)`
+- `search_clients`
+- `list_clients(limit=50)`
 
 ### Команды для точечного чтения
 
@@ -71,6 +73,11 @@ JsonStore
 - `get_repair_order_text`
 - `list_overdue_cards`
 - `list_archived_cards`
+- `list_clients`
+- `search_clients`
+- `get_client`
+- `get_client_stats`
+- `suggest_clients_for_card`
 
 ### Тяжелые команды, которые стоит вызывать редко
 
@@ -126,6 +133,15 @@ JsonStore
 - `list_overdue_cards`
 - `create_card`
 - `update_card`
+- `list_clients`
+- `search_clients`
+- `get_client`
+- `get_client_stats`
+- `create_client`
+- `update_client`
+- `link_card_to_client`
+- `unlink_card_from_client`
+- `suggest_clients_for_card`
 - `set_card_deadline`
 - `set_card_indicator`
 - `move_card`
@@ -152,6 +168,34 @@ JsonStore
 - Изображения не проходят OCR внутри CRM; инструмент возвращает размеры и может отдать `base64/data_url`, если включить `include_base64=true` или `mode="base64"`.
 - Не включайте base64 по умолчанию. Для изображений используйте его только когда агент действительно будет анализировать файл vision-моделью.
 - Держите `max_chars` и `max_base64_bytes` минимально достаточными.
+
+### Клиенты
+
+- `list_clients`
+- `search_clients`
+- `get_client`
+- `get_client_stats`
+- `create_client`
+- `update_client`
+- `link_card_to_client`
+- `unlink_card_from_client`
+- `suggest_clients_for_card`
+
+Правильный порядок работы с клиентами:
+
+1. Для существующей карточки сначала вызвать `suggest_clients_for_card(card_id)`.
+2. Если подсказка не дала уверенного совпадения, использовать `search_clients(query=...)`.
+3. Если клиента нет, создавать его через `create_client`.
+4. Привязать карточку через `link_card_to_client(card_id, client_id, sync_fields=true)`.
+5. Проверить профиль через `get_client(client_id)` или `get_client_stats(client_id)`.
+
+Правила:
+
+- Привязка клиента к карточке необязательна: карточка может жить с ручным именем клиента без записи в справочнике.
+- Не создавать дубль клиента, пока не выполнен `search_clients` или `suggest_clients_for_card`.
+- `link_card_to_client` по умолчанию дозаполняет только пустые клиентские поля карточки и заказ-наряда.
+- `overwrite_card_fields=true` использовать только после явного подтверждения пользователя.
+- Для организаций использовать `client_type="ooo"|"ip"|"company"` и поля реквизитов: `inn`, `kpp`, `ogrn`, счета, банк, адреса и контактное лицо.
 
 ### Sticky notes
 

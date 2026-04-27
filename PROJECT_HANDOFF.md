@@ -21,6 +21,7 @@ Current product scope:
 
 - kanban board with cards, custom columns, archive, stickies, unread markers, and update markers
 - drag-and-drop for cards and board columns
+- clients module with optional card links, physical/person organization profiles, repair history and requisites
 - vehicle profile handling and card autofill
 - repair orders with works, materials, payments, status flow, exports, and printing
 - operator authentication and admin user management
@@ -208,6 +209,8 @@ Latest completed stabilization wave:
 - repair-order cashless totals now follow the selected rule: cashless path = subtotal + `15%`, taxes reflect that `15%` component, and due totals use the same model across domain, API, UI, and MCP text output
 - MCP repair-order expectations were updated to match the corrected cashless total model
 - mobile-lite board mode now activates automatically on narrow screens and collapses the board into a single-column, low-noise layout with heavy controls hidden by default
+- clients module was added to the topbar: operators can create people, IP/OOO/company profiles, store requisites, see related vehicles and repair-order history, and optionally link cards to clients without forcing every card into the client directory
+- MCP client tools were expanded from `50` to `59` with client list/search/profile/stats/create/update/link/unlink/suggestion commands
 
 Most recent important commits in the current line:
 
@@ -253,6 +256,7 @@ Current post-sync rule for this pass:
 - local regression must be rerun after the Telegram AI changes
 - local/GitHub/production parity must be verified from command output, not from stale handoff notes
 - connector and MCP live checks should be repeated after deploy
+- client MCP checks should cover `list_clients`, `search_clients`, `create_client`, `update_client`, `suggest_clients_for_card`, `link_card_to_client`, `unlink_card_from_client`, `get_client`, and `get_client_stats`
 - the active API surface includes `/api/agent_status`, `/api/agent_tasks`, `/api/agent_actions`, `/api/agent_scheduled_tasks`, and `/api/agent_enqueue_task`
 - `deploy.sh` must sync `autostopcrm-v1`
 

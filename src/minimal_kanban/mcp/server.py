@@ -156,6 +156,56 @@ class RepairOrderPatchPayload(BaseModel):
     materials: list[RepairOrderRowPayload] | None = None
 
 
+class ClientProfilePayload(BaseModel):
+    client_type: Literal["person", "ip", "ooo", "company"] = "person"
+    last_name: str | None = Field(default=None, max_length=120)
+    first_name: str | None = Field(default=None, max_length=120)
+    middle_name: str | None = Field(default=None, max_length=120)
+    display_name: str | None = Field(default=None, max_length=160)
+    phone: str | None = Field(default=None, max_length=80)
+    phones: list[str] | None = None
+    email: str | None = Field(default=None, max_length=160)
+    comment: str | None = Field(default=None, max_length=2000)
+    legal_name: str | None = Field(default=None, max_length=160)
+    short_name: str | None = Field(default=None, max_length=160)
+    inn: str | None = Field(default=None, max_length=160)
+    kpp: str | None = Field(default=None, max_length=160)
+    ogrn: str | None = Field(default=None, max_length=160)
+    checking_account: str | None = Field(default=None, max_length=160)
+    bank_name: str | None = Field(default=None, max_length=160)
+    bik: str | None = Field(default=None, max_length=160)
+    correspondent_account: str | None = Field(default=None, max_length=160)
+    legal_address: str | None = Field(default=None, max_length=160)
+    actual_address: str | None = Field(default=None, max_length=160)
+    contact_person: str | None = Field(default=None, max_length=160)
+    contact_position: str | None = Field(default=None, max_length=160)
+
+
+class ClientPatchPayload(BaseModel):
+    client_type: Literal["person", "ip", "ooo", "company"] | None = None
+    last_name: str | None = Field(default=None, max_length=120)
+    first_name: str | None = Field(default=None, max_length=120)
+    middle_name: str | None = Field(default=None, max_length=120)
+    display_name: str | None = Field(default=None, max_length=160)
+    phone: str | None = Field(default=None, max_length=80)
+    phones: list[str] | None = None
+    email: str | None = Field(default=None, max_length=160)
+    comment: str | None = Field(default=None, max_length=2000)
+    legal_name: str | None = Field(default=None, max_length=160)
+    short_name: str | None = Field(default=None, max_length=160)
+    inn: str | None = Field(default=None, max_length=160)
+    kpp: str | None = Field(default=None, max_length=160)
+    ogrn: str | None = Field(default=None, max_length=160)
+    checking_account: str | None = Field(default=None, max_length=160)
+    bank_name: str | None = Field(default=None, max_length=160)
+    bik: str | None = Field(default=None, max_length=160)
+    correspondent_account: str | None = Field(default=None, max_length=160)
+    legal_address: str | None = Field(default=None, max_length=160)
+    actual_address: str | None = Field(default=None, max_length=160)
+    contact_person: str | None = Field(default=None, max_length=160)
+    contact_position: str | None = Field(default=None, max_length=160)
+
+
 def _resolved_create_card_deadline(deadline: DeadlinePayload | None) -> dict[str, int]:
     if deadline is None:
         return {"days": 1, "hours": 0, "minutes": 0, "seconds": 0}
@@ -1673,6 +1723,187 @@ def create_mcp_server(
                 response_mode="audit",
                 view_mode=view_mode,
                 text_encoding="utf-8",
+            ),
+        )
+
+    @server.tool(
+        name="list_clients",
+        description=_scoped_description(
+            "List clients and organizations from the current AutoStop CRM board. Use this for the Clients module overview; it returns compact client rows with phone, type, and optional statistics."
+        ),
+        annotations=_read_tool_annotations("List Clients"),
+        structured_output=True,
+    )
+    def list_clients(limit: int = 100, include_stats: bool = True) -> JsonEnvelope:
+        return _relay_board_call(
+            "list_clients",
+            lambda: board_api.list_clients(limit=limit, include_stats=include_stats),
+            params={"limit": limit, "include_stats": include_stats},
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="client_list",
+                view_mode="compact",
+            ),
+        )
+
+    @server.tool(
+        name="search_clients",
+        description=_scoped_description(
+            "Search clients and organizations by name, phone, email, INN, or contact person. Use before creating a client to avoid duplicates."
+        ),
+        annotations=_read_tool_annotations("Search Clients"),
+        structured_output=True,
+    )
+    def search_clients(query: str = "", limit: int = 10) -> JsonEnvelope:
+        return _relay_board_call(
+            "search_clients",
+            lambda: board_api.search_clients(query=query, limit=limit),
+            params={"query": query, "limit": limit},
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="client_search",
+                view_mode="compact",
+            ),
+        )
+
+    @server.tool(
+        name="get_client",
+        description=_scoped_description(
+            "Return one client profile with related vehicles and recent repair orders from the current AutoStop CRM board."
+        ),
+        annotations=_read_tool_annotations("Get Client"),
+        structured_output=True,
+    )
+    def get_client(client_id: str, order_limit: int = 30) -> JsonEnvelope:
+        return _relay_board_call(
+            "get_client",
+            lambda: board_api.get_client(client_id, order_limit=order_limit),
+            params={"client_id": client_id, "order_limit": order_limit},
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="client_profile",
+                view_mode="profile",
+            ),
+        )
+
+    @server.tool(
+        name="get_client_stats",
+        description=_scoped_description(
+            "Return compact statistics for one client: linked cards, repair orders, active/closed order counts, vehicles, and last visit."
+        ),
+        annotations=_read_tool_annotations("Client Stats"),
+        structured_output=True,
+    )
+    def get_client_stats(client_id: str) -> JsonEnvelope:
+        return _relay_board_call(
+            "get_client_stats",
+            lambda: board_api.get_client_stats(client_id),
+            params={"client_id": client_id},
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="client_stats",
+                view_mode="compact",
+            ),
+        )
+
+    @server.tool(
+        name="create_client",
+        description=_scoped_description(
+            "Create a person, IP, OOO, or organization client profile. This does not automatically change any card unless link_card_to_client is called afterwards."
+        ),
+        annotations=_write_tool_annotations("Create Client"),
+        structured_output=True,
+    )
+    def create_client(client: ClientProfilePayload, actor_name: str | None = None) -> JsonEnvelope:
+        return _relay_board_call(
+            "create_client",
+            lambda: board_api.create_client(
+                client.model_dump(exclude_none=True),
+                actor_name=actor_name,
+            ),
+        )
+
+    @server.tool(
+        name="update_client",
+        description=_scoped_description(
+            "Patch an existing client profile. Pass only the fields to change; linked cards are not overwritten by this command."
+        ),
+        annotations=_write_tool_annotations("Update Client", idempotent=True),
+        structured_output=True,
+    )
+    def update_client(
+        client_id: str,
+        patch: ClientPatchPayload,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "update_client",
+            lambda: board_api.update_client(
+                client_id,
+                patch.model_dump(exclude_none=True),
+                actor_name=actor_name,
+            ),
+        )
+
+    @server.tool(
+        name="link_card_to_client",
+        description=_scoped_description(
+            "Link one card to an existing client. By default it only fills empty client name/phone fields in the card and repair order; set overwrite_card_fields only after operator confirmation."
+        ),
+        annotations=_write_tool_annotations("Link Card To Client", idempotent=True),
+        structured_output=True,
+    )
+    def link_card_to_client(
+        card_id: str,
+        client_id: str,
+        sync_fields: bool = True,
+        overwrite_card_fields: bool = False,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "link_card_to_client",
+            lambda: board_api.link_card_to_client(
+                card_id,
+                client_id,
+                sync_fields=sync_fields,
+                overwrite_card_fields=overwrite_card_fields,
+                actor_name=actor_name,
+            ),
+        )
+
+    @server.tool(
+        name="unlink_card_from_client",
+        description=_scoped_description(
+            "Remove the client link from one card without deleting the client or erasing free-text client fields."
+        ),
+        annotations=_write_tool_annotations("Unlink Card From Client", idempotent=True),
+        structured_output=True,
+    )
+    def unlink_card_from_client(card_id: str, actor_name: str | None = None) -> JsonEnvelope:
+        return _relay_board_call(
+            "unlink_card_from_client",
+            lambda: board_api.unlink_card_from_client(card_id, actor_name=actor_name),
+        )
+
+    @server.tool(
+        name="suggest_clients_for_card",
+        description=_scoped_description(
+            "Suggest existing clients for one card using the card's free-text client name, phone, repair order data, and optional query."
+        ),
+        annotations=_read_tool_annotations("Suggest Clients For Card"),
+        structured_output=True,
+    )
+    def suggest_clients_for_card(
+        card_id: str, query: str | None = None, limit: int = 8
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "suggest_clients_for_card",
+            lambda: board_api.suggest_clients_for_card(card_id, query=query, limit=limit),
+            params={"card_id": card_id, "query": query, "limit": limit},
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="client_suggestions",
+                view_mode="compact",
             ),
         )
 

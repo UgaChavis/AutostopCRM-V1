@@ -44,6 +44,7 @@ EXPECTED_MCP_TOOLS = {
     "create_card",
     "create_cash_transaction",
     "create_cashbox",
+    "create_client",
     "create_column",
     "create_sticky",
     "delete_cashbox",
@@ -59,6 +60,8 @@ EXPECTED_MCP_TOOLS = {
     "get_card_log",
     "get_cards",
     "get_cashbox",
+    "get_client",
+    "get_client_stats",
     "get_connector_identity",
     "get_gpt_wall",
     "get_repair_order",
@@ -67,6 +70,7 @@ EXPECTED_MCP_TOOLS = {
     "list_archived_cards",
     "list_card_attachments",
     "list_cashboxes",
+    "list_clients",
     "list_columns",
     "list_overdue_cards",
     "list_repair_orders",
@@ -80,13 +84,18 @@ EXPECTED_MCP_TOOLS = {
     "review_board",
     "read_card_attachment",
     "search_cards",
+    "search_clients",
     "set_card_deadline",
     "set_card_indicator",
     "set_repair_order_status",
+    "suggest_clients_for_card",
     "update_board_settings",
     "update_card",
+    "update_client",
     "update_repair_order",
     "update_sticky",
+    "link_card_to_client",
+    "unlink_card_from_client",
 }
 
 
@@ -207,7 +216,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 50)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 59)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 self.assertTrue(tool_map["ping_connector"].annotations.readOnlyHint)
                 self.assertFalse(tool_map["ping_connector"].annotations.destructiveHint)
@@ -1360,6 +1369,94 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         test_source = Path(__file__).read_text(encoding="utf-8-sig")
         called_tools = set(re.findall(r'call_tool\(\s*"([^"]+)"', test_source))
         self.assertEqual(EXPECTED_MCP_TOOLS - called_tools, set())
+
+    async def test_mcp_client_tools_reach_backend(self) -> None:
+        async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
+            async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
+                created_client = await session.call_tool(
+                    "create_client",
+                    {
+                        "client": {
+                            "client_type": "person",
+                            "last_name": "Петров",
+                            "first_name": "Петр",
+                            "middle_name": "Петрович",
+                            "phone": "+7 913 111-22-33",
+                        },
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(created_client.isError)
+                self.assertTrue(created_client.structuredContent["ok"])
+                client_id = created_client.structuredContent["data"]["client"]["id"]
+
+                listed = await session.call_tool("list_clients", {"limit": 10})
+                self.assertFalse(listed.isError)
+                self.assertTrue(listed.structuredContent["data"]["clients"])
+
+                searched = await session.call_tool("search_clients", {"query": "Петров"})
+                self.assertFalse(searched.isError)
+                self.assertEqual(searched.structuredContent["data"]["clients"][0]["id"], client_id)
+
+                fetched = await session.call_tool("get_client", {"client_id": client_id})
+                self.assertFalse(fetched.isError)
+                self.assertEqual(fetched.structuredContent["data"]["client"]["id"], client_id)
+
+                stats = await session.call_tool("get_client_stats", {"client_id": client_id})
+                self.assertFalse(stats.isError)
+                self.assertEqual(stats.structuredContent["data"]["stats"]["cards_total"], 0)
+
+                updated = await session.call_tool(
+                    "update_client",
+                    {
+                        "client_id": client_id,
+                        "patch": {"email": "petrov@example.test"},
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(updated.isError)
+                self.assertEqual(updated.structuredContent["data"]["client"]["email"], "petrov@example.test")
+
+                created_card = await session.call_tool(
+                    "create_card",
+                    {
+                        "title": "Клиентская карточка",
+                        "vehicle": "Nissan X-Trail",
+                        "deadline": {"hours": 1},
+                        "vehicle_profile": {
+                            "customer_name": "Петров",
+                            "customer_phone": "+7 913 111-22-33",
+                        },
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(created_card.isError)
+                card_id = created_card.structuredContent["data"]["card"]["id"]
+
+                suggestions = await session.call_tool(
+                    "suggest_clients_for_card",
+                    {"card_id": card_id, "limit": 5},
+                )
+                self.assertFalse(suggestions.isError)
+                self.assertEqual(suggestions.structuredContent["data"]["clients"][0]["id"], client_id)
+
+                linked = await session.call_tool(
+                    "link_card_to_client",
+                    {
+                        "card_id": card_id,
+                        "client_id": client_id,
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(linked.isError)
+                self.assertEqual(linked.structuredContent["data"]["card"]["client_id"], client_id)
+
+                unlinked = await session.call_tool(
+                    "unlink_card_from_client",
+                    {"card_id": card_id, "actor_name": "ОПЕРАТОР"},
+                )
+                self.assertFalse(unlinked.isError)
+                self.assertEqual(unlinked.structuredContent["data"]["card"]["client_id"], "")
 
     async def test_mcp_move_card_supports_before_card_id_reordering(self) -> None:
         async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:

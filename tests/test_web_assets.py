@@ -685,6 +685,17 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("applyMobileLiteMode(detectMobileLiteMode());", BOARD_WEB_APP_HTML)
         self.assertIn("window.addEventListener('resize', syncMobileLiteMode);", BOARD_WEB_APP_HTML)
 
+    def test_clients_module_ui_and_card_suggestions_are_available(self) -> None:
+        self.assertIn('id="clientsButton">КЛИЕНТЫ</button>', BOARD_WEB_APP_HTML)
+        self.assertIn('id="clientsModal"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="clientsList"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="clientRequisitesDetails"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="clientMatchPanel"', BOARD_WEB_APP_HTML)
+        self.assertIn("async function openClientsModal()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function linkActiveCardToClient(clientId)", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/link_card_to_client'", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/suggest_clients_for_card'", BOARD_WEB_APP_HTML)
+
     def test_vehicle_panel_uses_larger_readable_typography(self) -> None:
         self.assertIn(".vehicle-panel__summary {", BOARD_WEB_APP_HTML)
         self.assertIn("font-size: 11px;", BOARD_WEB_APP_HTML)

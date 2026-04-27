@@ -5501,6 +5501,152 @@ BOARD_WEB_APP_HTML = "".join(
         justify-content: space-between;
       }
     }
+    .dialog--clients {
+      width: min(1240px, 100%);
+      max-height: min(88vh, 900px);
+    }
+    .clients-layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 34%) minmax(0, 1fr);
+      gap: 12px;
+      min-height: 520px;
+    }
+    .clients-list-pane,
+    .clients-profile-pane {
+      border: 1px solid var(--line);
+      background: rgba(12, 18, 14, 0.58);
+      padding: 10px;
+      min-width: 0;
+    }
+    .clients-toolbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .clients-list,
+    .clients-mini-list {
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+    .clients-list {
+      max-height: 610px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+    .client-row {
+      border: 1px solid rgba(160, 174, 135, 0.18);
+      background: rgba(22, 29, 24, 0.82);
+      padding: 9px 10px;
+      cursor: pointer;
+      text-align: left;
+      color: var(--text);
+    }
+    .client-row:hover,
+    .client-row.is-active {
+      border-color: var(--accent);
+      background: rgba(37, 47, 39, 0.95);
+    }
+    .client-row__title {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 700;
+      line-height: 1.25;
+    }
+    .client-type-badge {
+      border: 1px solid var(--line);
+      color: var(--muted);
+      padding: 2px 5px;
+      font-size: 10px;
+      flex: 0 0 auto;
+    }
+    .client-row__meta,
+    .client-mini__meta {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .clients-profile-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .clients-form-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .clients-field--wide {
+      grid-column: span 3;
+    }
+    .clients-requisites {
+      margin-top: 10px;
+      border: 1px solid rgba(160, 174, 135, 0.16);
+      padding: 8px;
+    }
+    .clients-requisites summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .clients-profile-columns {
+      display: grid;
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .client-mini {
+      border: 1px solid rgba(160, 174, 135, 0.16);
+      background: rgba(16, 22, 18, 0.72);
+      padding: 8px;
+    }
+    .client-match-panel {
+      display: none;
+      margin-top: 8px;
+      border: 1px solid rgba(160, 174, 135, 0.2);
+      background: rgba(16, 22, 18, 0.84);
+      padding: 8px;
+    }
+    .client-match-panel.is-visible {
+      display: block;
+    }
+    .client-match-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .client-match-chip {
+      border: 1px solid var(--line);
+      background: rgba(29, 37, 31, 0.9);
+      color: var(--text);
+      padding: 5px 8px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    @media (max-width: 980px) {
+      .clients-layout,
+      .clients-profile-columns {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .clients-list {
+        max-height: 320px;
+      }
+      .clients-form-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .clients-field--wide {
+        grid-column: auto;
+      }
+    }
     .repair-order-table__select {
       width: 100%;
       min-height: 32px;
@@ -5533,6 +5679,7 @@ BOARD_WEB_APP_HTML = "".join(
         <button class="btn" id="operatorButton">ОПЕРАТОР</button>
         <button class="btn" id="archiveButton">АРХИВ</button>
         <button class="btn" id="repairOrdersButton">ЗАКАЗ-НАРЯДЫ</button>
+        <button class="btn" id="clientsButton">КЛИЕНТЫ</button>
         <button class="btn" id="cashboxesButton">КАССЫ</button>
         <button class="btn" id="employeesButton">СОТРУДНИКИ</button>
         <button class="btn" id="columnButton">+ СТОЛБЕЦ</button>
@@ -5709,7 +5856,83 @@ BOARD_WEB_APP_HTML = "".join(
     </div>
   </div>
 
-  <div class="modal" id="cashboxesModal">
+  <div class="modal" id="clientsModal">
+    <div class="dialog dialog--clients">
+      <div class="dialog__head">
+        <div>
+          <div class="dialog__title">КЛИЕНТЫ</div>
+          <div class="wall-meta" id="clientsMeta">ЗАГРУЗКА...</div>
+        </div>
+        <button class="btn" data-close="clients">ЗАКРЫТЬ</button>
+      </div>
+      <div class="clients-layout">
+        <section class="clients-list-pane">
+          <div class="clients-toolbar">
+            <input id="clientsSearchInput" type="text" maxlength="160" placeholder="ПОИСК: ФИО, телефон, ИНН">
+            <button class="btn btn--accent" id="clientNewButton" type="button">+ КЛИЕНТ</button>
+          </div>
+          <div class="clients-list" id="clientsList"></div>
+        </section>
+        <section class="clients-profile-pane">
+          <div class="clients-profile-head">
+            <div>
+              <div class="panel-title" id="clientProfileTitle">КЛИЕНТ НЕ ВЫБРАН</div>
+              <div class="wall-meta" id="clientProfileMeta">Выберите клиента слева или создайте нового.</div>
+            </div>
+            <button class="btn btn--accent" id="clientSaveButton" type="button">СОХРАНИТЬ</button>
+          </div>
+          <div class="clients-form-grid">
+            <div class="field field--compact">
+              <label for="clientTypeInput">ТИП</label>
+              <select id="clientTypeInput">
+                <option value="person">ФЛ</option>
+                <option value="ip">ИП</option>
+                <option value="ooo">ООО</option>
+                <option value="company">ЮЛ</option>
+              </select>
+            </div>
+            <div class="field field--compact"><label for="clientLastNameInput">ФАМИЛИЯ</label><input id="clientLastNameInput" type="text" maxlength="120"></div>
+            <div class="field field--compact"><label for="clientFirstNameInput">ИМЯ</label><input id="clientFirstNameInput" type="text" maxlength="120"></div>
+            <div class="field field--compact"><label for="clientMiddleNameInput">ОТЧЕСТВО</label><input id="clientMiddleNameInput" type="text" maxlength="120"></div>
+            <div class="field field--compact clients-field--wide"><label for="clientDisplayNameInput">НАЗВАНИЕ / ОТОБРАЖЕНИЕ</label><input id="clientDisplayNameInput" type="text" maxlength="160"></div>
+            <div class="field field--compact"><label for="clientPhoneInput">ТЕЛЕФОН</label><input id="clientPhoneInput" type="text" maxlength="80"></div>
+            <div class="field field--compact"><label for="clientEmailInput">EMAIL</label><input id="clientEmailInput" type="text" maxlength="160"></div>
+            <div class="field field--compact clients-field--wide"><label for="clientCommentInput">КОММЕНТАРИЙ</label><textarea id="clientCommentInput" maxlength="2000"></textarea></div>
+          </div>
+          <details class="clients-requisites" id="clientRequisitesDetails">
+            <summary>РЕКВИЗИТЫ</summary>
+            <div class="clients-form-grid clients-form-grid--requisites">
+              <div class="field field--compact clients-field--wide"><label for="clientLegalNameInput">ПОЛНОЕ НАЗВАНИЕ</label><input id="clientLegalNameInput" type="text" maxlength="160"></div>
+              <div class="field field--compact"><label for="clientShortNameInput">КРАТКОЕ НАЗВАНИЕ</label><input id="clientShortNameInput" type="text" maxlength="160"></div>
+              <div class="field field--compact"><label for="clientInnInput">ИНН</label><input id="clientInnInput" type="text" maxlength="160"></div>
+              <div class="field field--compact"><label for="clientKppInput">КПП</label><input id="clientKppInput" type="text" maxlength="160"></div>
+              <div class="field field--compact"><label for="clientOgrnInput">ОГРН / ОГРНИП</label><input id="clientOgrnInput" type="text" maxlength="160"></div>
+              <div class="field field--compact"><label for="clientCheckingAccountInput">РАСЧЕТНЫЙ СЧЕТ</label><input id="clientCheckingAccountInput" type="text" maxlength="160"></div>
+              <div class="field field--compact"><label for="clientBankNameInput">БАНК</label><input id="clientBankNameInput" type="text" maxlength="160"></div>
+              <div class="field field--compact"><label for="clientBikInput">БИК</label><input id="clientBikInput" type="text" maxlength="160"></div>
+              <div class="field field--compact"><label for="clientCorrespondentAccountInput">КОРР. СЧЕТ</label><input id="clientCorrespondentAccountInput" type="text" maxlength="160"></div>
+              <div class="field field--compact"><label for="clientContactPersonInput">КОНТАКТНОЕ ЛИЦО</label><input id="clientContactPersonInput" type="text" maxlength="160"></div>
+              <div class="field field--compact"><label for="clientContactPositionInput">ДОЛЖНОСТЬ</label><input id="clientContactPositionInput" type="text" maxlength="160"></div>
+              <div class="field field--compact clients-field--wide"><label for="clientLegalAddressInput">ЮР. АДРЕС</label><input id="clientLegalAddressInput" type="text" maxlength="160"></div>
+              <div class="field field--compact clients-field--wide"><label for="clientActualAddressInput">ФАКТ. АДРЕС</label><input id="clientActualAddressInput" type="text" maxlength="160"></div>
+            </div>
+          </details>
+          <div class="clients-profile-columns">
+            <section class="subpanel">
+              <div class="panel-title">МАШИНЫ</div>
+              <div class="clients-mini-list" id="clientVehiclesList"></div>
+            </section>
+            <section class="subpanel">
+              <div class="panel-title">ЗАКАЗ-НАРЯДЫ</div>
+              <div class="clients-mini-list" id="clientOrdersList"></div>
+            </section>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+    <div class="modal" id="cashboxesModal">
     <div class="dialog">
       <div class="dialog__head">
         <div class="dialog__title">КАССЫ</div>
@@ -5942,6 +6165,10 @@ BOARD_WEB_APP_HTML = "".join(
               <button class="btn btn--ghost" id="vehicleAutofillButton">АВТОЗАПОЛНИТЬ</button>
             </div>
             <div class="vehicle-panel__fields" id="vehicleProfileFields"></div>
+            <div class="client-match-panel" id="clientMatchPanel">
+              <div class="panel-title">ПОХОЖИЕ КЛИЕНТЫ</div>
+              <div class="client-match-list" id="clientMatchList"></div>
+            </div>
             <div class="vehicle-panel__repair">
               <button class="btn" id="repairOrderButton" data-open-repair-order-modal="true" type="button">ЗАКАЗ-НАРЯД</button>
             </div>
@@ -6252,6 +6479,14 @@ BOARD_WEB_APP_HTML = "".join(
       repairOrdersItems: [],
       repairOrdersMetaState: null,
       repairOrderParentLayer: '',
+      clients: [],
+      clientsQuery: '',
+      clientsActiveId: '',
+      clientsActiveProfile: null,
+      clientsUiBound: false,
+      clientsSearchTimer: null,
+      clientSuggestTimer: null,
+      clientSuggestions: [],
       cashboxes: [],
       activeCashboxId: '',
       activeCashbox: null,
@@ -6667,6 +6902,7 @@ BOARD_WEB_APP_HTML = "".join(
       operatorButton: document.getElementById('operatorButton'),
       archiveButton: document.getElementById('archiveButton'),
       repairOrdersButton: document.getElementById('repairOrdersButton'),
+      clientsButton: document.getElementById('clientsButton'),
       cashboxesButton: document.getElementById('cashboxesButton'),
       employeesButton: document.getElementById('employeesButton'),
       repairOrdersSearchInput: document.getElementById('repairOrdersSearchInput'),
@@ -6705,6 +6941,38 @@ BOARD_WEB_APP_HTML = "".join(
       archiveModal: document.getElementById('archiveModal'),
       archiveList: document.getElementById('archiveList'),
       repairOrdersModal: document.getElementById('repairOrdersModal'),
+      clientsModal: document.getElementById('clientsModal'),
+      clientsMeta: document.getElementById('clientsMeta'),
+      clientsSearchInput: document.getElementById('clientsSearchInput'),
+      clientsList: document.getElementById('clientsList'),
+      clientNewButton: document.getElementById('clientNewButton'),
+      clientProfileTitle: document.getElementById('clientProfileTitle'),
+      clientProfileMeta: document.getElementById('clientProfileMeta'),
+      clientTypeInput: document.getElementById('clientTypeInput'),
+      clientLastNameInput: document.getElementById('clientLastNameInput'),
+      clientFirstNameInput: document.getElementById('clientFirstNameInput'),
+      clientMiddleNameInput: document.getElementById('clientMiddleNameInput'),
+      clientDisplayNameInput: document.getElementById('clientDisplayNameInput'),
+      clientPhoneInput: document.getElementById('clientPhoneInput'),
+      clientEmailInput: document.getElementById('clientEmailInput'),
+      clientCommentInput: document.getElementById('clientCommentInput'),
+      clientRequisitesDetails: document.getElementById('clientRequisitesDetails'),
+      clientLegalNameInput: document.getElementById('clientLegalNameInput'),
+      clientShortNameInput: document.getElementById('clientShortNameInput'),
+      clientInnInput: document.getElementById('clientInnInput'),
+      clientKppInput: document.getElementById('clientKppInput'),
+      clientOgrnInput: document.getElementById('clientOgrnInput'),
+      clientCheckingAccountInput: document.getElementById('clientCheckingAccountInput'),
+      clientBankNameInput: document.getElementById('clientBankNameInput'),
+      clientBikInput: document.getElementById('clientBikInput'),
+      clientCorrespondentAccountInput: document.getElementById('clientCorrespondentAccountInput'),
+      clientLegalAddressInput: document.getElementById('clientLegalAddressInput'),
+      clientActualAddressInput: document.getElementById('clientActualAddressInput'),
+      clientContactPersonInput: document.getElementById('clientContactPersonInput'),
+      clientContactPositionInput: document.getElementById('clientContactPositionInput'),
+      clientSaveButton: document.getElementById('clientSaveButton'),
+      clientVehiclesList: document.getElementById('clientVehiclesList'),
+      clientOrdersList: document.getElementById('clientOrdersList'),
       cashboxesModal: document.getElementById('cashboxesModal'),
       cashboxJournalModal: document.getElementById('cashboxJournalModal'),
       cashboxTransferModal: document.getElementById('cashboxTransferModal'),
@@ -6846,6 +7114,8 @@ BOARD_WEB_APP_HTML = "".join(
       signalHoursDecrementButton: document.getElementById('signalHoursDecrementButton'),
       vehiclePanelSummary: document.getElementById('vehiclePanelSummary'),
       vehicleProfileFields: document.getElementById('vehicleProfileFields'),
+      clientMatchPanel: document.getElementById('clientMatchPanel'),
+      clientMatchList: document.getElementById('clientMatchList'),
       vehicleAutofillButton: document.getElementById('vehicleAutofillButton'),
       repairOrderButton: document.getElementById('repairOrderButton'),
       repairOrderModal: document.getElementById('repairOrderModal'),
@@ -8625,6 +8895,7 @@ BOARD_WEB_APP_HTML = "".join(
           state.archiveLoaded = false;
         },
         'repair-orders': () => els.repairOrdersModal.classList.remove('is-open'),
+        clients: () => els.clientsModal.classList.remove('is-open'),
         cashboxes: () => els.cashboxesModal.classList.remove('is-open'),
         'cashbox-journal': () => els.cashboxJournalModal.classList.remove('is-open'),
         'cashbox-transfer': () => els.cashboxTransferModal.classList.remove('is-open'),
@@ -8661,6 +8932,293 @@ BOARD_WEB_APP_HTML = "".join(
         maybeOpenModal(modalEl, openModal);
         setStatus(error.message, true);
         return null;
+      }
+    }
+
+    function clientDisplayName(client) {
+      return String(client?.name || client?.display_name || client?.full_name || 'Без имени').trim();
+    }
+
+    function clientMetaLine(client) {
+      const stats = client?.stats || {};
+      const parts = [];
+      if (client?.phone) parts.push(client.phone);
+      if (stats.repair_orders_total !== undefined) parts.push('ЗН: ' + stats.repair_orders_total);
+      if (stats.vehicles_total !== undefined) parts.push('авто: ' + stats.vehicles_total);
+      if (stats.last_visit) parts.push('последний: ' + formatDate(stats.last_visit));
+      return parts.join(' · ') || 'нет данных';
+    }
+
+    function renderClientsList() {
+      const clients = Array.isArray(state.clients) ? state.clients : [];
+      if (els.clientsMeta) {
+        els.clientsMeta.textContent = clients.length ? ('КЛИЕНТОВ: ' + clients.length) : 'КЛИЕНТОВ ПОКА НЕТ';
+      }
+      if (!els.clientsList) return;
+      if (!clients.length) {
+        els.clientsList.innerHTML = '<div class="empty">КЛИЕНТЫ НЕ НАЙДЕНЫ.</div>';
+        return;
+      }
+      els.clientsList.innerHTML = clients.map((client) => {
+        const activeClass = client.id === state.clientsActiveId ? ' is-active' : '';
+        return '<button class="client-row' + activeClass + '" type="button" data-client-id="' + escapeHtml(client.id) + '">'
+          + '<div class="client-row__title"><span>' + escapeHtml(clientDisplayName(client)) + '</span><span class="client-type-badge">' + escapeHtml(client.type_label || client.client_type || 'ФЛ') + '</span></div>'
+          + '<div class="client-row__meta">' + escapeHtml(clientMetaLine(client)) + '</div>'
+          + '</button>';
+      }).join('');
+    }
+
+    function resetClientForm() {
+      state.clientsActiveId = '';
+      state.clientsActiveProfile = null;
+      const blank = {
+        client_type: 'person',
+        last_name: '',
+        first_name: '',
+        middle_name: '',
+        display_name: '',
+        phone: '',
+        email: '',
+        comment: '',
+        legal_name: '',
+        short_name: '',
+        inn: '',
+        kpp: '',
+        ogrn: '',
+        checking_account: '',
+        bank_name: '',
+        bik: '',
+        correspondent_account: '',
+        legal_address: '',
+        actual_address: '',
+        contact_person: '',
+        contact_position: '',
+      };
+      fillClientForm(blank);
+      renderClientProfile({ client: blank, vehicles: [], repair_orders: [], meta: {} });
+      renderClientsList();
+    }
+
+    function fillClientForm(client) {
+      if (els.clientTypeInput) els.clientTypeInput.value = client.client_type || 'person';
+      if (els.clientLastNameInput) els.clientLastNameInput.value = client.last_name || '';
+      if (els.clientFirstNameInput) els.clientFirstNameInput.value = client.first_name || '';
+      if (els.clientMiddleNameInput) els.clientMiddleNameInput.value = client.middle_name || '';
+      if (els.clientDisplayNameInput) els.clientDisplayNameInput.value = client.display_name || '';
+      if (els.clientPhoneInput) els.clientPhoneInput.value = client.phone || '';
+      if (els.clientEmailInput) els.clientEmailInput.value = client.email || '';
+      if (els.clientCommentInput) els.clientCommentInput.value = client.comment || '';
+      if (els.clientLegalNameInput) els.clientLegalNameInput.value = client.legal_name || '';
+      if (els.clientShortNameInput) els.clientShortNameInput.value = client.short_name || '';
+      if (els.clientInnInput) els.clientInnInput.value = client.inn || '';
+      if (els.clientKppInput) els.clientKppInput.value = client.kpp || '';
+      if (els.clientOgrnInput) els.clientOgrnInput.value = client.ogrn || '';
+      if (els.clientCheckingAccountInput) els.clientCheckingAccountInput.value = client.checking_account || '';
+      if (els.clientBankNameInput) els.clientBankNameInput.value = client.bank_name || '';
+      if (els.clientBikInput) els.clientBikInput.value = client.bik || '';
+      if (els.clientCorrespondentAccountInput) els.clientCorrespondentAccountInput.value = client.correspondent_account || '';
+      if (els.clientLegalAddressInput) els.clientLegalAddressInput.value = client.legal_address || '';
+      if (els.clientActualAddressInput) els.clientActualAddressInput.value = client.actual_address || '';
+      if (els.clientContactPersonInput) els.clientContactPersonInput.value = client.contact_person || '';
+      if (els.clientContactPositionInput) els.clientContactPositionInput.value = client.contact_position || '';
+      const orgMode = ['ip', 'ooo', 'company'].includes(String(client.client_type || 'person'));
+      if (els.clientRequisitesDetails) els.clientRequisitesDetails.open = orgMode;
+    }
+
+    function renderClientProfile(data) {
+      const client = data?.client || {};
+      state.clientsActiveProfile = data || null;
+      if (els.clientProfileTitle) els.clientProfileTitle.textContent = clientDisplayName(client).toUpperCase();
+      const stats = client.stats || {};
+      if (els.clientProfileMeta) {
+        els.clientProfileMeta.textContent = [
+          client.type_label || client.client_type || 'ФЛ',
+          client.phone || '',
+          stats.repair_orders_total !== undefined ? ('заказ-нарядов: ' + stats.repair_orders_total) : '',
+          stats.last_visit ? ('последний визит: ' + formatDate(stats.last_visit)) : '',
+        ].filter(Boolean).join(' · ') || 'Мини-профиль клиента.';
+      }
+      fillClientForm(client);
+      const vehicles = Array.isArray(data?.vehicles) ? data.vehicles : [];
+      els.clientVehiclesList.innerHTML = vehicles.length
+        ? vehicles.map((vehicle) => '<div class="client-mini"><strong>' + escapeHtml(vehicle.vehicle || 'Автомобиль') + '</strong><div class="client-mini__meta">' + escapeHtml([vehicle.license_plate, vehicle.vin].filter(Boolean).join(' · ') || 'VIN / номер не указан') + '</div></div>').join('')
+        : '<div class="empty">МАШИН ПОКА НЕТ.</div>';
+      const orders = Array.isArray(data?.repair_orders) ? data.repair_orders : [];
+      els.clientOrdersList.innerHTML = orders.length
+        ? orders.map((order) => '<button class="client-mini" type="button" data-open-repair-order-card="' + escapeHtml(order.card_id || '') + '"><strong>№ ' + escapeHtml(order.number || '-') + '</strong><div class="client-mini__meta">' + escapeHtml([formatDate(order.opened_at || order.date), order.vehicle, order.status_label, order.grand_total].filter(Boolean).join(' · ')) + '</div></button>').join('')
+        : '<div class="empty">ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.</div>';
+    }
+
+    function readClientFormPayload() {
+      return {
+        client_type: els.clientTypeInput?.value || 'person',
+        last_name: els.clientLastNameInput?.value || '',
+        first_name: els.clientFirstNameInput?.value || '',
+        middle_name: els.clientMiddleNameInput?.value || '',
+        display_name: els.clientDisplayNameInput?.value || '',
+        phone: els.clientPhoneInput?.value || '',
+        email: els.clientEmailInput?.value || '',
+        comment: els.clientCommentInput?.value || '',
+        legal_name: els.clientLegalNameInput?.value || '',
+        short_name: els.clientShortNameInput?.value || '',
+        inn: els.clientInnInput?.value || '',
+        kpp: els.clientKppInput?.value || '',
+        ogrn: els.clientOgrnInput?.value || '',
+        checking_account: els.clientCheckingAccountInput?.value || '',
+        bank_name: els.clientBankNameInput?.value || '',
+        bik: els.clientBikInput?.value || '',
+        correspondent_account: els.clientCorrespondentAccountInput?.value || '',
+        legal_address: els.clientLegalAddressInput?.value || '',
+        actual_address: els.clientActualAddressInput?.value || '',
+        contact_person: els.clientContactPersonInput?.value || '',
+        contact_position: els.clientContactPositionInput?.value || '',
+      };
+    }
+
+    async function loadClients({ openModal = false } = {}) {
+      const query = String(els.clientsSearchInput?.value || state.clientsQuery || '').trim();
+      state.clientsQuery = query;
+      const path = query
+        ? '/api/search_clients?query=' + encodeURIComponent(query) + '&limit=200'
+        : '/api/list_clients?limit=200&include_stats=true';
+      const data = await loadModalData(path, {
+        openModal,
+        modalEl: els.clientsModal,
+        onSuccess: (payload) => {
+          state.clients = Array.isArray(payload?.clients) ? payload.clients : [];
+          if (!state.clientsActiveId && state.clients.length) state.clientsActiveId = state.clients[0].id;
+          renderClientsList();
+        },
+      });
+      if (state.clientsActiveId) await selectClient(state.clientsActiveId);
+      return data;
+    }
+
+    async function selectClient(clientId) {
+      const normalizedId = String(clientId || '').trim();
+      if (!normalizedId) return;
+      try {
+        const data = await api('/api/get_client?client_id=' + encodeURIComponent(normalizedId) + '&order_limit=30');
+        state.clientsActiveId = data?.client?.id || normalizedId;
+        renderClientProfile(data);
+        renderClientsList();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    async function openClientsModal() {
+      if (!requireOperatorSession()) return;
+      bindClientsUiEvents();
+      await loadClients({ openModal: true });
+      if (!state.clients.length) resetClientForm();
+    }
+
+    async function saveClientProfile() {
+      const payload = readClientFormPayload();
+      try {
+        const data = state.clientsActiveId
+          ? await api('/api/update_client', { method: 'POST', body: { client_id: state.clientsActiveId, ...payload } })
+          : await api('/api/create_client', { method: 'POST', body: payload });
+        state.clientsActiveId = data?.client?.id || state.clientsActiveId;
+        setStatus(state.clientsActiveId ? 'КЛИЕНТ СОХРАНЕН.' : 'КЛИЕНТ СОЗДАН.', false);
+        await loadClients({ openModal: false });
+        if (state.clientsActiveId) await selectClient(state.clientsActiveId);
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    function handleClientsListClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const row = target.closest('[data-client-id]');
+      if (row instanceof HTMLElement) selectClient(row.dataset.clientId);
+    }
+
+    function bindClientsUiEvents() {
+      if (state.clientsUiBound) return;
+      els.clientsButton?.addEventListener('click', openClientsModal);
+      els.clientNewButton?.addEventListener('click', resetClientForm);
+      els.clientSaveButton?.addEventListener('click', saveClientProfile);
+      els.clientsList?.addEventListener('click', handleClientsListClick);
+      els.clientsSearchInput?.addEventListener('input', () => {
+        window.clearTimeout(state.clientsSearchTimer);
+        state.clientsSearchTimer = window.setTimeout(() => loadClients({ openModal: false }), 250);
+      });
+      els.clientTypeInput?.addEventListener('change', () => {
+        if (els.clientRequisitesDetails) els.clientRequisitesDetails.open = ['ip', 'ooo', 'company'].includes(els.clientTypeInput.value);
+      });
+      state.clientsUiBound = true;
+    }
+
+    function hideClientSuggestions() {
+      state.clientSuggestions = [];
+      if (els.clientMatchPanel) els.clientMatchPanel.classList.remove('is-visible');
+      if (els.clientMatchList) els.clientMatchList.innerHTML = '';
+    }
+
+    function renderClientSuggestions(clients) {
+      state.clientSuggestions = Array.isArray(clients) ? clients : [];
+      if (!els.clientMatchPanel || !els.clientMatchList) return;
+      if (!state.clientSuggestions.length || !state.editingId) {
+        hideClientSuggestions();
+        return;
+      }
+      els.clientMatchPanel.classList.add('is-visible');
+      els.clientMatchList.innerHTML = state.clientSuggestions.map((client) => (
+        '<button class="client-match-chip" type="button" data-link-client="' + escapeHtml(client.id) + '">'
+        + escapeHtml(clientDisplayName(client))
+        + (client.phone ? ' · ' + escapeHtml(client.phone) : '')
+        + '</button>'
+      )).join('');
+    }
+
+    async function refreshClientSuggestionsForCard() {
+      if (!state.editingId) {
+        hideClientSuggestions();
+        return;
+      }
+      const profile = readVehicleProfileForm();
+      const query = [profile.customer_name, profile.customer_phone].filter(Boolean).join(' ');
+      if (!query.trim()) {
+        hideClientSuggestions();
+        return;
+      }
+      try {
+        const data = await api('/api/suggest_clients_for_card', {
+          method: 'POST',
+          body: { card_id: state.editingId, query, limit: 5 },
+        });
+        renderClientSuggestions(data?.clients || []);
+      } catch (_) {
+        hideClientSuggestions();
+      }
+    }
+
+    function scheduleClientSuggestionsForCard() {
+      window.clearTimeout(state.clientSuggestTimer);
+      state.clientSuggestTimer = window.setTimeout(refreshClientSuggestionsForCard, 300);
+    }
+
+    async function linkActiveCardToClient(clientId) {
+      if (!state.editingId || !clientId) return;
+      try {
+        const data = await api('/api/link_card_to_client', {
+          method: 'POST',
+          body: {
+            card_id: state.editingId,
+            client_id: clientId,
+            sync_fields: true,
+            overwrite_card_fields: false,
+          },
+        });
+        if (data?.card) applyCardModalState(data.card);
+        hideClientSuggestions();
+        setStatus('КАРТОЧКА СВЯЗАНА С КЛИЕНТОМ.', false);
+        await refreshSnapshot(true);
+      } catch (error) {
+        setStatus(error.message, true);
       }
     }
 
@@ -12316,6 +12874,7 @@ BOARD_WEB_APP_HTML = "".join(
       state.vehicleProfileDraft = profile;
       state.vehicleAutofillResult = null;
       refreshVehiclePanel();
+      if (fieldName === 'customer_name' || fieldName === 'customer_phone') scheduleClientSuggestionsForCard();
     }
 
     function readVehicleProfileForm() {
@@ -13684,6 +14243,8 @@ BOARD_WEB_APP_HTML = "".join(
       els.restoreAction.classList.toggle('hidden', !currentCard?.id || !currentCard.archived);
       state.vehicleProfileBaseline = cloneVehicleProfile(currentCard?.vehicle_profile || {});
       applyVehicleProfileToForm(currentCard?.vehicle_profile || emptyVehicleProfile());
+      hideClientSuggestions();
+      if (currentCard?.id && !currentCard?.client_id) scheduleClientSuggestionsForCard();
       refreshRepairOrderEntry(currentCard);
       renderColorTags();
       renderLogs([]);
@@ -13709,6 +14270,7 @@ BOARD_WEB_APP_HTML = "".join(
       state.vehicleProfileDraft = null;
       state.vehicleProfileBaseline = null;
       state.vehicleAutofillResult = null;
+      hideClientSuggestions();
       state.draftTags = [];
       state.draftTagColor = 'green';
       state.cardCleanupState = 'idle';
@@ -16652,6 +17214,13 @@ function renderCompactArchiveRows(cards) {
       if (closeTrigger instanceof HTMLElement) closeNamedModal(closeTrigger.dataset.close);
       const tabTrigger = target.closest('[data-tab]');
       if (tabTrigger instanceof HTMLElement) setTab(tabTrigger.dataset.tab);
+      const linkClientTarget = target.closest('[data-link-client]');
+      if (linkClientTarget instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        await linkActiveCardToClient(linkClientTarget.dataset.linkClient);
+        return;
+      }
       const openRepairOrderModalTarget = target.closest('[data-open-repair-order-modal]');
       if (openRepairOrderModalTarget) {
         event.preventDefault();
@@ -17012,6 +17581,7 @@ function renderCompactArchiveRows(cards) {
     configureCardFieldSemantics();
     consumeUrlAccessToken();
     configureOperatorIdentityUi();
+    bindClientsUiEvents();
     renderVehicleProfileFields();
     applyVehicleProfileToForm(emptyVehicleProfile());
     refreshRepairOrderEntry(null);

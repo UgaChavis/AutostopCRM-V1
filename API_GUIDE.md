@@ -81,6 +81,7 @@ Authorization: Bearer ваш_секрет
   "created_at": "2026-03-24T10:00:00+00:00",
   "updated_at": "2026-03-24T10:00:00+00:00",
   "deadline_timestamp": "2026-03-25T10:00:00+00:00",
+  "client_id": "",
   "remaining_seconds": 86395,
   "remaining_display": "0д 23:59:55",
   "status": "ok",
@@ -96,6 +97,7 @@ Authorization: Bearer ваш_секрет
 - `column` — id столбца
 - `archived` — архивирована ли карточка
 - `deadline_timestamp` — абсолютный UTC deadline
+- `client_id` — необязательная связь карточки с записью клиента
 - `remaining_seconds` — оставшееся время
 - `remaining_display` — готовая строка для UI
 - `status` — `ok`, `warning`, `expired`
@@ -309,6 +311,179 @@ Authorization: Bearer ваш_секрет
 ```json
 {
   "card_id": "a4d4d10a-0a5a-4d7f-99e1-4d7ddbc6b0a4"
+}
+```
+
+## Клиенты
+
+Клиентский модуль хранит справочник физических лиц, ИП, ООО и организаций. Связь с карточкой необязательна: карточка может содержать ручные поля клиента без создания профиля.
+
+### Модель клиента
+
+```json
+{
+  "id": "uuid",
+  "client_type": "person",
+  "last_name": "Иванов",
+  "first_name": "Иван",
+  "middle_name": "Иванович",
+  "display_name": "",
+  "phone": "+79130000000",
+  "phones": ["+79130000000"],
+  "email": "",
+  "comment": "",
+  "legal_name": "",
+  "short_name": "",
+  "inn": "",
+  "kpp": "",
+  "ogrn": "",
+  "checking_account": "",
+  "bank_name": "",
+  "bik": "",
+  "correspondent_account": "",
+  "legal_address": "",
+  "actual_address": "",
+  "contact_person": "",
+  "contact_position": ""
+}
+```
+
+Типы:
+
+- `person` — физическое лицо.
+- `ip` — индивидуальный предприниматель.
+- `ooo` — ООО.
+- `company` — другая организация.
+
+### `POST /api/list_clients`
+
+Назначение: получить список клиентов.
+
+Запрос:
+
+```json
+{
+  "limit": 100,
+  "include_stats": true
+}
+```
+
+### `POST /api/search_clients`
+
+Назначение: найти клиента по имени, телефону, email, ИНН, названию организации или контактному лицу.
+
+Запрос:
+
+```json
+{
+  "query": "Иванов 913",
+  "limit": 10
+}
+```
+
+### `POST /api/get_client`
+
+Назначение: открыть профиль клиента, связанные автомобили и последние заказ-наряды.
+
+Запрос:
+
+```json
+{
+  "client_id": "CLIENT_ID",
+  "order_limit": 30
+}
+```
+
+### `POST /api/get_client_stats`
+
+Назначение: получить компактную статистику клиента.
+
+Запрос:
+
+```json
+{
+  "client_id": "CLIENT_ID"
+}
+```
+
+### `POST /api/create_client`
+
+Назначение: создать клиента.
+
+Запрос:
+
+```json
+{
+  "client": {
+    "client_type": "person",
+    "last_name": "Иванов",
+    "first_name": "Иван",
+    "middle_name": "Иванович",
+    "phone": "+79130000000"
+  },
+  "actor_name": "operator"
+}
+```
+
+### `POST /api/update_client`
+
+Назначение: обновить профиль клиента. Передавать только изменяемые поля.
+
+Запрос:
+
+```json
+{
+  "client_id": "CLIENT_ID",
+  "patch": {
+    "email": "client@example.com",
+    "comment": "Постоянный клиент"
+  },
+  "actor_name": "operator"
+}
+```
+
+### `POST /api/link_card_to_client`
+
+Назначение: привязать карточку к клиенту.
+
+Запрос:
+
+```json
+{
+  "card_id": "CARD_ID",
+  "client_id": "CLIENT_ID",
+  "sync_fields": true,
+  "overwrite_card_fields": false
+}
+```
+
+Важно:
+
+- `sync_fields=true` дозаполняет пустые клиентские поля карточки и заказ-наряда.
+- `overwrite_card_fields=true` может заменить ручные поля клиента, поэтому использовать только после подтверждения пользователя.
+
+### `POST /api/unlink_card_from_client`
+
+Назначение: снять связь карточки с клиентом без удаления ручных текстовых полей.
+
+Запрос:
+
+```json
+{
+  "card_id": "CARD_ID"
+}
+```
+
+### `POST /api/suggest_clients_for_card`
+
+Назначение: подобрать клиентов для карточки по ручному ФИО, телефону и данным заказ-наряда.
+
+Запрос:
+
+```json
+{
+  "card_id": "CARD_ID",
+  "limit": 5
 }
 ```
 

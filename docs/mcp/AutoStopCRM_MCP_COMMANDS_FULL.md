@@ -1,16 +1,16 @@
 # AutoStop CRM MCP Commands Full Reference
 
-Дата: 25.04.2026
+Дата: 27.04.2026
 
-Полный справочник MCP-команд AutoStop CRM. Всего команд: 50.
+Полный справочник MCP-команд AutoStop CRM. Всего команд: 59.
 
 ## Как не перегружать коннектор
 
 Не все команды одинаково тяжелые. Для обычной работы лучше держать приоритет таким:
 
 1. `ping_connector`, `bootstrap_context`, `get_runtime_status`
-2. `get_board_context`, `review_board`, `search_cards`, `get_cards(compact=true)`
-3. `get_card_context`, `list_card_attachments`, `get_card_attachment`, `read_card_attachment`, `get_repair_order`, `get_card_log`, `get_repair_order_text`
+2. `get_board_context`, `review_board`, `search_cards`, `search_clients`, `get_cards(compact=true)`
+3. `get_card_context`, `suggest_clients_for_card`, `list_card_attachments`, `get_card_attachment`, `read_card_attachment`, `get_repair_order`, `get_card_log`, `get_repair_order_text`
 4. `get_board_snapshot`, `get_board_content`, `get_board_events`, `get_gpt_wall`
 
 Правило простое:
@@ -65,6 +65,42 @@
 | `restore_card` | write | Восстанавливает архивную карточку в выбранный или стандартный столбец. |
 | `list_archived_cards` | read | Показывает архивные карточки с лимитом и compact/full режимом. |
 | `list_overdue_cards` | read | Показывает просроченные карточки. Архив исключен по умолчанию. |
+
+## Клиенты
+
+| Команда | Тип | Что дает |
+| --- | --- | --- |
+| `list_clients` | read | Список клиентов с ФИО/названием, типом, телефонами и опциональной короткой статистикой. Для обычного обзора держи `limit=50..100`. |
+| `search_clients` | read | Ищет клиента по ФИО, названию организации, телефону, email, ИНН, реквизитам или контактному лицу. |
+| `get_client` | read | Полный профиль клиента: контакты, реквизиты, связанные автомобили и последние заказ-наряды. |
+| `get_client_stats` | read | Легкая статистика клиента без полного профиля: количество карточек, активных/архивных ремонтов, заказ-нарядов и автомобилей. |
+| `suggest_clients_for_card` | read | Подбирает возможных клиентов для карточки по ручным полям клиента/телефона в паспорте автомобиля и заказ-наряде. |
+| `create_client` | write | Создает запись клиента. Поддерживает физлицо, ИП, ООО и другую организацию. |
+| `update_client` | write | Обновляет профиль клиента и реквизиты. Передавать только изменяемые поля. |
+| `link_card_to_client` | write | Привязывает карточку к клиенту. По умолчанию дозаполняет только пустые клиентские поля карточки и заказ-наряда. |
+| `unlink_card_from_client` | write | Снимает связь карточки с клиентом, но не удаляет ручные текстовые поля в карточке. |
+
+Типы клиентов:
+
+- `person`: физическое лицо.
+- `ip`: индивидуальный предприниматель.
+- `ooo`: ООО.
+- `company`: другая организация.
+
+Правильный flow для агента:
+
+1. Если работа идет из карточки, сначала вызвать `suggest_clients_for_card(card_id)`.
+2. Если уверенного совпадения нет, вызвать `search_clients(query=...)`.
+3. Если клиент не найден, предложить создать через `create_client`.
+4. После выбора клиента вызвать `link_card_to_client(card_id, client_id, sync_fields=true)`.
+5. Проверить через `get_card_context(card_id)` и `get_client(client_id)`.
+
+Ограничения:
+
+- Создание клиента не является обязательным для каждой карточки.
+- Не создавать дубль без поиска по телефону/ФИО/ИНН.
+- `overwrite_card_fields=true` в `link_card_to_client` использовать только после явного подтверждения пользователя.
+- Для реквизитов организаций использовать `legal_name`, `short_name`, `inn`, `kpp`, `ogrn`, `checking_account`, `bank_name`, `bik`, `correspondent_account`, `legal_address`, `actual_address`, `contact_person`, `contact_position`.
 
 ## Столбцы и стикеры
 
@@ -142,5 +178,8 @@
 - `vehicle`: только марка/модель, без длинного описания проблемы.
 - `title`: краткая суть задачи или неисправности.
 - `vehicle_profile`: разрешает дополнительные поля, но manual values нельзя перетирать без явного решения.
+- `client_id`: брать только из `list_clients`, `search_clients`, `suggest_clients_for_card` или `get_client`; не выдумывать.
+- `client`: для `create_client` передавать объект профиля, минимум имя/название или телефон.
+- `patch`: для `update_client` передавать только изменяемые поля, не весь профиль без необходимости.
 - `repair_order.rows`: строки работ/материалов передаются целиком при replace-командах.
 - `cashbox_id`, `card_id`, `sticky_id`, `column_id`: брать из read-команд, не выдумывать.

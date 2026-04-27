@@ -1,6 +1,6 @@
 # AutoStop CRM MCP Quickstart
 
-Дата: 25.04.2026
+Дата: 27.04.2026
 
 Этот файл можно прикреплять к GPT-чату как короткую инструкцию по работе с MCP-коннектором AutoStop CRM.
 
@@ -18,11 +18,12 @@
 2. `bootstrap_context`
 3. `get_runtime_status`, если нужно понять здоровье runtime
 4. `get_board_context` или `review_board`
-5. `search_cards` или `get_cards(compact=true)`
+5. `search_cards`, `search_clients` или `get_cards(compact=true)`
 6. `get_card_context` для одной карточки
-7. `list_card_attachments` -> `read_card_attachment` только если нужно прочитать конкретный файл карточки
-8. `get_board_content` или `get_board_events` только когда действительно нужен полный обзор
-9. `get_gpt_wall` только если нужен ответ с обеими wall-секциями сразу; в agent mode он компактный и ограничивает журнал
+7. `suggest_clients_for_card` перед привязкой карточки к клиенту
+8. `list_card_attachments` -> `read_card_attachment` только если нужно прочитать конкретный файл карточки
+9. `get_board_content` или `get_board_events` только когда действительно нужен полный обзор
+10. `get_gpt_wall` только если нужен ответ с обеими wall-секциями сразу; в agent mode он компактный и ограничивает журнал
 
 ### Что считать тяжелым
 
@@ -52,6 +53,13 @@
 | Получить последние события | `get_board_events` |
 | Найти карточку | `search_cards` |
 | Прочитать карточку | `get_card_context` |
+| Найти клиента | `search_clients`, `list_clients` |
+| Открыть профиль клиента | `get_client`, `get_client_stats` |
+| Подобрать клиента для карточки | `suggest_clients_for_card` |
+| Создать клиента | `create_client` |
+| Изменить клиента | `update_client` |
+| Привязать карточку к клиенту | `link_card_to_client` |
+| Снять связь карточки с клиентом | `unlink_card_from_client` |
 | Посмотреть вложения карточки | `list_card_attachments`, затем `get_card_attachment` |
 | Прочитать файл из карточки | `read_card_attachment` для конкретного `attachment_id` |
 | Создать карточку | `create_card` |
@@ -71,6 +79,7 @@
 Для последних изменений используй get_board_events(event_limit=20..50).
 Не меняй данные, пока не определишь точные card_id/column/cashbox_id.
 Если в карточке есть вложения, сначала используй list_card_attachments, затем read_card_attachment только для нужного attachment_id.
+Если нужно работать с клиентом, сначала используй suggest_clients_for_card или search_clients. Не создавай дубль клиента без проверки.
 Основная задача: помогать редактировать карточки, нормализовать описание автомобиля,
 заполнять vehicle_profile и заказ-наряд.
 Работай через MCP tool names напрямую, а не через resource URL-пути.
@@ -81,6 +90,9 @@
 - Не угадывать `card_id`: сначала искать карточку через `search_cards`, `get_cards`, `get_board_snapshot` или `get_board_content`.
 - Для массового переноса карточек использовать `bulk_move_cards`, а не длинную цепочку `move_card`.
 - Перед закрытием заказ-наряда проверять оплату через `get_repair_order`.
+- Перед созданием клиента искать дубликаты через `search_clients` или `suggest_clients_for_card`.
+- Привязка клиента к карточке не обязательна: если пользователь хочет разовую запись, можно оставить ручное имя без `create_client`.
+- `link_card_to_client(..., overwrite_card_fields=true)` использовать только после прямого подтверждения пользователя.
 - `update_repair_order` держать коротким и структурным: только шапка и минимально нужные поля.
 - Destructive-команды (`delete_column`, `delete_sticky`, `delete_cashbox`, `archive_card`) применять только после явного подтверждения пользователя.
 
@@ -89,6 +101,7 @@
 - Полная доска: `get_board_content(include_archived=false)` для обычной работы, `include_archived=true` только при необходимости полного экспорта.
 - Журнал: `get_board_events(event_limit=20..50, include_archived=true)`, а `100` использовать только для расследований.
 - Одна карточка: `get_card_context(card_id, event_limit=5..20, include_repair_order_text=false)`; `include_repair_order_text=true` включать только когда нужен полный текст.
+- Клиенты: `suggest_clients_for_card(card_id)` из карточки, `search_clients(query)` по ФИО/телефону/ИНН, затем `get_client(client_id)` только для выбранного клиента.
 - Вложения карточки: `list_card_attachments(card_id)` для списка, `get_card_attachment(card_id, attachment_id)` для метаданных, `read_card_attachment(card_id, attachment_id, mode="preview")` для bounded-чтения. Для изображений включать `mode="base64"` только если агент будет анализировать картинку.
 - Кассы: `list_cashboxes`, затем `get_cashbox`.
 - Заказ-наряды: `list_repair_orders`, затем `get_repair_order`.
