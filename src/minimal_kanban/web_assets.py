@@ -5598,7 +5598,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
     #clientProfileTitle {
       color: var(--text);
-      font-size: 30px;
+      font-size: 24px;
       font-weight: 800;
       line-height: 1.25;
       letter-spacing: 0.03em;
@@ -5608,14 +5608,22 @@ BOARD_WEB_APP_HTML = "".join(
     .client-profile-phone {
       margin-top: 4px;
       color: var(--accent-soft);
-      font-size: 20px;
+      font-size: 17px;
       font-weight: 700;
       line-height: 1.25;
       letter-spacing: 0.04em;
     }
-    #clientProfileMeta {
-      color: var(--muted);
-      margin-top: 6px;
+    .clients-profile-pane #clientLastNameInput,
+    .clients-profile-pane #clientFirstNameInput,
+    .clients-profile-pane #clientMiddleNameInput {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+    .clients-profile-pane #clientPhoneInput {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
     }
     .clients-field--type {
       grid-column: span 3;
@@ -5925,7 +5933,6 @@ BOARD_WEB_APP_HTML = "".join(
             <div>
               <div class="panel-title" id="clientProfileTitle">КЛИЕНТ НЕ ВЫБРАН</div>
               <div class="client-profile-phone" id="clientProfilePhone">ТЕЛЕФОН НЕ УКАЗАН</div>
-              <div class="wall-meta" id="clientProfileMeta">Выберите клиента слева или создайте нового.</div>
             </div>
             <button class="btn btn--accent" id="clientSaveButton" type="button">СОХРАНИТЬ</button>
           </div>
@@ -6997,7 +7004,6 @@ BOARD_WEB_APP_HTML = "".join(
       clientNewButton: document.getElementById('clientNewButton'),
       clientProfileTitle: document.getElementById('clientProfileTitle'),
       clientProfilePhone: document.getElementById('clientProfilePhone'),
-      clientProfileMeta: document.getElementById('clientProfileMeta'),
       clientTypeInput: document.getElementById('clientTypeInput'),
       clientLastNameInput: document.getElementById('clientLastNameInput'),
       clientFirstNameInput: document.getElementById('clientFirstNameInput'),
@@ -9143,15 +9149,6 @@ BOARD_WEB_APP_HTML = "".join(
       if (els.clientProfilePhone) {
         const phone = String(client.phone || (Array.isArray(client.phones) ? client.phones[0] : '') || '').trim();
         els.clientProfilePhone.textContent = phone || 'ТЕЛЕФОН НЕ УКАЗАН';
-      }
-      const stats = client.stats || {};
-      if (els.clientProfileMeta) {
-        els.clientProfileMeta.textContent = [
-          client.type_label || client.client_type || 'ФЛ',
-          stats.repair_orders_total !== undefined ? ('заказ-нарядов: ' + stats.repair_orders_total) : '',
-          stats.vehicles_total !== undefined ? ('авто: ' + stats.vehicles_total) : '',
-          stats.last_visit ? ('последний визит: ' + formatDate(stats.last_visit)) : '',
-        ].filter(Boolean).join(' · ') || 'Мини-профиль клиента.';
       }
       fillClientForm(client);
       const vehicles = Array.isArray(data?.vehicles) ? data.vehicles : [];
