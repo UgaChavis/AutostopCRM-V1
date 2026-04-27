@@ -403,6 +403,8 @@ class CardServiceTests(unittest.TestCase):
                 search = self.service.search_clients({"query": query, "limit": 5})
                 self.assertTrue(search["clients"])
                 self.assertEqual(search["clients"][0]["id"], client["id"])
+                self.assertEqual(search["clients"][0]["vehicles_preview"][0]["vehicle"], "Toyota Camry")
+                self.assertEqual(search["clients"][0]["vehicles_preview"][0]["vin"], "JTDBE32K620654321")
 
     def test_client_search_matches_common_russian_phone_variants(self) -> None:
         client = self.service.create_client(

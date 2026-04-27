@@ -5762,25 +5762,62 @@ BOARD_WEB_APP_HTML = "".join(
       display: none;
       margin-top: 8px;
       border: 1px solid rgba(160, 174, 135, 0.2);
-      background: rgba(16, 22, 18, 0.84);
-      padding: 8px;
+      background: rgba(12, 18, 14, 0.96);
+      box-shadow: 0 16px 30px rgba(0, 0, 0, 0.28);
+      padding: 9px;
     }
     .client-match-panel.is-visible {
       display: block;
     }
     .client-match-list {
       display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
+      flex-direction: column;
+      gap: 5px;
       margin-top: 6px;
     }
-    .client-match-chip {
+    .client-match-item {
       border: 1px solid var(--line);
       background: rgba(29, 37, 31, 0.9);
       color: var(--text);
-      padding: 5px 8px;
-      font-size: 11px;
+      padding: 8px 9px;
+      text-align: left;
       cursor: pointer;
+    }
+    .client-match-item:hover,
+    .client-match-item.is-active {
+      border-color: var(--accent);
+      background: rgba(37, 47, 39, 0.98);
+    }
+    .client-match-item__name {
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+    .client-match-item__name mark {
+      background: rgba(200, 217, 151, 0.18);
+      color: var(--text);
+      padding: 0 1px;
+    }
+    .client-match-item__phone,
+    .client-match-item__vehicles {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .client-match-empty {
+      border: 1px dashed rgba(160, 174, 135, 0.24);
+      padding: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .client-match-create {
+      margin-top: 7px;
+      width: 100%;
+      min-height: 30px;
+      justify-content: center;
     }
     @media (max-width: 980px) {
       .clients-layout,
@@ -6699,6 +6736,9 @@ BOARD_WEB_APP_HTML = "".join(
       agentLatestActions: [],
       cardCleanupState: 'idle',
       cardCleanupError: '',
+      pendingCardClientId: '',
+      clientSuggestionFocusIndex: -1,
+      clientSuggestionQuery: '',
       filePreview: {
         attachmentId: '',
         fileName: '',
@@ -9452,43 +9492,78 @@ BOARD_WEB_APP_HTML = "".join(
 
     function hideClientSuggestions() {
       state.clientSuggestions = [];
+      state.clientSuggestionFocusIndex = -1;
+      state.clientSuggestionQuery = '';
       if (els.clientMatchPanel) els.clientMatchPanel.classList.remove('is-visible');
       if (els.clientMatchList) els.clientMatchList.innerHTML = '';
     }
 
-    function renderClientSuggestions(clients) {
+    function clientSuggestionVehicleText(client) {
+      const vehicles = Array.isArray(client?.vehicles_preview) ? client.vehicles_preview : [];
+      if (!vehicles.length) return 'АВТОМОБИЛИ НЕ УКАЗАНЫ';
+      const visible = vehicles.slice(0, 2).map((vehicle) => {
+        const vehicleName = String(vehicle?.vehicle || 'Автомобиль').trim();
+        const identity = [vehicle?.license_plate, vehicle?.vin].filter(Boolean).join(' · ');
+        return identity ? (vehicleName + ' · ' + identity) : vehicleName;
+      });
+      const total = Number(client?.stats?.vehicles_total ?? vehicles.length);
+      if (total > visible.length) visible.push('+' + (total - visible.length) + ' авто');
+      return visible.join(' / ');
+    }
+
+    function highlightedClientNameHtml(name, query) {
+      const text = String(name || '').trim();
+      const token = normalizeClientSearchText(query).split(/\\s+/).find((part) => part.length >= 2) || '';
+      if (!text || !token) return escapeHtml(text || 'КЛИЕНТ');
+      const lowerText = normalizeClientSearchText(text);
+      const index = lowerText.indexOf(token);
+      if (index < 0) return escapeHtml(text);
+      return escapeHtml(text.slice(0, index)) + '<mark>' + escapeHtml(text.slice(index, index + token.length)) + '</mark>' + escapeHtml(text.slice(index + token.length));
+    }
+
+    function renderClientSuggestions(clients, { query = '', showEmpty = false } = {}) {
       state.clientSuggestions = Array.isArray(clients) ? clients : [];
+      state.clientSuggestionQuery = String(query || '').trim();
+      if (state.clientSuggestionFocusIndex >= state.clientSuggestions.length) {
+        state.clientSuggestionFocusIndex = state.clientSuggestions.length ? 0 : -1;
+      }
       if (!els.clientMatchPanel || !els.clientMatchList) return;
-      if (!state.clientSuggestions.length || !state.editingId) {
+      if (!state.clientSuggestions.length && !showEmpty) {
         hideClientSuggestions();
         return;
       }
       els.clientMatchPanel.classList.add('is-visible');
-      els.clientMatchList.innerHTML = state.clientSuggestions.map((client) => (
-        '<button class="client-match-chip" type="button" data-link-client="' + escapeHtml(client.id) + '">'
-        + escapeHtml(clientDisplayName(client))
-        + (client.phone ? ' · ' + escapeHtml(client.phone) : '')
+      if (!state.clientSuggestions.length) {
+        els.clientMatchList.innerHTML = '<div class="client-match-empty">КЛИЕНТ НЕ НАЙДЕН.<button class="btn btn--ghost client-match-create" type="button" data-client-suggest-create="true">СОЗДАТЬ НОВОГО</button></div>';
+        return;
+      }
+      els.clientMatchList.innerHTML = state.clientSuggestions.map((client, index) => (
+        '<button class="client-match-item' + (index === state.clientSuggestionFocusIndex ? ' is-active' : '') + '" type="button" data-select-client-suggestion="' + escapeHtml(client.id) + '">'
+        + '<div class="client-match-item__name">' + highlightedClientNameHtml(clientDisplayName(client), state.clientSuggestionQuery) + '</div>'
+        + '<div class="client-match-item__phone">' + escapeHtml(client.phone || 'телефон не указан') + '</div>'
+        + '<div class="client-match-item__vehicles">' + escapeHtml(clientSuggestionVehicleText(client)) + '</div>'
         + '</button>'
       )).join('');
     }
 
     async function refreshClientSuggestionsForCard() {
-      if (!state.editingId) {
-        hideClientSuggestions();
-        return;
-      }
       const profile = readVehicleProfileForm();
       const query = [profile.customer_name, profile.customer_phone].filter(Boolean).join(' ');
-      if (!query.trim()) {
+      const trimmedQuery = query.trim();
+      const queryDigits = trimmedQuery.replace(/\\D+/g, '');
+      if (trimmedQuery.length < 2 && queryDigits.length < 3) {
         hideClientSuggestions();
         return;
       }
+      state.clientSuggestionQuery = trimmedQuery;
       try {
-        const data = await api('/api/suggest_clients_for_card', {
-          method: 'POST',
-          body: { card_id: state.editingId, query, limit: 5 },
-        });
-        renderClientSuggestions(data?.clients || []);
+        const data = await api('/api/search_clients?query=' + encodeURIComponent(trimmedQuery) + '&limit=6');
+        const currentProfile = readVehicleProfileForm();
+        const currentQuery = [currentProfile.customer_name, currentProfile.customer_phone].filter(Boolean).join(' ').trim();
+        if (currentQuery !== trimmedQuery) return;
+        const clients = data?.clients || [];
+        state.clientSuggestionFocusIndex = clients.length ? 0 : -1;
+        renderClientSuggestions(clients, { query: trimmedQuery, showEmpty: true });
       } catch (_) {
         hideClientSuggestions();
       }
@@ -9497,6 +9572,65 @@ BOARD_WEB_APP_HTML = "".join(
     function scheduleClientSuggestionsForCard() {
       window.clearTimeout(state.clientSuggestTimer);
       state.clientSuggestTimer = window.setTimeout(refreshClientSuggestionsForCard, 300);
+    }
+
+    function applyClientSuggestionToVehicleProfile(client) {
+      if (!client) return;
+      state.pendingCardClientId = client.id || '';
+      const profile = cloneVehicleProfile(state.vehicleProfileDraft || emptyVehicleProfile());
+      const clientName = clientDisplayName(client);
+      if (clientName) profile.customer_name = clientName;
+      if (client.phone) profile.customer_phone = client.phone;
+      const vehicles = Array.isArray(client.vehicles_preview) ? client.vehicles_preview : [];
+      const firstVehicle = vehicles[0] || {};
+      if (!profile.display_name && firstVehicle.vehicle) profile.display_name = firstVehicle.vehicle;
+      if (!profile.registration_plate && firstVehicle.license_plate) profile.registration_plate = firstVehicle.license_plate;
+      if (!profile.vin && firstVehicle.vin) profile.vin = firstVehicle.vin;
+      applyVehicleProfileToForm(profile, { preserveStatus: true });
+    }
+
+    async function chooseClientSuggestion(clientId) {
+      const client = state.clientSuggestions.find((item) => item.id === clientId);
+      if (!client) return;
+      applyClientSuggestionToVehicleProfile(client);
+      hideClientSuggestions();
+      if (state.editingId) {
+        await linkActiveCardToClient(clientId);
+        applyClientSuggestionToVehicleProfile(client);
+      } else {
+        setStatus('КЛИЕНТ ВЫБРАН ДЛЯ НОВОЙ КАРТОЧКИ.', false);
+      }
+    }
+
+    function moveClientSuggestionFocus(delta) {
+      if (!state.clientSuggestions.length) return;
+      const length = state.clientSuggestions.length;
+      state.clientSuggestionFocusIndex = (state.clientSuggestionFocusIndex + delta + length) % length;
+      renderClientSuggestions(state.clientSuggestions, { query: state.clientSuggestionQuery, showEmpty: true });
+    }
+
+    async function handleClientSuggestionKeydown(event) {
+      if (!els.clientMatchPanel?.classList.contains('is-visible')) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        hideClientSuggestions();
+        return;
+      }
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        moveClientSuggestionFocus(1);
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        moveClientSuggestionFocus(-1);
+        return;
+      }
+      if (event.key === 'Enter' && state.clientSuggestionFocusIndex >= 0) {
+        event.preventDefault();
+        const client = state.clientSuggestions[state.clientSuggestionFocusIndex];
+        if (client?.id) await chooseClientSuggestion(client.id);
+      }
     }
 
     async function linkActiveCardToClient(clientId) {
@@ -13052,6 +13186,9 @@ BOARD_WEB_APP_HTML = "".join(
       els.vehicleProfileFields.querySelectorAll('[data-vehicle-field-input]').forEach((input) => {
         input.addEventListener('input', () => handleVehicleFieldInput(input.dataset.vehicleFieldInput));
         input.addEventListener('change', () => handleVehicleFieldInput(input.dataset.vehicleFieldInput));
+        if (input.dataset.vehicleFieldInput === 'customer_name' || input.dataset.vehicleFieldInput === 'customer_phone') {
+          input.addEventListener('keydown', handleClientSuggestionKeydown);
+        }
       });
     }
 
@@ -13172,7 +13309,10 @@ BOARD_WEB_APP_HTML = "".join(
       state.vehicleProfileDraft = profile;
       state.vehicleAutofillResult = null;
       refreshVehiclePanel();
-      if (fieldName === 'customer_name' || fieldName === 'customer_phone') scheduleClientSuggestionsForCard();
+      if (fieldName === 'customer_name' || fieldName === 'customer_phone') {
+        state.pendingCardClientId = '';
+        scheduleClientSuggestionsForCard();
+      }
     }
 
     function readVehicleProfileForm() {
@@ -14524,6 +14664,7 @@ BOARD_WEB_APP_HTML = "".join(
       state.activeCard = currentCard;
       state.editingId = currentCard?.id || null;
       state.vehicleAutofillResult = null;
+      state.pendingCardClientId = currentCard?.client_id || '';
       state.draftTags = normalizeDraftTags(currentCard?.tag_items || currentCard?.tags || []);
       state.draftTagColor = 'green';
       const modalHeading = currentCard?.id ? cardHeading(currentCard) : 'Новая карточка';
@@ -14568,6 +14709,7 @@ BOARD_WEB_APP_HTML = "".join(
       state.vehicleProfileDraft = null;
       state.vehicleProfileBaseline = null;
       state.vehicleAutofillResult = null;
+      state.pendingCardClientId = '';
       hideClientSuggestions();
       state.draftTags = [];
       state.draftTagColor = 'green';
@@ -14583,10 +14725,25 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     async function persistCardPayload(payload) {
+      let data;
       if (state.editingId) {
-        return api('/api/update_card', { method: 'POST', body: { card_id: state.editingId, ...payload } });
+        data = await api('/api/update_card', { method: 'POST', body: { card_id: state.editingId, ...payload } });
+      } else {
+        data = await api('/api/create_card', { method: 'POST', body: payload });
       }
-      return api('/api/create_card', { method: 'POST', body: payload });
+      const cardId = data?.card?.id || state.editingId || '';
+      if (cardId && state.pendingCardClientId && data?.card?.client_id !== state.pendingCardClientId) {
+        return api('/api/link_card_to_client', {
+          method: 'POST',
+          body: {
+            card_id: cardId,
+            client_id: state.pendingCardClientId,
+            sync_fields: true,
+            overwrite_card_fields: false,
+          },
+        });
+      }
+      return data;
     }
 
     function formatIndicatorLabel(value) {
@@ -17518,6 +17675,23 @@ function renderCompactArchiveRows(cards) {
         event.stopPropagation();
         await linkActiveCardToClient(linkClientTarget.dataset.linkClient);
         return;
+      }
+      const selectClientSuggestionTarget = target.closest('[data-select-client-suggestion]');
+      if (selectClientSuggestionTarget instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        await chooseClientSuggestion(selectClientSuggestionTarget.dataset.selectClientSuggestion);
+        return;
+      }
+      const createClientSuggestionTarget = target.closest('[data-client-suggest-create]');
+      if (createClientSuggestionTarget instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        hideClientSuggestions();
+        return;
+      }
+      if (els.clientMatchPanel?.classList.contains('is-visible') && !target.closest('#clientMatchPanel') && !target.closest('[data-vehicle-field-input="customer_name"]') && !target.closest('[data-vehicle-field-input="customer_phone"]')) {
+        hideClientSuggestions();
       }
       const openRepairOrderModalTarget = target.closest('[data-open-repair-order-modal]');
       if (openRepairOrderModalTarget) {

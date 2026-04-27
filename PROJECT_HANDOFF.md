@@ -210,6 +210,7 @@ Latest completed stabilization wave:
 - MCP repair-order expectations were updated to match the corrected cashless total model
 - mobile-lite board mode now activates automatically on narrow screens and collapses the board into a single-column, low-noise layout with heavy controls hidden by default
 - clients module was added to the topbar: operators can create people, IP/OOO/company profiles, store requisites, see related vehicles and repair-order history, and optionally link cards to clients without forcing every card into the client directory
+- card vehicle-passport customer fields now show an inline existing-client picker with phone and vehicle preview; choosing a client fills customer fields and links after save for new cards
 - MCP client tools were expanded from `50` to `60` with client list/search/profile/stats/create/update/delete/link/unlink/suggestion commands
 - clients module audit fixed the connection-card allowed tool list, direct API nested `client`/`patch` payloads, and `+7`/`8` phone matching for client suggestions/history
 

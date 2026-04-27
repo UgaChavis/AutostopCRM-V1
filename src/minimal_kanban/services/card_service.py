@@ -4860,6 +4860,7 @@ class CardService:
     ) -> dict[str, Any]:
         payload = client.to_dict()
         payload["short_id"] = short_entity_id(client.id, prefix="CL")
+        payload["vehicles_preview"] = self._client_vehicles(client, cards)[:2]
         if include_stats:
             payload["stats"] = self._client_stats(client, cards)
         if compact:
@@ -4881,6 +4882,7 @@ class CardService:
                 "kpp",
                 "ogrn",
                 "contact_person",
+                "vehicles_preview",
                 "updated_at",
                 "stats",
             }
