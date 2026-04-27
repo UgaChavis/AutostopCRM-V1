@@ -116,6 +116,7 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - client profiles can store imported `vehicles[]`; search uses profile fields and saved vehicles first, then falls back to related repair history
 - MCP exposes client search, profile, stats, create/update, delete, card link/unlink, and card suggestions
 - the card modal now has an inline existing-client picker with phone and vehicle preview, and Chrome autofill suppression is enabled on the relevant client/card inputs
+- the clients modal opens with a short first page and uses backend search across the full client directory, not a local filter over visible rows
 
 ## Documentation Layout
 

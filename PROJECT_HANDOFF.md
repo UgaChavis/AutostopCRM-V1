@@ -198,6 +198,7 @@ Latest completed wave, in practical terms:
 - current clients UX also includes vehicle previews, better phone matching, debt summary, and more readable repair-order cards in the profile pane
 - bulk client imports from cleaned Markdown JSONL preserve legal requisites, phones and saved profile vehicles; a state backup is created before every apply run
 - client search is optimized for thousand-entry directories by checking profile fields and saved vehicles before falling back to related card history
+- the clients modal does not preload the whole directory: initial UI load is capped, and typing in the search field calls backend search across all clients
 
 Latest completed stabilization wave:
 

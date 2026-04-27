@@ -5054,14 +5054,12 @@ class CardService:
         query_digits = re.sub(r"\D+", "", query)
         query_phone_variants = self._phone_search_variants(query)
         ranked: list[tuple[int, ClientProfile]] = []
+        fallback_clients: list[ClientProfile] = []
         cards = cards or []
         client_match_keys_by_id = (
             {client.id: self._client_match_keys(client) for client in clients}
-            if query_phone_variants or cards
+            if query_phone_variants
             else {}
-        )
-        related_fields_by_client_id = (
-            self._client_related_vehicle_fields_index(clients, cards) if cards else {}
         )
         for client in clients:
             fields = [
@@ -5133,7 +5131,16 @@ class CardService:
                     score += 10
                 elif query_phone_variants.intersection(client_match_keys_by_id.get(client.id, set())):
                     score += 10
-            if score == 0 and related_fields_by_client_id:
+            if score > 0:
+                ranked.append((score, client))
+            else:
+                fallback_clients.append(client)
+        if not ranked and cards and fallback_clients:
+            related_fields_by_client_id = self._client_related_vehicle_fields_index(
+                fallback_clients, cards
+            )
+            for client in fallback_clients:
+                score = 0
                 related_vehicle_fields = related_fields_by_client_id.get(client.id, [])
                 related_searchable = [
                     self._normalize_search_text(value)
@@ -5158,8 +5165,8 @@ class CardService:
                         compact_variant in value for value in related_compact_searchable
                     ):
                         score += 5
-            if score > 0:
-                ranked.append((score, client))
+                if score > 0:
+                    ranked.append((score, client))
         ranked.sort(key=lambda item: (item[0], item[1].updated_at, item[1].name()), reverse=True)
         return ranked
 

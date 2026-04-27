@@ -6609,6 +6609,8 @@ BOARD_WEB_APP_HTML = "".join(
     const API_TOKEN_STORAGE_KEY = 'kanban-api-token';
     const BOARD_SCALE_STORAGE_KEY_PREFIX = 'kanban-board-scale:';
     const ARCHIVE_PREVIEW_LIMIT = 30;
+    const CLIENTS_INITIAL_LIMIT = 35;
+    const CLIENTS_SEARCH_LIMIT = 50;
 
     const state = {
       actor: '',
@@ -6675,12 +6677,13 @@ BOARD_WEB_APP_HTML = "".join(
       repairOrdersMetaState: null,
       repairOrderParentLayer: '',
       clients: [],
-      clientsAll: [],
       clientsQuery: '',
       clientsActiveId: '',
       clientsActiveProfile: null,
       clientsUiBound: false,
       clientsSearchTimer: null,
+      clientsRequestSeq: 0,
+      clientsMetaState: null,
       clientSuggestTimer: null,
       clientSuggestions: [],
       cashboxes: [],
@@ -9183,72 +9186,6 @@ BOARD_WEB_APP_HTML = "".join(
       return new Set(Array.from(variants).filter((variant) => variant.length >= 3));
     }
 
-    function clientSearchHaystack(client) {
-      const phones = Array.isArray(client?.phones) ? client.phones : [];
-      return [
-        client?.name,
-        client?.full_name,
-        client?.display_name,
-        client?.last_name,
-        client?.first_name,
-        client?.middle_name,
-        client?.phone,
-        ...phones,
-        client?.email,
-        client?.inn,
-        client?.ogrn,
-        client?.legal_name,
-        client?.short_name,
-        client?.contact_person,
-      ].filter(Boolean).join(' ');
-    }
-
-    function clientMatchesSearchQuery(client, query) {
-      const normalizedQuery = normalizeClientSearchText(query).trim();
-      if (!normalizedQuery) return true;
-      const haystack = normalizeClientSearchText(clientSearchHaystack(client));
-      const queryDigits = normalizedQuery.replace(/\\D+/g, '');
-      const queryPhoneVariants = clientPhoneSearchVariants(normalizedQuery);
-      const clientPhoneKeys = clientPhoneMatchKeys([client?.phone, ...(Array.isArray(client?.phones) ? client.phones : [])].filter(Boolean).join(' '));
-      const clientPhoneVariants = clientPhoneSearchVariants([client?.phone, ...(Array.isArray(client?.phones) ? client.phones : [])].filter(Boolean).join(' '));
-      const tokens = normalizedQuery.split(/\\s+/).filter(Boolean);
-      if (tokens.length && tokens.every((token) => haystack.includes(token))) return true;
-      for (const key of queryPhoneVariants) {
-        if (clientPhoneKeys.has(key)) return true;
-      }
-      for (const queryVariant of queryPhoneVariants) {
-        for (const clientVariant of clientPhoneVariants) {
-          if (queryVariant.includes(clientVariant) || clientVariant.includes(queryVariant)) return true;
-        }
-      }
-      if (queryDigits.length >= 4) {
-        const compactHaystack = haystack.replace(/\\D+/g, '');
-        if (compactHaystack.includes(queryDigits)) return true;
-      }
-      return tokens.some((token) => haystack.includes(token));
-    }
-
-    function applyClientSearchFilter(query) {
-      const normalizedQuery = String(query || '').trim();
-      const source = Array.isArray(state.clientsAll) && state.clientsAll.length
-        ? state.clientsAll
-        : (Array.isArray(state.clients) ? state.clients : []);
-      const filtered = normalizedQuery
-        ? source.filter((client) => clientMatchesSearchQuery(client, normalizedQuery))
-        : source.slice();
-      state.clients = filtered;
-      if (filtered.length) {
-        if (!state.clientsActiveId || !filtered.some((client) => client.id === state.clientsActiveId)) {
-          state.clientsActiveId = filtered[0].id;
-        }
-      } else if (!normalizedQuery) {
-        state.clientsActiveId = '';
-      } else if (state.clientsActiveId && !filtered.some((client) => client.id === state.clientsActiveId)) {
-        state.clientsActiveId = '';
-      }
-      renderClientsList();
-    }
-
     function clientMetaLine(client) {
       const stats = client?.stats || {};
       const parts = [];
@@ -9270,7 +9207,23 @@ BOARD_WEB_APP_HTML = "".join(
     function renderClientsList() {
       const clients = Array.isArray(state.clients) ? state.clients : [];
       if (els.clientsMeta) {
-        els.clientsMeta.textContent = clients.length ? ('КЛИЕНТОВ: ' + clients.length) : 'КЛИЕНТОВ ПОКА НЕТ';
+        const meta = state.clientsMetaState || {};
+        const total = Number(meta.total);
+        const returned = Number(meta.returned);
+        const hasMore = Boolean(meta.has_more);
+        if (state.clientsQuery) {
+          if (Number.isFinite(total)) {
+            els.clientsMeta.textContent = 'НАЙДЕНО: ' + (Number.isFinite(returned) ? returned : clients.length) + ' ИЗ ' + total + (hasMore ? ' · УТОЧНИТЕ ПОИСК' : '');
+          } else {
+            els.clientsMeta.textContent = clients.length ? ('НАЙДЕНО: ' + clients.length) : 'КЛИЕНТЫ НЕ НАЙДЕНЫ';
+          }
+        } else if (Number.isFinite(total)) {
+          els.clientsMeta.textContent = total
+            ? ('ПОКАЗАНО: ' + (Number.isFinite(returned) ? returned : clients.length) + ' ИЗ ' + total)
+            : 'КЛИЕНТОВ ПОКА НЕТ';
+        } else {
+          els.clientsMeta.textContent = clients.length ? ('КЛИЕНТОВ: ' + clients.length) : 'КЛИЕНТОВ ПОКА НЕТ';
+        }
       }
       if (!els.clientsList) return;
       if (!clients.length) {
@@ -9404,27 +9357,30 @@ BOARD_WEB_APP_HTML = "".join(
     async function loadClients({ openModal = false } = {}) {
       const query = String(els.clientsSearchInput?.value || state.clientsQuery || '').trim();
       state.clientsQuery = query;
+      const requestSeq = (state.clientsRequestSeq || 0) + 1;
+      state.clientsRequestSeq = requestSeq;
+      state.clientsMetaState = null;
+      if (els.clientsMeta) els.clientsMeta.textContent = query ? 'ПОИСК ПО ВСЕМ КЛИЕНТАМ...' : 'ЗАГРУЗКА КРАТКОГО СПИСКА...';
       const path = query
-        ? '/api/search_clients?query=' + encodeURIComponent(query) + '&limit=200'
-        : '/api/list_clients?limit=200&include_stats=true';
+        ? '/api/search_clients?query=' + encodeURIComponent(query) + '&limit=' + CLIENTS_SEARCH_LIMIT
+        : '/api/list_clients?limit=' + CLIENTS_INITIAL_LIMIT + '&include_stats=false';
       const data = await loadModalData(path, {
         openModal,
         modalEl: els.clientsModal,
         onSuccess: (payload) => {
+          if (state.clientsRequestSeq !== requestSeq) return;
           const clients = Array.isArray(payload?.clients) ? payload.clients : [];
-          if (query) {
-            if (state.clientsQuery !== query) return;
-            state.clients = clients;
-          } else {
-            state.clientsAll = clients.slice();
-            state.clients = clients;
-          }
+          state.clientsMetaState = payload?.meta || null;
+          state.clients = clients;
           if (state.clients.length && (!state.clientsActiveId || !state.clients.some((client) => client.id === state.clientsActiveId))) {
             state.clientsActiveId = state.clients[0].id;
+          } else if (!state.clients.length) {
+            state.clientsActiveId = '';
           }
           renderClientsList();
         },
       });
+      if (state.clientsRequestSeq !== requestSeq) return data;
       if (state.clientsActiveId) await selectClient(state.clientsActiveId);
       return data;
     }
@@ -9480,9 +9436,9 @@ BOARD_WEB_APP_HTML = "".join(
       els.clientsSearchInput?.addEventListener('input', () => {
         const query = String(els.clientsSearchInput?.value || '').trim();
         state.clientsQuery = query;
-        applyClientSearchFilter(query);
+        if (els.clientsMeta) els.clientsMeta.textContent = query ? 'ПОИСК ПО ВСЕМ КЛИЕНТАМ...' : 'ЗАГРУЗКА КРАТКОГО СПИСКА...';
         window.clearTimeout(state.clientsSearchTimer);
-        state.clientsSearchTimer = window.setTimeout(() => loadClients({ openModal: false }), 220);
+        state.clientsSearchTimer = window.setTimeout(() => loadClients({ openModal: false }), 160);
       });
       els.clientTypeInput?.addEventListener('change', () => {
         if (els.clientRequisitesDetails) els.clientRequisitesDetails.open = ['ip', 'ooo', 'company'].includes(els.clientTypeInput.value);
