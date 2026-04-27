@@ -5683,12 +5683,80 @@ BOARD_WEB_APP_HTML = "".join(
       border: 1px solid rgba(160, 174, 135, 0.16);
       background: rgba(16, 22, 18, 0.72);
       color: var(--text);
-      padding: 8px;
+      padding: 10px 11px;
+    }
+    .client-mini--order {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+      text-align: left;
+    }
+    .client-mini__order-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .client-mini__order-status {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 22px;
+      padding: 0 8px;
+      border: 1px solid rgba(167, 178, 132, 0.38);
+      background: rgba(0, 0, 0, 0.16);
+      color: #f0ecdc;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.1;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .client-mini__order-status[data-status="closed"] {
+      border-color: rgba(198, 148, 116, 0.4);
+      background: rgba(72, 40, 24, 0.28);
+      color: #f2d9c8;
+    }
+    .client-mini__order-status[data-status="open"] {
+      border-color: rgba(167, 178, 132, 0.36);
+      background: rgba(22, 32, 24, 0.42);
+      color: #edf4d8;
     }
     .client-mini__order-number {
       color: var(--text);
-      font-size: 13px;
-      letter-spacing: 0.05em;
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .client-mini__order-meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    .client-mini__order-total-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .client-mini__order-total-label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .client-mini__order-total-value {
+      color: var(--text);
+      font-size: 16px;
+      font-weight: 800;
+      line-height: 1.1;
+      white-space: nowrap;
     }
     .client-match-panel {
       display: none;
@@ -9230,7 +9298,17 @@ BOARD_WEB_APP_HTML = "".join(
         ? vehicles.map((vehicle) => '<div class="client-mini"><strong>' + escapeHtml(vehicle.vehicle || 'Автомобиль') + '</strong><div class="client-mini__meta">' + escapeHtml([vehicle.license_plate, vehicle.vin].filter(Boolean).join(' · ') || 'VIN / номер не указан') + '</div></div>').join('')
         : '<div class="empty">МАШИН ПОКА НЕТ.</div>';
       els.clientOrdersList.innerHTML = orders.length
-        ? orders.map((order) => '<button class="client-mini" type="button" data-open-repair-order-card="' + escapeHtml(order.card_id || '') + '"><strong class="client-mini__order-number">№ ' + escapeHtml(order.number || '-') + '</strong><div class="client-mini__meta">' + escapeHtml([formatDate(order.opened_at || order.date), order.vehicle, order.status_label, order.grand_total].filter(Boolean).join(' · ')) + '</div></button>').join('')
+        ? orders.map((order) => {
+          const statusKey = String(order?.status || '').trim().toLowerCase() === 'closed' ? 'closed' : 'open';
+          const statusLabel = repairOrderStatusLabel(statusKey);
+          const totalLabel = repairOrderFormatRubles(order?.grand_total || 0);
+          const orderMeta = [formatDate(order.opened_at || order.date), order.vehicle].filter(Boolean).join(' · ') || 'ДАННЫЕ О ЗАКАЗ-НАРЯДЕ ОТСУТСТВУЮТ';
+          return '<button class="client-mini client-mini--order" type="button" data-open-repair-order-card="' + escapeHtml(order.card_id || '') + '">' +
+            '<div class="client-mini__order-head"><strong class="client-mini__order-number">№ ' + escapeHtml(order.number || '-') + '</strong><span class="client-mini__order-status" data-status="' + escapeHtml(statusKey) + '">' + escapeHtml(statusLabel.toUpperCase()) + '</span></div>' +
+            '<div class="client-mini__order-meta">' + escapeHtml(orderMeta) + '</div>' +
+            '<div class="client-mini__order-total-row"><span class="client-mini__order-total-label">СУММА</span><span class="client-mini__order-total-value">' + escapeHtml(totalLabel) + '</span></div>' +
+          '</button>';
+        }).join('')
         : '<div class="empty">ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.</div>';
     }
 

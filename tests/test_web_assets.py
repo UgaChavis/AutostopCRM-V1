@@ -697,6 +697,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("clientDebtCard", BOARD_WEB_APP_HTML)
         self.assertIn("clientDebtValue", BOARD_WEB_APP_HTML)
         self.assertIn("client-mini__order-number", BOARD_WEB_APP_HTML)
+        self.assertIn("client-mini__order-status", BOARD_WEB_APP_HTML)
+        self.assertIn("client-mini__order-total-value", BOARD_WEB_APP_HTML)
         self.assertNotIn("clientProfileMeta", BOARD_WEB_APP_HTML)
         self.assertIn(".clients-list-pane {", BOARD_WEB_APP_HTML)
         self.assertIn("display: flex;", BOARD_WEB_APP_HTML)
