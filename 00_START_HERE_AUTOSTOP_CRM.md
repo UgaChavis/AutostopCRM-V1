@@ -101,8 +101,8 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - last known full-suite baseline before this update cycle was green
 - latest targeted local regressions for `service + api + web_assets` are green
 - latest targeted `service + api + web_assets + MCP` runs are green
-- latest full local regression after clients module audit: `466/466 OK`
-- latest local/GitHub clients module audit commit before production redeploy: `524b114`
+- latest full local regression after the current client and MCP audit pass: `470/470 OK`
+- latest local/GitHub/production synced commit: `269639e`
 - production site: `200 OK`
 - production MCP at last verification: OK with `60` tools
 - this deployment path covers the CRM repo at `/opt/autostopcrm` and its optional in-repo Telegram AI worker; VPN helpers are separate deploy targets
@@ -113,7 +113,8 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - supported profiles: physical person, IP, OOO, company
 - cards can stay unlinked for one-off clients or link to a `client_id`
 - client history is derived from explicit `client_id` plus matching customer name/phone in card profile and repair order
-- MCP exposes client search, profile, stats, create/update, card link/unlink and card suggestions
+- MCP exposes client search, profile, stats, create/update, delete, card link/unlink, and card suggestions
+- the card modal now has an inline existing-client picker with phone and vehicle preview, and Chrome autofill suppression is enabled on the relevant client/card inputs
 
 ## Documentation Layout
 

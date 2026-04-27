@@ -40,9 +40,9 @@ Use this file for durable notes that should not be rediscovered every session.
 - the CRM deploy path in this repo targets `/opt/autostopcrm`; it now includes both `autostopcrm` and the optional in-repo `autostopcrm-telegram-ai` service
 - `agent/remodel.py` now uses `StrEnum` for its AI enum sets, and the surrounding `agent/*` modules were reformatted so import blocks stay canonical without touching behavior
 
-## Telegram AI Checkpoint: 2026-04-25
+## Telegram AI Checkpoint: 2026-04-28
 
-- commit synced locally, on GitHub, and on production: `c0f6188`
+- commit synced locally, on GitHub, and on production: `269639e`
 - production repo: `/opt/autostopcrm`
 - production services: `autostopcrm`, `autostopcrm-telegram-ai`
 - live CRM URL: `https://crm.autostopcrm.ru`
@@ -51,6 +51,7 @@ Use this file for durable notes that should not be rediscovered every session.
 - clients module is optional-link by design: a card may keep manual customer fields without a `client_id`; agents should search/suggest before creating client profiles
 - client-module audit: connection-card/Responses API allowed tools must include all 9 client MCP tools; direct HTTP API accepts both nested `client`/`patch` payloads and flat UI/MCP payloads; `+7` and `8` phone prefixes are equivalent for client matching
 - local targeted Telegram AI regression result before documentation pass: `48/48 OK`
+- latest production-safe client UX additions: inline existing-client picker in the card editor, better client phone matching, Chrome autofill suppression on client/card fields, and more readable order cards in the client profile pane
 - production live check before documentation pass:
   - deploy smoke passed after rebuild
   - API OK
@@ -59,6 +60,7 @@ Use this file for durable notes that should not be rediscovered every session.
 - live Telegram AI VIN follow-up smoke inside `autostopcrm-telegram-ai` succeeded; `conversation_state.last_vin` was preserved across the next turn and was forwarded into internet-search payloads
 - live Telegram AI web-search payload smoke confirmed simple search uses `gpt-5.4-mini`/medium, complex VIN/OEM/parts search uses `gpt-5.4`/high, and Telegram formatting sections are present
 - live Telegram AI voice behavior now prefers local `faster-whisper` first and only falls back to OpenAI transcription when the local backend cannot be used
+- the MCP attachment read test flaked once during a broad suite run, but rerunning the exact test alone passed; treat it as a transient environment issue unless it starts repeating
 - next likely feature: composed parts-search flow through Telegram:
   1. user references a card or asks for a part
   2. agent reads CRM card/context

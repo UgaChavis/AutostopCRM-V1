@@ -1,4 +1,6 @@
-# Подключение Minimal Kanban к ChatGPT
+# Подключение AutoStop CRM к ChatGPT
+
+> Файл сохранён под старым именем по совместимости с runtime/tests. По содержанию это уже актуальный AutoStop CRM MCP flow.
 
 Этот файл описывает уже актуальный сценарий подключения доски к ChatGPT через MCP.
 
@@ -14,6 +16,7 @@
   - `POST /token`
 - поддерживает dynamic client registration и PKCE;
 - продолжает принимать legacy bearer token для Responses API и ручных MCP-клиентов.
+- содержит клиентские инструменты для поиска, профиля, статистики, создания, обновления, удаления и привязки клиентов к карточкам
 
 ## Практический смысл
 
@@ -58,6 +61,8 @@
 - `get_gpt_wall`
 - `get_board_snapshot`
 - `search_cards`
+- `search_clients`
+- `list_clients`
 - `create_card`
 - `move_card`
 - `update_card`

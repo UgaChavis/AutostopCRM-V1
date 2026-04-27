@@ -194,6 +194,8 @@ Latest completed wave, in practical terms:
 - server deploy topology was reduced to the main `autostopcrm` service
 - MCP and local API were kept as the active integration layers
 - Telegram AI Board Manager was added back as a separate worker service, not as UI-thread logic and not as the old VIN-only agent
+- the clients module now has inline existing-client search in the card editor, plus Chrome autofill suppression on the relevant client/card fields
+- current clients UX also includes vehicle previews, better phone matching, debt summary, and more readable repair-order cards in the profile pane
 
 Latest completed stabilization wave:
 
@@ -202,7 +204,7 @@ Latest completed stabilization wave:
 - Telegram AI direct internet-search was added for explicit commands like `найди в интернете`, using OpenAI `web_search_preview`
 - Telegram AI complex CRM decisions can escalate from `gpt-5.4-mini` to `gpt-5.4`
 - Telegram AI web-search was stabilized after live timeout/429 failures: direct web-search now uses the base model with low search context and one retry
-- production was synced and redeployed at `fa3f574`; live diagnostics passed for site/API/MCP/Telegram AI
+- production was synced and redeployed at `269639e`; live diagnostics passed for site/API/MCP/Telegram AI
 - repair-order modal stack from `desktop -> repair orders -> repair order -> nested windows` was fixed in UI shell so the repair-orders list remains the real parent layer
 - opening a repair order from the list no longer intentionally closes the list first or leaves the user falling back into an unexpected card layer
 - cashbox journal API and UI were added for the latest `3` months, including formatted modal text and text-file download
@@ -217,6 +219,9 @@ Latest completed stabilization wave:
 Most recent important commits in the current line:
 
 - `524b114` `Audit clients module integrations`
+- `269639e` `Suppress browser autofill in client forms`
+- `1b17b1b` `Improve client order card readability`
+- `0ac93c3` `Improve client phone search matching`
 - `d102a42` `Add clients module and MCP tools`
 - `fa3f574` `Make Telegram AI web search faster`
 - `112f871` `Stabilize Telegram AI web search model`
@@ -279,7 +284,7 @@ Current known verification baseline:
 - latest targeted regressions for `tests.test_service`, `tests.test_api`, and `tests.test_web_assets` are green
 - latest targeted `tests.test_service`, `tests.test_api`, `tests.test_web_assets`, `tests.test_mcp`, and `tests.test_mcp_main` runs are green
 - import smoke for `main.py` and `main_mcp.py` is green
-- latest full-suite validation on the current local clients-module audit pass: `466/466 OK`
+- latest full-suite validation on the current local clients-module audit pass: `470/470 OK`
 - latest portable release verifier: passed during the current `autostopcrm-v1` quality pass
 
 Main test areas:
