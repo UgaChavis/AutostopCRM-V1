@@ -404,6 +404,26 @@ class CardServiceTests(unittest.TestCase):
                 self.assertTrue(search["clients"])
                 self.assertEqual(search["clients"][0]["id"], client["id"])
 
+    def test_client_search_matches_common_russian_phone_variants(self) -> None:
+        client = self.service.create_client(
+            {
+                "last_name": "Смирнов",
+                "first_name": "Илья",
+                "phone": "+7 (901) 222-33-44",
+            }
+        )["client"]
+        for query in (
+            "+7 901 222 33 44",
+            "8 901 222 33 44",
+            "89012223344",
+            "79012223344",
+            "+7(901)222-33-44",
+        ):
+            with self.subTest(query=query):
+                search = self.service.search_clients({"query": query, "limit": 5})
+                self.assertTrue(search["clients"])
+                self.assertEqual(search["clients"][0]["id"], client["id"])
+
     def test_delete_client_rejects_linked_cards_unless_explicitly_allowed(self) -> None:
         client = self.service.create_client(
             {

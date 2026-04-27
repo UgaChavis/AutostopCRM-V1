@@ -9040,6 +9040,24 @@ BOARD_WEB_APP_HTML = "".join(
         .replace(/[\\u0300-\\u036f]/g, '');
     }
 
+    function clientPhoneMatchKeys(value) {
+      const text = String(value || '');
+      const candidates = [text, ...(text.match(/\\d[\\d\\s()+-]{7,}\\d/g) || [])];
+      const keys = new Set();
+      for (const candidate of candidates) {
+        const digits = String(candidate || '').replace(/\\D+/g, '');
+        if (digits.length < 7) continue;
+        keys.add(digits);
+        if (digits.length >= 10) {
+          const lastTen = digits.slice(-10);
+          keys.add(lastTen);
+          keys.add('7' + lastTen);
+          keys.add('8' + lastTen);
+        }
+      }
+      return keys;
+    }
+
     function clientSearchHaystack(client) {
       const phones = Array.isArray(client?.phones) ? client.phones : [];
       return [
@@ -9065,8 +9083,13 @@ BOARD_WEB_APP_HTML = "".join(
       if (!normalizedQuery) return true;
       const haystack = normalizeClientSearchText(clientSearchHaystack(client));
       const queryDigits = normalizedQuery.replace(/\\D+/g, '');
+      const queryPhoneKeys = clientPhoneMatchKeys(normalizedQuery);
+      const clientPhoneKeys = clientPhoneMatchKeys([client?.phone, ...(Array.isArray(client?.phones) ? client.phones : [])].filter(Boolean).join(' '));
       const tokens = normalizedQuery.split(/\\s+/).filter(Boolean);
       if (tokens.length && tokens.every((token) => haystack.includes(token))) return true;
+      for (const key of queryPhoneKeys) {
+        if (clientPhoneKeys.has(key)) return true;
+      }
       if (queryDigits.length >= 4) {
         const compactHaystack = haystack.replace(/\\D+/g, '');
         if (compactHaystack.includes(queryDigits)) return true;
@@ -9088,6 +9111,8 @@ BOARD_WEB_APP_HTML = "".join(
           state.clientsActiveId = filtered[0].id;
         }
       } else if (!normalizedQuery) {
+        state.clientsActiveId = '';
+      } else if (state.clientsActiveId && !filtered.some((client) => client.id === state.clientsActiveId)) {
         state.clientsActiveId = '';
       }
       renderClientsList();
