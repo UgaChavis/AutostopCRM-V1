@@ -11,7 +11,7 @@
 - MCP: `https://crm.autostopcrm.ru/mcp`
 - Docker services: `autostopcrm`, `autostopcrm-telegram-ai`
 - local full suite at checkpoint: `48/48 OK`
-- MCP tool count at checkpoint: `59`
+- MCP tool count at checkpoint: `60`
 
 ## Что делает Telegram AI
 

@@ -104,7 +104,7 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - latest full local regression after clients module audit: `466/466 OK`
 - latest local/GitHub clients module audit commit before production redeploy: `524b114`
 - production site: `200 OK`
-- production MCP at last verification: OK with `59` tools
+- production MCP at last verification: OK with `60` tools
 - this deployment path covers the CRM repo at `/opt/autostopcrm` and its optional in-repo Telegram AI worker; VPN helpers are separate deploy targets
 
 ## Current Clients Module

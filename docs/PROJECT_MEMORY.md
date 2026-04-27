@@ -47,7 +47,7 @@ Use this file for durable notes that should not be rediscovered every session.
 - production services: `autostopcrm`, `autostopcrm-telegram-ai`
 - live CRM URL: `https://crm.autostopcrm.ru`
 - live MCP URL: `https://crm.autostopcrm.ru/mcp`
-- MCP tool count after clients module: `59`
+- MCP tool count after clients module: `60`
 - clients module is optional-link by design: a card may keep manual customer fields without a `client_id`; agents should search/suggest before creating client profiles
 - client-module audit: connection-card/Responses API allowed tools must include all 9 client MCP tools; direct HTTP API accepts both nested `client`/`patch` payloads and flat UI/MCP payloads; `+7` and `8` phone prefixes are equivalent for client matching
 - local targeted Telegram AI regression result before documentation pass: `48/48 OK`

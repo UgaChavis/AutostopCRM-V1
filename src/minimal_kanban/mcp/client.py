@@ -283,6 +283,19 @@ class BoardApiClient:
         payload: dict[str, object] = {"client_id": client_id, **patch}
         return self._request_with_identity("/api/update_client", payload, actor_name=actor_name)
 
+    def delete_client(
+        self,
+        client_id: str,
+        *,
+        allow_linked: bool = False,
+        actor_name: str | None = None,
+    ) -> dict:
+        return self._request_with_identity(
+            "/api/delete_client",
+            {"client_id": client_id, "allow_linked": allow_linked},
+            actor_name=actor_name,
+        )
+
     def link_card_to_client(
         self,
         card_id: str,

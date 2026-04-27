@@ -444,6 +444,26 @@ Authorization: Bearer ваш_секрет
 }
 ```
 
+### `POST /api/delete_client`
+
+Назначение: удалить профиль клиента. Карточки не удаляются. Если к клиенту привязаны карточки, команда по умолчанию вернет ошибку `client_has_linked_cards`.
+
+Запрос:
+
+```json
+{
+  "client_id": "CLIENT_ID",
+  "allow_linked": false,
+  "actor_name": "operator"
+}
+```
+
+Важно:
+
+- `allow_linked=false` безопасный режим по умолчанию.
+- `allow_linked=true` сначала снимет `client_id` со связанных карточек, затем удалит профиль клиента.
+- Использовать `allow_linked=true` только после явного подтверждения пользователя.
+
 ### `POST /api/link_card_to_client`
 
 Назначение: привязать карточку к клиенту.

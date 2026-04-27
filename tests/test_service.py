@@ -363,6 +363,7 @@ class CardServiceTests(unittest.TestCase):
                 "vehicle_profile": {
                     "customer_name": "Сидоров Семен",
                     "customer_phone": "8 913 333-44-55",
+                    "vin": "JN1TANT32U0012345",
                 },
             }
         )
@@ -373,6 +374,51 @@ class CardServiceTests(unittest.TestCase):
 
         stats = self.service.get_client_stats({"client_id": client["id"]})
         self.assertEqual(stats["stats"]["cards_total"], 1)
+
+    def test_delete_client_rejects_linked_cards_unless_explicitly_allowed(self) -> None:
+        client = self.service.create_client(
+            {
+                "display_name": "Тестовый клиент на удаление",
+                "phone": "+7 913 444-55-66",
+            }
+        )["client"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Honda Fit",
+                "title": "Удаление клиента",
+                "description": "Проверка безопасного удаления",
+                "deadline": {"hours": 1},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.link_card_to_client({"card_id": card_id, "client_id": client["id"]})
+
+        with self.assertRaisesRegex(ServiceError, "Нельзя удалить клиента"):
+            self.service.delete_client({"client_id": client["id"]})
+
+        deleted = self.service.delete_client({"client_id": client["id"], "allow_linked": True})
+        self.assertTrue(deleted["meta"]["deleted"])
+        self.assertEqual(deleted["meta"]["unlinked_cards"], 1)
+
+        card = self.service.get_card({"card_id": card_id})["card"]
+        self.assertEqual(card["client_id"], "")
+        search = self.service.search_clients({"query": "Тестовый клиент на удаление"})
+        self.assertEqual(search["clients"], [])
+
+    def test_delete_unlinked_client_removes_profile(self) -> None:
+        client = self.service.create_client(
+            {
+                "display_name": "Временный клиент MCP",
+                "phone": "+7 913 777-88-99",
+            }
+        )["client"]
+
+        deleted = self.service.delete_client({"client_id": client["id"]})
+
+        self.assertTrue(deleted["meta"]["deleted"])
+        self.assertEqual(deleted["meta"]["unlinked_cards"], 0)
+        search = self.service.search_clients({"query": "Временный клиент MCP"})
+        self.assertEqual(search["clients"], [])
 
     def test_archive_card_rejects_open_repair_order(self) -> None:
         created = self.service.create_card(

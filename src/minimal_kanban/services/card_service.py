@@ -2289,6 +2289,66 @@ class CardService:
                 "meta": {"changed": changed, "previous_client_id": previous_client_id},
             }
 
+    def delete_client(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            clients = list(bundle["clients"])
+            events = bundle["events"]
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            client = self._find_client(clients, payload.get("client_id") or payload.get("id"))
+            allow_linked = self._validated_optional_bool(payload, "allow_linked", default=False)
+            linked_cards = [card for card in cards if card.client_id == client.id]
+            if linked_cards and not allow_linked:
+                self._fail(
+                    "client_has_linked_cards",
+                    "Нельзя удалить клиента, пока к нему привязаны карточки.",
+                    status_code=409,
+                    details={
+                        "client_id": client.id,
+                        "linked_card_ids": [card.id for card in linked_cards],
+                    },
+                )
+            if linked_cards:
+                for card in linked_cards:
+                    card.client_id = ""
+                    self._touch_card(card, actor_name)
+                    self._append_event(
+                        events,
+                        actor_name=actor_name,
+                        source=source,
+                        action="card_client_unlinked",
+                        message=f"{actor_name} убрал связь карточки с удаляемым клиентом",
+                        card_id=card.id,
+                        details={"previous_client_id": client.id},
+                    )
+            clients = [item for item in clients if item.id != client.id]
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="client_deleted",
+                message=f"{actor_name} удалил клиента",
+                card_id=None,
+                details={"client_id": client.id, "client_name": client.name()},
+            )
+            self._save_bundle(
+                bundle,
+                columns=bundle["columns"],
+                cards=cards,
+                clients=clients,
+                events=events,
+            )
+            return {
+                "client": self._serialize_client(client, cards, include_stats=True),
+                "meta": {
+                    "deleted": True,
+                    "allow_linked": allow_linked,
+                    "unlinked_cards": len(linked_cards),
+                },
+            }
+
     def suggest_clients_for_card(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
@@ -4879,15 +4939,21 @@ class CardService:
         return normalized_values
 
     def _phone_match_keys(self, value: Any) -> set[str]:
-        digits = re.sub(r"\D+", "", str(value or ""))
-        if len(digits) < 7:
-            return set()
-        keys = {digits}
-        if len(digits) >= 10:
-            last_ten = digits[-10:]
-            keys.add(last_ten)
-            keys.add("7" + last_ten)
-            keys.add("8" + last_ten)
+        text = str(value or "")
+        candidates = [text]
+        candidates.extend(match.group(0) for match in _PHONE_PATTERN.finditer(text))
+        candidates.extend(match.group(0) for match in re.finditer(r"\d[\d\s()+-]{7,}\d", text))
+        keys: set[str] = set()
+        for candidate in candidates:
+            digits = re.sub(r"\D+", "", candidate)
+            if len(digits) < 7:
+                continue
+            keys.add(digits)
+            if len(digits) >= 10:
+                last_ten = digits[-10:]
+                keys.add(last_ten)
+                keys.add("7" + last_ten)
+                keys.add("8" + last_ten)
         return keys
 
     def _rank_client_matches(

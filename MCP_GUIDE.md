@@ -40,7 +40,7 @@ JsonStore
 
 ## Доступные MCP tools
 
-Текущий runtime-tool inventory: `59` tools.
+Текущий runtime-tool inventory: `60` tools.
 
 ## Как выбирать команды без лишнего payload
 
@@ -139,6 +139,7 @@ JsonStore
 - `get_client_stats`
 - `create_client`
 - `update_client`
+- `delete_client`
 - `link_card_to_client`
 - `unlink_card_from_client`
 - `suggest_clients_for_card`
@@ -177,6 +178,7 @@ JsonStore
 - `get_client_stats`
 - `create_client`
 - `update_client`
+- `delete_client`
 - `link_card_to_client`
 - `unlink_card_from_client`
 - `suggest_clients_for_card`
@@ -196,6 +198,7 @@ JsonStore
 - Российские телефоны с префиксом `+7` и `8` сопоставляются как один номер для поиска, подсказок и истории.
 - `link_card_to_client` по умолчанию дозаполняет только пустые клиентские поля карточки и заказ-наряда.
 - `overwrite_card_fields=true` использовать только после явного подтверждения пользователя.
+- `delete_client` по умолчанию блокирует удаление связанного клиента; `allow_linked=true` использовать только после явного подтверждения.
 - Для организаций использовать `client_type="ooo"|"ip"|"company"` и поля реквизитов: `inn`, `kpp`, `ogrn`, счета, банк, адреса и контактное лицо.
 
 ### Sticky notes

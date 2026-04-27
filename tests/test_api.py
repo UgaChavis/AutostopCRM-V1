@@ -178,6 +178,14 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(updated["data"]["client"]["bank_name"], "Тест Банк")
         self.assertEqual(updated["data"]["client"]["contact_person"], "Петров Петр")
 
+        status, deleted = self.request(
+            "/api/delete_client",
+            {"client_id": client_id},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(deleted["ok"])
+        self.assertTrue(deleted["data"]["meta"]["deleted"])
+
     def test_get_repair_order_creates_it_lazily_on_first_open(self) -> None:
         status, created = self.request(
             "/api/create_card",

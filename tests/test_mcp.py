@@ -48,6 +48,7 @@ EXPECTED_MCP_TOOLS = {
     "create_column",
     "create_sticky",
     "delete_cashbox",
+    "delete_client",
     "delete_column",
     "delete_sticky",
     "get_board_content",
@@ -216,7 +217,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 59)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 60)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 self.assertTrue(tool_map["ping_connector"].annotations.readOnlyHint)
                 self.assertFalse(tool_map["ping_connector"].annotations.destructiveHint)
@@ -1457,6 +1458,13 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertFalse(unlinked.isError)
                 self.assertEqual(unlinked.structuredContent["data"]["card"]["client_id"], "")
+
+                deleted = await session.call_tool(
+                    "delete_client",
+                    {"client_id": client_id, "actor_name": "ОПЕРАТОР"},
+                )
+                self.assertFalse(deleted.isError)
+                self.assertTrue(deleted.structuredContent["data"]["meta"]["deleted"])
 
     async def test_mcp_move_card_supports_before_card_id_reordering(self) -> None:
         async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:

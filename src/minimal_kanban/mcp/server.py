@@ -1846,6 +1846,28 @@ def create_mcp_server(
         )
 
     @server.tool(
+        name="delete_client",
+        description=_scoped_description(
+            "Delete one client profile. By default this rejects clients still linked to cards; set allow_linked only after operator confirmation."
+        ),
+        annotations=_write_tool_annotations("Delete Client", destructive=True),
+        structured_output=True,
+    )
+    def delete_client(
+        client_id: str,
+        allow_linked: bool = False,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "delete_client",
+            lambda: board_api.delete_client(
+                client_id,
+                allow_linked=allow_linked,
+                actor_name=actor_name,
+            ),
+        )
+
+    @server.tool(
         name="link_card_to_client",
         description=_scoped_description(
             "Link one card to an existing client. By default it only fills empty client name/phone fields in the card and repair order; set overwrite_card_fields only after operator confirmation."
