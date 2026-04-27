@@ -145,6 +145,39 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("remaining_seconds", created["data"]["card"])
         self.assertIn("deadline_timestamp", created["data"]["card"])
 
+    def test_client_routes_accept_documented_nested_payloads(self) -> None:
+        status, created = self.request(
+            "/api/create_client",
+            {
+                "client": {
+                    "client_type": "ip",
+                    "display_name": "ИП Петров Петр",
+                    "inn": "540000000001",
+                    "phone": "+7 913 555-66-77",
+                }
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(created["ok"])
+        client_id = created["data"]["client"]["id"]
+        self.assertEqual(created["data"]["client"]["client_type"], "ip")
+        self.assertEqual(created["data"]["client"]["inn"], "540000000001")
+
+        status, updated = self.request(
+            "/api/update_client",
+            {
+                "client_id": client_id,
+                "patch": {
+                    "bank_name": "Тест Банк",
+                    "contact_person": "Петров Петр",
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(updated["ok"])
+        self.assertEqual(updated["data"]["client"]["bank_name"], "Тест Банк")
+        self.assertEqual(updated["data"]["client"]["contact_person"], "Петров Петр")
+
     def test_get_repair_order_creates_it_lazily_on_first_open(self) -> None:
         status, created = self.request(
             "/api/create_card",

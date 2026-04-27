@@ -316,6 +316,64 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(profile["vehicles"][0]["vin"], "JTDBE32K620123456")
         self.assertEqual(profile["repair_orders"][0]["card_id"], card_id)
 
+    def test_client_api_payload_accepts_nested_client_and_patch(self) -> None:
+        created = self.service.create_client(
+            {
+                "client": {
+                    "client_type": "ooo",
+                    "legal_name": "ООО Ромашка",
+                    "short_name": "Ромашка",
+                    "inn": "5400000000",
+                    "phone": "+7 913 222-33-44",
+                }
+            }
+        )["client"]
+
+        self.assertEqual(created["client_type"], "ooo")
+        self.assertEqual(created["legal_name"], "ООО Ромашка")
+        self.assertEqual(created["inn"], "5400000000")
+
+        updated = self.service.update_client(
+            {
+                "client_id": created["id"],
+                "patch": {
+                    "contact_person": "Иванов Иван",
+                    "comment": "Проверка nested patch",
+                },
+            }
+        )["client"]
+
+        self.assertEqual(updated["contact_person"], "Иванов Иван")
+        self.assertEqual(updated["comment"], "Проверка nested patch")
+
+    def test_client_matching_treats_plus_seven_and_eight_phone_as_same(self) -> None:
+        client = self.service.create_client(
+            {
+                "last_name": "Сидоров",
+                "first_name": "Семен",
+                "phone": "+7 (913) 333-44-55",
+            }
+        )["client"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Nissan X-Trail",
+                "title": "Осмотр",
+                "description": "Разовая запись",
+                "deadline": {"hours": 2},
+                "vehicle_profile": {
+                    "customer_name": "Сидоров Семен",
+                    "customer_phone": "8 913 333-44-55",
+                },
+            }
+        )
+        card_id = created["card"]["id"]
+
+        suggestion = self.service.suggest_clients_for_card({"card_id": card_id, "limit": 5})
+        self.assertEqual(suggestion["clients"][0]["id"], client["id"])
+
+        stats = self.service.get_client_stats({"client_id": client["id"]})
+        self.assertEqual(stats["stats"]["cards_total"], 1)
+
     def test_archive_card_rejects_open_repair_order(self) -> None:
         created = self.service.create_card(
             {

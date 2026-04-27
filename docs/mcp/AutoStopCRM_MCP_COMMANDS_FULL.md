@@ -99,6 +99,7 @@
 
 - Создание клиента не является обязательным для каждой карточки.
 - Не создавать дубль без поиска по телефону/ФИО/ИНН.
+- Телефоны в формате `+7...` и `8...` считаются одним номером при поиске, подсказках и сборе истории клиента.
 - `overwrite_card_fields=true` в `link_card_to_client` использовать только после явного подтверждения пользователя.
 - Для реквизитов организаций использовать `legal_name`, `short_name`, `inn`, `kpp`, `ogrn`, `checking_account`, `bank_name`, `bik`, `correspondent_account`, `legal_address`, `actual_address`, `contact_person`, `contact_position`.
 

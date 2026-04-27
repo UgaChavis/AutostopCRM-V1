@@ -101,8 +101,8 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - last known full-suite baseline before this update cycle was green
 - latest targeted local regressions for `service + api + web_assets` are green
 - latest targeted `service + api + web_assets + MCP` runs are green
-- latest full local regression after Telegram AI stabilization: `431/431 OK`
-- latest synced production checkpoint for Telegram AI stabilization: `fa3f574`
+- latest full local regression after clients module audit: `466/466 OK`
+- latest synced production checkpoint for clients module baseline before this audit: `d102a42`
 - production site: `200 OK`
 - production MCP at last verification: OK with `59` tools
 - this deployment path covers the CRM repo at `/opt/autostopcrm` and its optional in-repo Telegram AI worker; VPN helpers are separate deploy targets

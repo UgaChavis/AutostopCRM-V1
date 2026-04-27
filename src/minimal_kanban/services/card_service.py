@@ -4645,6 +4645,18 @@ class CardService:
         return None
 
     def _client_patch_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        source_payload: dict[str, Any] = {}
+        for nested_key in ("client", "patch"):
+            nested_payload = payload.get(nested_key)
+            if isinstance(nested_payload, dict):
+                source_payload.update(nested_payload)
+        source_payload.update(
+            {
+                key: value
+                for key, value in payload.items()
+                if key not in {"client", "patch"}
+            }
+        )
         allowed = {
             "client_type",
             "type",
@@ -4675,7 +4687,7 @@ class CardService:
             "contact_person",
             "contact_position",
         }
-        return {key: value for key, value in payload.items() if key in allowed}
+        return {key: value for key, value in source_payload.items() if key in allowed}
 
     def _validated_client_profile(self, payload: dict[str, Any]) -> ClientProfile:
         now_iso = utc_now_iso()
@@ -4848,9 +4860,7 @@ class CardService:
             normalized = self._normalize_search_text(value)
             if normalized:
                 keys.add(normalized)
-            phone_digits = re.sub(r"\D+", "", str(value or ""))
-            if len(phone_digits) >= 7:
-                keys.add(phone_digits)
+            keys.update(self._phone_match_keys(value))
         return keys
 
     def _card_client_values(self, card: Card) -> set[str]:
@@ -4865,10 +4875,20 @@ class CardService:
             normalized = self._normalize_search_text(value)
             if normalized:
                 normalized_values.add(normalized)
-            phone_digits = re.sub(r"\D+", "", str(value or ""))
-            if len(phone_digits) >= 7:
-                normalized_values.add(phone_digits)
+            normalized_values.update(self._phone_match_keys(value))
         return normalized_values
+
+    def _phone_match_keys(self, value: Any) -> set[str]:
+        digits = re.sub(r"\D+", "", str(value or ""))
+        if len(digits) < 7:
+            return set()
+        keys = {digits}
+        if len(digits) >= 10:
+            last_ten = digits[-10:]
+            keys.add(last_ten)
+            keys.add("7" + last_ten)
+            keys.add("8" + last_ten)
+        return keys
 
     def _rank_client_matches(
         self, clients: list[ClientProfile], query: str
@@ -4878,6 +4898,7 @@ class CardService:
             return [(1, client) for client in self._ordered_clients(clients)]
         query_variants = self._search_text_variants(query)
         query_digits = re.sub(r"\D+", "", query)
+        query_phone_keys = self._phone_match_keys(query)
         ranked: list[tuple[int, ClientProfile]] = []
         for client in clients:
             fields = [
@@ -4907,6 +4928,8 @@ class CardService:
                 phone_digits = " ".join(re.sub(r"\D+", "", phone) for phone in client.phones)
                 if query_digits in phone_digits:
                     score += 10
+            if query_phone_keys and query_phone_keys.intersection(self._client_match_keys(client)):
+                score += 10
             if score > 0:
                 ranked.append((score, client))
         ranked.sort(key=lambda item: (item[0], item[1].updated_at, item[1].name()), reverse=True)

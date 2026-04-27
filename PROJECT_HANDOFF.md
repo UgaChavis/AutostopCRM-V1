@@ -211,6 +211,7 @@ Latest completed stabilization wave:
 - mobile-lite board mode now activates automatically on narrow screens and collapses the board into a single-column, low-noise layout with heavy controls hidden by default
 - clients module was added to the topbar: operators can create people, IP/OOO/company profiles, store requisites, see related vehicles and repair-order history, and optionally link cards to clients without forcing every card into the client directory
 - MCP client tools were expanded from `50` to `59` with client list/search/profile/stats/create/update/link/unlink/suggestion commands
+- clients module audit fixed the connection-card allowed tool list, direct API nested `client`/`patch` payloads, and `+7`/`8` phone matching for client suggestions/history
 
 Most recent important commits in the current line:
 
@@ -235,6 +236,7 @@ Current stability note:
 
 - this branch is still an incremental production line, not a refactor branch
 - recent work favored local fixes, targeted regression coverage, and production-safe behavior
+- latest client-module audit is covered by local service/API/MCP/web-assets/connection-card tests and full discovery
 
 ## 7. Production Verification Snapshot
 
@@ -274,7 +276,7 @@ Current known verification baseline:
 - latest targeted regressions for `tests.test_service`, `tests.test_api`, and `tests.test_web_assets` are green
 - latest targeted `tests.test_service`, `tests.test_api`, `tests.test_web_assets`, `tests.test_mcp`, and `tests.test_mcp_main` runs are green
 - import smoke for `main.py` and `main_mcp.py` is green
-- latest full-suite validation on the current local stabilization pass: `388/388 OK`
+- latest full-suite validation on the current local clients-module audit pass: `466/466 OK`
 - latest portable release verifier: passed during the current `autostopcrm-v1` quality pass
 
 Main test areas:
