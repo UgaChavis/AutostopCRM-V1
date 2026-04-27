@@ -215,6 +215,8 @@ Latest completed stabilization wave:
 
 Most recent important commits in the current line:
 
+- `524b114` `Audit clients module integrations`
+- `d102a42` `Add clients module and MCP tools`
 - `fa3f574` `Make Telegram AI web search faster`
 - `112f871` `Stabilize Telegram AI web search model`
 - `7ccd981` `Add Telegram AI web search fallback`
