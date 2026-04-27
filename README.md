@@ -220,6 +220,14 @@ MCP server only:
 .\scripts\run_mcp_server.ps1
 ```
 
+Large client directory import:
+
+```powershell
+py -3.12 scripts/import_clients_from_markdown.py C:\path\to\clients.md --apply
+```
+
+The importer reads the cleaned Markdown JSONL format, creates a state backup before writing, preserves legal requisites, phones and saved client vehicles, and supports dry-run by omitting `--apply`.
+
 ## Tests and Verification
 
 Main regression run:

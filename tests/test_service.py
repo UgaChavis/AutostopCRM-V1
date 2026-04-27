@@ -406,6 +406,34 @@ class CardServiceTests(unittest.TestCase):
                 self.assertEqual(search["clients"][0]["vehicles_preview"][0]["vehicle"], "Toyota Camry")
                 self.assertEqual(search["clients"][0]["vehicles_preview"][0]["vin"], "JTDBE32K620654321")
 
+    def test_client_profile_can_store_imported_vehicles(self) -> None:
+        client = self.service.create_client(
+            {
+                "client_type": "ooo",
+                "short_name": "ГрандСервис",
+                "legal_name": 'ООО "ГрандСервис"',
+                "phone": "+7 923 339-78-84",
+                "inn": "2465257740",
+                "vehicles": [
+                    {
+                        "brand": "Toyota",
+                        "model": "Probox",
+                        "vin": "ncp165-0033993",
+                        "year": 2017,
+                    }
+                ],
+            }
+        )["client"]
+
+        profile = self.service.get_client({"client_id": client["id"]})
+        self.assertEqual(profile["vehicles"][0]["vehicle"], "Toyota Probox")
+        self.assertEqual(profile["vehicles"][0]["vin"], "NCP165-0033993")
+        self.assertEqual(profile["vehicles"][0]["year"], "2017")
+
+        search = self.service.search_clients({"query": "Probox", "limit": 5})
+        self.assertEqual(search["clients"][0]["id"], client["id"])
+        self.assertEqual(search["clients"][0]["vehicles_preview"][0]["vehicle"], "Toyota Probox")
+
     def test_client_search_matches_common_russian_phone_variants(self) -> None:
         client = self.service.create_client(
             {

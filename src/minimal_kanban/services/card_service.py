@@ -46,9 +46,6 @@ from ..models import (
     normalize_actor_name,
     normalize_bool,
     normalize_cash_direction,
-    normalize_client_phone,
-    normalize_client_phones,
-    normalize_client_type,
     normalize_file_name,
     normalize_money_minor,
     normalize_source,
@@ -4746,6 +4743,7 @@ class CardService:
             "actual_address",
             "contact_person",
             "contact_position",
+            "vehicles",
         }
         return {key: value for key, value in source_payload.items() if key in allowed}
 
@@ -4825,6 +4823,22 @@ class CardService:
     def _client_vehicles(self, client: ClientProfile, cards: list[Card]) -> list[dict[str, str]]:
         vehicles: list[dict[str, str]] = []
         seen: set[str] = set()
+        for stored_vehicle in client.vehicles:
+            payload = stored_vehicle.to_dict()
+            key = "|".join(
+                part.casefold()
+                for part in (
+                    payload.get("vehicle", ""),
+                    payload.get("vin", ""),
+                    payload.get("license_plate", ""),
+                    payload.get("year", ""),
+                )
+                if part
+            )
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            vehicles.append({**payload, "card_id": ""})
         for card in self._client_related_cards(client, cards):
             vehicle = card.vehicle_display() or card.repair_order.vehicle
             vin = card.vehicle_profile.vin or card.repair_order.vin
@@ -4883,6 +4897,7 @@ class CardService:
                 "ogrn",
                 "contact_person",
                 "vehicles_preview",
+                "vehicles",
                 "updated_at",
                 "stats",
             }
@@ -4917,6 +4932,17 @@ class CardService:
             client.contact_person,
             *client.phones,
         }
+        for vehicle in client.vehicles:
+            values.update(
+                {
+                    vehicle.vehicle,
+                    vehicle.brand,
+                    vehicle.model,
+                    vehicle.vin,
+                    vehicle.license_plate,
+                    vehicle.year,
+                }
+            )
         keys: set[str] = set()
         for value in values:
             normalized = self._normalize_search_text(value)
@@ -4996,8 +5022,19 @@ class CardService:
                 client.ogrn,
                 client.contact_person,
             ]
-            related_cards = self._client_related_cards(client, cards) if cards else []
             vehicle_fields: list[str] = []
+            for vehicle in client.vehicles:
+                vehicle_fields.extend(
+                    [
+                        vehicle.vehicle,
+                        vehicle.brand,
+                        vehicle.model,
+                        vehicle.vin,
+                        vehicle.license_plate,
+                        vehicle.year,
+                    ]
+                )
+            related_cards = self._client_related_cards(client, cards) if cards else []
             for card in related_cards:
                 vehicle_fields.extend(
                     [

@@ -54,6 +54,8 @@ CLIENT_FIELD_LIMIT = 160
 CLIENT_NOTE_LIMIT = 2000
 CLIENT_PHONE_LIMIT = 80
 CLIENT_PHONES_LIMIT = 6
+CLIENT_VEHICLES_LIMIT = 50
+CLIENT_VEHICLE_YEAR_LIMIT = 16
 ARCHIVE_PREVIEW_LIMIT = 30
 ARCHIVED_CARD_RETENTION_LIMIT = 300
 AUDIT_EVENT_RETENTION_DAYS = 60
@@ -222,6 +224,94 @@ def normalize_client_phones(value) -> list[str]:
         if len(phones) >= CLIENT_PHONES_LIMIT:
             break
     return phones
+
+
+@dataclass(slots=True)
+class ClientVehicle:
+    vehicle: str = ""
+    brand: str = ""
+    model: str = ""
+    vin: str = ""
+    license_plate: str = ""
+    year: str = ""
+
+    def __post_init__(self) -> None:
+        self.brand = normalize_text(self.brand, default="", limit=CLIENT_FIELD_LIMIT)
+        self.model = normalize_text(self.model, default="", limit=CLIENT_FIELD_LIMIT)
+        generated_vehicle = " ".join(part for part in (self.brand, self.model) if part).strip()
+        self.vehicle = normalize_text(
+            self.vehicle, default=generated_vehicle, limit=CLIENT_FIELD_LIMIT
+        )
+        self.vin = normalize_text(self.vin, default="", limit=CLIENT_FIELD_LIMIT).upper()
+        self.license_plate = normalize_text(
+            self.license_plate, default="", limit=CLIENT_FIELD_LIMIT
+        ).upper()
+        self.year = normalize_text(self.year, default="", limit=CLIENT_VEHICLE_YEAR_LIMIT)
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "vehicle": self.vehicle,
+            "brand": self.brand,
+            "model": self.model,
+            "vin": self.vin,
+            "license_plate": self.license_plate,
+            "year": self.year,
+        }
+
+    @classmethod
+    def from_value(cls, value: Any) -> ClientVehicle | None:
+        if isinstance(value, ClientVehicle):
+            return cls(**value.to_dict())
+        if isinstance(value, dict):
+            vehicle = cls(
+                vehicle=value.get("vehicle") or value.get("name") or value.get("title") or "",
+                brand=value.get("brand") or value.get("make") or "",
+                model=value.get("model") or "",
+                vin=value.get("vin") or "",
+                license_plate=(
+                    value.get("license_plate")
+                    or value.get("plate")
+                    or value.get("registration_plate")
+                    or ""
+                ),
+                year=value.get("year") or "",
+            )
+        else:
+            vehicle = cls(vehicle=value)
+        if not any((vehicle.vehicle, vehicle.brand, vehicle.model, vehicle.vin, vehicle.license_plate)):
+            return None
+        return vehicle
+
+
+def normalize_client_vehicles(value) -> list[ClientVehicle]:
+    if value is None:
+        return []
+    raw_items = value if isinstance(value, list) else [value]
+    vehicles: list[ClientVehicle] = []
+    seen: set[str] = set()
+    for raw in raw_items:
+        vehicle = ClientVehicle.from_value(raw)
+        if vehicle is None:
+            continue
+        key = "|".join(
+            part.casefold()
+            for part in (
+                vehicle.vehicle,
+                vehicle.brand,
+                vehicle.model,
+                vehicle.vin,
+                vehicle.license_plate,
+                vehicle.year,
+            )
+            if part
+        )
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        vehicles.append(vehicle)
+        if len(vehicles) >= CLIENT_VEHICLES_LIMIT:
+            break
+    return vehicles
 
 
 def _sanitize_card_compact_text(value: str) -> str:
@@ -857,6 +947,7 @@ class ClientProfile:
     actual_address: str = ""
     contact_person: str = ""
     contact_position: str = ""
+    vehicles: list[ClientVehicle] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
 
@@ -897,6 +988,7 @@ class ClientProfile:
         self.contact_position = normalize_text(
             self.contact_position, default="", limit=CLIENT_FIELD_LIMIT
         )
+        self.vehicles = normalize_client_vehicles(self.vehicles)
         now_iso = utc_now_iso()
         self.created_at = normalize_text(self.created_at, default=now_iso, limit=64)
         self.updated_at = normalize_text(self.updated_at, default=self.created_at, limit=64)
@@ -951,6 +1043,7 @@ class ClientProfile:
             "actual_address": self.actual_address,
             "contact_person": self.contact_person,
             "contact_position": self.contact_position,
+            "vehicles": [vehicle.to_dict() for vehicle in self.vehicles],
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -986,6 +1079,7 @@ class ClientProfile:
             actual_address=payload.get("actual_address", ""),
             contact_person=payload.get("contact_person", ""),
             contact_position=payload.get("contact_position", ""),
+            vehicles=payload.get("vehicles", []),
             created_at=payload.get("created_at", ""),
             updated_at=payload.get("updated_at", ""),
         )
