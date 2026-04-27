@@ -5581,8 +5581,8 @@ BOARD_WEB_APP_HTML = "".join(
     .client-mini__meta {
       margin-top: 5px;
       color: var(--muted);
-      font-size: 11px;
-      line-height: 1.35;
+      font-size: 12px;
+      line-height: 1.4;
     }
     .clients-profile-head {
       display: flex;
