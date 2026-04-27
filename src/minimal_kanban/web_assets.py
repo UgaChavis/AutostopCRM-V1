@@ -5510,6 +5510,7 @@ BOARD_WEB_APP_HTML = "".join(
       grid-template-columns: minmax(280px, 34%) minmax(0, 1fr);
       gap: 12px;
       min-height: 520px;
+      align-items: stretch;
     }
     .clients-list-pane,
     .clients-profile-pane {
@@ -5518,11 +5519,22 @@ BOARD_WEB_APP_HTML = "".join(
       padding: 10px;
       min-width: 0;
     }
+    .clients-list-pane {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .clients-profile-pane {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
     .clients-toolbar {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 8px;
       margin-bottom: 10px;
+      flex: 0 0 auto;
     }
     .clients-list,
     .clients-mini-list {
@@ -5531,7 +5543,9 @@ BOARD_WEB_APP_HTML = "".join(
       align-content: start;
     }
     .clients-list {
-      max-height: 610px;
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: none;
       overflow: auto;
       padding-right: 4px;
     }
@@ -5584,12 +5598,24 @@ BOARD_WEB_APP_HTML = "".join(
     }
     #clientProfileTitle {
       color: var(--text);
-      font-size: 18px;
+      font-size: 30px;
+      font-weight: 800;
       line-height: 1.25;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.03em;
+      text-transform: none;
+      word-break: break-word;
+    }
+    .client-profile-phone {
+      margin-top: 4px;
+      color: var(--accent-soft);
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.25;
+      letter-spacing: 0.04em;
     }
     #clientProfileMeta {
       color: var(--muted);
+      margin-top: 6px;
     }
     .clients-field--type {
       grid-column: span 3;
@@ -5656,9 +5682,7 @@ BOARD_WEB_APP_HTML = "".join(
       .clients-profile-columns {
         grid-template-columns: minmax(0, 1fr);
       }
-      .clients-list {
-        max-height: 320px;
-      }
+      .clients-list { max-height: none; }
       .clients-form-grid {
         grid-template-columns: minmax(0, 1fr);
       }
@@ -5900,6 +5924,7 @@ BOARD_WEB_APP_HTML = "".join(
           <div class="clients-profile-head">
             <div>
               <div class="panel-title" id="clientProfileTitle">КЛИЕНТ НЕ ВЫБРАН</div>
+              <div class="client-profile-phone" id="clientProfilePhone">ТЕЛЕФОН НЕ УКАЗАН</div>
               <div class="wall-meta" id="clientProfileMeta">Выберите клиента слева или создайте нового.</div>
             </div>
             <button class="btn btn--accent" id="clientSaveButton" type="button">СОХРАНИТЬ</button>
@@ -6503,6 +6528,7 @@ BOARD_WEB_APP_HTML = "".join(
       repairOrdersMetaState: null,
       repairOrderParentLayer: '',
       clients: [],
+      clientsAll: [],
       clientsQuery: '',
       clientsActiveId: '',
       clientsActiveProfile: null,
@@ -6970,6 +6996,7 @@ BOARD_WEB_APP_HTML = "".join(
       clientsList: document.getElementById('clientsList'),
       clientNewButton: document.getElementById('clientNewButton'),
       clientProfileTitle: document.getElementById('clientProfileTitle'),
+      clientProfilePhone: document.getElementById('clientProfilePhone'),
       clientProfileMeta: document.getElementById('clientProfileMeta'),
       clientTypeInput: document.getElementById('clientTypeInput'),
       clientLastNameInput: document.getElementById('clientLastNameInput'),
@@ -8962,6 +8989,67 @@ BOARD_WEB_APP_HTML = "".join(
       return String(client?.name || client?.display_name || client?.full_name || 'Без имени').trim();
     }
 
+    function normalizeClientSearchText(value) {
+      return String(value || '')
+        .toLowerCase()
+        .replace(/ё/g, 'е')
+        .normalize('NFKD')
+        .replace(/[\\u0300-\\u036f]/g, '');
+    }
+
+    function clientSearchHaystack(client) {
+      const phones = Array.isArray(client?.phones) ? client.phones : [];
+      return [
+        client?.name,
+        client?.full_name,
+        client?.display_name,
+        client?.last_name,
+        client?.first_name,
+        client?.middle_name,
+        client?.phone,
+        ...phones,
+        client?.email,
+        client?.inn,
+        client?.ogrn,
+        client?.legal_name,
+        client?.short_name,
+        client?.contact_person,
+      ].filter(Boolean).join(' ');
+    }
+
+    function clientMatchesSearchQuery(client, query) {
+      const normalizedQuery = normalizeClientSearchText(query).trim();
+      if (!normalizedQuery) return true;
+      const haystack = normalizeClientSearchText(clientSearchHaystack(client));
+      const queryDigits = normalizedQuery.replace(/\\D+/g, '');
+      const tokens = normalizedQuery.split(/\\s+/).filter(Boolean);
+      if (tokens.length && tokens.every((token) => haystack.includes(token))) return true;
+      if (queryDigits.length >= 4) {
+        const compactHaystack = haystack.replace(/\\D+/g, '');
+        if (compactHaystack.includes(queryDigits)) return true;
+      }
+      return tokens.some((token) => haystack.includes(token));
+    }
+
+    function applyClientSearchFilter(query) {
+      const normalizedQuery = String(query || '').trim();
+      const source = Array.isArray(state.clientsAll) && state.clientsAll.length
+        ? state.clientsAll
+        : (Array.isArray(state.clients) ? state.clients : []);
+      const filtered = normalizedQuery
+        ? source.filter((client) => clientMatchesSearchQuery(client, normalizedQuery))
+        : source.slice();
+      state.clients = filtered;
+      if (filtered.length) {
+        if (!state.clientsActiveId || !filtered.some((client) => client.id === state.clientsActiveId)) {
+          state.clientsActiveId = filtered[0].id;
+        }
+      } else if (!normalizedQuery) {
+        state.clientsActiveId = '';
+      }
+      renderClientsList();
+    }
+
     function clientMetaLine(client) {
       const stats = client?.stats || {};
       const parts = [];
@@ -9052,6 +9140,10 @@ BOARD_WEB_APP_HTML = "".join(
       const client = data?.client || {};
       state.clientsActiveProfile = data || null;
       if (els.clientProfileTitle) els.clientProfileTitle.textContent = clientDisplayName(client);
+      if (els.clientProfilePhone) {
+        const phone = String(client.phone || (Array.isArray(client.phones) ? client.phones[0] : '') || '').trim();
+        els.clientProfilePhone.textContent = phone || 'ТЕЛЕФОН НЕ УКАЗАН';
+      }
       const stats = client.stats || {};
       if (els.clientProfileMeta) {
         els.clientProfileMeta.textContent = [
@@ -9108,8 +9200,17 @@ BOARD_WEB_APP_HTML = "".join(
         openModal,
         modalEl: els.clientsModal,
         onSuccess: (payload) => {
-          state.clients = Array.isArray(payload?.clients) ? payload.clients : [];
-          if (!state.clientsActiveId && state.clients.length) state.clientsActiveId = state.clients[0].id;
+          const clients = Array.isArray(payload?.clients) ? payload.clients : [];
+          if (query) {
+            if (state.clientsQuery !== query) return;
+            state.clients = clients;
+          } else {
+            state.clientsAll = clients.slice();
+            state.clients = clients;
+          }
+          if (state.clients.length && (!state.clientsActiveId || !state.clients.some((client) => client.id === state.clientsActiveId))) {
+            state.clientsActiveId = state.clients[0].id;
+          }
           renderClientsList();
         },
       });
@@ -9166,8 +9267,11 @@ BOARD_WEB_APP_HTML = "".join(
       els.clientSaveButton?.addEventListener('click', saveClientProfile);
       els.clientsList?.addEventListener('click', handleClientsListClick);
       els.clientsSearchInput?.addEventListener('input', () => {
+        const query = String(els.clientsSearchInput?.value || '').trim();
+        state.clientsQuery = query;
+        applyClientSearchFilter(query);
         window.clearTimeout(state.clientsSearchTimer);
-        state.clientsSearchTimer = window.setTimeout(() => loadClients({ openModal: false }), 250);
+        state.clientsSearchTimer = window.setTimeout(() => loadClients({ openModal: false }), 220);
       });
       els.clientTypeInput?.addEventListener('change', () => {
         if (els.clientRequisitesDetails) els.clientRequisitesDetails.open = ['ip', 'ooo', 'company'].includes(els.clientTypeInput.value);

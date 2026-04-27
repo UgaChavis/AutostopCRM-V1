@@ -692,7 +692,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("ПОИСК: ФИО, телефон, госномер, авто", BOARD_WEB_APP_HTML)
         self.assertIn("clients-field--type", BOARD_WEB_APP_HTML)
         self.assertIn("clients-name-field", BOARD_WEB_APP_HTML)
+        self.assertIn("clientProfilePhone", BOARD_WEB_APP_HTML)
         self.assertIn("client-mini__order-number", BOARD_WEB_APP_HTML)
+        self.assertIn(".clients-list-pane {", BOARD_WEB_APP_HTML)
+        self.assertIn("display: flex;", BOARD_WEB_APP_HTML)
+        self.assertIn("flex: 1 1 auto;", BOARD_WEB_APP_HTML)
         self.assertIn(
             "clientProfileTitle) els.clientProfileTitle.textContent = clientDisplayName(client);",
             BOARD_WEB_APP_HTML,
