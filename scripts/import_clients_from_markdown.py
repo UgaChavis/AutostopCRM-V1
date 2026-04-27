@@ -276,6 +276,8 @@ def import_records(
             existing = clients_by_id.get(profile.id) or clients_by_id.get("import-" + profile.id)
             if existing is None:
                 existing = _match_existing(preexisting_manual_indexes, profile)
+                if existing is not None:
+                    existing = clients_by_id.get(existing.id, existing)
             if existing is None:
                 result.created += 1
                 if apply:
