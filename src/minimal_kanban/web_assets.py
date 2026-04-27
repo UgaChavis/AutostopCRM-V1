@@ -6086,30 +6086,30 @@ BOARD_WEB_APP_HTML = "".join(
                 <option value="company">ЮЛ</option>
               </select>
             </div>
-            <div class="field field--compact clients-name-field"><label for="clientLastNameInput">ФАМИЛИЯ</label><input id="clientLastNameInput" type="text" maxlength="120"></div>
-            <div class="field field--compact clients-name-field"><label for="clientFirstNameInput">ИМЯ</label><input id="clientFirstNameInput" type="text" maxlength="120"></div>
-            <div class="field field--compact clients-name-field"><label for="clientMiddleNameInput">ОТЧЕСТВО</label><input id="clientMiddleNameInput" type="text" maxlength="120"></div>
-            <div class="field field--compact clients-field--wide"><label for="clientDisplayNameInput">НАЗВАНИЕ / ОТОБРАЖЕНИЕ</label><input id="clientDisplayNameInput" type="text" maxlength="160"></div>
-            <div class="field field--compact"><label for="clientPhoneInput">ТЕЛЕФОН</label><input id="clientPhoneInput" type="text" maxlength="80"></div>
-            <div class="field field--compact"><label for="clientEmailInput">EMAIL</label><input id="clientEmailInput" type="text" maxlength="160"></div>
-            <div class="field field--compact clients-field--wide"><label for="clientCommentInput">КОММЕНТАРИЙ</label><textarea id="clientCommentInput" maxlength="2000"></textarea></div>
+            <div class="field field--compact clients-name-field"><label for="clientLastNameInput">ФАМИЛИЯ</label><input id="clientLastNameInput" type="text" maxlength="120" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+            <div class="field field--compact clients-name-field"><label for="clientFirstNameInput">ИМЯ</label><input id="clientFirstNameInput" type="text" maxlength="120" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+            <div class="field field--compact clients-name-field"><label for="clientMiddleNameInput">ОТЧЕСТВО</label><input id="clientMiddleNameInput" type="text" maxlength="120" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+            <div class="field field--compact clients-field--wide"><label for="clientDisplayNameInput">НАЗВАНИЕ / ОТОБРАЖЕНИЕ</label><input id="clientDisplayNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+            <div class="field field--compact"><label for="clientPhoneInput">ТЕЛЕФОН</label><input id="clientPhoneInput" type="text" maxlength="80" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+            <div class="field field--compact"><label for="clientEmailInput">EMAIL</label><input id="clientEmailInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+            <div class="field field--compact clients-field--wide"><label for="clientCommentInput">КОММЕНТАРИЙ</label><textarea id="clientCommentInput" maxlength="2000" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea></div>
           </div>
           <details class="clients-requisites" id="clientRequisitesDetails">
             <summary>РЕКВИЗИТЫ</summary>
             <div class="clients-form-grid clients-form-grid--requisites">
-              <div class="field field--compact clients-field--wide"><label for="clientLegalNameInput">ПОЛНОЕ НАЗВАНИЕ</label><input id="clientLegalNameInput" type="text" maxlength="160"></div>
-              <div class="field field--compact"><label for="clientShortNameInput">КРАТКОЕ НАЗВАНИЕ</label><input id="clientShortNameInput" type="text" maxlength="160"></div>
-              <div class="field field--compact"><label for="clientInnInput">ИНН</label><input id="clientInnInput" type="text" maxlength="160"></div>
-              <div class="field field--compact"><label for="clientKppInput">КПП</label><input id="clientKppInput" type="text" maxlength="160"></div>
-              <div class="field field--compact"><label for="clientOgrnInput">ОГРН / ОГРНИП</label><input id="clientOgrnInput" type="text" maxlength="160"></div>
-              <div class="field field--compact"><label for="clientCheckingAccountInput">РАСЧЕТНЫЙ СЧЕТ</label><input id="clientCheckingAccountInput" type="text" maxlength="160"></div>
-              <div class="field field--compact"><label for="clientBankNameInput">БАНК</label><input id="clientBankNameInput" type="text" maxlength="160"></div>
-              <div class="field field--compact"><label for="clientBikInput">БИК</label><input id="clientBikInput" type="text" maxlength="160"></div>
-              <div class="field field--compact"><label for="clientCorrespondentAccountInput">КОРР. СЧЕТ</label><input id="clientCorrespondentAccountInput" type="text" maxlength="160"></div>
-              <div class="field field--compact"><label for="clientContactPersonInput">КОНТАКТНОЕ ЛИЦО</label><input id="clientContactPersonInput" type="text" maxlength="160"></div>
-              <div class="field field--compact"><label for="clientContactPositionInput">ДОЛЖНОСТЬ</label><input id="clientContactPositionInput" type="text" maxlength="160"></div>
-              <div class="field field--compact clients-field--wide"><label for="clientLegalAddressInput">ЮР. АДРЕС</label><input id="clientLegalAddressInput" type="text" maxlength="160"></div>
-              <div class="field field--compact clients-field--wide"><label for="clientActualAddressInput">ФАКТ. АДРЕС</label><input id="clientActualAddressInput" type="text" maxlength="160"></div>
+              <div class="field field--compact clients-field--wide"><label for="clientLegalNameInput">ПОЛНОЕ НАЗВАНИЕ</label><input id="clientLegalNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientShortNameInput">КРАТКОЕ НАЗВАНИЕ</label><input id="clientShortNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientInnInput">ИНН</label><input id="clientInnInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientKppInput">КПП</label><input id="clientKppInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientOgrnInput">ОГРН / ОГРНИП</label><input id="clientOgrnInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientCheckingAccountInput">РАСЧЕТНЫЙ СЧЕТ</label><input id="clientCheckingAccountInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientBankNameInput">БАНК</label><input id="clientBankNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientBikInput">БИК</label><input id="clientBikInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientCorrespondentAccountInput">КОРР. СЧЕТ</label><input id="clientCorrespondentAccountInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientContactPersonInput">КОНТАКТНОЕ ЛИЦО</label><input id="clientContactPersonInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientContactPositionInput">ДОЛЖНОСТЬ</label><input id="clientContactPositionInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact clients-field--wide"><label for="clientLegalAddressInput">ЮР. АДРЕС</label><input id="clientLegalAddressInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact clients-field--wide"><label for="clientActualAddressInput">ФАКТ. АДРЕС</label><input id="clientActualAddressInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
             </div>
           </details>
           <div class="clients-profile-columns">
@@ -6452,11 +6452,11 @@ BOARD_WEB_APP_HTML = "".join(
             <div class="panel-title">КЛИЕНТ</div>
             <div class="repair-order-card__grid repair-order-card__grid--client">
               <div class="field field--compact repair-order-field repair-order-field--client">
-                <input id="repairOrderClient" data-repair-order-field="client" aria-label="Клиент" type="text" maxlength="120">
+                <input id="repairOrderClient" data-repair-order-field="client" aria-label="Клиент" type="text" maxlength="120" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
               </div>
               <div class="field field--compact repair-order-field repair-order-field--phone">
                 <label for="repairOrderPhone">ТЕЛЕФОН</label>
-                <input id="repairOrderPhone" data-repair-order-field="phone" type="text" maxlength="60">
+                <input id="repairOrderPhone" data-repair-order-field="phone" type="text" maxlength="60" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
               </div>
             </div>
           </section>
@@ -6464,19 +6464,19 @@ BOARD_WEB_APP_HTML = "".join(
             <div class="panel-title">АВТОМОБИЛЬ</div>
             <div class="repair-order-card__grid repair-order-card__grid--vehicle">
               <div class="field field--compact repair-order-field repair-order-field--vehicle">
-                <input id="repairOrderVehicle" data-repair-order-field="vehicle" aria-label="Автомобиль" type="text" maxlength="120">
+                <input id="repairOrderVehicle" data-repair-order-field="vehicle" aria-label="Автомобиль" type="text" maxlength="120" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
               </div>
               <div class="field field--compact repair-order-field repair-order-field--plate">
                 <label for="repairOrderLicensePlate">ГОСНОМЕР</label>
-                <input id="repairOrderLicensePlate" data-repair-order-field="license_plate" type="text" maxlength="20">
+                <input id="repairOrderLicensePlate" data-repair-order-field="license_plate" type="text" maxlength="20" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
               </div>
               <div class="field field--compact repair-order-field repair-order-field--vin">
                 <label for="repairOrderVin">VIN</label>
-                <input id="repairOrderVin" data-repair-order-field="vin" type="text" maxlength="32">
+                <input id="repairOrderVin" data-repair-order-field="vin" type="text" maxlength="32" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
               </div>
               <div class="field field--compact repair-order-field repair-order-field--mileage">
                 <label for="repairOrderMileage">ПРОБЕГ</label>
-                <input id="repairOrderMileage" data-repair-order-field="mileage" type="text" maxlength="32">
+                <input id="repairOrderMileage" data-repair-order-field="mileage" type="text" maxlength="32" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
               </div>
             </div>
             <div class="repair-order-hidden-fields" aria-hidden="true">
@@ -13163,6 +13163,7 @@ BOARD_WEB_APP_HTML = "".join(
         field.step ? 'step="' + escapeHtml(field.step) + '"' : '',
         field.maxlength ? 'maxlength="' + escapeHtml(field.maxlength) + '"' : '',
         field.mono ? 'class="vehicle-control--mono"' : '',
+        (field.name === 'customer_name' || field.name === 'customer_phone') ? 'autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"' : '',
       ].filter(Boolean).join(' ');
       return '<input ' + attrs + '>';
     }
