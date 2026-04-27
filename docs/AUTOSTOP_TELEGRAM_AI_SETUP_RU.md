@@ -5,12 +5,12 @@
 ## Текущая рабочая точка
 
 - branch: `autostopcrm-v1`
-- latest verified Telegram AI checkpoint: `c0f6188`
+- latest verified Telegram AI checkpoint: `18e1326`
 - production repo: `/opt/autostopcrm`
 - CRM: `https://crm.autostopcrm.ru`
 - MCP: `https://crm.autostopcrm.ru/mcp`
 - Docker services: `autostopcrm`, `autostopcrm-telegram-ai`
-- local full suite at checkpoint: `48/48 OK`
+- local full suite at checkpoint: `470/470 OK`
 - MCP tool count at checkpoint: `60`
 
 ## Что делает Telegram AI

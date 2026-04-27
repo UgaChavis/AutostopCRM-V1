@@ -204,7 +204,7 @@ Latest completed stabilization wave:
 - Telegram AI direct internet-search was added for explicit commands like `найди в интернете`, using OpenAI `web_search_preview`
 - Telegram AI complex CRM decisions can escalate from `gpt-5.4-mini` to `gpt-5.4`
 - Telegram AI web-search was stabilized after live timeout/429 failures: direct web-search now uses the base model with low search context and one retry
-- production was synced and redeployed at `269639e`; live diagnostics passed for site/API/MCP/Telegram AI
+- production was synced and redeployed at `18e1326`; live diagnostics passed for site/API/MCP/Telegram AI
 - repair-order modal stack from `desktop -> repair orders -> repair order -> nested windows` was fixed in UI shell so the repair-orders list remains the real parent layer
 - opening a repair order from the list no longer intentionally closes the list first or leaves the user falling back into an unexpected card layer
 - cashbox journal API and UI were added for the latest `3` months, including formatted modal text and text-file download
@@ -218,6 +218,8 @@ Latest completed stabilization wave:
 
 Most recent important commits in the current line:
 
+- `18e1326` `Consolidate MCP docs and remove stale guides`
+- `2261e8d` `Refresh docs after clients and MCP audit`
 - `524b114` `Audit clients module integrations`
 - `269639e` `Suppress browser autofill in client forms`
 - `1b17b1b` `Improve client order card readability`

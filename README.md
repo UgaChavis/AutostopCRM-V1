@@ -163,7 +163,7 @@ Current production note:
 
 - complex CRM planning can escalate from `gpt-5.4-mini` to `gpt-5.4`
 - direct internet search intentionally stays on `gpt-5.4-mini` with low search context for stability
-- latest verified Telegram AI stabilization checkpoint: `269639e`
+- latest verified Telegram AI stabilization checkpoint: `18e1326`
 - current clients-module release includes the inline client picker, phone matching fixes, and Chrome autofill suppression in the card and client forms
 
 ## Legacy Card Cleanup

@@ -42,7 +42,7 @@ Use this file for durable notes that should not be rediscovered every session.
 
 ## Telegram AI Checkpoint: 2026-04-28
 
-- commit synced locally, on GitHub, and on production: `269639e`
+- commit synced locally, on GitHub, and on production: `18e1326`
 - production repo: `/opt/autostopcrm`
 - production services: `autostopcrm`, `autostopcrm-telegram-ai`
 - live CRM URL: `https://crm.autostopcrm.ru`
@@ -50,7 +50,7 @@ Use this file for durable notes that should not be rediscovered every session.
 - MCP tool count after clients module: `60`
 - clients module is optional-link by design: a card may keep manual customer fields without a `client_id`; agents should search/suggest before creating client profiles
 - client-module audit: connection-card/Responses API allowed tools must include all 9 client MCP tools; direct HTTP API accepts both nested `client`/`patch` payloads and flat UI/MCP payloads; `+7` and `8` phone prefixes are equivalent for client matching
-- local targeted Telegram AI regression result before documentation pass: `48/48 OK`
+- latest local regression suite after documentation pass: `470/470 OK`
 - latest production-safe client UX additions: inline existing-client picker in the card editor, better client phone matching, Chrome autofill suppression on client/card fields, and more readable order cards in the client profile pane
 - production live check before documentation pass:
   - deploy smoke passed after rebuild

@@ -102,7 +102,7 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - latest targeted local regressions for `service + api + web_assets` are green
 - latest targeted `service + api + web_assets + MCP` runs are green
 - latest full local regression after the current client and MCP audit pass: `470/470 OK`
-- latest local/GitHub/production synced commit: `269639e`
+- latest local/GitHub/production synced commit: `18e1326`
 - production site: `200 OK`
 - production MCP at last verification: OK with `60` tools
 - this deployment path covers the CRM repo at `/opt/autostopcrm` and its optional in-repo Telegram AI worker; VPN helpers are separate deploy targets

@@ -14,16 +14,16 @@
 - state: `/root/.minimal-kanban/telegram_ai/state.json`
 - conversation memory: `/root/.minimal-kanban/telegram_ai/conversation.jsonl`
 - downloads/temp: `/root/.minimal-kanban/telegram_ai/downloads`
-- current verified production commit after Telegram AI stabilization: `c0f6188`
+- current verified production commit after Telegram AI stabilization: `18e1326`
 
 Старый green-button/VIN agent не является основой новой системы. Он оставлен как legacy/compatibility слой, чтобы не ломать текущую CRM и MCP поверхность.
 
-## Current checkpoint: 2026-04-25
+## Current checkpoint: 2026-04-28
 
 This is the point a new developer/agent should resume from:
 
-- local branch, GitHub branch, and production were aligned on `autostopcrm-v1` at `c0f6188`
-- full local regression suite passed: `48/48 OK`
+- local branch, GitHub branch, and production were aligned on `autostopcrm-v1` at `18e1326`
+- full local regression suite passed: `470/470 OK`
 - production live diagnostics passed:
   - public site `https://crm.autostopcrm.ru`: `200 OK`
   - local API: OK
@@ -376,10 +376,10 @@ Current known green commands:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Latest known results on `c0f6188`:
+Latest known results on `18e1326`:
 
 - focused Telegram AI tests: `48/48 OK`
-- full test suite: not rerun in this checkpoint
+- full test suite: `470/470 OK`
 - ruff: OK
 
 ## Production deployment
