@@ -2100,7 +2100,7 @@ class CardService:
             limit = self._validated_limit(payload.get("limit"), default=10, maximum=100)
             bundle = self._store.read_bundle()
             clients = self._ordered_clients(bundle["clients"])
-            matches = self._rank_client_matches(clients, query)
+            matches = self._rank_client_matches(clients, query, bundle["cards"])
             selected = [client for _, client in matches[:limit]]
             return {
                 "clients": [
@@ -4957,7 +4957,7 @@ class CardService:
         return keys
 
     def _rank_client_matches(
-        self, clients: list[ClientProfile], query: str
+        self, clients: list[ClientProfile], query: str, cards: list[Card] | None = None
     ) -> list[tuple[int, ClientProfile]]:
         query = normalize_text(query, default="", limit=500)
         if not query:
@@ -4966,6 +4966,7 @@ class CardService:
         query_digits = re.sub(r"\D+", "", query)
         query_phone_keys = self._phone_match_keys(query)
         ranked: list[tuple[int, ClientProfile]] = []
+        cards = cards or []
         for client in clients:
             fields = [
                 client.name(),
@@ -4978,7 +4979,31 @@ class CardService:
                 client.ogrn,
                 client.contact_person,
             ]
+            related_cards = self._client_related_cards(client, cards) if cards else []
+            vehicle_fields: list[str] = []
+            for card in related_cards:
+                vehicle_fields.extend(
+                    [
+                        card.vehicle_display(),
+                        card.vehicle_profile.make_display,
+                        card.vehicle_profile.model_display,
+                        card.vehicle_profile.registration_plate,
+                        card.vehicle_profile.vin,
+                        card.repair_order.vehicle,
+                        card.repair_order.license_plate,
+                        card.repair_order.vin,
+                        card.repair_order.number,
+                    ]
+                )
             searchable = [self._normalize_search_text(value) for value in fields if value]
+            vehicle_searchable = [
+                self._normalize_search_text(value) for value in vehicle_fields if value
+            ]
+            compact_searchable = [
+                re.sub(r"[\W_]+", "", value)
+                for value in [*searchable, *vehicle_searchable]
+                if value
+            ]
             score = 0
             for variant in query_variants:
                 if not variant:
@@ -4990,6 +5015,16 @@ class CardService:
                         score += 4
                     elif all(part in value for part in variant.split()):
                         score += 2
+                for value in vehicle_searchable:
+                    if value == variant:
+                        score += 7
+                    elif variant in value:
+                        score += 5
+                    elif all(part in value for part in variant.split()):
+                        score += 3
+                compact_variant = re.sub(r"[\W_]+", "", variant)
+                if compact_variant and any(compact_variant in value for value in compact_searchable):
+                    score += 5
             if len(query_digits) >= 4:
                 phone_digits = " ".join(re.sub(r"\D+", "", phone) for phone in client.phones)
                 if query_digits in phone_digits:

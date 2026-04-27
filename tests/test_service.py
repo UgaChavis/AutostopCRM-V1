@@ -375,6 +375,35 @@ class CardServiceTests(unittest.TestCase):
         stats = self.service.get_client_stats({"client_id": client["id"]})
         self.assertEqual(stats["stats"]["cards_total"], 1)
 
+    def test_client_search_uses_related_vehicle_plate_vin_and_phone_formats(self) -> None:
+        client = self.service.create_client(
+            {
+                "last_name": "Петров",
+                "first_name": "Петр",
+                "phone": "+7 (913) 555-66-77",
+            }
+        )["client"]
+        self.service.create_card(
+            {
+                "vehicle": "Toyota Camry",
+                "title": "Плановое ТО",
+                "description": "Тест поиска клиента по автомобилю",
+                "deadline": {"hours": 2},
+                "vehicle_profile": {
+                    "customer_name": "Петров Петр",
+                    "customer_phone": "8 913 555 66 77",
+                    "vin": "JTDBE32K620654321",
+                    "registration_plate": "А555ВС124",
+                },
+            }
+        )
+
+        for query in ("А555ВС124", "а555вс124", "Camry", "JTDBE32K620654321", "89135556677"):
+            with self.subTest(query=query):
+                search = self.service.search_clients({"query": query, "limit": 5})
+                self.assertTrue(search["clients"])
+                self.assertEqual(search["clients"][0]["id"], client["id"])
+
     def test_delete_client_rejects_linked_cards_unless_explicitly_allowed(self) -> None:
         client = self.service.create_client(
             {

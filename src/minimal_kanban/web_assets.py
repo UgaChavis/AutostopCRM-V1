@@ -5582,6 +5582,19 @@ BOARD_WEB_APP_HTML = "".join(
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 8px;
     }
+    #clientProfileTitle {
+      color: var(--text);
+      font-size: 18px;
+      line-height: 1.25;
+      letter-spacing: 0.06em;
+    }
+    #clientProfileMeta {
+      color: var(--muted);
+    }
+    .clients-field--type {
+      grid-column: span 3;
+      max-width: 220px;
+    }
     .clients-field--wide {
       grid-column: span 3;
     }
@@ -5606,7 +5619,13 @@ BOARD_WEB_APP_HTML = "".join(
     .client-mini {
       border: 1px solid rgba(160, 174, 135, 0.16);
       background: rgba(16, 22, 18, 0.72);
+      color: var(--text);
       padding: 8px;
+    }
+    .client-mini__order-number {
+      color: var(--text);
+      font-size: 13px;
+      letter-spacing: 0.05em;
     }
     .client-match-panel {
       display: none;
@@ -5642,6 +5661,10 @@ BOARD_WEB_APP_HTML = "".join(
       }
       .clients-form-grid {
         grid-template-columns: minmax(0, 1fr);
+      }
+      .clients-field--type {
+        grid-column: auto;
+        max-width: none;
       }
       .clients-field--wide {
         grid-column: auto;
@@ -5868,7 +5891,7 @@ BOARD_WEB_APP_HTML = "".join(
       <div class="clients-layout">
         <section class="clients-list-pane">
           <div class="clients-toolbar">
-            <input id="clientsSearchInput" type="text" maxlength="160" placeholder="ПОИСК: ФИО, телефон, ИНН">
+            <input id="clientsSearchInput" type="text" maxlength="160" placeholder="ПОИСК: ФИО, телефон, госномер, авто">
             <button class="btn btn--accent" id="clientNewButton" type="button">+ КЛИЕНТ</button>
           </div>
           <div class="clients-list" id="clientsList"></div>
@@ -5882,7 +5905,7 @@ BOARD_WEB_APP_HTML = "".join(
             <button class="btn btn--accent" id="clientSaveButton" type="button">СОХРАНИТЬ</button>
           </div>
           <div class="clients-form-grid">
-            <div class="field field--compact">
+            <div class="field field--compact clients-field--type">
               <label for="clientTypeInput">ТИП</label>
               <select id="clientTypeInput">
                 <option value="person">ФЛ</option>
@@ -5891,9 +5914,9 @@ BOARD_WEB_APP_HTML = "".join(
                 <option value="company">ЮЛ</option>
               </select>
             </div>
-            <div class="field field--compact"><label for="clientLastNameInput">ФАМИЛИЯ</label><input id="clientLastNameInput" type="text" maxlength="120"></div>
-            <div class="field field--compact"><label for="clientFirstNameInput">ИМЯ</label><input id="clientFirstNameInput" type="text" maxlength="120"></div>
-            <div class="field field--compact"><label for="clientMiddleNameInput">ОТЧЕСТВО</label><input id="clientMiddleNameInput" type="text" maxlength="120"></div>
+            <div class="field field--compact clients-name-field"><label for="clientLastNameInput">ФАМИЛИЯ</label><input id="clientLastNameInput" type="text" maxlength="120"></div>
+            <div class="field field--compact clients-name-field"><label for="clientFirstNameInput">ИМЯ</label><input id="clientFirstNameInput" type="text" maxlength="120"></div>
+            <div class="field field--compact clients-name-field"><label for="clientMiddleNameInput">ОТЧЕСТВО</label><input id="clientMiddleNameInput" type="text" maxlength="120"></div>
             <div class="field field--compact clients-field--wide"><label for="clientDisplayNameInput">НАЗВАНИЕ / ОТОБРАЖЕНИЕ</label><input id="clientDisplayNameInput" type="text" maxlength="160"></div>
             <div class="field field--compact"><label for="clientPhoneInput">ТЕЛЕФОН</label><input id="clientPhoneInput" type="text" maxlength="80"></div>
             <div class="field field--compact"><label for="clientEmailInput">EMAIL</label><input id="clientEmailInput" type="text" maxlength="160"></div>
@@ -9028,13 +9051,13 @@ BOARD_WEB_APP_HTML = "".join(
     function renderClientProfile(data) {
       const client = data?.client || {};
       state.clientsActiveProfile = data || null;
-      if (els.clientProfileTitle) els.clientProfileTitle.textContent = clientDisplayName(client).toUpperCase();
+      if (els.clientProfileTitle) els.clientProfileTitle.textContent = clientDisplayName(client);
       const stats = client.stats || {};
       if (els.clientProfileMeta) {
         els.clientProfileMeta.textContent = [
           client.type_label || client.client_type || 'ФЛ',
-          client.phone || '',
           stats.repair_orders_total !== undefined ? ('заказ-нарядов: ' + stats.repair_orders_total) : '',
+          stats.vehicles_total !== undefined ? ('авто: ' + stats.vehicles_total) : '',
           stats.last_visit ? ('последний визит: ' + formatDate(stats.last_visit)) : '',
         ].filter(Boolean).join(' · ') || 'Мини-профиль клиента.';
       }
@@ -9045,7 +9068,7 @@ BOARD_WEB_APP_HTML = "".join(
         : '<div class="empty">МАШИН ПОКА НЕТ.</div>';
       const orders = Array.isArray(data?.repair_orders) ? data.repair_orders : [];
       els.clientOrdersList.innerHTML = orders.length
-        ? orders.map((order) => '<button class="client-mini" type="button" data-open-repair-order-card="' + escapeHtml(order.card_id || '') + '"><strong>№ ' + escapeHtml(order.number || '-') + '</strong><div class="client-mini__meta">' + escapeHtml([formatDate(order.opened_at || order.date), order.vehicle, order.status_label, order.grand_total].filter(Boolean).join(' · ')) + '</div></button>').join('')
+        ? orders.map((order) => '<button class="client-mini" type="button" data-open-repair-order-card="' + escapeHtml(order.card_id || '') + '"><strong class="client-mini__order-number">№ ' + escapeHtml(order.number || '-') + '</strong><div class="client-mini__meta">' + escapeHtml([formatDate(order.opened_at || order.date), order.vehicle, order.status_label, order.grand_total].filter(Boolean).join(' · ')) + '</div></button>').join('')
         : '<div class="empty">ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.</div>';
     }
 

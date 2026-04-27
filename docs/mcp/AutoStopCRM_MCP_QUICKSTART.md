@@ -105,7 +105,7 @@ delete_client является destructive-командой: сначала пр
 - Полная доска: `get_board_content(include_archived=false)` для обычной работы, `include_archived=true` только при необходимости полного экспорта.
 - Журнал: `get_board_events(event_limit=20..50, include_archived=true)`, а `100` использовать только для расследований.
 - Одна карточка: `get_card_context(card_id, event_limit=5..20, include_repair_order_text=false)`; `include_repair_order_text=true` включать только когда нужен полный текст.
-- Клиенты: `suggest_clients_for_card(card_id)` из карточки, `search_clients(query)` по ФИО/телефону/ИНН, затем `get_client(client_id)` только для выбранного клиента.
+- Клиенты: `suggest_clients_for_card(card_id)` из карточки, `search_clients(query)` по ФИО/телефону/ИНН/авто/госномеру/VIN, затем `get_client(client_id)` только для выбранного клиента.
 - Вложения карточки: `list_card_attachments(card_id)` для списка, `get_card_attachment(card_id, attachment_id)` для метаданных, `read_card_attachment(card_id, attachment_id, mode="preview")` для bounded-чтения. Для изображений включать `mode="base64"` только если агент будет анализировать картинку.
 - Кассы: `list_cashboxes`, затем `get_cashbox`.
 - Заказ-наряды: `list_repair_orders`, затем `get_repair_order`.

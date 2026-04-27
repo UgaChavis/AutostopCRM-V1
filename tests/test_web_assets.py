@@ -689,6 +689,14 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="clientsButton">КЛИЕНТЫ</button>', BOARD_WEB_APP_HTML)
         self.assertIn('id="clientsModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="clientsList"', BOARD_WEB_APP_HTML)
+        self.assertIn("ПОИСК: ФИО, телефон, госномер, авто", BOARD_WEB_APP_HTML)
+        self.assertIn("clients-field--type", BOARD_WEB_APP_HTML)
+        self.assertIn("clients-name-field", BOARD_WEB_APP_HTML)
+        self.assertIn("client-mini__order-number", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "clientProfileTitle) els.clientProfileTitle.textContent = clientDisplayName(client);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn('id="clientRequisitesDetails"', BOARD_WEB_APP_HTML)
         self.assertIn('id="clientMatchPanel"', BOARD_WEB_APP_HTML)
         self.assertIn("async function openClientsModal()", BOARD_WEB_APP_HTML)
