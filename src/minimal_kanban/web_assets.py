@@ -9126,6 +9126,23 @@ BOARD_WEB_APP_HTML = "".join(
       return keys;
     }
 
+    function clientPhoneSearchVariants(value) {
+      const digits = String(value || '').replace(/\\D+/g, '');
+      if (digits.length < 3) return new Set();
+      const variants = new Set([digits]);
+      if (digits.length >= 4 && /[78]/.test(digits[0])) {
+        variants.add(digits.slice(1));
+      }
+      if (digits.length >= 10) {
+        const lastTen = digits.slice(-10);
+        variants.add(lastTen);
+        if (lastTen.length >= 4 && /[78]/.test(lastTen[0])) {
+          variants.add(lastTen.slice(1));
+        }
+      }
+      return new Set(Array.from(variants).filter((variant) => variant.length >= 3));
+    }
+
     function clientSearchHaystack(client) {
       const phones = Array.isArray(client?.phones) ? client.phones : [];
       return [
@@ -9151,12 +9168,18 @@ BOARD_WEB_APP_HTML = "".join(
       if (!normalizedQuery) return true;
       const haystack = normalizeClientSearchText(clientSearchHaystack(client));
       const queryDigits = normalizedQuery.replace(/\\D+/g, '');
-      const queryPhoneKeys = clientPhoneMatchKeys(normalizedQuery);
+      const queryPhoneVariants = clientPhoneSearchVariants(normalizedQuery);
       const clientPhoneKeys = clientPhoneMatchKeys([client?.phone, ...(Array.isArray(client?.phones) ? client.phones : [])].filter(Boolean).join(' '));
+      const clientPhoneVariants = clientPhoneSearchVariants([client?.phone, ...(Array.isArray(client?.phones) ? client.phones : [])].filter(Boolean).join(' '));
       const tokens = normalizedQuery.split(/\\s+/).filter(Boolean);
       if (tokens.length && tokens.every((token) => haystack.includes(token))) return true;
-      for (const key of queryPhoneKeys) {
+      for (const key of queryPhoneVariants) {
         if (clientPhoneKeys.has(key)) return true;
+      }
+      for (const queryVariant of queryPhoneVariants) {
+        for (const clientVariant of clientPhoneVariants) {
+          if (queryVariant.includes(clientVariant) || clientVariant.includes(queryVariant)) return true;
+        }
       }
       if (queryDigits.length >= 4) {
         const compactHaystack = haystack.replace(/\\D+/g, '');

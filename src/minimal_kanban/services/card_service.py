@@ -4956,6 +4956,21 @@ class CardService:
                 keys.add("8" + last_ten)
         return keys
 
+    def _phone_search_variants(self, value: Any) -> set[str]:
+        text = str(value or "")
+        digits = re.sub(r"\D+", "", text)
+        if len(digits) < 3:
+            return set()
+        variants = {digits}
+        if len(digits) >= 4 and digits[0] in "78":
+            variants.add(digits[1:])
+        if len(digits) >= 10:
+            last_ten = digits[-10:]
+            variants.add(last_ten)
+            if len(last_ten) >= 4 and last_ten[0] in "78":
+                variants.add(last_ten[1:])
+        return {variant for variant in variants if len(variant) >= 3}
+
     def _rank_client_matches(
         self, clients: list[ClientProfile], query: str, cards: list[Card] | None = None
     ) -> list[tuple[int, ClientProfile]]:
@@ -4964,7 +4979,7 @@ class CardService:
             return [(1, client) for client in self._ordered_clients(clients)]
         query_variants = self._search_text_variants(query)
         query_digits = re.sub(r"\D+", "", query)
-        query_phone_keys = self._phone_match_keys(query)
+        query_phone_variants = self._phone_search_variants(query)
         ranked: list[tuple[int, ClientProfile]] = []
         cards = cards or []
         for client in clients:
@@ -5029,8 +5044,18 @@ class CardService:
                 phone_digits = " ".join(re.sub(r"\D+", "", phone) for phone in client.phones)
                 if query_digits in phone_digits:
                     score += 10
-            if query_phone_keys and query_phone_keys.intersection(self._client_match_keys(client)):
-                score += 10
+            if query_phone_variants:
+                client_phone_variants = set()
+                for phone in [client.phone, *client.phones]:
+                    client_phone_variants.update(self._phone_search_variants(phone))
+                if client_phone_variants and any(
+                    query_variant in client_variant or client_variant in query_variant
+                    for query_variant in query_phone_variants
+                    for client_variant in client_phone_variants
+                ):
+                    score += 10
+                elif query_phone_variants.intersection(self._client_match_keys(client)):
+                    score += 10
             if score > 0:
                 ranked.append((score, client))
         ranked.sort(key=lambda item: (item[0], item[1].updated_at, item[1].name()), reverse=True)

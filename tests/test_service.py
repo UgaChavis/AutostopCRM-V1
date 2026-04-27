@@ -424,6 +424,19 @@ class CardServiceTests(unittest.TestCase):
                 self.assertTrue(search["clients"])
                 self.assertEqual(search["clients"][0]["id"], client["id"])
 
+        prefix_client = self.service.create_client(
+            {
+                "last_name": "Кузнецов",
+                "first_name": "Павел",
+                "phone": "+7 (902) 222-33-44",
+            }
+        )["client"]
+        for query in ("8-902", "902 222 33", "89022223344", "79022223344"):
+            with self.subTest(query=query):
+                search = self.service.search_clients({"query": query, "limit": 5})
+                self.assertTrue(search["clients"])
+                self.assertEqual(search["clients"][0]["id"], prefix_client["id"])
+
     def test_delete_client_rejects_linked_cards_unless_explicitly_allowed(self) -> None:
         client = self.service.create_client(
             {
