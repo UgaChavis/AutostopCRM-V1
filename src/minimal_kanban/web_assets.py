@@ -5591,6 +5591,13 @@ BOARD_WEB_APP_HTML = "".join(
       gap: 12px;
       margin-bottom: 10px;
     }
+    .clients-profile-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+      min-width: 180px;
+    }
     .clients-form-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -5612,6 +5619,28 @@ BOARD_WEB_APP_HTML = "".join(
       font-weight: 700;
       line-height: 1.25;
       letter-spacing: 0.04em;
+    }
+    .client-debt-card {
+      min-width: 180px;
+      border: 1px solid rgba(160, 174, 135, 0.18);
+      background: rgba(16, 22, 18, 0.7);
+      padding: 8px 10px;
+      text-align: right;
+    }
+    .client-debt-card__label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .client-debt-card__value {
+      margin-top: 3px;
+      color: var(--text);
+      font-size: 19px;
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: 0.03em;
     }
     .clients-profile-pane #clientLastNameInput,
     .clients-profile-pane #clientFirstNameInput,
@@ -5934,7 +5963,13 @@ BOARD_WEB_APP_HTML = "".join(
               <div class="panel-title" id="clientProfileTitle">КЛИЕНТ НЕ ВЫБРАН</div>
               <div class="client-profile-phone" id="clientProfilePhone">ТЕЛЕФОН НЕ УКАЗАН</div>
             </div>
-            <button class="btn btn--accent" id="clientSaveButton" type="button">СОХРАНИТЬ</button>
+            <div class="clients-profile-actions">
+              <button class="btn btn--accent" id="clientSaveButton" type="button">СОХРАНИТЬ</button>
+              <div class="client-debt-card" id="clientDebtCard">
+                <div class="client-debt-card__label">ЗАДОЛЖЕННОСТЬ</div>
+                <div class="client-debt-card__value" id="clientDebtValue">0 ₽</div>
+              </div>
+            </div>
           </div>
           <div class="clients-form-grid">
             <div class="field field--compact clients-field--type">
@@ -7004,6 +7039,8 @@ BOARD_WEB_APP_HTML = "".join(
       clientNewButton: document.getElementById('clientNewButton'),
       clientProfileTitle: document.getElementById('clientProfileTitle'),
       clientProfilePhone: document.getElementById('clientProfilePhone'),
+      clientDebtCard: document.getElementById('clientDebtCard'),
+      clientDebtValue: document.getElementById('clientDebtValue'),
       clientTypeInput: document.getElementById('clientTypeInput'),
       clientLastNameInput: document.getElementById('clientLastNameInput'),
       clientFirstNameInput: document.getElementById('clientFirstNameInput'),
@@ -9066,6 +9103,14 @@ BOARD_WEB_APP_HTML = "".join(
       return parts.join(' · ') || 'нет данных';
     }
 
+    function clientDebtAmountText(orders) {
+      const total = (Array.isArray(orders) ? orders : []).reduce((sum, order) => {
+        const due = repairOrderParseNumber(order?.due_total);
+        return sum + (Number.isFinite(due) ? due : 0);
+      }, 0);
+      return repairOrderFormatRubles(Math.max(0, total));
+    }
+
     function renderClientsList() {
       const clients = Array.isArray(state.clients) ? state.clients : [];
       if (els.clientsMeta) {
@@ -9150,12 +9195,15 @@ BOARD_WEB_APP_HTML = "".join(
         const phone = String(client.phone || (Array.isArray(client.phones) ? client.phones[0] : '') || '').trim();
         els.clientProfilePhone.textContent = phone || 'ТЕЛЕФОН НЕ УКАЗАН';
       }
+      const orders = Array.isArray(data?.repair_orders) ? data.repair_orders : [];
+      if (els.clientDebtValue) {
+        els.clientDebtValue.textContent = clientDebtAmountText(orders);
+      }
       fillClientForm(client);
       const vehicles = Array.isArray(data?.vehicles) ? data.vehicles : [];
       els.clientVehiclesList.innerHTML = vehicles.length
         ? vehicles.map((vehicle) => '<div class="client-mini"><strong>' + escapeHtml(vehicle.vehicle || 'Автомобиль') + '</strong><div class="client-mini__meta">' + escapeHtml([vehicle.license_plate, vehicle.vin].filter(Boolean).join(' · ') || 'VIN / номер не указан') + '</div></div>').join('')
         : '<div class="empty">МАШИН ПОКА НЕТ.</div>';
-      const orders = Array.isArray(data?.repair_orders) ? data.repair_orders : [];
       els.clientOrdersList.innerHTML = orders.length
         ? orders.map((order) => '<button class="client-mini" type="button" data-open-repair-order-card="' + escapeHtml(order.card_id || '') + '"><strong class="client-mini__order-number">№ ' + escapeHtml(order.number || '-') + '</strong><div class="client-mini__meta">' + escapeHtml([formatDate(order.opened_at || order.date), order.vehicle, order.status_label, order.grand_total].filter(Boolean).join(' · ')) + '</div></button>').join('')
         : '<div class="empty">ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.</div>';
