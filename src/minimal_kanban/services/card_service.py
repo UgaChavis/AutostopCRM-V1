@@ -4820,6 +4820,51 @@ class CardService:
         related.sort(key=lambda item: (item.updated_at, item.created_at, item.id), reverse=True)
         return related
 
+    def _client_related_vehicle_fields_index(
+        self, clients: list[ClientProfile], cards: list[Card]
+    ) -> dict[str, list[str]]:
+        clients_by_id = {client.id: client for client in clients}
+        client_ids_by_key: dict[str, set[str]] = {}
+        for client in clients:
+            for key in self._client_match_keys(client):
+                if key:
+                    client_ids_by_key.setdefault(key, set()).add(client.id)
+
+        related_fields: dict[str, list[str]] = {}
+        seen_cards_by_client: dict[str, set[str]] = {}
+
+        def add_card(client_id: str, card: Card) -> None:
+            if client_id not in clients_by_id:
+                return
+            seen_cards = seen_cards_by_client.setdefault(client_id, set())
+            if card.id in seen_cards:
+                return
+            seen_cards.add(card.id)
+            related_fields.setdefault(client_id, []).extend(
+                [
+                    card.vehicle_display(),
+                    card.vehicle_profile.make_display,
+                    card.vehicle_profile.model_display,
+                    card.vehicle_profile.registration_plate,
+                    card.vehicle_profile.vin,
+                    card.repair_order.vehicle,
+                    card.repair_order.license_plate,
+                    card.repair_order.vin,
+                    card.repair_order.number,
+                ]
+            )
+
+        for card in cards:
+            if card.client_id:
+                add_card(card.client_id, card)
+            matched_client_ids: set[str] = set()
+            for key in self._card_client_values(card):
+                matched_client_ids.update(client_ids_by_key.get(key, set()))
+            for client_id in matched_client_ids:
+                add_card(client_id, card)
+
+        return related_fields
+
     def _client_vehicles(self, client: ClientProfile, cards: list[Card]) -> list[dict[str, str]]:
         vehicles: list[dict[str, str]] = []
         seen: set[str] = set()
@@ -5010,6 +5055,14 @@ class CardService:
         query_phone_variants = self._phone_search_variants(query)
         ranked: list[tuple[int, ClientProfile]] = []
         cards = cards or []
+        client_match_keys_by_id = (
+            {client.id: self._client_match_keys(client) for client in clients}
+            if query_phone_variants or cards
+            else {}
+        )
+        related_fields_by_client_id = (
+            self._client_related_vehicle_fields_index(clients, cards) if cards else {}
+        )
         for client in clients:
             fields = [
                 client.name(),
@@ -5078,24 +5131,10 @@ class CardService:
                     for client_variant in client_phone_variants
                 ):
                     score += 10
-                elif query_phone_variants.intersection(self._client_match_keys(client)):
+                elif query_phone_variants.intersection(client_match_keys_by_id.get(client.id, set())):
                     score += 10
-            if score == 0 and cards:
-                related_vehicle_fields: list[str] = []
-                for card in self._client_related_cards(client, cards):
-                    related_vehicle_fields.extend(
-                        [
-                            card.vehicle_display(),
-                            card.vehicle_profile.make_display,
-                            card.vehicle_profile.model_display,
-                            card.vehicle_profile.registration_plate,
-                            card.vehicle_profile.vin,
-                            card.repair_order.vehicle,
-                            card.repair_order.license_plate,
-                            card.repair_order.vin,
-                            card.repair_order.number,
-                        ]
-                    )
+            if score == 0 and related_fields_by_client_id:
+                related_vehicle_fields = related_fields_by_client_id.get(client.id, [])
                 related_searchable = [
                     self._normalize_search_text(value)
                     for value in related_vehicle_fields
