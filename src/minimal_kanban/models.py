@@ -195,6 +195,10 @@ def normalize_text(value, *, default: str = "", limit: int | None = None) -> str
     return text
 
 
+def normalize_entity_id(value) -> str:
+    return normalize_text(value, default="", limit=128) or str(uuid.uuid4())
+
+
 def normalize_client_phone(value) -> str:
     text = normalize_text(value, default="", limit=CLIENT_PHONE_LIMIT)
     return _SPACES_PATTERN.sub(" ", text)
@@ -278,7 +282,9 @@ class ClientVehicle:
             )
         else:
             vehicle = cls(vehicle=value)
-        if not any((vehicle.vehicle, vehicle.brand, vehicle.model, vehicle.vin, vehicle.license_plate)):
+        if not any(
+            (vehicle.vehicle, vehicle.brand, vehicle.model, vehicle.vin, vehicle.license_plate)
+        ):
             return None
         return vehicle
 
@@ -658,7 +664,7 @@ class Attachment:
         if not file_name or not stored_name:
             raise ValueError("Attachment file_name and stored_name are required.")
         return cls(
-            id=normalize_text(payload.get("id"), default=str(uuid.uuid4()), limit=128),
+            id=normalize_entity_id(payload.get("id")),
             file_name=file_name,
             stored_name=stored_name,
             mime_type=normalize_text(
@@ -752,7 +758,7 @@ class StickyNote:
         if deadline is None:
             deadline = created_at + timedelta(seconds=deadline_total_seconds)
         return cls(
-            id=normalize_text(payload.get("id"), default=str(uuid.uuid4()), limit=128),
+            id=normalize_entity_id(payload.get("id")),
             text=normalize_text(payload.get("text"), default="ЗАМЕТКА", limit=STICKY_TEXT_LIMIT),
             x=normalize_int(payload.get("x"), default=0, minimum=0),
             y=normalize_int(payload.get("y"), default=0, minimum=0),
@@ -796,7 +802,7 @@ class AuditEvent:
             details = {}
         card_id = normalize_text(payload.get("card_id"), default="", limit=128) or None
         return cls(
-            id=normalize_text(payload.get("id"), default=str(uuid.uuid4()), limit=128),
+            id=normalize_entity_id(payload.get("id")),
             timestamp=timestamp.isoformat(),
             actor_name=normalize_actor_name(payload.get("actor_name")),
             source=normalize_source(payload.get("source"), default="system"),
@@ -845,7 +851,7 @@ class CashBox:
             raise ValueError("Cash box name is required.")
         order = normalize_int(payload.get("order"), default=0, minimum=0)
         return cls(
-            id=normalize_text(payload.get("id"), default=str(uuid.uuid4()), limit=128),
+            id=normalize_entity_id(payload.get("id")),
             name=name,
             order=order,
             created_at=created_at.isoformat(),
@@ -908,7 +914,7 @@ class CashTransaction:
         if not cashbox_id:
             raise ValueError("Cash transaction cashbox_id is required.")
         return cls(
-            id=normalize_text(payload.get("id"), default=str(uuid.uuid4()), limit=128),
+            id=normalize_entity_id(payload.get("id")),
             cashbox_id=cashbox_id,
             direction=normalize_cash_direction(payload.get("direction")),
             amount_minor=normalize_money_minor(payload.get("amount_minor"), minimum=1),
@@ -952,7 +958,7 @@ class ClientProfile:
     updated_at: str = ""
 
     def __post_init__(self) -> None:
-        self.id = normalize_text(self.id, default=str(uuid.uuid4()), limit=128)
+        self.id = normalize_entity_id(self.id)
         self.client_type = normalize_client_type(self.client_type)
         self.last_name = normalize_text(self.last_name, default="", limit=CLIENT_NAME_LIMIT)
         self.first_name = normalize_text(self.first_name, default="", limit=CLIENT_NAME_LIMIT)
@@ -1054,7 +1060,7 @@ class ClientProfile:
             raise TypeError("Client payload must be a dictionary.")
         client_type = normalize_client_type(payload.get("client_type", payload.get("type")))
         return cls(
-            id=normalize_text(payload.get("id"), default=str(uuid.uuid4()), limit=128),
+            id=normalize_entity_id(payload.get("id")),
             client_type=client_type,
             last_name=payload.get("last_name", ""),
             first_name=payload.get("first_name", ""),
@@ -1409,7 +1415,7 @@ class Card:
             vehicle = normalize_text(profile_display, default="", limit=CARD_VEHICLE_LIMIT)
 
         card = cls(
-            id=normalize_text(payload.get("id"), default=str(uuid.uuid4()), limit=128),
+            id=normalize_entity_id(payload.get("id")),
             title=normalize_text(
                 payload.get("title"), default="Без названия", limit=CARD_TITLE_LIMIT
             ),

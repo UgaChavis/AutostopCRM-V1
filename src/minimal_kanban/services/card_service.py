@@ -480,6 +480,8 @@ class CardService:
         self._logger = logger
         self._lock = threading.RLock()
         self._agent_control: Any | None = None
+        self._client_search_index_signature: tuple[Any, ...] | None = None
+        self._client_search_index: dict[str, dict[str, Any]] = {}
         self._attachments_dir = attachments_dir or get_attachments_dir()
         self._attachments_dir.mkdir(parents=True, exist_ok=True)
         self._repair_orders_dir = repair_orders_dir or (self._store.base_dir / "repair-orders")
@@ -2079,6 +2081,7 @@ class CardService:
                         bundle["cards"],
                         include_stats=include_stats,
                         compact=True,
+                        include_vehicle_preview=include_stats,
                     )
                     for client in clients[:limit]
                 ],
@@ -4922,10 +4925,15 @@ class CardService:
         *,
         include_stats: bool = False,
         compact: bool = False,
+        include_vehicle_preview: bool = True,
     ) -> dict[str, Any]:
         payload = client.to_dict()
         payload["short_id"] = short_entity_id(client.id, prefix="CL")
-        payload["vehicles_preview"] = self._client_vehicles(client, cards)[:2]
+        payload["vehicles_preview"] = (
+            self._client_vehicles(client, cards)[:2]
+            if include_vehicle_preview
+            else [vehicle.to_dict() for vehicle in client.vehicles[:2]]
+        )
         if include_stats:
             payload["stats"] = self._client_stats(client, cards)
         if compact:
@@ -5073,6 +5081,90 @@ class CardService:
                 variants.add(last_ten[1:])
         return {variant for variant in variants if len(variant) >= 3}
 
+    def _client_search_index_key(self, client: ClientProfile) -> tuple[Any, ...]:
+        vehicle_keys = tuple(
+            (
+                vehicle.vehicle,
+                vehicle.brand,
+                vehicle.model,
+                vehicle.vin,
+                vehicle.license_plate,
+                vehicle.year,
+            )
+            for vehicle in client.vehicles
+        )
+        return (
+            client.id,
+            client.updated_at,
+            client.client_type,
+            client.last_name,
+            client.first_name,
+            client.middle_name,
+            client.display_name,
+            client.phone,
+            tuple(client.phones),
+            client.email,
+            client.inn,
+            client.ogrn,
+            client.contact_person,
+            vehicle_keys,
+        )
+
+    def _client_search_index_for(self, clients: list[ClientProfile]) -> dict[str, dict[str, Any]]:
+        signature = tuple(self._client_search_index_key(client) for client in clients)
+        if signature == self._client_search_index_signature:
+            return self._client_search_index
+
+        index: dict[str, dict[str, Any]] = {}
+        for client in clients:
+            fields = [
+                client.name(),
+                client.full_name(),
+                client.display_name,
+                client.phone,
+                " ".join(client.phones),
+                client.email,
+                client.inn,
+                client.ogrn,
+                client.contact_person,
+            ]
+            vehicle_fields: list[str] = []
+            for vehicle in client.vehicles:
+                vehicle_fields.extend(
+                    [
+                        vehicle.vehicle,
+                        vehicle.brand,
+                        vehicle.model,
+                        vehicle.vin,
+                        vehicle.license_plate,
+                        vehicle.year,
+                    ]
+                )
+            searchable = [self._normalize_search_text(value) for value in fields if value]
+            vehicle_searchable = [
+                self._normalize_search_text(value) for value in vehicle_fields if value
+            ]
+            compact_searchable = [
+                re.sub(r"[\W_]+", "", value)
+                for value in [*searchable, *vehicle_searchable]
+                if value
+            ]
+            phone_variants: set[str] = set()
+            for phone in [client.phone, *client.phones]:
+                phone_variants.update(self._phone_search_variants(phone))
+            index[client.id] = {
+                "searchable": searchable,
+                "vehicle_searchable": vehicle_searchable,
+                "compact_searchable": compact_searchable,
+                "digits_blob": self._client_search_digits_blob(client),
+                "match_keys": self._client_match_keys(client),
+                "phone_variants": phone_variants,
+            }
+
+        self._client_search_index_signature = signature
+        self._client_search_index = index
+        return index
+
     def _rank_client_matches(
         self, clients: list[ClientProfile], query: str, cards: list[Card] | None = None
     ) -> list[tuple[int, ClientProfile]]:
@@ -5083,12 +5175,13 @@ class CardService:
         query_digits = re.sub(r"\D+", "", query)
         query_phone_variants = self._phone_search_variants(query)
         phone_like_query = bool(query_digits) and not re.search(r"[A-Za-zА-Яа-я]", query)
+        client_search_index = self._client_search_index_for(clients)
 
         if phone_like_query:
             ranked: list[tuple[int, ClientProfile]] = []
             fallback_clients: list[ClientProfile] = []
             for client in clients:
-                digits_blob = self._client_search_digits_blob(client)
+                digits_blob = client_search_index.get(client.id, {}).get("digits_blob", "")
                 if digits_blob and query_digits in digits_blob:
                     ranked.append((10, client))
                 else:
@@ -5133,44 +5226,11 @@ class CardService:
         ranked: list[tuple[int, ClientProfile]] = []
         fallback_clients: list[ClientProfile] = []
         cards = cards or []
-        client_match_keys_by_id = (
-            {client.id: self._client_match_keys(client) for client in clients}
-            if query_phone_variants
-            else {}
-        )
         for client in clients:
-            fields = [
-                client.name(),
-                client.full_name(),
-                client.display_name,
-                client.phone,
-                " ".join(client.phones),
-                client.email,
-                client.inn,
-                client.ogrn,
-                client.contact_person,
-            ]
-            vehicle_fields: list[str] = []
-            for vehicle in client.vehicles:
-                vehicle_fields.extend(
-                    [
-                        vehicle.vehicle,
-                        vehicle.brand,
-                        vehicle.model,
-                        vehicle.vin,
-                        vehicle.license_plate,
-                        vehicle.year,
-                    ]
-                )
-            searchable = [self._normalize_search_text(value) for value in fields if value]
-            vehicle_searchable = [
-                self._normalize_search_text(value) for value in vehicle_fields if value
-            ]
-            compact_searchable = [
-                re.sub(r"[\W_]+", "", value)
-                for value in [*searchable, *vehicle_searchable]
-                if value
-            ]
+            indexed = client_search_index.get(client.id, {})
+            searchable = indexed.get("searchable", [])
+            vehicle_searchable = indexed.get("vehicle_searchable", [])
+            compact_searchable = indexed.get("compact_searchable", [])
             score = 0
             for variant in query_variants:
                 if not variant:
@@ -5199,18 +5259,14 @@ class CardService:
                 if query_digits in phone_digits:
                     score += 10
             if query_phone_variants:
-                client_phone_variants = set()
-                for phone in [client.phone, *client.phones]:
-                    client_phone_variants.update(self._phone_search_variants(phone))
+                client_phone_variants = indexed.get("phone_variants", set())
                 if client_phone_variants and any(
                     query_variant in client_variant or client_variant in query_variant
                     for query_variant in query_phone_variants
                     for client_variant in client_phone_variants
                 ):
                     score += 10
-                elif query_phone_variants.intersection(
-                    client_match_keys_by_id.get(client.id, set())
-                ):
+                elif query_phone_variants.intersection(indexed.get("match_keys", set())):
                     score += 10
             if score > 0:
                 ranked.append((score, client))

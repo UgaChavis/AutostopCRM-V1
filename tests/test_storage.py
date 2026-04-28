@@ -8,15 +8,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from minimal_kanban.models import AuditEvent
-from minimal_kanban.storage.financial_history_cleanup import sanitize_financial_history_state
-from minimal_kanban.storage.json_store import JsonStore
+from minimal_kanban.models import AuditEvent  # noqa: E402
+from minimal_kanban.storage.financial_history_cleanup import (  # noqa: E402
+    sanitize_financial_history_state,
+)
+from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 
 
 class JsonStoreTests(unittest.TestCase):
@@ -40,6 +41,68 @@ class JsonStoreTests(unittest.TestCase):
         self.assertEqual(cards, [])
         self.assertTrue(self.state_file.exists())
         self.assertTrue(self.state_file.with_suffix(".corrupted.json").exists())
+
+    def test_read_bundle_reuses_cached_state_until_file_changes(self) -> None:
+        store = JsonStore(state_file=self.state_file, logger=self.logger)
+
+        with patch.object(store, "_read_state", wraps=store._read_state) as read_state:
+            first = store.read_bundle()
+            second = store.read_bundle()
+
+        self.assertIs(first, second)
+        self.assertEqual(read_state.call_count, 1)
+
+    def test_read_bundle_cache_is_invalidated_after_write_bundle(self) -> None:
+        store = JsonStore(state_file=self.state_file, logger=self.logger)
+        bundle = store.read_bundle()
+
+        store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=[
+                *bundle["events"],
+                AuditEvent(
+                    id="cache-event",
+                    timestamp="2026-04-28T00:00:00+00:00",
+                    actor_name="system",
+                    source="system",
+                    action="test",
+                    message="cache invalidated",
+                ),
+            ],
+            settings=bundle["settings"],
+        )
+
+        with patch.object(store, "_read_state", wraps=store._read_state) as read_state:
+            refreshed = store.read_bundle()
+
+        self.assertEqual(read_state.call_count, 1)
+        self.assertEqual(refreshed["events"][-1].message, "cache invalidated")
+
+    def test_read_bundle_cache_detects_external_file_changes(self) -> None:
+        store = JsonStore(state_file=self.state_file, logger=self.logger)
+        first = store.read_bundle()
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        state["events"].append(
+            {
+                "id": "external-event",
+                "action": "external",
+                "message": "external change",
+                "timestamp": "2026-04-28T00:00:00+00:00",
+            }
+        )
+        self.state_file.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+        with patch.object(store, "_read_state", wraps=store._read_state) as read_state:
+            second = store.read_bundle()
+
+        self.assertIsNot(first, second)
+        self.assertEqual(read_state.call_count, 1)
+        self.assertEqual(second["events"][-1].message, "external change")
 
     def test_repairs_invalid_card_state_and_migrates_legacy_fields(self) -> None:
         raw_state = {
@@ -232,7 +295,9 @@ class JsonStoreTests(unittest.TestCase):
         self.assertEqual(sanitized["cards"][0]["repair_order"]["works"][0]["executor_name"], "")
         self.assertEqual(sanitized["cards"][0]["repair_order"]["works"][0]["salary_amount"], "")
         self.assertEqual(sanitized["cards"][0]["repair_order"]["works"][0]["salary_accrued_at"], "")
-        self.assertEqual(sanitized["cards"][0]["repair_order"]["payments"][0]["cash_transaction_id"], "")
+        self.assertEqual(
+            sanitized["cards"][0]["repair_order"]["payments"][0]["cash_transaction_id"], ""
+        )
         self.assertEqual(
             sanitized["cards"][0]["repair_order"]["payment_history"][0]["cash_transaction_id"],
             "",
