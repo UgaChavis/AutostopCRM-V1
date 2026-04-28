@@ -1146,6 +1146,19 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("openRepairOrderModal();", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/get_repair_order'", BOARD_WEB_APP_HTML)
         self.assertIn("els.repairOrderModal.classList.add('is-open');", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function renderRepairOrderRows(section, rows, { syncTotals = true } = {})",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("renderRepairOrderPayments({ syncTotals: false });", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "renderRepairOrderRows('works', normalized.works, { syncTotals: false });",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "renderRepairOrderRows('materials', normalized.materials, { syncTotals: false });",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertLess(
             BOARD_WEB_APP_HTML.index("els.repairOrderModal.classList.add('is-open');"),
             BOARD_WEB_APP_HTML.index("const employeesRequest = loadEmployeesReference();"),
@@ -1282,7 +1295,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "node.textContent = repairOrderFormatMoney(summary.taxes_and_fees);", BOARD_WEB_APP_HTML
         )
-        self.assertIn("function renderRepairOrderPayments()", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function renderRepairOrderPayments({ syncTotals = true } = {})",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "const summary = repairOrderSummaryValue(subtotal, payments);", BOARD_WEB_APP_HTML
         )
@@ -1477,8 +1493,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("state.repairOrderParentLayer = 'card';", BOARD_WEB_APP_HTML)
         self.assertIn("if (parentLayer === 'repair-orders') {", BOARD_WEB_APP_HTML)
         self.assertIn("resetCardModalState();", BOARD_WEB_APP_HTML)
+        self.assertIn("const data = await api('/api/get_repair_order'", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "await openCardWorkspace(cardId, { openCardModalEl: false, openRepairOrder: true, repairOrderParentLayer: 'repair-orders' });",
+            "await openRepairOrderModal({ preloadedRepairOrderData: data });",
             BOARD_WEB_APP_HTML,
         )
         self.assertNotIn(
@@ -1504,6 +1521,14 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("'/api/open_card'", BOARD_WEB_APP_HTML)
         self.assertIn("data-open-repair-order-card", BOARD_WEB_APP_HTML)
+        repair_order_card_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "async function openRepairOrderCard(cardId)"
+            ) : BOARD_WEB_APP_HTML.index("function updateRepairOrdersTabs()")
+        ]
+        self.assertIn("'/api/get_repair_order'", repair_order_card_fragment)
+        self.assertIn("preloadedRepairOrderData", repair_order_card_fragment)
+        self.assertNotIn("openCardWorkspace", repair_order_card_fragment)
         self.assertIn(".dialog--repair-orders {", BOARD_WEB_APP_HTML)
         self.assertIn("width: min(1940px, calc(100vw - 24px));", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -1628,7 +1653,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function repairOrderIsFullyPaid(order)", BOARD_WEB_APP_HTML)
         self.assertIn("function syncRepairOrderCloseButtonState(order = null)", BOARD_WEB_APP_HTML)
         self.assertIn("function repairOrderCardDraft(card, order = {})", BOARD_WEB_APP_HTML)
-        self.assertIn("function syncRepairOrderStatusUi(status)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function syncRepairOrderStatusUi(status, orderForClose = null)",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "els.repairOrderCloseButton.dataset.closeAvailable = closeAvailable ? 'true' : 'false';",
             BOARD_WEB_APP_HTML,
@@ -1957,7 +1985,10 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertEqual(BOARD_WEB_APP_HTML.count("function renderRepairOrderRows(items)"), 0)
         self.assertEqual(
-            BOARD_WEB_APP_HTML.count("function renderRepairOrderRows(section, rows)"), 1
+            BOARD_WEB_APP_HTML.count(
+                "function renderRepairOrderRows(section, rows, { syncTotals = true } = {})"
+            ),
+            1,
         )
         self.assertEqual(BOARD_WEB_APP_HTML.count("renderRepairOrderListRows = function(items)"), 1)
         self.assertEqual(

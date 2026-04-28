@@ -14072,10 +14072,10 @@ BOARD_WEB_APP_HTML = "".join(
         '</tr>';
     }
 
-    function renderRepairOrderRows(section, rows) {
+    function renderRepairOrderRows(section, rows, { syncTotals = true } = {}) {
       const body = repairOrderRowsBody(section);
       body.innerHTML = ensureRepairOrderRows(rows).map((row, index) => repairOrderRowHtml(section, row, index)).join('');
-      syncRepairOrderTotals();
+      if (syncTotals) syncRepairOrderTotals();
     }
 
     function readRepairOrderRowElement(row) {
@@ -14155,7 +14155,7 @@ BOARD_WEB_APP_HTML = "".join(
       syncRepairOrderCloseButtonState();
     }
 
-    function renderRepairOrderPayments() {
+    function renderRepairOrderPayments({ syncTotals = true } = {}) {
       const payments = Array.isArray(state.repairOrderPayments) ? state.repairOrderPayments : [];
       const paymentMethod = syncRepairOrderPaymentMethodFromPayments();
       const subtotal = repairOrderRoundMoney(syncRepairOrderSectionTotals('works') + syncRepairOrderSectionTotals('materials'));
@@ -14193,7 +14193,7 @@ BOARD_WEB_APP_HTML = "".join(
             + '</div>';
         }).join('') : '<div class="cashboxes-empty">Оплат пока нет.</div>';
       }
-      syncRepairOrderTotals();
+      if (syncTotals) syncRepairOrderTotals();
     }
 
     async function openRepairOrderPaymentsModal() {
@@ -14273,12 +14273,12 @@ BOARD_WEB_APP_HTML = "".join(
       }
     }
 
-    function syncRepairOrderStatusUi(status) {
+    function syncRepairOrderStatusUi(status, orderForClose = null) {
       const normalizedStatus = String(status || '').trim().toLowerCase() === 'closed' ? 'closed' : 'open';
       els.repairOrderStatus.textContent = repairOrderStatusLabel(normalizedStatus);
       els.repairOrderStatus.dataset.status = normalizedStatus;
       els.repairOrderCloseButton.textContent = normalizedStatus === 'closed' ? 'ОТКРЫТЬ ЗАКАЗ-НАРЯД' : 'ЗАКРЫТЬ ЗАКАЗ-НАРЯД';
-      syncRepairOrderCloseButtonState({
+      syncRepairOrderCloseButtonState(orderForClose ? { ...orderForClose, status: normalizedStatus } : {
         ...readRepairOrderFromForm(),
         status: normalizedStatus,
       });
@@ -14308,13 +14308,13 @@ BOARD_WEB_APP_HTML = "".join(
       state.repairOrderTags = normalizeRepairOrderTags(normalized.tags);
       state.repairOrderTagColor = state.repairOrderTags[0]?.color || 'green';
       renderRepairOrderTags();
-      renderRepairOrderPayments();
-      renderRepairOrderRows('works', normalized.works);
-      renderRepairOrderRows('materials', normalized.materials);
+      renderRepairOrderPayments({ syncTotals: false });
+      renderRepairOrderRows('works', normalized.works, { syncTotals: false });
+      renderRepairOrderRows('materials', normalized.materials, { syncTotals: false });
       const heading = repairOrderHeading(normalized.number);
       els.repairOrderModalTitle.innerHTML = repairOrderHeadingHtml(normalized.number);
       els.repairOrderModalTitle.title = heading;
-      syncRepairOrderStatusUi(normalized.status);
+      syncRepairOrderStatusUi(normalized.status, normalized);
       syncRepairOrderTotals();
     }
 
@@ -14355,8 +14355,8 @@ BOARD_WEB_APP_HTML = "".join(
       els.repairOrderButton.innerHTML = repairOrderHeadingHtml(order.number);
     }
 
-    async function openRepairOrderModal() {
-      let order = repairOrderCardDraft(state.activeCard, state.activeCard?.repair_order || {});
+    async function openRepairOrderModal({ preloadedRepairOrderData = null } = {}) {
+      let order = repairOrderCardDraft(state.activeCard, preloadedRepairOrderData?.repair_order || state.activeCard?.repair_order || {});
       const cardId = String(state.activeCard?.id || state.editingId || '').trim();
       if (!state.repairOrderParentLayer && els.cardModal.classList.contains('is-open')) {
         state.repairOrderParentLayer = 'card';
@@ -14365,7 +14365,9 @@ BOARD_WEB_APP_HTML = "".join(
       applyRepairOrderToForm(order);
 
       const employeesRequest = loadEmployeesReference();
-      const repairOrderRequest = cardId
+      const repairOrderRequest = preloadedRepairOrderData
+        ? Promise.resolve(preloadedRepairOrderData)
+        : cardId
         ? api('/api/get_repair_order', {
           method: 'POST',
           body: {
@@ -15236,7 +15238,22 @@ function renderCompactArchiveRows(cards) {
 
     async function openRepairOrderCard(cardId) {
       try {
-        await openCardWorkspace(cardId, { openCardModalEl: false, openRepairOrder: true, repairOrderParentLayer: 'repair-orders' });
+        const normalizedCardId = String(cardId || '').trim();
+        if (!normalizedCardId) return;
+        const data = await api('/api/get_repair_order', {
+          method: 'POST',
+          body: {
+            card_id: normalizedCardId,
+            actor_name: state.actor,
+            source: 'ui',
+          },
+        });
+        const updatedCard = repairOrderResponseCard(data, data?.repair_order || {});
+        state.activeCard = updatedCard;
+        state.editingId = updatedCard?.id || normalizedCardId;
+        state.pendingCardClientId = updatedCard?.client_id || '';
+        state.repairOrderParentLayer = 'repair-orders';
+        await openRepairOrderModal({ preloadedRepairOrderData: data });
       } catch (error) {
         setStatus(error.message, true);
       }
@@ -15372,10 +15389,10 @@ function renderCompactArchiveRows(cards) {
       await loadRepairOrders(openModal);
     }
 
-    renderRepairOrderRows = function(section, rows) {
+    renderRepairOrderRows = function(section, rows, { syncTotals = true } = {}) {
       const body = repairOrderRowsBody(section);
       body.innerHTML = ensureRepairOrderRows(rows).map((row, index) => repairOrderRowHtml(section, row, index)).join('');
-      syncRepairOrderTotals();
+      if (syncTotals) syncRepairOrderTotals();
     };
 
     async function handleRepairOrdersListKeydown(event) {
