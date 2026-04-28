@@ -5872,7 +5872,7 @@ BOARD_WEB_APP_HTML = "".join(
         <button class="btn" id="cashboxesButton">КАССЫ</button>
         <button class="btn" id="employeesButton">СОТРУДНИКИ</button>
         <button class="btn" id="columnButton">+ СТОЛБЕЦ</button>
-        <button class="btn btn--accent" id="cardButton">+ КАРТОЧКА</button>
+          <button class="btn btn--accent" id="cardButton" type="button">+ КАРТОЧКА</button>
       </div>
     </header>
     <div class="board-scroll">
@@ -6405,7 +6405,7 @@ BOARD_WEB_APP_HTML = "".join(
         <div class="dialog__foot-group dialog__foot-group--main">
           <button class="btn" id="cardModalCloseButtonBottom" data-close="card" onclick="window.__closeCardModal && window.__closeCardModal(); return false;">ОТМЕНА</button>
           <button class="btn btn--ghost card-agent-button" id="cardAgentButton" type="button" title="Индикатор карточки" aria-label="Индикатор карточки"></button>
-          <button class="btn btn--accent" id="saveCardButton">СОХРАНИТЬ</button>
+          <button class="btn btn--accent" id="saveCardButton" type="button">СОХРАНИТЬ</button>
         </div>
       </div>
     </div>
@@ -6650,6 +6650,8 @@ BOARD_WEB_APP_HTML = "".join(
       gptWallView: 'board_content',
       activeCard: null,
       editingId: null,
+      cardCreateColumnId: '',
+      cardSaveInFlight: false,
       currentTab: 'overview',
       vehicleProfileDraft: null,
       vehicleProfileBaseline: null,
@@ -9372,8 +9374,8 @@ BOARD_WEB_APP_HTML = "".join(
           const clients = Array.isArray(payload?.clients) ? payload.clients : [];
           state.clientsMetaState = payload?.meta || null;
           state.clients = clients;
-          if (state.clients.length && (!state.clientsActiveId || !state.clients.some((client) => client.id === state.clientsActiveId))) {
-            state.clientsActiveId = state.clients[0].id;
+          if (state.clientsActiveId && !state.clients.some((client) => client.id === state.clientsActiveId)) {
+            state.clientsActiveId = '';
           } else if (!state.clients.length) {
             state.clientsActiveId = '';
           }
@@ -9381,7 +9383,9 @@ BOARD_WEB_APP_HTML = "".join(
         },
       });
       if (state.clientsRequestSeq !== requestSeq) return data;
-      if (state.clientsActiveId) await selectClient(state.clientsActiveId);
+      if (openModal && !state.clientsActiveId && !state.clientsActiveProfile) {
+        resetClientForm();
+      }
       return data;
     }
 
@@ -13393,13 +13397,16 @@ BOARD_WEB_APP_HTML = "".join(
 
     function currentCardPayload() {
       const vehicleProfile = readVehicleProfileForm();
+      const column = state.editingId
+        ? (state.activeCard?.column || state.snapshot?.columns?.[0]?.id || '')
+        : (state.cardCreateColumnId || state.activeCard?.column || state.snapshot?.columns?.[0]?.id || '');
       return {
         actor_name: state.actor,
         source: 'ui',
         vehicle: els.cardVehicle.value.trim(),
         title: els.cardTitle.value.trim(),
         description: els.cardDescription.value.trim(),
-        column: state.activeCard?.column || state.snapshot?.columns?.[0]?.id || '',
+        column,
         tags: state.draftTags.map((tag) => ({ label: tag.label, color: tag.color })),
         deadline: deadlineInput(),
         vehicle_profile: vehicleProfile,
@@ -14620,6 +14627,7 @@ BOARD_WEB_APP_HTML = "".join(
       const currentCard = card || null;
       state.activeCard = currentCard;
       state.editingId = currentCard?.id || null;
+      state.cardCreateColumnId = currentCard?.id ? '' : String(currentCard?.column || state.snapshot?.columns?.[0]?.id || 'inbox').trim();
       state.vehicleAutofillResult = null;
       state.pendingCardClientId = currentCard?.client_id || '';
       state.draftTags = normalizeDraftTags(currentCard?.tag_items || currentCard?.tags || []);
@@ -14663,6 +14671,8 @@ BOARD_WEB_APP_HTML = "".join(
     function resetCardModalState() {
       state.activeCard = null;
       state.editingId = null;
+      state.cardCreateColumnId = '';
+      state.cardSaveInFlight = false;
       state.vehicleProfileDraft = null;
       state.vehicleProfileBaseline = null;
       state.vehicleAutofillResult = null;
@@ -15731,7 +15741,7 @@ function renderCompactArchiveRows(cards) {
         : (snapshot.columns.length <= 1 ? 'Последний столбец нельзя удалить' : 'Удалить пустой столбец');
       const renameTitle = 'Переименовать столбец';
       const deleteAttrs = isDeleteBlocked ? ' disabled' : '';
-      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '" draggable="true"><div class="column__head" data-drag-column-handle="1"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '">&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>?</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '<div class="empty">ЗДЕСЬ ПОКА ПУСТО.</div>') + '</div><button class="btn" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
+      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '" draggable="true"><div class="column__head" data-drag-column-handle="1"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '">&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>?</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '<div class="empty">ЗДЕСЬ ПОКА ПУСТО.</div>') + '</div><button class="btn" type="button" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
     }
 
     function renderBoardColumnById(columnId, cardsByColumn = null) {
@@ -17996,14 +18006,20 @@ function renderCompactArchiveRows(cards) {
     }
 
     async function saveCard() {
+      if (state.cardSaveInFlight) return;
       const payload = currentCardPayload();
       if (!payload.title) return setStatus(CARD_TITLE_REQUIRED_MESSAGE, true);
+      state.cardSaveInFlight = true;
+      if (els.saveCardButton) els.saveCardButton.disabled = true;
       try {
         await persistCardPayload(payload);
         closeCardModal();
         await refreshSnapshot(true);
       } catch (error) {
         setStatus(error.message, true);
+      } finally {
+        state.cardSaveInFlight = false;
+        if (els.saveCardButton) els.saveCardButton.disabled = false;
       }
     }
 

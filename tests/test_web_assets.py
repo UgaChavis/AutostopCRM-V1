@@ -103,30 +103,30 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("WAU...", BOARD_WEB_APP_HTML)
 
     def test_repair_order_fields_do_not_show_placeholder_hints(self) -> None:
-        self.assertNotIn("placeholder=\"1\"", BOARD_WEB_APP_HTML)
-        self.assertNotIn("placeholder=\"04.04.26 14:30\"", BOARD_WEB_APP_HTML)
-        self.assertNotIn("placeholder=\"05.04.26 10:30\"", BOARD_WEB_APP_HTML)
-        self.assertNotIn("placeholder=\"05.04.26 18:20\"", BOARD_WEB_APP_HTML)
-        self.assertNotIn("placeholder=\"Имя и фамилия\"", BOARD_WEB_APP_HTML)
-        self.assertNotIn("placeholder=\"+7 900 123-45-67\"", BOARD_WEB_APP_HTML)
-        self.assertNotIn("placeholder=\"Volkswagen Tiguan\"", BOARD_WEB_APP_HTML)
-        self.assertNotIn("placeholder=\"А123АА124\"", BOARD_WEB_APP_HTML)
-        self.assertNotIn("placeholder=\"WAUZZZ...\"", BOARD_WEB_APP_HTML)
-        self.assertNotIn("placeholder=\"215 000\"", BOARD_WEB_APP_HTML)
+        self.assertNotIn('placeholder="1"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('placeholder="04.04.26 14:30"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('placeholder="05.04.26 10:30"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('placeholder="05.04.26 18:20"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('placeholder="Имя и фамилия"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('placeholder="+7 900 123-45-67"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('placeholder="Volkswagen Tiguan"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('placeholder="А123АА124"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('placeholder="WAUZZZ..."', BOARD_WEB_APP_HTML)
+        self.assertNotIn('placeholder="215 000"', BOARD_WEB_APP_HTML)
         self.assertNotIn(
-            "placeholder=\"Кратко зафиксируйте суть обращения клиента.\"", BOARD_WEB_APP_HTML
+            'placeholder="Кратко зафиксируйте суть обращения клиента."', BOARD_WEB_APP_HTML
         )
         self.assertNotIn(
-            "placeholder=\"Краткая история ремонта для клиента: что проверили, что нашли, что сделали и что рекомендовано дальше.\"",
+            'placeholder="Краткая история ремонта для клиента: что проверили, что нашли, что сделали и что рекомендовано дальше."',
             BOARD_WEB_APP_HTML,
         )
         self.assertNotIn(
-            "placeholder=\"Внутренний комментарий мастера или примечание по заказ-наряду.\"",
+            'placeholder="Внутренний комментарий мастера или примечание по заказ-наряду."',
             BOARD_WEB_APP_HTML,
         )
-        self.assertNotIn("placeholder=\"МЕТКА\"", BOARD_WEB_APP_HTML)
-        self.assertNotIn("placeholder=\"Артикул / OEM\"", BOARD_WEB_APP_HTML)
-        self.assertNotIn("placeholder=\"Наименование\"", BOARD_WEB_APP_HTML)
+        self.assertNotIn('placeholder="МЕТКА"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('placeholder="Артикул / OEM"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('placeholder="Наименование"', BOARD_WEB_APP_HTML)
 
     def test_modal_uses_themed_scrollbars(self) -> None:
         self.assertIn("--scroll-track:", BOARD_WEB_APP_HTML)
@@ -552,6 +552,14 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function applyCardModalState(card)", BOARD_WEB_APP_HTML)
         self.assertIn("function resetCardModalState()", BOARD_WEB_APP_HTML)
         self.assertIn("async function persistCardPayload(payload)", BOARD_WEB_APP_HTML)
+        self.assertIn("state.cardCreateColumnId = ''", BOARD_WEB_APP_HTML)
+        self.assertIn("state.cardSaveInFlight = false", BOARD_WEB_APP_HTML)
+        self.assertIn("if (state.cardSaveInFlight) return;", BOARD_WEB_APP_HTML)
+        self.assertIn("state.cardSaveInFlight = true;", BOARD_WEB_APP_HTML)
+        self.assertIn("state.cardCreateColumnId || state.activeCard?.column", BOARD_WEB_APP_HTML)
+        self.assertIn('id="cardButton" type="button"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-create-in="', BOARD_WEB_APP_HTML)
+        self.assertIn('id="saveCardButton" type="button"', BOARD_WEB_APP_HTML)
         self.assertNotIn("openCardModal(cachedCard);", BOARD_WEB_APP_HTML)
         self.assertNotIn("applyCardModalState(cachedCard);", BOARD_WEB_APP_HTML)
         self.assertIn("const data = await api('/api/open_card'", BOARD_WEB_APP_HTML)
@@ -618,7 +626,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("mileage", BOARD_WEB_APP_HTML)
         self.assertIn("customer_phone", BOARD_WEB_APP_HTML)
         self.assertIn("customer_name", BOARD_WEB_APP_HTML)
-        self.assertIn('autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"',
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("vin", BOARD_WEB_APP_HTML)
         self.assertIn("engine_model", BOARD_WEB_APP_HTML)
         self.assertIn("gearbox_model", BOARD_WEB_APP_HTML)
@@ -676,12 +687,20 @@ class WebAssetsTests(unittest.TestCase):
     def test_mobile_lite_mode_collapses_board_and_hides_heavy_controls(self) -> None:
         self.assertIn("const MOBILE_LITE_BREAKPOINT = 760;", BOARD_WEB_APP_HTML)
         self.assertIn("function detectMobileLiteMode()", BOARD_WEB_APP_HTML)
-        self.assertIn("function applyMobileLiteMode(nextMode = detectMobileLiteMode())", BOARD_WEB_APP_HTML)
-        self.assertIn("if (state.mobileLite) return applyBoardScale(1, { syncInput: false });", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function applyMobileLiteMode(nextMode = detectMobileLiteMode())", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "if (state.mobileLite) return applyBoardScale(1, { syncInput: false });",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("body.is-mobile-lite .board {", BOARD_WEB_APP_HTML)
         self.assertIn("body.is-mobile-lite .column__head-actions {", BOARD_WEB_APP_HTML)
         self.assertIn("body.is-mobile-lite .dialog--card {", BOARD_WEB_APP_HTML)
-        self.assertIn("body.is-mobile-lite .dialog__tabs--card .tab-btn[data-tab=\"journal\"] {", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'body.is-mobile-lite .dialog__tabs--card .tab-btn[data-tab="journal"] {',
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("body.is-mobile-lite .vehicle-panel__fields {", BOARD_WEB_APP_HTML)
         self.assertIn("applyMobileLiteMode(detectMobileLiteMode());", BOARD_WEB_APP_HTML)
         self.assertIn("window.addEventListener('resize', syncMobileLiteMode);", BOARD_WEB_APP_HTML)
@@ -703,8 +722,21 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("clientsRequestSeq", BOARD_WEB_APP_HTML)
         self.assertIn("clientsMetaState", BOARD_WEB_APP_HTML)
         self.assertIn("ПОИСК ПО ВСЕМ КЛИЕНТАМ", BOARD_WEB_APP_HTML)
-        self.assertIn("'/api/list_clients?limit=' + CLIENTS_INITIAL_LIMIT + '&include_stats=false'", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "'/api/list_clients?limit=' + CLIENTS_INITIAL_LIMIT + '&include_stats=false'",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("'&limit=' + CLIENTS_SEARCH_LIMIT", BOARD_WEB_APP_HTML)
+        load_clients_fragment = BOARD_WEB_APP_HTML.split("async function saveClientProfile()", 1)[0]
+        self.assertNotIn(
+            "if (state.clientsActiveId) await selectClient(state.clientsActiveId);",
+            load_clients_fragment,
+        )
+        self.assertNotIn("state.clientsActiveId = state.clients[0].id;", load_clients_fragment)
+        self.assertIn(
+            "if (openModal && !state.clientsActiveId && !state.clientsActiveProfile) {",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertNotIn("applyClientSearchFilter", BOARD_WEB_APP_HTML)
         self.assertNotIn("clientsAll", BOARD_WEB_APP_HTML)
         self.assertIn("client-mini__order-number", BOARD_WEB_APP_HTML)
@@ -723,8 +755,14 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn('id="clientRequisitesDetails"', BOARD_WEB_APP_HTML)
         self.assertIn('id="clientMatchPanel"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="clientPhoneInput" type="text" maxlength="80" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="clientLegalNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'id="clientPhoneInput" type="text" maxlength="80" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'id="clientLegalNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"',
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("async function openClientsModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function linkActiveCardToClient(clientId)", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/link_card_to_client'", BOARD_WEB_APP_HTML)
@@ -906,9 +944,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("position: fixed;", BOARD_WEB_APP_HTML)
         self.assertIn("0 0 0 9999px rgba(4, 6, 5, 0.68)", BOARD_WEB_APP_HTML)
         self.assertIn(".file-row__thumb", BOARD_WEB_APP_HTML)
-        self.assertIn("class=\"file-row__thumb-image\"", BOARD_WEB_APP_HTML)
-        self.assertIn("loading=\"lazy\" decoding=\"async\"", BOARD_WEB_APP_HTML)
-        self.assertIn("document.body.classList.toggle('is-file-preview-open', isVisible);", BOARD_WEB_APP_HTML)
+        self.assertIn('class="file-row__thumb-image"', BOARD_WEB_APP_HTML)
+        self.assertIn('loading="lazy" decoding="async"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "document.body.classList.toggle('is-file-preview-open', isVisible);", BOARD_WEB_APP_HTML
+        )
         self.assertIn(
             'accept=".png,.jpg,.jpeg,.webp,.gif,.txt,.pdf,.doc,.docx,.xls,.xlsx', BOARD_WEB_APP_HTML
         )
@@ -923,13 +963,20 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function syncFileDropzone(card = state.activeCard)", BOARD_WEB_APP_HTML)
         self.assertIn("function attachmentDownloadPath(cardId, attachmentId)", BOARD_WEB_APP_HTML)
         self.assertIn("function attachmentIsPreviewable(attachment)", BOARD_WEB_APP_HTML)
-        self.assertIn("function renderAttachmentThumbnailHtml(attachment, downloadUrl)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function renderAttachmentThumbnailHtml(attachment, downloadUrl)", BOARD_WEB_APP_HTML
+        )
         self.assertIn("function clearFilePreview({ sync = true } = {})", BOARD_WEB_APP_HTML)
         self.assertIn("function syncFilePreview(card = state.activeCard)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleFilePreviewKeydown(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleAttachmentThumbnailError(event)", BOARD_WEB_APP_HTML)
-        self.assertIn("document.addEventListener('keydown', handleFilePreviewKeydown);", BOARD_WEB_APP_HTML)
-        self.assertIn("document.addEventListener('error', handleAttachmentThumbnailError, true);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "document.addEventListener('keydown', handleFilePreviewKeydown);", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "document.addEventListener('error', handleAttachmentThumbnailError, true);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "async function previewActiveCardAttachment(attachmentId)", BOARD_WEB_APP_HTML
         )
@@ -954,7 +1001,8 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("await refreshActiveCardFiles();", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "await previewActiveCardAttachment(previewFileTarget.dataset.previewFile);", BOARD_WEB_APP_HTML
+            "await previewActiveCardAttachment(previewFileTarget.dataset.previewFile);",
+            BOARD_WEB_APP_HTML,
         )
         self.assertIn(
             "await removeActiveCardAttachment(target.dataset.removeFile);", BOARD_WEB_APP_HTML
@@ -983,7 +1031,9 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn('data-preview-file="', BOARD_WEB_APP_HTML)
-        self.assertIn("const previewFileTarget = target.closest('[data-preview-file]');", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const previewFileTarget = target.closest('[data-preview-file]');", BOARD_WEB_APP_HTML
+        )
         self.assertIn("if (previewFileTarget && state.editingId) {", BOARD_WEB_APP_HTML)
         self.assertIn("if (target.dataset.closeFilePreview) {", BOARD_WEB_APP_HTML)
         self.assertIn("if (target.dataset.removeFile && state.editingId) {", BOARD_WEB_APP_HTML)
@@ -1122,7 +1172,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="repairOrderClient"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderPhone"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderVehicle"', BOARD_WEB_APP_HTML)
-        self.assertIn('autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"',
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn('id="repairOrderComment"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="repairOrderModalNote"', BOARD_WEB_APP_HTML)
         self.assertNotIn('<div class="dialog__title-prefix">ЗАКАЗ-НАРЯД</div>', BOARD_WEB_APP_HTML)

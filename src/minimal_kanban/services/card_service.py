@@ -2101,7 +2101,9 @@ class CardService:
             selected = [client for _, client in matches[:limit]]
             return {
                 "clients": [
-                    self._serialize_client(client, bundle["cards"], include_stats=True, compact=True)
+                    self._serialize_client(
+                        client, bundle["cards"], include_stats=True, compact=True
+                    )
                     for client in selected
                 ],
                 "meta": {
@@ -2126,7 +2128,9 @@ class CardService:
             bundle = self._store.read_bundle()
             client = self._find_client(bundle["clients"], payload.get("client_id"))
             return {
-                "client": self._serialize_client(client, bundle["cards"], include_stats=True, compact=True),
+                "client": self._serialize_client(
+                    client, bundle["cards"], include_stats=True, compact=True
+                ),
                 "stats": self._client_stats(client, bundle["cards"]),
             }
 
@@ -2211,11 +2215,15 @@ class CardService:
             client = self._find_client(clients, payload.get("client_id"))
             actor_name, source = self._audit_identity(payload, default_source="api")
             sync_fields = self._validated_optional_bool(payload, "sync_fields", default=True)
-            overwrite = self._validated_optional_bool(payload, "overwrite_card_fields", default=False)
+            overwrite = self._validated_optional_bool(
+                payload, "overwrite_card_fields", default=False
+            )
             changed = card.client_id != client.id
             card.client_id = client.id
             if sync_fields:
-                changed = self._sync_card_client_fields(card, client, overwrite=overwrite) or changed
+                changed = (
+                    self._sync_card_client_fields(card, client, overwrite=overwrite) or changed
+                )
             if changed:
                 self._touch_card(card, actor_name)
                 self._append_event(
@@ -2389,7 +2397,9 @@ class CardService:
                     compact=True,
                 ),
                 "clients": [
-                    self._serialize_client(client, bundle["cards"], include_stats=True, compact=True)
+                    self._serialize_client(
+                        client, bundle["cards"], include_stats=True, compact=True
+                    )
                     for client in selected
                 ],
                 "meta": {"query": query, "total": len(matches), "returned": len(selected)},
@@ -2438,7 +2448,9 @@ class CardService:
                     else None
                 ),
                 "client_suggestions": [
-                    self._serialize_client(client, bundle["cards"], include_stats=True, compact=True)
+                    self._serialize_client(
+                        client, bundle["cards"], include_stats=True, compact=True
+                    )
                     for _, client in self._rank_client_matches(
                         bundle["clients"],
                         " ".join(
@@ -4673,9 +4685,7 @@ class CardService:
     def _ordered_clients(self, clients: list[ClientProfile]) -> list[ClientProfile]:
         return sorted(clients, key=lambda item: (item.name().casefold(), item.created_at, item.id))
 
-    def _find_client(
-        self, clients: list[ClientProfile], client_id: str | None
-    ) -> ClientProfile:
+    def _find_client(self, clients: list[ClientProfile], client_id: str | None) -> ClientProfile:
         client = self._find_client_or_none(clients, client_id)
         if client is None:
             self._fail(
@@ -4708,11 +4718,7 @@ class CardService:
             if isinstance(nested_payload, dict):
                 source_payload.update(nested_payload)
         source_payload.update(
-            {
-                key: value
-                for key, value in payload.items()
-                if key not in {"client", "patch"}
-            }
+            {key: value for key, value in payload.items() if key not in {"client", "patch"}}
         )
         allowed = {
             "client_type",
@@ -4996,6 +5002,29 @@ class CardService:
             keys.update(self._phone_match_keys(value))
         return keys
 
+    def _client_search_digits_blob(self, client: ClientProfile) -> str:
+        values = [client.inn, client.ogrn, client.contact_person]
+        for phone in [client.phone, *client.phones]:
+            digits = re.sub(r"\D+", "", str(phone or ""))
+            if len(digits) < 7:
+                continue
+            values.append(digits)
+            if len(digits) >= 10:
+                last_ten = digits[-10:]
+                values.extend([last_ten, "7" + last_ten, "8" + last_ten])
+        for vehicle in client.vehicles:
+            values.extend(
+                [
+                    vehicle.vehicle,
+                    vehicle.brand,
+                    vehicle.model,
+                    vehicle.vin,
+                    vehicle.license_plate,
+                    vehicle.year,
+                ]
+            )
+        return "".join(re.sub(r"\D+", "", str(value or "")) for value in values)
+
     def _card_client_values(self, card: Card) -> set[str]:
         values = {
             card.vehicle_profile.customer_name,
@@ -5053,6 +5082,54 @@ class CardService:
         query_variants = self._search_text_variants(query)
         query_digits = re.sub(r"\D+", "", query)
         query_phone_variants = self._phone_search_variants(query)
+        phone_like_query = bool(query_digits) and not re.search(r"[A-Za-zА-Яа-я]", query)
+
+        if phone_like_query:
+            ranked: list[tuple[int, ClientProfile]] = []
+            fallback_clients: list[ClientProfile] = []
+            for client in clients:
+                digits_blob = self._client_search_digits_blob(client)
+                if digits_blob and query_digits in digits_blob:
+                    ranked.append((10, client))
+                else:
+                    fallback_clients.append(client)
+            if not ranked and cards and fallback_clients:
+                related_fields_by_client_id = self._client_related_vehicle_fields_index(
+                    fallback_clients, cards
+                )
+                for client in fallback_clients:
+                    score = 0
+                    related_vehicle_fields = related_fields_by_client_id.get(client.id, [])
+                    related_searchable = [
+                        self._normalize_search_text(value)
+                        for value in related_vehicle_fields
+                        if value
+                    ]
+                    related_compact_searchable = [
+                        re.sub(r"[\W_]+", "", value) for value in related_searchable if value
+                    ]
+                    for variant in query_variants:
+                        if not variant:
+                            continue
+                        for value in related_searchable:
+                            if value == variant:
+                                score += 7
+                            elif variant in value:
+                                score += 5
+                            elif all(part in value for part in variant.split()):
+                                score += 3
+                        compact_variant = re.sub(r"[\W_]+", "", variant)
+                        if compact_variant and any(
+                            compact_variant in value for value in related_compact_searchable
+                        ):
+                            score += 5
+                    if score > 0:
+                        ranked.append((score, client))
+            ranked.sort(
+                key=lambda item: (item[0], item[1].updated_at, item[1].name()), reverse=True
+            )
+            return ranked
+
         ranked: list[tuple[int, ClientProfile]] = []
         fallback_clients: list[ClientProfile] = []
         cards = cards or []
@@ -5113,7 +5190,9 @@ class CardService:
                     elif all(part in value for part in variant.split()):
                         score += 3
                 compact_variant = re.sub(r"[\W_]+", "", variant)
-                if compact_variant and any(compact_variant in value for value in compact_searchable):
+                if compact_variant and any(
+                    compact_variant in value for value in compact_searchable
+                ):
                     score += 5
             if len(query_digits) >= 4:
                 phone_digits = " ".join(re.sub(r"\D+", "", phone) for phone in client.phones)
@@ -5129,7 +5208,9 @@ class CardService:
                     for client_variant in client_phone_variants
                 ):
                     score += 10
-                elif query_phone_variants.intersection(client_match_keys_by_id.get(client.id, set())):
+                elif query_phone_variants.intersection(
+                    client_match_keys_by_id.get(client.id, set())
+                ):
                     score += 10
             if score > 0:
                 ranked.append((score, client))
@@ -5143,9 +5224,7 @@ class CardService:
                 score = 0
                 related_vehicle_fields = related_fields_by_client_id.get(client.id, [])
                 related_searchable = [
-                    self._normalize_search_text(value)
-                    for value in related_vehicle_fields
-                    if value
+                    self._normalize_search_text(value) for value in related_vehicle_fields if value
                 ]
                 related_compact_searchable = [
                     re.sub(r"[\W_]+", "", value) for value in related_searchable if value
@@ -8943,7 +9022,9 @@ class CardService:
         except (KeyError, OSError, ET.ParseError, zipfile.BadZipFile):
             return ""
         lines: list[str] = []
-        for paragraph in root.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p"):
+        for paragraph in root.iter(
+            "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p"
+        ):
             parts = [
                 node.text or ""
                 for node in paragraph.iter(
@@ -9063,7 +9144,11 @@ class CardService:
     def _attachment_image_dimensions(
         self, content: bytes, attachment_type: str
     ) -> tuple[int, int] | None:
-        if attachment_type == "png" and len(content) >= 24 and content.startswith(b"\x89PNG\r\n\x1a\n"):
+        if (
+            attachment_type == "png"
+            and len(content) >= 24
+            and content.startswith(b"\x89PNG\r\n\x1a\n")
+        ):
             return int.from_bytes(content[16:20], "big"), int.from_bytes(content[20:24], "big")
         if attachment_type == "gif" and len(content) >= 10:
             return int.from_bytes(content[6:8], "little"), int.from_bytes(content[8:10], "little")
@@ -9744,9 +9829,7 @@ class CardService:
             )
         return limit
 
-    def _validated_numeric_limit(
-        self, value, *, field: str, default: int, maximum: int
-    ) -> int:
+    def _validated_numeric_limit(self, value, *, field: str, default: int, maximum: int) -> int:
         if value in (None, ""):
             return default
         try:
