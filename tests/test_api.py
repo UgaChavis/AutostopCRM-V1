@@ -1965,12 +1965,20 @@ class ApiServerTests(unittest.TestCase):
                     "payments": [
                         {
                             "amount": "500",
-                            "paid_at": "06.04.2026 12:00",
-                            "note": "Аванс",
+                            "paid_at": "20.04.2026 09:00",
+                            "note": "Ранний платёж",
                             "payment_method": "cashless",
                             "actor_name": "ADMIN",
                             "cashbox_id": cashbox["id"],
-                        }
+                        },
+                        {
+                            "amount": "700",
+                            "paid_at": "05.05.2026 10:00",
+                            "note": "Поздний платёж",
+                            "payment_method": "cashless",
+                            "actor_name": "ADMIN",
+                            "cashbox_id": cashbox["id"],
+                        },
                     ],
                     "client_information": "Краткая история ремонта для клиента",
                     "works": [
@@ -1990,14 +1998,14 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(updated["data"]["card"]["repair_order"]["works"][0]["total"], "1500")
         self.assertEqual(updated["data"]["card"]["repair_order"]["payment_method"], "cashless")
         self.assertTrue(updated["data"]["card"]["repair_order"]["payment_method_label"])
-        self.assertEqual(updated["data"]["card"]["repair_order"]["prepayment"], "500")
-        self.assertEqual(updated["data"]["card"]["repair_order"]["prepayment_display"], "500")
-        self.assertEqual(updated["data"]["card"]["repair_order"]["paid_total"], "500")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["prepayment"], "1200")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["prepayment_display"], "1200")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["paid_total"], "1200")
         self.assertEqual(updated["data"]["card"]["repair_order"]["payment_status"], "unpaid")
         self.assertEqual(
             updated["data"]["card"]["repair_order"]["payment_status_label"], "Не оплачен"
         )
-        self.assertEqual(len(updated["data"]["card"]["repair_order"]["payments"]), 1)
+        self.assertEqual(len(updated["data"]["card"]["repair_order"]["payments"]), 2)
         self.assertEqual(
             updated["data"]["card"]["repair_order"]["payments"][0]["actor_name"], "ADMIN"
         )
@@ -2012,7 +2020,21 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(updated["data"]["card"]["repair_order"]["subtotal_total"], "1500")
         self.assertEqual(updated["data"]["card"]["repair_order"]["taxes_total"], "225")
         self.assertEqual(updated["data"]["card"]["repair_order"]["grand_total"], "1725")
-        self.assertEqual(updated["data"]["card"]["repair_order"]["due_total"], "1225")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["due_total"], "525")
+
+        status, cashbox_details = self.request(
+            f"/api/get_cashbox?cashbox_id={cashbox['id']}&transaction_limit=10",
+            method="GET",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(cashbox_details["data"]["cashbox"]["statistics"]["transactions_total"], 2)
+        self.assertTrue(
+            str(cashbox_details["data"]["cashbox"]["statistics"]["last_transaction_at"]).startswith(
+                "2026-05-05T10:00:00"
+            )
+        )
+        self.assertEqual(cashbox_details["data"]["transactions"][0]["note"], "Поздний платёж")
+        self.assertEqual(cashbox_details["data"]["transactions"][1]["note"], "Ранний платёж")
 
     def test_repair_order_context_and_patch_routes(self) -> None:
         status, created = self.request(

@@ -1353,7 +1353,13 @@ class CardService:
                 if created_at is None or created_at < period_start:
                     continue
                 recent_transactions.append(item)
-            recent_transactions.sort(key=lambda item: (item.created_at, item.id), reverse=True)
+            recent_transactions.sort(
+                key=lambda item: (
+                    self._cash_transaction_sortable_datetime(item.created_at),
+                    item.id,
+                ),
+                reverse=True,
+            )
             returned_transactions = recent_transactions[:limit]
             cashboxes_by_id = {cashbox.id: cashbox for cashbox in bundle["cashboxes"]}
             return {
@@ -1875,13 +1881,14 @@ class CardService:
         employee_name: str = "",
         transaction_kind: str = "",
     ) -> CashTransaction:
+        parsed_created_at = parse_datetime(created_at) if created_at else None
         transaction = CashTransaction(
             id=str(uuid.uuid4()),
             cashbox_id=cashbox.id,
             direction=direction,
             amount_minor=amount_minor,
             note=note,
-            created_at=created_at or utc_now_iso(),
+            created_at=(parsed_created_at or utc_now()).isoformat(),
             actor_name=actor_name,
             source=source,
             employee_id=normalize_text(employee_id, default="", limit=64),
@@ -1889,7 +1896,12 @@ class CardService:
             transaction_kind=normalize_text(transaction_kind, default="", limit=32),
         )
         transactions.append(transaction)
-        transactions.sort(key=lambda item: (item.created_at, item.id))
+        transactions.sort(
+            key=lambda item: (
+                self._cash_transaction_sortable_datetime(item.created_at),
+                item.id,
+            )
+        )
         cashbox.updated_at = transaction.created_at
         return transaction
 
@@ -5336,6 +5348,12 @@ class CardService:
     def _serialize_cash_transaction(self, transaction: CashTransaction) -> dict[str, object]:
         return transaction.to_dict()
 
+    def _cash_transaction_sortable_datetime(self, value: str | None) -> datetime:
+        parsed = parse_datetime(value)
+        if parsed is not None:
+            return parsed.astimezone(UTC)
+        return datetime.min.replace(tzinfo=UTC)
+
     def _find_cash_transaction(
         self,
         transactions: list[CashTransaction],
@@ -5359,7 +5377,13 @@ class CardService:
         cashbox_id: str,
     ) -> list[CashTransaction]:
         matched = [item for item in transactions if item.cashbox_id == cashbox_id]
-        matched.sort(key=lambda item: (item.created_at, item.id), reverse=True)
+        matched.sort(
+            key=lambda item: (
+                self._cash_transaction_sortable_datetime(item.created_at),
+                item.id,
+            ),
+            reverse=True,
+        )
         return matched
 
     def _cash_journal_amount_text(
@@ -7204,7 +7228,12 @@ class CardService:
                 source=source,
             )
             cash_transactions.append(transaction)
-            cash_transactions.sort(key=lambda item: (item.created_at, item.id))
+            cash_transactions.sort(
+                key=lambda item: (
+                    self._cash_transaction_sortable_datetime(item.created_at),
+                    item.id,
+                )
+            )
             cashbox.updated_at = transaction.created_at
             payment.cash_transaction_id = transaction.id
             self._append_event(
