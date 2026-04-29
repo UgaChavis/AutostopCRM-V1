@@ -329,6 +329,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="employeeSalaryBalance"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryJournalTable"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryActionDialog"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeSalaryCashboxSelect"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryPayoutButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryAdvanceButton"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="employeesSearchInput"', BOARD_WEB_APP_HTML)
@@ -343,6 +344,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("function handleEmployeesVisibilityFilterClick(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function confirmDiscardEmployeeChanges()", BOARD_WEB_APP_HTML)
         self.assertIn("function openEmployeeSalaryModal(", BOARD_WEB_APP_HTML)
+        self.assertIn("function ensureEmployeeSalaryCashboxes()", BOARD_WEB_APP_HTML)
+        self.assertIn("cashbox_id: cashboxId,", BOARD_WEB_APP_HTML)
         self.assertIn("function loadEmployeeSalarySheet(", BOARD_WEB_APP_HTML)
         self.assertIn("function renderEmployeeSalaryModal()", BOARD_WEB_APP_HTML)
         self.assertIn("function handleEmployeeSalaryActionConfirm()", BOARD_WEB_APP_HTML)
@@ -1260,6 +1263,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('data-repair-order-total="works"', BOARD_WEB_APP_HTML)
         self.assertIn('data-repair-order-total="materials"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderPaymentMethod"', BOARD_WEB_APP_HTML)
+        self.assertIn('<option value="card">На карту</option>', BOARD_WEB_APP_HTML)
         self.assertIn('class="repair-order-hidden-fields"', BOARD_WEB_APP_HTML)
         self.assertIn("document.getElementById('repairOrderPaymentsButton')", BOARD_WEB_APP_HTML)
         self.assertIn("document.getElementById('repairOrderPaymentsModal')", BOARD_WEB_APP_HTML)
@@ -1292,6 +1296,7 @@ class WebAssetsTests(unittest.TestCase):
             "function repairOrderPaymentMethodFromCashboxName(value, fallback = 'cash')",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn("return 'card';", BOARD_WEB_APP_HTML)
         self.assertIn(
             "function repairOrderPaymentMethodFromPayments(payments, fallback = 'cash')",
             BOARD_WEB_APP_HTML,

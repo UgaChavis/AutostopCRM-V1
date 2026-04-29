@@ -1368,6 +1368,40 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(reopened_row["salary_amount"], "")
         self.assertEqual(reopened_row["salary_accrued_at"], "")
 
+    def test_employee_salary_transaction_uses_selected_cashbox(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Алексей Снабженец",
+                "position": "Снабженец",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+            }
+        )["employee"]
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        supplier_cashbox = self.service.create_cashbox(
+            {"name": "Касса снабженца", "actor_name": "ADMIN"}
+        )["cashbox"]
+
+        transaction = self.service.create_employee_salary_transaction(
+            {
+                "employee_id": employee["id"],
+                "transaction_kind": "salary_advance",
+                "amount": "10000",
+                "cashbox_id": supplier_cashbox["id"],
+                "actor_name": "ADMIN",
+            }
+        )["transaction"]
+
+        self.assertEqual(transaction["cashbox_id"], supplier_cashbox["id"])
+        supplier_details = self.service.get_cashbox(
+            {"cashbox_id": supplier_cashbox["id"], "transaction_limit": 10}
+        )
+        cash_details = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
+        self.assertEqual(supplier_details["cashbox"]["statistics"]["balance_minor"], -1000000)
+        self.assertEqual(cash_details["cashbox"]["statistics"]["balance_minor"], 0)
+
     def test_employee_salary_report_excludes_entries_older_than_two_months(self) -> None:
         employee = self.service.save_employee(
             {

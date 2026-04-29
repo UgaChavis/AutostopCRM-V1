@@ -126,7 +126,7 @@ class RepairOrderPaymentPayload(BaseModel):
     amount: str = Field(default="", max_length=40)
     paid_at: str | None = Field(default=None, max_length=32)
     note: str | None = Field(default=None, max_length=240)
-    payment_method: Literal["cash", "cashless"] | None = None
+    payment_method: Literal["cash", "cashless", "card"] | None = None
     actor_name: str | None = Field(default=None, max_length=160)
     cashbox_id: str | None = Field(default=None, max_length=80)
     cashbox_name: str | None = Field(default=None, max_length=160)
@@ -145,7 +145,7 @@ class RepairOrderPatchPayload(BaseModel):
     license_plate: str | None = Field(default=None, max_length=160)
     vin: str | None = Field(default=None, max_length=160)
     mileage: str | None = Field(default=None, max_length=160)
-    payment_method: Literal["cash", "cashless"] | None = None
+    payment_method: Literal["cash", "cashless", "card"] | None = None
     prepayment: str | None = Field(default=None, max_length=40)
     payments: list[RepairOrderPaymentPayload] | None = None
     reason: str | None = Field(default=None, max_length=4000)

@@ -6625,6 +6625,7 @@ BOARD_WEB_APP_HTML = "".join(
                 <select id="repairOrderPaymentMethod" data-repair-order-field="payment_method" tabindex="-1">
                   <option value="cash">Наличный</option>
                   <option value="cashless">Безналичный</option>
+                  <option value="card">На карту</option>
                 </select>
               </div>
               <div class="field field--compact repair-order-field repair-order-field--prepayment">
@@ -6855,6 +6856,7 @@ BOARD_WEB_APP_HTML = "".join(
       employeeSalarySheet: null,
       employeeSalaryActionKind: '',
       employeeSalaryActionDraft: '',
+      employeeSalaryCashboxId: '',
       employeesUiBound: false,
       repairOrderPaymentsUiBound: false,
       repairOrderTags: [],
@@ -7230,6 +7232,7 @@ BOARD_WEB_APP_HTML = "".join(
                 + '</div>'
                 + '<div class="employees-salary-dialog__body">'
                   + '<div class="field employees-field--compact employees-field--salary"><label for="employeeSalaryAmountInput">СУММА</label><input id="employeeSalaryAmountInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
+                  + '<div class="field employees-field--compact employees-field--salary"><label for="employeeSalaryCashboxSelect">КАССА</label><select id="employeeSalaryCashboxSelect"></select></div>'
                   + '<button class="btn btn--accent" id="employeeSalaryActionConfirmButton" type="button">ПРОВЕСТИ</button>'
                 + '</div>'
               + '</div>'
@@ -7360,6 +7363,7 @@ BOARD_WEB_APP_HTML = "".join(
       employeeSalaryActionDialog: document.getElementById('employeeSalaryActionDialog'),
       employeeSalaryActionTitle: document.getElementById('employeeSalaryActionTitle'),
       employeeSalaryAmountInput: document.getElementById('employeeSalaryAmountInput'),
+      employeeSalaryCashboxSelect: document.getElementById('employeeSalaryCashboxSelect'),
       employeeSalaryActionConfirmButton: document.getElementById('employeeSalaryActionConfirmButton'),
       employeeSalaryActionCancelButton: document.getElementById('employeeSalaryActionCancelButton'),
       cashboxesList: document.getElementById('cashboxesList'),
@@ -7570,6 +7574,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeeSalaryActionDialog = document.getElementById('employeeSalaryActionDialog');
       els.employeeSalaryActionTitle = document.getElementById('employeeSalaryActionTitle');
       els.employeeSalaryAmountInput = document.getElementById('employeeSalaryAmountInput');
+      els.employeeSalaryCashboxSelect = document.getElementById('employeeSalaryCashboxSelect');
       els.employeeSalaryActionConfirmButton = document.getElementById('employeeSalaryActionConfirmButton');
       els.employeeSalaryActionCancelButton = document.getElementById('employeeSalaryActionCancelButton');
     }
@@ -10501,6 +10506,46 @@ BOARD_WEB_APP_HTML = "".join(
       return String(kind || '') === 'salary_advance' ? 'АВАНС' : 'ВЫПЛАТА ЗАРПЛАТЫ';
     }
 
+    function preferredEmployeeSalaryCashboxId() {
+      const items = Array.isArray(state.cashboxes) ? state.cashboxes : [];
+      const current = String(state.employeeSalaryCashboxId || state.activeCashboxId || '').trim();
+      if (current && items.some((item) => String(item?.id || '').trim() === current)) return current;
+      const cashMatch = items.find((item) => {
+        const name = String(item?.name || '').trim().toLowerCase();
+        return name === 'наличный' || name.includes('налич') || name.includes('cash');
+      });
+      return String((cashMatch || items[0] || {})?.id || '').trim();
+    }
+
+    function renderEmployeeSalaryCashboxOptions() {
+      if (!els.employeeSalaryCashboxSelect) return;
+      const items = (Array.isArray(state.cashboxes) ? state.cashboxes : []).slice().sort((left, right) => {
+        const orderDiff = Number(left?.order || 0) - Number(right?.order || 0);
+        if (orderDiff) return orderDiff;
+        return String(left?.name || '').localeCompare(String(right?.name || ''), 'ru', { sensitivity: 'base' });
+      });
+      const selectedId = preferredEmployeeSalaryCashboxId();
+      els.employeeSalaryCashboxSelect.innerHTML = ['<option value="">ВЫБЕРИ КАССУ</option>'].concat(items.map((item) => {
+        const itemId = String(item?.id || '').trim();
+        const selected = itemId && itemId === selectedId ? ' selected' : '';
+        return '<option value="' + escapeHtml(itemId) + '"' + selected + '>' + escapeHtml(item?.name || 'Касса') + '</option>';
+      })).join('');
+      if (selectedId) {
+        els.employeeSalaryCashboxSelect.value = selectedId;
+        state.employeeSalaryCashboxId = selectedId;
+      }
+    }
+
+    async function ensureEmployeeSalaryCashboxes() {
+      if (Array.isArray(state.cashboxes) && state.cashboxes.length) {
+        renderEmployeeSalaryCashboxOptions();
+        return;
+      }
+      const data = await api('/api/list_cashboxes?limit=200');
+      state.cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
+      renderEmployeeSalaryCashboxOptions();
+    }
+
     function renderEmployeeSalaryActionDialog() {
       if (!els.employeeSalaryActionDialog || !els.employeeSalaryActionTitle || !els.employeeSalaryActionConfirmButton) return;
       const kind = String(state.employeeSalaryActionKind || '').trim();
@@ -10512,6 +10557,7 @@ BOARD_WEB_APP_HTML = "".join(
       if (els.employeeSalaryAmountInput && !String(els.employeeSalaryAmountInput.value || '').trim()) {
         els.employeeSalaryAmountInput.value = state.employeeSalaryActionDraft || '';
       }
+      renderEmployeeSalaryCashboxOptions();
     }
 
     function renderEmployeeSalaryModal() {
@@ -10576,14 +10622,17 @@ BOARD_WEB_APP_HTML = "".join(
       return data;
     }
 
-    function openEmployeeSalaryDialog(kind) {
+    async function openEmployeeSalaryDialog(kind) {
       state.employeeSalaryActionKind = String(kind || '').trim();
       state.employeeSalaryActionDraft = '';
       if (els.employeeSalaryAmountInput) els.employeeSalaryAmountInput.value = '';
-      renderEmployeeSalaryModal();
-      if (els.employeeSalaryAmountInput) {
-        setTimeout(() => els.employeeSalaryAmountInput.focus(), 0);
+      try {
+        await ensureEmployeeSalaryCashboxes();
+      } catch (error) {
+        setStatus(error.message, true);
       }
+      renderEmployeeSalaryModal();
+      if (els.employeeSalaryAmountInput) setTimeout(() => els.employeeSalaryAmountInput.focus(), 0);
     }
 
     function closeEmployeeSalaryDialog() {
@@ -10639,6 +10688,12 @@ BOARD_WEB_APP_HTML = "".join(
         setStatus('УКАЖИТЕ СУММУ.', true);
         return;
       }
+      const cashboxId = String(els.employeeSalaryCashboxSelect?.value || state.employeeSalaryCashboxId || '').trim();
+      if (!cashboxId) {
+        setStatus('ВЫБЕРИТЕ КАССУ ДЛЯ СПИСАНИЯ.', true);
+        els.employeeSalaryCashboxSelect?.focus();
+        return;
+      }
       try {
         if (els.employeeSalaryActionConfirmButton) els.employeeSalaryActionConfirmButton.disabled = true;
         await api('/api/create_employee_salary_transaction', {
@@ -10647,10 +10702,12 @@ BOARD_WEB_APP_HTML = "".join(
             employee_id: employeeId,
             transaction_kind: kind,
             amount,
+            cashbox_id: cashboxId,
             actor_name: state.actor,
             source: 'ui',
           },
         });
+        state.employeeSalaryCashboxId = cashboxId;
         state.employeeSalaryActionDraft = '';
         closeEmployeeSalaryDialog();
         await loadEmployeeSalarySheet(employeeId, { openModal: true });
@@ -10955,6 +11012,10 @@ BOARD_WEB_APP_HTML = "".join(
       if (!(target instanceof HTMLElement)) return;
       if (target === els.employeeSalaryAmountInput) {
         state.employeeSalaryActionDraft = String(els.employeeSalaryAmountInput.value || '').trim();
+        return;
+      }
+      if (target === els.employeeSalaryCashboxSelect) {
+        state.employeeSalaryCashboxId = String(els.employeeSalaryCashboxSelect.value || '').trim();
         return;
       }
     }
@@ -14059,6 +14120,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     function normalizeRepairOrderPaymentMethod(value) {
       const normalized = String(value ?? '').trim().toLowerCase();
+      if (['card', 'card_transfer', 'card-transfer', 'bank_card', 'на карту', 'карта', 'перевод', 'мария'].includes(normalized)) return 'card';
       if (['cashless', 'wire', 'bank', 'безнал', 'безналичный'].includes(normalized)) return 'cashless';
       return 'cash';
     }
@@ -14068,6 +14130,9 @@ BOARD_WEB_APP_HTML = "".join(
       if (!normalized) return normalizeRepairOrderPaymentMethod(fallback);
       if (normalized.includes('безнал') || normalized.includes('cashless') || normalized.includes('wire') || normalized.includes('bank')) {
         return 'cashless';
+      }
+      if (normalized.includes('на карту') || normalized.includes('карта') || normalized.includes('card') || normalized.includes('мария')) {
+        return 'card';
       }
       return 'cash';
     }
@@ -14118,12 +14183,16 @@ BOARD_WEB_APP_HTML = "".join(
     function repairOrderPaymentMethodFromPayments(payments, fallback = 'cash') {
       const normalizedPayments = Array.isArray(payments) ? payments : [];
       if (!normalizedPayments.length) return normalizeRepairOrderPaymentMethod(fallback);
-      return normalizedPayments.some((item) => {
-        return repairOrderPaymentMethodFromCashboxName(
+      let hasCardPayment = false;
+      for (const item of normalizedPayments) {
+        const resolved = repairOrderPaymentMethodFromCashboxName(
           item?.cashbox_name || '',
           item?.payment_method || fallback
-        ) === 'cashless';
-      }) ? 'cashless' : 'cash';
+        );
+        if (resolved === 'cashless') return 'cashless';
+        if (resolved === 'card') hasCardPayment = true;
+      }
+      return hasCardPayment ? 'card' : normalizeRepairOrderPaymentMethod(fallback);
     }
 
     function emptyRepairOrderPayment() {
@@ -14227,7 +14296,10 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function repairOrderPaymentMethodLabel(value) {
-      return normalizeRepairOrderPaymentMethod(value) === 'cashless' ? 'Безналичный' : 'Наличный';
+      const normalized = normalizeRepairOrderPaymentMethod(value);
+      if (normalized === 'cashless') return 'Безналичный';
+      if (normalized === 'card') return 'На карту';
+      return 'Наличный';
     }
 
     function repairOrderTaxRate(value) {

@@ -1137,6 +1137,11 @@ class ApiServerTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         cashbox = cashbox_created["data"]["cashbox"]
+        status, supplier_cashbox_created = self.request(
+            "/api/create_cashbox", {"name": "Касса снабженца", "actor_name": "ADMIN"}
+        )
+        self.assertEqual(status, 200)
+        supplier_cashbox = supplier_cashbox_created["data"]["cashbox"]
 
         status, card_created = self.request(
             "/api/create_card",
@@ -1230,11 +1235,13 @@ class ApiServerTests(unittest.TestCase):
                 "employee_id": employee["id"],
                 "transaction_kind": "salary_advance",
                 "amount": "500",
+                "cashbox_id": supplier_cashbox["id"],
                 "actor_name": "ADMIN",
             },
         )
         self.assertEqual(status, 200)
         self.assertEqual(advance["data"]["transaction"]["transaction_kind"], "salary_advance")
+        self.assertEqual(advance["data"]["transaction"]["cashbox_id"], supplier_cashbox["id"])
 
         status, ledger_after = self.request(
             f"/api/get_employee_salary_ledger?employee_id={employee['id']}&months=6",

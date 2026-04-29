@@ -1729,12 +1729,21 @@ class CardService:
                 payload.get("transaction_kind") or payload.get("kind")
             )
             amount_minor = self._validated_cash_amount_minor(payload)
-            cashbox = self._salary_cashbox(cashboxes)
+            requested_cashbox_id = normalize_text(
+                payload.get("cashbox_id") or payload.get("cashboxId"),
+                default="",
+                limit=128,
+            )
+            cashbox = (
+                self._find_cashbox(cashboxes, requested_cashbox_id)
+                if requested_cashbox_id
+                else self._salary_cashbox(cashboxes)
+            )
             if cashbox is None:
                 self._fail(
                     "validation_error",
-                    'Для выплат зарплаты нужна касса "Наличный".',
-                    details={"cashbox_name": "Наличный"},
+                    "Для выплат зарплаты нужно выбрать кассу.",
+                    details={"field": "cashbox_id"},
                 )
             note_prefix = "Выплата зарплаты" if kind == "salary_payout" else "Аванс"
             note = self._validated_cash_transaction_note(
