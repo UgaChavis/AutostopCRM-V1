@@ -9617,10 +9617,11 @@ BOARD_WEB_APP_HTML = "".join(
         return;
       }
       els.clientMatchList.innerHTML = state.clientSuggestions.map((client, index) => {
+        const fullProfileLoaded = Array.isArray(state.clientSuggestionProfiles?.[client?.id]?.vehicles);
         const vehicles = clientSuggestionVehicles(client);
-        const visibleVehicles = vehicles.slice(0, 3);
+        const visibleVehicles = fullProfileLoaded ? vehicles : vehicles.slice(0, 3);
         const total = Number(client?.stats?.vehicles_total ?? vehicles.length);
-        const loadMore = total > visibleVehicles.length
+        const loadMore = !fullProfileLoaded && total > visibleVehicles.length
           ? '<button class="client-match-load" type="button" data-load-client-vehicles="' + escapeHtml(client.id || '') + '">ПОКАЗАТЬ ВСЕ АВТО (' + escapeHtml(String(total)) + ')</button>'
           : '';
         return '<div class="client-match-item' + (index === state.clientSuggestionFocusIndex ? ' is-active' : '') + '" data-client-suggestion="' + escapeHtml(client.id || '') + '">'
