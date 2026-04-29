@@ -331,6 +331,7 @@ class BoardApiClient:
         *,
         client_vehicle_id: str | None = None,
         card_id: str | None = None,
+        sync_linked_cards: bool | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {"client_id": client_id}
@@ -340,8 +341,28 @@ class BoardApiClient:
             payload["client_vehicle_id"] = client_vehicle_id
         if card_id:
             payload["card_id"] = card_id
+        if sync_linked_cards is not None:
+            payload["sync_linked_cards"] = bool(sync_linked_cards)
         return self._request_with_identity(
             "/api/upsert_client_vehicle", payload, actor_name=actor_name
+        )
+
+    def delete_client_vehicle(
+        self,
+        client_id: str,
+        client_vehicle_id: str,
+        *,
+        unlink_cards: bool = True,
+        actor_name: str | None = None,
+    ) -> dict:
+        return self._request_with_identity(
+            "/api/delete_client_vehicle",
+            {
+                "client_id": client_id,
+                "client_vehicle_id": client_vehicle_id,
+                "unlink_cards": unlink_cards,
+            },
+            actor_name=actor_name,
         )
 
     def unlink_card_from_client(

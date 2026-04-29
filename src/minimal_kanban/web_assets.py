@@ -5704,6 +5704,70 @@ BOARD_WEB_APP_HTML = "".join(
       color: var(--text);
       padding: 10px 11px;
     }
+    .client-vehicles-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 7px;
+    }
+    .client-vehicle-add {
+      padding: 5px 8px;
+      font-size: 11px;
+    }
+    .client-mini--vehicle {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+    .client-mini__vehicle-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .client-mini__vehicle-title {
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.2;
+      word-break: break-word;
+    }
+    .client-mini__vehicle-source {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+    .client-mini__vehicle-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 5px;
+    }
+    .client-mini__vehicle-actions .btn {
+      padding: 5px 7px;
+      font-size: 10px;
+      line-height: 1.1;
+    }
+    .client-vehicle-form {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 7px;
+      border: 1px dashed rgba(160, 174, 135, 0.24);
+      background: rgba(7, 12, 9, 0.34);
+      padding: 8px;
+    }
+    .client-vehicle-form__actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+    .client-vehicle-form__actions .btn {
+      padding: 6px 8px;
+      font-size: 11px;
+    }
     .client-mini--order {
       display: flex;
       flex-direction: column;
@@ -6179,7 +6243,10 @@ BOARD_WEB_APP_HTML = "".join(
           </details>
           <div class="clients-profile-columns">
             <section class="subpanel">
-              <div class="panel-title">МАШИНЫ</div>
+              <div class="client-vehicles-head">
+                <div class="panel-title">МАШИНЫ</div>
+                <button class="btn btn--ghost client-vehicle-add" id="clientVehicleAddButton" type="button">+ АВТО</button>
+              </div>
               <div class="clients-mini-list" id="clientVehiclesList"></div>
             </section>
             <section class="subpanel">
@@ -6751,6 +6818,7 @@ BOARD_WEB_APP_HTML = "".join(
       clientsSearchTimer: null,
       clientsRequestSeq: 0,
       clientsMetaState: null,
+      clientVehicleEditor: null,
       clientSuggestTimer: null,
       clientSuggestions: [],
       clientSuggestionProfiles: {},
@@ -7246,6 +7314,7 @@ BOARD_WEB_APP_HTML = "".join(
       clientContactPersonInput: document.getElementById('clientContactPersonInput'),
       clientContactPositionInput: document.getElementById('clientContactPositionInput'),
       clientSaveButton: document.getElementById('clientSaveButton'),
+      clientVehicleAddButton: document.getElementById('clientVehicleAddButton'),
       clientVehiclesList: document.getElementById('clientVehiclesList'),
       clientOrdersList: document.getElementById('clientOrdersList'),
       cashboxesModal: document.getElementById('cashboxesModal'),
@@ -9314,6 +9383,7 @@ BOARD_WEB_APP_HTML = "".join(
     function resetClientForm() {
       state.clientsActiveId = '';
       state.clientsActiveProfile = null;
+      state.clientVehicleEditor = null;
       const blank = {
         client_type: 'person',
         last_name: '',
@@ -9368,6 +9438,59 @@ BOARD_WEB_APP_HTML = "".join(
       if (els.clientRequisitesDetails) els.clientRequisitesDetails.open = orgMode;
     }
 
+    function clientProfileVehicleKey(vehicle, index = 0) {
+      const id = String(vehicle?.id || '').trim();
+      if (id) return id;
+      const cardId = String(vehicle?.card_id || '').trim();
+      return cardId ? ('card:' + cardId) : ('index:' + index);
+    }
+
+    function clientVehicleFormHtml(vehicle = {}, key = '__new__') {
+      return '<div class="client-vehicle-form" data-client-vehicle-editor="' + escapeHtml(key) + '">'
+        + '<div class="field field--compact"><label>МОДЕЛЬ / НАЗВАНИЕ</label><input data-client-vehicle-field="vehicle" type="text" maxlength="160" value="' + escapeHtml(vehicle.vehicle || '') + '"></div>'
+        + '<div class="field field--compact"><label>VIN</label><input data-client-vehicle-field="vin" type="text" maxlength="80" value="' + escapeHtml(vehicle.vin || '') + '"></div>'
+        + '<div class="field field--compact"><label>ГОСНОМЕР</label><input data-client-vehicle-field="license_plate" type="text" maxlength="80" value="' + escapeHtml(vehicle.license_plate || vehicle.registration_plate || '') + '"></div>'
+        + '<div class="client-vehicle-form__actions">'
+        + '<button class="btn btn--ghost" type="button" data-client-vehicle-cancel="' + escapeHtml(key) + '">ОТМЕНА</button>'
+        + '<button class="btn btn--accent" type="button" data-client-vehicle-save="' + escapeHtml(key) + '">СОХРАНИТЬ</button>'
+        + '</div>'
+        + '</div>';
+    }
+
+    function renderClientVehicleItem(vehicle, index) {
+      const key = clientProfileVehicleKey(vehicle, index);
+      const editor = state.clientVehicleEditor || {};
+      if (editor.key === key) return clientVehicleFormHtml(vehicle, key);
+      const title = String(vehicle?.vehicle || [vehicle?.brand, vehicle?.model, vehicle?.year].filter(Boolean).join(' ') || 'Автомобиль').trim();
+      const meta = [vehicle?.license_plate, vehicle?.vin].filter(Boolean).join(' · ') || 'VIN / номер не указан';
+      const isStored = Boolean(String(vehicle?.id || '').trim());
+      const source = isStored ? 'профиль клиента' : 'из связанной карточки';
+      const deleteButton = isStored
+        ? '<button class="btn btn--ghost" type="button" data-client-vehicle-delete="' + escapeHtml(key) + '">УДАЛИТЬ</button>'
+        : '<button class="btn btn--ghost" type="button" disabled title="Сначала сохраните машину в профиль клиента">УДАЛИТЬ</button>';
+      return '<div class="client-mini client-mini--vehicle" data-client-vehicle-key="' + escapeHtml(key) + '">'
+        + '<div class="client-mini__vehicle-head">'
+        + '<div><div class="client-mini__vehicle-title">' + escapeHtml(title) + '</div><div class="client-mini__meta">' + escapeHtml(meta) + '</div><div class="client-mini__vehicle-source">' + escapeHtml(source) + '</div></div>'
+        + '<div class="client-mini__vehicle-actions">'
+        + '<button class="btn" type="button" data-client-vehicle-edit="' + escapeHtml(key) + '">РЕДАКТ.</button>'
+        + deleteButton
+        + '</div>'
+        + '</div>'
+        + '</div>';
+    }
+
+    function renderClientVehiclesList(vehicles) {
+      if (!els.clientVehiclesList) return;
+      const items = Array.isArray(vehicles) ? vehicles : [];
+      const addForm = state.clientVehicleEditor?.key === '__new__'
+        ? clientVehicleFormHtml({}, '__new__')
+        : '';
+      const listHtml = items.length
+        ? items.map((vehicle, index) => renderClientVehicleItem(vehicle, index)).join('')
+        : '<div class="empty">МАШИН ПОКА НЕТ.</div>';
+      els.clientVehiclesList.innerHTML = addForm + listHtml;
+    }
+
     function renderClientProfile(data) {
       const client = data?.client || {};
       state.clientsActiveProfile = data || null;
@@ -9382,9 +9505,7 @@ BOARD_WEB_APP_HTML = "".join(
       }
       fillClientForm(client);
       const vehicles = Array.isArray(data?.vehicles) ? data.vehicles : [];
-      els.clientVehiclesList.innerHTML = vehicles.length
-        ? vehicles.map((vehicle) => '<div class="client-mini"><strong>' + escapeHtml(vehicle.vehicle || 'Автомобиль') + '</strong><div class="client-mini__meta">' + escapeHtml([vehicle.license_plate, vehicle.vin].filter(Boolean).join(' · ') || 'VIN / номер не указан') + '</div></div>').join('')
-        : '<div class="empty">МАШИН ПОКА НЕТ.</div>';
+      renderClientVehiclesList(vehicles);
       els.clientOrdersList.innerHTML = orders.length
         ? orders.map((order) => {
           const statusKey = normalizeRepairOrderStatus(order?.status);
@@ -9465,8 +9586,92 @@ BOARD_WEB_APP_HTML = "".join(
       try {
         const data = await api('/api/get_client?client_id=' + encodeURIComponent(normalizedId) + '&order_limit=30');
         state.clientsActiveId = data?.client?.id || normalizedId;
+        state.clientVehicleEditor = null;
         renderClientProfile(data);
         renderClientsList();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    function activeClientVehicles() {
+      return Array.isArray(state.clientsActiveProfile?.vehicles)
+        ? state.clientsActiveProfile.vehicles
+        : [];
+    }
+
+    function findActiveClientVehicle(key) {
+      const normalizedKey = String(key || '').trim();
+      return activeClientVehicles().find((vehicle, index) => clientProfileVehicleKey(vehicle, index) === normalizedKey) || null;
+    }
+
+    function startClientVehicleEditor(key) {
+      if (!state.clientsActiveId && key !== '__new__') return;
+      state.clientVehicleEditor = { key: String(key || '__new__') };
+      renderClientVehiclesList(activeClientVehicles());
+    }
+
+    function readClientVehicleEditorPayload(key) {
+      const normalizedKey = String(key || '').trim();
+      const form = Array.from(els.clientVehiclesList?.querySelectorAll('[data-client-vehicle-editor]') || [])
+        .find((item) => item.getAttribute('data-client-vehicle-editor') === normalizedKey);
+      const fieldValue = (field) => String(form?.querySelector('[data-client-vehicle-field="' + field + '"]')?.value || '').trim();
+      return {
+        vehicle: fieldValue('vehicle'),
+        vin: fieldValue('vin'),
+        license_plate: fieldValue('license_plate'),
+      };
+    }
+
+    async function saveClientVehicleFromEditor(key) {
+      if (!state.clientsActiveId) {
+        setStatus('СНАЧАЛА ВЫБЕРИТЕ ИЛИ СОХРАНИТЕ КЛИЕНТА.', true);
+        return;
+      }
+      const normalizedKey = String(key || '').trim();
+      const currentVehicle = normalizedKey === '__new__' ? null : findActiveClientVehicle(normalizedKey);
+      const payload = readClientVehicleEditorPayload(normalizedKey);
+      if (!payload.vehicle && !payload.vin && !payload.license_plate) {
+        setStatus('ЗАПОЛНИТЕ МОДЕЛЬ, VIN ИЛИ ГОСНОМЕР АВТОМОБИЛЯ.', true);
+        return;
+      }
+      const body = {
+        client_id: state.clientsActiveId,
+        vehicle: payload,
+        sync_linked_cards: true,
+      };
+      if (currentVehicle?.id) body.client_vehicle_id = currentVehicle.id;
+      try {
+        await api('/api/upsert_client_vehicle', { method: 'POST', body });
+        state.clientVehicleEditor = null;
+        await selectClient(state.clientsActiveId);
+        setStatus('АВТОМОБИЛЬ КЛИЕНТА СОХРАНЁН.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    async function deleteClientVehicle(key) {
+      if (!state.clientsActiveId) return;
+      const vehicle = findActiveClientVehicle(key);
+      if (!vehicle?.id) {
+        setStatus('ЭТА ЗАПИСЬ ПРИШЛА ИЗ СВЯЗАННОЙ КАРТОЧКИ. СНАЧАЛА ОТКРОЙТЕ РЕДАКТИРОВАНИЕ И СОХРАНИТЕ ЕЁ В ПРОФИЛЬ КЛИЕНТА.', true);
+        return;
+      }
+      const title = String(vehicle.vehicle || vehicle.vin || vehicle.license_plate || 'автомобиль').trim();
+      if (!window.confirm('Удалить автомобиль "' + title + '" из профиля клиента? Связанные карточки останутся, но связь с этим автомобилем будет снята.')) return;
+      try {
+        await api('/api/delete_client_vehicle', {
+          method: 'POST',
+          body: {
+            client_id: state.clientsActiveId,
+            client_vehicle_id: vehicle.id,
+            unlink_cards: true,
+          },
+        });
+        state.clientVehicleEditor = null;
+        await selectClient(state.clientsActiveId);
+        setStatus('АВТОМОБИЛЬ КЛИЕНТА УДАЛЁН.', false);
       } catch (error) {
         setStatus(error.message, true);
       }
@@ -9501,11 +9706,42 @@ BOARD_WEB_APP_HTML = "".join(
       if (row instanceof HTMLElement) selectClient(row.dataset.clientId);
     }
 
+    async function handleClientVehiclesClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const editTarget = target.closest('[data-client-vehicle-edit]');
+      if (editTarget instanceof HTMLElement) {
+        event.preventDefault();
+        startClientVehicleEditor(editTarget.dataset.clientVehicleEdit);
+        return;
+      }
+      const cancelTarget = target.closest('[data-client-vehicle-cancel]');
+      if (cancelTarget instanceof HTMLElement) {
+        event.preventDefault();
+        state.clientVehicleEditor = null;
+        renderClientVehiclesList(activeClientVehicles());
+        return;
+      }
+      const saveTarget = target.closest('[data-client-vehicle-save]');
+      if (saveTarget instanceof HTMLElement) {
+        event.preventDefault();
+        await saveClientVehicleFromEditor(saveTarget.dataset.clientVehicleSave);
+        return;
+      }
+      const deleteTarget = target.closest('[data-client-vehicle-delete]');
+      if (deleteTarget instanceof HTMLElement) {
+        event.preventDefault();
+        await deleteClientVehicle(deleteTarget.dataset.clientVehicleDelete);
+      }
+    }
+
     function bindClientsUiEvents() {
       if (state.clientsUiBound) return;
       els.clientsButton?.addEventListener('click', openClientsModal);
       els.clientNewButton?.addEventListener('click', resetClientForm);
       els.clientSaveButton?.addEventListener('click', saveClientProfile);
+      els.clientVehicleAddButton?.addEventListener('click', () => startClientVehicleEditor('__new__'));
+      els.clientVehiclesList?.addEventListener('click', handleClientVehiclesClick);
       els.clientsList?.addEventListener('click', handleClientsListClick);
       els.clientsSearchInput?.addEventListener('input', () => {
         const query = String(els.clientsSearchInput?.value || '').trim();

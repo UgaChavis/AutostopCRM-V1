@@ -546,11 +546,29 @@ Authorization: Bearer ваш_секрет
     "gearbox_model": "U760E",
     "drivetrain": "FWD"
   },
+  "sync_linked_cards": true,
   "actor_name": "operator"
 }
 ```
 
-Если `client_vehicle_id` не передан, создается новая машина. Если передан `card_id` и не передан `vehicle`, данные автомобиля берутся из паспорта карточки.
+Если `client_vehicle_id` не передан, создается новая машина. Если передан `card_id` и не передан `vehicle`, данные автомобиля берутся из паспорта карточки. По умолчанию `sync_linked_cards=true`: при изменении VIN/госномера/модели выбранного автомобиля связанные карточки с этим `client_vehicle_id` получают обновленный паспорт автомобиля.
+
+### `POST /api/delete_client_vehicle`
+
+Назначение: удалить автомобиль из профиля клиента без удаления карточек и заказ-нарядов.
+
+Запрос:
+
+```json
+{
+  "client_id": "CLIENT_ID",
+  "client_vehicle_id": "CLIENT_VEHICLE_ID",
+  "unlink_cards": true,
+  "actor_name": "operator"
+}
+```
+
+Если `unlink_cards=true`, связанные карточки остаются привязанными к клиенту, но у них очищается только `client_vehicle_id`. Удаленный автомобиль скрывается из списка машин клиента, чтобы он не появлялся обратно из старой истории карточек.
 
 ### `POST /api/unlink_card_from_client`
 

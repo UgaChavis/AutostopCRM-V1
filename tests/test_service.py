@@ -532,6 +532,68 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(updated_profile["vehicles"][0]["vin"], "JN1TANT32U0099999")
         self.assertEqual(updated_profile["vehicles"][0]["license_plate"], "Н999НН124")
 
+    def test_client_vehicle_crud_syncs_and_hides_deleted_vehicle(self) -> None:
+        client = self.service.create_client(
+            {
+                "display_name": "Клиент CRUD авто",
+                "vehicles": [
+                    {
+                        "vehicle": "ГАЗ 2217 Соболь",
+                        "vin": "X96221700G0801473",
+                        "license_plate": "А111АА124",
+                    }
+                ],
+            }
+        )["client"]
+        vehicle_id = client["vehicles"][0]["id"]
+        card = self.service.create_card(
+            {
+                "title": "Связанная машина",
+                "vehicle": "ГАЗ 2217 Соболь",
+                "vehicle_profile": {"vin": "OLDVIN", "registration_plate": "О111ОО124"},
+                "deadline": {"hours": 1},
+            }
+        )["card"]
+        self.service.link_card_to_client(
+            {
+                "card_id": card["id"],
+                "client_id": client["id"],
+                "client_vehicle_id": vehicle_id,
+                "sync_vehicle_fields": True,
+            }
+        )
+
+        updated = self.service.upsert_client_vehicle(
+            {
+                "client_id": client["id"],
+                "client_vehicle_id": vehicle_id,
+                "vehicle": {
+                    "vehicle": "ГАЗ 2217 Соболь",
+                    "vin": "X96221700G0999999",
+                    "license_plate": "В222ВВ124",
+                },
+            }
+        )
+        self.assertIn(card["id"], updated["meta"]["synced_card_ids"])
+        synced_card = self.service.get_card({"card_id": card["id"]})["card"]
+        self.assertEqual(synced_card["vehicle_profile"]["vin"], "X96221700G0999999")
+        self.assertEqual(synced_card["vehicle_profile"]["registration_plate"], "В222ВВ124")
+
+        deleted = self.service.delete_client_vehicle(
+            {
+                "client_id": client["id"],
+                "client_vehicle_id": vehicle_id,
+                "unlink_cards": True,
+            }
+        )
+        self.assertTrue(deleted["meta"]["deleted"])
+        self.assertEqual(deleted["meta"]["linked_cards_unlinked"], 1)
+        unlinked_card = self.service.get_card({"card_id": card["id"]})["card"]
+        self.assertEqual(unlinked_card["client_id"], client["id"])
+        self.assertEqual(unlinked_card["client_vehicle_id"], "")
+        profile = self.service.get_client({"client_id": client["id"]})
+        self.assertEqual(profile["vehicles"], [])
+
     def test_client_search_matches_common_russian_phone_variants(self) -> None:
         client = self.service.create_client(
             {

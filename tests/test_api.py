@@ -247,6 +247,30 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(upserted["data"]["meta"]["changed"])
         self.assertEqual(upserted["data"]["vehicle"]["vin"], "JTEBU3FJX05999999")
+        self.assertIn(card_id, upserted["data"]["meta"]["synced_card_ids"])
+
+        status, synced_card = self.request("/api/get_card", {"card_id": card_id})
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            synced_card["data"]["card"]["vehicle_profile"]["registration_plate"],
+            "Р999РО124",
+        )
+
+        status, deleted_vehicle = self.request(
+            "/api/delete_client_vehicle",
+            {
+                "client_id": client["id"],
+                "client_vehicle_id": vehicle_id,
+                "unlink_cards": True,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(deleted_vehicle["data"]["meta"]["deleted"])
+        self.assertEqual(deleted_vehicle["data"]["meta"]["linked_cards_unlinked"], 1)
+
+        status, unlinked_card = self.request("/api/get_card", {"card_id": card_id})
+        self.assertEqual(status, 200)
+        self.assertEqual(unlinked_card["data"]["card"]["client_vehicle_id"], "")
 
     def test_get_repair_order_creates_it_lazily_on_first_open(self) -> None:
         status, created = self.request(

@@ -49,6 +49,7 @@ EXPECTED_MCP_TOOLS = {
     "create_sticky",
     "delete_cashbox",
     "delete_client",
+    "delete_client_vehicle",
     "delete_column",
     "delete_sticky",
     "get_board_content",
@@ -98,6 +99,7 @@ EXPECTED_MCP_TOOLS = {
     "update_sticky",
     "link_card_to_client",
     "upsert_client_vehicle",
+    "delete_client_vehicle",
     "unlink_card_from_client",
 }
 
@@ -219,7 +221,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 62)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 63)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 self.assertTrue(tool_map["ping_connector"].annotations.readOnlyHint)
                 self.assertFalse(tool_map["ping_connector"].annotations.destructiveHint)
@@ -1485,6 +1487,18 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(
                     linked.structuredContent["data"]["card"]["client_vehicle_id"], vehicle_id
                 )
+
+                deleted_vehicle = await session.call_tool(
+                    "delete_client_vehicle",
+                    {
+                        "client_id": client_id,
+                        "client_vehicle_id": vehicle_id,
+                        "unlink_cards": True,
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(deleted_vehicle.isError)
+                self.assertTrue(deleted_vehicle.structuredContent["data"]["meta"]["deleted"])
 
                 unlinked = await session.call_tool(
                     "unlink_card_from_client",

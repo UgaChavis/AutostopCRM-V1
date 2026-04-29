@@ -234,7 +234,7 @@ class ConnectionCardTests(unittest.TestCase):
                 for note in connector_data["notes"]
             )
         )
-        self.assertEqual(len(MCP_TOOL_NAMES), 62)
+        self.assertEqual(len(MCP_TOOL_NAMES), 63)
         self.assertIn("get_board_content", MCP_TOOL_NAMES)
         self.assertIn("get_board_events", MCP_TOOL_NAMES)
         self.assertIn("cleanup_card_content", MCP_TOOL_NAMES)
@@ -253,6 +253,7 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertIn("delete_client", MCP_TOOL_NAMES)
         self.assertIn("link_card_to_client", MCP_TOOL_NAMES)
         self.assertIn("upsert_client_vehicle", MCP_TOOL_NAMES)
+        self.assertIn("delete_client_vehicle", MCP_TOOL_NAMES)
         self.assertIn("unlink_card_from_client", MCP_TOOL_NAMES)
         self.assertIn("suggest_clients_for_card", MCP_TOOL_NAMES)
         self.assertIn("get_repair_order_text", MCP_TOOL_NAMES)

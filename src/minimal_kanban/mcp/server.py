@@ -1933,6 +1933,7 @@ def create_mcp_server(
         vehicle: ClientVehiclePayload | None = None,
         client_vehicle_id: str | None = None,
         card_id: str | None = None,
+        sync_linked_cards: bool | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
@@ -1942,6 +1943,31 @@ def create_mcp_server(
                 vehicle.model_dump(exclude_none=True) if vehicle is not None else None,
                 client_vehicle_id=client_vehicle_id,
                 card_id=card_id,
+                sync_linked_cards=sync_linked_cards,
+                actor_name=actor_name,
+            ),
+        )
+
+    @server.tool(
+        name="delete_client_vehicle",
+        description=_scoped_description(
+            "Delete one vehicle from a client profile by client_vehicle_id. This does not delete cards or repair orders; with unlink_cards=true it only clears that concrete vehicle link from related cards."
+        ),
+        annotations=_write_tool_annotations("Delete Client Vehicle", destructive=True),
+        structured_output=True,
+    )
+    def delete_client_vehicle(
+        client_id: str,
+        client_vehicle_id: str,
+        unlink_cards: bool = True,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "delete_client_vehicle",
+            lambda: board_api.delete_client_vehicle(
+                client_id,
+                client_vehicle_id,
+                unlink_cards=unlink_cards,
                 actor_name=actor_name,
             ),
         )

@@ -73,6 +73,7 @@ class CRMToolRegistry:
             "get_client": self._get_client_profile,
             "link_card_to_client": self._link_card_to_client,
             "upsert_client_vehicle": self._upsert_client_vehicle,
+            "delete_client_vehicle": self._delete_client_vehicle,
             "list_cashboxes": self._list_cashboxes,
             "get_cashbox": self._get_cashbox,
             "create_card": self._create_card,
@@ -270,12 +271,23 @@ class CRMToolRegistry:
             ),
             CRMToolDefinition(
                 "upsert_client_vehicle",
-                "Create or update a vehicle inside an existing client profile.",
+                "Create or update a vehicle inside an existing client profile. Use it to fix model, VIN, or license plate; linked card passports are synced by default.",
                 {
                     "client_id": "required string",
                     "client_vehicle_id": "optional string",
                     "card_id": "optional string",
                     "vehicle": "optional object",
+                    "sync_linked_cards": "optional bool",
+                },
+                write=True,
+            ),
+            CRMToolDefinition(
+                "delete_client_vehicle",
+                "Delete a vehicle from a client profile without deleting cards or repair orders.",
+                {
+                    "client_id": "required string",
+                    "client_vehicle_id": "required string",
+                    "unlink_cards": "optional bool",
                 },
                 write=True,
             ),
@@ -919,6 +931,16 @@ class CRMToolRegistry:
             arguments.get("vehicle") if isinstance(arguments.get("vehicle"), dict) else None,
             client_vehicle_id=_optional_text(arguments, "client_vehicle_id"),
             card_id=_optional_text(arguments, "card_id"),
+            sync_linked_cards=_optional_bool(arguments, "sync_linked_cards"),
+            actor_name=self._actor_name,
+        )
+
+    def _delete_client_vehicle(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        unlink_cards = _optional_bool(arguments, "unlink_cards")
+        return self._board_api.delete_client_vehicle(
+            str(arguments.get("client_id") or ""),
+            str(arguments.get("client_vehicle_id") or arguments.get("vehicle_id") or ""),
+            unlink_cards=True if unlink_cards is None else unlink_cards,
             actor_name=self._actor_name,
         )
 

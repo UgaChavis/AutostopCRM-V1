@@ -1007,6 +1007,7 @@ class ClientProfile:
     contact_person: str = ""
     contact_position: str = ""
     vehicles: list[ClientVehicle] = field(default_factory=list)
+    deleted_vehicle_keys: list[str] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
 
@@ -1048,6 +1049,11 @@ class ClientProfile:
             self.contact_position, default="", limit=CLIENT_FIELD_LIMIT
         )
         self.vehicles = normalize_client_vehicles(self.vehicles)
+        self.deleted_vehicle_keys = [
+            normalize_text(key, default="", limit=256)
+            for key in list(self.deleted_vehicle_keys or [])
+            if normalize_text(key, default="", limit=256)
+        ]
         now_iso = utc_now_iso()
         self.created_at = normalize_text(self.created_at, default=now_iso, limit=64)
         self.updated_at = normalize_text(self.updated_at, default=self.created_at, limit=64)
@@ -1103,6 +1109,7 @@ class ClientProfile:
             "contact_person": self.contact_person,
             "contact_position": self.contact_position,
             "vehicles": [vehicle.to_dict() for vehicle in self.vehicles],
+            "deleted_vehicle_keys": list(self.deleted_vehicle_keys),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -1139,6 +1146,7 @@ class ClientProfile:
             contact_person=payload.get("contact_person", ""),
             contact_position=payload.get("contact_position", ""),
             vehicles=payload.get("vehicles", []),
+            deleted_vehicle_keys=payload.get("deleted_vehicle_keys", []),
             created_at=payload.get("created_at", ""),
             updated_at=payload.get("updated_at", ""),
         )

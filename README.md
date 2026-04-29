@@ -23,6 +23,7 @@ The repository still contains legacy technical names from the earlier `Minimal K
 - operator authentication and admin user management
 - cashboxes, cash transactions, employees, and payroll reports
 - client-to-vehicle linking: cards can reference both `client_id` and a concrete `client_vehicle_id`
+- client vehicle management: the Clients module can add, edit, and delete a client's saved cars by model, VIN, and license plate
 
 ## Runtime Modes
 

@@ -2400,21 +2400,60 @@ class CardService:
                     self._replace_client_vehicle(client, merged)
                 next_vehicle = merged
             client.vehicles = self._dedupe_client_vehicles(client.vehicles)
-            if changed:
+            next_vehicle_key = self._client_vehicle_identity_key(
+                next_vehicle.vehicle,
+                next_vehicle.vin,
+                next_vehicle.license_plate,
+                next_vehicle.year,
+            )
+            if next_vehicle_key and next_vehicle_key in set(client.deleted_vehicle_keys or []):
+                client.deleted_vehicle_keys = [
+                    key for key in client.deleted_vehicle_keys if key != next_vehicle_key
+                ]
+                changed = True
+            sync_linked_cards = self._validated_optional_bool(
+                payload, "sync_linked_cards", default=True
+            )
+            synced_card_ids: list[str] = []
+            if sync_linked_cards and next_vehicle.id:
+                for linked_card in cards:
+                    if (
+                        linked_card.client_id == client.id
+                        and linked_card.client_vehicle_id == next_vehicle.id
+                    ):
+                        if self._sync_card_vehicle_fields(
+                            linked_card, next_vehicle, overwrite=True
+                        ):
+                            self._touch_card(linked_card, actor_name)
+                            synced_card_ids.append(linked_card.id)
+                            self._append_event(
+                                events,
+                                actor_name=actor_name,
+                                source=source,
+                                action="card_client_vehicle_synced",
+                                message=f"{actor_name} обновил паспорт автомобиля из профиля клиента",
+                                card_id=linked_card.id,
+                                details={
+                                    "client_id": client.id,
+                                    "client_vehicle_id": next_vehicle.id,
+                                },
+                            )
+            if changed or synced_card_ids:
                 client.updated_at = utc_now_iso()
-                self._append_event(
-                    events,
-                    actor_name=actor_name,
-                    source=source,
-                    action="client_vehicle_created" if created else "client_vehicle_updated",
-                    message=(
-                        f"{actor_name} добавил автомобиль клиента"
-                        if created
-                        else f"{actor_name} обновил автомобиль клиента"
-                    ),
-                    card_id=card.id if card is not None else None,
-                    details={"client_id": client.id, "client_vehicle_id": next_vehicle.id},
-                )
+                if changed:
+                    self._append_event(
+                        events,
+                        actor_name=actor_name,
+                        source=source,
+                        action="client_vehicle_created" if created else "client_vehicle_updated",
+                        message=(
+                            f"{actor_name} добавил автомобиль клиента"
+                            if created
+                            else f"{actor_name} обновил автомобиль клиента"
+                        ),
+                        card_id=card.id if card is not None else None,
+                        details={"client_id": client.id, "client_vehicle_id": next_vehicle.id},
+                    )
                 self._save_bundle(
                     bundle,
                     columns=bundle["columns"],
@@ -2425,7 +2464,98 @@ class CardService:
             return {
                 "client": self._serialize_client(client, cards, include_stats=True),
                 "vehicle": next_vehicle.to_dict(),
-                "meta": {"changed": changed, "created": created},
+                "meta": {
+                    "changed": changed or bool(synced_card_ids),
+                    "created": created,
+                    "synced_card_ids": synced_card_ids,
+                },
+            }
+
+    def delete_client_vehicle(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            clients = list(bundle["clients"])
+            cards = bundle["cards"]
+            events = bundle["events"]
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            client = self._find_client(clients, payload.get("client_id"))
+            vehicle = self._find_client_vehicle(
+                client, payload.get("client_vehicle_id") or payload.get("vehicle_id")
+            )
+            unlink_cards = self._validated_optional_bool(
+                payload, "unlink_cards", default=True
+            )
+            linked_cards = [
+                card
+                for card in cards
+                if card.client_id == client.id and card.client_vehicle_id == vehicle.id
+            ]
+            if linked_cards and not unlink_cards:
+                self._fail(
+                    "client_vehicle_has_linked_cards",
+                    "Нельзя удалить автомобиль клиента, пока к нему привязаны карточки.",
+                    status_code=409,
+                    details={
+                        "client_id": client.id,
+                        "client_vehicle_id": vehicle.id,
+                        "linked_card_ids": [card.id for card in linked_cards],
+                    },
+                )
+            client.vehicles = [
+                candidate for candidate in client.vehicles if candidate.id != vehicle.id
+            ]
+            deleted_key = self._client_vehicle_identity_key(
+                vehicle.vehicle,
+                vehicle.vin,
+                vehicle.license_plate,
+                vehicle.year,
+            )
+            if deleted_key and deleted_key not in set(client.deleted_vehicle_keys or []):
+                client.deleted_vehicle_keys.append(deleted_key)
+            unlinked_card_ids: list[str] = []
+            for card in linked_cards:
+                card.client_vehicle_id = ""
+                self._touch_card(card, actor_name)
+                unlinked_card_ids.append(card.id)
+                self._append_event(
+                    events,
+                    actor_name=actor_name,
+                    source=source,
+                    action="card_client_vehicle_unlinked",
+                    message=f"{actor_name} убрал связь карточки с удалённым автомобилем клиента",
+                    card_id=card.id,
+                    details={"client_id": client.id, "client_vehicle_id": vehicle.id},
+                )
+            client.updated_at = utc_now_iso()
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="client_vehicle_deleted",
+                message=f"{actor_name} удалил автомобиль клиента",
+                card_id=None,
+                details={
+                    "client_id": client.id,
+                    "client_vehicle_id": vehicle.id,
+                    "unlinked_card_ids": unlinked_card_ids,
+                },
+            )
+            self._save_bundle(
+                bundle,
+                columns=bundle["columns"],
+                cards=cards,
+                clients=clients,
+                events=events,
+            )
+            return {
+                "client": self._serialize_client(client, cards, include_stats=True),
+                "vehicle": vehicle.to_dict(),
+                "meta": {
+                    "deleted": True,
+                    "unlinked_card_ids": unlinked_card_ids,
+                    "linked_cards_unlinked": len(unlinked_card_ids),
+                },
             }
 
     def unlink_card_from_client(self, payload: dict | None = None) -> dict:
@@ -5189,22 +5319,28 @@ class CardService:
 
         return related_fields
 
+    def _client_vehicle_identity_key(
+        self, vehicle: str = "", vin: str = "", license_plate: str = "", year: str = ""
+    ) -> str:
+        return "|".join(
+            part.casefold()
+            for part in (vehicle, vin, license_plate, year)
+            if str(part or "").strip()
+        )
+
     def _client_vehicles(
         self, client: ClientProfile, cards: list[Card], *, query: str = ""
     ) -> list[dict[str, str]]:
         vehicles: list[dict[str, str]] = []
         seen: set[str] = set()
+        deleted_keys = set(client.deleted_vehicle_keys or [])
         for stored_vehicle in client.vehicles:
             payload = stored_vehicle.to_dict()
-            key = "|".join(
-                part.casefold()
-                for part in (
-                    payload.get("vehicle", ""),
-                    payload.get("vin", ""),
-                    payload.get("license_plate", ""),
-                    payload.get("year", ""),
-                )
-                if part
+            key = self._client_vehicle_identity_key(
+                payload.get("vehicle", ""),
+                payload.get("vin", ""),
+                payload.get("license_plate", ""),
+                payload.get("year", ""),
             )
             if not key or key in seen:
                 continue
@@ -5214,8 +5350,9 @@ class CardService:
             vehicle = card.vehicle_display() or card.repair_order.vehicle
             vin = card.vehicle_profile.vin or card.repair_order.vin
             plate = card.vehicle_profile.registration_plate or card.repair_order.license_plate
-            key = "|".join(part.casefold() for part in (vehicle, vin, plate) if part)
-            if not key or key in seen:
+            year = str(card.vehicle_profile.production_year or "")
+            key = self._client_vehicle_identity_key(vehicle, vin, plate, year)
+            if not key or key in seen or key in deleted_keys:
                 continue
             seen.add(key)
             vehicles.append(
@@ -5224,7 +5361,7 @@ class CardService:
                     "vehicle": vehicle,
                     "vin": vin,
                     "license_plate": plate,
-                    "year": str(card.vehicle_profile.production_year or ""),
+                    "year": year,
                     "mileage": str(card.vehicle_profile.mileage or card.repair_order.mileage or ""),
                     "body_number": card.vehicle_profile.body_number,
                     "chassis_number": card.vehicle_profile.chassis_number,
