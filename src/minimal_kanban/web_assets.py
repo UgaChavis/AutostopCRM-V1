@@ -9579,12 +9579,20 @@ BOARD_WEB_APP_HTML = "".join(
       return score;
     }
 
+    function clientSuggestionVehicleKey(vehicle) {
+      const id = String(vehicle?.id || '').trim();
+      if (id) return id;
+      const cardId = String(vehicle?.card_id || '').trim();
+      return cardId ? ('card:' + cardId) : '';
+    }
+
     function clientSuggestionVehicleHtml(client, vehicle) {
       const vehicleId = String(vehicle?.id || '').trim();
+      const vehicleKey = clientSuggestionVehicleKey(vehicle);
       const exact = vehicleMatchScoreForQuery(vehicle, state.clientSuggestionQuery) >= 18;
       const label = String(vehicle?.vehicle || [vehicle?.brand, vehicle?.model, vehicle?.year].filter(Boolean).join(' ') || 'Автомобиль').trim();
       const meta = [vehicle?.license_plate, vehicle?.vin, vehicle?.body_number].filter(Boolean).join(' · ') || 'VIN / номер не указан';
-      return '<button class="client-match-vehicle' + (exact ? ' is-exact' : '') + '" type="button" data-select-client-vehicle="' + escapeHtml(vehicleId) + '" data-client-id="' + escapeHtml(client.id || '') + '">'
+      return '<button class="client-match-vehicle' + (exact ? ' is-exact' : '') + '" type="button" data-select-client-vehicle="' + escapeHtml(vehicleKey || vehicleId) + '" data-client-id="' + escapeHtml(client.id || '') + '">'
         + '<span class="client-match-vehicle__label">' + escapeHtml(exact ? ('ТОЧНОЕ СОВПАДЕНИЕ · ' + label) : label) + '</span>'
         + '<span class="client-match-vehicle__meta">' + escapeHtml(meta) + '</span>'
         + '</button>';
@@ -9726,16 +9734,79 @@ BOARD_WEB_APP_HTML = "".join(
       }
     }
 
-    async function chooseClientSuggestion(clientId, vehicleId = '', { createNewVehicle = false } = {}) {
+    function findClientSuggestionVehicle(vehicles, vehicleKey = '') {
+      const normalizedKey = String(vehicleKey || '').trim();
+      if (!normalizedKey) return null;
+      return vehicles.find((vehicle) => {
+        const id = String(vehicle?.id || '').trim();
+        const cardId = String(vehicle?.card_id || '').trim();
+        return id === normalizedKey
+          || clientSuggestionVehicleKey(vehicle) === normalizedKey
+          || (cardId && ('card:' + cardId) === normalizedKey);
+      }) || null;
+    }
+
+    async function ensureStableClientSuggestionVehicle(clientId, vehicle) {
+      if (!vehicle || String(vehicle?.id || '').trim()) return vehicle;
+      const data = await api('/api/upsert_client_vehicle', {
+        method: 'POST',
+        body: {
+          client_id: clientId,
+          vehicle: {
+            vehicle: vehicle.vehicle || '',
+            brand: vehicle.brand || '',
+            model: vehicle.model || '',
+            year: vehicle.year || '',
+            mileage: vehicle.mileage || '',
+            vin: vehicle.vin || '',
+            license_plate: vehicle.license_plate || vehicle.registration_plate || '',
+            body_number: vehicle.body_number || '',
+            chassis_number: vehicle.chassis_number || '',
+            engine_code: vehicle.engine_code || '',
+            engine_model: vehicle.engine_model || '',
+            gearbox_type: vehicle.gearbox_type || '',
+            gearbox_model: vehicle.gearbox_model || '',
+            drivetrain: vehicle.drivetrain || '',
+            notes: vehicle.notes || '',
+          },
+        },
+      });
+      const stableVehicle = data?.vehicle || vehicle;
+      state.clientSuggestionProfiles = {
+        ...(state.clientSuggestionProfiles || {}),
+        [clientId]: {
+          ...(state.clientSuggestionProfiles?.[clientId] || {}),
+          vehicles: clientSuggestionVehicles({ id: clientId, vehicles_preview: [] }).map((item) => (
+            clientSuggestionVehicleKey(item) === clientSuggestionVehicleKey(vehicle) ? { ...item, ...stableVehicle } : item
+          )),
+        },
+      };
+      state.clientSuggestions = state.clientSuggestions.map((item) => {
+        if (String(item?.id || '') !== String(clientId)) return item;
+        const preview = Array.isArray(item.vehicles_preview) ? item.vehicles_preview : [];
+        return {
+          ...item,
+          vehicles_preview: preview.map((previewVehicle) => (
+            clientSuggestionVehicleKey(previewVehicle) === clientSuggestionVehicleKey(vehicle) ? { ...previewVehicle, ...stableVehicle } : previewVehicle
+          )),
+        };
+      });
+      return stableVehicle;
+    }
+
+    async function chooseClientSuggestion(clientId, vehicleKey = '', { createNewVehicle = false } = {}) {
       const client = state.clientSuggestions.find((item) => item.id === clientId);
       if (!client) return;
-      if (vehicleId && !state.clientSuggestionProfiles?.[clientId]) {
+      if (vehicleKey && !state.clientSuggestionProfiles?.[clientId]) {
         await loadClientSuggestionVehicles(clientId);
       }
       const vehicles = clientSuggestionVehicles(client);
-      const selectedVehicle = vehicleId
-        ? vehicles.find((vehicle) => String(vehicle?.id || '') === String(vehicleId))
+      let selectedVehicle = vehicleKey
+        ? findClientSuggestionVehicle(vehicles, vehicleKey)
         : null;
+      if (selectedVehicle && !String(selectedVehicle?.id || '').trim()) {
+        selectedVehicle = await ensureStableClientSuggestionVehicle(clientId, selectedVehicle);
+      }
       applyClientSuggestionToVehicleProfile(client, selectedVehicle, { createNewVehicle });
       hideClientSuggestions();
       if (state.editingId) {
