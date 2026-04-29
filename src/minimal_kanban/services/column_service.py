@@ -7,6 +7,7 @@ from typing import Any
 
 from ..models import COLUMN_LABEL_LIMIT, Column
 from ..storage.json_store import JsonStore
+from .ready_column import READY_COLUMN_LABEL, ensure_ready_column
 
 
 class ColumnService:
@@ -35,6 +36,21 @@ class ColumnService:
         with self._lock:
             _ = payload
             bundle = self._store.read_bundle()
+            columns = bundle["columns"]
+            ready_column_id, changed = ensure_ready_column(columns, bundle["settings"])
+            if changed:
+                self._append_event(
+                    bundle["events"],
+                    actor_name="СИСТЕМА",
+                    source="system",
+                    action="ready_column_synchronized",
+                    message="СИСТЕМА закрепила колонку готовых автомобилей",
+                    card_id=None,
+                    details={"column_id": ready_column_id, "label": READY_COLUMN_LABEL},
+                )
+                self._save_bundle(
+                    bundle, columns=columns, cards=bundle["cards"], events=bundle["events"]
+                )
             return {"columns": [column.to_dict() for column in bundle["columns"]]}
 
     def create_column(self, payload: dict) -> dict:
@@ -86,6 +102,16 @@ class ColumnService:
                     "Указанный столбец не найден.",
                     status_code=404,
                     details={"column_id": column_id},
+                )
+            ready_column_id, ready_changed = ensure_ready_column(columns, bundle["settings"])
+            if column_id == ready_column_id:
+                if ready_changed:
+                    self._save_bundle(bundle, columns=columns, cards=bundle["cards"], events=events)
+                self._fail(
+                    "system_column_locked",
+                    "Колонку «Готовые автомобили» нельзя переименовать.",
+                    status_code=409,
+                    details={"column_id": column_id, "label": READY_COLUMN_LABEL},
                 )
             previous_label = column.label
             label = self._validated_column_label(
@@ -249,6 +275,16 @@ class ColumnService:
                     "Указанный столбец не найден.",
                     status_code=404,
                     details={"column_id": column_id},
+                )
+            ready_column_id, ready_changed = ensure_ready_column(columns, bundle["settings"])
+            if column_id == ready_column_id:
+                if ready_changed:
+                    self._save_bundle(bundle, columns=columns, cards=cards, events=events)
+                self._fail(
+                    "system_column_locked",
+                    "Колонку «Готовые автомобили» нельзя удалить.",
+                    status_code=409,
+                    details={"column_id": column_id, "label": READY_COLUMN_LABEL},
                 )
             if len(columns) <= 1:
                 self._fail(

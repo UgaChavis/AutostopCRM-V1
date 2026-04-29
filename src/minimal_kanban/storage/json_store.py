@@ -25,6 +25,7 @@ from ..models import (
     utc_now,
 )
 from ..texts import COLUMN_LABELS_RU
+from ..services.ready_column import ensure_ready_column
 from .file_lock import ProcessFileLock
 
 
@@ -52,6 +53,7 @@ DEFAULT_STATE = {
             "interval_minutes": 20,
             "cooldown_minutes": 60,
         },
+        "ready_column_id": "",
     },
 }
 
@@ -95,6 +97,7 @@ class JsonStore:
                 )
                 events, events_repaired = self._normalize_events(state)
                 settings, settings_repaired = self._normalize_settings(state)
+                ready_column_repaired = ensure_ready_column(columns, settings)[1]
                 if (
                     columns_repaired
                     or cards_repaired
@@ -104,6 +107,7 @@ class JsonStore:
                     or cash_transactions_repaired
                     or events_repaired
                     or settings_repaired
+                    or ready_column_repaired
                 ):
                     state = {
                         "schema_version": DEFAULT_STATE["schema_version"],

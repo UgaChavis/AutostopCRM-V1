@@ -587,6 +587,16 @@ class BoardApiClient:
             "/api/set_repair_order_status", payload, actor_name=actor_name
         )
 
+    def mark_card_ready(
+        self,
+        *,
+        card_id: str,
+        actor_name: str | None = None,
+    ) -> dict:
+        return self._request_with_identity(
+            "/api/mark_card_ready", {"card_id": card_id}, actor_name=actor_name
+        )
+
     def replace_repair_order_works(
         self,
         *,

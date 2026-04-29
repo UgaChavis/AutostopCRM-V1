@@ -75,6 +75,7 @@ EXPECTED_MCP_TOOLS = {
     "list_columns",
     "list_overdue_cards",
     "list_repair_orders",
+    "mark_card_ready",
     "move_card",
     "move_sticky",
     "ping_connector",
@@ -217,7 +218,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 60)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 61)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 self.assertTrue(tool_map["ping_connector"].annotations.readOnlyHint)
                 self.assertFalse(tool_map["ping_connector"].annotations.destructiveHint)
@@ -1109,6 +1110,16 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                         item["code"] == "not_found"
                         for item in bulk_moved.structuredContent["data"]["errors"]
                     )
+                )
+
+                ready_marked = await session.call_tool(
+                    "mark_card_ready",
+                    {"card_id": second_card_id, "actor_name": "РћРџР•Р РђРўРћР "},
+                )
+                self.assertTrue(ready_marked.structuredContent["ok"])
+                self.assertEqual(
+                    ready_marked.structuredContent["data"]["card"]["column_label"],
+                    "Готовые автомобили",
                 )
                 self.assertTrue(
                     all(
@@ -2121,6 +2132,7 @@ class McpServerRuntimeTests(unittest.TestCase):
             )
             client.archive_card(card_id="card-1", actor_name="ОПЕРАТОР")
             client.set_repair_order_status(card_id="card-1", status="closed", actor_name="ОПЕРАТОР")
+            client.mark_card_ready(card_id="card-1", actor_name="ОПЕРАТОР")
 
         self.assertEqual(
             request.call_args_list,
@@ -2151,6 +2163,10 @@ class McpServerRuntimeTests(unittest.TestCase):
                         "source": "mcp",
                         "actor_name": "ОПЕРАТОР",
                     },
+                ),
+                unittest.mock.call(
+                    "/api/mark_card_ready",
+                    {"card_id": "card-1", "source": "mcp", "actor_name": "ОПЕРАТОР"},
                 ),
             ],
         )

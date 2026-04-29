@@ -73,6 +73,7 @@ class CRMToolRegistry:
             "create_card": self._create_card,
             "update_card": self._update_card,
             "move_card": self._move_card,
+            "mark_card_ready": self._mark_card_ready,
             "bulk_move_cards": self._bulk_move_cards,
             "archive_card": self._archive_card,
             "restore_card": self._restore_card,
@@ -279,6 +280,12 @@ class CRMToolRegistry:
                     "column": "required string",
                     "before_card_id": "optional string",
                 },
+                write=True,
+            ),
+            CRMToolDefinition(
+                "mark_card_ready",
+                "Mark a vehicle card as ready: move it to 'Готовые автомобили', add the ready tag, and move the repair order to the ready list. Use this when the operator says the car is ready; do not close the repair order unless explicitly requested.",
+                {"card_id": "required string"},
                 write=True,
             ),
             CRMToolDefinition(
@@ -877,6 +884,12 @@ class CRMToolRegistry:
             card_id=str(arguments.get("card_id") or ""),
             column=str(arguments.get("column") or ""),
             before_card_id=_optional_text(arguments, "before_card_id"),
+            actor_name=self._actor_name,
+        )
+
+    def _mark_card_ready(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.mark_card_ready(
+            card_id=str(arguments.get("card_id") or ""),
             actor_name=self._actor_name,
         )
 

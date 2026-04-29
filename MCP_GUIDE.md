@@ -156,6 +156,7 @@ JsonStore
 - `set_card_deadline`
 - `set_card_indicator`
 - `move_card`
+- `mark_card_ready`
 - `bulk_move_cards`
 - `archive_card`
 - `restore_card`
@@ -234,6 +235,7 @@ JsonStore
 - `get_repair_order_text`
 - `update_repair_order`
 - `set_repair_order_status`
+- `mark_card_ready`
 - `replace_repair_order_works`
 - `replace_repair_order_materials`
 

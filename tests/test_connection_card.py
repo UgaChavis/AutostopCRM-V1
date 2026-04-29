@@ -234,7 +234,7 @@ class ConnectionCardTests(unittest.TestCase):
                 for note in connector_data["notes"]
             )
         )
-        self.assertEqual(len(MCP_TOOL_NAMES), 60)
+        self.assertEqual(len(MCP_TOOL_NAMES), 61)
         self.assertIn("get_board_content", MCP_TOOL_NAMES)
         self.assertIn("get_board_events", MCP_TOOL_NAMES)
         self.assertIn("cleanup_card_content", MCP_TOOL_NAMES)
@@ -255,6 +255,7 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertIn("unlink_card_from_client", MCP_TOOL_NAMES)
         self.assertIn("suggest_clients_for_card", MCP_TOOL_NAMES)
         self.assertIn("get_repair_order_text", MCP_TOOL_NAMES)
+        self.assertIn("mark_card_ready", MCP_TOOL_NAMES)
         self.assertIn("replace_repair_order_works", MCP_TOOL_NAMES)
         self.assertIn("replace_repair_order_materials", MCP_TOOL_NAMES)
         self.assertTrue(set(GPT_CONNECTOR_REQUIRED_TOOL_NAMES).issubset(set(MCP_TOOL_NAMES)))

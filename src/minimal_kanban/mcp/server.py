@@ -136,7 +136,7 @@ class RepairOrderPaymentPayload(BaseModel):
 class RepairOrderPatchPayload(BaseModel):
     number: str | None = Field(default=None, max_length=40)
     date: str | None = Field(default=None, max_length=32)
-    status: Literal["open", "closed"] | None = None
+    status: Literal["open", "ready", "closed"] | None = None
     opened_at: str | None = Field(default=None, max_length=32)
     closed_at: str | None = Field(default=None, max_length=32)
     client: str | None = Field(default=None, max_length=160)
@@ -1939,7 +1939,7 @@ def create_mcp_server(
     )
     def list_repair_orders(
         limit: int = 50,
-        status: Literal["open", "closed", "all"] = "open",
+        status: Literal["open", "ready", "closed", "all"] = "open",
         query: str | None = None,
         sort_by: Literal["number", "opened_at", "closed_at"] | None = None,
         sort_dir: Literal["asc", "desc"] | None = None,
@@ -2156,14 +2156,14 @@ def create_mcp_server(
     @server.tool(
         name="set_repair_order_status",
         description=_scoped_description(
-            "Set the status of one repair order on the current Minimal Kanban board. Use open for active orders and closed for archived orders."
+            "Set the status of one repair order on the current Minimal Kanban board. Use open for active orders, ready for completed vehicles waiting for handoff/payment, and closed for archived orders."
         ),
         annotations=_write_tool_annotations("Set Repair Order Status"),
         structured_output=True,
     )
     def set_repair_order_status(
         card_id: str,
-        status: Literal["open", "closed"],
+        status: Literal["open", "ready", "closed"],
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
@@ -2171,6 +2171,20 @@ def create_mcp_server(
             lambda: board_api.set_repair_order_status(
                 card_id=card_id, status=status, actor_name=actor_name
             ),
+        )
+
+    @server.tool(
+        name="mark_card_ready",
+        description=_scoped_description(
+            "Mark one vehicle card as ready: move it to the system 'Готовые автомобили' column, add the 'Готов' card tag, and move its repair order to the ready list. If an operator says the car is ready, use this tool instead of closing the repair order."
+        ),
+        annotations=_write_tool_annotations("Mark Card Ready"),
+        structured_output=True,
+    )
+    def mark_card_ready(card_id: str, actor_name: str | None = None) -> JsonEnvelope:
+        return _relay_board_call(
+            "mark_card_ready",
+            lambda: board_api.mark_card_ready(card_id=card_id, actor_name=actor_name),
         )
 
     @server.tool(

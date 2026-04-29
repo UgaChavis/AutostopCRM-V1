@@ -1504,7 +1504,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("function repairOrdersRequestPath()", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "params.set('status', state.repairOrdersFilter === 'closed' ? 'closed' : 'open');",
+            "params.set('status', normalizeRepairOrderStatus(state.repairOrdersFilter));",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
@@ -1695,9 +1695,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("font-size: 10.5px;", BOARD_WEB_APP_HTML)
         self.assertIn("background: rgba(88, 138, 70, 0.28);", BOARD_WEB_APP_HTML)
         self.assertIn('.repair-order-status[data-status="closed"] {', BOARD_WEB_APP_HTML)
+        self.assertIn('.repair-order-status[data-status="ready"] {', BOARD_WEB_APP_HTML)
 
-    def test_repair_orders_menu_supports_open_and_closed_filters(self) -> None:
+    def test_repair_orders_menu_supports_open_ready_and_closed_filters(self) -> None:
         self.assertIn('id="repairOrdersOpenTab"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="repairOrdersReadyTab"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrdersClosedTab"', BOARD_WEB_APP_HTML)
         self.assertIn("function updateRepairOrdersTabs()", BOARD_WEB_APP_HTML)
         self.assertIn("data-repair-orders-filter", BOARD_WEB_APP_HTML)
@@ -1706,8 +1708,9 @@ class WebAssetsTests(unittest.TestCase):
             "async function setRepairOrdersFilter(status, { openModal = false } = {})",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("syncRepairOrdersLayout(isClosed ? 'closed' : 'open');", BOARD_WEB_APP_HTML)
+        self.assertIn("syncRepairOrdersLayout(normalizedFilter);", BOARD_WEB_APP_HTML)
         self.assertIn("ОТКРЫТЫЕ: ", BOARD_WEB_APP_HTML)
+        self.assertIn("ГОТОВЫЕ: ", BOARD_WEB_APP_HTML)
         self.assertIn("АРХИВ: ", BOARD_WEB_APP_HTML)
         self.assertIn("repairOrdersIsClosedView(status)", BOARD_WEB_APP_HTML)
         self.assertIn("const phoneText = phone || '-';", BOARD_WEB_APP_HTML)

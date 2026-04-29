@@ -2315,25 +2315,23 @@ class CardServiceTests(unittest.TestCase):
             self.service.delete_column({"column_id": column_id})
         self.assertEqual(non_empty_error.exception.code, "column_not_empty")
 
-    def test_delete_native_column_allows_only_archived_cards(self) -> None:
-        created_card = self.service.create_card(
-            {
-                "title": "ARCHIVED IN DONE",
-                "deadline": {"hours": 2},
-                "column": "done",
-            }
-        )
-        card_id = created_card["card"]["id"]
-        self.service.archive_card({"card_id": card_id})
+    def test_ready_column_is_system_locked_but_can_move(self) -> None:
+        columns = self.service.list_columns()["columns"]
+        ready_column = next(column for column in columns if column["label"] == "Готовые автомобили")
 
-        deleted = self.service.delete_column({"column_id": "done"})
+        with self.assertRaises(ServiceError) as rename_error:
+            self.service.rename_column(
+                {"column_id": ready_column["id"], "label": "ГОТОВО К ВЫДАЧЕ"}
+            )
+        self.assertEqual(rename_error.exception.code, "system_column_locked")
 
-        self.assertEqual(deleted["deleted_column"]["id"], "done")
-        self.assertTrue(all(column["id"] != "done" for column in deleted["columns"]))
-        archived_card = self.service.get_card({"card_id": card_id})["card"]
-        self.assertTrue(archived_card["archived"])
-        self.assertEqual(archived_card["column"], "inbox")
-        self.assertEqual(archived_card["column_label"], "Входящие")
+        with self.assertRaises(ServiceError) as delete_error:
+            self.service.delete_column({"column_id": ready_column["id"]})
+        self.assertEqual(delete_error.exception.code, "system_column_locked")
+
+        moved = self.service.move_column({"column_id": ready_column["id"], "before_column_id": "inbox"})
+        self.assertTrue(moved["meta"]["changed"])
+        self.assertEqual(moved["columns"][0]["id"], ready_column["id"])
 
     def test_board_snapshot_returns_last_30_archived_cards_by_default(self) -> None:
         archived_ids: list[str] = []
@@ -2509,13 +2507,13 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(stored_events[0].id, "recent-event")
 
     def test_delete_column_rejects_last_remaining_column(self) -> None:
-        for doomed_id in ["done", "control", "in_progress"]:
+        for doomed_id in ["control", "in_progress"]:
             deleted = self.service.delete_column({"column_id": doomed_id})
             self.assertTrue(all(column["id"] != doomed_id for column in deleted["columns"]))
 
-        with self.assertRaises(ServiceError) as last_column_error:
-            self.service.delete_column({"column_id": "inbox"})
-        self.assertEqual(last_column_error.exception.code, "last_column")
+        with self.assertRaises(ServiceError) as ready_column_error:
+            self.service.delete_column({"column_id": "done"})
+        self.assertEqual(ready_column_error.exception.code, "system_column_locked")
 
     def test_set_card_deadline_indicator_and_list_overdue(self) -> None:
         base = datetime(2026, 3, 24, 12, 0, 0, tzinfo=timezone.utc)
@@ -3760,6 +3758,84 @@ class CardServiceTests(unittest.TestCase):
 
         self.assertEqual(all_orders["meta"]["total"], 2)
         self.assertEqual(all_orders["repair_orders"][0]["card_id"], second["card"]["id"])
+
+    def test_mark_card_ready_moves_order_between_open_and_ready_lists(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "KIA RIO",
+                "title": "Ready order",
+                "deadline": {"hours": 2},
+                "tags": ["СРОЧНО", "ДИАГНОСТИКА", "КЛИЕНТ"],
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Иван",
+                    "works": [
+                        {"name": "Диагностика", "quantity": "1", "price": "1000", "total": ""}
+                    ],
+                },
+            }
+        )
+
+        marked = self.service.mark_card_ready({"card_id": card_id})
+
+        self.assertEqual(marked["card"]["column_label"], "Готовые автомобили")
+        self.assertEqual(marked["card"]["repair_order"]["status"], "ready")
+        self.assertIn("ГОТОВ", marked["card"]["tags"])
+        self.assertEqual(len(marked["card"]["tags"]), 4)
+        ready = self.service.list_repair_orders({"status": "ready"})
+        active = self.service.list_repair_orders()
+        self.assertEqual([item["card_id"] for item in ready["repair_orders"]], [card_id])
+        self.assertFalse(any(item["card_id"] == card_id for item in active["repair_orders"]))
+
+        reopened = self.service.move_card({"card_id": card_id, "column": "inbox"})
+
+        self.assertEqual(reopened["card"]["repair_order"]["status"], "open")
+        self.assertNotIn("ГОТОВ", reopened["card"]["tags"])
+        self.assertEqual(len(reopened["card"]["tags"]), 3)
+
+    def test_mark_card_ready_without_repair_order_returns_warning(self) -> None:
+        created = self.service.create_card(
+            {"vehicle": "LADA VESTA", "title": "No order", "deadline": {"hours": 2}}
+        )
+
+        marked = self.service.mark_card_ready({"card_id": created["card"]["id"]})
+
+        self.assertEqual(marked["card"]["column_label"], "Готовые автомобили")
+        self.assertIn("ГОТОВ", marked["card"]["tags"])
+        self.assertEqual(
+            marked["meta"]["warnings"][0]["code"],
+            "repair_order_missing",
+        )
+
+    def test_closed_repair_order_is_not_reopened_by_ready_column_moves(self) -> None:
+        created = self.service.create_card(
+            {"vehicle": "NISSAN", "title": "Closed ready", "deadline": {"hours": 2}}
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Пётр",
+                    "payments": [
+                        {"amount": "2000", "paid_at": "06.04.2026 12:00", "payment_method": "cash"}
+                    ],
+                    "works": [{"name": "Ремонт", "quantity": "1", "price": "2000", "total": ""}],
+                },
+            }
+        )
+        self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+
+        marked = self.service.mark_card_ready({"card_id": card_id})
+        moved_back = self.service.move_card({"card_id": card_id, "column": "inbox"})
+
+        self.assertEqual(marked["card"]["repair_order"]["status"], "closed")
+        self.assertEqual(moved_back["card"]["repair_order"]["status"], "closed")
 
     def test_repair_order_numbers_follow_card_open_time_not_update_order(self) -> None:
         first = self.service.create_card(

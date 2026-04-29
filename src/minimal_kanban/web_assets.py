@@ -498,6 +498,7 @@ BOARD_WEB_APP_HTML = "".join(
       color: #ffd2c9;
       outline: none;
     }
+    .column__rename[disabled],
     .column__delete[disabled] {
       opacity: 0;
       pointer-events: none;
@@ -1016,6 +1017,16 @@ BOARD_WEB_APP_HTML = "".join(
       border-color: rgba(121, 171, 115, 0.88);
       background: rgba(96, 145, 92, 0.24);
       color: #eff9ea;
+    }
+    #repairOrdersReadyTab {
+      border-color: rgba(146, 151, 151, 0.72);
+      color: #e4e8e8;
+      background: rgba(116, 122, 124, 0.14);
+    }
+    #repairOrdersReadyTab.is-active {
+      border-color: rgba(174, 181, 181, 0.9);
+      background: rgba(134, 141, 143, 0.28);
+      color: #f5f7f7;
     }
     #repairOrdersClosedTab {
       border-color: rgba(150, 94, 86, 0.7);
@@ -1873,6 +1884,11 @@ BOARD_WEB_APP_HTML = "".join(
       border-color: rgba(190, 122, 112, 0.52);
       background: rgba(132, 58, 50, 0.26);
       color: #fff0ec;
+    }
+    .repair-order-status[data-status="ready"] {
+      border-color: rgba(160, 166, 166, 0.54);
+      background: rgba(105, 112, 114, 0.26);
+      color: #f1f4f4;
     }
     .repair-order-section-bar {
       display: flex;
@@ -3933,6 +3949,9 @@ BOARD_WEB_APP_HTML = "".join(
     .repair-orders-row__status[data-status="closed"] {
       color: #d9d3b4;
     }
+    .repair-orders-row__status[data-status="ready"] {
+      color: #d9e0e0;
+    }
     .repair-orders-row__opened,
     .repair-orders-row__closed {
       color: var(--text-soft);
@@ -5724,6 +5743,11 @@ BOARD_WEB_APP_HTML = "".join(
       background: rgba(22, 32, 24, 0.42);
       color: #edf4d8;
     }
+    .client-mini__order-status[data-status="ready"] {
+      border-color: rgba(174, 181, 181, 0.42);
+      background: rgba(70, 78, 80, 0.34);
+      color: #eef3f3;
+    }
     .client-mini__order-number {
       color: var(--text);
       font-size: 14px;
@@ -6001,6 +6025,7 @@ BOARD_WEB_APP_HTML = "".join(
               <div class="dialog__tabs dialog__tabs--repair-orders">
                 <div>
                   <button class="tab-btn is-active" id="repairOrdersOpenTab" data-repair-orders-status="open">ОТКРЫТЫЕ</button>
+                  <button class="tab-btn" id="repairOrdersReadyTab" data-repair-orders-status="ready">ГОТОВЫЕ</button>
                   <button class="tab-btn" id="repairOrdersClosedTab" data-repair-orders-status="closed">ЗАКРЫТЫЕ</button>
                 </div>
               </div>
@@ -6770,6 +6795,7 @@ BOARD_WEB_APP_HTML = "".join(
       { label: 'надо что то сделать', color: 'red' },
     ];
     const CARD_TAG_LIMIT = 3;
+    const READY_COLUMN_LABEL = 'Готовые автомобили';
     const MOBILE_LITE_BREAKPOINT = 760;
     const MOBILE_LITE_MEDIA_QUERY = '(max-width: 760px)';
     const MOBILE_LITE_USER_AGENT_RE = /Android|webOS|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile/i;
@@ -7238,6 +7264,7 @@ BOARD_WEB_APP_HTML = "".join(
       cashboxTransferNoteInput: document.getElementById('cashboxTransferNoteInput'),
       cashboxTransferConfirmButton: document.getElementById('cashboxTransferConfirmButton'),
       repairOrdersOpenTab: document.getElementById('repairOrdersOpenTab'),
+      repairOrdersReadyTab: document.getElementById('repairOrdersReadyTab'),
       repairOrdersClosedTab: document.getElementById('repairOrdersClosedTab'),
       repairOrdersMeta: document.getElementById('repairOrdersMeta'),
       repairOrdersTableHead: document.getElementById('repairOrdersTableHead'),
@@ -9317,7 +9344,7 @@ BOARD_WEB_APP_HTML = "".join(
         : '<div class="empty">МАШИН ПОКА НЕТ.</div>';
       els.clientOrdersList.innerHTML = orders.length
         ? orders.map((order) => {
-          const statusKey = String(order?.status || '').trim().toLowerCase() === 'closed' ? 'closed' : 'open';
+          const statusKey = normalizeRepairOrderStatus(order?.status);
           const statusLabel = repairOrderStatusLabel(statusKey);
           const totalLabel = repairOrderFormatRubles(order?.grand_total || 0);
           const orderMeta = [formatDate(order.opened_at || order.date), order.vehicle].filter(Boolean).join(' · ') || 'ДАННЫЕ О ЗАКАЗ-НАРЯДЕ ОТСУТСТВУЮТ';
@@ -13759,7 +13786,7 @@ BOARD_WEB_APP_HTML = "".join(
       return {
         number: String(source.number ?? '').trim(),
         date: String(source.date ?? '').trim(),
-        status: String(source.status ?? 'open').trim().toLowerCase() === 'closed' ? 'closed' : 'open',
+        status: normalizeRepairOrderStatus(source.status),
         opened_at: String(source.opened_at ?? source.openedAt ?? '').trim(),
         closed_at: String(source.closed_at ?? source.closedAt ?? '').trim(),
         client: String(source.client ?? '').trim(),
@@ -13875,7 +13902,17 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function repairOrderStatusLabel(status) {
-      return String(status || '').trim().toLowerCase() === 'closed' ? 'Закрыт' : 'Открыт';
+      const normalized = normalizeRepairOrderStatus(status);
+      if (normalized === 'closed') return 'Закрыт';
+      if (normalized === 'ready') return 'Готов';
+      return 'Открыт';
+    }
+
+    function normalizeRepairOrderStatus(status) {
+      const normalized = String(status || '').trim().toLowerCase();
+      if (normalized === 'closed') return 'closed';
+      if (normalized === 'ready') return 'ready';
+      return 'open';
     }
 
     function repairOrderCloseBlockedMessage() {
@@ -14274,7 +14311,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function syncRepairOrderStatusUi(status, orderForClose = null) {
-      const normalizedStatus = String(status || '').trim().toLowerCase() === 'closed' ? 'closed' : 'open';
+      const normalizedStatus = normalizeRepairOrderStatus(status);
       els.repairOrderStatus.textContent = repairOrderStatusLabel(normalizedStatus);
       els.repairOrderStatus.dataset.status = normalizedStatus;
       els.repairOrderCloseButton.textContent = normalizedStatus === 'closed' ? 'ОТКРЫТЬ ЗАКАЗ-НАРЯД' : 'ЗАКРЫТЬ ЗАКАЗ-НАРЯД';
@@ -15260,17 +15297,20 @@ function renderCompactArchiveRows(cards) {
     }
 
     function updateRepairOrdersTabs() {
-      const isClosed = state.repairOrdersFilter === 'closed';
+      const normalizedFilter = normalizeRepairOrderStatus(state.repairOrdersFilter);
+      const isClosed = normalizedFilter === 'closed';
+      const isReady = normalizedFilter === 'ready';
       const repairOrdersDialog = els.repairOrdersModal ? els.repairOrdersModal.querySelector('.dialog--repair-orders') : null;
-      if (els.repairOrdersOpenTab) els.repairOrdersOpenTab.classList.toggle('is-active', !isClosed);
+      if (els.repairOrdersOpenTab) els.repairOrdersOpenTab.classList.toggle('is-active', normalizedFilter === 'open');
+      if (els.repairOrdersReadyTab) els.repairOrdersReadyTab.classList.toggle('is-active', isReady);
       if (els.repairOrdersClosedTab) els.repairOrdersClosedTab.classList.toggle('is-active', isClosed);
-      if (els.repairOrdersModal) els.repairOrdersModal.dataset.repairOrdersFilter = isClosed ? 'closed' : 'open';
-      if (repairOrdersDialog) repairOrdersDialog.dataset.repairOrdersFilter = isClosed ? 'closed' : 'open';
-      syncRepairOrdersLayout(isClosed ? 'closed' : 'open');
+      if (els.repairOrdersModal) els.repairOrdersModal.dataset.repairOrdersFilter = normalizedFilter;
+      if (repairOrdersDialog) repairOrdersDialog.dataset.repairOrdersFilter = normalizedFilter;
+      syncRepairOrdersLayout(normalizedFilter);
     }
 
     function repairOrdersIsClosedView(status = state.repairOrdersFilter) {
-      return String(status || '').trim().toLowerCase() === 'closed';
+      return normalizeRepairOrderStatus(status) === 'closed';
     }
 
     function normalizeRepairOrdersSearchField(value) {
@@ -15371,7 +15411,7 @@ function renderCompactArchiveRows(cards) {
     function repairOrdersRequestPath() {
       const params = new URLSearchParams();
       params.set('limit', '300');
-      params.set('status', state.repairOrdersFilter === 'closed' ? 'closed' : 'open');
+      params.set('status', normalizeRepairOrderStatus(state.repairOrdersFilter));
       params.set('sort_by', normalizeRepairOrdersSortBy(state.repairOrdersSortBy));
       params.set('sort_dir', normalizeRepairOrdersSortDir(state.repairOrdersSortDir));
       if (state.repairOrdersRemoteQuery) params.set('query', state.repairOrdersRemoteQuery);
@@ -15379,7 +15419,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     async function setRepairOrdersFilter(status, { openModal = false } = {}) {
-      state.repairOrdersFilter = String(status || '').trim().toLowerCase() === 'closed' ? 'closed' : 'open';
+      state.repairOrdersFilter = normalizeRepairOrderStatus(status);
       if (state.repairOrdersLoadTimer) {
         window.clearTimeout(state.repairOrdersLoadTimer);
         state.repairOrdersLoadTimer = null;
@@ -15515,7 +15555,10 @@ function renderCompactArchiveRows(cards) {
 
     function repairOrdersEmptyStateText() {
       if (String(state.repairOrdersQuery || '').trim()) return 'ПО ПОИСКУ НИЧЕГО НЕ НАЙДЕНО.';
-      return state.repairOrdersFilter === 'closed' ? 'АРХИВ ЗАКАЗ-НАРЯДОВ ПУСТ.' : 'ОТКРЫТЫХ ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.';
+      const status = normalizeRepairOrderStatus(state.repairOrdersFilter);
+      if (status === 'closed') return 'АРХИВ ЗАКАЗ-НАРЯДОВ ПУСТ.';
+      if (status === 'ready') return 'ГОТОВЫХ ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.';
+      return 'ОТКРЫТЫХ ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.';
     }
 
     function renderRepairOrdersView() {
@@ -15532,7 +15575,8 @@ function renderCompactArchiveRows(cards) {
     repairOrdersMetaText = function(items, meta) {
       const parts = [
         'ПОКАЗАНО: ' + items.length,
-        'ОТКРЫТЫЕ: ' + (meta.active_total ?? 0),
+        'ОТКРЫТЫЕ: ' + (meta.open_total ?? meta.active_total ?? 0),
+        'ГОТОВЫЕ: ' + (meta.ready_total ?? 0),
         'АРХИВ: ' + (meta.archived_total ?? 0),
       ];
       const activeQuery = String(state.repairOrdersQuery || meta.query || '').trim();
@@ -15563,7 +15607,7 @@ function renderCompactArchiveRows(cards) {
         const paymentStatus = String(item.payment_status || '').trim().toLowerCase() === 'paid' ? 'paid' : 'unpaid';
         const paymentStatusLabel = String(item.payment_status_label || '').trim() || (paymentStatus === 'paid' ? 'Оплачен' : 'Не оплачен');
       const status = item.status_label || repairOrderStatusLabel(item.status);
-      const rawStatus = String(item.status || 'open').trim().toLowerCase() === 'closed' ? 'closed' : 'open';
+      const rawStatus = normalizeRepairOrderStatus(item.status);
       const allTags = normalizeRepairOrderTags(item.tags || []);
       const previewTags = allTags.slice(0, 3);
       const extraTags = allTags.length - previewTags.length;
@@ -15586,7 +15630,7 @@ function renderCompactArchiveRows(cards) {
     renderRepairOrders = function(data) {
       const items = data?.repair_orders || [];
       const meta = data?.meta || {};
-      if (meta.status === 'open' || meta.status === 'closed') state.repairOrdersFilter = meta.status;
+      if (meta.status === 'open' || meta.status === 'ready' || meta.status === 'closed') state.repairOrdersFilter = meta.status;
       state.repairOrdersSortBy = normalizeRepairOrdersSortBy(meta.sort_by || state.repairOrdersSortBy);
       state.repairOrdersSortDir = normalizeRepairOrdersSortDir(meta.sort_dir || state.repairOrdersSortDir);
       state.repairOrdersItems = Array.isArray(items) ? items : [];
@@ -15752,13 +15796,17 @@ function renderCompactArchiveRows(cards) {
       const cards = sortedCardsForBoardColumn(snapshot, column.id, cardsByColumn);
       const tone = COLUMN_TONES[index % COLUMN_TONES.length];
       const toneStyle = '--column-tint:' + tone.tint + ';--column-head:' + tone.head + ';--column-edge:' + tone.edge + ';--column-empty:' + tone.empty + ';';
-      const isDeleteBlocked = cards.length > 0 || snapshot.columns.length <= 1;
-      const deleteTitle = cards.length > 0
+      const isReadyColumn = String(column.label || '').trim().toLowerCase() === READY_COLUMN_LABEL.toLowerCase();
+      const isDeleteBlocked = isReadyColumn || cards.length > 0 || snapshot.columns.length <= 1;
+      const deleteTitle = isReadyColumn
+        ? 'Системную колонку готовых автомобилей нельзя удалить'
+        : (cards.length > 0
         ? 'Сначала убери карточки из этого столбца'
-        : (snapshot.columns.length <= 1 ? 'Последний столбец нельзя удалить' : 'Удалить пустой столбец');
-      const renameTitle = 'Переименовать столбец';
+        : (snapshot.columns.length <= 1 ? 'Последний столбец нельзя удалить' : 'Удалить пустой столбец'));
+      const renameTitle = isReadyColumn ? 'Системную колонку готовых автомобилей нельзя переименовать' : 'Переименовать столбец';
       const deleteAttrs = isDeleteBlocked ? ' disabled' : '';
-      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '" draggable="true"><div class="column__head" data-drag-column-handle="1"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '">&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>?</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '<div class="empty">ЗДЕСЬ ПОКА ПУСТО.</div>') + '</div><button class="btn" type="button" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
+      const renameAttrs = isReadyColumn ? ' disabled data-system-column="ready"' : '';
+      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '" draggable="true"><div class="column__head" data-drag-column-handle="1"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '"' + renameAttrs + '>&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>?</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '<div class="empty">ЗДЕСЬ ПОКА ПУСТО.</div>') + '</div><button class="btn" type="button" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
     }
 
     function renderBoardColumnById(columnId, cardsByColumn = null) {
@@ -16271,6 +16319,10 @@ function renderCompactArchiveRows(cards) {
     }
 
     async function renameColumnFromButton(button) {
+      if (button.hasAttribute('disabled')) {
+        setStatus('КОЛОНКУ «ГОТОВЫЕ АВТОМОБИЛИ» ПЕРЕИМЕНОВАТЬ НЕЛЬЗЯ.', true);
+        return;
+      }
       const columnId = button.dataset.renameColumn;
       const columnLabel = button.dataset.columnLabel || columnId || 'column';
       const label = window.prompt('Новое название столбца', columnLabel);
@@ -16295,6 +16347,10 @@ function renderCompactArchiveRows(cards) {
       const columnLabel = button.dataset.columnLabel || columnId || 'столбец';
       const cardsCount = Number(button.dataset.cardCount || '0');
       if (button.hasAttribute('disabled')) {
+        if (String(columnLabel || '').trim().toLowerCase() === READY_COLUMN_LABEL.toLowerCase()) {
+          setStatus('КОЛОНКУ «ГОТОВЫЕ АВТОМОБИЛИ» УДАЛЯТЬ НЕЛЬЗЯ.', true);
+          return;
+        }
         if (cardsCount > 0) {
           setStatus('СНАЧАЛА УБЕРИ КАРТОЧКИ ИЗ СТОЛБЦА «' + columnLabel + '».', true);
           return;
@@ -17792,6 +17848,7 @@ function renderCompactArchiveRows(cards) {
     els.cashboxesButton.addEventListener('click', openCashboxesModal);
     els.employeesButton.addEventListener('click', openEmployeesModal);
     els.repairOrdersOpenTab.addEventListener('click', () => setRepairOrdersFilter('open'));
+    els.repairOrdersReadyTab.addEventListener('click', () => setRepairOrdersFilter('ready'));
     els.repairOrdersClosedTab.addEventListener('click', () => setRepairOrdersFilter('closed'));
     els.repairOrdersSearchInput.addEventListener('input', handleRepairOrdersSearchInput);
     els.repairOrdersTableHead.addEventListener('click', handleRepairOrdersSearchFieldClick);

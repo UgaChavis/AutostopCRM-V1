@@ -18,6 +18,7 @@ REPAIR_ORDER_PAYMENT_ID_LIMIT = 80
 REPAIR_ORDER_PAYMENT_NOTE_LIMIT = 240
 REPAIR_ORDER_PAYMENTS_LIMIT = 200
 REPAIR_ORDER_STATUS_OPEN = "open"
+REPAIR_ORDER_STATUS_READY = "ready"
 REPAIR_ORDER_STATUS_CLOSED = "closed"
 REPAIR_ORDER_STATUS_LIMIT = 16
 REPAIR_ORDER_DEFAULT_TAG_COLOR = "green"
@@ -28,6 +29,7 @@ REPAIR_ORDER_PAYMENT_METHOD_LIMIT = 16
 REPAIR_ORDER_PAYMENT_TAX_RATE = Decimal("0.15")
 REPAIR_ORDER_ALLOWED_STATUSES = {
     REPAIR_ORDER_STATUS_OPEN,
+    REPAIR_ORDER_STATUS_READY,
     REPAIR_ORDER_STATUS_CLOSED,
 }
 REPAIR_ORDER_ALLOWED_PAYMENT_METHODS = {
@@ -68,6 +70,8 @@ def normalize_repair_order_status(value, *, default: str = REPAIR_ORDER_STATUS_O
     raw = _normalize_single_line(value, limit=REPAIR_ORDER_STATUS_LIMIT).lower()
     if raw in {"", "opened", "active", "открыт", "открыта"}:
         return default
+    if raw in {"ready", "done", "готов", "готово", "готова", "готовые"}:
+        return REPAIR_ORDER_STATUS_READY
     if raw in {"closed", "archived", "archive", "закрыт", "закрыта"}:
         return REPAIR_ORDER_STATUS_CLOSED
     if raw in REPAIR_ORDER_ALLOWED_STATUSES:

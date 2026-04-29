@@ -24,6 +24,7 @@ from ..config import get_attachments_dir
 from ..demo_seed import build_demo_board
 from ..models import (
     CARD_DESCRIPTION_LIMIT,
+    CARD_MANUAL_TAG_LIMIT,
     CARD_TITLE_LIMIT,
     CARD_VEHICLE_LIMIT,
     COLUMN_LABEL_LIMIT,
@@ -63,6 +64,7 @@ from ..repair_order import (
     REPAIR_ORDER_PAYMENT_METHOD_CASHLESS,
     REPAIR_ORDER_STATUS_CLOSED,
     REPAIR_ORDER_STATUS_OPEN,
+    REPAIR_ORDER_STATUS_READY,
     RepairOrder,
     RepairOrderPayment,
     RepairOrderRow,
@@ -81,6 +83,7 @@ from ..vehicle_profile import (
     VehicleProfile,
 )
 from .column_service import ColumnService
+from .ready_column import READY_CARD_TAG_COLOR, READY_CARD_TAG_LABEL, ensure_ready_column
 from .snapshot_service import SnapshotService
 from .vehicle_profile_service import VehicleProfileService
 
@@ -88,6 +91,7 @@ _CARD_AI_LOG_LIMIT = 24
 _CARD_AI_LEVELS = {"INFO", "RUN", "WAIT", "DONE", "WARN"}
 _CARD_AI_VIN_PATTERN = re.compile(r"\b[A-HJ-NPR-Z0-9]{17}\b")
 _CARD_AI_DTC_PATTERN = re.compile(r"\b[PBCU][0-9]{4}\b", re.IGNORECASE)
+_READY_CARD_TAG_NORMALIZED = normalize_tag_label(READY_CARD_TAG_LABEL)
 
 
 _SEARCH_SEPARATOR_PATTERN = re.compile(r"[\W_]+", re.UNICODE)
@@ -2037,10 +2041,15 @@ class CardService:
                 for card in ranked_cards
                 if not self._card_has_inconsistent_repair_order_state(card)
             ]
-            active_cards = [
+            open_cards = [
                 card
                 for card in ranked_cards
-                if card.repair_order.status != REPAIR_ORDER_STATUS_CLOSED
+                if card.repair_order.status == REPAIR_ORDER_STATUS_OPEN
+            ]
+            ready_cards = [
+                card
+                for card in ranked_cards
+                if card.repair_order.status == REPAIR_ORDER_STATUS_READY
             ]
             archived_cards = [
                 card
@@ -2049,10 +2058,12 @@ class CardService:
             ]
             if status_filter == "all":
                 ordered_cards = ranked_cards
+            elif status_filter == REPAIR_ORDER_STATUS_READY:
+                ordered_cards = ready_cards
             elif status_filter == REPAIR_ORDER_STATUS_CLOSED:
                 ordered_cards = archived_cards
             else:
-                ordered_cards = active_cards
+                ordered_cards = open_cards
             filtered_cards = self._filter_repair_order_cards(ordered_cards, query=query)
             sorted_cards = sorted(
                 filtered_cards,
@@ -2072,7 +2083,9 @@ class CardService:
                     "query": query,
                     "sort_by": sort_by,
                     "sort_dir": sort_dir,
-                    "active_total": len(active_cards),
+                    "active_total": len(open_cards),
+                    "open_total": len(open_cards),
+                    "ready_total": len(ready_cards),
                     "archived_total": len(archived_cards),
                     "inconsistent_total": len(inconsistent_cards),
                     "directory": str(self._repair_orders_dir),
@@ -3738,6 +3751,9 @@ class CardService:
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_not_archived(card)
             actor_name, source = self._audit_identity(payload, default_source="api")
+            ready_column_id, ready_column_changed = self._ensure_ready_column_for_bundle(
+                bundle, actor_name=actor_name, source=source
+            )
 
             changed = False
             changed_fields: list[str] = []
@@ -3798,9 +3814,25 @@ class CardService:
                 changed = repair_order_changed or changed
                 if repair_order_changed:
                     changed_fields.append("repair_order")
+            ready_state_changed = False
+            if card.column == ready_column_id:
+                ready_state_changed, _ready_warnings = self._apply_ready_column_side_effects(
+                    card,
+                    cards,
+                    events,
+                    actor_name,
+                    source,
+                    before_column=ready_column_id,
+                    after_column=ready_column_id,
+                    ready_column_id=ready_column_id,
+                    bundle=bundle,
+                )
+                changed = ready_state_changed or changed
+                if ready_state_changed and "ready_state" not in changed_fields:
+                    changed_fields.append("ready_state")
 
             numbering_changed = self._synchronize_repair_order_numbers(cards)
-            if changed or numbering_changed:
+            if changed or numbering_changed or ready_column_changed:
                 self._touch_card(card, actor_name)
                 self._refresh_card_ai_fingerprint_if_agent_changed(card, actor_name, source)
                 if self._card_has_repair_order(card):
@@ -3816,7 +3848,7 @@ class CardService:
             self._logger.info(
                 "update_card id=%s changed=%s actor=%s source=%s",
                 card.id,
-                changed or numbering_changed,
+                changed or numbering_changed or ready_column_changed,
                 actor_name,
                 source,
             )
@@ -3828,7 +3860,7 @@ class CardService:
                     include_removed_attachments=True,
                 ),
                 "meta": {
-                    "changed": changed or numbering_changed,
+                    "changed": changed or numbering_changed or ready_column_changed,
                     "changed_fields": changed_fields,
                 },
             }
@@ -3935,6 +3967,9 @@ class CardService:
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_not_archived(card)
             actor_name, source = self._audit_identity(payload, default_source="api")
+            ready_column_id, ready_column_changed = self._ensure_ready_column_for_bundle(
+                bundle, actor_name=actor_name, source=source
+            )
             next_column = self._validated_column(payload.get("column", card.column), columns)
             before_card_id = (
                 normalize_text(payload.get("before_card_id"), default="", limit=128) or None
@@ -3958,6 +3993,23 @@ class CardService:
                     card_id=card.id,
                     details=move_meta,
                 )
+            ready_state_changed, ready_warnings = self._apply_ready_column_side_effects(
+                card,
+                cards,
+                events,
+                actor_name,
+                source,
+                before_column=str(move_meta["before_column"] or ""),
+                after_column=str(move_meta["after_column"] or ""),
+                ready_column_id=ready_column_id,
+                bundle=bundle,
+            )
+            if ready_state_changed and not changed:
+                self._touch_card(card, actor_name)
+            numbering_changed = self._synchronize_repair_order_numbers(cards)
+            if changed or ready_state_changed or ready_column_changed or numbering_changed:
+                if self._card_has_repair_order(card):
+                    self._ensure_repair_order_text_file(card, force=True)
                 self._save_bundle(bundle, columns=columns, cards=cards, events=events)
             self._logger.info(
                 "move_card id=%s column=%s position=%s actor=%s source=%s",
@@ -3986,7 +4038,10 @@ class CardService:
                     column_labels=column_labels,
                 ),
                 "meta": {
-                    "changed": changed,
+                    "changed": changed or ready_state_changed or ready_column_changed,
+                    "moved": changed,
+                    "ready_state_changed": ready_state_changed,
+                    "warnings": ready_warnings,
                 },
             }
 
@@ -4033,6 +4088,9 @@ class CardService:
             columns = bundle["columns"]
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
+            ready_column_id, ready_column_changed = self._ensure_ready_column_for_bundle(
+                bundle, actor_name=actor_name, source=source
+            )
             next_column = self._validated_column(payload.get("column"), columns)
             raw_card_ids = payload.get("card_ids")
             if not isinstance(raw_card_ids, list) or not raw_card_ids:
@@ -4060,6 +4118,7 @@ class CardService:
             moved_cards: list[dict] = []
             unchanged_cards: list[dict] = []
             errors: list[dict] = []
+            warnings: list[dict] = []
             changed_any = False
             column_labels = self._column_labels(columns)
 
@@ -4090,6 +4149,23 @@ class CardService:
                         )
                         changed = True
                         changed_any = True
+                    ready_state_changed, ready_warnings = self._apply_ready_column_side_effects(
+                        card,
+                        cards,
+                        events,
+                        actor_name,
+                        source,
+                        before_column=previous_column,
+                        after_column=card.column,
+                        ready_column_id=ready_column_id,
+                        bundle=bundle,
+                    )
+                    if ready_state_changed and not changed:
+                        self._touch_card(card, actor_name)
+                    if ready_state_changed:
+                        changed = True
+                        changed_any = True
+                    warnings.extend({"card_id": card.id, **warning} for warning in ready_warnings)
                     serialized = self._serialize_card(card, events, column_labels=column_labels)
                     serialized["bulk_move"] = {
                         "before_column": previous_column,
@@ -4110,7 +4186,8 @@ class CardService:
                         }
                     )
 
-            if changed_any:
+            numbering_changed = self._synchronize_repair_order_numbers(cards)
+            if changed_any or ready_column_changed or numbering_changed:
                 self._save_bundle(bundle, columns=columns, cards=cards, events=events)
 
             self._logger.info(
@@ -4134,8 +4211,30 @@ class CardService:
                     "unchanged": len(unchanged_cards),
                     "errors": len(errors),
                     "partial_failure": bool(errors),
+                    "warnings": warnings,
                 },
             }
+
+    def mark_card_ready(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            ready_column_id, ready_column_changed = self._ensure_ready_column_for_bundle(
+                bundle, actor_name=actor_name, source=source
+            )
+            if ready_column_changed:
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=bundle["cards"],
+                    events=bundle["events"],
+                )
+            next_payload = dict(payload)
+            next_payload["column"] = ready_column_id
+            next_payload["actor_name"] = actor_name
+            next_payload["source"] = source
+        return self.move_card(next_payload)
 
     def restore_card(self, payload: dict) -> dict:
         with self._lock:
@@ -8379,6 +8478,174 @@ class CardService:
     def _repair_order_now(self) -> str:
         return datetime.now().astimezone().strftime("%d.%m.%Y %H:%M")
 
+    def _ensure_ready_column_for_bundle(
+        self,
+        bundle: dict[str, Any],
+        *,
+        actor_name: str = "СИСТЕМА",
+        source: str = "system",
+    ) -> tuple[str, bool]:
+        ready_column_id, changed = ensure_ready_column(bundle["columns"], bundle["settings"])
+        if changed:
+            self._append_event(
+                bundle["events"],
+                actor_name=actor_name,
+                source=source,
+                action="ready_column_synchronized",
+                message=f"{actor_name} закрепил колонку готовых автомобилей",
+                card_id=None,
+                details={"column_id": ready_column_id},
+            )
+        return ready_column_id, changed
+
+    def _apply_ready_column_side_effects(
+        self,
+        card: Card,
+        cards: list[Card],
+        events: list[AuditEvent],
+        actor_name: str,
+        source: str,
+        *,
+        before_column: str,
+        after_column: str,
+        ready_column_id: str,
+        bundle: dict[str, Any],
+    ) -> tuple[bool, list[dict[str, Any]]]:
+        warnings: list[dict[str, Any]] = []
+        changed = False
+        is_ready_after = after_column == ready_column_id
+        was_ready_before = before_column == ready_column_id
+
+        if is_ready_after:
+            changed = self._set_ready_card_tag(
+                card, events, actor_name, source, enabled=True
+            ) or changed
+            if self._card_has_repair_order(card):
+                if card.repair_order.status != REPAIR_ORDER_STATUS_CLOSED:
+                    changed = self._set_repair_order_status_internal(
+                        card,
+                        cards,
+                        REPAIR_ORDER_STATUS_READY,
+                        events,
+                        actor_name,
+                        source,
+                        bundle,
+                    ) or changed
+            else:
+                warnings.append(
+                    {
+                        "code": "repair_order_missing",
+                        "message": "Карточка готова, но заказ-наряд не найден.",
+                    }
+                )
+        elif was_ready_before:
+            changed = self._set_ready_card_tag(
+                card, events, actor_name, source, enabled=False
+            ) or changed
+            if (
+                self._card_has_repair_order(card)
+                and card.repair_order.status == REPAIR_ORDER_STATUS_READY
+            ):
+                changed = self._set_repair_order_status_internal(
+                    card,
+                    cards,
+                    REPAIR_ORDER_STATUS_OPEN,
+                    events,
+                    actor_name,
+                    source,
+                    bundle,
+                ) or changed
+        return changed, warnings
+
+    def _set_ready_card_tag(
+        self,
+        card: Card,
+        events: list[AuditEvent],
+        actor_name: str,
+        source: str,
+        *,
+        enabled: bool,
+    ) -> bool:
+        previous_tags = list(card.tags)
+        previous_has_tag = any(tag.label == _READY_CARD_TAG_NORMALIZED for tag in previous_tags)
+        if enabled and previous_has_tag:
+            return False
+        if not enabled and not previous_has_tag:
+            return False
+
+        if enabled:
+            card.tags = previous_tags + [
+                CardTag(label=READY_CARD_TAG_LABEL, color=READY_CARD_TAG_COLOR)
+            ]
+            action = "tag_added"
+            message = f"{actor_name} добавил метку готовности"
+        else:
+            card.tags = [tag for tag in previous_tags if tag.label != _READY_CARD_TAG_NORMALIZED]
+            action = "tag_removed"
+            message = f"{actor_name} снял метку готовности"
+
+        self._append_event(
+            events,
+            actor_name=actor_name,
+            source=source,
+            action=action,
+            message=message,
+            card_id=card.id,
+            details={"tag": _READY_CARD_TAG_NORMALIZED, "system": True},
+        )
+        self._append_event(
+            events,
+            actor_name=actor_name,
+            source=source,
+            action="tags_changed",
+            message=f"{actor_name} обновил набор меток",
+            card_id=card.id,
+            details={
+                "before": [tag.to_dict() for tag in previous_tags],
+                "after": [tag.to_dict() for tag in card.tags],
+            },
+        )
+        return True
+
+    def _set_repair_order_status_internal(
+        self,
+        card: Card,
+        cards: list[Card],
+        status: str,
+        events: list[AuditEvent],
+        actor_name: str,
+        source: str,
+        bundle: dict[str, Any],
+    ) -> bool:
+        if card.repair_order.status == status:
+            return False
+        next_payload = card.repair_order.to_storage_dict()
+        next_payload["status"] = status
+        if status != REPAIR_ORDER_STATUS_CLOSED:
+            next_payload["closed_at"] = ""
+        changed = self._update_repair_order(
+            card,
+            cards,
+            next_payload,
+            events,
+            actor_name,
+            source,
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            settings=bundle["settings"],
+        )
+        if changed:
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action=f"repair_order_{status}",
+                message=f"{actor_name} изменил статус заказ-наряда",
+                card_id=card.id,
+                details={"number": card.repair_order.number, "status": status},
+            )
+        return changed
+
     def _card_has_repair_order(self, card: Card) -> bool:
         return not card.repair_order.is_empty()
 
@@ -8505,7 +8772,11 @@ class CardService:
         return normalized
 
     def _repair_order_status_label(self, status: str) -> str:
-        return "Закрыт" if status == REPAIR_ORDER_STATUS_CLOSED else "Открыт"
+        if status == REPAIR_ORDER_STATUS_CLOSED:
+            return "Закрыт"
+        if status == REPAIR_ORDER_STATUS_READY:
+            return "Готов"
+        return "Открыт"
 
     def _repair_order_card_datetime(self, value: str | None) -> str:
         parsed = parse_datetime(value)
@@ -9590,11 +9861,20 @@ class CardService:
                 details={"field": "tags"},
             )
         unique_labels: set[str] = set()
+        manual_labels: set[str] = set()
         for item in value:
             tag = CardTag.from_value(item)
             if tag is None:
                 continue
             unique_labels.add(tag.label)
+            if tag.label != _READY_CARD_TAG_NORMALIZED:
+                manual_labels.add(tag.label)
+            if len(manual_labels) > CARD_MANUAL_TAG_LIMIT:
+                self._fail(
+                    "validation_error",
+                    f"Количество ручных меток не должно превышать {CARD_MANUAL_TAG_LIMIT}.",
+                    details={"field": "tags"},
+                )
             if len(unique_labels) > TAG_LIMIT:
                 self._fail(
                     "validation_error",

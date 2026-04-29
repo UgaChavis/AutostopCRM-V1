@@ -42,6 +42,7 @@ class AgentToolExecutor:
             "create_card": self._create_card,
             "update_card": self._update_card,
             "move_card": self._move_card,
+            "mark_card_ready": self._mark_card_ready,
             "archive_card": self._archive_card,
             "restore_card": self._restore_card,
             "list_repair_orders": self._list_repair_orders,
@@ -166,6 +167,11 @@ class AgentToolExecutor:
                     "column": "required string",
                     "before_card_id": "optional string",
                 },
+            ),
+            AgentToolDefinition(
+                "mark_card_ready",
+                "Mark a vehicle card as ready: move it to 'Готовые автомобили', add the ready tag, and move the repair order to the ready list. Use this when the operator says the car is ready.",
+                {"card_id": "required string"},
             ),
             AgentToolDefinition("archive_card", "Archive a card.", {"card_id": "required string"}),
             AgentToolDefinition(
@@ -437,6 +443,11 @@ class AgentToolExecutor:
             actor_name=self._actor_name,
         )
 
+    def _mark_card_ready(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.mark_card_ready(
+            card_id=self._required_text(args, "card_id"), actor_name=self._actor_name
+        )
+
     def _archive_card(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.archive_card(
             card_id=self._required_text(args, "card_id"), actor_name=self._actor_name
@@ -669,6 +680,7 @@ class AgentToolExecutor:
             "get_card_context",
             "update_card",
             "move_card",
+            "mark_card_ready",
             "archive_card",
             "restore_card",
         }

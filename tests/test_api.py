@@ -1487,7 +1487,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 409)
         self.assertEqual(blocked["error"]["code"], "column_not_empty")
 
-    def test_delete_column_route_allows_native_column_with_only_archived_cards(self) -> None:
+    def test_delete_column_route_rejects_system_ready_column(self) -> None:
         status, created = self.request(
             "/api/create_card",
             {"title": "Archived done card", "column": "done", "deadline": {"hours": 1}},
@@ -1500,14 +1500,14 @@ class ApiServerTests(unittest.TestCase):
         self.assertTrue(archived["data"]["card"]["archived"])
 
         status, deleted = self.request("/api/delete_column", {"column_id": "done"})
-        self.assertEqual(status, 200)
-        self.assertTrue(deleted["ok"])
-        self.assertEqual(deleted["data"]["deleted_column"]["id"], "done")
+        self.assertEqual(status, 409)
+        self.assertFalse(deleted["ok"])
+        self.assertEqual(deleted["error"]["code"], "system_column_locked")
 
         status, card = self.request("/api/get_card", {"card_id": card_id})
         self.assertEqual(status, 200)
         self.assertTrue(card["data"]["card"]["archived"])
-        self.assertEqual(card["data"]["card"]["column"], "inbox")
+        self.assertEqual(card["data"]["card"]["column"], "done")
 
     def test_archive_card_route_rejects_open_repair_order(self) -> None:
         status, created = self.request(
@@ -2717,6 +2717,48 @@ class ApiServerTests(unittest.TestCase):
         self.assertTrue(
             any(item["card_id"] == card_id for item in archived["data"]["repair_orders"])
         )
+
+    def test_mark_card_ready_route_moves_order_to_ready_list(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {
+                "vehicle": "Volkswagen Polo",
+                "title": "Ready route",
+                "deadline": {"hours": 4},
+            },
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+        status, patched = self.request(
+            "/api/update_repair_order",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Иван Иванов",
+                    "works": [
+                        {"name": "Диагностика", "quantity": "1", "price": "1500", "total": ""}
+                    ],
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(patched["data"]["repair_order"]["status"], "open")
+
+        status, marked = self.request("/api/mark_card_ready", {"card_id": card_id})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(marked["data"]["card"]["column_label"], "Готовые автомобили")
+        self.assertEqual(marked["data"]["card"]["repair_order"]["status"], "ready")
+        self.assertIn("ГОТОВ", marked["data"]["card"]["tags"])
+
+        status, ready = self.request("/api/list_repair_orders", {"status": "ready"})
+        self.assertEqual(status, 200)
+        self.assertEqual(ready["data"]["meta"]["status"], "ready")
+        self.assertEqual([item["card_id"] for item in ready["data"]["repair_orders"]], [card_id])
+
+        status, active = self.request("/api/list_repair_orders", method="GET")
+        self.assertEqual(status, 200)
+        self.assertFalse(any(item["card_id"] == card_id for item in active["data"]["repair_orders"]))
 
     def test_repair_order_status_route_rejects_unpaid_close(self) -> None:
         status, created = self.request(

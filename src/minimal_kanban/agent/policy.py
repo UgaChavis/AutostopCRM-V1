@@ -94,6 +94,7 @@ _TOOL_SOURCE_TYPES = {
     "replace_repair_order_works": "crm_write",
     "replace_repair_order_materials": "crm_write",
     "set_repair_order_status": "crm_write",
+    "mark_card_ready": "crm_write",
     "create_card": "crm_write",
     "move_card": "crm_write",
     "archive_card": "crm_write",
