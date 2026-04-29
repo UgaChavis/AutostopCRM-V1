@@ -2078,6 +2078,30 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(journal["weeks"][0]["count"], 1)
         self.assertEqual(journal["months"][0]["count"], 1)
 
+    def test_cash_journal_markdown_compacts_transfer_pairs(self) -> None:
+        source = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        target = self.service.create_cashbox(
+            {"name": "Карта Мария", "actor_name": "ADMIN"}
+        )["cashbox"]
+        self.service.create_cashbox_transfer(
+            {
+                "from_cashbox_id": source["id"],
+                "to_cashbox_id": target["id"],
+                "amount": "3000",
+                "actor_name": "MARIA",
+            }
+        )
+
+        journal = self.service.get_cash_journal({"months": 3, "limit": 100})
+
+        self.assertIn("Наличный → Карта Мария", journal["markdown"])
+        self.assertIn("Внутренние перемещения: пришло 3 000,00 ₽ | ушло 3 000,00 ₽", journal["markdown"])
+        self.assertNotIn("`", journal["markdown"])
+        self.assertEqual(journal["totals"]["transfer_income_minor"], 300000)
+        self.assertEqual(journal["totals"]["transfer_expense_minor"], 300000)
+
     def test_move_card_can_reorder_within_same_column(self) -> None:
         first = self.service.create_card(
             {"title": "First", "column": "inbox", "deadline": {"hours": 2}}

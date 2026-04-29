@@ -6296,11 +6296,13 @@ class CardService:
                 iso_year, iso_week, _ = created_at.isocalendar()
                 date_label = created_at.date().isoformat()
                 time_label = created_at.strftime("%H:%M:%S")
+                short_time_label = created_at.strftime("%H:%M")
                 month_key = created_at.strftime("%Y-%m")
                 week_key = f"{iso_year}-W{iso_week:02d}"
             else:
                 date_label = "unknown"
                 time_label = ""
+                short_time_label = ""
                 month_key = "unknown"
                 week_key = "unknown"
             base.update(
@@ -6309,6 +6311,7 @@ class CardService:
                     "cashbox_name": cashbox.name if cashbox else "Неизвестная касса",
                     "date": date_label,
                     "time": time_label,
+                    "time_short": short_time_label,
                     "month_key": month_key,
                     "week_key": week_key,
                     "direction_label": "Поступление"
@@ -6370,15 +6373,35 @@ class CardService:
             for item in entries
             if item.get("direction") == "expense"
         )
+        external_income_minor = sum(
+            int(item.get("amount_minor") or 0)
+            for item in entries
+            if item.get("direction") == "income" and item.get("source_label") != "перемещение"
+        )
+        external_expense_minor = sum(
+            int(item.get("amount_minor") or 0)
+            for item in entries
+            if item.get("direction") == "expense" and item.get("source_label") != "перемещение"
+        )
+        transfer_income_minor = income_minor - external_income_minor
+        transfer_expense_minor = expense_minor - external_expense_minor
         balance_minor = income_minor - expense_minor
         return {
             "count": len(entries),
             "income_minor": income_minor,
             "expense_minor": expense_minor,
             "balance_minor": balance_minor,
+            "external_income_minor": external_income_minor,
+            "external_expense_minor": external_expense_minor,
+            "transfer_income_minor": transfer_income_minor,
+            "transfer_expense_minor": transfer_expense_minor,
             "income_display": self._cash_journal_money_text(income_minor),
             "expense_display": self._cash_journal_money_text(expense_minor),
             "balance_display": self._cash_journal_money_text(balance_minor, signed=True),
+            "external_income_display": self._cash_journal_money_text(external_income_minor),
+            "external_expense_display": self._cash_journal_money_text(external_expense_minor),
+            "transfer_income_display": self._cash_journal_money_text(transfer_income_minor),
+            "transfer_expense_display": self._cash_journal_money_text(transfer_expense_minor),
         }
 
     def _cash_journal_group_entries(
@@ -6467,15 +6490,22 @@ class CardService:
         lines = [
             "# 💰 Кассовый журнал",
             "",
-            "## 📌 Сводка",
+            "## 📊 Итоги периода",
             f"- Период: последние {meta['months']} мес.",
-            f"- Операций в выгрузке: {totals['count']} из {meta['total']}",
-            f"- Поступления: {totals['income_display']}",
-            f"- Списания: {totals['expense_display']}",
-            f"- Баланс периода: {totals['balance_display']}",
-            f"- Машинный формат: `cash_journal.v2`, JSON-поля `entries`, `days`, `weeks`, `months`, `totals`.",
+            f"- Показано операций: {totals['count']} из {meta['total']}",
+            f"- Реальные поступления: {totals['external_income_display']}",
+            f"- Реальные списания: {totals['external_expense_display']}",
+            f"- Итог периода: {totals['balance_display']}",
+            f"- Внутренние перемещения: пришло {totals['transfer_income_display']} | ушло {totals['transfer_expense_display']}",
             "",
         ]
+        if int(meta["total"]) > int(totals["count"]):
+            lines.extend(
+                [
+                    "⚠️ Выгрузка ограничена лимитом. Для полного журнала увеличьте `limit`.",
+                    "",
+                ]
+            )
         if not entries:
             lines.extend(
                 [
@@ -6488,40 +6518,125 @@ class CardService:
         lines.extend(["## 🗓️ По месяцам"])
         for item in months:
             lines.append(
-                f"- **{item['label']}**: ➕ {item['income_display']} | "
-                + f"➖ {item['expense_display']} | ⚖️ {item['balance_display']} | "
+                f"- **{item['label']}**: приход {item['external_income_display']} | "
+                + f"расход {item['external_expense_display']} | итог {item['balance_display']} | "
+                + f"перемещения {item['transfer_income_display']}/{item['transfer_expense_display']} | "
                 + f"{item['count']} оп."
             )
         lines.extend(["", "## 📅 По неделям"])
         for item in weeks:
             lines.append(
-                f"- **{item['label']}**: ➕ {item['income_display']} | "
-                + f"➖ {item['expense_display']} | ⚖️ {item['balance_display']} | "
+                f"- **{item['label']}**: приход {item['external_income_display']} | "
+                + f"расход {item['external_expense_display']} | итог {item['balance_display']} | "
+                + f"перемещения {item['transfer_income_display']}/{item['transfer_expense_display']} | "
                 + f"{item['count']} оп."
             )
         lines.extend(["", "## 🧾 Операции по дням"])
         for day in days:
+            display_rows = self._cash_journal_display_rows(day["entries"])
             lines.extend(
                 [
                     "",
                     f"### 📆 {day['label']}",
-                    f"Итого: ➕ {day['income_display']} | ➖ {day['expense_display']} | "
-                    + f"⚖️ {day['balance_display']} | {day['count']} оп.",
+                    f"Итого: приход {day['external_income_display']} | расход {day['external_expense_display']} | "
+                    + f"итог {day['balance_display']} | перемещения {day['transfer_income_display']}/{day['transfer_expense_display']} | "
+                    + f"{day['count']} оп.",
                     "",
                 ]
             )
-            for item in day["entries"]:
-                icon = "➕" if item.get("direction") == "income" else "➖"
-                lines.append(
-                    f"- {item.get('time') or '--:--'} | {icon} "
-                    + f"{item['signed_amount_display']} | {item['cashbox_name']} | "
-                    + f"{item['direction_label']} | {item['note']}"
-                )
-                lines.append(
-                    f"  - 👤 {item['actor_label']} | 🔎 {item['source_label']} | "
-                    + f"`{item['id']}`"
-                )
+            for row in display_rows:
+                lines.append(str(row["line"]))
+                detail = str(row.get("detail") or "")
+                if detail:
+                    lines.append(detail)
         return "\n".join(lines).strip()
+
+    def _cash_journal_display_rows(
+        self, entries: list[dict[str, object]]
+    ) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        used_ids: set[str] = set()
+        for item in entries:
+            item_id = str(item.get("id") or "")
+            if item_id in used_ids:
+                continue
+            transfer_pair = self._cash_journal_transfer_pair(item, entries, used_ids)
+            if transfer_pair is not None:
+                source, target = transfer_pair
+                used_ids.update({str(source.get("id") or ""), str(target.get("id") or "")})
+                rows.append(self._cash_journal_transfer_row(source, target))
+                continue
+            used_ids.add(item_id)
+            rows.append(self._cash_journal_operation_row(item))
+        return rows
+
+    def _cash_journal_transfer_pair(
+        self,
+        item: dict[str, object],
+        entries: list[dict[str, object]],
+        used_ids: set[str],
+    ) -> tuple[dict[str, object], dict[str, object]] | None:
+        if item.get("source_label") != "перемещение":
+            return None
+        for candidate in entries:
+            candidate_id = str(candidate.get("id") or "")
+            if candidate_id in used_ids or candidate_id == str(item.get("id") or ""):
+                continue
+            if candidate.get("source_label") != "перемещение":
+                continue
+            if candidate.get("time") != item.get("time"):
+                continue
+            if candidate.get("amount_minor") != item.get("amount_minor"):
+                continue
+            if candidate.get("direction") == item.get("direction"):
+                continue
+            source = item if item.get("direction") == "expense" else candidate
+            target = item if item.get("direction") == "income" else candidate
+            return source, target
+        return None
+
+    def _cash_journal_transfer_row(
+        self, source: dict[str, object], target: dict[str, object]
+    ) -> dict[str, str]:
+        amount = self._cash_journal_money_text(int(source.get("amount_minor") or 0))
+        line = (
+            f"- {source.get('time_short') or '--:--'} | 🔁 {amount} | "
+            + f"{source.get('cashbox_name')} → {target.get('cashbox_name')}"
+        )
+        return {
+            "line": line,
+            "detail": self._cash_journal_detail_line(
+                source, prefix="  - Перемещение", include_source=False
+            ),
+        }
+
+    def _cash_journal_operation_row(self, item: dict[str, object]) -> dict[str, str]:
+        icon = "🟢" if item.get("direction") == "income" else "🔴"
+        action = "приход" if item.get("direction") == "income" else "расход"
+        line = (
+            f"- {item.get('time_short') or '--:--'} | {icon} "
+            + f"{item['signed_amount_display']} | {item['cashbox_name']} | "
+            + f"{action}: {item['note']}"
+        )
+        return {"line": line, "detail": self._cash_journal_detail_line(item)}
+
+    def _cash_journal_detail_line(
+        self,
+        item: dict[str, object],
+        *,
+        prefix: str = "  - Детали",
+        include_source: bool = True,
+    ) -> str:
+        actor = str(item.get("actor_label") or "").strip()
+        source = str(item.get("source_label") or "").strip()
+        parts = []
+        if actor:
+            parts.append(f"оператор {actor}")
+        if include_source and source and source not in {"ручное"}:
+            parts.append(source)
+        if not parts:
+            return ""
+        return f"{prefix}: " + ", ".join(parts)
 
     def _cash_journal_text(
         self,
