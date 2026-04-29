@@ -4686,6 +4686,7 @@ BOARD_WEB_APP_HTML = "".join(
       background: rgba(255,255,255,0.02);
       color: var(--text);
       cursor: pointer;
+      user-select: none;
     }
     .cashbox-row[draggable="true"] {
       cursor: grab;
@@ -17249,13 +17250,25 @@ function renderCompactArchiveRows(cards) {
     function resetCashboxDragState() {
       state.cashboxDragId = '';
       state.cashboxDropBeforeId = '';
+      syncCashboxDragClasses();
+    }
+
+    function syncCashboxDragClasses() {
+      if (!els.cashboxesList) return;
+      const isDropEnd = state.cashboxDropBeforeId === '__end__';
+      els.cashboxesList.classList.toggle('is-drop-end', isDropEnd);
+      els.cashboxesList.querySelectorAll('[data-cashbox-id]').forEach((row) => {
+        const cashboxId = String(row.dataset.cashboxId || '').trim();
+        row.classList.toggle('is-dragging', Boolean(cashboxId && cashboxId === state.cashboxDragId));
+        row.classList.toggle('is-drop-target', Boolean(cashboxId && cashboxId === state.cashboxDropBeforeId));
+      });
     }
 
     function setCashboxDropBeforeId(nextId) {
       const normalized = String(nextId || '').trim();
       if (state.cashboxDropBeforeId === normalized) return false;
       state.cashboxDropBeforeId = normalized;
-      renderCashboxesList();
+      syncCashboxDragClasses();
       return true;
     }
 
@@ -17297,13 +17310,14 @@ function renderCompactArchiveRows(cards) {
         const activeClass = item.id === state.activeCashboxId ? ' is-active' : '';
         const draggingClass = item.id === state.cashboxDragId ? ' is-dragging' : '';
         const dropClass = item.id === state.cashboxDropBeforeId ? ' is-drop-target' : '';
-        return '<button class="cashbox-row' + activeClass + draggingClass + dropClass + '" type="button" data-cashbox-id="' + escapeHtml(item.id) + '" draggable="true" title="Перетащите, чтобы изменить порядок касс">'
+        return '<div class="cashbox-row' + activeClass + draggingClass + dropClass + '" role="button" tabindex="0" data-cashbox-id="' + escapeHtml(item.id) + '" draggable="true" title="Перетащите, чтобы изменить порядок касс">'
           + '<div class="cashbox-row__head">'
           + '<div class="cashbox-row__name">' + escapeHtml(item.name || '—') + '</div>'
           + '<div class="cashbox-row__balance" data-balance-sign="' + escapeHtml(balanceMinor < 0 ? 'negative' : 'positive') + '">' + escapeHtml(cashboxFormatMinorAmount(balanceMinor)) + '</div>'
           + '</div>'
-          + '</button>';
+          + '</div>';
       }).join('') : '<div class="cashboxes-empty">КАСС ПОКА НЕТ.</div>';
+      syncCashboxDragClasses();
     }
 
     function renderCashboxStats() {
@@ -17764,12 +17778,12 @@ function renderCompactArchiveRows(cards) {
       if (!cashboxId) return;
       state.cashboxDragId = cashboxId;
       state.cashboxDragIgnoreClicksUntil = 0;
-      setCashboxDropBeforeId(cashboxId);
+      state.cashboxDropBeforeId = cashboxId;
+      syncCashboxDragClasses();
       if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', cashboxId);
       }
-      renderCashboxesList();
     }
 
     function handleCashboxesListDragOver(event) {

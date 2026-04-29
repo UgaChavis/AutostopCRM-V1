@@ -1849,6 +1849,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function activeCashboxLatestTransaction()", BOARD_WEB_APP_HTML)
         self.assertIn("function cashboxTransactionIsTransfer(item)", BOARD_WEB_APP_HTML)
         self.assertIn("function resetCashboxDragState()", BOARD_WEB_APP_HTML)
+        self.assertIn("function syncCashboxDragClasses()", BOARD_WEB_APP_HTML)
         self.assertIn("function cashboxDropBeforeIdFromRow(row, clientY)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleCashboxesListDragStart(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleCashboxesListDragOver(event)", BOARD_WEB_APP_HTML)
