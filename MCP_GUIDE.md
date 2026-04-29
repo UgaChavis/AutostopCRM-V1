@@ -38,9 +38,27 @@ JsonStore
 - `scripts/run_mcp_server.ps1`
 - `main_mcp.py`
 
+## Опциональная память менеджера AutostopManager
+
+Если рядом с CRM-репозиторием доступен проект `AutostopManager`, CRM MCP server автоматически добавляет headless memory-tools в тот же MCP endpoint:
+
+- `remember`
+- `recall`
+- `add_manager_task`
+- `today_context`
+- `manager_journal`
+
+Это не дублирует CRM. Карточки, клиенты, автомобили, заказ-наряды и кассы остаются в AutoStop CRM. AutostopManager хранит только долговременную память менеджера: факты, договоренности, личные дела, аренду, напоминания, правила и журнал решений.
+
+Путь можно задать явно:
+
+```text
+AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
+```
+
 ## Доступные MCP tools
 
-Текущий runtime-tool inventory: `60` tools.
+Базовый CRM runtime-tool inventory: `60` tools. Если подключен `AutostopManager`, в том же endpoint дополнительно доступны `5` memory-tools.
 
 Для больших клиентских справочников не тянуть лишние данные:
 

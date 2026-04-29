@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from logging import Logger
@@ -26,6 +28,37 @@ from .auth import build_auth_settings
 from .client import BoardApiClient, BoardApiTransportError
 from .oauth_provider import EmbeddedOAuthAuthorizationServerProvider
 from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
+
+
+def _try_register_autostop_manager_tools(server: FastMCP, logger: Logger) -> None:
+    configured_path = os.environ.get("AUTOSTOP_MANAGER_PATH", "").strip()
+    repo_root = Path(__file__).resolve().parents[3]
+    candidates = []
+    if configured_path:
+        candidates.append(Path(configured_path).expanduser())
+    candidates.extend(
+        [
+            repo_root.parent / "AutostopManager",
+            repo_root.parent.parent / "AutostopManager",
+            Path("/opt/AutostopManager"),
+        ]
+    )
+
+    for candidate in candidates:
+        if candidate.exists():
+            candidate_text = str(candidate)
+            if candidate_text not in sys.path:
+                sys.path.insert(0, candidate_text)
+            break
+
+    try:
+        from autostop_manager.mcp_tools import register_manager_memory_tools
+    except Exception as exc:  # pragma: no cover - optional sibling project
+        logger.info("autostop_manager.memory_tools unavailable: %s", exc)
+        return
+
+    register_manager_memory_tools(server)
+    logger.info("autostop_manager.memory_tools registered")
 
 
 class DeadlinePayload(BaseModel):
@@ -480,6 +513,7 @@ def create_mcp_server(
         transport_security.allowed_hosts,
         transport_security.allowed_origins,
     )
+    _try_register_autostop_manager_tools(server, logger)
 
     def _relay(tool_name: str, response: dict) -> JsonEnvelope:
         logger.info(
