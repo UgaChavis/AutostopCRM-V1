@@ -3419,7 +3419,7 @@ class CardService:
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             preview_card = self._print_module_card(card, payload)
-            linked_client = self._find_client_or_none(bundle["clients"], preview_card.client_id)
+            linked_client = self._print_module_client(bundle, preview_card)
             try:
                 return self._print_module.preview_documents(
                     preview_card,
@@ -3446,7 +3446,7 @@ class CardService:
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             preview_card = self._print_module_card(card, payload)
-            linked_client = self._find_client_or_none(bundle["clients"], preview_card.client_id)
+            linked_client = self._print_module_client(bundle, preview_card)
             try:
                 pdf_bytes, file_name, meta = self._print_module.export_documents_pdf(
                     preview_card,
@@ -3478,7 +3478,7 @@ class CardService:
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             preview_card = self._print_module_card(card, payload)
-            linked_client = self._find_client_or_none(bundle["clients"], preview_card.client_id)
+            linked_client = self._print_module_client(bundle, preview_card)
             try:
                 result = self._print_module.print_documents(
                     preview_card,
@@ -3578,6 +3578,32 @@ class CardService:
             }
         )
         return cloned_card
+
+    def _print_module_client(
+        self, bundle: dict[str, Any], preview_card: Card
+    ) -> ClientProfile | None:
+        linked_client = self._find_client_or_none(bundle["clients"], preview_card.client_id)
+        if linked_client is not None:
+            return linked_client
+        query = " ".join(
+            part
+            for part in (
+                preview_card.repair_order.client,
+                preview_card.repair_order.phone,
+                preview_card.vehicle_profile.customer_name,
+                preview_card.vehicle_profile.customer_phone,
+            )
+            if part
+        ).strip()
+        if not query:
+            return None
+        matches = self._rank_client_matches(bundle["clients"], query, bundle["cards"])
+        if not matches:
+            return None
+        score, candidate = matches[0]
+        if score < 8 or candidate.client_type not in {"ip", "ooo", "company"}:
+            return None
+        return candidate
 
     def _inspection_sheet_text(self, value: Any, *, multiline: bool = False) -> str:
         if isinstance(value, list):

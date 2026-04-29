@@ -2281,6 +2281,81 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("Иванов Иван", html)
         self.assertNotIn("Реквизиты клиента не указаны", html)
 
+    def test_invoice_preview_autodetects_client_requisites_from_repair_order(self) -> None:
+        status, client_created = self.request(
+            "/api/create_client",
+            {
+                "client": {
+                    "client_type": "ooo",
+                    "display_name": "ООО Контрагент",
+                    "legal_name": "ООО Контрагент",
+                    "short_name": "Контрагент",
+                    "phone": "+7 900 000-00-01",
+                    "email": "info@example.com",
+                    "inn": "2468000000",
+                    "kpp": "246801001",
+                    "ogrn": "1234567890123",
+                    "checking_account": "40702810900000000001",
+                    "bank_name": "Тест Банк",
+                    "bik": "044525225",
+                    "correspondent_account": "30101810400000000225",
+                    "legal_address": "660000, г. Красноярск, ул. Тестовая, 1",
+                    "contact_person": "Иванов Иван",
+                    "contact_position": "Директор",
+                }
+            },
+        )
+        self.assertEqual(status, 200)
+
+        status, card_created = self.request(
+            "/api/create_card",
+            {"vehicle": "Toyota Camry", "title": "Invoice autodetect", "deadline": {"hours": 2}},
+        )
+        self.assertEqual(status, 200)
+        card_id = card_created["data"]["card"]["id"]
+
+        status, updated = self.request(
+            "/api/update_repair_order",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "ООО Контрагент",
+                    "phone": "+7 900 000-00-01",
+                    "vehicle": "Toyota Camry",
+                    "works": [
+                        {
+                            "name": "Диагностика",
+                            "quantity": "1",
+                            "price": "1500",
+                            "total": "",
+                        }
+                    ],
+                    "materials": [
+                        {"name": "Расходник", "quantity": "1", "price": "500", "total": ""}
+                    ],
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["data"]["card"]["repair_order"]["client"], "ООО Контрагент")
+
+        status, preview = self.request(
+            "/api/preview_repair_order_print_documents",
+            {
+                "card_id": card_id,
+                "selected_document_ids": ["invoice"],
+                "active_document_id": "invoice",
+            },
+        )
+        self.assertEqual(status, 200)
+        html = preview["data"]["documents"][0]["pages"][0]["html"]
+        self.assertIn("Реквизиты покупателя", html)
+        self.assertIn("ООО Контрагент", html)
+        self.assertIn("2468000000", html)
+        self.assertIn("40702810900000000001", html)
+        self.assertIn("Тест Банк", html)
+        self.assertNotIn("Реквизиты клиента не указаны", html)
+
     def test_inspection_sheet_form_routes_save_preview_and_autofill(self) -> None:
         status, created = self.request(
             "/api/create_card",
