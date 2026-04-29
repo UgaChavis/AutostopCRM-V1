@@ -766,6 +766,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("pendingCardClientId", BOARD_WEB_APP_HTML)
         self.assertNotIn("clientProfileMeta", BOARD_WEB_APP_HTML)
         self.assertIn(".clients-list-pane {", BOARD_WEB_APP_HTML)
+        self.assertIn("height: min(88vh, 900px);", BOARD_WEB_APP_HTML)
+        self.assertIn("grid-template-rows: auto minmax(0, 1fr);", BOARD_WEB_APP_HTML)
+        self.assertIn("overflow: hidden;", BOARD_WEB_APP_HTML)
+        self.assertIn("overflow: auto;", BOARD_WEB_APP_HTML)
         self.assertIn("display: flex;", BOARD_WEB_APP_HTML)
         self.assertIn("flex: 1 1 auto;", BOARD_WEB_APP_HTML)
         self.assertIn(

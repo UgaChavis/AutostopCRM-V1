@@ -5522,13 +5522,16 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .dialog--clients {
       width: min(1240px, 100%);
+      height: min(88vh, 900px);
       max-height: min(88vh, 900px);
+      overflow: hidden;
+      grid-template-rows: auto minmax(0, 1fr);
     }
     .clients-layout {
       display: grid;
       grid-template-columns: minmax(280px, 34%) minmax(0, 1fr);
       gap: 12px;
-      min-height: 520px;
+      min-height: 0;
       align-items: stretch;
     }
     .clients-list-pane,
@@ -5542,11 +5545,14 @@ BOARD_WEB_APP_HTML = "".join(
       display: flex;
       flex-direction: column;
       min-height: 0;
+      overflow: hidden;
     }
     .clients-profile-pane {
       display: flex;
       flex-direction: column;
       min-height: 0;
+      overflow: auto;
+      padding-right: 12px;
     }
     .clients-toolbar {
       display: grid;
