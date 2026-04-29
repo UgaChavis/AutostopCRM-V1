@@ -792,6 +792,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("if (clientId && loadedProfiles[clientId]) profiles[clientId] = loadedProfiles[clientId];", BOARD_WEB_APP_HTML)
         self.assertIn("window.clearTimeout(state.clientSuggestTimer);", BOARD_WEB_APP_HTML)
         self.assertIn("state.clientSuggestTimer = null;", BOARD_WEB_APP_HTML)
+        self.assertIn("if (trimmedQuery.length < 3 && queryDigits.length < 3)", BOARD_WEB_APP_HTML)
+        self.assertIn("window.setTimeout(refreshClientSuggestionsForCard, 450)", BOARD_WEB_APP_HTML)
         self.assertIn("function clientSuggestionVehicleKey(vehicle)", BOARD_WEB_APP_HTML)
         self.assertIn("return cardId ? ('card:' + cardId) : '';", BOARD_WEB_APP_HTML)
         self.assertIn("function findClientSuggestionVehicle(vehicles, vehicleKey = '')", BOARD_WEB_APP_HTML)

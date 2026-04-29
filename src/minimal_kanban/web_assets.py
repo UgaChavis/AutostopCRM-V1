@@ -9974,7 +9974,7 @@ BOARD_WEB_APP_HTML = "".join(
       ].filter(Boolean).join(' ');
       const trimmedQuery = query.trim();
       const queryDigits = trimmedQuery.replace(/\\D+/g, '');
-      if (trimmedQuery.length < 2 && queryDigits.length < 3) {
+      if (trimmedQuery.length < 3 && queryDigits.length < 3) {
         hideClientSuggestions();
         return;
       }
@@ -10006,7 +10006,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     function scheduleClientSuggestionsForCard() {
       window.clearTimeout(state.clientSuggestTimer);
-      state.clientSuggestTimer = window.setTimeout(refreshClientSuggestionsForCard, 300);
+      state.clientSuggestTimer = window.setTimeout(refreshClientSuggestionsForCard, 450);
     }
 
     function applyClientSuggestionToVehicleProfile(client, vehicle = null, { createNewVehicle = false } = {}) {

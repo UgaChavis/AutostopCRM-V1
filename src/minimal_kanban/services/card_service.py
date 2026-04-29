@@ -2156,6 +2156,9 @@ class CardService:
             clients = self._ordered_clients(bundle["clients"])
             matches = self._rank_client_matches(clients, query, bundle["cards"])
             selected = [client for _, client in matches[:limit]]
+            related_cards_by_client_id = self._client_related_cards_map(
+                selected, bundle["cards"]
+            )
             return {
                 "clients": [
                     self._serialize_client(
@@ -2164,6 +2167,7 @@ class CardService:
                         include_stats=True,
                         compact=True,
                         query=query,
+                        related_cards=related_cards_by_client_id.get(client.id, []),
                     )
                     for client in selected
                 ],
@@ -5221,7 +5225,20 @@ class CardService:
         return client
 
     def _client_stats(self, client: ClientProfile, cards: list[Card]) -> dict[str, Any]:
-        related_cards = self._client_related_cards(client, cards)
+        return self._client_stats_from_related(
+            client,
+            cards,
+            self._client_related_cards(client, cards),
+        )
+
+    def _client_stats_from_related(
+        self,
+        client: ClientProfile,
+        cards: list[Card],
+        related_cards: list[Card],
+        *,
+        vehicles_total: int | None = None,
+    ) -> dict[str, Any]:
         repair_order_cards = [card for card in related_cards if self._card_has_repair_order(card)]
         closed_orders = [
             card
@@ -5257,7 +5274,11 @@ class CardService:
             "repair_orders_total": len(repair_order_cards),
             "active_repair_orders": len(active_orders),
             "closed_repair_orders": len(closed_orders),
-            "vehicles_total": len(self._client_vehicles(client, cards)),
+            "vehicles_total": (
+                vehicles_total
+                if vehicles_total is not None
+                else len(self._client_vehicles(client, cards, related_cards=related_cards))
+            ),
             "last_visit": last_visit,
         }
 
@@ -5273,6 +5294,46 @@ class CardService:
                 related.append(card)
         related.sort(key=lambda item: (item.updated_at, item.created_at, item.id), reverse=True)
         return related
+
+    def _client_related_cards_map(
+        self, clients: list[ClientProfile], cards: list[Card]
+    ) -> dict[str, list[Card]]:
+        if not clients:
+            return {}
+        clients_by_id = {client.id: client for client in clients}
+        client_ids_by_key: dict[str, set[str]] = {}
+        for client in clients:
+            for key in self._client_match_keys(client):
+                if key:
+                    client_ids_by_key.setdefault(key, set()).add(client.id)
+
+        related_by_client_id: dict[str, list[Card]] = {client.id: [] for client in clients}
+        seen_cards_by_client: dict[str, set[str]] = {client.id: set() for client in clients}
+
+        def add_card(client_id: str, card: Card) -> None:
+            if client_id not in clients_by_id:
+                return
+            seen_cards = seen_cards_by_client.setdefault(client_id, set())
+            if card.id in seen_cards:
+                return
+            seen_cards.add(card.id)
+            related_by_client_id.setdefault(client_id, []).append(card)
+
+        for card in cards:
+            if card.client_id:
+                add_card(card.client_id, card)
+            matched_client_ids: set[str] = set()
+            for key in self._card_client_values(card):
+                matched_client_ids.update(client_ids_by_key.get(key, set()))
+            for client_id in matched_client_ids:
+                add_card(client_id, card)
+
+        for related_cards in related_by_client_id.values():
+            related_cards.sort(
+                key=lambda item: (item.updated_at, item.created_at, item.id),
+                reverse=True,
+            )
+        return related_by_client_id
 
     def _client_related_vehicle_fields_index(
         self, clients: list[ClientProfile], cards: list[Card]
@@ -5329,7 +5390,12 @@ class CardService:
         )
 
     def _client_vehicles(
-        self, client: ClientProfile, cards: list[Card], *, query: str = ""
+        self,
+        client: ClientProfile,
+        cards: list[Card],
+        *,
+        query: str = "",
+        related_cards: list[Card] | None = None,
     ) -> list[dict[str, str]]:
         vehicles: list[dict[str, str]] = []
         seen: set[str] = set()
@@ -5346,7 +5412,7 @@ class CardService:
                 continue
             seen.add(key)
             vehicles.append({**payload, "card_id": ""})
-        for card in self._client_related_cards(client, cards):
+        for card in related_cards if related_cards is not None else self._client_related_cards(client, cards):
             vehicle = card.vehicle_display() or card.repair_order.vehicle
             vin = card.vehicle_profile.vin or card.repair_order.vin
             plate = card.vehicle_profile.registration_plate or card.repair_order.license_plate
@@ -5424,16 +5490,28 @@ class CardService:
         compact: bool = False,
         include_vehicle_preview: bool = True,
         query: str = "",
+        related_cards: list[Card] | None = None,
     ) -> dict[str, Any]:
         payload = client.to_dict()
         payload["short_id"] = short_entity_id(client.id, prefix="CL")
-        payload["vehicles_preview"] = (
-            self._client_vehicles(client, cards, query=query)[:2]
+        preview_vehicles = (
+            self._client_vehicles(client, cards, query=query, related_cards=related_cards)
             if include_vehicle_preview
             else [vehicle.to_dict() for vehicle in client.vehicles[:2]]
         )
+        payload["vehicles_preview"] = (
+            preview_vehicles[:2] if include_vehicle_preview else preview_vehicles
+        )
         if include_stats:
-            payload["stats"] = self._client_stats(client, cards)
+            resolved_related_cards = (
+                related_cards if related_cards is not None else self._client_related_cards(client, cards)
+            )
+            payload["stats"] = self._client_stats_from_related(
+                client,
+                cards,
+                resolved_related_cards,
+                vehicles_total=len(preview_vehicles) if include_vehicle_preview else None,
+            )
         if compact:
             keep = {
                 "id",
@@ -5464,10 +5542,20 @@ class CardService:
     def _client_profile_payload(
         self, client: ClientProfile, cards: list[Card], *, order_limit: int
     ) -> dict[str, Any]:
-        orders = self._client_orders(client, cards)
-        vehicles = self._client_vehicles(client, cards)
+        related_cards = self._client_related_cards(client, cards)
+        orders = [
+            self._serialize_repair_order_list_item(card)
+            for card in related_cards
+            if self._card_has_repair_order(card)
+        ]
+        vehicles = self._client_vehicles(client, cards, related_cards=related_cards)
         return {
-            "client": self._serialize_client(client, cards, include_stats=True),
+            "client": self._serialize_client(
+                client,
+                cards,
+                include_stats=True,
+                related_cards=related_cards,
+            ),
             "vehicles": vehicles,
             "repair_orders": orders[:order_limit],
             "meta": {

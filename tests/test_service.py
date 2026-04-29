@@ -435,6 +435,42 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(search["clients"][0]["vehicles_preview"][0]["vehicle"], "Toyota Probox")
         self.assertTrue(search["clients"][0]["vehicles_preview"][0]["id"])
 
+    def test_client_search_reuses_related_cards_for_selected_results(self) -> None:
+        client = self.service.create_client(
+            {
+                "display_name": "Оптимизация поиска",
+                "vehicles": [
+                    {
+                        "vehicle": "Toyota Prado",
+                        "vin": "JTEBU3FJX05027767",
+                        "license_plate": "О777ОО124",
+                    }
+                ],
+            }
+        )["client"]
+        self.service.create_card(
+            {
+                "title": "Связанная история",
+                "vehicle": "Toyota Prado",
+                "vehicle_profile": {
+                    "customer_name": "Оптимизация поиска",
+                    "vin": "JTEBU3FJX05027767",
+                    "registration_plate": "О777ОО124",
+                },
+                "deadline": {"hours": 1},
+            }
+        )
+
+        with patch.object(
+            self.service,
+            "_client_related_cards",
+            wraps=self.service._client_related_cards,
+        ) as related_cards:
+            search = self.service.search_clients({"query": "Toyota Prado", "limit": 5})
+
+        self.assertEqual(search["clients"][0]["id"], client["id"])
+        self.assertEqual(related_cards.call_count, 0)
+
     def test_card_can_link_to_specific_client_vehicle(self) -> None:
         client = self.service.create_client(
             {
