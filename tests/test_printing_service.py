@@ -14,7 +14,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from minimal_kanban.models import Card
+from minimal_kanban.models import Card, ClientProfile
 from minimal_kanban.printing.models import SUPPORTED_PRINT_DOCUMENT_TYPES
 from minimal_kanban.printing.pdf import render_html_to_pdf_bytes
 from minimal_kanban.printing.service import PrintModuleError, PrintModuleService
@@ -101,6 +101,31 @@ def build_payment_card(*, payment_method: str, payments: list[dict[str, str]]) -
                     {"name": "РњР°С‚РµСЂРёР°Р» 1", "quantity": "1", "price": "10000", "total": ""},
                 ],
             },
+        }
+    )
+
+
+def build_business_client() -> ClientProfile:
+    return ClientProfile.from_dict(
+        {
+            "id": "client-print-ooo",
+            "client_type": "ooo",
+            "display_name": "ООО Контрагент",
+            "legal_name": "ООО Контрагент",
+            "short_name": "Контрагент",
+            "phone": "+7 900 000-00-01",
+            "email": "info@example.com",
+            "inn": "2468000000",
+            "kpp": "246801001",
+            "ogrn": "1234567890123",
+            "checking_account": "40702810900000000001",
+            "bank_name": "Тест Банк",
+            "bik": "044525225",
+            "correspondent_account": "30101810400000000225",
+            "legal_address": "660000, г. Красноярск, ул. Тестовая, 1",
+            "actual_address": "660000, г. Красноярск, ул. Тестовая, 2",
+            "contact_person": "Иванов Иван",
+            "contact_position": "Директор",
         }
     )
 
@@ -250,6 +275,30 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Руководитель", html)
         self.assertIn("Бухгалтер", html)
         self.assertNotIn("Предоплата", html)
+        self.assertNotIn("undefined", html)
+        self.assertNotIn("NaN", html)
+
+    def test_invoice_template_renders_linked_client_requisites(self) -> None:
+        preview = self.service.preview_documents(
+            self.card,
+            client=build_business_client(),
+            selected_document_ids=["invoice"],
+            active_document_id="invoice",
+        )
+
+        document = preview["documents"][0]
+        html = document["pages"][0]["html"]
+        self.assertIn("Реквизиты покупателя", html)
+        self.assertIn("ООО Контрагент", html)
+        self.assertIn("2468000000", html)
+        self.assertIn("246801001", html)
+        self.assertIn("40702810900000000001", html)
+        self.assertIn("Тест Банк", html)
+        self.assertIn("660000, г. Красноярск, ул. Тестовая, 1", html)
+        self.assertIn("Иванов Иван", html)
+        self.assertIn("Директор", html)
+        self.assertIn("info@example.com", html)
+        self.assertNotIn("Реквизиты клиента не указаны", html)
         self.assertNotIn("undefined", html)
         self.assertNotIn("NaN", html)
 

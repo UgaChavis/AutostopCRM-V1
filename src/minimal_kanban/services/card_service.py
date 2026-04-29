@@ -3419,10 +3419,12 @@ class CardService:
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             preview_card = self._print_module_card(card, payload)
+            linked_client = self._find_client_or_none(bundle["clients"], preview_card.client_id)
             try:
                 return self._print_module.preview_documents(
                     preview_card,
                     repair_order=preview_card.repair_order,
+                    client=linked_client,
                     selected_document_ids=payload.get("selected_document_ids"),
                     active_document_id=str(payload.get("active_document_id", "") or ""),
                     selected_template_ids=payload.get("selected_template_ids")
@@ -3444,10 +3446,12 @@ class CardService:
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             preview_card = self._print_module_card(card, payload)
+            linked_client = self._find_client_or_none(bundle["clients"], preview_card.client_id)
             try:
                 pdf_bytes, file_name, meta = self._print_module.export_documents_pdf(
                     preview_card,
                     repair_order=preview_card.repair_order,
+                    client=linked_client,
                     selected_document_ids=payload.get("selected_document_ids"),
                     selected_template_ids=payload.get("selected_template_ids")
                     if isinstance(payload.get("selected_template_ids"), dict)
@@ -3474,10 +3478,12 @@ class CardService:
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             preview_card = self._print_module_card(card, payload)
+            linked_client = self._find_client_or_none(bundle["clients"], preview_card.client_id)
             try:
                 result = self._print_module.print_documents(
                     preview_card,
                     repair_order=preview_card.repair_order,
+                    client=linked_client,
                     selected_document_ids=payload.get("selected_document_ids"),
                     selected_template_ids=payload.get("selected_template_ids")
                     if isinstance(payload.get("selected_template_ids"), dict)

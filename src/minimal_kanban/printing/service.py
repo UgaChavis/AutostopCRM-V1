@@ -11,7 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from ..models import Card, parse_datetime, utc_now_iso
+from ..models import Card, ClientProfile, parse_datetime, utc_now_iso
 from ..repair_order import (
     REPAIR_ORDER_PAYMENT_METHOD_CASHLESS,
     RepairOrder,
@@ -311,6 +311,81 @@ def _print_safe_repair_order_dict(order: RepairOrder) -> dict[str, Any]:
     return payload
 
 
+def _client_invoice_context(
+    client: ClientProfile | None,
+    *,
+    order_client: str,
+    order_phone: str,
+) -> dict[str, Any]:
+    if client is None:
+        return {
+            "has_client": False,
+            "has_requisites": False,
+            "client_type": "",
+            "type_label": "",
+            "name_display": _display(order_client),
+            "invoice_name_display": _display(order_client),
+            "phone_display": _display(order_phone),
+            "email_display": "—",
+            "legal_name_display": "—",
+            "short_name_display": "—",
+            "inn": "—",
+            "kpp": "—",
+            "ogrn": "—",
+            "checking_account": "—",
+            "bank_name": "—",
+            "bik": "—",
+            "correspondent_account": "—",
+            "legal_address": "—",
+            "actual_address": "—",
+            "contact_person": "—",
+            "contact_position": "—",
+        }
+
+    requisites_values = (
+        client.legal_name,
+        client.short_name,
+        client.inn,
+        client.kpp,
+        client.ogrn,
+        client.checking_account,
+        client.bank_name,
+        client.bik,
+        client.correspondent_account,
+        client.legal_address,
+        client.actual_address,
+        client.contact_person,
+        client.contact_position,
+    )
+    has_requisites = client.client_type in {"ip", "ooo", "company"} and any(
+        _display(value, fallback="").strip() for value in requisites_values
+    )
+    invoice_name = client.legal_name or client.short_name or client.name()
+    return {
+        "has_client": True,
+        "has_requisites": has_requisites,
+        "client_type": client.client_type,
+        "type_label": client.type_label(),
+        "name_display": _display(client.name(), fallback=_display(order_client)),
+        "invoice_name_display": _display(invoice_name, fallback=_display(order_client)),
+        "phone_display": _display(client.phone, fallback=_display(order_phone)),
+        "email_display": _display(client.email, fallback="—"),
+        "legal_name_display": _display(client.legal_name, fallback=_display(invoice_name)),
+        "short_name_display": _display(client.short_name, fallback=_display(invoice_name)),
+        "inn": _display(client.inn),
+        "kpp": _display(client.kpp),
+        "ogrn": _display(client.ogrn),
+        "checking_account": _display(client.checking_account),
+        "bank_name": _display(client.bank_name),
+        "bik": _display(client.bik),
+        "correspondent_account": _display(client.correspondent_account),
+        "legal_address": _display(client.legal_address),
+        "actual_address": _display(client.actual_address),
+        "contact_person": _display(client.contact_person),
+        "contact_position": _display(client.contact_position),
+    }
+
+
 def _repair_order_warranty_terms_html() -> str:
     return (
         """
@@ -428,6 +503,7 @@ class PrintModuleService:
         card: Card,
         *,
         repair_order: RepairOrder | None = None,
+        client: ClientProfile | None = None,
         selected_document_ids: list[str] | None = None,
         active_document_id: str | None = None,
         selected_template_ids: dict[str, str] | None = None,
@@ -452,6 +528,7 @@ class PrintModuleService:
                     order,
                     document,
                     template,
+                    client=client,
                     settings=settings,
                     template_overrides=template_overrides,
                 )
@@ -472,6 +549,7 @@ class PrintModuleService:
         card: Card,
         *,
         repair_order: RepairOrder | None = None,
+        client: ClientProfile | None = None,
         selected_document_ids: list[str] | None = None,
         selected_template_ids: dict[str, str] | None = None,
         template_overrides: dict[str, str] | None = None,
@@ -490,6 +568,7 @@ class PrintModuleService:
                     template_id=(selected_template_ids or {}).get(document_id, ""),
                     settings=settings,
                 ),
+                client=client,
                 settings=settings,
                 template_overrides=template_overrides,
             )
@@ -529,6 +608,7 @@ class PrintModuleService:
         card: Card,
         *,
         repair_order: RepairOrder | None = None,
+        client: ClientProfile | None = None,
         selected_document_ids: list[str] | None = None,
         selected_template_ids: dict[str, str] | None = None,
         template_overrides: dict[str, str] | None = None,
@@ -554,6 +634,7 @@ class PrintModuleService:
                     template_id=(selected_template_ids or {}).get(document_id, ""),
                     settings=settings,
                 ),
+                client=client,
                 settings=settings,
                 template_overrides=template_overrides,
             )
@@ -717,6 +798,7 @@ class PrintModuleService:
         document: PrintDocumentDefinition,
         template: PrintTemplateRecord,
         *,
+        client: ClientProfile | None,
         settings: PrintModuleSettings,
         template_overrides: dict[str, str] | None,
     ) -> dict[str, Any]:
@@ -725,6 +807,7 @@ class PrintModuleService:
             order,
             document,
             template,
+            client=client,
             settings=settings,
             template_overrides=template_overrides,
         )
@@ -753,6 +836,7 @@ class PrintModuleService:
         document: PrintDocumentDefinition,
         template: PrintTemplateRecord,
         *,
+        client: ClientProfile | None,
         settings: PrintModuleSettings,
         template_overrides: dict[str, str] | None,
     ) -> dict[str, Any]:
@@ -768,7 +852,13 @@ class PrintModuleService:
                 updated_at=utc_now_iso(),
                 source="custom",
             )
-        context = self._build_document_context(card, order, document=document, settings=settings)
+        context = self._build_document_context(
+            card,
+            order,
+            document=document,
+            settings=settings,
+            client=client,
+        )
         try:
             fragment = render_template(effective_template.content, context)
         except TemplateRenderError as exc:
@@ -1224,6 +1314,7 @@ class PrintModuleService:
         *,
         document: PrintDocumentDefinition,
         settings: PrintModuleSettings,
+        client: ClientProfile | None = None,
     ) -> dict[str, Any]:
         works = [
             _repair_row_dict(row, section="works", index=index)
@@ -1288,6 +1379,11 @@ class PrintModuleService:
         grand_total_display = _money_display(grand_total)
         grand_total_words_display = _money_words_display(grand_total)
         total_paid_display = payment_summary_display["total_paid_display"]
+        client_context = _client_invoice_context(
+            client,
+            order_client=order.client,
+            order_phone=order.phone,
+        )
         if missing_fields:
             warnings.append("Часть полей не заполнена, проверьте документ перед печатью.")
         if not line_items:
@@ -1350,6 +1446,7 @@ class PrintModuleService:
                 "phone": order.phone,
                 "name_display": _display(order.client),
                 "phone_display": _display(order.phone),
+                **client_context,
             },
             "vehicle": {
                 "display_name": _display(order.vehicle or card.vehicle_display()),

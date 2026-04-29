@@ -600,10 +600,45 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     <table class="doc-meta-table">
       <tr>
         <td><div class="doc-label">Поставщик</div><div class="doc-value">{{service.legal_name}}, ИНН {{service.inn}}, {{service.address}}, тел. {{service.reception_phone}}</div></td>
-        <td><div class="doc-label">Покупатель</div><div class="doc-value">{{client.name_display}} · {{client.phone_display}}</div></td>
+        <td><div class="doc-label">Покупатель</div><div class="doc-value">{{client.invoice_name_display}} · {{client.phone_display}}</div></td>
         <td><div class="doc-label">Автомобиль</div><div class="doc-value">{{vehicle.display_name}} · {{vehicle.license_plate_display}} · VIN {{vehicle.vin_display}}</div></td>
       </tr>
     </table>
+  </section>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Реквизиты покупателя</h2>
+    {{#client.has_requisites}}
+    <table class="doc-bank-table">
+      <colgroup>
+        <col style="width: 34%">
+        <col style="width: 24%">
+        <col style="width: 20%">
+        <col style="width: 22%">
+      </colgroup>
+      <tr>
+        <td colspan="2"><div class="doc-bank-table__label">Покупатель</div><div class="doc-bank-table__value"><strong>{{client.invoice_name_display}}</strong></div></td>
+        <td><div class="doc-bank-table__label">ИНН</div><div class="doc-bank-table__value"><strong>{{client.inn}}</strong></div></td>
+        <td><div class="doc-bank-table__label">КПП</div><div class="doc-bank-table__value"><strong>{{client.kpp}}</strong></div></td>
+      </tr>
+      <tr>
+        <td colspan="2"><div class="doc-bank-table__label">Банк</div><div class="doc-bank-table__value"><strong>{{client.bank_name}}</strong></div></td>
+        <td><div class="doc-bank-table__label">БИК</div><div class="doc-bank-table__value"><strong>{{client.bik}}</strong></div></td>
+        <td><div class="doc-bank-table__label">Сч. №</div><div class="doc-bank-table__value"><strong>{{client.checking_account}}</strong></div></td>
+      </tr>
+      <tr>
+        <td><div class="doc-bank-table__label">К/с</div><div class="doc-bank-table__value"><strong>{{client.correspondent_account}}</strong></div></td>
+        <td colspan="3"><div class="doc-bank-table__label">Юр. адрес</div><div class="doc-bank-table__value"><strong>{{client.legal_address}}</strong></div></td>
+      </tr>
+      <tr>
+        <td><div class="doc-bank-table__label">Контактное лицо</div><div class="doc-bank-table__value"><strong>{{client.contact_person}}</strong></div></td>
+        <td><div class="doc-bank-table__label">Должность</div><div class="doc-bank-table__value"><strong>{{client.contact_position}}</strong></div></td>
+        <td colspan="2"><div class="doc-bank-table__label">Телефон / e-mail</div><div class="doc-bank-table__value"><strong>{{client.phone_display}} · {{client.email_display}}</strong></div></td>
+      </tr>
+    </table>
+    {{/client.has_requisites}}
+    {{^client.has_requisites}}
+    <div class="doc-note">Реквизиты клиента не указаны в карточке. Для организации привяжите клиентский профиль с ИНН, счетом и банковскими данными.</div>
+    {{/client.has_requisites}}
   </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Позиции счета</h2>
