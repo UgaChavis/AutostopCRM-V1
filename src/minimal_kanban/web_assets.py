@@ -11079,7 +11079,7 @@ BOARD_WEB_APP_HTML = "".join(
           return;
         }
         const fileName = String(report.file_name || 'employee-salary-report.md').replace(/\\.txt$/i, '.md');
-        const blob = new Blob([markdown + '\n'], { type: 'text/markdown;charset=utf-8' });
+        const blob = new Blob([markdown + '\\n'], { type: 'text/markdown;charset=utf-8' });
         triggerBlobDownload(blob, fileName);
         setStatus('ОТЧЁТ СКАЧАН.', false);
       } catch (error) {

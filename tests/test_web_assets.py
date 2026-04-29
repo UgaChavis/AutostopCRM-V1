@@ -48,6 +48,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="topbarStatusHost"', BOARD_WEB_APP_HTML)
         self.assertNotIn('<div class="brand__title">КАНБАН / ПУЛЬТ</div>', BOARD_WEB_APP_HTML)
 
+    def test_inline_javascript_does_not_embed_raw_newline_in_string_literal(self) -> None:
+        self.assertIn("markdown + '\\n'", BOARD_WEB_APP_HTML)
+        self.assertNotIn("markdown + '\n'", BOARD_WEB_APP_HTML)
+
     def test_board_settings_keep_slider_but_remove_wheel_zoom_binding(self) -> None:
         self.assertIn('class="gear-button" id="boardSettingsButton"', BOARD_WEB_APP_HTML)
         self.assertIn('class="gear-button__logo" src="/favicon.png"', BOARD_WEB_APP_HTML)
