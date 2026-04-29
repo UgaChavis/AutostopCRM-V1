@@ -10,7 +10,7 @@ from pathlib import PurePath
 from typing import Any, Literal
 
 from .repair_order import RepairOrder
-from .vehicle_profile import VehicleProfile, build_vehicle_display
+from .vehicle_profile import VehicleProfile, build_vehicle_display, normalize_license_plate
 
 ColumnId = str
 Indicator = Literal["green", "yellow", "red"]
@@ -259,9 +259,9 @@ class ClientVehicle:
             self.vehicle, default=generated_vehicle, limit=CLIENT_FIELD_LIMIT
         )
         self.vin = normalize_text(self.vin, default="", limit=CLIENT_FIELD_LIMIT).upper()
-        self.license_plate = normalize_text(
-            self.license_plate, default="", limit=CLIENT_FIELD_LIMIT
-        ).upper()
+        self.license_plate = normalize_license_plate(
+            self.license_plate, limit=CLIENT_FIELD_LIMIT
+        )
         self.year = normalize_text(self.year, default="", limit=CLIENT_VEHICLE_YEAR_LIMIT)
         self.mileage = normalize_text(self.mileage, default="", limit=CLIENT_FIELD_LIMIT)
         self.body_number = normalize_text(self.body_number, default="", limit=CLIENT_FIELD_LIMIT)

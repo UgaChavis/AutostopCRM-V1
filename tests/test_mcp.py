@@ -795,7 +795,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(repair_order_read.structuredContent["ok"])
                 self.assertEqual(
                     repair_order_read.structuredContent["data"]["repair_order"]["license_plate"],
-                    "В003НК124",
+                    "в003нк124",
                 )
                 self.assertEqual(
                     repair_order_read.structuredContent["data"]["repair_order"][

@@ -1721,7 +1721,7 @@ class TelegramAIResponseTests(unittest.TestCase):
 
         self.assertIn("Фото:", response)
         self.assertIn("vin: WAUZZZ8V0JA000001", response)
-        self.assertIn("license_plate: А123ВС", response)
+        self.assertIn("license_plate: а123вс", response)
 
 
 class TelegramAICRMToolTests(unittest.TestCase):

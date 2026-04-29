@@ -95,6 +95,10 @@ def normalize_vehicle_text(value, *, limit: int = VEHICLE_TEXT_LIMIT) -> str:
     return text[:limit]
 
 
+def normalize_license_plate(value, *, limit: int = VEHICLE_TEXT_LIMIT) -> str:
+    return normalize_vehicle_text(value, limit=limit).lower()
+
+
 def normalize_vehicle_notes(value, *, limit: int = VEHICLE_NOTE_LIMIT) -> str:
     text = str(value or "").strip()
     return text[:limit]
@@ -440,9 +444,9 @@ class VehicleProfile:
         )
         make_display = normalize_vehicle_text(payload.get("make_display")) or display_make
         model_display = normalize_vehicle_text(payload.get("model_display")) or display_model
-        registration_plate = normalize_vehicle_text(payload.get("registration_plate"))
+        registration_plate = normalize_license_plate(payload.get("registration_plate"))
         if not registration_plate and "registration_plate" not in payload:
-            registration_plate = normalize_vehicle_text(payload.get("license_plate"))
+            registration_plate = normalize_license_plate(payload.get("license_plate"))
         warnings: list[str] = []
         for raw_warning in (
             payload.get("warnings", []) if isinstance(payload.get("warnings"), list) else []

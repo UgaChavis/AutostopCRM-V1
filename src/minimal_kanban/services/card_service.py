@@ -82,6 +82,7 @@ from ..storage.json_store import JsonStore, default_columns
 from ..vehicle_profile import (
     VEHICLE_COMPACT_FIELDS,
     VehicleProfile,
+    normalize_license_plate,
 )
 from .column_service import ColumnService
 from .ready_column import READY_CARD_TAG_COLOR, READY_CARD_TAG_LABEL, ensure_ready_column
@@ -10273,8 +10274,8 @@ class CardService:
         )
         match = _LICENSE_PLATE_PATTERN.search(haystack.upper())
         if match:
-            return match.group(0)
-        return fallback
+            return normalize_license_plate(match.group(0))
+        return normalize_license_plate(fallback)
 
     def _extract_vin(self, card: Card, *, fallback: str = "") -> str:
         if card.vehicle_profile.vin:

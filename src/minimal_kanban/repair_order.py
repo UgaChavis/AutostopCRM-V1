@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
+from .vehicle_profile import normalize_license_plate
+
 REPAIR_ORDER_NUMBER_LIMIT = 40
 REPAIR_ORDER_DATE_LIMIT = 32
 REPAIR_ORDER_FIELD_LIMIT = 160
@@ -527,7 +529,7 @@ class RepairOrder:
         self.client = _normalize_single_line(self.client, limit=REPAIR_ORDER_FIELD_LIMIT)
         self.phone = _normalize_single_line(self.phone, limit=REPAIR_ORDER_FIELD_LIMIT)
         self.vehicle = _normalize_single_line(self.vehicle, limit=REPAIR_ORDER_FIELD_LIMIT)
-        self.license_plate = _normalize_single_line(
+        self.license_plate = normalize_license_plate(
             self.license_plate, limit=REPAIR_ORDER_FIELD_LIMIT
         )
         self.vin = _normalize_single_line(self.vin, limit=REPAIR_ORDER_FIELD_LIMIT)

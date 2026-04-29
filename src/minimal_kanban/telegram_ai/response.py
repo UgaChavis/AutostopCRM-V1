@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from ..vehicle_profile import normalize_license_plate
+
 _PROMISE_MARKERS = (
     "сейчас пришлю",
     "сейчас отправлю",
@@ -96,6 +98,8 @@ def _tool_result_detail(item: dict[str, Any]) -> str:
         for key in ("vin", "license_plate", "make", "model", "mileage", "confidence", "notes"):
             value = facts.get(key)
             if value:
+                if key == "license_plate":
+                    value = normalize_license_plate(value)
                 compact.append(f"{key}: {value}")
         return "  Фото: " + "; ".join(compact[:7]) if compact else ""
     if tool_name == "attach_telegram_photo_to_card":

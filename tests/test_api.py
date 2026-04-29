@@ -253,7 +253,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(
             synced_card["data"]["card"]["vehicle_profile"]["registration_plate"],
-            "Р999РО124",
+            "р999ро124",
         )
 
         status, deleted_vehicle = self.request(
@@ -302,7 +302,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertTrue(fetched["data"]["meta"]["has_any_data"])
         self.assertTrue(fetched["data"]["meta"]["created"])
         self.assertEqual(fetched["data"]["repair_order"]["reason"], "Ленивый заказ-наряд")
-        self.assertEqual(fetched["data"]["repair_order"]["license_plate"], "А123АА124")
+        self.assertEqual(fetched["data"]["repair_order"]["license_plate"], "а123аа124")
         self.assertEqual(fetched["data"]["repair_order"]["vin"], "KNADN512BD6123456")
         self.assertEqual(fetched["data"]["repair_order"]["mileage"], "120000")
         self.assertEqual(fetched["data"]["card"]["repair_order"]["number"], "1")
@@ -1960,7 +1960,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(created["data"]["card"]["vehicle"], "Suzuki Swift 2014")
         self.assertEqual(created["data"]["card"]["vehicle_profile"]["vin"], "JSAZC72S001234567")
         self.assertEqual(
-            created["data"]["card"]["vehicle_profile"]["registration_plate"], "A123BC77"
+            created["data"]["card"]["vehicle_profile"]["registration_plate"], "a123bc77"
         )
         self.assertEqual(
             created["data"]["card"]["vehicle_profile_compact"]["vin"], "JSAZC72S001234567"
@@ -2019,7 +2019,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(profile["display_name"], "Toyota Camry")
         self.assertEqual(profile["make_display"], "Toyota")
         self.assertEqual(profile["model_display"], "Camry")
-        self.assertEqual(profile["registration_plate"], "А111АА124")
+        self.assertEqual(profile["registration_plate"], "а111аа124")
         self.assertIn("registration_plate", profile["manual_fields"])
 
     def test_cards_can_be_marked_seen_via_api(self) -> None:
@@ -2208,7 +2208,7 @@ class ApiServerTests(unittest.TestCase):
 
         status, order = self.request("/api/get_repair_order", {"card_id": card_id})
         self.assertEqual(status, 200)
-        self.assertEqual(order["data"]["repair_order"]["license_plate"], "В003НК124")
+        self.assertEqual(order["data"]["repair_order"]["license_plate"], "в003нк124")
         self.assertEqual(
             order["data"]["repair_order"]["materials"][0]["catalog_number"], "1300A123"
         )
@@ -2705,7 +2705,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(autofilled["data"]["repair_order"]["number"], "1")
         self.assertEqual(autofilled["data"]["repair_order"]["client"], "Петров Пётр")
         self.assertEqual(autofilled["data"]["repair_order"]["phone"], "+7 999 000-11-22")
-        self.assertEqual(autofilled["data"]["repair_order"]["license_plate"], "А123АА124")
+        self.assertEqual(autofilled["data"]["repair_order"]["license_plate"], "а123аа124")
         self.assertEqual(autofilled["data"]["repair_order"]["works"], [])
         self.assertIn("Заявка принята", autofilled["data"]["repair_order"]["client_information"])
         self.assertIn("autofill_report", autofilled["data"]["meta"])

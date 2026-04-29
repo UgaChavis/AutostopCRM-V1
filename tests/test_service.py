@@ -518,7 +518,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(linked["card"]["client_id"], client["id"])
         self.assertEqual(linked["card"]["client_vehicle_id"], vehicle_id)
         self.assertEqual(linked["card"]["vehicle_profile"]["vin"], "WDD2120341B009639")
-        self.assertEqual(linked["card"]["vehicle_profile"]["registration_plate"], "У867РУ124")
+        self.assertEqual(linked["card"]["vehicle_profile"]["registration_plate"], "у867ру124")
         self.assertEqual(linked["card"]["vehicle_profile"]["make_display"], "Mercedes-Benz")
 
     def test_link_card_to_client_can_create_vehicle_from_card_and_sync_back(self) -> None:
@@ -566,7 +566,7 @@ class CardServiceTests(unittest.TestCase):
         )
         updated_profile = self.service.get_client({"client_id": client["id"]})
         self.assertEqual(updated_profile["vehicles"][0]["vin"], "JN1TANT32U0099999")
-        self.assertEqual(updated_profile["vehicles"][0]["license_plate"], "Н999НН124")
+        self.assertEqual(updated_profile["vehicles"][0]["license_plate"], "н999нн124")
 
     def test_client_vehicle_crud_syncs_and_hides_deleted_vehicle(self) -> None:
         client = self.service.create_client(
@@ -613,7 +613,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn(card["id"], updated["meta"]["synced_card_ids"])
         synced_card = self.service.get_card({"card_id": card["id"]})["card"]
         self.assertEqual(synced_card["vehicle_profile"]["vin"], "X96221700G0999999")
-        self.assertEqual(synced_card["vehicle_profile"]["registration_plate"], "В222ВВ124")
+        self.assertEqual(synced_card["vehicle_profile"]["registration_plate"], "в222вв124")
 
         deleted = self.service.delete_client_vehicle(
             {
@@ -876,9 +876,52 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(order["client"], "Иван Иванов")
         self.assertEqual(order["phone"], "+7 999 111-22-33")
         self.assertEqual(order["vehicle"], "Mercedes-Benz E200 2014")
-        self.assertEqual(order["license_plate"], "У867РУ124")
+        self.assertEqual(order["license_plate"], "у867ру124")
         self.assertEqual(order["vin"], "WDD2120341B009639")
         self.assertEqual(order["mileage"], "185000")
+
+    def test_license_plate_is_normalized_to_lowercase_across_modules(self) -> None:
+        client = self.service.create_client(
+            {
+                "client": {
+                    "client_type": "person",
+                    "last_name": "Петров",
+                    "phone": "+7 999 111-22-33",
+                    "vehicles": [
+                        {
+                            "vehicle": "Mercedes-Benz E200",
+                            "license_plate": "У867РУ124",
+                        }
+                    ],
+                }
+            }
+        )["client"]
+        created = self.service.create_card(
+            {
+                "title": "Диагностика",
+                "deadline": {"hours": 2},
+                "vehicle_profile": {
+                    "registration_plate": "А123АА124",
+                    "vin": "WDD2120341B009639",
+                },
+            }
+        )
+        self.service.update_card(
+            {
+                "card_id": created["card"]["id"],
+                "repair_order": {"license_plate": "В003НК124"},
+            }
+        )
+
+        fetched_client = self.service.get_client({"client_id": client["id"]})["client"]
+        fetched_card = self.service.get_card({"card_id": created["card"]["id"]})["card"]
+        fetched_order = self.service.get_repair_order({"card_id": created["card"]["id"]})[
+            "repair_order"
+        ]
+
+        self.assertEqual(fetched_client["vehicles"][0]["license_plate"], "у867ру124")
+        self.assertEqual(fetched_card["vehicle_profile"]["registration_plate"], "а123аа124")
+        self.assertEqual(fetched_order["license_plate"], "в003нк124")
 
     def test_existing_repair_order_get_fills_missing_vehicle_passport_fields(self) -> None:
         created = self.service.create_card(
@@ -910,7 +953,7 @@ class CardServiceTests(unittest.TestCase):
 
         order = fetched["repair_order"]
         self.assertEqual(order["client"], "Ручной клиент")
-        self.assertEqual(order["license_plate"], "У867РУ124")
+        self.assertEqual(order["license_plate"], "у867ру124")
         self.assertEqual(order["vin"], "WDD2120341B009639")
         self.assertEqual(order["mileage"], "185000")
 
@@ -3306,7 +3349,7 @@ class CardServiceTests(unittest.TestCase):
 
         self.assertEqual(created["card"]["vehicle"], "Suzuki Swift 2014")
         self.assertEqual(created["card"]["vehicle_profile"]["vin"], "JSAZC72S001234567")
-        self.assertEqual(created["card"]["vehicle_profile"]["registration_plate"], "А123ВС77")
+        self.assertEqual(created["card"]["vehicle_profile"]["registration_plate"], "а123вс77")
         self.assertEqual(created["card"]["vehicle_profile_compact"]["vin"], "JSAZC72S001234567")
         self.assertEqual(
             created["card"]["vehicle_profile_compact"]["display_name"], "Suzuki Swift 2014"
@@ -3342,7 +3385,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(profile["display_name"], "Toyota Camry")
         self.assertEqual(profile["make_display"], "Toyota")
         self.assertEqual(profile["model_display"], "Camry")
-        self.assertEqual(profile["registration_plate"], "А111АА124")
+        self.assertEqual(profile["registration_plate"], "а111аа124")
         self.assertIn("make_display", profile["manual_fields"])
         self.assertIn("model_display", profile["manual_fields"])
         self.assertIn("registration_plate", profile["manual_fields"])
@@ -3476,7 +3519,7 @@ class CardServiceTests(unittest.TestCase):
         )
         stored = reloaded.get_card({"card_id": card_id})["card"]["repair_order"]
         self.assertEqual(stored["number"], "1")
-        self.assertEqual(stored["license_plate"], "А123АА124")
+        self.assertEqual(stored["license_plate"], "а123аа124")
         self.assertEqual(
             stored["client_information"], "Кратко объяснить клиенту объём работ и следующие шаги"
         )
@@ -4751,7 +4794,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(order["phone"], "+7 999 000-11-22")
         self.assertEqual(order["vehicle"], "Volkswagen Tiguan II")
         self.assertEqual(order["mileage"], "98000")
-        self.assertEqual(order["license_plate"], "А123АА124")
+        self.assertEqual(order["license_plate"], "а123аа124")
         self.assertIn("заявка принята", order["comment"].lower())
         self.assertIn("автомобиль: volkswagen tiguan ii", order["comment"].lower())
         self.assertEqual(order["works"], [])
@@ -4791,7 +4834,7 @@ class CardServiceTests(unittest.TestCase):
         order = autofilled["repair_order"]
         self.assertEqual(order["client"], "Иван Иванов")
         self.assertEqual(order["phone"], "+7 900 123-45-67")
-        self.assertEqual(order["license_plate"], "А123АА124")
+        self.assertEqual(order["license_plate"], "а123аа124")
         self.assertEqual(order["vin"], "WVWZZZ1KZBP123456")
         self.assertEqual(order["mileage"], "145000")
         self.assertIn("пинки dsg", order["reason"].lower())
