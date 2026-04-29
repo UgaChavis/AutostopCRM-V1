@@ -9666,7 +9666,12 @@ BOARD_WEB_APP_HTML = "".join(
         if (currentQuery !== trimmedQuery) return;
         const clients = data?.clients || [];
         state.clientSuggestionFocusIndex = clients.length ? 0 : -1;
-        state.clientSuggestionProfiles = {};
+        const loadedProfiles = state.clientSuggestionProfiles || {};
+        state.clientSuggestionProfiles = clients.reduce((profiles, client) => {
+          const clientId = String(client?.id || '').trim();
+          if (clientId && loadedProfiles[clientId]) profiles[clientId] = loadedProfiles[clientId];
+          return profiles;
+        }, {});
         renderClientSuggestions(clients, { query: trimmedQuery, showEmpty: true });
       } catch (_) {
         hideClientSuggestions();
@@ -9710,6 +9715,8 @@ BOARD_WEB_APP_HTML = "".join(
     async function loadClientSuggestionVehicles(clientId) {
       const client = state.clientSuggestions.find((item) => item.id === clientId);
       if (!client) return;
+      window.clearTimeout(state.clientSuggestTimer);
+      state.clientSuggestTimer = null;
       try {
         const data = await api('/api/get_client?client_id=' + encodeURIComponent(clientId) + '&order_limit=5');
         state.clientSuggestionProfiles = { ...(state.clientSuggestionProfiles || {}), [clientId]: data || {} };
