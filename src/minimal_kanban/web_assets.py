@@ -5706,17 +5706,19 @@ BOARD_WEB_APP_HTML = "".join(
       letter-spacing: 0.01em;
     }
     .clients-field--phones {
-      display: grid;
+      display: flex;
+      flex-direction: column;
       gap: 5px;
     }
     .client-phone-head {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 6px;
     }
     .client-phone-head label {
       margin: 0;
+    }
+    .client-phone-head .client-phone-add {
+      display: none;
     }
     .client-phone-add,
     .client-phone-remove,
@@ -5736,15 +5738,20 @@ BOARD_WEB_APP_HTML = "".join(
       display: grid;
       gap: 5px;
     }
-    .client-phone-row,
+    .client-phone-row {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+    }
+    .client-phone-row input {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
     .vehicle-phone-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 5px;
       align-items: center;
-    }
-    .client-phone-row:first-child {
-      grid-template-columns: minmax(0, 1fr);
     }
     .clients-field--type {
       grid-column: span 3;
@@ -6295,7 +6302,7 @@ BOARD_WEB_APP_HTML = "".join(
             <div class="field field--compact clients-name-field"><label for="clientMiddleNameInput">ОТЧЕСТВО</label><input id="clientMiddleNameInput" type="text" maxlength="120" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
             <div class="field field--compact clients-field--wide"><label for="clientDisplayNameInput">НАЗВАНИЕ / ОТОБРАЖЕНИЕ</label><input id="clientDisplayNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
             <div class="field field--compact clients-field--phones">
-              <div class="client-phone-head"><label for="clientPhoneInput">ТЕЛЕФОН</label><button class="btn btn--ghost client-phone-add" id="clientPhoneAddButton" type="button" data-client-phone-add="true" title="Добавить телефон">+</button></div>
+              <div class="client-phone-head"><label for="clientPhoneInput">ТЕЛЕФОН</label></div>
               <div class="client-phone-list" id="clientPhoneFields"></div>
             </div>
             <div class="field field--compact"><label for="clientEmailInput">EMAIL</label><input id="clientEmailInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
@@ -9518,12 +9525,12 @@ BOARD_WEB_APP_HTML = "".join(
       if (!visible.length) visible.push('');
       els.clientPhoneFields.innerHTML = visible.map((phone, index) => {
         const inputId = index === 0 ? 'clientPhoneInput' : 'clientPhoneInput' + (index + 1);
-        const removeButton = index === 0
-          ? ''
+        const actionButton = index === 0
+          ? '<button class="btn btn--ghost client-phone-add" id="clientPhoneAddButton" type="button" data-client-phone-add="true" title="Добавить телефон">+</button>'
           : '<button class="btn btn--ghost client-phone-remove" type="button" data-client-phone-remove="' + index + '" title="Удалить телефон">×</button>';
         return '<div class="client-phone-row">'
           + '<input id="' + inputId + '" data-client-phone-input="' + index + '" type="text" maxlength="80" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" value="' + escapeHtml(phone) + '">'
-          + removeButton
+          + actionButton
           + '</div>';
       }).join('');
       refreshClientPhoneRefs();
@@ -9921,6 +9928,12 @@ BOARD_WEB_APP_HTML = "".join(
       els.clientPhoneFields?.addEventListener('click', (event) => {
         const target = event.target;
         if (!(target instanceof HTMLElement)) return;
+        const addTarget = target.closest('[data-client-phone-add]');
+        if (addTarget instanceof HTMLElement) {
+          event.preventDefault();
+          addClientPhoneField();
+          return;
+        }
         const removeTarget = target.closest('[data-client-phone-remove]');
         if (removeTarget instanceof HTMLElement) {
           event.preventDefault();
