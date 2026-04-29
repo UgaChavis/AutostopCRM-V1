@@ -7265,7 +7265,7 @@ BOARD_WEB_APP_HTML = "".join(
                     + '<div class="employees-report-panel__meta" id="employeesReportMeta">Выберите сотрудника слева, чтобы открыть детализацию.</div>'
                   + '</div>'
                   + '<div class="employees-report-panel__meta" id="employeesDetailsMeta">Отчёт откроется после выбора сотрудника.</div>'
-                  + '<div class="employees-table-wrap employees-table-wrap--details"><table class="employees-table"><thead><tr><th>ДАТА</th><th>НАРЯД</th><th>АВТО</th><th>РАБОТА</th><th class="is-num">СУММА</th><th class="is-num">НАЧИСЛЕНО</th></tr></thead><tbody id="employeesDetailTable"></tbody></table></div>'
+                  + '<div class="employees-table-wrap employees-table-wrap--details"><table class="employees-table"><thead><tr><th>ДАТА</th><th>НАРЯД</th><th>АВТО</th><th>РАБОТЫ</th><th class="is-num">СУММА</th><th class="is-num">НАЧИСЛЕНО</th></tr></thead><tbody id="employeesDetailTable"></tbody></table></div>'
                 + '</div>'
               + '</div>'
                     + '</div>'
@@ -10668,7 +10668,7 @@ BOARD_WEB_APP_HTML = "".join(
           : 'Детализация появится после выбора сотрудника.';
       }
       if (!selectedId) {
-        els.employeesDetailTable.innerHTML = '<tr><td colspan="6">Выберите сотрудника слева, чтобы увидеть его работы.</td></tr>';
+        els.employeesDetailTable.innerHTML = '<tr><td colspan="6">Выберите сотрудника слева, чтобы увидеть его наряды.</td></tr>';
         return;
       }
       if (!visibleRows.length) {
@@ -10680,7 +10680,7 @@ BOARD_WEB_APP_HTML = "".join(
           '<td>' + escapeHtml(row.closed_at || '-') + '</td>' +
           '<td>' + escapeHtml(row.repair_order_number || '-') + '</td>' +
           '<td>' + escapeHtml(row.vehicle || '-') + '</td>' +
-          '<td>' + escapeHtml(row.work_name || '-') + '</td>' +
+          '<td>' + escapeHtml(row.works_count || '0') + '</td>' +
           '<td class="is-num">' + escapeHtml(row.work_total || '0') + '</td>' +
           '<td class="is-num">' + escapeHtml(row.salary_amount || '0') + '</td>' +
         '</tr>';

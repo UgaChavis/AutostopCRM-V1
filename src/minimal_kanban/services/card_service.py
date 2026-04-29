@@ -7577,7 +7577,7 @@ class CardService:
                 "works_total": Decimal("0"),
                 "accrued_total": Decimal("0"),
             }
-        detail_rows: list[dict[str, Any]] = []
+        detail_rows_by_order: dict[tuple[str, str], dict[str, Any]] = {}
         for card in cards:
             order = card.repair_order
             if order.status != REPAIR_ORDER_STATUS_CLOSED:
@@ -7612,7 +7612,9 @@ class CardService:
                 summary["works_count"] += 1
                 summary["works_total"] += work_total
                 summary["accrued_total"] += accrued_total
-                detail_rows.append(
+                detail_key = (current_employee_id, card.id)
+                detail_row = detail_rows_by_order.setdefault(
+                    detail_key,
                     {
                         "employee_id": current_employee_id,
                         "employee_name": summary["employee_name"],
@@ -7620,11 +7622,14 @@ class CardService:
                         "repair_order_number": order.number,
                         "card_id": card.id,
                         "vehicle": order.vehicle or card.vehicle,
-                        "work_name": row.name,
-                        "work_total": self._format_payroll_decimal(work_total),
-                        "salary_amount": self._format_payroll_decimal(accrued_total),
-                    }
+                        "works_count": 0,
+                        "work_total": Decimal("0"),
+                        "salary_amount": Decimal("0"),
+                    },
                 )
+                detail_row["works_count"] += 1
+                detail_row["work_total"] += work_total
+                detail_row["salary_amount"] += accrued_total
         summary_rows: list[dict[str, Any]] = []
         for item in summaries.values():
             base_salary = self._parse_payroll_decimal(item["base_salary"])
@@ -7649,11 +7654,26 @@ class CardService:
             key=lambda item: (Decimal(item["total_salary"] or "0"), item["employee_name"]),
             reverse=True,
         )
+        detail_rows: list[dict[str, Any]] = []
+        for item in detail_rows_by_order.values():
+            detail_rows.append(
+                {
+                    "employee_id": item["employee_id"],
+                    "employee_name": item["employee_name"],
+                    "closed_at": item["closed_at"],
+                    "repair_order_number": item["repair_order_number"],
+                    "card_id": item["card_id"],
+                    "vehicle": item["vehicle"],
+                    "works_count": item["works_count"],
+                    "work_total": self._format_payroll_decimal(item["work_total"]),
+                    "salary_amount": self._format_payroll_decimal(item["salary_amount"]),
+                }
+            )
         detail_rows.sort(
             key=lambda item: (
                 self._repair_order_sortable_datetime(item["closed_at"]),
                 item["repair_order_number"],
-                item["work_name"],
+                item["vehicle"],
             ),
             reverse=True,
         )

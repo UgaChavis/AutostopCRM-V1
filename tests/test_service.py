@@ -1346,6 +1346,70 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(summary["base_salary"], "50000")
         self.assertEqual(summary["total_salary"], "51500")
 
+    def test_payroll_report_groups_detail_rows_by_repair_order(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Иван Мастер",
+                "position": "Механик",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "100",
+            }
+        )["employee"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Mitsubishi L200",
+                "title": "Сводный отчёт",
+                "description": "Проверка группировки работ по заказ-наряду",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        updated = self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "29",
+                    "status": "open",
+                    "client": "Витя Покровский",
+                    "vehicle": "Mitsubishi L200",
+                    "payments": [
+                        {"amount": "3000", "paid_at": "05.04.2026 10:00", "payment_method": "cash"}
+                    ],
+                    "works": [
+                        {
+                            "name": "Диагностика",
+                            "quantity": "1",
+                            "price": "1000",
+                            "executor_id": employee["id"],
+                        },
+                        {
+                            "name": "Замена масла",
+                            "quantity": "1",
+                            "price": "2000",
+                            "executor_id": employee["id"],
+                        },
+                    ],
+                },
+            }
+        )
+        self.assertEqual(len(updated["card"]["repair_order"]["works"]), 2)
+
+        closed = self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+        self.assertEqual(closed["repair_order"]["works"][0]["salary_amount"], "1000")
+        self.assertEqual(closed["repair_order"]["works"][1]["salary_amount"], "2000")
+
+        closed_month = dt.strptime(closed["repair_order"]["closed_at"], "%d.%m.%Y %H:%M").strftime(
+            "%Y-%m"
+        )
+        report = self.service.get_payroll_report({"month": closed_month})
+        detail_rows = [row for row in report["detail_rows"] if row["employee_id"] == employee["id"]]
+        self.assertEqual(len(detail_rows), 1)
+        self.assertNotIn("work_name", detail_rows[0])
+        self.assertEqual(detail_rows[0]["works_count"], 2)
+        self.assertEqual(detail_rows[0]["work_total"], "3000")
+        self.assertEqual(detail_rows[0]["salary_amount"], "3000")
+
     def test_reopening_repair_order_clears_employee_salary_snapshot(self) -> None:
         employee = self.service.save_employee(
             {

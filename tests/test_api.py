@@ -1710,11 +1710,17 @@ class ApiServerTests(unittest.TestCase):
                     "client": "Клиент",
                     "vehicle": "Mitsubishi L200",
                     "payments": [
-                        {"amount": "5000", "paid_at": "05.04.2026 10:00", "payment_method": "cash"}
+                        {"amount": "10000", "paid_at": "05.04.2026 10:00", "payment_method": "cash"}
                     ],
                     "works": [
                         {
                             "name": "Диагностика",
+                            "quantity": "1",
+                            "price": "5000",
+                            "executor_id": employee_id,
+                        },
+                        {
+                            "name": "Замена масла",
                             "quantity": "1",
                             "price": "5000",
                             "executor_id": employee_id,
@@ -1736,6 +1742,13 @@ class ApiServerTests(unittest.TestCase):
         self.assertTrue(
             any(item["employee_id"] == employee_id for item in report["data"]["summary"])
         )
+        detail_rows = [
+            item for item in report["data"]["detail_rows"] if item["employee_id"] == employee_id
+        ]
+        self.assertEqual(len(detail_rows), 1)
+        self.assertEqual(detail_rows[0]["works_count"], 2)
+        self.assertEqual(detail_rows[0]["work_total"], "10000")
+        self.assertEqual(detail_rows[0]["salary_amount"], "3000")
 
         status, reopened = self.request(
             "/api/set_repair_order_status", {"card_id": card_id, "status": "open"}
