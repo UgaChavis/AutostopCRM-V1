@@ -451,12 +451,29 @@ class ApiServerTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertTrue(launched["ok"])
-        self.assertFalse(launched["data"]["meta"]["launched"])
-        self.assertEqual(launched["data"]["meta"]["scenario_id"], "manual_only")
-        self.assertEqual(
-            launched["data"]["meta"]["reason"], "automatic_card_cleanup_disabled"
+        self.assertTrue(launched["data"]["meta"]["launched"])
+        self.assertEqual(launched["data"]["meta"]["task_id"], "task-123")
+        self.assertEqual(launched["data"]["meta"]["scenario_id"], "full_card_enrichment")
+        agent_control.enqueue_card_autofill_task.assert_called()
+        payload = agent_control.enqueue_card_autofill_task.call_args.args[0]
+        prompt_text = str(
+            payload.get("task_text", payload.get("prompt", payload.get("ai_autofill_prompt", "")))
         )
-        agent_control.enqueue_card_autofill_task.assert_not_called()
+        self.assertIn("полное заполнение", prompt_text.lower())
+        self.assertIn("update_card", prompt_text)
+        self.assertIn("update_repair_order", prompt_text)
+        self.assertIn("replace_repair_order_works", prompt_text)
+        self.assertIn("replace_repair_order_materials", prompt_text)
+        self.assertEqual(payload["scenario_id"], "full_card_enrichment")
+        self.assertEqual(
+            agent_control.enqueue_card_autofill_task.call_args.kwargs["purpose"],
+            "full_card_enrichment",
+        )
+        self.assertEqual(
+            agent_control.enqueue_card_autofill_task.call_args.kwargs["source"],
+            "ui_full_card_enrichment",
+        )
+        self.assertEqual(payload["vehicle"], created["data"]["card"]["vehicle"])
 
     def test_head_root_and_health_are_supported(self) -> None:
         parsed = urlsplit(self.base_url)

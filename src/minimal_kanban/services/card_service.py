@@ -883,6 +883,8 @@ class CardService:
             }
 
     def run_full_card_enrichment(self, payload: dict | None = None) -> dict:
+        if self._agent_control is not None:
+            return self._run_full_card_enrichment_with_agent_control(payload)
         with self._lock:
             payload = payload or {}
             bundle = self._store.read_bundle()
@@ -1181,133 +1183,6 @@ class CardService:
         with self._lock:
             # Background AI follow-up is intentionally retired.
             return {"launched": [], "failed": []}
-            bundle = self._store.read_bundle()
-            cards = bundle["cards"]
-            events = bundle["events"]
-            columns = bundle["columns"]
-            now = utc_now()
-            now_iso = now.isoformat()
-            launched: list[str] = []
-            failed: list[dict[str, str]] = []
-            changed_any = False
-            for card in cards:
-                if card.archived:
-                    if card.ai_autofill_active:
-                        card.ai_autofill_active = False
-                        card.ai_autofill_until = ""
-                        card.ai_next_run_at = ""
-                        self._append_card_ai_log(
-                            card,
-                            level="DONE",
-                            message="Автосопровождение остановлено: карточка в архиве.",
-                        )
-                        changed_any = True
-                    continue
-                if not card.ai_autofill_active:
-                    continue
-                until_at = parse_datetime(card.ai_autofill_until)
-                max_runs = self._card_ai_max_runs(card)
-                if until_at is None or until_at <= now or card.ai_run_count >= max_runs:
-                    card.ai_autofill_active = False
-                    card.ai_autofill_until = ""
-                    card.ai_next_run_at = ""
-                    if until_at is None or until_at <= now:
-                        done_message = (
-                            "Автосопровождение завершено: вышло время окна автосопровождения."
-                        )
-                    else:
-                        done_message = (
-                            f"Автосопровождение завершено: достигнут лимит проходов ({max_runs})."
-                        )
-                    self._append_card_ai_log(card, level="DONE", message=done_message)
-                    changed_any = True
-                    continue
-                next_run_at = parse_datetime(card.ai_next_run_at) or now
-                if next_run_at > now:
-                    continue
-                if self._agent_control.has_active_task_for_card(card.id, purpose="card_autofill"):
-                    continue
-                latest_task = self._agent_control.latest_task_for_card(
-                    card.id, purpose="card_autofill"
-                )
-                retry_after_failure = (
-                    str(latest_task.get("status", "") if isinstance(latest_task, dict) else "")
-                    .strip()
-                    .lower()
-                    == "failed"
-                )
-                fingerprint = self._card_ai_fingerprint(card)
-                changed = fingerprint != str(card.last_card_fingerprint or "").strip()
-                if not changed and not retry_after_failure:
-                    next_interval_minutes = self._card_ai_next_interval_minutes(card, changed=False)
-                    card.ai_next_run_at = (
-                        now + timedelta(minutes=next_interval_minutes)
-                    ).isoformat()
-                    self._append_card_ai_log(
-                        card,
-                        level="WAIT",
-                        message=f"Изменений не обнаружено. Повторная проверка отложена на {next_interval_minutes} мин.",
-                    )
-                    changed_any = True
-                    continue
-                followup_trigger = (
-                    "retry_after_error"
-                    if retry_after_failure and not changed
-                    else "adaptive_followup"
-                )
-                try:
-                    task = self._agent_control.enqueue_card_autofill_task(
-                        {
-                            "card_id": card.id,
-                            "card_heading": card.heading(),
-                            "title": card.title,
-                            "vehicle": card.vehicle_display(),
-                            "requested_by": "scheduler",
-                            "ai_autofill_prompt": card.ai_autofill_prompt,
-                            "ai_log_tail": list(card.ai_autofill_log[-8:]),
-                        },
-                        source="agent_card_followup",
-                        trigger=followup_trigger,
-                    )
-                    if task is None:
-                        self._append_card_ai_log(
-                            card, level="WAIT", message="Не удалось запустить повторный проход."
-                        )
-                        changed_any = True
-                        continue
-                    launched.append(str(task.get("id", "") or "").strip())
-                    card.last_ai_run_at = (
-                        str(task.get("created_at", "") or now_iso).strip() or now_iso
-                    )
-                    card.ai_run_count = max(0, int(card.ai_run_count)) + 1
-                    card.last_card_fingerprint = fingerprint
-                    card.ai_next_run_at = (
-                        now
-                        + timedelta(minutes=self._card_ai_next_interval_minutes(card, changed=True))
-                    ).isoformat()
-                    if retry_after_failure and not changed:
-                        self._append_card_ai_log(
-                            card,
-                            level="WARN",
-                            message="Предыдущий проход завершился ошибкой. Запущен безопасный повтор.",
-                            task_id=launched[-1],
-                        )
-                    self._append_card_ai_log(
-                        card,
-                        level="RUN",
-                        message="Обнаружены изменения. Запущен повторный проход.",
-                        task_id=launched[-1],
-                    )
-                    changed_any = True
-                except Exception as exc:
-                    self._append_card_ai_log(
-                        card, level="WARN", message="Не удалось запустить повторный проход."
-                    )
-                    failed.append({"card_id": card.id, "error": str(exc)})
-                    changed_any = True
-            if changed_any:
-                self._save_bundle(bundle, columns=columns, cards=cards, events=events)
-            return {"launched": launched, "failed": failed}
 
     def mark_card_seen(self, payload: dict | None = None) -> dict:
         with self._lock:

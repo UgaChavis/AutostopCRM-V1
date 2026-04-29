@@ -119,7 +119,7 @@ Do not touch in this flow:
 
 The CRM already exposes the integration surface needed by the worker:
 
-- `POST /api/run_full_card_enrichment` is retained as a compatibility route, but automatic card editing is disabled. Operators should edit confirmed fields manually through normal card and repair-order updates.
+- `POST /api/run_full_card_enrichment` is retained as a compatibility route. With server agent-control attached it enqueues the bounded `full_card_enrichment` task; without agent-control it does not fall back to local automatic cleanup.
 - `POST /api/agent_enqueue_task`
 - `GET /api/agent_status`
 - `GET /api/agent_tasks`

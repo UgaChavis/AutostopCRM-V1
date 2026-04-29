@@ -5,13 +5,13 @@
 ## Текущая рабочая точка
 
 - branch: `autostopcrm-v1`
-- latest verified Telegram AI checkpoint: `18e1326`
+- текущий checkpoint проверяется командой `git rev-parse --short HEAD`; старые commit-id не считаются актуальным release pin
 - production repo: `/opt/autostopcrm`
 - CRM: `https://crm.autostopcrm.ru`
 - MCP: `https://crm.autostopcrm.ru/mcp`
 - Docker services: `autostopcrm`, `autostopcrm-telegram-ai`
-- local full suite at checkpoint: `470/470 OK`
-- MCP tool count at checkpoint: `60`
+- локальный полный regression нужно запускать перед релизом из текущего HEAD
+- MCP tool count нужно проверять через live connector check, так как набор команд меняется
 
 ## Что делает Telegram AI
 

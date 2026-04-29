@@ -208,7 +208,7 @@ Latest completed stabilization wave:
 - Telegram AI direct internet-search was added for explicit commands like `найди в интернете`, using OpenAI `web_search_preview`
 - Telegram AI complex CRM decisions can escalate from `gpt-5.4-mini` to `gpt-5.4`
 - Telegram AI web-search was stabilized after live timeout/429 failures: direct web-search now uses the base model with low search context and one retry
-- production was synced and redeployed at `18e1326`; live diagnostics passed for site/API/MCP/Telegram AI
+- this historical wave was synced and redeployed at `18e1326`; always verify the current production HEAD before release work
 - repair-order modal stack from `desktop -> repair orders -> repair order -> nested windows` was fixed in UI shell so the repair-orders list remains the real parent layer
 - opening a repair order from the list no longer intentionally closes the list first or leaves the user falling back into an unexpected card layer
 - cashbox journal API/UI/MCP now returns machine-readable `cash_journal.v2` data (`entries`, `days`, `weeks`, `months`, `totals`) plus a Markdown human report grouped by months, weeks, and days; UI download saves `.md`

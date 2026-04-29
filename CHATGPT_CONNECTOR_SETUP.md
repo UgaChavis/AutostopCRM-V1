@@ -69,7 +69,7 @@
 
 ## Как подключать через Responses API
 
-Используйте JSON с MCP tool. Пример можно взять из [mcp-tools-example.json](mcp-tools-example.json) или собрать прямо из текущего каталога MCP-команд в [MCP_GUIDE.md](MCP_GUIDE.md).
+Используйте текущий список MCP tools из [MCP_GUIDE.md](MCP_GUIDE.md) и live connection card. Статические JSON-примеры удалены, потому что быстро устаревают при изменении набора CRM-команд.
 
 Если MCP работает в `Bearer token` режиме, в tool payload можно передавать `authorization`.
 
