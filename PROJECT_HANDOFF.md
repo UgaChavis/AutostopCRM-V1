@@ -210,7 +210,7 @@ Latest completed stabilization wave:
 - production was synced and redeployed at `18e1326`; live diagnostics passed for site/API/MCP/Telegram AI
 - repair-order modal stack from `desktop -> repair orders -> repair order -> nested windows` was fixed in UI shell so the repair-orders list remains the real parent layer
 - opening a repair order from the list no longer intentionally closes the list first or leaves the user falling back into an unexpected card layer
-- cashbox journal API and UI were added for the latest `3` months, including formatted modal text and text-file download
+- cashbox journal API/UI/MCP now returns machine-readable `cash_journal.v2` data (`entries`, `days`, `weeks`, `months`, `totals`) plus a Markdown human report grouped by months, weeks, and days; UI download saves `.md`
 - repair-order cashless totals now follow the selected rule: cashless path = subtotal + `15%`, taxes reflect that `15%` component, and due totals use the same model across domain, API, UI, and MCP text output
 - MCP repair-order expectations were updated to match the corrected cashless total model
 - mobile-lite board mode now activates automatically on narrow screens and collapses the board into a single-column, low-noise layout with heavy controls hidden by default

@@ -1063,7 +1063,13 @@ class ApiServerTests(unittest.TestCase):
         status, journal = self.request("/api/get_cash_journal?months=3&limit=100", method="GET")
         self.assertEqual(status, 200)
         self.assertTrue(journal["ok"])
-        self.assertIn("КАССОВЫЙ ЖУРНАЛ", journal["data"]["text"])
+        self.assertEqual(journal["data"]["meta"]["schema_version"], "cash_journal.v2")
+        self.assertIn("Кассовый журнал", journal["data"]["markdown"])
+        self.assertEqual(journal["data"]["text"], journal["data"]["markdown"])
+        self.assertIn("days", journal["data"])
+        self.assertIn("weeks", journal["data"])
+        self.assertIn("months", journal["data"])
+        self.assertIn("totals", journal["data"])
         self.assertGreaterEqual(journal["data"]["meta"]["returned"], 1)
 
     def test_cancel_last_cash_transaction_route_removes_latest_manual_movement(self) -> None:

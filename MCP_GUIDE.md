@@ -254,6 +254,7 @@ JsonStore
 ### Cashboxes
 
 - `list_cashboxes`
+- `get_cash_journal` - structured cashbox journal: `entries`, `days`, `weeks`, `months`, `totals`, plus Markdown for human review/download.
 - `get_cashbox`
 - `create_cashbox`
 - `delete_cashbox`

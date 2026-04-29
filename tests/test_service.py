@@ -2045,7 +2045,7 @@ class CardServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Нельзя создать больше 6 касс"):
             self.service.create_cashbox({"name": "Касса 7", "actor_name": "ADMIN"})
 
-    def test_cash_journal_returns_recent_three_months_text(self) -> None:
+    def test_cash_journal_returns_structured_markdown_report(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"
         ]
@@ -2062,11 +2062,21 @@ class CardServiceTests(unittest.TestCase):
         journal = self.service.get_cash_journal({"months": 3, "limit": 100})
 
         self.assertEqual(journal["meta"]["months"], 3)
+        self.assertEqual(journal["meta"]["schema_version"], "cash_journal.v2")
         self.assertEqual(journal["meta"]["returned"], 1)
-        self.assertIn("КАССОВЫЙ ЖУРНАЛ", journal["text"])
-        self.assertIn("Наличный", journal["text"])
-        self.assertIn("ОПЛАТА КЛИЕНТА", journal["text"].upper())
-        self.assertIn("1 000 ₽", journal["text"])
+        self.assertEqual(journal["text"], journal["markdown"])
+        self.assertIn("Кассовый журнал", journal["markdown"])
+        self.assertIn("Наличный", journal["markdown"])
+        self.assertIn("ОПЛАТА КЛИЕНТА", journal["markdown"].upper())
+        self.assertIn("+1 000,00 ₽", journal["markdown"])
+        self.assertEqual(journal["entries"][0]["cashbox_name"], "Наличный")
+        self.assertEqual(journal["entries"][0]["source_label"], "api")
+        self.assertEqual(journal["entries"][0]["signed_amount_minor"], 100000)
+        self.assertEqual(journal["totals"]["income_minor"], 100000)
+        self.assertEqual(journal["totals"]["balance_minor"], 100000)
+        self.assertEqual(journal["days"][0]["count"], 1)
+        self.assertEqual(journal["weeks"][0]["count"], 1)
+        self.assertEqual(journal["months"][0]["count"], 1)
 
     def test_move_card_can_reorder_within_same_column(self) -> None:
         first = self.service.create_card(

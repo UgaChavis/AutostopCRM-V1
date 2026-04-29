@@ -1501,6 +1501,24 @@ def create_mcp_server(
         )
 
     @server.tool(
+        name="get_cash_journal",
+        description=_scoped_description(
+            "Return the cashbox journal for the current board as machine-readable JSON "
+            "with entries/days/weeks/months/totals plus a human-readable Markdown report. "
+            "Use this for cashbox audit, reconciliation, and readable journal review."
+        ),
+        annotations=_read_tool_annotations("Get Cash Journal"),
+        structured_output=True,
+    )
+    def get_cash_journal(months: int = 3, limit: int = 5000) -> JsonEnvelope:
+        return _relay_board_call(
+            "get_cash_journal",
+            lambda: board_api.get_cash_journal(months=months, limit=limit),
+            error_code="cash_journal_unreachable",
+            params={"months": months, "limit": limit},
+        )
+
+    @server.tool(
         name="get_cashbox",
         description=_scoped_description(
             "Return one cashbox with its statistics and transaction journal."

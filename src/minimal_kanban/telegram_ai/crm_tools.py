@@ -75,6 +75,7 @@ class CRMToolRegistry:
             "upsert_client_vehicle": self._upsert_client_vehicle,
             "delete_client_vehicle": self._delete_client_vehicle,
             "list_cashboxes": self._list_cashboxes,
+            "get_cash_journal": self._get_cash_journal,
             "get_cashbox": self._get_cashbox,
             "create_card": self._create_card,
             "update_card": self._update_card,
@@ -295,6 +296,11 @@ class CRMToolRegistry:
                 "list_cashboxes",
                 "List cashboxes and balances.",
                 {"limit": "optional int"},
+            ),
+            CRMToolDefinition(
+                "get_cash_journal",
+                "Read the cashbox journal as structured JSON plus a Markdown report grouped by months, weeks, and days.",
+                {"months": "optional int", "limit": "optional int"},
             ),
             CRMToolDefinition(
                 "get_cashbox",
@@ -946,6 +952,12 @@ class CRMToolRegistry:
 
     def _list_cashboxes(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.list_cashboxes(limit=_optional_int(arguments, "limit"))
+
+    def _get_cash_journal(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.get_cash_journal(
+            months=_optional_int(arguments, "months"),
+            limit=_optional_int(arguments, "limit"),
+        )
 
     def _get_cashbox(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.get_cashbox(

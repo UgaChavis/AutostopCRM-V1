@@ -17474,9 +17474,14 @@ function renderCompactArchiveRows(cards) {
       loadCashboxes(true);
     }
 
-    async function loadCashJournalText() {
+    async function loadCashJournalData() {
       const data = await api('/api/get_cash_journal?months=3&limit=5000');
-      return String(data?.text || 'ЗА ВЫБРАННЫЙ ПЕРИОД ДВИЖЕНИЙ НЕТ.');
+      return data || {};
+    }
+
+    async function loadCashJournalText() {
+      const data = await loadCashJournalData();
+      return String(data?.markdown || data?.text || 'ЗА ВЫБРАННЫЙ ПЕРИОД ДВИЖЕНИЙ НЕТ.');
     }
 
     async function openCashJournalModal() {
@@ -17492,9 +17497,10 @@ function renderCompactArchiveRows(cards) {
 
     async function downloadCashJournal() {
       try {
-        const text = await loadCashJournalText();
-        const blob = new Blob([text.trim() + '\\n'], { type: 'text/plain;charset=utf-8' });
-        const fileName = 'cash-journal-' + new Date().toISOString().slice(0, 10) + '.txt';
+        const data = await loadCashJournalData();
+        const text = String(data?.markdown || data?.text || 'ЗА ВЫБРАННЫЙ ПЕРИОД ДВИЖЕНИЙ НЕТ.');
+        const blob = new Blob([text.trim() + '\\n'], { type: 'text/markdown;charset=utf-8' });
+        const fileName = 'cash-journal-' + new Date().toISOString().slice(0, 10) + '.md';
         triggerBlobDownload(blob, fileName);
         setStatus('ЖУРНАЛ СКАЧАН.', false);
       } catch (error) {

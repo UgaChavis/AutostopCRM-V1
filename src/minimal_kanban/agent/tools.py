@@ -52,6 +52,7 @@ class AgentToolExecutor:
             "replace_repair_order_materials": self._replace_repair_order_materials,
             "set_repair_order_status": self._set_repair_order_status,
             "list_cashboxes": self._list_cashboxes,
+            "get_cash_journal": self._get_cash_journal,
             "get_cashbox": self._get_cashbox,
             "create_cashbox": self._create_cashbox,
             "delete_cashbox": self._delete_cashbox,
@@ -214,6 +215,11 @@ class AgentToolExecutor:
                 {"card_id": "required string", "status": "required string"},
             ),
             AgentToolDefinition("list_cashboxes", "List cashboxes.", {"limit": "optional int"}),
+            AgentToolDefinition(
+                "get_cash_journal",
+                "Read the machine-readable cashbox journal with Markdown human report.",
+                {"months": "optional int", "limit": "optional int"},
+            ),
             AgentToolDefinition(
                 "get_cashbox",
                 "Get one cashbox with transactions.",
@@ -503,6 +509,12 @@ class AgentToolExecutor:
     def _list_cashboxes(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.list_cashboxes(limit=self._maybe_int(args.get("limit")))
 
+    def _get_cash_journal(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.get_cash_journal(
+            months=self._maybe_int(args.get("months")),
+            limit=self._maybe_int(args.get("limit")),
+        )
+
     def _get_cashbox(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.get_cashbox(
             self._required_text(args, "cashbox_id"),
@@ -673,6 +685,7 @@ class AgentToolExecutor:
             "list_repair_orders",
             "get_repair_order",
             "list_cashboxes",
+            "get_cash_journal",
             "get_cashbox",
         }
         card_update = {
@@ -693,6 +706,7 @@ class AgentToolExecutor:
         }
         cashboxes = {
             "list_cashboxes",
+            "get_cash_journal",
             "get_cashbox",
             "create_cashbox",
             "delete_cashbox",

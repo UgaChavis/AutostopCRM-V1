@@ -1832,9 +1832,13 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("function ensureCashboxesUi()", BOARD_WEB_APP_HTML)
         self.assertIn("function openCashboxesModal()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function loadCashJournalData()", BOARD_WEB_APP_HTML)
         self.assertIn("async function openCashJournalModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function loadCashJournalText()", BOARD_WEB_APP_HTML)
         self.assertIn("async function downloadCashJournal()", BOARD_WEB_APP_HTML)
+        self.assertIn("data?.markdown || data?.text", BOARD_WEB_APP_HTML)
+        self.assertIn("text/markdown;charset=utf-8", BOARD_WEB_APP_HTML)
+        self.assertIn("'.md'", BOARD_WEB_APP_HTML)
         self.assertIn("function filteredCashboxTransactions()", BOARD_WEB_APP_HTML)
         self.assertIn("async function createCashbox()", BOARD_WEB_APP_HTML)
         self.assertIn(

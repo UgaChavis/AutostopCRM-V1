@@ -1964,6 +1964,7 @@ class TelegramAICRMToolTests(unittest.TestCase):
             "list_archived_cards",
             "list_repair_orders",
             "list_cashboxes",
+            "get_cash_journal",
         ):
             result = registry.execute({"tool": tool, "arguments": {}}, role="owner")
             self.assertIn("result", result)

@@ -62,6 +62,7 @@ EXPECTED_MCP_TOOLS = {
     "get_card_log",
     "get_cards",
     "get_cashbox",
+    "get_cash_journal",
     "get_client",
     "get_client_stats",
     "get_connector_identity",
@@ -221,7 +222,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 63)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 64)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 self.assertTrue(tool_map["ping_connector"].annotations.readOnlyHint)
                 self.assertFalse(tool_map["ping_connector"].annotations.destructiveHint)
@@ -380,6 +381,18 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(
                     cashboxes.structuredContent["data"]["meta"]["response_mode"], "list"
                 )
+
+                cash_journal = await session.call_tool(
+                    "get_cash_journal", {"months": 3, "limit": 100}
+                )
+                self.assertFalse(cash_journal.isError)
+                self.assertTrue(cash_journal.structuredContent["ok"])
+                self.assertEqual(
+                    cash_journal.structuredContent["data"]["meta"]["schema_version"],
+                    "cash_journal.v2",
+                )
+                self.assertIn("markdown", cash_journal.structuredContent["data"])
+                self.assertIn("totals", cash_journal.structuredContent["data"])
 
                 cashbox_details = await session.call_tool(
                     "get_cashbox", {"cashbox_id": cashbox["short_id"], "transaction_limit": 20}
@@ -2214,6 +2227,8 @@ class McpServerRuntimeTests(unittest.TestCase):
         with patch.object(client, "_request", return_value={"ok": True}) as request:
             client.list_cashboxes()
             client.list_cashboxes(limit=50)
+            client.get_cash_journal()
+            client.get_cash_journal(months=6, limit=250)
             client.get_cashbox("CB-1", transaction_limit=25)
             client.create_cashbox("Наличный", actor_name="ОПЕРАТОР")
             client.create_cash_transaction(
@@ -2230,6 +2245,10 @@ class McpServerRuntimeTests(unittest.TestCase):
             [
                 unittest.mock.call("/api/list_cashboxes", method="GET"),
                 unittest.mock.call("/api/list_cashboxes", {"limit": 50}, method="POST"),
+                unittest.mock.call("/api/get_cash_journal", method="GET"),
+                unittest.mock.call(
+                    "/api/get_cash_journal", {"months": 6, "limit": 250}, method="POST"
+                ),
                 unittest.mock.call(
                     "/api/get_cashbox", {"cashbox_id": "CB-1", "transaction_limit": 25}
                 ),
