@@ -5529,12 +5529,95 @@ BOARD_WEB_APP_HTML = "".join(
     .employees-salary-dialog[hidden] {
       display: none;
     }
+    .dialog--salary-report {
+      width: min(1120px, 100%);
+    }
+    .employee-salary-report {
+      display: grid;
+      gap: 10px;
+      min-height: 0;
+    }
+    .employee-salary-report__meta {
+      color: rgba(231, 226, 193, 0.72);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .employee-salary-report__summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .employee-salary-report__sections {
+      display: grid;
+      gap: 10px;
+      min-height: 0;
+      max-height: min(68vh, 720px);
+      overflow: auto;
+      padding-right: 2px;
+    }
+    .employee-salary-report-section {
+      border: 1px solid rgba(164, 173, 138, 0.14);
+      background: rgba(8, 12, 10, 0.68);
+      padding: 10px 12px;
+      display: grid;
+      gap: 8px;
+    }
+    .employee-salary-report-section__head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .employee-salary-report-section__title {
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .employee-salary-report-section__meta {
+      color: rgba(231, 226, 193, 0.68);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .employee-salary-report-entry-list {
+      display: grid;
+      gap: 6px;
+    }
+    .employee-salary-report-entry {
+      border: 1px solid rgba(116, 126, 106, 0.16);
+      background: rgba(0, 0, 0, 0.12);
+      padding: 8px 10px;
+      display: grid;
+      gap: 4px;
+    }
+    .employee-salary-report-entry__line {
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.4;
+      font-variant-numeric: tabular-nums;
+    }
+    .employee-salary-report-entry__detail {
+      color: rgba(231, 226, 193, 0.74);
+      font-size: 12px;
+      line-height: 1.35;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
     @media (max-width: 1160px) {
       .employees-layout {
         grid-template-columns: minmax(0, 1fr);
       }
       .employees-pane--list {
         position: static;
+      }
+      .employee-salary-report__summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
     @media (max-width: 760px) {
@@ -5544,6 +5627,9 @@ BOARD_WEB_APP_HTML = "".join(
       .employees-card-actions {
         width: 100%;
         justify-content: space-between;
+      }
+      .employee-salary-report__summary {
+        grid-template-columns: 1fr;
       }
     }
     .dialog--clients {
@@ -6930,7 +7016,9 @@ BOARD_WEB_APP_HTML = "".join(
       payrollMonth: '',
       payrollReport: null,
       activeEmployeeSalaryId: '',
+      activeEmployeeSalaryReportId: '',
       employeeSalarySheet: null,
+      employeeSalaryReport: null,
       employeeSalaryActionKind: '',
       employeeSalaryActionDraft: '',
       employeeSalaryCashboxId: '',
@@ -7316,6 +7404,22 @@ BOARD_WEB_APP_HTML = "".join(
               + '</div>'
             + '</div>'
           + '</div>'
+          + '<div class="modal" id="employeeSalaryReportModal">'
+            + '<div class="dialog dialog--salary-report">'
+              + '<div class="dialog__head">'
+                + '<div class="dialog__title">ОТЧЁТ ПО ЗАРПЛАТЕ / <span id="employeeSalaryReportTitle">СОТРУДНИК</span></div>'
+                + '<div style="display:flex; gap:8px; flex-wrap:wrap;">'
+                  + '<button class="btn btn--ghost" id="employeeSalaryReportDownloadButton" type="button">СКАЧАТЬ .MD</button>'
+                  + '<button class="btn" data-close="employee-salary-report">ЗАКРЫТЬ</button>'
+                + '</div>'
+              + '</div>'
+              + '<div class="employee-salary-report" id="employeeSalaryReportRoot">'
+                + '<div class="employee-salary-report__meta" id="employeeSalaryReportMeta">ЗАГРУЗКА...</div>'
+                + '<div class="employee-salary-report__summary" id="employeeSalaryReportSummary"></div>'
+                + '<div class="employee-salary-report__sections" id="employeeSalaryReportSections"></div>'
+              + '</div>'
+            + '</div>'
+          + '</div>'
       );
     }
 
@@ -7413,6 +7517,7 @@ BOARD_WEB_APP_HTML = "".join(
       cashboxTransferModal: document.getElementById('cashboxTransferModal'),
       employeesModal: document.getElementById('employeesModal'),
       employeeSalaryModal: document.getElementById('employeeSalaryModal'),
+      employeeSalaryReportModal: document.getElementById('employeeSalaryReportModal'),
       employeesList: document.getElementById('employeesList'),
       employeesCardMode: document.getElementById('employeesCardMode'),
       employeesDetailsPanel: document.getElementById('employeesDetailsPanel'),
@@ -7446,6 +7551,11 @@ BOARD_WEB_APP_HTML = "".join(
       employeeSalaryCashboxSelect: document.getElementById('employeeSalaryCashboxSelect'),
       employeeSalaryActionConfirmButton: document.getElementById('employeeSalaryActionConfirmButton'),
       employeeSalaryActionCancelButton: document.getElementById('employeeSalaryActionCancelButton'),
+      employeeSalaryReportTitle: document.getElementById('employeeSalaryReportTitle'),
+      employeeSalaryReportMeta: document.getElementById('employeeSalaryReportMeta'),
+      employeeSalaryReportSummary: document.getElementById('employeeSalaryReportSummary'),
+      employeeSalaryReportSections: document.getElementById('employeeSalaryReportSections'),
+      employeeSalaryReportDownloadButton: document.getElementById('employeeSalaryReportDownloadButton'),
       cashboxesList: document.getElementById('cashboxesList'),
       cashboxCreateButton: document.getElementById('cashboxCreateButton'),
       cashboxJournalButton: document.getElementById('cashboxJournalButton'),
@@ -7624,6 +7734,7 @@ BOARD_WEB_APP_HTML = "".join(
     function hydrateEmployeesUiRefs() {
       els.employeesModal = document.getElementById('employeesModal');
       els.employeeSalaryModal = document.getElementById('employeeSalaryModal');
+      els.employeeSalaryReportModal = document.getElementById('employeeSalaryReportModal');
       els.employeesList = document.getElementById('employeesList');
       els.employeesCardMode = document.getElementById('employeesCardMode');
       els.employeesDetailsPanel = document.getElementById('employeesDetailsPanel');
@@ -7657,6 +7768,11 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeeSalaryCashboxSelect = document.getElementById('employeeSalaryCashboxSelect');
       els.employeeSalaryActionConfirmButton = document.getElementById('employeeSalaryActionConfirmButton');
       els.employeeSalaryActionCancelButton = document.getElementById('employeeSalaryActionCancelButton');
+      els.employeeSalaryReportTitle = document.getElementById('employeeSalaryReportTitle');
+      els.employeeSalaryReportMeta = document.getElementById('employeeSalaryReportMeta');
+      els.employeeSalaryReportSummary = document.getElementById('employeeSalaryReportSummary');
+      els.employeeSalaryReportSections = document.getElementById('employeeSalaryReportSections');
+      els.employeeSalaryReportDownloadButton = document.getElementById('employeeSalaryReportDownloadButton');
     }
 
     function hydrateRepairOrderPaymentsUiRefs() {
@@ -8954,6 +9070,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeeSalaryModal?.addEventListener('change', handleEmployeeSalaryModalInput);
       els.employeeSalaryModal?.addEventListener('keydown', handleEmployeeSalaryModalKeydown);
       els.employeeSalaryModal?.addEventListener('click', handleEmployeeSalaryActionButtonsClick);
+      els.employeeSalaryReportDownloadButton?.addEventListener('click', downloadEmployeeSalaryReport);
       state.employeesUiBound = true;
     }
 
@@ -9343,6 +9460,7 @@ BOARD_WEB_APP_HTML = "".join(
           els.employeesModal?.classList.remove('is-open');
         },
         employeeSalary: () => closeEmployeeSalaryModal(),
+        'employee-salary-report': () => closeEmployeeSalaryReportModal(),
         agent: () => closeAgentModal(),
         'agent-tasks': () => closeAgentTasksModal(),
         wall: () => els.gptWallModal.classList.remove('is-open'),
@@ -10842,6 +10960,133 @@ BOARD_WEB_APP_HTML = "".join(
       closeEmployeeSalaryDialog();
     }
 
+    function selectedEmployeeSalaryReportRecord() {
+      return (Array.isArray(state.employees) ? state.employees : []).find((item) => item.id === state.activeEmployeeSalaryReportId) || null;
+    }
+
+    function employeeSalaryReportSummaryItems(report) {
+      return [
+        { label: 'НАЧИСЛЕНО', value: report?.totals?.accrued_display || report?.meta?.accrued_total || '0' },
+        { label: 'ВЫПЛАЧЕНО', value: report?.totals?.payout_display || report?.meta?.payout_total || '0' },
+        { label: 'АВАНС', value: report?.totals?.advance_display || report?.meta?.advance_total || '0' },
+        { label: 'БАЛАНС', value: report?.totals?.balance_display || report?.meta?.balance_total || '0', accent: true },
+      ];
+    }
+
+    function employeeSalaryReportGroupHtml(group, kind) {
+      if (!group) return '';
+      const titleLabel = {
+        month: 'МЕСЯЦ',
+        week: 'НЕДЕЛЯ',
+        day: 'ДЕНЬ',
+      }[kind] || 'ПЕРИОД';
+      const entries = Array.isArray(group.entries) ? group.entries : [];
+      return ''
+        + '<section class="employee-salary-report-section">'
+          + '<div class="employee-salary-report-section__head">'
+            + '<div class="employee-salary-report-section__title">' + escapeHtml(group.label || 'ПЕРИОД') + '</div>'
+            + '<div class="employee-salary-report-section__meta">' + escapeHtml(titleLabel) + ' · ' + escapeHtml(String(group.count || 0)) + ' записей</div>'
+          + '</div>'
+          + '<div class="employees-kpi employees-kpi--accent" style="display:grid; gap:4px; padding:10px 12px;">'
+            + '<div class="employees-kpi__label">НАЧИСЛЕНО / ВЫПЛАЧЕНО / АВАНС / БАЛАНС</div>'
+            + '<div class="employees-kpi__value" style="font-size:16px; line-height:1.15;">'
+              + escapeHtml(String(group.accrued_display || '0'))
+              + ' / ' + escapeHtml(String(group.payout_display || '0'))
+              + ' / ' + escapeHtml(String(group.advance_display || '0'))
+              + ' / ' + escapeHtml(String(group.balance_display || '0'))
+            + '</div>'
+          + '</div>'
+          + '<div class="employee-salary-report-entry-list">'
+            + entries.map((item) => {
+              const detail = String(item?.detail || '').trim();
+              return '<div class="employee-salary-report-entry">'
+                + '<div class="employee-salary-report-entry__line">' + escapeHtml(item?.line || '') + '</div>'
+                + (detail ? '<div class="employee-salary-report-entry__detail">' + escapeHtml(detail) + '</div>' : '')
+              + '</div>';
+            }).join('')
+          + '</div>'
+        + '</section>';
+    }
+
+    function renderEmployeeSalaryReportModal() {
+      const report = state.employeeSalaryReport;
+      const employee = selectedEmployeeSalaryReportRecord();
+      if (!els.employeeSalaryReportModal) return;
+      if (els.employeeSalaryReportTitle) {
+        els.employeeSalaryReportTitle.textContent = employee ? String(employee.name || 'СОТРУДНИК').toUpperCase() : 'СОТРУДНИК';
+      }
+      if (els.employeeSalaryReportMeta) {
+        if (!report) {
+          els.employeeSalaryReportMeta.textContent = 'ЗАГРУЗКА ОТЧЁТА...';
+        } else {
+          const months = report?.meta?.months || 2;
+          els.employeeSalaryReportMeta.textContent = 'ПЕРИОД ' + months + ' МЕС. · ЗАПИСЕЙ ' + String(report?.meta?.entry_total || report?.totals?.count || 0);
+        }
+      }
+      if (els.employeeSalaryReportSummary) {
+        const summaryItems = employeeSalaryReportSummaryItems(report);
+        els.employeeSalaryReportSummary.innerHTML = summaryItems.map((item) => {
+          const accentClass = item.accent ? ' employees-kpi--accent' : '';
+          return '<div class="employees-kpi' + accentClass + '"><div class="employees-kpi__label">' + escapeHtml(item.label) + '</div><div class="employees-kpi__value">' + escapeHtml(item.value) + '</div></div>';
+        }).join('');
+      }
+      if (els.employeeSalaryReportSections) {
+        if (!report) {
+          els.employeeSalaryReportSections.innerHTML = '<div class="employee-salary-report-section"><div class="employee-salary-report-entry__line">ЗАГРУЗКА...</div></div>';
+        } else if (!Array.isArray(report.entries) || !report.entries.length) {
+          els.employeeSalaryReportSections.innerHTML = '<div class="employee-salary-report-section"><div class="employee-salary-report-entry__line">ЗА ВЫБРАННЫЙ ПЕРИОД ДВИЖЕНИЙ НЕТ.</div></div>';
+        } else {
+          const sections = [];
+          const months = Array.isArray(report.months) ? report.months : [];
+          const weeks = Array.isArray(report.weeks) ? report.weeks : [];
+          const days = Array.isArray(report.days) ? report.days : [];
+          if (months.length) sections.push('<div class="employee-salary-report-section"><div class="employee-salary-report-section__head"><div class="employee-salary-report-section__title">📅 По месяцам</div><div class="employee-salary-report-section__meta">СВОДКА ПО ПЕРИОДАМ</div></div><div class="employee-salary-report-entry-list">' + months.map((group) => employeeSalaryReportGroupHtml(group, 'month')).join('') + '</div></div>');
+          if (weeks.length) sections.push('<div class="employee-salary-report-section"><div class="employee-salary-report-section__head"><div class="employee-salary-report-section__title">🗓️ По неделям</div><div class="employee-salary-report-section__meta">СВОДКА ПО НЕДЕЛЯМ</div></div><div class="employee-salary-report-entry-list">' + weeks.map((group) => employeeSalaryReportGroupHtml(group, 'week')).join('') + '</div></div>');
+          if (days.length) sections.push('<div class="employee-salary-report-section"><div class="employee-salary-report-section__head"><div class="employee-salary-report-section__title">🧾 По дням</div><div class="employee-salary-report-section__meta">ПОСЛЕДНИЕ СОБЫТИЯ</div></div><div class="employee-salary-report-entry-list">' + days.map((group) => employeeSalaryReportGroupHtml(group, 'day')).join('') + '</div></div>');
+          els.employeeSalaryReportSections.innerHTML = sections.filter(Boolean).join('');
+        }
+      }
+    }
+
+    async function loadEmployeeSalaryReport(employeeId, { openModal = false } = {}) {
+      const requestedId = String(employeeId || '').trim();
+      if (!requestedId) return null;
+      state.activeEmployeeSalaryReportId = requestedId;
+      state.employeeSalaryReport = null;
+      renderEmployeeSalaryReportModal();
+      maybeOpenModal(els.employeeSalaryReportModal, openModal);
+      const data = await api('/api/get_employee_salary_report?employee_id=' + encodeURIComponent(requestedId));
+      if (String(state.activeEmployeeSalaryReportId || '').trim() !== requestedId) return data;
+      state.employeeSalaryReport = data || null;
+      renderEmployeeSalaryReportModal();
+      return data;
+    }
+
+    function closeEmployeeSalaryReportModal() {
+      if (els.employeeSalaryReportModal) els.employeeSalaryReportModal.classList.remove('is-open');
+      state.activeEmployeeSalaryReportId = '';
+      state.employeeSalaryReport = null;
+      renderEmployeeSalaryReportModal();
+    }
+
+    async function downloadEmployeeSalaryReport() {
+      const report = state.employeeSalaryReport;
+      if (!report) return;
+      try {
+        const markdown = String(report.markdown || report.text || '').trim();
+        if (!markdown) {
+          setStatus('ОТЧЕТ ПУСТ.', true);
+          return;
+        }
+        const fileName = String(report.file_name || 'employee-salary-report.md').replace(/\\.txt$/i, '.md');
+        const blob = new Blob([markdown + '\n'], { type: 'text/markdown;charset=utf-8' });
+        triggerBlobDownload(blob, fileName);
+        setStatus('ОТЧЁТ СКАЧАН.', false);
+      } catch (error) {
+        setStatus(String(error?.message || 'НЕ УДАЛОСЬ СКАЧАТЬ ОТЧЁТ.'), true);
+      }
+    }
+
     async function openEmployeeSalaryModal(employeeId) {
       const requestedId = String(employeeId || '').trim();
       if (!requestedId) return;
@@ -10857,13 +11102,7 @@ BOARD_WEB_APP_HTML = "".join(
       const requestedId = String(employeeId || '').trim();
       if (!requestedId) return;
       try {
-        const data = await api('/api/get_employee_salary_report?employee_id=' + encodeURIComponent(requestedId));
-        const text = String(data?.text || '').trim();
-        if (!text) {
-          setStatus('ОТЧЕТ ПУСТ.', true);
-          return;
-        }
-        openTextBlobWindow(text, data?.file_name || ('employee-salary-report-' + requestedId + '.txt'));
+        await loadEmployeeSalaryReport(requestedId, { openModal: true });
       } catch (error) {
         setStatus(error.message, true);
       }
@@ -11099,6 +11338,9 @@ BOARD_WEB_APP_HTML = "".join(
           state.activeEmployeeSalaryId = '';
           state.employeeSalarySheet = null;
           closeEmployeeSalaryModal();
+        }
+        if (String(state.activeEmployeeSalaryReportId || '') === String(employee.id || '')) {
+          closeEmployeeSalaryReportModal();
         }
         renderEmployeesWorkspace();
         refreshRepairOrderEmployeeSelects();
@@ -17007,6 +17249,7 @@ function renderCompactArchiveRows(cards) {
         els.employeesModal,
         els.agentModal,
         els.agentTasksModal,
+        els.employeeSalaryReportModal,
         els.gptWallModal,
         els.boardSettingsModal,
         els.stickyModal,

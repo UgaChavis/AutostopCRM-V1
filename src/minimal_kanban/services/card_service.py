@@ -3365,6 +3365,7 @@ class CardService:
                         "card_id": card.id,
                         "vehicle": order.vehicle or card.vehicle,
                         "work_name": row.name,
+                        "amount_minor": int((amount * Decimal("100")).to_integral_value(rounding=ROUND_HALF_UP)),
                         "amount_display": self._format_payroll_decimal(amount),
                         "source_label": "заказ-наряд",
                     }
@@ -3403,6 +3404,8 @@ class CardService:
                     "card_id": "",
                     "vehicle": "",
                     "work_name": "",
+                    "transaction_id": transaction.id,
+                    "amount_minor": int(transaction.amount_minor),
                     "amount_display": format_money_minor(transaction.amount_minor),
                     "source_label": cashbox_name,
                     "cashbox_id": transaction.cashbox_id,
@@ -3468,45 +3471,280 @@ class CardService:
             )
             return ledger
 
-    def _employee_salary_report_text(self, ledger: dict[str, Any]) -> str:
-        period_months = ledger.get("period_months", 2)
-        lines = [
-            "ОТЧЕТ ПО ЗАРПЛАТЕ",
-            f"СОТРУДНИК: {ledger.get('employee_name') or 'СОТРУДНИК'}",
-            f"ДОЛЖНОСТЬ: {ledger.get('position') or '-'}",
-            f"ПЕРИОД: ПОСЛЕДНИЕ {period_months} МЕС.",
-            f"НАЧИСЛЕНО: {ledger.get('accrued_total_display') or '0'}",
-            f"ВЫПЛАЧЕНО: {ledger.get('payout_total_display') or '0'}",
-            f"АВАНСЫ: {ledger.get('advance_total_display') or '0'}",
-            f"БАЛАНС: {ledger.get('balance_display') or '0'}",
-            f"СТРОК: {ledger.get('journal_total') or 0}",
-            "",
-        ]
-        journal_rows = ledger.get("journal_rows") or []
-        if not journal_rows:
-            lines.append("ЗА ВЫБРАННЫЙ ПЕРИОД ДВИЖЕНИЙ НЕТ.")
-            return "\n".join(lines).strip()
+    def _employee_salary_report_amount_text(self, amount_minor: int, *, signed: bool = False) -> str:
+        formatted = format_money_minor(abs(int(amount_minor)))
+        if not signed:
+            return formatted
+        if int(amount_minor) > 0:
+            return f"+{formatted}"
+        if int(amount_minor) < 0:
+            return f"-{formatted}"
+        return formatted
 
-        current_day = ""
+    def _employee_salary_report_kind_label(self, kind: str) -> str:
+        normalized = normalize_text(kind, default="", limit=32).casefold()
+        if normalized == "accrual":
+            return "НАЧИСЛЕНИЕ"
+        if normalized == "salary_payout":
+            return "ВЫПЛАТА"
+        if normalized == "salary_advance":
+            return "АВАНС"
+        return "ДВИЖЕНИЕ"
+
+    def _employee_salary_report_kind_icon(self, kind: str) -> str:
+        normalized = normalize_text(kind, default="", limit=32).casefold()
+        if normalized == "accrual":
+            return "🟢"
+        if normalized == "salary_payout":
+            return "🔴"
+        if normalized == "salary_advance":
+            return "🟡"
+        return "⚪"
+
+    def _employee_salary_report_group_totals(
+        self, entries: list[dict[str, Any]]
+    ) -> dict[str, object]:
+        accrued_minor = sum(int(item.get("amount_minor") or 0) for item in entries if item.get("kind") == "accrual")
+        payout_minor = sum(
+            int(item.get("amount_minor") or 0) for item in entries if item.get("kind") == "salary_payout"
+        )
+        advance_minor = sum(
+            int(item.get("amount_minor") or 0) for item in entries if item.get("kind") == "salary_advance"
+        )
+        balance_minor = accrued_minor - payout_minor - advance_minor
+        return {
+            "count": len(entries),
+            "accrued_minor": accrued_minor,
+            "payout_minor": payout_minor,
+            "advance_minor": advance_minor,
+            "balance_minor": balance_minor,
+            "accrued_display": self._employee_salary_report_amount_text(accrued_minor),
+            "payout_display": self._employee_salary_report_amount_text(payout_minor),
+            "advance_display": self._employee_salary_report_amount_text(advance_minor),
+            "balance_display": self._employee_salary_report_amount_text(balance_minor, signed=True),
+        }
+
+    def _employee_salary_report_group_entries(
+        self, entries: list[dict[str, Any]], *, key: str, kind: str
+    ) -> list[dict[str, Any]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for entry in entries:
+            group_key = str(entry.get(key) or "unknown").strip() or "unknown"
+            grouped.setdefault(group_key, []).append(entry)
+        payloads: list[dict[str, Any]] = []
+        for group_key in sorted(grouped.keys(), reverse=True):
+            group_entries = grouped[group_key]
+            totals = self._employee_salary_report_group_totals(group_entries)
+            payload = {
+                "key": group_key,
+                "kind": kind,
+                "label": self._cash_journal_day_label(group_key)
+                if kind == "day"
+                else self._cash_journal_week_label(group_key)
+                if kind == "week"
+                else self._cash_journal_month_label(group_key),
+                "count": totals["count"],
+                "accrued_display": totals["accrued_display"],
+                "payout_display": totals["payout_display"],
+                "advance_display": totals["advance_display"],
+                "balance_display": totals["balance_display"],
+                "entries": group_entries,
+            }
+            payloads.append(payload)
+        return payloads
+
+    def _employee_salary_report_entries(
+        self, ledger: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        grouped: dict[tuple[str, ...], dict[str, Any]] = {}
+        journal_rows = ledger.get("journal_rows") or []
         for row in journal_rows:
             created_at = parse_datetime(row.get("created_at"))
-            day_label = created_at.strftime("%d.%m.%Y") if created_at is not None else "—"
-            if day_label != current_day:
-                if current_day:
-                    lines.append("")
-                lines.append(day_label)
-                current_day = day_label
-            time_label = created_at.strftime("%H:%M") if created_at is not None else "—"
-            kind_label = normalize_text(row.get("kind_label"), default="ДВИЖЕНИЕ", limit=32)
-            source_label = normalize_text(row.get("source_label"), default="—", limit=80)
-            lines.append(
-                f"  {time_label} | {kind_label} | {row.get('repair_order_number') or '—'} | "
-                f"{row.get('vehicle') or '—'} | {row.get('work_name') or '—'} | "
-                f"{row.get('amount_display') or '0'} | {source_label}"
+            if created_at is None:
+                continue
+            kind = normalize_text(row.get("kind"), default="", limit=32).casefold()
+            iso_year, iso_week, _ = created_at.isocalendar()
+            entry_data = {
+                "kind": kind,
+                "kind_label": self._employee_salary_report_kind_label(kind),
+                "kind_icon": self._employee_salary_report_kind_icon(kind),
+                "created_at": row.get("created_at") or created_at.isoformat(),
+                "date_key": created_at.date().isoformat(),
+                "week_key": f"{iso_year}-W{iso_week:02d}",
+                "month_key": created_at.strftime("%Y-%m"),
+                "time_short": created_at.strftime("%H:%M"),
+            }
+            if kind == "accrual":
+                group_key = (
+                    "accrual",
+                    str(row.get("card_id") or ""),
+                    str(row.get("repair_order_number") or ""),
+                )
+                amount_minor = int(row.get("amount_minor") or 0)
+                entry = grouped.setdefault(
+                    group_key,
+                    {
+                        **entry_data,
+                        "repair_order_number": str(row.get("repair_order_number") or ""),
+                        "card_id": str(row.get("card_id") or ""),
+                        "vehicle": str(row.get("vehicle") or ""),
+                        "source_label": "заказ-наряд",
+                        "note": "",
+                        "amount_minor": 0,
+                        "signed_amount_minor": 0,
+                        "works_count": 0,
+                        "work_names": [],
+                        "transaction_id": "",
+                    },
+                )
+                entry["amount_minor"] += amount_minor
+                entry["signed_amount_minor"] += amount_minor
+                entry["works_count"] += 1
+                work_name = normalize_text(row.get("work_name"), default="", limit=120)
+                if work_name and work_name not in entry["work_names"]:
+                    entry["work_names"].append(work_name)
+                continue
+
+            if kind not in {"salary_payout", "salary_advance"}:
+                continue
+            transaction_id = str(row.get("transaction_id") or "")
+            group_key = (kind, transaction_id or str(row.get("created_at") or ""), str(row.get("amount_minor") or "0"))
+            amount_minor = int(row.get("amount_minor") or 0)
+            entry = grouped.setdefault(
+                group_key,
+                {
+                    **entry_data,
+                    "repair_order_number": "",
+                    "card_id": "",
+                    "vehicle": "",
+                    "source_label": normalize_text(row.get("source_label"), default="—", limit=80),
+                    "note": normalize_text(row.get("note"), default="", limit=240),
+                    "amount_minor": amount_minor,
+                    "signed_amount_minor": -amount_minor,
+                    "works_count": 0,
+                    "work_names": [],
+                    "transaction_id": transaction_id,
+                },
             )
-            note = normalize_text(row.get("note"), default="", limit=240)
-            if note:
-                lines.append(f"    {note}")
+        entries: list[dict[str, Any]] = []
+        for entry in grouped.values():
+            amount_minor = int(entry.get("amount_minor") or 0)
+            signed_amount_minor = int(entry.get("signed_amount_minor") or 0)
+            kind = str(entry.get("kind") or "")
+            work_names = [str(item) for item in (entry.get("work_names") or []) if str(item).strip()]
+            if kind == "accrual":
+                detail_line = ""
+                if work_names:
+                    detail_line = "заказ-наряд: " + ", ".join(work_names[:3])
+                elif entry.get("repair_order_number"):
+                    detail_line = "заказ-наряд"
+                line = (
+                    f"- {entry.get('time_short') or '--:--'} | {entry.get('kind_icon') or '⚪'} "
+                    + f"{self._employee_salary_report_amount_text(signed_amount_minor, signed=True)} | "
+                    + f"№ {entry.get('repair_order_number') or '—'} | {entry.get('vehicle') or '—'} | "
+                    + f"{entry.get('works_count') or 0} работ"
+                )
+                entry.update(
+                    {
+                        "line": line,
+                        "detail": f"  - {detail_line}" if detail_line else "",
+                        "amount_display": self._employee_salary_report_amount_text(amount_minor),
+                        "signed_amount_display": self._employee_salary_report_amount_text(
+                            signed_amount_minor, signed=True
+                        ),
+                    }
+                )
+            else:
+                line = (
+                    f"- {entry.get('time_short') or '--:--'} | {entry.get('kind_icon') or '⚪'} "
+                    + f"{self._employee_salary_report_amount_text(signed_amount_minor, signed=True)} | "
+                    + f"{entry.get('source_label') or '—'} | {entry.get('kind_label') or 'ДВИЖЕНИЕ'}"
+                )
+                note = str(entry.get("note") or "").strip()
+                entry.update(
+                    {
+                        "line": line,
+                        "detail": f"  - {note}" if note else "",
+                        "amount_display": self._employee_salary_report_amount_text(amount_minor),
+                        "signed_amount_display": self._employee_salary_report_amount_text(
+                            signed_amount_minor, signed=True
+                        ),
+                    }
+                )
+            entries.append(entry)
+        entries.sort(
+            key=lambda item: (
+                self._repair_order_sortable_datetime(item["created_at"]),
+                item.get("kind_label") or "",
+                item.get("repair_order_number") or "",
+                item.get("source_label") or "",
+            ),
+            reverse=True,
+        )
+        return entries
+
+    def _employee_salary_report_markdown(
+        self,
+        *,
+        ledger: dict[str, Any],
+        entries: list[dict[str, Any]],
+        days: list[dict[str, Any]],
+        weeks: list[dict[str, Any]],
+        months: list[dict[str, Any]],
+        totals: dict[str, object],
+    ) -> str:
+        period_months = ledger.get("period_months", 2)
+        lines = [
+            "# 💼 Отчёт по зарплате",
+            "",
+            "## 👤 Сотрудник",
+            f"- Сотрудник: {ledger.get('employee_name') or 'СОТРУДНИК'}",
+            f"- Должность: {ledger.get('position') or '-'}",
+            f"- Период: последние {period_months} мес.",
+            "",
+            "## 📊 Итоги периода",
+            f"- Начислено: {totals['accrued_display']}",
+            f"- Выплачено: {totals['payout_display']}",
+            f"- Авансы: {totals['advance_display']}",
+            f"- Баланс: {totals['balance_display']}",
+            f"- Записей: {totals['count']}",
+            "",
+        ]
+        if not entries:
+            lines.extend(["## 🧾 Движения", "За выбранный период движений нет."])
+            return "\n".join(lines).strip()
+
+        lines.extend(["## 🗓️ По месяцам"])
+        for item in months:
+            lines.append(
+                f"- **{item['label']}**: начислено {item['accrued_display']} | "
+                + f"выплачено {item['payout_display']} | авансы {item['advance_display']} | "
+                + f"баланс {item['balance_display']} | {item['count']} записей"
+            )
+        lines.extend(["", "## 📅 По неделям"])
+        for item in weeks:
+            lines.append(
+                f"- **{item['label']}**: начислено {item['accrued_display']} | "
+                + f"выплачено {item['payout_display']} | авансы {item['advance_display']} | "
+                + f"баланс {item['balance_display']} | {item['count']} записей"
+            )
+        lines.extend(["", "## 🧾 По дням"])
+        for day in days:
+            lines.extend(
+                [
+                    "",
+                    f"### 📆 {day['label']}",
+                    f"Итого: начислено {day['accrued_display']} | выплачено {day['payout_display']} | "
+                    + f"авансы {day['advance_display']} | баланс {day['balance_display']} | "
+                    + f"{day['count']} записей",
+                    "",
+                ]
+            )
+            for row in day["entries"]:
+                lines.append(str(row["line"]))
+                detail = str(row.get("detail") or "")
+                if detail:
+                    lines.append(detail)
         return "\n".join(lines).strip()
 
     def get_employee_salary_report(self, payload: dict | None = None) -> dict:
@@ -3538,17 +3776,43 @@ class CardService:
                 months=months,
                 period_only_totals=True,
             )
+            entries = self._employee_salary_report_entries(ledger)
+            days = self._employee_salary_report_group_entries(entries, key="date_key", kind="day")
+            weeks = self._employee_salary_report_group_entries(entries, key="week_key", kind="week")
+            months_grouped = self._employee_salary_report_group_entries(
+                entries, key="month_key", kind="month"
+            )
+            totals = self._employee_salary_report_group_totals(entries)
+            markdown = self._employee_salary_report_markdown(
+                ledger=ledger,
+                entries=entries,
+                days=days,
+                weeks=weeks,
+                months=months_grouped,
+                totals=totals,
+            )
             return {
                 "employee_id": employee_id,
                 "employee_name": employee["name"],
                 "file_name": normalize_file_name(
-                    f"employee-salary-report-{employee['name']}-{months}-months.txt"
+                    f"employee-salary-report-{employee['name']}-{months}-months.md"
                 ),
-                "text": self._employee_salary_report_text(ledger),
+                "text": markdown,
+                "markdown": markdown,
+                "entries": entries,
+                "days": days,
+                "weeks": weeks,
+                "months": months_grouped,
+                "totals": totals,
                 "meta": {
+                    "schema_version": "employee_salary_report.v2",
                     "months": months,
                     "period_start": ledger["period_start"],
                     "journal_total": ledger["journal_total"],
+                    "entry_total": len(entries),
+                    "days_total": len(days),
+                    "weeks_total": len(weeks),
+                    "months_total": len(months_grouped),
                     "accrued_total": ledger["accrued_total"],
                     "payout_total": ledger["payout_total"],
                     "advance_total": ledger["advance_total"],

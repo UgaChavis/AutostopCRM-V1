@@ -1303,9 +1303,15 @@ class ApiServerTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(report["data"]["meta"]["months"], 2)
-        self.assertIn("ОТЧЕТ ПО ЗАРПЛАТЕ", report["data"]["text"])
-        self.assertIn("ПОСЛЕДНИЕ 2 МЕС.", report["data"]["text"])
+        self.assertEqual(report["data"]["meta"]["schema_version"], "employee_salary_report.v2")
+        self.assertIn("# 💼 Отчёт по зарплате", report["data"]["markdown"])
+        self.assertIn("Период: последние 2 мес.", report["data"]["markdown"])
         self.assertIn("employee-salary-report-", report["data"]["file_name"])
+        self.assertTrue(report["data"]["file_name"].endswith(".md"))
+        self.assertIn("days", report["data"])
+        self.assertIn("weeks", report["data"])
+        self.assertIn("months", report["data"])
+        self.assertIn("totals", report["data"])
 
         status, cashbox_details = self.request(
             f"/api/get_cashbox?cashbox_id={cashbox['id']}&transaction_limit=10", method="GET"

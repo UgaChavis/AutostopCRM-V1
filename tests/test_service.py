@@ -1788,11 +1788,16 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(report["meta"]["payout_total"], "0")
         self.assertEqual(report["meta"]["advance_total"], "500")
         self.assertEqual(report["meta"]["balance_total"], "1300")
-        self.assertIn("ОТЧЕТ ПО ЗАРПЛАТЕ", report["text"])
-        self.assertIn("Свежая работа", report["text"])
-        self.assertIn("СВЕЖИЙ АВАНС", report["text"])
-        self.assertNotIn("Старый заказ", report["text"])
-        self.assertNotIn("СТАРАЯ ВЫПЛАТА", report["text"])
+        self.assertEqual(report["meta"]["schema_version"], "employee_salary_report.v2")
+        self.assertIn("# 💼 Отчёт по зарплате", report["markdown"])
+        self.assertIn("Период: последние 2 мес.", report["markdown"])
+        self.assertIn("Свежая работа", report["markdown"])
+        self.assertIn("СВЕЖИЙ АВАНС", report["markdown"])
+        self.assertNotIn("Старый заказ", report["markdown"])
+        self.assertNotIn("СТАРАЯ ВЫПЛАТА", report["markdown"])
+        self.assertGreaterEqual(len(report["days"]), 1)
+        self.assertGreaterEqual(len(report["weeks"]), 1)
+        self.assertGreaterEqual(len(report["months"]), 1)
 
     def test_financial_history_cleanup_clears_balances_and_preserves_new_flows(self) -> None:
         employee = self.service.save_employee(
