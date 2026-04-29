@@ -9836,6 +9836,86 @@ BOARD_WEB_APP_HTML = "".join(
         + '</button>';
     }
 
+    function vehiclePayloadFromProfile(profile) {
+      return {
+        vehicle: profile.display_name || vehicleDisplayFromProfile(profile) || '',
+        brand: profile.make_display || '',
+        model: profile.model_display || '',
+        year: profile.production_year ? String(profile.production_year) : '',
+        mileage: profile.mileage ? String(profile.mileage) : '',
+        vin: profile.vin || '',
+        license_plate: profile.registration_plate || '',
+        body_number: profile.body_number || '',
+        chassis_number: profile.chassis_number || '',
+        engine_code: profile.engine_code || '',
+        engine_model: profile.engine_model || '',
+        gearbox_type: profile.gearbox_type || '',
+        gearbox_model: profile.gearbox_model || '',
+        drivetrain: profile.drivetrain || '',
+      };
+    }
+
+    function profileHasVehicleIdentity(profile) {
+      return Boolean([
+        profile.display_name,
+        profile.make_display,
+        profile.model_display,
+        profile.production_year,
+        profile.vin,
+        profile.registration_plate,
+        profile.body_number,
+      ].some((value) => String(value || '').trim()));
+    }
+
+    async function createClientFromCardSuggestion() {
+      const profile = readVehicleProfileForm();
+      const displayName = String(profile.customer_name || '').trim();
+      const phone = String(profile.customer_phone || '').trim();
+      if (!displayName && !phone) {
+        setStatus('УКАЖИТЕ ИМЯ ИЛИ ТЕЛЕФОН КЛИЕНТА.', true);
+        return;
+      }
+      try {
+        const created = await api('/api/create_client', {
+          method: 'POST',
+          body: {
+            client_type: 'person',
+            display_name: displayName || phone,
+            phone,
+          },
+        });
+        const client = created?.client || {};
+        const clientId = String(client.id || '').trim();
+        if (!clientId) throw new Error('КЛИЕНТ СОЗДАН БЕЗ ID.');
+        let clientVehicleId = '';
+        if (profileHasVehicleIdentity(profile)) {
+          if (state.editingId) {
+            const linked = await linkActiveCardToClient(clientId, { createVehicleFromCard: true });
+            clientVehicleId = linked?.card?.client_vehicle_id || '';
+          } else {
+            const upserted = await api('/api/upsert_client_vehicle', {
+              method: 'POST',
+              body: {
+                client_id: clientId,
+                vehicle: vehiclePayloadFromProfile(profile),
+                sync_linked_cards: true,
+              },
+            });
+            clientVehicleId = upserted?.vehicle?.id || '';
+          }
+        } else if (state.editingId) {
+          await linkActiveCardToClient(clientId);
+        }
+        state.pendingCardClientId = clientId;
+        state.pendingCardClientVehicleId = clientVehicleId;
+        state.pendingCreateClientVehicleFromCard = false;
+        hideClientSuggestions();
+        setStatus(state.editingId ? 'КЛИЕНТ СОЗДАН И ПРИВЯЗАН К КАРТОЧКЕ.' : 'КЛИЕНТ СОЗДАН И БУДЕТ ПРИВЯЗАН ПОСЛЕ СОХРАНЕНИЯ КАРТОЧКИ.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
     function highlightedClientNameHtml(name, query) {
       const text = String(name || '').trim();
       const token = normalizeClientSearchText(query).split(/\\s+/).find((part) => part.length >= 2) || '';
@@ -10108,8 +10188,10 @@ BOARD_WEB_APP_HTML = "".join(
         hideClientSuggestions();
         setStatus('КАРТОЧКА СВЯЗАНА С КЛИЕНТОМ.', false);
         await refreshSnapshot(true);
+        return data;
       } catch (error) {
         setStatus(error.message, true);
+        throw error;
       }
     }
 
@@ -18232,7 +18314,7 @@ function renderCompactArchiveRows(cards) {
       if (createClientSuggestionTarget instanceof HTMLElement) {
         event.preventDefault();
         event.stopPropagation();
-        hideClientSuggestions();
+        await createClientFromCardSuggestion();
         return;
       }
       if (els.clientMatchPanel?.classList.contains('is-visible') && !target.closest('#clientMatchPanel') && !target.closest('[data-vehicle-field-input="customer_name"]') && !target.closest('[data-vehicle-field-input="customer_phone"]') && !target.closest('[data-vehicle-field-input="vin"]') && !target.closest('[data-vehicle-field-input="registration_plate"]')) {
