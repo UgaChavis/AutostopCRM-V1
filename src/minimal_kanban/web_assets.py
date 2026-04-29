@@ -4671,9 +4671,20 @@ BOARD_WEB_APP_HTML = "".join(
       max-height: 540px;
       overflow: auto;
       padding-right: 3px;
+      position: relative;
     }
-    .cashboxes-list.is-drop-end {
-      box-shadow: inset 0 -2px 0 rgba(167, 178, 132, 0.56);
+    .cashboxes-list.is-drag-active .cashbox-row {
+      transition: none;
+    }
+    .cashboxes-list.is-drop-end::after {
+      content: "";
+      display: block;
+      flex: 0 0 3px;
+      height: 3px;
+      margin: 1px 0 0;
+      border-radius: 999px;
+      background: #d7e89b;
+      box-shadow: 0 0 0 1px rgba(7, 12, 9, 0.86), 0 0 14px rgba(215, 232, 155, 0.42);
     }
     .cashbox-row {
       display: flex;
@@ -4687,6 +4698,7 @@ BOARD_WEB_APP_HTML = "".join(
       color: var(--text);
       cursor: pointer;
       user-select: none;
+      position: relative;
     }
     .cashbox-row[draggable="true"] {
       cursor: grab;
@@ -4699,8 +4711,21 @@ BOARD_WEB_APP_HTML = "".join(
       opacity: 0.62;
     }
     .cashbox-row.is-drop-target {
-      border-color: rgba(167, 178, 132, 0.88);
-      box-shadow: inset 0 0 0 1px rgba(167, 178, 132, 0.26);
+      border-color: var(--line-soft);
+      box-shadow: none;
+    }
+    .cashbox-row.is-drop-target::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: -6px;
+      height: 3px;
+      border-radius: 999px;
+      background: #d7e89b;
+      box-shadow: 0 0 0 1px rgba(7, 12, 9, 0.86), 0 0 14px rgba(215, 232, 155, 0.42);
+      pointer-events: none;
+      z-index: 2;
     }
     .cashbox-row__head,
     .cashbox-stat-grid {
@@ -17255,12 +17280,14 @@ function renderCompactArchiveRows(cards) {
 
     function syncCashboxDragClasses() {
       if (!els.cashboxesList) return;
+      const isDragActive = Boolean(state.cashboxDragId);
       const isDropEnd = state.cashboxDropBeforeId === '__end__';
+      els.cashboxesList.classList.toggle('is-drag-active', isDragActive);
       els.cashboxesList.classList.toggle('is-drop-end', isDropEnd);
       els.cashboxesList.querySelectorAll('[data-cashbox-id]').forEach((row) => {
         const cashboxId = String(row.dataset.cashboxId || '').trim();
         row.classList.toggle('is-dragging', Boolean(cashboxId && cashboxId === state.cashboxDragId));
-        row.classList.toggle('is-drop-target', Boolean(cashboxId && cashboxId === state.cashboxDropBeforeId));
+        row.classList.toggle('is-drop-target', Boolean(cashboxId && cashboxId === state.cashboxDropBeforeId && cashboxId !== state.cashboxDragId));
       });
     }
 
@@ -17778,7 +17805,7 @@ function renderCompactArchiveRows(cards) {
       if (!cashboxId) return;
       state.cashboxDragId = cashboxId;
       state.cashboxDragIgnoreClicksUntil = 0;
-      state.cashboxDropBeforeId = cashboxId;
+      state.cashboxDropBeforeId = '';
       syncCashboxDragClasses();
       if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = 'move';

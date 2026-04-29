@@ -1805,7 +1805,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('title="Перетащите, чтобы изменить порядок касс"', BOARD_WEB_APP_HTML)
         self.assertIn(".cashboxes-layout {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashboxes-pane__foot {", BOARD_WEB_APP_HTML)
-        self.assertIn(".cashboxes-list.is-drop-end {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashboxes-list.is-drag-active .cashbox-row {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashboxes-list.is-drop-end::after {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-transactions-card {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-cancel-last-button[disabled] {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-text {", BOARD_WEB_APP_HTML)
@@ -1817,6 +1818,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".cashbox-transfer-target {", BOARD_WEB_APP_HTML)
         self.assertIn('.cashbox-row[draggable="true"] {', BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-row.is-drop-target {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-row.is-drop-target::before {", BOARD_WEB_APP_HTML)
         self.assertIn(
             'class="btn btn--accent" id="cashboxCreateButton">+ ДОБАВИТЬ', BOARD_WEB_APP_HTML
         )
@@ -1850,6 +1852,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function cashboxTransactionIsTransfer(item)", BOARD_WEB_APP_HTML)
         self.assertIn("function resetCashboxDragState()", BOARD_WEB_APP_HTML)
         self.assertIn("function syncCashboxDragClasses()", BOARD_WEB_APP_HTML)
+        self.assertIn("els.cashboxesList.classList.toggle('is-drag-active', isDragActive);", BOARD_WEB_APP_HTML)
+        self.assertIn("cashboxId !== state.cashboxDragId", BOARD_WEB_APP_HTML)
         self.assertIn("function cashboxDropBeforeIdFromRow(row, clientY)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleCashboxesListDragStart(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleCashboxesListDragOver(event)", BOARD_WEB_APP_HTML)
