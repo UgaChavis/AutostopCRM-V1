@@ -1124,7 +1124,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(result["card"]["vehicle_profile"]["customer_phone"], "+7 999 000-00-00")
         self.assertEqual(result["card"]["vehicle_profile"]["vin"], "WAUZZZ8V0JA000001")
 
-    def test_run_full_card_enrichment_delegates_to_local_cleanup(self) -> None:
+    def test_run_full_card_enrichment_is_disabled_without_editing(self) -> None:
         created = self.service.create_card(
             {
                 "title": "Enrichment",
@@ -1136,13 +1136,15 @@ class CardServiceTests(unittest.TestCase):
 
         result = self.service.run_full_card_enrichment({"card_id": card_id, "actor_name": "AI"})
 
-        self.assertEqual(result["meta"]["scenario_id"], "card_cleanup")
+        self.assertFalse(result["meta"]["changed"])
+        self.assertEqual(result["meta"]["scenario_id"], "manual_only")
         self.assertTrue(result["meta"]["retired"])
         self.assertEqual(result["meta"]["legacy_request"], "run_full_card_enrichment")
-        self.assertEqual(result["meta"]["cleanup_mode"], "local_card_cleanup")
+        self.assertEqual(result["meta"]["reason"], "automatic_card_cleanup_disabled")
+        self.assertNotIn("cleanup_mode", result["meta"])
         self.assertFalse(result["card"]["ai_autofill_active"])
 
-    def test_run_full_card_enrichment_enqueues_agent_task_when_agent_is_attached(self) -> None:
+    def test_run_full_card_enrichment_does_not_enqueue_agent_task_when_attached(self) -> None:
         agent_control = _FakeAgentControl()
         self.service.attach_agent_control(agent_control)
         created = self.service.create_card(
@@ -1165,22 +1167,12 @@ class CardServiceTests(unittest.TestCase):
             }
         )
 
-        self.assertTrue(result["meta"]["launched"])
+        self.assertFalse(result["meta"]["launched"])
         self.assertFalse(result["meta"]["already_running"])
-        self.assertEqual(result["meta"]["scenario_id"], "full_card_enrichment")
+        self.assertEqual(result["meta"]["scenario_id"], "manual_only")
         self.assertTrue(result["meta"]["server_available"])
-        self.assertEqual(
-            agent_control.autofill_calls[-1]["payload"]["scenario_id"], "full_card_enrichment"
-        )
-        self.assertEqual(agent_control.autofill_calls[-1]["purpose"], "full_card_enrichment")
-        self.assertEqual(agent_control.autofill_calls[-1]["mode"], "full_card_enrichment")
-        prompt_text = str(agent_control.autofill_calls[-1]["payload"].get("task_text", ""))
-        self.assertIn("полное заполнение", prompt_text.lower())
-        self.assertIn("update_card", prompt_text)
-        self.assertIn("update_repair_order", prompt_text)
-        self.assertIn("replace_repair_order_works", prompt_text)
-        self.assertIn("replace_repair_order_materials", prompt_text)
-        self.assertEqual(agent_control.autofill_calls[-1]["source"], "ui_full_card_enrichment")
+        self.assertEqual(result["meta"]["reason"], "automatic_card_cleanup_disabled")
+        self.assertEqual(agent_control.autofill_calls, [])
 
     def test_set_card_ai_autofill_enqueues_agent_task_when_agent_is_attached(self) -> None:
         agent_control = _FakeAgentControl()

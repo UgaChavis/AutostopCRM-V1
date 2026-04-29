@@ -2,7 +2,7 @@
 
 Дата: 27.04.2026
 
-Полный справочник MCP-команд AutoStop CRM. Всего команд: 60.
+Полный справочник MCP-команд AutoStop CRM. Всего базовых CRM-команд: 59.
 
 ## Как не перегружать коннектор
 
@@ -56,7 +56,6 @@
 | `get_card_log` | read | Audit log одной карточки с лимитом событий. Для частного расследования обычно легче, чем `get_board_events`. |
 | `create_card` | write | Создает карточку с vehicle, title, description, tags, deadline, column, vehicle_profile. |
 | `update_card` | write | Обновляет vehicle, title, description, tags, deadline, vehicle_profile. |
-| `cleanup_card_content` | write | Локальная нормализация карточки: описание, очевидные поля, verify patch. |
 | `move_card` | write | Перемещает карточку в столбец, опционально перед `before_card_id`. |
 | `bulk_move_cards` | write | Массово перемещает несколько карточек в один столбец. |
 | `set_card_deadline` | write | Меняет только дедлайн карточки. Принимает `days/hours/minutes/seconds` или `total_seconds`. |

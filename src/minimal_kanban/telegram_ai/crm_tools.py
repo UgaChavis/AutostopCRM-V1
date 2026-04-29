@@ -84,7 +84,6 @@ class CRMToolRegistry:
             "bulk_move_cards": self._bulk_move_cards,
             "archive_card": self._archive_card,
             "restore_card": self._restore_card,
-            "cleanup_card_content": self._cleanup_card_content,
             "attach_telegram_photo_to_card": self._attach_telegram_photo_to_card,
             "create_column": self._create_column,
             "rename_column": self._rename_column,
@@ -367,12 +366,6 @@ class CRMToolRegistry:
                 "restore_card",
                 "Restore archived CRM card.",
                 {"card_id": "required string", "column": "optional string"},
-                write=True,
-            ),
-            CRMToolDefinition(
-                "cleanup_card_content",
-                "Normalize one card content through CRM service cleanup.",
-                {"card_id": "required string"},
                 write=True,
             ),
             CRMToolDefinition(
@@ -684,7 +677,7 @@ class CRMToolRegistry:
             card_payload = self._read_card(str(arguments.get("card_id") or ""))
             card = _api_data(card_payload).get("card", {})
             return {"passed": bool(card.get("archived")), "message": "archived flag checked"}
-        if tool_name in {"restore_card", "cleanup_card_content"}:
+        if tool_name == "restore_card":
             return self._verify_card_exists(str(arguments.get("card_id") or ""))
         if tool_name == "attach_telegram_photo_to_card":
             data = _api_data(result)
@@ -1028,12 +1021,6 @@ class CRMToolRegistry:
         return self._board_api.restore_card(
             card_id=str(arguments.get("card_id") or ""),
             column=_optional_text(arguments, "column"),
-            actor_name=self._actor_name,
-        )
-
-    def _cleanup_card_content(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        return self._board_api.cleanup_card_content(
-            card_id=str(arguments.get("card_id") or ""),
             actor_name=self._actor_name,
         )
 

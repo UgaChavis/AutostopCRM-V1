@@ -883,21 +883,44 @@ class CardService:
             }
 
     def run_full_card_enrichment(self, payload: dict | None = None) -> dict:
-        if self._agent_control is not None:
-            return self._run_full_card_enrichment_with_agent_control(payload)
-        result = self.cleanup_card_content(payload)
-        result["meta"].update(
-            {
-                "launched": bool(result["meta"].get("changed")),
-                "already_running": False,
-                "task_id": "",
-                "server_available": False,
-                "scenario_id": "card_cleanup",
-                "retired": True,
-                "legacy_request": "run_full_card_enrichment",
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            events = bundle["events"]
+            columns = bundle["columns"]
+            card = self._find_card(cards, payload.get("card_id"))
+            actor_name, source = self._audit_identity(payload, default_source="ui")
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="card_auto_cleanup_blocked",
+                message=(
+                    f"{actor_name} запросил автоматическое заполнение карточки, "
+                    "но автоматическая редакция отключена."
+                ),
+                card_id=card.id,
+                details={"reason": "automatic_card_cleanup_disabled"},
+            )
+            self._save_bundle(bundle, columns=columns, cards=cards, events=events)
+            return {
+                "card": self._serialize_card(
+                    card, events, column_labels=self._column_labels(columns)
+                ),
+                "meta": {
+                    "changed": False,
+                    "changed_fields": [],
+                    "launched": False,
+                    "already_running": False,
+                    "task_id": "",
+                    "server_available": bool(self._agent_control is not None),
+                    "scenario_id": "manual_only",
+                    "retired": True,
+                    "legacy_request": "run_full_card_enrichment",
+                    "reason": "automatic_card_cleanup_disabled",
+                },
             }
-        )
-        return result
 
     def _build_full_card_enrichment_prompt(self, payload: dict[str, object]) -> str:
         scenario_id = str(payload.get("scenario_id", "") or "").strip().lower()

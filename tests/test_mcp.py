@@ -40,7 +40,6 @@ EXPECTED_MCP_TOOLS = {
     "archive_card",
     "bootstrap_context",
     "bulk_move_cards",
-    "cleanup_card_content",
     "create_card",
     "create_cash_transaction",
     "create_cashbox",
@@ -222,7 +221,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 64)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 63)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 self.assertTrue(tool_map["ping_connector"].annotations.readOnlyHint)
                 self.assertFalse(tool_map["ping_connector"].annotations.destructiveHint)
@@ -639,20 +638,6 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(
                     updated.structuredContent["data"]["card"]["tag_items"][0]["color"], "yellow"
                 )
-
-                cleanup = await session.call_tool(
-                    "cleanup_card_content",
-                    {
-                        "card_id": card_id,
-                        "actor_name": "ОПЕРАТОР",
-                    },
-                )
-                self.assertFalse(cleanup.isError)
-                self.assertTrue(cleanup.structuredContent["ok"])
-                self.assertEqual(
-                    cleanup.structuredContent["data"]["meta"]["cleanup_mode"], "local_card_cleanup"
-                )
-                self.assertIn("verify", cleanup.structuredContent["data"]["meta"])
 
                 created_cashbox = await session.call_tool(
                     "create_cashbox", {"name": "Безналичный", "actor_name": "ОПЕРАТОР"}
@@ -1351,20 +1336,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(created.isError)
                 card_id = created.structuredContent["data"]["card"]["id"]
 
-                cleaned = await session.call_tool(
-                    "cleanup_card_content",
-                    {"card_id": card_id, "actor_name": "ОПЕРАТОР"},
-                )
-                self.assertFalse(cleaned.isError)
-                self.assertTrue(cleaned.structuredContent["ok"])
-                self.assertEqual(
-                    cleaned.structuredContent["data"]["meta"]["cleanup_mode"], "local_card_cleanup"
-                )
-                self.assertTrue(cleaned.structuredContent["data"]["meta"]["verify"]["passed"])
-                self.assertEqual(
-                    cleaned.structuredContent["data"]["card"]["vehicle_profile"]["vin"],
-                    "WBAPF71060A798127",
-                )
+                tools = await session.list_tools()
+                tool_names = {tool.name for tool in tools.tools}
+                self.assertNotIn("cleanup_card_content", tool_names)
 
     async def test_mcp_returns_structured_validation_errors(self) -> None:
         async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:

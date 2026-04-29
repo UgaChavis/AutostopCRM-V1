@@ -1177,20 +1177,6 @@ def create_mcp_server(
         )
 
     @server.tool(
-        name="cleanup_card_content",
-        description=_scoped_description(
-            "Run the local deterministic card cleanup flow for one card: normalize description, fill only obvious empty local fields, and verify the resulting patch."
-        ),
-        annotations=_write_tool_annotations("Cleanup Card Content", idempotent=True),
-        structured_output=True,
-    )
-    def cleanup_card_content(card_id: str, actor_name: str | None = None) -> JsonEnvelope:
-        return _relay_board_call(
-            "cleanup_card_content",
-            lambda: board_api.cleanup_card_content(card_id=card_id, actor_name=actor_name),
-        )
-
-    @server.tool(
         name="list_columns",
         description=_scoped_description("List all columns of the current Minimal Kanban board."),
         annotations=_read_tool_annotations("List Columns"),

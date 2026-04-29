@@ -267,7 +267,6 @@ Write tools:
 - `bulk_move_cards`
 - `archive_card`
 - `restore_card`
-- `cleanup_card_content`
 - `attach_telegram_photo_to_card`
 - `create_column`
 - `rename_column`
