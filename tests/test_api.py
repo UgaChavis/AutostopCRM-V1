@@ -186,6 +186,68 @@ class ApiServerTests(unittest.TestCase):
         self.assertTrue(deleted["ok"])
         self.assertTrue(deleted["data"]["meta"]["deleted"])
 
+    def test_client_vehicle_routes_link_specific_vehicle(self) -> None:
+        status, created_client = self.request(
+            "/api/create_client",
+            {
+                "display_name": "API клиент с автопарком",
+                "phone": "+7 913 888-99-00",
+                "vehicles": [
+                    {
+                        "vehicle": "Toyota Prado 2017",
+                        "brand": "Toyota",
+                        "model": "Prado",
+                        "vin": "JTEBU3FJX05027767",
+                        "license_plate": "Р888РО124",
+                        "year": "2017",
+                    }
+                ],
+            },
+        )
+        self.assertEqual(status, 200)
+        client = created_client["data"]["client"]
+        vehicle_id = client["vehicles"][0]["id"]
+
+        status, created_card = self.request(
+            "/api/create_card",
+            {
+                "title": "API выбор машины",
+                "vehicle_profile": {"customer_phone": "+7 913 888-99-00"},
+                "deadline": {"hours": 2},
+            },
+        )
+        self.assertEqual(status, 200)
+        card_id = created_card["data"]["card"]["id"]
+
+        status, linked = self.request(
+            "/api/link_card_to_client",
+            {
+                "card_id": card_id,
+                "client_id": client["id"],
+                "client_vehicle_id": vehicle_id,
+                "sync_vehicle_fields": True,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(linked["data"]["card"]["client_vehicle_id"], vehicle_id)
+        self.assertEqual(linked["data"]["card"]["vehicle_profile"]["vin"], "JTEBU3FJX05027767")
+
+        status, found = self.request("/api/search_clients", {"query": "Р888РО124", "limit": 5})
+        self.assertEqual(status, 200)
+        self.assertEqual(found["data"]["clients"][0]["vehicles_preview"][0]["id"], vehicle_id)
+
+        status, upserted = self.request(
+            "/api/upsert_client_vehicle",
+            {
+                "client_id": client["id"],
+                "client_vehicle_id": vehicle_id,
+                "vehicle": {"vin": "JTEBU3FJX05999999", "license_plate": "Р999РО124"},
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(upserted["data"]["meta"]["changed"])
+        self.assertEqual(upserted["data"]["vehicle"]["vin"], "JTEBU3FJX05999999")
+
     def test_get_repair_order_creates_it_lazily_on_first_open(self) -> None:
         status, created = self.request(
             "/api/create_card",

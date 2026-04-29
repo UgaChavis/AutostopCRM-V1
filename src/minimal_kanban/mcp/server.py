@@ -156,6 +156,25 @@ class RepairOrderPatchPayload(BaseModel):
     materials: list[RepairOrderRowPayload] | None = None
 
 
+class ClientVehiclePayload(BaseModel):
+    id: str | None = Field(default=None, max_length=128)
+    vehicle: str | None = Field(default=None, max_length=160)
+    brand: str | None = Field(default=None, max_length=160)
+    model: str | None = Field(default=None, max_length=160)
+    vin: str | None = Field(default=None, max_length=160)
+    license_plate: str | None = Field(default=None, max_length=160)
+    year: str | None = Field(default=None, max_length=16)
+    mileage: str | None = Field(default=None, max_length=160)
+    body_number: str | None = Field(default=None, max_length=160)
+    chassis_number: str | None = Field(default=None, max_length=160)
+    engine_code: str | None = Field(default=None, max_length=160)
+    engine_model: str | None = Field(default=None, max_length=160)
+    gearbox_type: str | None = Field(default=None, max_length=160)
+    gearbox_model: str | None = Field(default=None, max_length=160)
+    drivetrain: str | None = Field(default=None, max_length=160)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
 class ClientProfilePayload(BaseModel):
     client_type: Literal["person", "ip", "ooo", "company"] = "person"
     last_name: str | None = Field(default=None, max_length=120)
@@ -179,6 +198,7 @@ class ClientProfilePayload(BaseModel):
     actual_address: str | None = Field(default=None, max_length=160)
     contact_person: str | None = Field(default=None, max_length=160)
     contact_position: str | None = Field(default=None, max_length=160)
+    vehicles: list[ClientVehiclePayload] | None = None
 
 
 class ClientPatchPayload(BaseModel):
@@ -204,6 +224,7 @@ class ClientPatchPayload(BaseModel):
     actual_address: str | None = Field(default=None, max_length=160)
     contact_person: str | None = Field(default=None, max_length=160)
     contact_position: str | None = Field(default=None, max_length=160)
+    vehicles: list[ClientVehiclePayload] | None = None
 
 
 def _resolved_create_card_deadline(deadline: DeadlinePayload | None) -> dict[str, int]:
@@ -1749,7 +1770,7 @@ def create_mcp_server(
     @server.tool(
         name="search_clients",
         description=_scoped_description(
-            "Search clients and organizations by name, phone, email, INN, or contact person. Use before creating a client to avoid duplicates."
+            "Search clients and organizations by name, phone, email, INN, vehicle, VIN, or license plate. Use before creating a client; when a vehicle is known, choose the matching vehicles_preview[].id and pass it as client_vehicle_id to link_card_to_client."
         ),
         annotations=_read_tool_annotations("Search Clients"),
         structured_output=True,
@@ -1870,7 +1891,7 @@ def create_mcp_server(
     @server.tool(
         name="link_card_to_client",
         description=_scoped_description(
-            "Link one card to an existing client. By default it only fills empty client name/phone fields in the card and repair order; set overwrite_card_fields only after operator confirmation."
+            "Link one card to an existing client and, when known, a concrete client vehicle. Pass client_vehicle_id from search_clients/get_client to fill the vehicle passport; use create_vehicle_from_card=true when this is the same client but a new car."
         ),
         annotations=_write_tool_annotations("Link Card To Client", idempotent=True),
         structured_output=True,
@@ -1878,6 +1899,9 @@ def create_mcp_server(
     def link_card_to_client(
         card_id: str,
         client_id: str,
+        client_vehicle_id: str | None = None,
+        create_vehicle_from_card: bool = False,
+        sync_vehicle_fields: bool = True,
         sync_fields: bool = True,
         overwrite_card_fields: bool = False,
         actor_name: str | None = None,
@@ -1887,8 +1911,37 @@ def create_mcp_server(
             lambda: board_api.link_card_to_client(
                 card_id,
                 client_id,
+                client_vehicle_id=client_vehicle_id,
+                create_vehicle_from_card=create_vehicle_from_card,
+                sync_vehicle_fields=sync_vehicle_fields,
                 sync_fields=sync_fields,
                 overwrite_card_fields=overwrite_card_fields,
+                actor_name=actor_name,
+            ),
+        )
+
+    @server.tool(
+        name="upsert_client_vehicle",
+        description=_scoped_description(
+            "Create or update one vehicle inside an existing client profile. Use this before link_card_to_client when the operator identifies a new vehicle for an existing client."
+        ),
+        annotations=_write_tool_annotations("Upsert Client Vehicle", idempotent=True),
+        structured_output=True,
+    )
+    def upsert_client_vehicle(
+        client_id: str,
+        vehicle: ClientVehiclePayload | None = None,
+        client_vehicle_id: str | None = None,
+        card_id: str | None = None,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "upsert_client_vehicle",
+            lambda: board_api.upsert_client_vehicle(
+                client_id,
+                vehicle.model_dump(exclude_none=True) if vehicle is not None else None,
+                client_vehicle_id=client_vehicle_id,
+                card_id=card_id,
                 actor_name=actor_name,
             ),
         )

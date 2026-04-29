@@ -82,6 +82,7 @@ Authorization: Bearer ваш_секрет
   "updated_at": "2026-03-24T10:00:00+00:00",
   "deadline_timestamp": "2026-03-25T10:00:00+00:00",
   "client_id": "",
+  "client_vehicle_id": "",
   "remaining_seconds": 86395,
   "remaining_display": "0д 23:59:55",
   "status": "ok",
@@ -98,6 +99,7 @@ Authorization: Bearer ваш_секрет
 - `archived` — архивирована ли карточка
 - `deadline_timestamp` — абсолютный UTC deadline
 - `client_id` — необязательная связь карточки с записью клиента
+- `client_vehicle_id` — необязательная связь карточки с конкретным автомобилем внутри профиля клиента
 - `remaining_seconds` — оставшееся время
 - `remaining_display` — готовая строка для UI
 - `status` — `ok`, `warning`, `expired`
@@ -386,7 +388,7 @@ Authorization: Bearer ваш_секрет
 контактному лицу, а также по автомобилю, госномеру или VIN из связанных карточек и сохраненного профиля клиента.
 Телефон ищется в разных форматах: `+7`, `8`, без пробелов, со скобками и дефисами.
 Для больших справочников поиск сначала проверяет собственные поля клиента и сохраненные `vehicles[]`, а связанную историю карточек использует как fallback.
-Компактный ответ содержит `vehicles_preview` — 1-2 связанных автомобиля для UI-подсказок.
+Компактный ответ содержит `vehicles_preview` — 1-2 связанных автомобиля для UI-подсказок. У каждого автомобиля есть стабильный `id`; если оператор выбирает конкретную машину, этот `id` нужно передать как `client_vehicle_id` в `/api/link_card_to_client`.
 
 Запрос:
 
@@ -438,6 +440,7 @@ Authorization: Bearer ваш_секрет
     "phone": "+79130000000",
     "vehicles": [
       {
+        "id": "optional-existing-or-generated-id",
         "brand": "Toyota",
         "model": "Camry",
         "vin": "JTDBE32K620654321",
@@ -497,7 +500,7 @@ Authorization: Bearer ваш_секрет
 
 ### `POST /api/link_card_to_client`
 
-Назначение: привязать карточку к клиенту.
+Назначение: привязать карточку к клиенту и, если известно, к конкретному автомобилю клиента.
 
 Запрос:
 
@@ -505,6 +508,9 @@ Authorization: Bearer ваш_секрет
 {
   "card_id": "CARD_ID",
   "client_id": "CLIENT_ID",
+  "client_vehicle_id": "CLIENT_VEHICLE_ID",
+  "create_vehicle_from_card": false,
+  "sync_vehicle_fields": true,
   "sync_fields": true,
   "overwrite_card_fields": false
 }
@@ -513,7 +519,38 @@ Authorization: Bearer ваш_секрет
 Важно:
 
 - `sync_fields=true` дозаполняет пустые клиентские поля карточки и заказ-наряда.
+- `client_vehicle_id` заполняет паспорт автомобиля из выбранной машины клиента и сохраняется в карточке.
+- `create_vehicle_from_card=true` создает новый автомобиль в профиле существующего клиента из паспорта текущей карточки.
+- `sync_vehicle_fields=true` синхронизирует поля автомобиля; последующие изменения паспорта связанной карточки обновляют выбранный автомобиль клиента.
 - `overwrite_card_fields=true` может заменить ручные поля клиента, поэтому использовать только после подтверждения пользователя.
+
+### `POST /api/upsert_client_vehicle`
+
+Назначение: создать или обновить автомобиль внутри профиля клиента.
+
+Запрос:
+
+```json
+{
+  "client_id": "CLIENT_ID",
+  "client_vehicle_id": "CLIENT_VEHICLE_ID",
+  "vehicle": {
+    "vehicle": "Toyota Camry 2017",
+    "brand": "Toyota",
+    "model": "Camry",
+    "vin": "JTDBE32K620654321",
+    "license_plate": "А123ВС124",
+    "year": "2017",
+    "mileage": "120000",
+    "engine_model": "2AR-FE",
+    "gearbox_model": "U760E",
+    "drivetrain": "FWD"
+  },
+  "actor_name": "operator"
+}
+```
+
+Если `client_vehicle_id` не передан, создается новая машина. Если передан `card_id` и не передан `vehicle`, данные автомобиля берутся из паспорта карточки.
 
 ### `POST /api/unlink_card_from_client`
 

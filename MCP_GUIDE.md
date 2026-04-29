@@ -49,8 +49,9 @@ JsonStore
 - `get_client(client_id)` для выбранного профиля
 - `get_client_stats(client_id)` для легкой статистики
 - `suggest_clients_for_card(card_id)` для подбора клиента из карточки
+- `upsert_client_vehicle(client_id, vehicle=...)` для добавления или обновления машины клиента
 
-В большом справочнике `search_clients` сначала проверяет ФИО, телефоны, реквизиты и сохраненные `vehicles[]` профиля. Связанная история карточек используется как fallback, чтобы не делать тяжелый обход по всем клиентам при каждом вводе.
+В большом справочнике `search_clients` сначала проверяет ФИО, телефоны, реквизиты и сохраненные `vehicles[]` профиля. Связанная история карточек используется как fallback, чтобы не делать тяжелый обход по всем клиентам при каждом вводе. В `vehicles_preview[]` возвращается стабильный `id` автомобиля; если машина известна, передавайте его в `link_card_to_client(..., client_vehicle_id=...)`.
 
 ## Как выбирать команды без лишнего payload
 
@@ -151,6 +152,7 @@ JsonStore
 - `update_client`
 - `delete_client`
 - `link_card_to_client`
+- `upsert_client_vehicle`
 - `unlink_card_from_client`
 - `suggest_clients_for_card`
 - `set_card_deadline`
@@ -191,6 +193,7 @@ JsonStore
 - `update_client`
 - `delete_client`
 - `link_card_to_client`
+- `upsert_client_vehicle`
 - `unlink_card_from_client`
 - `suggest_clients_for_card`
 
@@ -199,8 +202,9 @@ JsonStore
 1. Для существующей карточки сначала вызвать `suggest_clients_for_card(card_id)`.
 2. Если подсказка не дала уверенного совпадения, использовать `search_clients(query=...)`.
 3. Если клиента нет, создавать его через `create_client`.
-4. Привязать карточку через `link_card_to_client(card_id, client_id, sync_fields=true)`.
-5. Проверить профиль через `get_client(client_id)` или `get_client_stats(client_id)`.
+4. Если выбрана существующая машина, привязать карточку через `link_card_to_client(card_id, client_id, client_vehicle_id=..., sync_fields=true, sync_vehicle_fields=true)`.
+5. Если это новый автомобиль существующего клиента, использовать `link_card_to_client(card_id, client_id, create_vehicle_from_card=true)` или сначала `upsert_client_vehicle`, затем привязку.
+6. Проверить профиль через `get_client(client_id)` или `get_client_stats(client_id)`.
 
 Для больших массивов клиентов:
 
@@ -219,7 +223,9 @@ JsonStore
 - `overwrite_card_fields=true` использовать только после явного подтверждения пользователя.
 - `delete_client` по умолчанию блокирует удаление связанного клиента; `allow_linked=true` использовать только после явного подтверждения.
 - Для организаций использовать `client_type="ooo"|"ip"|"company"` и поля реквизитов: `inn`, `kpp`, `ogrn`, счета, банк, адреса и контактное лицо.
-- Если клиент импортируется со своим автопарком, `create_client`/`update_client` могут принимать `vehicles[]` с полями `vehicle`, `brand`, `model`, `vin`, `license_plate`, `year`.
+- Если клиент импортируется со своим автопарком, `create_client`/`update_client` могут принимать `vehicles[]` с полями `id`, `vehicle`, `brand`, `model`, `vin`, `license_plate`, `year`, `mileage`, `engine_model`, `gearbox_model`, `drivetrain`.
+- `client_id` связывает карточку с клиентом, `client_vehicle_id` связывает карточку с конкретной машиной клиента.
+- При команде оператора “это тот же клиент, но новая машина” используйте `create_vehicle_from_card=true` или `upsert_client_vehicle`; не создавайте дубль клиента.
 
 ### Sticky notes
 

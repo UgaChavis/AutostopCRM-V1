@@ -22,6 +22,7 @@ The repository still contains legacy technical names from the earlier `Minimal K
 - print module for repair-order documents and inspection sheets
 - operator authentication and admin user management
 - cashboxes, cash transactions, employees, and payroll reports
+- client-to-vehicle linking: cards can reference both `client_id` and a concrete `client_vehicle_id`
 
 ## Runtime Modes
 
@@ -138,7 +139,7 @@ The MCP server exposes the current AutoStop CRM board and services as tools over
 - board review and GPT wall
 - cashbox access
 - repair-order access and updates
-- client directory search, profile, vehicle, requisites and card-link tools
+- client directory search, profile, vehicle, requisites, client-vehicle upsert and card-link tools
 - local card cleanup and bounded board/card reads
 
 The exact runtime inventory is documented in [MCP_GUIDE.md](MCP_GUIDE.md). The user-facing autofill endpoints remain available in the HTTP API and UI, but they are not MCP tools.

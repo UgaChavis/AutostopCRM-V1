@@ -68,6 +68,11 @@ class CRMToolRegistry:
             "list_archived_cards": self._list_archived_cards,
             "list_repair_orders": self._list_repair_orders,
             "get_repair_order_text": self._get_repair_order_text,
+            "list_clients": self._list_clients,
+            "search_clients": self._search_clients,
+            "get_client": self._get_client_profile,
+            "link_card_to_client": self._link_card_to_client,
+            "upsert_client_vehicle": self._upsert_client_vehicle,
             "list_cashboxes": self._list_cashboxes,
             "get_cashbox": self._get_cashbox,
             "create_card": self._create_card,
@@ -233,6 +238,46 @@ class CRMToolRegistry:
                 "get_repair_order_text",
                 "Read printable repair order text by card id.",
                 {"card_id": "required string"},
+            ),
+            CRMToolDefinition(
+                "list_clients",
+                "Read compact clients list.",
+                {"limit": "optional int", "include_stats": "optional bool"},
+            ),
+            CRMToolDefinition(
+                "search_clients",
+                "Search clients by name, phone, INN, vehicle, VIN, or license plate. Use before creating or linking clients; choose vehicles_preview[].id when a concrete car is known.",
+                {"query": "required string", "limit": "optional int"},
+            ),
+            CRMToolDefinition(
+                "get_client",
+                "Read one client profile with all vehicles and recent repair orders.",
+                {"client_id": "required string", "order_limit": "optional int"},
+            ),
+            CRMToolDefinition(
+                "link_card_to_client",
+                "Link a card to a client and optionally a concrete client vehicle. If the operator identifies a known car, pass client_vehicle_id; if it is a new car for that client, use create_vehicle_from_card=true.",
+                {
+                    "card_id": "required string",
+                    "client_id": "required string",
+                    "client_vehicle_id": "optional string",
+                    "create_vehicle_from_card": "optional bool",
+                    "sync_vehicle_fields": "optional bool",
+                    "sync_fields": "optional bool",
+                    "overwrite_card_fields": "optional bool",
+                },
+                write=True,
+            ),
+            CRMToolDefinition(
+                "upsert_client_vehicle",
+                "Create or update a vehicle inside an existing client profile.",
+                {
+                    "client_id": "required string",
+                    "client_vehicle_id": "optional string",
+                    "card_id": "optional string",
+                    "vehicle": "optional object",
+                },
+                write=True,
             ),
             CRMToolDefinition(
                 "list_cashboxes",
@@ -837,6 +882,45 @@ class CRMToolRegistry:
 
     def _get_repair_order_text(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.get_repair_order_text(str(arguments.get("card_id") or ""))
+
+    def _list_clients(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.list_clients(
+            limit=_optional_int(arguments, "limit"),
+            include_stats=bool(arguments.get("include_stats", True)),
+        )
+
+    def _search_clients(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.search_clients(
+            query=str(arguments.get("query") or ""),
+            limit=_optional_int(arguments, "limit"),
+        )
+
+    def _get_client_profile(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.get_client(
+            str(arguments.get("client_id") or ""),
+            order_limit=_optional_int(arguments, "order_limit"),
+        )
+
+    def _link_card_to_client(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.link_card_to_client(
+            str(arguments.get("card_id") or ""),
+            str(arguments.get("client_id") or ""),
+            client_vehicle_id=_optional_text(arguments, "client_vehicle_id"),
+            create_vehicle_from_card=bool(arguments.get("create_vehicle_from_card", False)),
+            sync_vehicle_fields=bool(arguments.get("sync_vehicle_fields", True)),
+            sync_fields=bool(arguments.get("sync_fields", True)),
+            overwrite_card_fields=bool(arguments.get("overwrite_card_fields", False)),
+            actor_name=self._actor_name,
+        )
+
+    def _upsert_client_vehicle(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.upsert_client_vehicle(
+            str(arguments.get("client_id") or ""),
+            arguments.get("vehicle") if isinstance(arguments.get("vehicle"), dict) else None,
+            client_vehicle_id=_optional_text(arguments, "client_vehicle_id"),
+            card_id=_optional_text(arguments, "card_id"),
+            actor_name=self._actor_name,
+        )
 
     def _list_cashboxes(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.list_cashboxes(limit=_optional_int(arguments, "limit"))

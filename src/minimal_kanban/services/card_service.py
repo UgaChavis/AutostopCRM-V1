@@ -41,6 +41,7 @@ from ..models import (
     CashBox,
     CashTransaction,
     ClientProfile,
+    ClientVehicle,
     Column,
     StickyNote,
     format_money_minor,
@@ -645,6 +646,7 @@ class CardService:
             bundle = self._store.read_bundle()
             columns = bundle["columns"]
             cards = bundle["cards"]
+            clients = bundle["clients"]
             events = bundle["events"]
             column_labels = self._column_labels(columns)
             actor_name, source = self._audit_identity(payload, default_source="api")
@@ -678,6 +680,33 @@ class CardService:
                 tags=tags,
                 is_unread=mark_unread,
             )
+            client_id = normalize_text(payload.get("client_id"), default="", limit=128)
+            if client_id:
+                client = self._find_client(clients, client_id)
+                card.client_id = client.id
+                client_vehicle_id = normalize_text(
+                    payload.get("client_vehicle_id") or payload.get("vehicle_id"),
+                    default="",
+                    limit=128,
+                )
+                create_vehicle_from_card = self._validated_optional_bool(
+                    payload, "create_vehicle_from_card", default=False
+                )
+                sync_vehicle_fields = self._validated_optional_bool(
+                    payload, "sync_vehicle_fields", default=True
+                )
+                if create_vehicle_from_card:
+                    vehicle_record = self._client_vehicle_from_card(card)
+                    client.vehicles.append(vehicle_record)
+                    client.vehicles = self._dedupe_client_vehicles(client.vehicles)
+                    client.updated_at = utc_now_iso()
+                    card.client_vehicle_id = vehicle_record.id
+                elif client_vehicle_id:
+                    vehicle_record = self._find_client_vehicle(client, client_vehicle_id)
+                    card.client_vehicle_id = vehicle_record.id
+                    if sync_vehicle_fields:
+                        self._sync_card_vehicle_fields(card, vehicle_record, overwrite=True)
+                self._sync_card_client_fields(card, client, overwrite=False)
             card.mark_seen(actor_name, seen_at=now_iso)
             cards.append(card)
             self._append_event(
@@ -697,7 +726,7 @@ class CardService:
                     "is_unread": card.is_unread,
                 },
             )
-            self._save_bundle(bundle, columns=columns, cards=cards, events=events)
+            self._save_bundle(bundle, columns=columns, cards=cards, clients=clients, events=events)
             self._logger.info(
                 "create_card id=%s title=%s column=%s actor=%s source=%s",
                 card.id,
@@ -2130,7 +2159,11 @@ class CardService:
             return {
                 "clients": [
                     self._serialize_client(
-                        client, bundle["cards"], include_stats=True, compact=True
+                        client,
+                        bundle["cards"],
+                        include_stats=True,
+                        compact=True,
+                        query=query,
                     )
                     for client in selected
                 ],
@@ -2246,12 +2279,40 @@ class CardService:
             overwrite = self._validated_optional_bool(
                 payload, "overwrite_card_fields", default=False
             )
+            sync_vehicle_fields = self._validated_optional_bool(
+                payload, "sync_vehicle_fields", default=True
+            )
+            create_vehicle_from_card = self._validated_optional_bool(
+                payload, "create_vehicle_from_card", default=False
+            )
+            client_vehicle_id = normalize_text(
+                payload.get("client_vehicle_id") or payload.get("vehicle_id"),
+                default="",
+                limit=128,
+            )
+            vehicle: ClientVehicle | None = None
+            clients_changed = False
+            if create_vehicle_from_card:
+                vehicle = self._client_vehicle_from_card(card)
+                client.vehicles.append(vehicle)
+                client.vehicles = self._dedupe_client_vehicles(client.vehicles)
+                client.updated_at = utc_now_iso()
+                client_vehicle_id = vehicle.id
+                clients_changed = True
+            elif client_vehicle_id:
+                vehicle = self._find_client_vehicle(client, client_vehicle_id)
+
             changed = card.client_id != client.id
             card.client_id = client.id
+            if client_vehicle_id and card.client_vehicle_id != client_vehicle_id:
+                card.client_vehicle_id = client_vehicle_id
+                changed = True
             if sync_fields:
                 changed = (
                     self._sync_card_client_fields(card, client, overwrite=overwrite) or changed
                 )
+            if vehicle is not None and sync_vehicle_fields:
+                changed = self._sync_card_vehicle_fields(card, vehicle, overwrite=True) or changed
             if changed:
                 self._touch_card(card, actor_name)
                 self._append_event(
@@ -2261,10 +2322,26 @@ class CardService:
                     action="card_client_linked",
                     message=f"{actor_name} связал карточку с клиентом",
                     card_id=card.id,
-                    details={"client_id": client.id, "client_name": client.name()},
+                    details={
+                        "client_id": client.id,
+                        "client_name": client.name(),
+                        "client_vehicle_id": card.client_vehicle_id,
+                        "vehicle_created": create_vehicle_from_card,
+                    },
                 )
                 if self._card_has_repair_order(card):
                     self._ensure_repair_order_text_file(card, force=True)
+            if clients_changed and not changed:
+                self._append_event(
+                    events,
+                    actor_name=actor_name,
+                    source=source,
+                    action="client_vehicle_created",
+                    message=f"{actor_name} добавил автомобиль клиента",
+                    card_id=card.id,
+                    details={"client_id": client.id, "client_vehicle_id": client_vehicle_id},
+                )
+            if changed or clients_changed:
                 self._save_bundle(
                     bundle,
                     columns=bundle["columns"],
@@ -2280,7 +2357,75 @@ class CardService:
                     include_removed_attachments=True,
                 ),
                 "client": self._serialize_client(client, cards, include_stats=True),
-                "meta": {"changed": changed, "sync_fields": sync_fields},
+                "meta": {
+                    "changed": changed or clients_changed,
+                    "sync_fields": sync_fields,
+                    "sync_vehicle_fields": sync_vehicle_fields,
+                    "client_vehicle_id": card.client_vehicle_id,
+                    "vehicle_created": create_vehicle_from_card,
+                },
+            }
+
+    def upsert_client_vehicle(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            clients = list(bundle["clients"])
+            cards = bundle["cards"]
+            events = bundle["events"]
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            client = self._find_client(clients, payload.get("client_id"))
+            vehicle_id = normalize_text(
+                payload.get("client_vehicle_id") or payload.get("vehicle_id"),
+                default="",
+                limit=128,
+            )
+            card = self._find_card(cards, payload.get("card_id")) if payload.get("card_id") else None
+            if card is not None and not payload.get("vehicle"):
+                next_vehicle = self._client_vehicle_from_card(card, vehicle_id=vehicle_id)
+            else:
+                next_vehicle = self._validated_client_vehicle(payload)
+                if vehicle_id:
+                    next_vehicle.id = vehicle_id
+
+            existing = self._find_client_vehicle_or_none(client, vehicle_id)
+            created = existing is None
+            changed = created
+            if existing is None:
+                client.vehicles.append(next_vehicle)
+            else:
+                merged = self._merge_client_vehicle(existing, next_vehicle)
+                changed = existing.to_dict() != merged.to_dict()
+                if changed:
+                    self._replace_client_vehicle(client, merged)
+                next_vehicle = merged
+            client.vehicles = self._dedupe_client_vehicles(client.vehicles)
+            if changed:
+                client.updated_at = utc_now_iso()
+                self._append_event(
+                    events,
+                    actor_name=actor_name,
+                    source=source,
+                    action="client_vehicle_created" if created else "client_vehicle_updated",
+                    message=(
+                        f"{actor_name} добавил автомобиль клиента"
+                        if created
+                        else f"{actor_name} обновил автомобиль клиента"
+                    ),
+                    card_id=card.id if card is not None else None,
+                    details={"client_id": client.id, "client_vehicle_id": next_vehicle.id},
+                )
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=cards,
+                    clients=clients,
+                    events=events,
+                )
+            return {
+                "client": self._serialize_client(client, cards, include_stats=True),
+                "vehicle": next_vehicle.to_dict(),
+                "meta": {"changed": changed, "created": created},
             }
 
     def unlink_card_from_client(self, payload: dict | None = None) -> dict:
@@ -2292,9 +2437,11 @@ class CardService:
             card = self._find_card(cards, payload.get("card_id"))
             actor_name, source = self._audit_identity(payload, default_source="api")
             previous_client_id = card.client_id
+            previous_client_vehicle_id = card.client_vehicle_id
             changed = bool(previous_client_id)
             if changed:
                 card.client_id = ""
+                card.client_vehicle_id = ""
                 self._touch_card(card, actor_name)
                 self._append_event(
                     events,
@@ -2303,7 +2450,10 @@ class CardService:
                     action="card_client_unlinked",
                     message=f"{actor_name} убрал связь карточки с клиентом",
                     card_id=card.id,
-                    details={"previous_client_id": previous_client_id},
+                    details={
+                        "previous_client_id": previous_client_id,
+                        "previous_client_vehicle_id": previous_client_vehicle_id,
+                    },
                 )
                 self._save_bundle(
                     bundle,
@@ -2319,7 +2469,11 @@ class CardService:
                     column_labels=self._column_labels(bundle["columns"]),
                     include_removed_attachments=True,
                 ),
-                "meta": {"changed": changed, "previous_client_id": previous_client_id},
+                "meta": {
+                    "changed": changed,
+                    "previous_client_id": previous_client_id,
+                    "previous_client_vehicle_id": previous_client_vehicle_id,
+                },
             }
 
     def delete_client(self, payload: dict | None = None) -> dict:
@@ -2346,6 +2500,7 @@ class CardService:
             if linked_cards:
                 for card in linked_cards:
                     card.client_id = ""
+                    card.client_vehicle_id = ""
                     self._touch_card(card, actor_name)
                     self._append_event(
                         events,
@@ -2426,7 +2581,11 @@ class CardService:
                 ),
                 "clients": [
                     self._serialize_client(
-                        client, bundle["cards"], include_stats=True, compact=True
+                        client,
+                        bundle["cards"],
+                        include_stats=True,
+                        compact=True,
+                        query=query,
                     )
                     for client in selected
                 ],
@@ -3830,9 +3989,18 @@ class CardService:
                 changed = ready_state_changed or changed
                 if ready_state_changed and "ready_state" not in changed_fields:
                     changed_fields.append("ready_state")
+            linked_vehicle_changed = False
+            if changed and {"vehicle", "vehicle_profile", "repair_order"}.intersection(
+                changed_fields
+            ):
+                linked_vehicle_changed = self._sync_linked_client_vehicle_from_card(
+                    bundle["clients"], card
+                )
+                if linked_vehicle_changed and "client_vehicle" not in changed_fields:
+                    changed_fields.append("client_vehicle")
 
             numbering_changed = self._synchronize_repair_order_numbers(cards)
-            if changed or numbering_changed or ready_column_changed:
+            if changed or numbering_changed or ready_column_changed or linked_vehicle_changed:
                 self._touch_card(card, actor_name)
                 self._refresh_card_ai_fingerprint_if_agent_changed(card, actor_name, source)
                 if self._card_has_repair_order(card):
@@ -3841,6 +4009,7 @@ class CardService:
                     bundle,
                     columns=bundle["columns"],
                     cards=cards,
+                    clients=bundle["clients"],
                     cashboxes=bundle["cashboxes"],
                     cash_transactions=bundle["cash_transactions"],
                     events=events,
@@ -3860,7 +4029,10 @@ class CardService:
                     include_removed_attachments=True,
                 ),
                 "meta": {
-                    "changed": changed or numbering_changed or ready_column_changed,
+                    "changed": changed
+                    or numbering_changed
+                    or ready_column_changed
+                    or linked_vehicle_changed,
                     "changed_fields": changed_fields,
                 },
             }
@@ -5017,7 +5189,9 @@ class CardService:
 
         return related_fields
 
-    def _client_vehicles(self, client: ClientProfile, cards: list[Card]) -> list[dict[str, str]]:
+    def _client_vehicles(
+        self, client: ClientProfile, cards: list[Card], *, query: str = ""
+    ) -> list[dict[str, str]]:
         vehicles: list[dict[str, str]] = []
         seen: set[str] = set()
         for stored_vehicle in client.vehicles:
@@ -5046,12 +5220,55 @@ class CardService:
             seen.add(key)
             vehicles.append(
                 {
+                    "id": card.client_vehicle_id,
                     "vehicle": vehicle,
                     "vin": vin,
                     "license_plate": plate,
+                    "year": str(card.vehicle_profile.production_year or ""),
+                    "mileage": str(card.vehicle_profile.mileage or card.repair_order.mileage or ""),
+                    "body_number": card.vehicle_profile.body_number,
+                    "chassis_number": card.vehicle_profile.chassis_number,
+                    "engine_code": card.vehicle_profile.engine_code,
+                    "engine_model": card.vehicle_profile.engine_model,
+                    "gearbox_type": card.vehicle_profile.gearbox_type,
+                    "gearbox_model": card.vehicle_profile.gearbox_model,
+                    "drivetrain": card.vehicle_profile.drivetrain,
                     "card_id": card.id,
                 }
             )
+        query_text = self._normalize_search_text(query)
+        query_compact = re.sub(r"[\W_]+", "", query_text)
+        query_digits = re.sub(r"\D+", "", query)
+        if query_text or query_digits:
+            def vehicle_score(item: dict[str, str]) -> int:
+                score = 0
+                values = [
+                    item.get("vin", ""),
+                    item.get("license_plate", ""),
+                    item.get("body_number", ""),
+                    item.get("chassis_number", ""),
+                    item.get("vehicle", ""),
+                    item.get("brand", ""),
+                    item.get("model", ""),
+                    item.get("year", ""),
+                ]
+                for value in values:
+                    normalized = self._normalize_search_text(value)
+                    compact = re.sub(r"[\W_]+", "", normalized)
+                    digits = re.sub(r"\D+", "", value)
+                    if query_text and normalized == query_text:
+                        score += 20
+                    elif query_text and query_text in normalized:
+                        score += 8
+                    if query_compact and compact == query_compact:
+                        score += 18
+                    elif query_compact and query_compact in compact:
+                        score += 6
+                    if query_digits and digits and query_digits in digits:
+                        score += 10
+                return score
+
+            vehicles.sort(key=vehicle_score, reverse=True)
         return vehicles
 
     def _client_orders(self, client: ClientProfile, cards: list[Card]) -> list[dict[str, Any]]:
@@ -5069,11 +5286,12 @@ class CardService:
         include_stats: bool = False,
         compact: bool = False,
         include_vehicle_preview: bool = True,
+        query: str = "",
     ) -> dict[str, Any]:
         payload = client.to_dict()
         payload["short_id"] = short_entity_id(client.id, prefix="CL")
         payload["vehicles_preview"] = (
-            self._client_vehicles(client, cards)[:2]
+            self._client_vehicles(client, cards, query=query)[:2]
             if include_vehicle_preview
             else [vehicle.to_dict() for vehicle in client.vehicles[:2]]
         )
@@ -5143,6 +5361,12 @@ class CardService:
                     vehicle.vin,
                     vehicle.license_plate,
                     vehicle.year,
+                    vehicle.body_number,
+                    vehicle.chassis_number,
+                    vehicle.engine_code,
+                    vehicle.engine_model,
+                    vehicle.gearbox_model,
+                    vehicle.drivetrain,
                 }
             )
         keys: set[str] = set()
@@ -5172,6 +5396,12 @@ class CardService:
                     vehicle.vin,
                     vehicle.license_plate,
                     vehicle.year,
+                    vehicle.body_number,
+                    vehicle.chassis_number,
+                    vehicle.engine_code,
+                    vehicle.engine_model,
+                    vehicle.gearbox_model,
+                    vehicle.drivetrain,
                 ]
             )
         return "".join(re.sub(r"\D+", "", str(value or "")) for value in values)
@@ -5233,6 +5463,12 @@ class CardService:
                 vehicle.vin,
                 vehicle.license_plate,
                 vehicle.year,
+                vehicle.body_number,
+                vehicle.chassis_number,
+                vehicle.engine_code,
+                vehicle.engine_model,
+                vehicle.gearbox_model,
+                vehicle.drivetrain,
             )
             for vehicle in client.vehicles
         )
@@ -5281,6 +5517,12 @@ class CardService:
                         vehicle.vin,
                         vehicle.license_plate,
                         vehicle.year,
+                        vehicle.body_number,
+                        vehicle.chassis_number,
+                        vehicle.engine_code,
+                        vehicle.engine_model,
+                        vehicle.gearbox_model,
+                        vehicle.drivetrain,
                     ]
                 )
             searchable = [self._normalize_search_text(value) for value in fields if value]
@@ -5472,6 +5714,209 @@ class CardService:
                     card.repair_order.phone = client_phone
                     changed = True
         return changed
+
+    def _find_client_vehicle_or_none(
+        self, client: ClientProfile, vehicle_id: str | None
+    ) -> ClientVehicle | None:
+        requested_id = normalize_text(vehicle_id, default="", limit=128)
+        if not requested_id:
+            return None
+        requested_short_id = requested_id.upper()
+        for vehicle in client.vehicles:
+            if (
+                vehicle.id == requested_id
+                or short_entity_id(vehicle.id, prefix="CV").upper() == requested_short_id
+            ):
+                return vehicle
+        return None
+
+    def _find_client_vehicle(self, client: ClientProfile, vehicle_id: str | None) -> ClientVehicle:
+        vehicle = self._find_client_vehicle_or_none(client, vehicle_id)
+        if vehicle is None:
+            self._fail(
+                "not_found",
+                "Автомобиль клиента не найден.",
+                status_code=404,
+                details={
+                    "client_id": client.id,
+                    "client_vehicle_id": normalize_text(vehicle_id, default="", limit=128),
+                },
+            )
+        return vehicle
+
+    def _replace_client_vehicle(self, client: ClientProfile, vehicle: ClientVehicle) -> None:
+        for index, candidate in enumerate(client.vehicles):
+            if candidate.id == vehicle.id:
+                client.vehicles[index] = vehicle
+                return
+        client.vehicles.append(vehicle)
+
+    def _dedupe_client_vehicles(self, vehicles: list[ClientVehicle]) -> list[ClientVehicle]:
+        return ClientProfile(
+            id=str(uuid.uuid4()),
+            display_name="temporary",
+            vehicles=vehicles,
+        ).vehicles
+
+    def _validated_client_vehicle(self, payload: dict[str, Any]) -> ClientVehicle:
+        source_payload: dict[str, Any] = {}
+        nested = payload.get("vehicle")
+        if isinstance(nested, dict):
+            source_payload.update(nested)
+        source_payload.update(
+            {
+                key: value
+                for key, value in payload.items()
+                if not (key == "vehicle" and isinstance(nested, dict))
+                and key
+                in {
+                    "id",
+                    "client_vehicle_id",
+                    "vehicle",
+                    "brand",
+                    "make",
+                    "model",
+                    "vin",
+                    "license_plate",
+                    "registration_plate",
+                    "plate",
+                    "year",
+                    "mileage",
+                    "body_number",
+                    "chassis_number",
+                    "engine_code",
+                    "engine_model",
+                    "gearbox_type",
+                    "gearbox_model",
+                    "drivetrain",
+                    "drive_type",
+                    "notes",
+                    "comment",
+                }
+            }
+        )
+        vehicle = ClientVehicle.from_value(source_payload)
+        if vehicle is None:
+            self._fail(
+                "validation_error",
+                "У автомобиля клиента должны быть модель, VIN, госномер или номер кузова.",
+                details={"field": "vehicle"},
+            )
+        return vehicle
+
+    def _client_vehicle_from_card(self, card: Card, *, vehicle_id: str = "") -> ClientVehicle:
+        profile = card.vehicle_profile
+        order = card.repair_order
+        year = str(profile.production_year or "").strip()
+        mileage = str(profile.mileage or order.mileage or "").strip()
+        vehicle = ClientVehicle.from_value(
+            {
+                "id": vehicle_id or str(uuid.uuid4()),
+                "vehicle": card.vehicle_display() or order.vehicle,
+                "brand": profile.make_display,
+                "model": profile.model_display,
+                "vin": profile.vin or order.vin,
+                "license_plate": profile.registration_plate or order.license_plate,
+                "year": year,
+                "mileage": mileage,
+                "body_number": profile.body_number,
+                "chassis_number": profile.chassis_number,
+                "engine_code": profile.engine_code,
+                "engine_model": profile.engine_model,
+                "gearbox_type": profile.gearbox_type,
+                "gearbox_model": profile.gearbox_model,
+                "drivetrain": profile.drivetrain,
+            }
+        )
+        if vehicle is None:
+            self._fail(
+                "validation_error",
+                "В карточке нет достаточных данных для создания автомобиля клиента.",
+                details={"card_id": card.id},
+            )
+        return vehicle
+
+    def _merge_client_vehicle(
+        self, existing: ClientVehicle, incoming: ClientVehicle
+    ) -> ClientVehicle:
+        payload = existing.to_dict()
+        incoming_payload = incoming.to_dict()
+        for key, value in incoming_payload.items():
+            if key == "id":
+                continue
+            if str(value or "").strip():
+                payload[key] = value
+        payload["id"] = existing.id
+        return ClientVehicle.from_value(payload) or existing
+
+    def _client_vehicle_profile_patch(self, vehicle: ClientVehicle) -> dict[str, Any]:
+        patch: dict[str, Any] = {
+            "make_display": vehicle.brand,
+            "model_display": vehicle.model,
+            "vin": vehicle.vin,
+            "registration_plate": vehicle.license_plate,
+            "body_number": vehicle.body_number,
+            "chassis_number": vehicle.chassis_number,
+            "engine_code": vehicle.engine_code,
+            "engine_model": vehicle.engine_model,
+            "gearbox_type": vehicle.gearbox_type,
+            "gearbox_model": vehicle.gearbox_model,
+            "drivetrain": vehicle.drivetrain,
+        }
+        if str(vehicle.year or "").strip().isdigit():
+            patch["production_year"] = int(str(vehicle.year).strip())
+        if str(vehicle.mileage or "").strip().isdigit():
+            patch["mileage"] = int(str(vehicle.mileage).strip())
+        return {key: value for key, value in patch.items() if value not in ("", None)}
+
+    def _sync_card_vehicle_fields(
+        self, card: Card, vehicle: ClientVehicle, *, overwrite: bool = True
+    ) -> bool:
+        changed = False
+        vehicle_label = vehicle.vehicle or " ".join(
+            part for part in (vehicle.brand, vehicle.model, vehicle.year) if part
+        ).strip()
+        if vehicle_label and (overwrite or not card.vehicle):
+            next_vehicle = self._validated_vehicle(vehicle_label)
+            if card.vehicle != next_vehicle:
+                card.vehicle = next_vehicle
+                changed = True
+        patch = self._client_vehicle_profile_patch(vehicle)
+        if not overwrite:
+            current = card.vehicle_profile.to_dict()
+            patch = {
+                key: value
+                for key, value in patch.items()
+                if not str(current.get(key) or "").strip()
+            }
+        if patch:
+            profile, _changed_fields = self._merge_vehicle_profile_patch(
+                card.vehicle_profile, patch
+            )
+            if profile.to_storage_dict() != card.vehicle_profile.to_storage_dict():
+                card.vehicle_profile = profile
+                card.vehicle = self._resolved_card_vehicle_label(card.vehicle, profile)
+                changed = True
+        return changed
+
+    def _sync_linked_client_vehicle_from_card(
+        self, clients: list[ClientProfile], card: Card
+    ) -> bool:
+        if not card.client_id or not card.client_vehicle_id:
+            return False
+        client = self._find_client_or_none(clients, card.client_id)
+        if client is None:
+            return False
+        existing = self._find_client_vehicle_or_none(client, card.client_vehicle_id)
+        if existing is None:
+            return False
+        incoming = self._client_vehicle_from_card(card, vehicle_id=existing.id)
+        merged = self._merge_client_vehicle(existing, incoming)
+        if merged.to_dict() == existing.to_dict():
+            return False
+        self._replace_client_vehicle(client, merged)
+        client.updated_at = utc_now_iso()
+        return True
 
     def _serialize_sticky(self, sticky: StickyNote) -> dict:
         return sticky.to_dict()

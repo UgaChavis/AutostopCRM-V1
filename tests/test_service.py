@@ -433,6 +433,104 @@ class CardServiceTests(unittest.TestCase):
         search = self.service.search_clients({"query": "Probox", "limit": 5})
         self.assertEqual(search["clients"][0]["id"], client["id"])
         self.assertEqual(search["clients"][0]["vehicles_preview"][0]["vehicle"], "Toyota Probox")
+        self.assertTrue(search["clients"][0]["vehicles_preview"][0]["id"])
+
+    def test_card_can_link_to_specific_client_vehicle(self) -> None:
+        client = self.service.create_client(
+            {
+                "display_name": "Мульти Клиент",
+                "phone": "+7 913 777-88-99",
+                "vehicles": [
+                    {
+                        "vehicle": "Toyota Camry 2018",
+                        "brand": "Toyota",
+                        "model": "Camry",
+                        "vin": "JTDBE32K620654321",
+                        "license_plate": "А777ВС124",
+                        "year": "2018",
+                    },
+                    {
+                        "vehicle": "Mercedes-Benz E200 2014",
+                        "brand": "Mercedes-Benz",
+                        "model": "E200",
+                        "vin": "WDD2120341B009639",
+                        "license_plate": "У867РУ124",
+                        "year": "2014",
+                    },
+                ],
+            }
+        )["client"]
+        vehicle_id = client["vehicles"][1]["id"]
+        created = self.service.create_card(
+            {
+                "title": "Выбор автомобиля",
+                "description": "Клиент приехал на Mercedes",
+                "deadline": {"hours": 2},
+                "vehicle_profile": {"customer_name": "Мульти Клиент"},
+            }
+        )["card"]
+
+        linked = self.service.link_card_to_client(
+            {
+                "card_id": created["id"],
+                "client_id": client["id"],
+                "client_vehicle_id": vehicle_id,
+                "sync_vehicle_fields": True,
+            }
+        )
+
+        self.assertEqual(linked["card"]["client_id"], client["id"])
+        self.assertEqual(linked["card"]["client_vehicle_id"], vehicle_id)
+        self.assertEqual(linked["card"]["vehicle_profile"]["vin"], "WDD2120341B009639")
+        self.assertEqual(linked["card"]["vehicle_profile"]["registration_plate"], "У867РУ124")
+        self.assertEqual(linked["card"]["vehicle_profile"]["make_display"], "Mercedes-Benz")
+
+    def test_link_card_to_client_can_create_vehicle_from_card_and_sync_back(self) -> None:
+        client = self.service.create_client(
+            {"display_name": "Клиент с новым авто", "phone": "+7 913 111-22-33"}
+        )["client"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Nissan X-Trail 2019",
+                "title": "Новый автомобиль",
+                "description": "Первичный осмотр",
+                "deadline": {"hours": 2},
+                "vehicle_profile": {
+                    "make_display": "Nissan",
+                    "model_display": "X-Trail",
+                    "production_year": 2019,
+                    "vin": "JN1TANT32U0012345",
+                    "registration_plate": "Н111НН124",
+                },
+            }
+        )["card"]
+
+        linked = self.service.link_card_to_client(
+            {
+                "card_id": created["id"],
+                "client_id": client["id"],
+                "create_vehicle_from_card": True,
+            }
+        )
+        vehicle_id = linked["card"]["client_vehicle_id"]
+        self.assertTrue(vehicle_id)
+
+        profile = self.service.get_client({"client_id": client["id"]})
+        self.assertEqual(profile["vehicles"][0]["id"], vehicle_id)
+        self.assertEqual(profile["vehicles"][0]["vin"], "JN1TANT32U0012345")
+
+        self.service.update_card(
+            {
+                "card_id": created["id"],
+                "vehicle_profile": {
+                    "vin": "JN1TANT32U0099999",
+                    "registration_plate": "Н999НН124",
+                },
+            }
+        )
+        updated_profile = self.service.get_client({"client_id": client["id"]})
+        self.assertEqual(updated_profile["vehicles"][0]["vin"], "JN1TANT32U0099999")
+        self.assertEqual(updated_profile["vehicles"][0]["license_plate"], "Н999НН124")
 
     def test_client_search_matches_common_russian_phone_variants(self) -> None:
         client = self.service.create_client(

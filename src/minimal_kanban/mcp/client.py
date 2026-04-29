@@ -301,19 +301,47 @@ class BoardApiClient:
         card_id: str,
         client_id: str,
         *,
+        client_vehicle_id: str | None = None,
+        create_vehicle_from_card: bool = False,
+        sync_vehicle_fields: bool = True,
         sync_fields: bool = True,
         overwrite_card_fields: bool = False,
         actor_name: str | None = None,
     ) -> dict:
+        payload: dict[str, object] = {
+            "card_id": card_id,
+            "client_id": client_id,
+            "sync_fields": sync_fields,
+            "overwrite_card_fields": overwrite_card_fields,
+            "create_vehicle_from_card": create_vehicle_from_card,
+            "sync_vehicle_fields": sync_vehicle_fields,
+        }
+        if client_vehicle_id:
+            payload["client_vehicle_id"] = client_vehicle_id
         return self._request_with_identity(
             "/api/link_card_to_client",
-            {
-                "card_id": card_id,
-                "client_id": client_id,
-                "sync_fields": sync_fields,
-                "overwrite_card_fields": overwrite_card_fields,
-            },
+            payload,
             actor_name=actor_name,
+        )
+
+    def upsert_client_vehicle(
+        self,
+        client_id: str,
+        vehicle: dict[str, object] | None = None,
+        *,
+        client_vehicle_id: str | None = None,
+        card_id: str | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {"client_id": client_id}
+        if vehicle is not None:
+            payload["vehicle"] = vehicle
+        if client_vehicle_id:
+            payload["client_vehicle_id"] = client_vehicle_id
+        if card_id:
+            payload["card_id"] = card_id
+        return self._request_with_identity(
+            "/api/upsert_client_vehicle", payload, actor_name=actor_name
         )
 
     def unlink_card_from_client(

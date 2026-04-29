@@ -1866,6 +1866,9 @@ class TelegramAICRMToolTests(unittest.TestCase):
         self.assertIn("review_board", names)
         self.assertIn("bulk_move_cards", names)
         self.assertIn("mark_card_ready", names)
+        self.assertIn("search_clients", names)
+        self.assertIn("link_card_to_client", names)
+        self.assertIn("upsert_client_vehicle", names)
         self.assertIn("create_sticky", names)
         self.assertIn("create_cash_transaction", names)
 

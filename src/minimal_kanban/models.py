@@ -233,14 +233,25 @@ def normalize_client_phones(value) -> list[str]:
 
 @dataclass(slots=True)
 class ClientVehicle:
+    id: str = ""
     vehicle: str = ""
     brand: str = ""
     model: str = ""
     vin: str = ""
     license_plate: str = ""
     year: str = ""
+    mileage: str = ""
+    body_number: str = ""
+    chassis_number: str = ""
+    engine_code: str = ""
+    engine_model: str = ""
+    gearbox_type: str = ""
+    gearbox_model: str = ""
+    drivetrain: str = ""
+    notes: str = ""
 
     def __post_init__(self) -> None:
+        self.id = normalize_entity_id(self.id)
         self.brand = normalize_text(self.brand, default="", limit=CLIENT_FIELD_LIMIT)
         self.model = normalize_text(self.model, default="", limit=CLIENT_FIELD_LIMIT)
         generated_vehicle = " ".join(part for part in (self.brand, self.model) if part).strip()
@@ -252,15 +263,38 @@ class ClientVehicle:
             self.license_plate, default="", limit=CLIENT_FIELD_LIMIT
         ).upper()
         self.year = normalize_text(self.year, default="", limit=CLIENT_VEHICLE_YEAR_LIMIT)
+        self.mileage = normalize_text(self.mileage, default="", limit=CLIENT_FIELD_LIMIT)
+        self.body_number = normalize_text(self.body_number, default="", limit=CLIENT_FIELD_LIMIT)
+        self.chassis_number = normalize_text(
+            self.chassis_number, default="", limit=CLIENT_FIELD_LIMIT
+        )
+        self.engine_code = normalize_text(self.engine_code, default="", limit=CLIENT_FIELD_LIMIT)
+        self.engine_model = normalize_text(self.engine_model, default="", limit=CLIENT_FIELD_LIMIT)
+        self.gearbox_type = normalize_text(self.gearbox_type, default="", limit=CLIENT_FIELD_LIMIT)
+        self.gearbox_model = normalize_text(
+            self.gearbox_model, default="", limit=CLIENT_FIELD_LIMIT
+        )
+        self.drivetrain = normalize_text(self.drivetrain, default="", limit=CLIENT_FIELD_LIMIT)
+        self.notes = normalize_text(self.notes, default="", limit=CLIENT_NOTE_LIMIT)
 
     def to_dict(self) -> dict[str, str]:
         return {
+            "id": self.id,
             "vehicle": self.vehicle,
             "brand": self.brand,
             "model": self.model,
             "vin": self.vin,
             "license_plate": self.license_plate,
             "year": self.year,
+            "mileage": self.mileage,
+            "body_number": self.body_number,
+            "chassis_number": self.chassis_number,
+            "engine_code": self.engine_code,
+            "engine_model": self.engine_model,
+            "gearbox_type": self.gearbox_type,
+            "gearbox_model": self.gearbox_model,
+            "drivetrain": self.drivetrain,
+            "notes": self.notes,
         }
 
     @classmethod
@@ -269,6 +303,7 @@ class ClientVehicle:
             return cls(**value.to_dict())
         if isinstance(value, dict):
             vehicle = cls(
+                id=value.get("id") or value.get("client_vehicle_id") or "",
                 vehicle=value.get("vehicle") or value.get("name") or value.get("title") or "",
                 brand=value.get("brand") or value.get("make") or "",
                 model=value.get("model") or "",
@@ -280,11 +315,28 @@ class ClientVehicle:
                     or ""
                 ),
                 year=value.get("year") or "",
+                mileage=value.get("mileage") or "",
+                body_number=value.get("body_number") or "",
+                chassis_number=value.get("chassis_number") or "",
+                engine_code=value.get("engine_code") or "",
+                engine_model=value.get("engine_model") or "",
+                gearbox_type=value.get("gearbox_type") or "",
+                gearbox_model=value.get("gearbox_model") or "",
+                drivetrain=value.get("drivetrain") or value.get("drive_type") or "",
+                notes=value.get("notes") or value.get("comment") or "",
             )
         else:
             vehicle = cls(vehicle=value)
         if not any(
-            (vehicle.vehicle, vehicle.brand, vehicle.model, vehicle.vin, vehicle.license_plate)
+            (
+                vehicle.vehicle,
+                vehicle.brand,
+                vehicle.model,
+                vehicle.vin,
+                vehicle.license_plate,
+                vehicle.body_number,
+                vehicle.chassis_number,
+            )
         ):
             return None
         return vehicle
@@ -1106,6 +1158,7 @@ class Card:
     position: int = 0
     vehicle: str = ""
     client_id: str = ""
+    client_vehicle_id: str = ""
     vehicle_profile: VehicleProfile = field(default_factory=VehicleProfile)
     repair_order: RepairOrder = field(default_factory=RepairOrder)
     tags: list[CardTag] = field(default_factory=list)
@@ -1123,6 +1176,7 @@ class Card:
 
     def __post_init__(self) -> None:
         self.client_id = normalize_text(self.client_id, default="", limit=128)
+        self.client_vehicle_id = normalize_text(self.client_vehicle_id, default="", limit=128)
         self.tags = normalize_tags(self.tags)
         self.position = normalize_int(self.position, default=0, minimum=0)
         self.seen_by_users = normalize_seen_by_users(self.seen_by_users)
@@ -1275,6 +1329,7 @@ class Card:
             "heading": self.heading(),
             "vehicle": vehicle_display,
             "client_id": self.client_id,
+            "client_vehicle_id": self.client_vehicle_id,
             "title": self.title,
             "description": self.description,
             "description_preview": description_preview,
@@ -1343,6 +1398,7 @@ class Card:
             "id": self.id,
             "vehicle": self.vehicle,
             "client_id": self.client_id,
+            "client_vehicle_id": self.client_vehicle_id,
             "vehicle_profile": self.vehicle_profile.to_storage_dict(),
             "repair_order": self.repair_order.to_storage_dict(),
             "title": self.title,
@@ -1434,6 +1490,9 @@ class Card:
             deadline_total_seconds=deadline_total_seconds,
             vehicle=vehicle,
             client_id=normalize_text(payload.get("client_id"), default="", limit=128),
+            client_vehicle_id=normalize_text(
+                payload.get("client_vehicle_id"), default="", limit=128
+            ),
             vehicle_profile=vehicle_profile,
             repair_order=repair_order,
             tags=normalize_tags(payload.get("tag_items", payload.get("tags"))),

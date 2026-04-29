@@ -743,7 +743,12 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("client-mini__order-status", BOARD_WEB_APP_HTML)
         self.assertIn("client-mini__order-total-value", BOARD_WEB_APP_HTML)
         self.assertIn("client-match-item__vehicles", BOARD_WEB_APP_HTML)
-        self.assertIn("data-select-client-suggestion", BOARD_WEB_APP_HTML)
+        self.assertIn("НАЙДЕННЫЕ КЛИЕНТЫ И АВТОМОБИЛИ", BOARD_WEB_APP_HTML)
+        self.assertIn("data-select-client-vehicle", BOARD_WEB_APP_HTML)
+        self.assertIn("data-select-client-new-vehicle", BOARD_WEB_APP_HTML)
+        self.assertIn("data-load-client-vehicles", BOARD_WEB_APP_HTML)
+        self.assertIn("pendingCardClientVehicleId", BOARD_WEB_APP_HTML)
+        self.assertIn("pendingCreateClientVehicleFromCard", BOARD_WEB_APP_HTML)
         self.assertIn("pendingCardClientId", BOARD_WEB_APP_HTML)
         self.assertNotIn("clientProfileMeta", BOARD_WEB_APP_HTML)
         self.assertIn(".clients-list-pane {", BOARD_WEB_APP_HTML)
@@ -764,9 +769,11 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("async function openClientsModal()", BOARD_WEB_APP_HTML)
-        self.assertIn("async function linkActiveCardToClient(clientId)", BOARD_WEB_APP_HTML)
+        self.assertIn("async function linkActiveCardToClient(clientId,", BOARD_WEB_APP_HTML)
+        self.assertIn("async function loadClientSuggestionVehicles(clientId)", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/link_card_to_client'", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/search_clients?query='", BOARD_WEB_APP_HTML)
+        self.assertIn("client_vehicle_id: state.pendingCardClientVehicleId", BOARD_WEB_APP_HTML)
 
     def test_vehicle_panel_uses_larger_readable_typography(self) -> None:
         self.assertIn(".vehicle-panel__summary {", BOARD_WEB_APP_HTML)

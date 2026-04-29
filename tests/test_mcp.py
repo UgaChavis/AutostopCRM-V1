@@ -97,6 +97,7 @@ EXPECTED_MCP_TOOLS = {
     "update_repair_order",
     "update_sticky",
     "link_card_to_client",
+    "upsert_client_vehicle",
     "unlink_card_from_client",
 }
 
@@ -218,7 +219,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 61)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 62)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 self.assertTrue(tool_map["ping_connector"].annotations.readOnlyHint)
                 self.assertFalse(tool_map["ping_connector"].annotations.destructiveHint)
@@ -1418,6 +1419,24 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(stats.isError)
                 self.assertEqual(stats.structuredContent["data"]["stats"]["cards_total"], 0)
 
+                vehicle = await session.call_tool(
+                    "upsert_client_vehicle",
+                    {
+                        "client_id": client_id,
+                        "vehicle": {
+                            "vehicle": "Nissan X-Trail 2018",
+                            "brand": "Nissan",
+                            "model": "X-Trail",
+                            "vin": "JN1TANT32U0012345",
+                            "license_plate": "Н123НТ124",
+                            "year": "2018",
+                        },
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(vehicle.isError)
+                vehicle_id = vehicle.structuredContent["data"]["vehicle"]["id"]
+
                 updated = await session.call_tool(
                     "update_client",
                     {
@@ -1457,11 +1476,15 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     {
                         "card_id": card_id,
                         "client_id": client_id,
+                        "client_vehicle_id": vehicle_id,
                         "actor_name": "ОПЕРАТОР",
                     },
                 )
                 self.assertFalse(linked.isError)
                 self.assertEqual(linked.structuredContent["data"]["card"]["client_id"], client_id)
+                self.assertEqual(
+                    linked.structuredContent["data"]["card"]["client_vehicle_id"], vehicle_id
+                )
 
                 unlinked = await session.call_tool(
                     "unlink_card_from_client",

@@ -5830,6 +5830,46 @@ BOARD_WEB_APP_HTML = "".join(
       font-size: 12px;
       line-height: 1.35;
     }
+    .client-match-vehicles {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: 7px;
+    }
+    .client-match-vehicle,
+    .client-match-new-vehicle,
+    .client-match-load {
+      width: 100%;
+      border: 1px solid rgba(160, 174, 135, 0.22);
+      background: rgba(8, 12, 10, 0.48);
+      color: var(--text);
+      padding: 7px 8px;
+      text-align: left;
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1.3;
+    }
+    .client-match-vehicle:hover,
+    .client-match-new-vehicle:hover,
+    .client-match-load:hover,
+    .client-match-vehicle.is-exact {
+      border-color: var(--accent);
+      background: rgba(52, 62, 47, 0.72);
+    }
+    .client-match-vehicle__label {
+      display: block;
+      font-weight: 800;
+    }
+    .client-match-vehicle__meta {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+    }
+    .client-match-new-vehicle {
+      border-style: dashed;
+      color: var(--accent);
+      font-weight: 800;
+    }
     .client-match-empty {
       border: 1px dashed rgba(160, 174, 135, 0.24);
       padding: 8px;
@@ -6386,7 +6426,7 @@ BOARD_WEB_APP_HTML = "".join(
             </div>
             <div class="vehicle-panel__fields" id="vehicleProfileFields"></div>
             <div class="client-match-panel" id="clientMatchPanel">
-              <div class="panel-title">ПОХОЖИЕ КЛИЕНТЫ</div>
+              <div class="panel-title">НАЙДЕННЫЕ КЛИЕНТЫ И АВТОМОБИЛИ</div>
               <div class="client-match-list" id="clientMatchList"></div>
             </div>
             <div class="vehicle-panel__repair">
@@ -6713,6 +6753,7 @@ BOARD_WEB_APP_HTML = "".join(
       clientsMetaState: null,
       clientSuggestTimer: null,
       clientSuggestions: [],
+      clientSuggestionProfiles: {},
       cashboxes: [],
       activeCashboxId: '',
       activeCashbox: null,
@@ -6769,6 +6810,8 @@ BOARD_WEB_APP_HTML = "".join(
       pendingCardClientId: '',
       clientSuggestionFocusIndex: -1,
       clientSuggestionQuery: '',
+      pendingCardClientVehicleId: '',
+      pendingCreateClientVehicleFromCard: false,
       filePreview: {
         attachmentId: '',
         fileName: '',
@@ -9479,6 +9522,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     function hideClientSuggestions() {
       state.clientSuggestions = [];
+      state.clientSuggestionProfiles = {};
       state.clientSuggestionFocusIndex = -1;
       state.clientSuggestionQuery = '';
       if (els.clientMatchPanel) els.clientMatchPanel.classList.remove('is-visible');
@@ -9496,6 +9540,54 @@ BOARD_WEB_APP_HTML = "".join(
       const total = Number(client?.stats?.vehicles_total ?? vehicles.length);
       if (total > visible.length) visible.push('+' + (total - visible.length) + ' авто');
       return visible.join(' / ');
+    }
+
+    function clientSuggestionVehicles(client) {
+      const profile = state.clientSuggestionProfiles?.[client?.id] || null;
+      const fullVehicles = Array.isArray(profile?.vehicles) ? profile.vehicles : [];
+      const previewVehicles = Array.isArray(client?.vehicles_preview) ? client.vehicles_preview : [];
+      return fullVehicles.length ? fullVehicles : previewVehicles;
+    }
+
+    function vehicleMatchScoreForQuery(vehicle, query) {
+      const normalizedQuery = normalizeClientSearchText(query);
+      const compactQuery = normalizedQuery.replace(/[\\W_]+/g, '');
+      const digitsQuery = String(query || '').replace(/\\D+/g, '');
+      if (!normalizedQuery && !digitsQuery) return 0;
+      const values = [
+        vehicle?.vin,
+        vehicle?.license_plate,
+        vehicle?.registration_plate,
+        vehicle?.body_number,
+        vehicle?.chassis_number,
+        vehicle?.vehicle,
+        vehicle?.brand,
+        vehicle?.model,
+        vehicle?.year,
+      ];
+      let score = 0;
+      values.forEach((value) => {
+        const normalized = normalizeClientSearchText(value);
+        const compact = normalized.replace(/[\\W_]+/g, '');
+        const digits = String(value || '').replace(/\\D+/g, '');
+        if (normalizedQuery && normalized === normalizedQuery) score += 20;
+        else if (normalizedQuery && normalized.includes(normalizedQuery)) score += 8;
+        if (compactQuery && compact === compactQuery) score += 18;
+        else if (compactQuery && compact.includes(compactQuery)) score += 6;
+        if (digitsQuery && digits && digits.includes(digitsQuery)) score += 10;
+      });
+      return score;
+    }
+
+    function clientSuggestionVehicleHtml(client, vehicle) {
+      const vehicleId = String(vehicle?.id || '').trim();
+      const exact = vehicleMatchScoreForQuery(vehicle, state.clientSuggestionQuery) >= 18;
+      const label = String(vehicle?.vehicle || [vehicle?.brand, vehicle?.model, vehicle?.year].filter(Boolean).join(' ') || 'Автомобиль').trim();
+      const meta = [vehicle?.license_plate, vehicle?.vin, vehicle?.body_number].filter(Boolean).join(' · ') || 'VIN / номер не указан';
+      return '<button class="client-match-vehicle' + (exact ? ' is-exact' : '') + '" type="button" data-select-client-vehicle="' + escapeHtml(vehicleId) + '" data-client-id="' + escapeHtml(client.id || '') + '">'
+        + '<span class="client-match-vehicle__label">' + escapeHtml(exact ? ('ТОЧНОЕ СОВПАДЕНИЕ · ' + label) : label) + '</span>'
+        + '<span class="client-match-vehicle__meta">' + escapeHtml(meta) + '</span>'
+        + '</button>';
     }
 
     function highlightedClientNameHtml(name, query) {
@@ -9524,18 +9616,35 @@ BOARD_WEB_APP_HTML = "".join(
         els.clientMatchList.innerHTML = '<div class="client-match-empty">КЛИЕНТ НЕ НАЙДЕН.<button class="btn btn--ghost client-match-create" type="button" data-client-suggest-create="true">СОЗДАТЬ НОВОГО</button></div>';
         return;
       }
-      els.clientMatchList.innerHTML = state.clientSuggestions.map((client, index) => (
-        '<button class="client-match-item' + (index === state.clientSuggestionFocusIndex ? ' is-active' : '') + '" type="button" data-select-client-suggestion="' + escapeHtml(client.id) + '">'
+      els.clientMatchList.innerHTML = state.clientSuggestions.map((client, index) => {
+        const vehicles = clientSuggestionVehicles(client);
+        const visibleVehicles = vehicles.slice(0, 3);
+        const total = Number(client?.stats?.vehicles_total ?? vehicles.length);
+        const loadMore = total > visibleVehicles.length
+          ? '<button class="client-match-load" type="button" data-load-client-vehicles="' + escapeHtml(client.id || '') + '">ПОКАЗАТЬ ВСЕ АВТО (' + escapeHtml(String(total)) + ')</button>'
+          : '';
+        return '<div class="client-match-item' + (index === state.clientSuggestionFocusIndex ? ' is-active' : '') + '" data-client-suggestion="' + escapeHtml(client.id || '') + '">'
         + '<div class="client-match-item__name">' + highlightedClientNameHtml(clientDisplayName(client), state.clientSuggestionQuery) + '</div>'
         + '<div class="client-match-item__phone">' + escapeHtml(client.phone || 'телефон не указан') + '</div>'
         + '<div class="client-match-item__vehicles">' + escapeHtml(clientSuggestionVehicleText(client)) + '</div>'
-        + '</button>'
-      )).join('');
+        + '<div class="client-match-vehicles">'
+        + visibleVehicles.map((vehicle) => clientSuggestionVehicleHtml(client, vehicle)).join('')
+        + loadMore
+        + '<button class="client-match-new-vehicle" type="button" data-select-client-new-vehicle="' + escapeHtml(client.id || '') + '">ЭТОТ КЛИЕНТ, НО НОВЫЙ АВТОМОБИЛЬ</button>'
+        + '</div>'
+        + '</div>';
+      }).join('');
     }
 
     async function refreshClientSuggestionsForCard() {
       const profile = readVehicleProfileForm();
-      const query = [profile.customer_name, profile.customer_phone].filter(Boolean).join(' ');
+      const query = [
+        profile.customer_name,
+        profile.customer_phone,
+        profile.vin,
+        profile.registration_plate,
+        profile.body_number,
+      ].filter(Boolean).join(' ');
       const trimmedQuery = query.trim();
       const queryDigits = trimmedQuery.replace(/\\D+/g, '');
       if (trimmedQuery.length < 2 && queryDigits.length < 3) {
@@ -9546,10 +9655,17 @@ BOARD_WEB_APP_HTML = "".join(
       try {
         const data = await api('/api/search_clients?query=' + encodeURIComponent(trimmedQuery) + '&limit=6');
         const currentProfile = readVehicleProfileForm();
-        const currentQuery = [currentProfile.customer_name, currentProfile.customer_phone].filter(Boolean).join(' ').trim();
+        const currentQuery = [
+          currentProfile.customer_name,
+          currentProfile.customer_phone,
+          currentProfile.vin,
+          currentProfile.registration_plate,
+          currentProfile.body_number,
+        ].filter(Boolean).join(' ').trim();
         if (currentQuery !== trimmedQuery) return;
         const clients = data?.clients || [];
         state.clientSuggestionFocusIndex = clients.length ? 0 : -1;
+        state.clientSuggestionProfiles = {};
         renderClientSuggestions(clients, { query: trimmedQuery, showEmpty: true });
       } catch (_) {
         hideClientSuggestions();
@@ -9561,31 +9677,67 @@ BOARD_WEB_APP_HTML = "".join(
       state.clientSuggestTimer = window.setTimeout(refreshClientSuggestionsForCard, 300);
     }
 
-    function applyClientSuggestionToVehicleProfile(client) {
+    function applyClientSuggestionToVehicleProfile(client, vehicle = null, { createNewVehicle = false } = {}) {
       if (!client) return;
       state.pendingCardClientId = client.id || '';
+      state.pendingCardClientVehicleId = createNewVehicle ? '' : String(vehicle?.id || '').trim();
+      state.pendingCreateClientVehicleFromCard = Boolean(createNewVehicle);
       const profile = cloneVehicleProfile(state.vehicleProfileDraft || emptyVehicleProfile());
       const clientName = clientDisplayName(client);
       if (clientName) profile.customer_name = clientName;
       if (client.phone) profile.customer_phone = client.phone;
-      const vehicles = Array.isArray(client.vehicles_preview) ? client.vehicles_preview : [];
-      const firstVehicle = vehicles[0] || {};
-      if (!profile.display_name && firstVehicle.vehicle) profile.display_name = firstVehicle.vehicle;
-      if (!profile.registration_plate && firstVehicle.license_plate) profile.registration_plate = firstVehicle.license_plate;
-      if (!profile.vin && firstVehicle.vin) profile.vin = firstVehicle.vin;
+      const selectedVehicle = vehicle || {};
+      if (!createNewVehicle && selectedVehicle) {
+        if (selectedVehicle.vehicle) profile.display_name = selectedVehicle.vehicle;
+        if (selectedVehicle.brand) profile.make_display = selectedVehicle.brand;
+        if (selectedVehicle.model) profile.model_display = selectedVehicle.model;
+        if (selectedVehicle.year && /^\\d+$/.test(String(selectedVehicle.year))) profile.production_year = Number(selectedVehicle.year);
+        if (selectedVehicle.mileage && /^\\d+$/.test(String(selectedVehicle.mileage))) profile.mileage = Number(selectedVehicle.mileage);
+        if (selectedVehicle.license_plate) profile.registration_plate = selectedVehicle.license_plate;
+        if (selectedVehicle.vin) profile.vin = selectedVehicle.vin;
+        if (selectedVehicle.body_number) profile.body_number = selectedVehicle.body_number;
+        if (selectedVehicle.chassis_number) profile.chassis_number = selectedVehicle.chassis_number;
+        if (selectedVehicle.engine_code) profile.engine_code = selectedVehicle.engine_code;
+        if (selectedVehicle.engine_model) profile.engine_model = selectedVehicle.engine_model;
+        if (selectedVehicle.gearbox_type) profile.gearbox_type = selectedVehicle.gearbox_type;
+        if (selectedVehicle.gearbox_model) profile.gearbox_model = selectedVehicle.gearbox_model;
+        if (selectedVehicle.drivetrain) profile.drivetrain = selectedVehicle.drivetrain;
+      }
       applyVehicleProfileToForm(profile, { preserveStatus: true });
     }
 
-    async function chooseClientSuggestion(clientId) {
+    async function loadClientSuggestionVehicles(clientId) {
       const client = state.clientSuggestions.find((item) => item.id === clientId);
       if (!client) return;
-      applyClientSuggestionToVehicleProfile(client);
+      try {
+        const data = await api('/api/get_client?client_id=' + encodeURIComponent(clientId) + '&order_limit=5');
+        state.clientSuggestionProfiles = { ...(state.clientSuggestionProfiles || {}), [clientId]: data || {} };
+        renderClientSuggestions(state.clientSuggestions, { query: state.clientSuggestionQuery, showEmpty: true });
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    async function chooseClientSuggestion(clientId, vehicleId = '', { createNewVehicle = false } = {}) {
+      const client = state.clientSuggestions.find((item) => item.id === clientId);
+      if (!client) return;
+      if (vehicleId && !state.clientSuggestionProfiles?.[clientId]) {
+        await loadClientSuggestionVehicles(clientId);
+      }
+      const vehicles = clientSuggestionVehicles(client);
+      const selectedVehicle = vehicleId
+        ? vehicles.find((vehicle) => String(vehicle?.id || '') === String(vehicleId))
+        : null;
+      applyClientSuggestionToVehicleProfile(client, selectedVehicle, { createNewVehicle });
       hideClientSuggestions();
       if (state.editingId) {
-        await linkActiveCardToClient(clientId);
-        applyClientSuggestionToVehicleProfile(client);
+        await linkActiveCardToClient(clientId, {
+          clientVehicleId: selectedVehicle?.id || '',
+          createVehicleFromCard: createNewVehicle,
+        });
+        applyClientSuggestionToVehicleProfile(client, selectedVehicle, { createNewVehicle });
       } else {
-        setStatus('КЛИЕНТ ВЫБРАН ДЛЯ НОВОЙ КАРТОЧКИ.', false);
+        setStatus(createNewVehicle ? 'КЛИЕНТ ВЫБРАН, АВТОМОБИЛЬ БУДЕТ ДОБАВЛЕН.' : 'КЛИЕНТ И АВТОМОБИЛЬ ВЫБРАНЫ ДЛЯ НОВОЙ КАРТОЧКИ.', false);
       }
     }
 
@@ -9620,7 +9772,7 @@ BOARD_WEB_APP_HTML = "".join(
       }
     }
 
-    async function linkActiveCardToClient(clientId) {
+    async function linkActiveCardToClient(clientId, { clientVehicleId = '', createVehicleFromCard = false } = {}) {
       if (!state.editingId || !clientId) return;
       try {
         const data = await api('/api/link_card_to_client', {
@@ -9628,6 +9780,9 @@ BOARD_WEB_APP_HTML = "".join(
           body: {
             card_id: state.editingId,
             client_id: clientId,
+            client_vehicle_id: clientVehicleId || '',
+            create_vehicle_from_card: Boolean(createVehicleFromCard),
+            sync_vehicle_fields: true,
             sync_fields: true,
             overwrite_card_fields: false,
           },
@@ -13297,8 +13452,10 @@ BOARD_WEB_APP_HTML = "".join(
       state.vehicleProfileDraft = profile;
       state.vehicleAutofillResult = null;
       refreshVehiclePanel();
-      if (fieldName === 'customer_name' || fieldName === 'customer_phone') {
+      if (['customer_name', 'customer_phone', 'vin', 'registration_plate', 'body_number'].includes(fieldName)) {
         state.pendingCardClientId = '';
+        state.pendingCardClientVehicleId = '';
+        state.pendingCreateClientVehicleFromCard = false;
         scheduleClientSuggestionsForCard();
       }
     }
@@ -14669,6 +14826,8 @@ BOARD_WEB_APP_HTML = "".join(
       state.cardCreateColumnId = currentCard?.id ? '' : String(currentCard?.column || state.snapshot?.columns?.[0]?.id || 'inbox').trim();
       state.vehicleAutofillResult = null;
       state.pendingCardClientId = currentCard?.client_id || '';
+      state.pendingCardClientVehicleId = currentCard?.client_vehicle_id || '';
+      state.pendingCreateClientVehicleFromCard = false;
       state.draftTags = normalizeDraftTags(currentCard?.tag_items || currentCard?.tags || []);
       state.draftTagColor = 'green';
       const modalHeading = currentCard?.id ? cardHeading(currentCard) : 'Новая карточка';
@@ -14716,6 +14875,8 @@ BOARD_WEB_APP_HTML = "".join(
       state.vehicleProfileBaseline = null;
       state.vehicleAutofillResult = null;
       state.pendingCardClientId = '';
+      state.pendingCardClientVehicleId = '';
+      state.pendingCreateClientVehicleFromCard = false;
       hideClientSuggestions();
       state.draftTags = [];
       state.draftTagColor = 'green';
@@ -14744,6 +14905,9 @@ BOARD_WEB_APP_HTML = "".join(
           body: {
             card_id: cardId,
             client_id: state.pendingCardClientId,
+            client_vehicle_id: state.pendingCardClientVehicleId || '',
+            create_vehicle_from_card: Boolean(state.pendingCreateClientVehicleFromCard),
+            sync_vehicle_fields: true,
             sync_fields: true,
             overwrite_card_fields: false,
           },
@@ -17716,6 +17880,30 @@ function renderCompactArchiveRows(cards) {
         await linkActiveCardToClient(linkClientTarget.dataset.linkClient);
         return;
       }
+      const selectClientVehicleTarget = target.closest('[data-select-client-vehicle]');
+      if (selectClientVehicleTarget instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        await chooseClientSuggestion(
+          selectClientVehicleTarget.dataset.clientId,
+          selectClientVehicleTarget.dataset.selectClientVehicle,
+        );
+        return;
+      }
+      const selectClientNewVehicleTarget = target.closest('[data-select-client-new-vehicle]');
+      if (selectClientNewVehicleTarget instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        await chooseClientSuggestion(selectClientNewVehicleTarget.dataset.selectClientNewVehicle, '', { createNewVehicle: true });
+        return;
+      }
+      const loadClientVehiclesTarget = target.closest('[data-load-client-vehicles]');
+      if (loadClientVehiclesTarget instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        await loadClientSuggestionVehicles(loadClientVehiclesTarget.dataset.loadClientVehicles);
+        return;
+      }
       const selectClientSuggestionTarget = target.closest('[data-select-client-suggestion]');
       if (selectClientSuggestionTarget instanceof HTMLElement) {
         event.preventDefault();
@@ -17730,7 +17918,7 @@ function renderCompactArchiveRows(cards) {
         hideClientSuggestions();
         return;
       }
-      if (els.clientMatchPanel?.classList.contains('is-visible') && !target.closest('#clientMatchPanel') && !target.closest('[data-vehicle-field-input="customer_name"]') && !target.closest('[data-vehicle-field-input="customer_phone"]')) {
+      if (els.clientMatchPanel?.classList.contains('is-visible') && !target.closest('#clientMatchPanel') && !target.closest('[data-vehicle-field-input="customer_name"]') && !target.closest('[data-vehicle-field-input="customer_phone"]') && !target.closest('[data-vehicle-field-input="vin"]') && !target.closest('[data-vehicle-field-input="registration_plate"]')) {
         hideClientSuggestions();
       }
       const openRepairOrderModalTarget = target.closest('[data-open-repair-order-modal]');

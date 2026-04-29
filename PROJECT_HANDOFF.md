@@ -216,7 +216,7 @@ Latest completed stabilization wave:
 - mobile-lite board mode now activates automatically on narrow screens and collapses the board into a single-column, low-noise layout with heavy controls hidden by default
 - clients module was added to the topbar: operators can create people, IP/OOO/company profiles, store requisites, see related vehicles and repair-order history, and optionally link cards to clients without forcing every card into the client directory
 - card vehicle-passport customer fields now show an inline existing-client picker with phone and vehicle preview; choosing a client fills customer fields and links after save for new cards
-- client profiles can now store imported `vehicles[]` directly, so large directory imports preserve vehicle/VIN data before cards are linked
+- client profiles can now store imported `vehicles[]` directly with stable vehicle ids; cards may link to both `client_id` and `client_vehicle_id`, so the add-card flow can choose a concrete car from a client's garage
 - MCP client tools were expanded from `50` to `60` with client list/search/profile/stats/create/update/delete/link/unlink/suggestion commands
 - clients module audit fixed the connection-card allowed tool list, direct API nested `client`/`patch` payloads, and `+7`/`8` phone matching for client suggestions/history
 
