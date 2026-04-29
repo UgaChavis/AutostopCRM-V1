@@ -1729,6 +1729,14 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("'/api/update_repair_order'", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "license_plate: currentCard.repair_order?.license_plate || profile.registration_plate || profile.license_plate || ''",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "vehicle: currentCard.vehicle || vehicleDisplayFromProfile(profile)",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("async function toggleRepairOrderStatus()", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/set_repair_order_status'", BOARD_WEB_APP_HTML)
         self.assertIn("setStatus(repairOrderCloseBlockedMessage(), true);", BOARD_WEB_APP_HTML)

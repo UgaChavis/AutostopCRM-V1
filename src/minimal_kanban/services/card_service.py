@@ -2869,8 +2869,22 @@ class CardService:
                 cash_transactions=bundle["cash_transactions"],
                 settings=bundle["settings"],
             )
+            synced_fields = self._fill_missing_repair_order_fields_from_card(card)
+            if synced_fields:
+                self._append_event(
+                    events,
+                    actor_name=actor_name,
+                    source=source,
+                    action="repair_order_vehicle_fields_synced",
+                    message=f"{actor_name} дополнил заказ-наряд данными паспорта автомобиля",
+                    card_id=card.id,
+                    details={"fields": synced_fields},
+                )
             numbering_changed = self._synchronize_repair_order_numbers(cards)
-            if created or numbering_changed:
+            if created or numbering_changed or synced_fields:
+                if synced_fields:
+                    self._touch_card(card, actor_name)
+                    self._ensure_repair_order_text_file(card, force=True)
                 self._save_bundle(
                     bundle,
                     columns=columns,
@@ -4144,6 +4158,23 @@ class CardService:
                 )
                 if linked_vehicle_changed and "client_vehicle" not in changed_fields:
                     changed_fields.append("client_vehicle")
+            repair_order_profile_fields = []
+            if changed and {"vehicle", "vehicle_profile"}.intersection(changed_fields):
+                repair_order_profile_fields = self._fill_missing_repair_order_fields_from_card(
+                    card
+                )
+                if repair_order_profile_fields:
+                    changed = True
+                    changed_fields.append("repair_order_profile_fields")
+                    self._append_event(
+                        events,
+                        actor_name=actor_name,
+                        source=source,
+                        action="repair_order_vehicle_fields_synced",
+                        message=f"{actor_name} дополнил заказ-наряд данными паспорта автомобиля",
+                        card_id=card.id,
+                        details={"fields": repair_order_profile_fields},
+                    )
 
             numbering_changed = self._synchronize_repair_order_numbers(cards)
             if changed or numbering_changed or ready_column_changed or linked_vehicle_changed:
@@ -9732,21 +9763,47 @@ class CardService:
         )
 
     def _repair_order_seed_payload(self, card: Card) -> dict[str, Any]:
-        profile = card.vehicle_profile
-        mileage = str(profile.mileage) if profile.mileage is not None else ""
-        vehicle = (
-            normalize_text(card.vehicle, default="", limit=CARD_VEHICLE_LIMIT)
-            or profile.display_name()
-        )
         return {
-            "client": profile.customer_name,
-            "phone": profile.customer_phone,
-            "vehicle": vehicle,
-            "vin": profile.vin,
-            "mileage": mileage,
+            **self._repair_order_card_field_suggestions(card),
             "reason": card.title,
             "comment": card.description,
         }
+
+    def _repair_order_card_field_suggestions(self, card: Card) -> dict[str, str]:
+        profile = card.vehicle_profile
+        mileage = (
+            str(profile.mileage)
+            if profile.mileage is not None
+            else self._extract_mileage(card, fallback=card.repair_order.mileage)
+        )
+        return {
+            "client": profile.customer_name or self._extract_customer_name(card),
+            "phone": profile.customer_phone or self._extract_phone(card),
+            "vehicle": card.vehicle_display(),
+            "license_plate": self._extract_license_plate(
+                card, fallback=card.repair_order.license_plate
+            ),
+            "vin": profile.vin or self._extract_vin(card, fallback=card.repair_order.vin),
+            "mileage": mileage,
+        }
+
+    def _fill_missing_repair_order_fields_from_card(self, card: Card) -> list[str]:
+        if not self._card_has_repair_order(card):
+            return []
+        suggestions = self._repair_order_card_field_suggestions(card)
+        changed_fields: list[str] = []
+        for field_name in ("client", "phone", "vehicle", "license_plate", "vin", "mileage"):
+            current_value = normalize_text(
+                getattr(card.repair_order, field_name, ""), default="", limit=160
+            )
+            suggested_value = normalize_text(
+                suggestions.get(field_name, ""), default="", limit=160
+            )
+            if current_value or not suggested_value:
+                continue
+            setattr(card.repair_order, field_name, suggested_value)
+            changed_fields.append(field_name)
+        return changed_fields
 
     def _ensure_repair_order_exists(
         self,
@@ -10202,6 +10259,8 @@ class CardService:
         return lines or ["-"]
 
     def _extract_license_plate(self, card: Card, *, fallback: str = "") -> str:
+        if card.vehicle_profile.registration_plate:
+            return card.vehicle_profile.registration_plate
         haystack = "\n".join(
             part
             for part in (

@@ -280,6 +280,11 @@ class ApiServerTests(unittest.TestCase):
                 "title": "Ленивый заказ-наряд",
                 "description": "Первый вход",
                 "deadline": {"hours": 2},
+                "vehicle_profile": {
+                    "registration_plate": "А123АА124",
+                    "vin": "KNADN512BD6123456",
+                    "mileage": 120000,
+                },
             },
         )
         self.assertEqual(status, 200)
@@ -297,6 +302,9 @@ class ApiServerTests(unittest.TestCase):
         self.assertTrue(fetched["data"]["meta"]["has_any_data"])
         self.assertTrue(fetched["data"]["meta"]["created"])
         self.assertEqual(fetched["data"]["repair_order"]["reason"], "Ленивый заказ-наряд")
+        self.assertEqual(fetched["data"]["repair_order"]["license_plate"], "А123АА124")
+        self.assertEqual(fetched["data"]["repair_order"]["vin"], "KNADN512BD6123456")
+        self.assertEqual(fetched["data"]["repair_order"]["mileage"], "120000")
         self.assertEqual(fetched["data"]["card"]["repair_order"]["number"], "1")
 
         status, listed_after = self.request("/api/list_repair_orders", method="GET")

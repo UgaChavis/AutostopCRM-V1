@@ -851,6 +851,69 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(listed_after["meta"]["total"], 1)
         self.assertEqual(listed_after["repair_orders"][0]["card_id"], card_id)
 
+    def test_get_repair_order_prefills_vehicle_passport_fields(self) -> None:
+        created = self.service.create_card(
+            {
+                "title": "Замена масла",
+                "description": "Проверить течь.",
+                "deadline": {"hours": 2},
+                "vehicle_profile": {
+                    "customer_name": "Иван Иванов",
+                    "customer_phone": "+7 999 111-22-33",
+                    "make_display": "Mercedes-Benz",
+                    "model_display": "E200",
+                    "production_year": 2014,
+                    "registration_plate": "У867РУ124",
+                    "vin": "WDD2120341B009639",
+                    "mileage": 185000,
+                },
+            }
+        )
+
+        fetched = self.service.get_repair_order({"card_id": created["card"]["id"]})
+
+        order = fetched["repair_order"]
+        self.assertEqual(order["client"], "Иван Иванов")
+        self.assertEqual(order["phone"], "+7 999 111-22-33")
+        self.assertEqual(order["vehicle"], "Mercedes-Benz E200 2014")
+        self.assertEqual(order["license_plate"], "У867РУ124")
+        self.assertEqual(order["vin"], "WDD2120341B009639")
+        self.assertEqual(order["mileage"], "185000")
+
+    def test_existing_repair_order_get_fills_missing_vehicle_passport_fields(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "Mercedes-Benz E200 2014",
+                "title": "Диагностика",
+                "description": "Проверить подвеску.",
+                "deadline": {"hours": 2},
+            }
+        )
+        self.service.update_card(
+            {
+                "card_id": created["card"]["id"],
+                "repair_order": {"client": "Ручной клиент"},
+            }
+        )
+
+        self.service.update_card(
+            {
+                "card_id": created["card"]["id"],
+                "vehicle_profile": {
+                    "registration_plate": "У867РУ124",
+                    "vin": "WDD2120341B009639",
+                    "mileage": 185000,
+                },
+            }
+        )
+        fetched = self.service.get_repair_order({"card_id": created["card"]["id"]})
+
+        order = fetched["repair_order"]
+        self.assertEqual(order["client"], "Ручной клиент")
+        self.assertEqual(order["license_plate"], "У867РУ124")
+        self.assertEqual(order["vin"], "WDD2120341B009639")
+        self.assertEqual(order["mileage"], "185000")
+
     def test_set_card_ai_autofill_returns_retired_cleanup_state_and_clears_legacy_fields(
         self,
     ) -> None:
