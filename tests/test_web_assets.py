@@ -744,6 +744,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("client-mini__order-total-value", BOARD_WEB_APP_HTML)
         self.assertIn('id="clientVehicleAddButton"', BOARD_WEB_APP_HTML)
         self.assertIn("function renderClientVehiclesList(vehicles)", BOARD_WEB_APP_HTML)
+        self.assertIn(".client-mini__vehicle-actions {", BOARD_WEB_APP_HTML)
+        self.assertIn("flex-direction: column;", BOARD_WEB_APP_HTML)
         self.assertIn("data-client-vehicle-edit", BOARD_WEB_APP_HTML)
         self.assertIn("data-client-vehicle-delete", BOARD_WEB_APP_HTML)
         self.assertIn("data-client-vehicle-field=\"vin\"", BOARD_WEB_APP_HTML)

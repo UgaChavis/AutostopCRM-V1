@@ -5742,9 +5742,11 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .client-mini__vehicle-actions {
       display: flex;
-      flex-wrap: wrap;
+      flex-direction: column;
+      align-items: stretch;
       justify-content: flex-end;
       gap: 5px;
+      min-width: 64px;
     }
     .client-mini__vehicle-actions .btn {
       padding: 5px 7px;
