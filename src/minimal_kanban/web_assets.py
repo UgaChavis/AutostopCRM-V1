@@ -5705,6 +5705,47 @@ BOARD_WEB_APP_HTML = "".join(
       font-weight: 700;
       letter-spacing: 0.01em;
     }
+    .clients-field--phones {
+      display: grid;
+      gap: 5px;
+    }
+    .client-phone-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .client-phone-head label {
+      margin: 0;
+    }
+    .client-phone-add,
+    .client-phone-remove,
+    .vehicle-phone-add,
+    .vehicle-phone-remove {
+      min-width: 28px;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+      font-size: 13px;
+      line-height: 1;
+    }
+    .client-phone-list,
+    .vehicle-phone-list {
+      display: grid;
+      gap: 5px;
+    }
+    .client-phone-row,
+    .vehicle-phone-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 5px;
+      align-items: center;
+    }
+    .client-phone-row:first-child {
+      grid-template-columns: minmax(0, 1fr);
+    }
     .clients-field--type {
       grid-column: span 3;
       max-width: 220px;
@@ -6253,7 +6294,10 @@ BOARD_WEB_APP_HTML = "".join(
             <div class="field field--compact clients-name-field"><label for="clientFirstNameInput">ИМЯ</label><input id="clientFirstNameInput" type="text" maxlength="120" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
             <div class="field field--compact clients-name-field"><label for="clientMiddleNameInput">ОТЧЕСТВО</label><input id="clientMiddleNameInput" type="text" maxlength="120" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
             <div class="field field--compact clients-field--wide"><label for="clientDisplayNameInput">НАЗВАНИЕ / ОТОБРАЖЕНИЕ</label><input id="clientDisplayNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
-            <div class="field field--compact"><label for="clientPhoneInput">ТЕЛЕФОН</label><input id="clientPhoneInput" type="text" maxlength="80" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+            <div class="field field--compact clients-field--phones">
+              <div class="client-phone-head"><label for="clientPhoneInput">ТЕЛЕФОН</label><button class="btn btn--ghost client-phone-add" id="clientPhoneAddButton" type="button" data-client-phone-add="true" title="Добавить телефон">+</button></div>
+              <div class="client-phone-list" id="clientPhoneFields"></div>
+            </div>
             <div class="field field--compact"><label for="clientEmailInput">EMAIL</label><input id="clientEmailInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
             <div class="field field--compact clients-field--wide"><label for="clientCommentInput">КОММЕНТАРИЙ</label><textarea id="clientCommentInput" maxlength="2000" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea></div>
           </div>
@@ -6955,6 +6999,7 @@ BOARD_WEB_APP_HTML = "".join(
       { value: 'yellow', label: 'Жёлтая' },
       { value: 'red', label: 'Красная' },
     ];
+    const CLIENT_PHONE_LIMIT = 3;
     const VEHICLE_COMPLETION_LABELS = {
       manually_entered: 'ручной ввод',
       partially_autofilled: 'частично автозаполнено',
@@ -7334,6 +7379,8 @@ BOARD_WEB_APP_HTML = "".join(
       clientMiddleNameInput: document.getElementById('clientMiddleNameInput'),
       clientDisplayNameInput: document.getElementById('clientDisplayNameInput'),
       clientPhoneInput: document.getElementById('clientPhoneInput'),
+      clientPhoneFields: document.getElementById('clientPhoneFields'),
+      clientPhoneAddButton: document.getElementById('clientPhoneAddButton'),
       clientEmailInput: document.getElementById('clientEmailInput'),
       clientCommentInput: document.getElementById('clientCommentInput'),
       clientRequisitesDetails: document.getElementById('clientRequisitesDetails'),
@@ -9366,10 +9413,39 @@ BOARD_WEB_APP_HTML = "".join(
       return new Set(Array.from(variants).filter((variant) => variant.length >= 3));
     }
 
+    function normalizePhoneList(values) {
+      const rawItems = Array.isArray(values) ? values : [values];
+      const phones = [];
+      const seen = new Set();
+      for (const raw of rawItems) {
+        const phone = String(raw || '').replace(/\\s+/g, ' ').trim();
+        if (!phone) continue;
+        const key = phone.replace(/\\D+/g, '') || phone.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        phones.push(phone);
+        if (phones.length >= CLIENT_PHONE_LIMIT) break;
+      }
+      return phones;
+    }
+
+    function clientPhoneList(client) {
+      return normalizePhoneList([
+        client?.phone,
+        ...(Array.isArray(client?.phones) ? client.phones : []),
+      ]);
+    }
+
+    function compactPhoneLine(client, fallback = 'телефон не указан') {
+      const phones = clientPhoneList(client);
+      return phones.length ? phones.join(' · ') : fallback;
+    }
+
     function clientMetaLine(client) {
       const stats = client?.stats || {};
       const parts = [];
-      if (client?.phone) parts.push(client.phone);
+      const phonesLine = compactPhoneLine(client, '');
+      if (phonesLine) parts.push(phonesLine);
       if (stats.repair_orders_total !== undefined) parts.push('ЗН: ' + stats.repair_orders_total);
       if (stats.vehicles_total !== undefined) parts.push('авто: ' + stats.vehicles_total);
       if (stats.last_visit) parts.push('последний: ' + formatDate(stats.last_visit));
@@ -9419,6 +9495,66 @@ BOARD_WEB_APP_HTML = "".join(
       }).join('');
     }
 
+    function refreshClientPhoneRefs() {
+      els.clientPhoneFields = document.getElementById('clientPhoneFields');
+      els.clientPhoneInput = document.getElementById('clientPhoneInput');
+      els.clientPhoneAddButton = document.getElementById('clientPhoneAddButton');
+    }
+
+    function renderClientPhoneFields(values = ['']) {
+      refreshClientPhoneRefs();
+      if (!els.clientPhoneFields) return;
+      const rawItems = Array.isArray(values) ? values : [values];
+      const visible = [];
+      const seen = new Set();
+      for (const raw of rawItems) {
+        const phone = String(raw || '').replace(/\\s+/g, ' ').trim();
+        const key = phone ? (phone.replace(/\\D+/g, '') || phone.toLowerCase()) : '';
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
+        visible.push(phone);
+        if (visible.length >= CLIENT_PHONE_LIMIT) break;
+      }
+      if (!visible.length) visible.push('');
+      els.clientPhoneFields.innerHTML = visible.map((phone, index) => {
+        const inputId = index === 0 ? 'clientPhoneInput' : 'clientPhoneInput' + (index + 1);
+        const removeButton = index === 0
+          ? ''
+          : '<button class="btn btn--ghost client-phone-remove" type="button" data-client-phone-remove="' + index + '" title="Удалить телефон">×</button>';
+        return '<div class="client-phone-row">'
+          + '<input id="' + inputId + '" data-client-phone-input="' + index + '" type="text" maxlength="80" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" value="' + escapeHtml(phone) + '">'
+          + removeButton
+          + '</div>';
+      }).join('');
+      refreshClientPhoneRefs();
+      if (els.clientPhoneAddButton) els.clientPhoneAddButton.disabled = visible.length >= CLIENT_PHONE_LIMIT;
+    }
+
+    function readClientPhoneFields() {
+      refreshClientPhoneRefs();
+      const inputs = Array.from(els.clientPhoneFields?.querySelectorAll('[data-client-phone-input]') || []);
+      return normalizePhoneList(inputs.map((input) => input.value));
+    }
+
+    function addClientPhoneField() {
+      const current = readClientPhoneFields();
+      const next = current.length ? current.slice() : [''];
+      if (next.length >= CLIENT_PHONE_LIMIT) return;
+      next.push('');
+      renderClientPhoneFields(next);
+      const input = document.getElementById('clientPhoneInput' + next.length);
+      if (input instanceof HTMLInputElement) input.focus();
+    }
+
+    function removeClientPhoneField(index) {
+      const normalizedIndex = Number(index);
+      if (!Number.isInteger(normalizedIndex) || normalizedIndex <= 0) return;
+      const inputs = Array.from(els.clientPhoneFields?.querySelectorAll('[data-client-phone-input]') || []);
+      const values = inputs.map((input) => input.value);
+      values.splice(normalizedIndex, 1);
+      renderClientPhoneFields(values.length ? values : ['']);
+    }
+
     function resetClientForm() {
       state.clientsActiveId = '';
       state.clientsActiveProfile = null;
@@ -9430,6 +9566,7 @@ BOARD_WEB_APP_HTML = "".join(
         middle_name: '',
         display_name: '',
         phone: '',
+        phones: [],
         email: '',
         comment: '',
         legal_name: '',
@@ -9457,7 +9594,7 @@ BOARD_WEB_APP_HTML = "".join(
       if (els.clientFirstNameInput) els.clientFirstNameInput.value = client.first_name || '';
       if (els.clientMiddleNameInput) els.clientMiddleNameInput.value = client.middle_name || '';
       if (els.clientDisplayNameInput) els.clientDisplayNameInput.value = client.display_name || '';
-      if (els.clientPhoneInput) els.clientPhoneInput.value = client.phone || '';
+      renderClientPhoneFields(clientPhoneList(client));
       if (els.clientEmailInput) els.clientEmailInput.value = client.email || '';
       if (els.clientCommentInput) els.clientCommentInput.value = client.comment || '';
       if (els.clientLegalNameInput) els.clientLegalNameInput.value = client.legal_name || '';
@@ -9535,8 +9672,7 @@ BOARD_WEB_APP_HTML = "".join(
       state.clientsActiveProfile = data || null;
       if (els.clientProfileTitle) els.clientProfileTitle.textContent = clientDisplayName(client);
       if (els.clientProfilePhone) {
-        const phone = String(client.phone || (Array.isArray(client.phones) ? client.phones[0] : '') || '').trim();
-        els.clientProfilePhone.textContent = phone || 'ТЕЛЕФОН НЕ УКАЗАН';
+        els.clientProfilePhone.textContent = compactPhoneLine(client, 'ТЕЛЕФОН НЕ УКАЗАН');
       }
       const orders = Array.isArray(data?.repair_orders) ? data.repair_orders : [];
       if (els.clientDebtValue) {
@@ -9561,13 +9697,15 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function readClientFormPayload() {
+      const phones = readClientPhoneFields();
       return {
         client_type: els.clientTypeInput?.value || 'person',
         last_name: els.clientLastNameInput?.value || '',
         first_name: els.clientFirstNameInput?.value || '',
         middle_name: els.clientMiddleNameInput?.value || '',
         display_name: els.clientDisplayNameInput?.value || '',
-        phone: els.clientPhoneInput?.value || '',
+        phone: phones[0] || '',
+        phones,
         email: els.clientEmailInput?.value || '',
         comment: els.clientCommentInput?.value || '',
         legal_name: els.clientLegalNameInput?.value || '',
@@ -9779,6 +9917,16 @@ BOARD_WEB_APP_HTML = "".join(
       els.clientsButton?.addEventListener('click', openClientsModal);
       els.clientNewButton?.addEventListener('click', resetClientForm);
       els.clientSaveButton?.addEventListener('click', saveClientProfile);
+      els.clientPhoneAddButton?.addEventListener('click', addClientPhoneField);
+      els.clientPhoneFields?.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const removeTarget = target.closest('[data-client-phone-remove]');
+        if (removeTarget instanceof HTMLElement) {
+          event.preventDefault();
+          removeClientPhoneField(removeTarget.dataset.clientPhoneRemove);
+        }
+      });
       els.clientVehicleAddButton?.addEventListener('click', () => startClientVehicleEditor('__new__'));
       els.clientVehiclesList?.addEventListener('click', handleClientVehiclesClick);
       els.clientsList?.addEventListener('click', handleClientsListClick);
@@ -9908,6 +10056,7 @@ BOARD_WEB_APP_HTML = "".join(
       const profile = readVehicleProfileForm();
       const displayName = String(profile.customer_name || '').trim();
       const phone = String(profile.customer_phone || '').trim();
+      const phones = normalizePhoneList([phone, ...(Array.isArray(profile.customer_phones) ? profile.customer_phones : [])]);
       if (!displayName && !phone) {
         setStatus('УКАЖИТЕ ИМЯ ИЛИ ТЕЛЕФОН КЛИЕНТА.', true);
         return;
@@ -9918,7 +10067,8 @@ BOARD_WEB_APP_HTML = "".join(
           body: {
             client_type: 'person',
             display_name: displayName || phone,
-            phone,
+            phone: phones[0] || phone,
+            phones,
           },
         });
         const client = created?.client || {};
@@ -9989,7 +10139,7 @@ BOARD_WEB_APP_HTML = "".join(
           : '';
         return '<div class="client-match-item' + (index === state.clientSuggestionFocusIndex ? ' is-active' : '') + '" data-client-suggestion="' + escapeHtml(client.id || '') + '">'
         + '<div class="client-match-item__name">' + highlightedClientNameHtml(clientDisplayName(client), state.clientSuggestionQuery) + '</div>'
-        + '<div class="client-match-item__phone">' + escapeHtml(client.phone || 'телефон не указан') + '</div>'
+        + '<div class="client-match-item__phone">' + escapeHtml(compactPhoneLine(client)) + '</div>'
         + '<div class="client-match-item__vehicles">' + escapeHtml(clientSuggestionVehicleText(client)) + '</div>'
         + '<div class="client-match-vehicles">'
         + visibleVehicles.map((vehicle) => clientSuggestionVehicleHtml(client, vehicle)).join('')
@@ -10053,8 +10203,12 @@ BOARD_WEB_APP_HTML = "".join(
       state.pendingCreateClientVehicleFromCard = Boolean(createNewVehicle);
       const profile = cloneVehicleProfile(state.vehicleProfileDraft || emptyVehicleProfile());
       const clientName = clientDisplayName(client);
+      const phones = clientPhoneList(client);
       if (clientName) profile.customer_name = clientName;
-      if (client.phone) profile.customer_phone = client.phone;
+      if (phones.length) {
+        profile.customer_phone = phones[0];
+        profile.customer_phones = phones;
+      }
       const selectedVehicle = vehicle || {};
       if (!createNewVehicle && selectedVehicle) {
         if (selectedVehicle.vehicle) profile.display_name = selectedVehicle.vehicle;
@@ -13700,6 +13854,7 @@ BOARD_WEB_APP_HTML = "".join(
         autofilled_fields: [],
         tentative_fields: [],
         field_sources: {},
+        customer_phones: [],
         raw_input_text: '',
         raw_image_text: '',
         image_parse_status: 'not_attempted',
@@ -13718,6 +13873,8 @@ BOARD_WEB_APP_HTML = "".join(
         Object.assign(cloned, raw);
       }
       cloned.source_links_or_refs = Array.isArray(cloned.source_links_or_refs) ? cloned.source_links_or_refs : [];
+      cloned.customer_phones = normalizePhoneList([cloned.customer_phone, ...(Array.isArray(cloned.customer_phones) ? cloned.customer_phones : [])]);
+      cloned.customer_phone = cloned.customer_phones[0] || String(cloned.customer_phone || '').trim();
       cloned.manual_fields = Array.isArray(cloned.manual_fields) ? Array.from(new Set(cloned.manual_fields)) : [];
       cloned.autofilled_fields = Array.isArray(cloned.autofilled_fields) ? Array.from(new Set(cloned.autofilled_fields)) : [];
       cloned.tentative_fields = Array.isArray(cloned.tentative_fields) ? Array.from(new Set(cloned.tentative_fields)) : [];
@@ -13779,6 +13936,9 @@ BOARD_WEB_APP_HTML = "".join(
 
     function vehicleFieldControlHtml(field) {
       const inputId = vehicleInputId(field.name);
+      if (field.name === 'customer_phone') {
+        return '<div class="vehicle-phone-list" id="vehicleCustomerPhoneFields"></div>';
+      }
       if (field.kind === 'textarea') {
         return '<textarea id="' + inputId + '" data-vehicle-field-input="' + field.name + '" placeholder="' + escapeHtml(field.placeholder || '') + '"></textarea>';
       }
@@ -13827,11 +13987,75 @@ BOARD_WEB_APP_HTML = "".join(
       });
     }
 
+    function renderVehicleCustomerPhoneFields(values = ['']) {
+      const container = document.getElementById('vehicleCustomerPhoneFields');
+      if (!container) return;
+      const rawItems = Array.isArray(values) ? values : [values];
+      const visible = [];
+      const seen = new Set();
+      for (const raw of rawItems) {
+        const phone = String(raw || '').replace(/\\s+/g, ' ').trim();
+        const key = phone ? (phone.replace(/\\D+/g, '') || phone.toLowerCase()) : '';
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
+        visible.push(phone);
+        if (visible.length >= CLIENT_PHONE_LIMIT) break;
+      }
+      if (!visible.length) visible.push('');
+      container.innerHTML = visible.map((phone, index) => {
+        const inputId = index === 0 ? vehicleInputId('customer_phone') : vehicleInputId('customer_phone_' + (index + 1));
+        const actionButton = index === 0
+          ? '<button class="btn btn--ghost vehicle-phone-add" type="button" data-vehicle-phone-add="true" title="Добавить телефон"' + (visible.length >= CLIENT_PHONE_LIMIT ? ' disabled' : '') + '>+</button>'
+          : '<button class="btn btn--ghost vehicle-phone-remove" type="button" data-vehicle-phone-remove="' + index + '" title="Удалить телефон">×</button>';
+        return '<div class="vehicle-phone-row">'
+          + '<input id="' + inputId + '" data-vehicle-field-input="customer_phone" data-vehicle-phone-input="' + index + '" type="text" maxlength="80" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" value="' + escapeHtml(phone) + '">'
+          + actionButton
+          + '</div>';
+      }).join('');
+      container.querySelectorAll('[data-vehicle-phone-input]').forEach((input) => {
+        input.addEventListener('input', () => handleVehicleFieldInput('customer_phone'));
+        input.addEventListener('change', () => handleVehicleFieldInput('customer_phone'));
+        input.addEventListener('keydown', handleClientSuggestionKeydown);
+      });
+    }
+
+    function readVehicleCustomerPhoneFields() {
+      const inputs = Array.from(document.querySelectorAll('#vehicleCustomerPhoneFields [data-vehicle-phone-input]'));
+      return normalizePhoneList(inputs.map((input) => input.value));
+    }
+
+    function addVehicleCustomerPhoneField() {
+      const container = document.getElementById('vehicleCustomerPhoneFields');
+      if (!container) return;
+      const inputs = Array.from(container.querySelectorAll('[data-vehicle-phone-input]'));
+      const values = inputs.map((input) => input.value);
+      if (values.length >= CLIENT_PHONE_LIMIT) return;
+      values.push('');
+      renderVehicleCustomerPhoneFields(values);
+      const input = document.getElementById(vehicleInputId('customer_phone_' + values.length));
+      if (input instanceof HTMLInputElement) input.focus();
+      handleVehicleFieldInput('customer_phone');
+    }
+
+    function removeVehicleCustomerPhoneField(index) {
+      const normalizedIndex = Number(index);
+      if (!Number.isInteger(normalizedIndex) || normalizedIndex <= 0) return;
+      const inputs = Array.from(document.querySelectorAll('#vehicleCustomerPhoneFields [data-vehicle-phone-input]'));
+      const values = inputs.map((input) => input.value);
+      values.splice(normalizedIndex, 1);
+      renderVehicleCustomerPhoneFields(values.length ? values : ['']);
+      handleVehicleFieldInput('customer_phone');
+    }
+
     function getVehicleFieldInput(fieldName) {
       return document.getElementById(vehicleInputId(fieldName));
     }
 
     function setVehicleFieldValue(fieldName, value) {
+      if (fieldName === 'customer_phone') {
+        renderVehicleCustomerPhoneFields(value);
+        return;
+      }
       const input = getVehicleFieldInput(fieldName);
       if (!input) return;
       if (Array.isArray(value)) {
@@ -13842,6 +14066,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function readVehicleFieldValue(fieldName) {
+      if (fieldName === 'customer_phone') return readVehicleCustomerPhoneFields()[0] || '';
       const input = getVehicleFieldInput(fieldName);
       const field = VEHICLE_FIELD_MAP[fieldName] || {};
       if (!input) return field.type === 'number' ? null : '';
@@ -13923,6 +14148,7 @@ BOARD_WEB_APP_HTML = "".join(
       }
       state.vehicleProfileDraft = normalized;
       VEHICLE_PRIMARY_FIELDS.forEach((fieldName) => setVehicleFieldValue(fieldName, normalized[fieldName]));
+      renderVehicleCustomerPhoneFields(normalized.customer_phones.length ? normalized.customer_phones : [normalized.customer_phone]);
       refreshVehiclePanel();
       if (!preserveStatus) renderVehicleAutofillStatus(defaultVehicleStatusText(normalized), Boolean(normalized.warnings?.length || vinLooksSuspicious(normalized.vin)));
     }
@@ -13931,6 +14157,10 @@ BOARD_WEB_APP_HTML = "".join(
       if (!fieldName) return;
       const profile = cloneVehicleProfile(state.vehicleProfileDraft || emptyVehicleProfile());
       profile[fieldName] = readVehicleFieldValue(fieldName);
+      if (fieldName === 'customer_phone') {
+        profile.customer_phones = readVehicleCustomerPhoneFields();
+        profile.customer_phone = profile.customer_phones[0] || '';
+      }
       const manualFields = new Set(profile.manual_fields || []);
       const autofilledFields = new Set(profile.autofilled_fields || []);
       const tentativeFields = new Set(profile.tentative_fields || []);
@@ -13957,6 +14187,8 @@ BOARD_WEB_APP_HTML = "".join(
       VEHICLE_PRIMARY_FIELDS.forEach((fieldName) => {
         profile[fieldName] = readVehicleFieldValue(fieldName);
       });
+      profile.customer_phones = readVehicleCustomerPhoneFields();
+      profile.customer_phone = profile.customer_phones[0] || '';
       const displayName = String(profile.display_name || '').trim();
       if (displayName) {
         const displayParts = splitVehicleDisplayName(displayName, profile.production_year);
@@ -18440,6 +18672,20 @@ function renderCompactArchiveRows(cards) {
         event.preventDefault();
         event.stopPropagation();
         await createClientFromCardSuggestion();
+        return;
+      }
+      const addVehiclePhoneTarget = target.closest('[data-vehicle-phone-add]');
+      if (addVehiclePhoneTarget instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        addVehicleCustomerPhoneField();
+        return;
+      }
+      const removeVehiclePhoneTarget = target.closest('[data-vehicle-phone-remove]');
+      if (removeVehiclePhoneTarget instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        removeVehicleCustomerPhoneField(removeVehiclePhoneTarget.dataset.vehiclePhoneRemove);
         return;
       }
       if (els.clientMatchPanel?.classList.contains('is-visible') && !target.closest('#clientMatchPanel') && !target.closest('[data-vehicle-field-input="customer_name"]') && !target.closest('[data-vehicle-field-input="customer_phone"]') && !target.closest('[data-vehicle-field-input="vin"]') && !target.closest('[data-vehicle-field-input="registration_plate"]')) {

@@ -5965,6 +5965,7 @@ class CardService:
         changed = False
         client_name = client.name()
         client_phone = client.phone
+        client_phones = list(client.phones or ([client_phone] if client_phone else []))
         if client_name and (overwrite or not card.vehicle_profile.customer_name):
             if card.vehicle_profile.customer_name != client_name:
                 card.vehicle_profile.customer_name = client_name
@@ -5972,6 +5973,12 @@ class CardService:
         if client_phone and (overwrite or not card.vehicle_profile.customer_phone):
             if card.vehicle_profile.customer_phone != client_phone:
                 card.vehicle_profile.customer_phone = client_phone
+                changed = True
+        if client_phones and (
+            overwrite or not getattr(card.vehicle_profile, "customer_phones", [])
+        ):
+            if list(card.vehicle_profile.customer_phones) != client_phones:
+                card.vehicle_profile.customer_phones = client_phones
                 changed = True
         if self._card_has_repair_order(card):
             if client_name and (overwrite or not card.repair_order.client):

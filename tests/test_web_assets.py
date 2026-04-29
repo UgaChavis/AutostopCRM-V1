@@ -718,6 +718,12 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("clientProfilePhone", BOARD_WEB_APP_HTML)
         self.assertIn("clientPhoneMatchKeys", BOARD_WEB_APP_HTML)
         self.assertIn("clientPhoneSearchVariants", BOARD_WEB_APP_HTML)
+        self.assertIn("const CLIENT_PHONE_LIMIT = 3;", BOARD_WEB_APP_HTML)
+        self.assertIn('id="clientPhoneFields"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="clientPhoneAddButton"', BOARD_WEB_APP_HTML)
+        self.assertIn("function renderClientPhoneFields(values = [''])", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderVehicleCustomerPhoneFields(values = [''])", BOARD_WEB_APP_HTML)
+        self.assertIn("customer_phones", BOARD_WEB_APP_HTML)
         self.assertIn("clientDebtCard", BOARD_WEB_APP_HTML)
         self.assertIn("clientDebtValue", BOARD_WEB_APP_HTML)
         self.assertIn("const CLIENTS_INITIAL_LIMIT = 35;", BOARD_WEB_APP_HTML)
@@ -781,10 +787,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn('id="clientRequisitesDetails"', BOARD_WEB_APP_HTML)
         self.assertIn('id="clientMatchPanel"', BOARD_WEB_APP_HTML)
-        self.assertIn(
-            'id="clientPhoneInput" type="text" maxlength="80" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"',
-            BOARD_WEB_APP_HTML,
-        )
+        self.assertIn("id=\"' + inputId + '\" data-client-phone-input=\"' + index + '\"", BOARD_WEB_APP_HTML)
         self.assertIn(
             'id="clientLegalNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"',
             BOARD_WEB_APP_HTML,

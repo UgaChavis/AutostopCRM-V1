@@ -196,6 +196,7 @@ Latest completed wave, in practical terms:
 - Telegram AI Board Manager was added back as a separate worker service, not as UI-thread logic and not as the old VIN-only agent
 - the clients module now has inline existing-client search in the card editor, plus Chrome autofill suppression on the relevant client/card fields
 - current clients UX also includes vehicle previews, better phone matching, debt summary, and more readable repair-order cards in the profile pane
+- client profiles keep a minimal phone model: `phone` is the first/main number, `phones[]` stores up to 3 unique numbers, and client search matches any saved phone
 - bulk client imports from cleaned Markdown JSONL preserve legal requisites, phones and saved profile vehicles; a state backup is created before every apply run
 - client search is optimized for thousand-entry directories by checking profile fields and saved vehicles before falling back to related card history
 - the clients modal does not preload the whole directory: initial UI load is capped, and typing in the search field calls backend search across all clients

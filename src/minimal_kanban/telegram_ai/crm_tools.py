@@ -243,12 +243,12 @@ class CRMToolRegistry:
             ),
             CRMToolDefinition(
                 "list_clients",
-                "Read compact clients list.",
+                "Read compact clients list. A client can have up to 3 phones; phone is the first/main one.",
                 {"limit": "optional int", "include_stats": "optional bool"},
             ),
             CRMToolDefinition(
                 "search_clients",
-                "Search clients by name, phone, INN, vehicle, VIN, or license plate. Use before creating or linking clients; choose vehicles_preview[].id when a concrete car is known.",
+                "Search clients by name, any saved phone, INN, vehicle, VIN, or license plate. Use before creating or linking clients; choose vehicles_preview[].id when a concrete car is known.",
                 {"query": "required string", "limit": "optional int"},
             ),
             CRMToolDefinition(

@@ -25,6 +25,7 @@ VEHICLE_PRIMARY_FIELDS: tuple[str, ...] = (
     "production_year",
     "mileage",
     "customer_phone",
+    "customer_phones",
     "customer_name",
     "vin",
     "registration_plate",
@@ -86,6 +87,7 @@ VEHICLE_NOTE_LIMIT = 1200
 VEHICLE_RAW_TEXT_LIMIT = 6000
 VEHICLE_SOURCE_LINK_LIMIT = 12
 VEHICLE_SOURCE_LINK_TEXT_LIMIT = 240
+VEHICLE_CUSTOMER_PHONES_LIMIT = 3
 VIN_SOFT_PATTERN = re.compile(r"\b([A-HJ-NPR-Z0-9]{11,17})\b", re.IGNORECASE)
 _VIN_ALLOWED_PATTERN = re.compile(r"^[A-HJ-NPR-Z0-9]+$", re.IGNORECASE)
 
@@ -93,6 +95,31 @@ _VIN_ALLOWED_PATTERN = re.compile(r"^[A-HJ-NPR-Z0-9]+$", re.IGNORECASE)
 def normalize_vehicle_text(value, *, limit: int = VEHICLE_TEXT_LIMIT) -> str:
     text = " ".join(str(value or "").strip().split())
     return text[:limit]
+
+
+def normalize_vehicle_phones(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raw_items = re.split(r"[\n,;]+", value)
+    elif isinstance(value, list):
+        raw_items = [str(item) for item in value]
+    else:
+        return []
+    phones: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_items:
+        phone = normalize_vehicle_text(raw)
+        if not phone:
+            continue
+        key = re.sub(r"\D+", "", phone) or phone.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        phones.append(phone)
+        if len(phones) >= VEHICLE_CUSTOMER_PHONES_LIMIT:
+            break
+    return phones
 
 
 def normalize_license_plate(value, *, limit: int = VEHICLE_TEXT_LIMIT) -> str:
@@ -275,6 +302,7 @@ class VehicleProfile:
     production_year: int | None = None
     mileage: int | None = None
     customer_phone: str = ""
+    customer_phones: list[str] = field(default_factory=list)
     customer_name: str = ""
     vin: str = ""
     registration_plate: str = ""
@@ -313,6 +341,13 @@ class VehicleProfile:
     image_parse_status: str = "not_attempted"
     warnings: list[str] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        self.customer_phone = normalize_vehicle_text(self.customer_phone)
+        self.customer_phones = normalize_vehicle_phones(
+            [self.customer_phone, *list(self.customer_phones or [])]
+        )
+        self.customer_phone = self.customer_phones[0] if self.customer_phones else self.customer_phone
+
     def is_empty(self) -> bool:
         return not any(
             [
@@ -322,6 +357,7 @@ class VehicleProfile:
                 self.production_year,
                 self.mileage,
                 self.customer_phone,
+                self.customer_phones,
                 self.customer_name,
                 self.vin,
                 self.registration_plate,
@@ -366,6 +402,7 @@ class VehicleProfile:
             "production_year": self.production_year,
             "mileage": self.mileage,
             "customer_phone": self.customer_phone,
+            "customer_phones": list(self.customer_phones),
             "customer_name": self.customer_name,
             "vin": vin,
             "registration_plate": self.registration_plate,
@@ -464,6 +501,7 @@ class VehicleProfile:
             production_year=production_year,
             mileage=normalize_vehicle_int(payload.get("mileage")),
             customer_phone=normalize_vehicle_text(payload.get("customer_phone")),
+            customer_phones=normalize_vehicle_phones(payload.get("customer_phones")),
             customer_name=normalize_vehicle_text(payload.get("customer_name")),
             vin=vin,
             registration_plate=registration_plate,

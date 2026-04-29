@@ -186,6 +186,31 @@ class ApiServerTests(unittest.TestCase):
         self.assertTrue(deleted["ok"])
         self.assertTrue(deleted["data"]["meta"]["deleted"])
 
+    def test_client_routes_accept_three_phones_and_search_each(self) -> None:
+        status, created = self.request(
+            "/api/create_client",
+            {
+                "display_name": "API клиент телефоны",
+                "phones": [
+                    "+7 900 100-00-01",
+                    "+7 900 100-00-02",
+                    "+7 900 100-00-03",
+                    "+7 900 100-00-04",
+                ],
+            },
+        )
+        self.assertEqual(status, 200)
+        client = created["data"]["client"]
+        self.assertEqual(client["phone"], "+7 900 100-00-01")
+        self.assertEqual(
+            client["phones"],
+            ["+7 900 100-00-01", "+7 900 100-00-02", "+7 900 100-00-03"],
+        )
+
+        status, found = self.request("/api/search_clients", {"query": "79001000003"})
+        self.assertEqual(status, 200)
+        self.assertEqual(found["data"]["clients"][0]["id"], client["id"])
+
     def test_client_vehicle_routes_link_specific_vehicle(self) -> None:
         status, created_client = self.request(
             "/api/create_client",

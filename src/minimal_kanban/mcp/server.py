@@ -67,6 +67,7 @@ class VehicleProfilePayload(BaseModel):
     generation_or_platform: str | None = Field(default=None, max_length=120)
     production_year: int | None = Field(default=None, ge=1900, le=2100)
     customer_phone: str | None = Field(default=None, max_length=120)
+    customer_phones: list[str] | None = Field(default=None, max_length=3)
     customer_name: str | None = Field(default=None, max_length=120)
     vin: str | None = Field(default=None, max_length=32)
     registration_plate: str | None = Field(default=None, max_length=120)
@@ -182,7 +183,7 @@ class ClientProfilePayload(BaseModel):
     middle_name: str | None = Field(default=None, max_length=120)
     display_name: str | None = Field(default=None, max_length=160)
     phone: str | None = Field(default=None, max_length=80)
-    phones: list[str] | None = None
+    phones: list[str] | None = Field(default=None, max_length=3)
     email: str | None = Field(default=None, max_length=160)
     comment: str | None = Field(default=None, max_length=2000)
     legal_name: str | None = Field(default=None, max_length=160)
@@ -208,7 +209,7 @@ class ClientPatchPayload(BaseModel):
     middle_name: str | None = Field(default=None, max_length=120)
     display_name: str | None = Field(default=None, max_length=160)
     phone: str | None = Field(default=None, max_length=80)
-    phones: list[str] | None = None
+    phones: list[str] | None = Field(default=None, max_length=3)
     email: str | None = Field(default=None, max_length=160)
     comment: str | None = Field(default=None, max_length=2000)
     legal_name: str | None = Field(default=None, max_length=160)
@@ -1768,7 +1769,7 @@ def create_mcp_server(
     @server.tool(
         name="list_clients",
         description=_scoped_description(
-            "List clients and organizations from the current AutoStop CRM board. Use this for the Clients module overview; it returns compact client rows with phone, type, and optional statistics."
+            "List clients and organizations from the current AutoStop CRM board. Use this for the Clients module overview; it returns compact client rows with phone/phones, type, and optional statistics. A client can have up to 3 phones; phone is the first/main one."
         ),
         annotations=_read_tool_annotations("List Clients"),
         structured_output=True,
@@ -1788,7 +1789,7 @@ def create_mcp_server(
     @server.tool(
         name="search_clients",
         description=_scoped_description(
-            "Search clients and organizations by name, phone, email, INN, vehicle, VIN, or license plate. Use before creating a client; when a vehicle is known, choose the matching vehicles_preview[].id and pass it as client_vehicle_id to link_card_to_client."
+            "Search clients and organizations by name, any saved phone, email, INN, vehicle, VIN, or license plate. Use before creating a client; when a vehicle is known, choose the matching vehicles_preview[].id and pass it as client_vehicle_id to link_card_to_client."
         ),
         annotations=_read_tool_annotations("Search Clients"),
         structured_output=True,
@@ -1848,7 +1849,7 @@ def create_mcp_server(
     @server.tool(
         name="create_client",
         description=_scoped_description(
-            "Create a person, IP, OOO, or organization client profile. This does not automatically change any card unless link_card_to_client is called afterwards."
+            "Create a person, IP, OOO, or organization client profile. For several phone numbers pass phones with up to 3 strings; phone remains the first/main number. This does not automatically change any card unless link_card_to_client is called afterwards."
         ),
         annotations=_write_tool_annotations("Create Client"),
         structured_output=True,
@@ -1865,7 +1866,7 @@ def create_mcp_server(
     @server.tool(
         name="update_client",
         description=_scoped_description(
-            "Patch an existing client profile. Pass only the fields to change; linked cards are not overwritten by this command."
+            "Patch an existing client profile. Pass only the fields to change; phones may contain up to 3 numbers and phone remains the first/main number. Linked cards are not overwritten by this command."
         ),
         annotations=_write_tool_annotations("Update Client", idempotent=True),
         structured_output=True,

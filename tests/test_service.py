@@ -346,6 +346,79 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(updated["contact_person"], "Иванов Иван")
         self.assertEqual(updated["comment"], "Проверка nested patch")
 
+    def test_client_profile_supports_up_to_three_phones(self) -> None:
+        client = self.service.create_client(
+            {
+                "display_name": "Клиент с несколькими телефонами",
+                "phone": "+7 900 000-00-01",
+                "phones": [
+                    "+7 900 000-00-01",
+                    "8 901 000-00-02",
+                    "+7 902 000-00-03",
+                    "+7 903 000-00-04",
+                ],
+            }
+        )["client"]
+
+        self.assertEqual(client["phone"], "+7 900 000-00-01")
+        self.assertEqual(
+            client["phones"],
+            ["+7 900 000-00-01", "8 901 000-00-02", "+7 902 000-00-03"],
+        )
+
+        search = self.service.search_clients({"query": "79020000003", "limit": 5})
+        self.assertEqual(search["clients"][0]["id"], client["id"])
+
+    def test_card_vehicle_profile_keeps_three_customer_phones(self) -> None:
+        client = self.service.create_client(
+            {
+                "display_name": "Клиент для карточки",
+                "phones": [
+                    "+7 900 111-11-11",
+                    "+7 901 222-22-22",
+                    "+7 902 333-33-33",
+                ],
+            }
+        )["client"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota",
+                "title": "Осмотр",
+                "deadline": {"hours": 1},
+                "vehicle_profile": {
+                    "customer_name": "Клиент для карточки",
+                    "customer_phones": [
+                        "+7 999 111-11-11",
+                        "+7 999 222-22-22",
+                        "+7 999 333-33-33",
+                        "+7 999 444-44-44",
+                    ],
+                },
+            }
+        )["card"]
+
+        self.assertEqual(created["vehicle_profile"]["customer_phone"], "+7 999 111-11-11")
+        self.assertEqual(
+            created["vehicle_profile"]["customer_phones"],
+            ["+7 999 111-11-11", "+7 999 222-22-22", "+7 999 333-33-33"],
+        )
+
+        empty_card = self.service.create_card(
+            {
+                "vehicle": "Toyota",
+                "title": "Пустой телефон",
+                "deadline": {"hours": 1},
+            }
+        )["card"]
+        linked = self.service.link_card_to_client(
+            {"card_id": empty_card["id"], "client_id": client["id"], "sync_fields": True}
+        )["card"]
+        self.assertEqual(linked["vehicle_profile"]["customer_phone"], "+7 900 111-11-11")
+        self.assertEqual(
+            linked["vehicle_profile"]["customer_phones"],
+            ["+7 900 111-11-11", "+7 901 222-22-22", "+7 902 333-33-33"],
+        )
+
     def test_client_matching_treats_plus_seven_and_eight_phone_as_same(self) -> None:
         client = self.service.create_client(
             {
