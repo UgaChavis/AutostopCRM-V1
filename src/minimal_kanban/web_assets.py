@@ -3528,6 +3528,12 @@ BOARD_WEB_APP_HTML = "".join(
       border-color: rgba(167, 178, 132, 0.44);
       box-shadow: inset 0 0 0 1px rgba(167, 178, 132, 0.12);
     }
+    .file-row.is-missing {
+      border-color: rgba(207, 91, 75, 0.34);
+      background:
+        linear-gradient(180deg, rgba(207, 91, 75, 0.055), transparent 46%),
+        rgba(0,0,0,0.18);
+    }
     .file-row__thumb {
       width: 132px;
       min-height: 98px;
@@ -3579,6 +3585,14 @@ BOARD_WEB_APP_HTML = "".join(
       text-transform: uppercase;
       text-align: center;
       padding: 8px;
+    }
+    .file-row__missing-note {
+      color: #efb0a6;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.35;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
     }
     .file-row__body {
       min-width: 0;
@@ -16036,14 +16050,23 @@ BOARD_WEB_APP_HTML = "".join(
       return attachments.find((item) => String(item?.id || '').trim() === targetId && !item?.removed) || null;
     }
 
+    function attachmentExistsOnDisk(attachment) {
+      if (!attachment || typeof attachment !== 'object' || attachment.removed) return false;
+      return attachment.exists_on_disk !== false;
+    }
+
     function attachmentIsPreviewable(attachment) {
       if (!attachment || typeof attachment !== 'object' || attachment.removed) return false;
+      if (!attachmentExistsOnDisk(attachment)) return false;
       const mimeType = normalizeAttachmentMimeType(attachment.mime_type || attachment.type || '');
       if (mimeType.startsWith('image/')) return true;
       return ATTACHMENT_PREVIEWABLE_EXTENSIONS.has(attachmentExtension(attachment.file_name || attachment.name || ''));
     }
 
     function renderAttachmentThumbnailHtml(attachment, downloadUrl) {
+      if (!attachmentExistsOnDisk(attachment)) {
+        return '<div class="file-row__thumb"><div class="file-row__thumb-fallback">ФАЙЛ<br>НЕ НАЙДЕН</div></div>';
+      }
       if (!attachmentIsPreviewable(attachment)) {
         return '<div class="file-row__thumb"><div class="file-row__thumb-fallback">ФАЙЛ</div></div>';
       }
@@ -16149,6 +16172,11 @@ BOARD_WEB_APP_HTML = "".join(
         setStatus('ФАЙЛ НЕ НАЙДЕН В КАРТОЧКЕ.', true);
         return;
       }
+      if (!attachmentExistsOnDisk(attachment)) {
+        clearFilePreview();
+        setStatus('ФАЙЛ ЕСТЬ В СПИСКЕ, НО ОТСУТСТВУЕТ НА ДИСКЕ СЕРВЕРА.', true);
+        return;
+      }
       if (!attachmentIsPreviewable(attachment)) {
         setStatus('ЭТО ВЛОЖЕНИЕ НЕЛЬЗЯ ПОКАЗАТЬ В ИНТЕРФЕЙСЕ.', true);
         return;
@@ -16208,12 +16236,19 @@ BOARD_WEB_APP_HTML = "".join(
       els.fileList.innerHTML = attachments.length
         ? attachments.map((item) => {
             const downloadUrl = attachmentDownloadPath(card.id, item.id);
+            const existsOnDisk = attachmentExistsOnDisk(item);
             const previewOpen = String(state.filePreview?.attachmentId || '') === String(item.id || '') && (state.filePreview.loading || state.filePreview.objectUrl || state.filePreview.error);
             const thumbnailHtml = renderAttachmentThumbnailHtml(item, downloadUrl);
             const previewButtonHtml = attachmentIsPreviewable(item)
               ? '<button class="btn btn--ghost' + (previewOpen ? ' is-active' : '') + '" type="button" data-preview-file="' + escapeHtml(item.id) + '">' + (previewOpen ? 'СКРЫТЬ' : 'ПРОСМОТР') + '</button>'
               : '';
-            return '<div class="file-row' + (previewOpen ? ' is-previewing' : '') + '">' + thumbnailHtml + '<div class="file-row__body"><div class="file-row__title">' + escapeHtml(item.file_name) + '</div><div class="log-row__meta">' + escapeHtml(formatDate(item.created_at)) + ' · ' + escapeHtml(formatBytes(item.size_bytes || 0)) + '</div><div class="file-row__actions">' + previewButtonHtml + '<a class="btn" href="' + downloadUrl + '">СКАЧАТЬ</a><button class="btn btn--danger" type="button" data-remove-file="' + escapeHtml(item.id) + '">УДАЛИТЬ</button></div></div></div>';
+            const downloadButtonHtml = existsOnDisk
+              ? '<a class="btn" href="' + downloadUrl + '">СКАЧАТЬ</a>'
+              : '<button class="btn btn--ghost" type="button" disabled title="Файл отсутствует на диске сервера">СКАЧАТЬ</button>';
+            const missingNoteHtml = existsOnDisk
+              ? ''
+              : '<div class="file-row__missing-note">Файл отсутствует на диске сервера. Запись сохранена в карточке.</div>';
+            return '<div class="file-row' + (previewOpen ? ' is-previewing' : '') + (existsOnDisk ? '' : ' is-missing') + '">' + thumbnailHtml + '<div class="file-row__body"><div class="file-row__title">' + escapeHtml(item.file_name) + '</div><div class="log-row__meta">' + escapeHtml(formatDate(item.created_at)) + ' · ' + escapeHtml(formatBytes(item.size_bytes || 0)) + '</div>' + missingNoteHtml + '<div class="file-row__actions">' + previewButtonHtml + downloadButtonHtml + '<button class="btn btn--danger" type="button" data-remove-file="' + escapeHtml(item.id) + '">УДАЛИТЬ</button></div></div></div>';
           }).join('')
         : '<div class="log-row__meta">ФАЙЛОВ НЕТ.</div>';
       syncFilePreview(card);

@@ -5337,6 +5337,22 @@ class CardService:
             viewer_username=viewer_username,
             compact=compact,
         )
+        if not compact and isinstance(payload.get("attachments"), list):
+            for attachment_payload in payload["attachments"]:
+                if not isinstance(attachment_payload, dict):
+                    continue
+                attachment_id = str(attachment_payload.get("id", "") or "").strip()
+                attachment = next(
+                    (
+                        item
+                        for item in card.attachments
+                        if str(item.id or "").strip() == attachment_id
+                    ),
+                    None,
+                )
+                attachment_payload["exists_on_disk"] = (
+                    self._attachment_exists_on_disk(card.id, attachment) if attachment else False
+                )
         payload["column_label"] = (column_labels or {}).get(card.column, card.column)
         return payload
 
@@ -10905,6 +10921,14 @@ class CardService:
 
     def _attachment_path(self, card_id: str, stored_name: str) -> Path:
         return self._attachments_dir / card_id / stored_name
+
+    def _attachment_exists_on_disk(self, card_id: str, attachment: Attachment | None) -> bool:
+        if attachment is None or attachment.removed:
+            return False
+        try:
+            return self._attachment_path(card_id, attachment.stored_name).is_file()
+        except OSError:
+            return False
 
     def _write_attachment_file(self, card_id: str, stored_name: str, content: bytes) -> Path:
         attachment_path = self._attachment_path(card_id, stored_name)

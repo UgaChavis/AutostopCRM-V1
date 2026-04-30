@@ -4726,6 +4726,31 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(repaired_attachment.file_name, "Persistence финал.docx")
         self.assertEqual(repaired_path.read_bytes(), payload)
 
+    def test_card_serialization_marks_missing_attachment_files(self) -> None:
+        service = self._build_service()
+        created = service.create_card(
+            {"vehicle": "VW", "title": "Missing attachment marker", "deadline": {"hours": 2}}
+        )
+        card_id = created["card"]["id"]
+        added = service.add_card_attachment(
+            {
+                "card_id": card_id,
+                "file_name": "photo.png",
+                "mime_type": "image/png",
+                "content_base64": base64.b64encode(PNG_1X1_BYTES).decode("ascii"),
+            }
+        )
+        attachment_id = added["attachment"]["id"]
+        file_path, _ = service.get_attachment_download(card_id, attachment_id)
+
+        available_card = service.get_card({"card_id": card_id})["card"]
+        self.assertTrue(available_card["attachments"][0]["exists_on_disk"])
+
+        file_path.unlink()
+
+        missing_card = service.get_card({"card_id": card_id})["card"]
+        self.assertFalse(missing_card["attachments"][0]["exists_on_disk"])
+
     def test_agent_attachment_read_extracts_text_office_and_image_payloads(self) -> None:
         service = self._build_service()
         created = service.create_card(

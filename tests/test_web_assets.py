@@ -1024,7 +1024,12 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("function syncFileDropzone(card = state.activeCard)", BOARD_WEB_APP_HTML)
         self.assertIn("function attachmentDownloadPath(cardId, attachmentId)", BOARD_WEB_APP_HTML)
+        self.assertIn("function attachmentExistsOnDisk(attachment)", BOARD_WEB_APP_HTML)
         self.assertIn("function attachmentIsPreviewable(attachment)", BOARD_WEB_APP_HTML)
+        self.assertIn("if (!attachmentExistsOnDisk(attachment)) return false;", BOARD_WEB_APP_HTML)
+        self.assertIn("ФАЙЛ<br>НЕ НАЙДЕН", BOARD_WEB_APP_HTML)
+        self.assertIn("file-row__missing-note", BOARD_WEB_APP_HTML)
+        self.assertIn("ФАЙЛ ЕСТЬ В СПИСКЕ, НО ОТСУТСТВУЕТ НА ДИСКЕ СЕРВЕРА.", BOARD_WEB_APP_HTML)
         self.assertIn(
             "function renderAttachmentThumbnailHtml(attachment, downloadUrl)", BOARD_WEB_APP_HTML
         )
