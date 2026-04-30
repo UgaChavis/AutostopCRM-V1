@@ -425,13 +425,10 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     </tbody><tfoot><tr><td colspan="3">Итого материалы</td><td class="doc-table__sum">{{totals.materials_display}}</td></tr></tfoot></table>
   </section>
   <table class="doc-totals-table">
-    <tr><td>Итого работы</td><td>{{totals.works_display}}</td></tr>
-    <tr><td>Итого материалы</td><td>{{totals.materials_display}}</td></tr>
     <tr><td>Стоимость заказ-наряда</td><td>{{totals.subtotal_display}}</td></tr>
-    {{#totals.has_taxes}}<tr><td>Налоги и сборы</td><td>{{totals.taxes_display}}</td></tr>{{/totals.has_taxes}}
-    <tr><td>Итого по заказ-наряду</td><td>{{totals.grand_display}}</td></tr>
+    <tr><td>Стоимость заказ-наряда по безналичному расчету<br><small>включая налоги и сборы 15%</small></td><td>{{totals.noncash_total_display}}</td></tr>
     {{#totals.has_prepayment}}<tr><td>Предоплата</td><td>{{totals.prepayment_display}}</td></tr>{{/totals.has_prepayment}}
-    <tr class="doc-totals-table__grand"><td>К доплате</td><td>{{totals.due_display}}</td></tr>
+    <tr class="doc-totals-table__grand"><td>{{totals.due_label}}</td><td>{{totals.due_display}}</td></tr>
   </table>
   <section class="doc-section doc-section--warranty doc-section--warranty-summary">
     <h2 class="doc-section__title">Ключевые условия</h2>
@@ -940,13 +937,10 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   </section>
   <section class="doc-section"><h2 class="doc-section__title">Справка для клиента</h2><div class="doc-note">{{{repair_order.client_information_html}}}</div></section>
   <table class="doc-totals-table">
-    <tr><td>Итого работы</td><td>{{totals.works_display}}</td></tr>
-    <tr><td>Итого материалы</td><td>{{totals.materials_display}}</td></tr>
     <tr><td>Стоимость заказ-наряда</td><td>{{totals.subtotal_display}}</td></tr>
-    {{#totals.has_taxes}}<tr><td>Налоги и сборы</td><td>{{totals.taxes_display}}</td></tr>{{/totals.has_taxes}}
-    <tr><td>Итого по заказ-наряду</td><td>{{totals.grand_display}}</td></tr>
+    <tr><td>Стоимость заказ-наряда по безналичному расчету<br><small>включая налоги и сборы 15%</small></td><td>{{totals.noncash_total_display}}</td></tr>
     {{#totals.has_prepayment}}<tr><td>Предоплата</td><td>{{totals.prepayment_display}}</td></tr>{{/totals.has_prepayment}}
-    <tr class="doc-totals-table__grand"><td>К доплате</td><td>{{totals.due_display}}</td></tr>
+    <tr class="doc-totals-table__grand"><td>{{totals.due_label}}</td><td>{{totals.due_display}}</td></tr>
   </table>
   <div class="doc-invoice-words">Сумма прописью: <strong>{{totals.due_words_display}}</strong></div>
   <section class="doc-section doc-section--warranty doc-section--warranty-summary">

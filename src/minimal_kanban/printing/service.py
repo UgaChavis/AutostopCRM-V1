@@ -14,6 +14,7 @@ from typing import Any
 from ..models import Card, ClientProfile, parse_datetime, utc_now_iso
 from ..repair_order import (
     REPAIR_ORDER_PAYMENT_METHOD_CASHLESS,
+    REPAIR_ORDER_PAYMENT_TAX_RATE,
     RepairOrder,
     RepairOrderRow,
 )
@@ -1368,10 +1369,20 @@ class PrintModuleService:
         invoice_tax_display = _money_display(invoice_tax_amount)
         invoice_total_display = _money_display(invoice_base_total)
         invoice_total_words_display = _money_words_display(invoice_base_total)
+        cash_total = payment_summary["base_total"]
+        noncash_total = payment_summary["base_total"] * (
+            Decimal("1") + REPAIR_ORDER_PAYMENT_TAX_RATE
+        )
+        noncash_taxes_and_fees = noncash_total - payment_summary["base_total"]
         selected_due = (
             payment_summary["noncash_due"]
             if order.payment_method == REPAIR_ORDER_PAYMENT_METHOD_CASHLESS
             else payment_summary["cash_due"]
+        )
+        selected_due_label = (
+            "К доплате по безналичному расчету"
+            if order.payment_method == REPAIR_ORDER_PAYMENT_METHOD_CASHLESS
+            else "К доплате"
         )
         selected_due_display = _money_display(selected_due)
         selected_due_words_display = _money_words_display(selected_due)
@@ -1516,10 +1527,17 @@ class PrintModuleService:
                 "works_display": _money_display(order.works_total_amount()),
                 "materials_display": _money_display(order.materials_total_amount()),
                 "subtotal_display": payment_summary_display["base_total_display"],
+                "cash_total": cash_total,
+                "cash_total_display": _money_display(cash_total),
+                "noncash_total": noncash_total,
+                "noncash_total_display": _money_display(noncash_total),
+                "noncash_taxes_and_fees": noncash_taxes_and_fees,
+                "noncash_taxes_and_fees_display": _money_display(noncash_taxes_and_fees),
                 "taxes_display": payment_summary_display["taxes_and_fees_display"],
                 "grand_display": grand_total_display,
                 "grand_words_display": grand_total_words_display,
                 "prepayment_display": total_paid_display,
+                "due_label": selected_due_label,
                 "due_display": selected_due_display,
                 "due_words_display": selected_due_words_display,
                 "base_total_display": payment_summary_display["base_total_display"],

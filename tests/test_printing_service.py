@@ -207,9 +207,14 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("data:image/png;base64,", preview["documents"][0]["pages"][0]["html"])
         self.assertGreaterEqual(preview["documents"][0]["page_count"], 1)
         self.assertIn("Заказ-наряд", preview["documents"][0]["pages"][0]["html"])
-        self.assertIn("Налоги и сборы", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn("налоги и сборы 15%", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn(
+            "Стоимость заказ-наряда по безналичному расчету",
+            preview["documents"][0]["pages"][0]["html"],
+        )
         self.assertIn("Предоплата", preview["documents"][0]["pages"][0]["html"])
         self.assertIn("К доплате", preview["documents"][0]["pages"][0]["html"])
+        self.assertNotIn("Итого по заказ-наряду", preview["documents"][0]["pages"][0]["html"])
         self.assertTrue(
             any(
                 "Гарантийные и важные условия" in page["html"]
@@ -493,11 +498,41 @@ class PrintingServiceTests(unittest.TestCase):
                 self.assertEqual(totals["grand"], expected["grand"])
                 self.assertEqual(totals["prepayment"], expected["prepayment"])
                 self.assertEqual(totals["due"], expected["due"])
+                self.assertEqual(totals["cash_total"], expected["subtotal"])
+                self.assertEqual(totals["noncash_total"], expected["subtotal"] * Decimal("1.15"))
+                self.assertEqual(
+                    totals["noncash_taxes_and_fees"], expected["subtotal"] * Decimal("0.15")
+                )
                 self.assertEqual(
                     context["repair_order"]["prepayment_display"], totals["prepayment_display"]
                 )
                 self.assertEqual(totals["base_total_display"], totals["subtotal_display"])
                 self.assertEqual(totals["total_paid_display"], totals["prepayment_display"])
+
+    def test_repair_order_print_totals_show_cash_and_cashless_without_duplicate_totals(
+        self,
+    ) -> None:
+        card = build_payment_card(
+            payment_method="cashless",
+            payments=[{"amount": "3000", "payment_method": "cash"}],
+        )
+
+        preview = self.service.preview_documents(
+            card,
+            selected_document_ids=["repair_order"],
+            active_document_id="repair_order",
+        )
+        html = preview["documents"][0]["pages"][0]["html"]
+
+        self.assertIn("Стоимость заказ-наряда</td><td>20 000,00", html)
+        self.assertIn("Стоимость заказ-наряда по безналичному расчету", html)
+        self.assertIn("включая налоги и сборы 15%", html)
+        self.assertIn(">23 000,00</td>", html)
+        self.assertIn("Предоплата</td><td>3 000,00", html)
+        self.assertIn("К доплате по безналичному расчету</td><td>19 550,00", html)
+        self.assertNotIn("<tr><td>Итого работы</td>", html)
+        self.assertNotIn("<tr><td>Итого материалы</td>", html)
+        self.assertNotIn("Итого по заказ-наряду", html)
 
     def test_inspection_sheet_form_roundtrip_updates_preview(self) -> None:
         initial = self.service.get_inspection_sheet_form(self.card)
