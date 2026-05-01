@@ -31,7 +31,7 @@ class CheckAgentRuntimeScriptTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.module = _load_script_module()
 
-    def test_returns_cleanup_only_when_agent_status_route_is_retired(self) -> None:
+    def test_returns_api_only_when_agent_status_route_is_retired(self) -> None:
         http_404 = self.module.urllib.error.HTTPError(
             url="http://127.0.0.1:41731/api/agent_status",
             code=404,
@@ -39,45 +39,31 @@ class CheckAgentRuntimeScriptTests(unittest.TestCase):
             hdrs=None,
             fp=None,
         )
-        with (
-            patch.object(self.module, "_request_json", side_effect=http_404),
-            patch.object(
-                self.module,
-                "_supports_cleanup_only_flow",
-                return_value=True,
-            ),
-        ):
+        with patch.object(self.module, "_request_json", side_effect=http_404):
             status, details = self.module._evaluate_agent_runtime_mode(
                 base_url="http://127.0.0.1:41731",
                 token="token",
                 max_heartbeat_age_seconds=30.0,
             )
 
-        self.assertEqual(status, "cleanup_only")
+        self.assertEqual(status, "api_only")
         self.assertEqual(details["reason"], "agent_status_route_retired")
 
-    def test_returns_cleanup_only_when_embedded_agent_is_disabled(self) -> None:
+    def test_returns_api_only_when_embedded_agent_is_disabled(self) -> None:
         payload = {
             "data": {
                 "status": {"last_heartbeat": ""},
                 "agent": {"enabled": False, "model": ""},
             }
         }
-        with (
-            patch.object(self.module, "_request_json", return_value=payload),
-            patch.object(
-                self.module,
-                "_supports_cleanup_only_flow",
-                return_value=True,
-            ),
-        ):
+        with patch.object(self.module, "_request_json", return_value=payload):
             status, details = self.module._evaluate_agent_runtime_mode(
                 base_url="http://127.0.0.1:41731",
                 token="token",
                 max_heartbeat_age_seconds=30.0,
             )
 
-        self.assertEqual(status, "cleanup_only")
+        self.assertEqual(status, "api_only")
         self.assertEqual(details["reason"], "embedded_agent_disabled")
 
     def test_returns_ok_for_live_embedded_agent(self) -> None:

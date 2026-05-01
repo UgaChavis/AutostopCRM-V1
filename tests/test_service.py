@@ -476,8 +476,12 @@ class CardServiceTests(unittest.TestCase):
                 search = self.service.search_clients({"query": query, "limit": 5})
                 self.assertTrue(search["clients"])
                 self.assertEqual(search["clients"][0]["id"], client["id"])
-                self.assertEqual(search["clients"][0]["vehicles_preview"][0]["vehicle"], "Toyota Camry")
-                self.assertEqual(search["clients"][0]["vehicles_preview"][0]["vin"], "JTDBE32K620654321")
+                self.assertEqual(
+                    search["clients"][0]["vehicles_preview"][0]["vehicle"], "Toyota Camry"
+                )
+                self.assertEqual(
+                    search["clients"][0]["vehicles_preview"][0]["vin"], "JTDBE32K620654321"
+                )
 
     def test_client_profile_can_store_imported_vehicles(self) -> None:
         client = self.service.create_client(
@@ -1643,7 +1647,9 @@ class CardServiceTests(unittest.TestCase):
         supplier_details = self.service.get_cashbox(
             {"cashbox_id": supplier_cashbox["id"], "transaction_limit": 10}
         )
-        cash_details = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
+        cash_details = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
         self.assertEqual(supplier_details["cashbox"]["statistics"]["balance_minor"], -1000000)
         self.assertEqual(cash_details["cashbox"]["statistics"]["balance_minor"], 0)
 
@@ -2329,12 +2335,10 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(journal["months"][0]["count"], 1)
 
     def test_cash_journal_markdown_compacts_transfer_pairs(self) -> None:
-        source = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+        source = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})["cashbox"]
+        target = self.service.create_cashbox({"name": "Карта Мария", "actor_name": "ADMIN"})[
             "cashbox"
         ]
-        target = self.service.create_cashbox(
-            {"name": "Карта Мария", "actor_name": "ADMIN"}
-        )["cashbox"]
         self.service.create_cashbox_transfer(
             {
                 "from_cashbox_id": source["id"],
@@ -2347,7 +2351,9 @@ class CardServiceTests(unittest.TestCase):
         journal = self.service.get_cash_journal({"months": 3, "limit": 100})
 
         self.assertIn("Наличный → Карта Мария", journal["markdown"])
-        self.assertIn("Внутренние перемещения: пришло 3 000,00 ₽ | ушло 3 000,00 ₽", journal["markdown"])
+        self.assertIn(
+            "Внутренние перемещения: пришло 3 000,00 ₽ | ушло 3 000,00 ₽", journal["markdown"]
+        )
         self.assertNotIn("`", journal["markdown"])
         self.assertEqual(journal["totals"]["transfer_income_minor"], 300000)
         self.assertEqual(journal["totals"]["transfer_expense_minor"], 300000)
@@ -2843,7 +2849,9 @@ class CardServiceTests(unittest.TestCase):
             self.service.delete_column({"column_id": ready_column["id"]})
         self.assertEqual(delete_error.exception.code, "system_column_locked")
 
-        moved = self.service.move_column({"column_id": ready_column["id"], "before_column_id": "inbox"})
+        moved = self.service.move_column(
+            {"column_id": ready_column["id"], "before_column_id": "inbox"}
+        )
         self.assertTrue(moved["meta"]["changed"])
         self.assertEqual(moved["columns"][0]["id"], ready_column["id"])
 
@@ -2869,6 +2877,15 @@ class CardServiceTests(unittest.TestCase):
             [card["id"] for card in snapshot["archive"][:3]],
             archived_ids[-1:-4:-1],
         )
+
+    def test_board_snapshot_accepts_zero_archive_limit_when_archive_disabled(self) -> None:
+        snapshot = self.service.get_board_snapshot(
+            {"include_archive": False, "archive_limit": 0, "compact": True}
+        )
+
+        self.assertEqual(snapshot["meta"]["archive_limit"], 0)
+        self.assertFalse(snapshot["meta"]["include_archive"])
+        self.assertEqual(snapshot["archive"], [])
 
     def test_board_snapshot_compact_mode_skips_heavy_card_payload_fields(self) -> None:
         created = self.service.create_card(
@@ -3313,6 +3330,7 @@ class CardServiceTests(unittest.TestCase):
         with self.assertRaises(ServiceError) as empty_search:
             self.service.search_cards({})
         self.assertEqual(empty_search.exception.code, "validation_error")
+        self.assertIn("Для поиска нужно передать query", empty_search.exception.message)
 
     def test_get_card_log_supports_limit_and_meta(self) -> None:
         created = self.service.create_card(
@@ -4770,9 +4788,9 @@ class CardServiceTests(unittest.TestCase):
                 "card_id": card_id,
                 "file_name": "agent-report.docx",
                 "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "content_base64": base64.b64encode(
-                    minimal_docx_bytes("Agent DOCX text")
-                ).decode("ascii"),
+                "content_base64": base64.b64encode(minimal_docx_bytes("Agent DOCX text")).decode(
+                    "ascii"
+                ),
             }
         )["attachment"]
         image_attachment = service.add_card_attachment(

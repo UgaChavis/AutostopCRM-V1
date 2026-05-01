@@ -332,7 +332,7 @@ Patch / verify / audit / Telegram report
 - targeted regression packs
 - live connector smoke
 - Telegram AI worker tests
-- legacy agent runtime smoke
+- optional agent runtime/API-only smoke
 - isolated test runner
 
 Ключевые файлы:

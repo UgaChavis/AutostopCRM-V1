@@ -409,12 +409,16 @@ class SnapshotService:
     def get_board_snapshot(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            archive_limit = self._validated_limit(
-                payload.get("archive_limit"), default=ARCHIVE_PREVIEW_LIMIT, maximum=50
-            )
             compact_cards = self._validated_optional_bool(payload, "compact", default=False)
             include_archive = self._validated_optional_bool(
                 payload, "include_archive", default=True
+            )
+            archive_limit = (
+                self._validated_limit(
+                    payload.get("archive_limit"), default=ARCHIVE_PREVIEW_LIMIT, maximum=50
+                )
+                if include_archive
+                else 0
             )
             bundle = self._store.read_bundle()
             cards = self._visible_cards(bundle["cards"], include_archived=False)
@@ -794,7 +798,7 @@ class SnapshotService:
             if not any([query, column, tag, indicator, status]):
                 self._fail(
                     "validation_error",
-                    "Р”Р»СЏ РїРѕРёСЃРєР° РЅСѓР¶РЅРѕ РїРµСЂРµРґР°С‚СЊ query РёР»Рё С…РѕС‚СЏ Р±С‹ РѕРґРёРЅ С„РёР»СЊС‚СЂ: column, tag, indicator, status.",
+                    "Для поиска нужно передать query или хотя бы один фильтр: column, tag, indicator, status.",
                     details={"fields": ["query", "column", "tag", "indicator", "status"]},
                 )
 

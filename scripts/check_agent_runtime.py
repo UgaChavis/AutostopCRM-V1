@@ -5,10 +5,16 @@ import json
 import os
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
-def _request_json(url: str, *, method: str = "GET", payload: dict | None = None, headers: dict[str, str] | None = None) -> dict:
+def _request_json(
+    url: str,
+    *,
+    method: str = "GET",
+    payload: dict | None = None,
+    headers: dict[str, str] | None = None,
+) -> dict:
     data = None
     request_headers = {"Content-Type": "application/json"}
     if headers:
@@ -37,8 +43,8 @@ def _heartbeat_age_seconds(value: str) -> float | None:
     except ValueError:
         return None
     if timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=timezone.utc)
-    return max(0.0, (datetime.now(timezone.utc) - timestamp).total_seconds())
+        timestamp = timestamp.replace(tzinfo=UTC)
+    return max(0.0, (datetime.now(UTC) - timestamp).total_seconds())
 
 
 def _default_api_url() -> str:
@@ -54,22 +60,6 @@ def _http_error_code(exc: Exception) -> int | None:
     return exc.code if isinstance(exc, urllib.error.HTTPError) else None
 
 
-def _supports_cleanup_only_flow(base_url: str, token: str) -> bool:
-    headers = {"X-Operator-Session": token} if token else {}
-    try:
-        _request_json(
-            f"{base_url}/api/cleanup_card_content",
-            method="POST",
-            payload={},
-            headers=headers,
-        )
-        return True
-    except urllib.error.HTTPError as exc:
-        # Any non-404 response means the cleanup endpoint exists and the legacy
-        # server-agent runtime is simply retired in this deployment.
-        return exc.code != 404
-
-
 def _evaluate_agent_runtime_mode(
     *,
     base_url: str,
@@ -83,31 +73,28 @@ def _evaluate_agent_runtime_mode(
             headers=headers,
         )
     except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, KeyError) as exc:
-        if _http_error_code(exc) == 404 and _supports_cleanup_only_flow(base_url, token):
-            return "cleanup_only", {"api_url": base_url, "reason": "agent_status_route_retired"}
+        if _http_error_code(exc) == 404:
+            return "api_only", {"api_url": base_url, "reason": "agent_status_route_retired"}
         raise
 
     status = payload["data"]["status"]
     agent = payload["data"]["agent"]
     heartbeat_age = _heartbeat_age_seconds(str(status.get("last_heartbeat", "") or ""))
-    if agent.get("enabled") and heartbeat_age is not None and heartbeat_age <= max_heartbeat_age_seconds:
+    if (
+        agent.get("enabled")
+        and heartbeat_age is not None
+        and heartbeat_age <= max_heartbeat_age_seconds
+    ):
         return "ok", {
             "api_url": base_url,
             "heartbeat_age_seconds": f"{heartbeat_age:.2f}",
             "model": str(agent.get("model", "") or ""),
         }
-    if _supports_cleanup_only_flow(base_url, token):
-        if not agent.get("enabled"):
-            reason = "embedded_agent_disabled"
-        else:
-            reason = "stale_or_missing_heartbeat"
-        return "cleanup_only", {"api_url": base_url, "reason": reason}
     if not agent.get("enabled"):
-        return "disabled", {"api_url": base_url}
-    return "stale_heartbeat", {
-        "api_url": base_url,
-        "heartbeat_age_seconds": str(heartbeat_age if heartbeat_age is not None else "unknown"),
-    }
+        return "api_only", {"api_url": base_url, "reason": "embedded_agent_disabled"}
+    if heartbeat_age is None or heartbeat_age > max_heartbeat_age_seconds:
+        return "api_only", {"api_url": base_url, "reason": "stale_or_missing_heartbeat"}
+    return "api_only", {"api_url": base_url, "reason": "unknown_agent_state"}
 
 
 def main() -> int:
@@ -119,7 +106,9 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        token = _login(args.local_api_url.rstrip("/"), args.operator_username, args.operator_password)
+        token = _login(
+            args.local_api_url.rstrip("/"), args.operator_username, args.operator_password
+        )
         status, details = _evaluate_agent_runtime_mode(
             base_url=args.local_api_url.rstrip("/"),
             token=token,
@@ -133,23 +122,13 @@ def main() -> int:
                 f"model={details['model']}",
             )
             return 0
-        if status == "cleanup_only":
+        if status == "api_only":
             print(
-                "status: cleanup_only",
+                "status: api_only",
                 f"api_url={details['api_url']}",
                 f"reason={details['reason']}",
             )
             return 0
-        if status == "disabled":
-            print("status: disabled", f"api_url={details['api_url']}")
-            return 1
-        if status == "stale_heartbeat":
-            print(
-                "status: stale_heartbeat",
-                f"heartbeat_age_seconds={details['heartbeat_age_seconds']}",
-                f"api_url={details['api_url']}",
-            )
-            return 1
         print("status: error", f"api_url={args.local_api_url.rstrip('/')}", f"mode={status}")
         return 1
     except (KeyError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as exc:

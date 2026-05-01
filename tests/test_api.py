@@ -1341,6 +1341,17 @@ class ApiServerTests(unittest.TestCase):
         self.assertNotIn("attachments", compact_card)
         self.assertTrue(snapshot["data"]["meta"]["revision"])
 
+    def test_snapshot_without_archive_allows_zero_archive_limit(self) -> None:
+        status, snapshot = self.request(
+            "/api/get_board_snapshot?include_archive=0&archive_limit=0&compact=1",
+            method="GET",
+        )
+
+        self.assertEqual(status, 200)
+        self.assertFalse(snapshot["data"]["meta"]["include_archive"])
+        self.assertEqual(snapshot["data"]["meta"]["archive_limit"], 0)
+        self.assertEqual(snapshot["data"]["archive"], [])
+
     def test_get_cards_compact_query_omits_heavy_fields(self) -> None:
         status, created = self.request(
             "/api/create_card",
@@ -1731,7 +1742,7 @@ class ApiServerTests(unittest.TestCase):
                             "quantity": "1",
                             "price": "5000",
                             "executor_id": employee_id,
-                        }
+                        },
                     ],
                 },
             },
@@ -2910,7 +2921,9 @@ class ApiServerTests(unittest.TestCase):
 
         status, active = self.request("/api/list_repair_orders", method="GET")
         self.assertEqual(status, 200)
-        self.assertFalse(any(item["card_id"] == card_id for item in active["data"]["repair_orders"]))
+        self.assertFalse(
+            any(item["card_id"] == card_id for item in active["data"]["repair_orders"])
+        )
 
     def test_repair_order_status_route_rejects_unpaid_close(self) -> None:
         status, created = self.request(

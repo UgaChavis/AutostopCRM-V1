@@ -128,7 +128,7 @@ The local API is broader than the original board-only stage. Current route group
 - cashboxes and cash transactions
 - employees and payroll
 - operator auth and user management
-- local card cleanup
+- manual autofill and enrichment endpoints
 
 The main API implementation lives in [src/minimal_kanban/api/server.py](src/minimal_kanban/api/server.py). Detailed payload docs are in [API_GUIDE.md](API_GUIDE.md).
 
@@ -141,7 +141,7 @@ The MCP server exposes the current AutoStop CRM board and services as tools over
 - cashbox access
 - repair-order access and updates
 - client directory search, profile, vehicle, requisites, client-vehicle upsert and card-link tools
-- local card cleanup and bounded board/card reads
+- bounded board/card reads; automatic cleanup is intentionally not exposed as an MCP tool
 
 The exact runtime inventory is documented in [MCP_GUIDE.md](MCP_GUIDE.md). The user-facing autofill endpoints remain available in the HTTP API and UI, but they are not MCP tools.
 
