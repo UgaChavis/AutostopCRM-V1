@@ -1957,9 +1957,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".cashbox-cancel-last-button[disabled] {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-text {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-download-button {", BOARD_WEB_APP_HTML)
-        self.assertIn(".card-journal {", BOARD_WEB_APP_HTML)
-        self.assertIn(".card-journal-entry {", BOARD_WEB_APP_HTML)
-        self.assertIn(".card-journal__day {", BOARD_WEB_APP_HTML)
+        self.assertIn(".card-journal-text {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-delete-button {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-detail__identity {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-composer__actions {", BOARD_WEB_APP_HTML)
@@ -2080,8 +2078,9 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_modal_data_loader_helpers_drive_active_archive_and_gpt_paths(self) -> None:
         self.assertIn("function maybeOpenModal(modalEl, openModal)", BOARD_WEB_APP_HTML)
-        self.assertIn("function normalizeCardJournalEntries(data)", BOARD_WEB_APP_HTML)
         self.assertIn("function renderLogs(payload)", BOARD_WEB_APP_HTML)
+        self.assertIn("function buildCardJournalFallbackText(events)", BOARD_WEB_APP_HTML)
+        self.assertIn("data.text || data.markdown", BOARD_WEB_APP_HTML)
         self.assertIn("async function openArchiveModal()", BOARD_WEB_APP_HTML)
         self.assertIn("await loadArchive(true);", BOARD_WEB_APP_HTML)
         self.assertIn(

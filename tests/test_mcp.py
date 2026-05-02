@@ -1183,6 +1183,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(log.structuredContent["data"]["meta"]["limit"], 2)
                 self.assertEqual(log.structuredContent["data"]["meta"]["response_mode"], "audit")
                 self.assertIn("markdown", log.structuredContent["data"])
+                self.assertIn("text", log.structuredContent["data"])
                 self.assertIn("entries", log.structuredContent["data"])
 
                 overdue = await session.call_tool("list_overdue_cards", {})

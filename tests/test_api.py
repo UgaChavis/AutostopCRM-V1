@@ -3227,7 +3227,8 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("entries", log["data"])
         self.assertIn("days", log["data"])
         self.assertIn("markdown", log["data"])
-        self.assertEqual(log["data"]["text"], log["data"]["markdown"])
+        self.assertIn("text", log["data"])
+        self.assertTrue(log["data"]["text"].startswith("ЖУРНАЛ КАРТОЧКИ"))
 
         status, archived = self.request("/api/archive_card", {"card_id": card_id})
         self.assertEqual(status, 200)

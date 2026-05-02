@@ -957,13 +957,20 @@ class SnapshotService:
                 totals=totals,
                 meta=meta,
             )
+            text = self._card_log_text(
+                card=card,
+                entries=entries,
+                days=days,
+                totals=totals,
+                meta=meta,
+            )
             return {
                 "events": events,
                 "entries": entries,
                 "days": days,
                 "totals": totals,
                 "markdown": markdown,
-                "text": markdown,
+                "text": text,
                 "meta": {
                     **meta,
                 },
@@ -986,9 +993,9 @@ class SnapshotService:
         action = str(event.get("action") or "").strip()
         parts: list[str] = []
 
-        def push(label: str, value: Any) -> None:
+        def push(label: str, value: Any, *, show_empty: bool = False) -> None:
             text = self._card_log_value_text(value)
-            if text != "—":
+            if text != "—" or show_empty:
                 parts.append(f"{label}: {text}")
 
         if action == "card_created":
@@ -1002,17 +1009,17 @@ class SnapshotService:
         elif action in {"card_archived", "card_restored"}:
             push("столбец", details.get("column"))
         elif action == "vehicle_changed":
-            push("было", details.get("before"))
-            push("стало", details.get("after"))
+            push("до", details.get("before"), show_empty=True)
+            push("после", details.get("after"), show_empty=True)
         elif action in {"title_changed", "description_changed"}:
-            push("было", details.get("before"))
-            push("стало", details.get("after"))
+            push("до", details.get("before"), show_empty=True)
+            push("после", details.get("after"), show_empty=True)
         elif action == "signal_changed":
-            push("было", details.get("before_total_seconds"))
-            push("стало", details.get("after_total_seconds"))
+            push("до", details.get("before_total_seconds"), show_empty=True)
+            push("после", details.get("after_total_seconds"), show_empty=True)
         elif action == "signal_indicator_changed":
-            push("было", details.get("before_indicator"))
-            push("стало", details.get("after_indicator"))
+            push("до", details.get("before_indicator"), show_empty=True)
+            push("после", details.get("after_indicator"), show_empty=True)
             push("сигнал", details.get("deadline_total_seconds"))
         elif action in {"attachment_added", "attachment_removed"}:
             push("файл", details.get("file_name"))
@@ -1020,8 +1027,8 @@ class SnapshotService:
         elif action in {"tag_added", "tag_removed"}:
             push("метка", details.get("tag"))
         elif action == "tags_changed":
-            push("было", details.get("before"))
-            push("стало", details.get("after"))
+            push("до", details.get("before"), show_empty=True)
+            push("после", details.get("after"), show_empty=True)
         else:
             for key in sorted(details.keys()):
                 push(key.replace("_", " "), details.get(key))
@@ -1144,11 +1151,6 @@ class SnapshotService:
         lines.extend(
             [
                 "",
-                "## 🧾 Структура",
-                f"- Участников: {totals['actors']}",
-                f"- Источников: {totals['sources']}",
-                f"- Типов событий: {totals['actions']}",
-                "",
                 "## 🗓️ По дням",
             ]
         )
@@ -1159,11 +1161,42 @@ class SnapshotService:
             lines.append(f"### {day['label']}")
             lines.append(f"- Событий за день: {day['count']}")
             for item in day["entries"]:
-                lines.append(
-                    f"- {item['time_short']} | {item['actor_name']} | {item['source']} | {item['message']}"
-                )
+                lines.append(f"- {item['time_short']} | {item['actor_name']} | {item['message']}")
                 if item.get("details_text"):
                     lines.append(f"  - Детали: {item['details_text']}")
+            lines.append("")
+        return "\n".join(lines).strip()
+
+    def _card_log_text(
+        self,
+        *,
+        card: Card,
+        entries: list[dict[str, Any]],
+        days: list[dict[str, Any]],
+        totals: dict[str, object],
+        meta: dict[str, object],
+    ) -> str:
+        lines = [
+            "ЖУРНАЛ КАРТОЧКИ",
+            f"КАРТОЧКА: {card.heading()}",
+            f"ID: {meta['card_short_id']}",
+            f"СОБЫТИЙ: {totals['count']} ИЗ {meta['events_total']}",
+        ]
+        if meta.get("has_more"):
+            lines.append("ПОКАЗАНА ТОЛЬКО ЧАСТЬ ЖУРНАЛА ПО ЛИМИТУ ВЫГРУЗКИ.")
+        if meta.get("oldest_timestamp") and meta.get("newest_timestamp"):
+            lines.append(f"ДИАПАЗОН: {meta['oldest_timestamp']} → {meta['newest_timestamp']}")
+        lines.extend(["", "ПО ДНЯМ"])
+        if not entries:
+            lines.append("ЗАПИСЕЙ НЕТ.")
+            return "\n".join(lines).strip()
+        for day in days:
+            lines.append(f"{day['label']}")
+            lines.append(f"  СОБЫТИЙ ЗА ДЕНЬ: {day['count']}")
+            for item in day["entries"]:
+                lines.append(f"  {item['time_short']} | {item['actor_name']} | {item['message']}")
+                if item.get("details_text"):
+                    lines.append(f"    {item['details_text']}")
             lines.append("")
         return "\n".join(lines).strip()
 

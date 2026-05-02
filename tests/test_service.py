@@ -3371,7 +3371,8 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(len(log["entries"]), 2)
         self.assertGreaterEqual(len(log["days"]), 1)
         self.assertIn("markdown", log)
-        self.assertEqual(log["text"], log["markdown"])
+        self.assertIn("text", log)
+        self.assertTrue(log["text"].startswith("ЖУРНАЛ КАРТОЧКИ"))
         self.assertTrue(log["markdown"].startswith("# Журнал карточки"))
         self.assertEqual(log["entries"][0]["schema_version"], "card_journal.entry.v1")
 
