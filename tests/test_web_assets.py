@@ -2081,6 +2081,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function renderLogs(payload)", BOARD_WEB_APP_HTML)
         self.assertIn("function buildCardJournalFallbackText(events)", BOARD_WEB_APP_HTML)
         self.assertIn("data.text || data.markdown", BOARD_WEB_APP_HTML)
+        self.assertIn("head + '\\n  ' + details", BOARD_WEB_APP_HTML)
+        self.assertIn("}).join('\\n\\n');", BOARD_WEB_APP_HTML)
         self.assertIn("async function openArchiveModal()", BOARD_WEB_APP_HTML)
         self.assertIn("await loadArchive(true);", BOARD_WEB_APP_HTML)
         self.assertIn(

@@ -16375,8 +16375,8 @@ BOARD_WEB_APP_HTML = "".join(
           event.message || 'Событие',
         ].filter(Boolean).join(' | ');
         const details = formatLogDetails(event);
-        return details ? head + '\n  ' + details : head;
-      }).join('\n\n');
+        return details ? head + '\\n  ' + details : head;
+      }).join('\\n\\n');
     }
 
     function renderTags() {
