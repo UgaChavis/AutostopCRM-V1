@@ -18962,6 +18962,15 @@ function renderCompactArchiveRows(cards) {
       updateSharedFilesActions();
     }
 
+    function updateSharedFilesSelection() {
+      if (!els.sharedFilesDesktop) return;
+      const activeId = String(state.sharedFilesActiveId || '').trim();
+      for (const icon of els.sharedFilesDesktop.querySelectorAll('[data-shared-file-id]')) {
+        if (!(icon instanceof HTMLElement)) continue;
+        icon.classList.toggle('is-active', String(icon.dataset.sharedFileId || '') === activeId);
+      }
+    }
+
     async function loadSharedFiles({ openModal = false } = {}) {
       try {
         const data = await api('/api/list_shared_files');
@@ -18986,7 +18995,8 @@ function renderCompactArchiveRows(cards) {
 
     function selectSharedFile(fileId) {
       state.sharedFilesActiveId = String(fileId || '').trim();
-      renderSharedFiles();
+      updateSharedFilesSelection();
+      updateSharedFilesActions();
     }
 
     function normalizeSharedFilesDropPoint(point) {

@@ -103,6 +103,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function sharedFilesStableTime(file)", BOARD_WEB_APP_HTML)
         self.assertIn("const orderedFiles = Array.from(files || []).sort(", BOARD_WEB_APP_HTML)
         self.assertIn("const laidOutFiles = sharedFilesLayout(files);", BOARD_WEB_APP_HTML)
+        self.assertIn("function updateSharedFilesSelection()", BOARD_WEB_APP_HTML)
         self.assertIn(
             "async function pasteSharedFilesFromLocalClipboard(dropPoint)", BOARD_WEB_APP_HTML
         )
