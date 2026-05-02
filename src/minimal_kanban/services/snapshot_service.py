@@ -14,6 +14,8 @@ from ..models import (
     Column,
     StickyNote,
     parse_datetime,
+    normalize_actor_name,
+    normalize_text,
     short_entity_id,
     utc_now,
     utc_now_iso,
@@ -922,21 +924,248 @@ class SnapshotService:
             )
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
-            _ = card
             card_events = self._events_for_card(bundle["events"], card.id)
             events = [
                 event.to_dict()
                 for event in (card_events[:limit] if limit is not None else card_events)
             ]
+            entries = self._card_log_entries(events, card=card)
+            days = self._card_log_group_entries(entries, key="day_key", kind="day")
+            totals = self._card_log_totals(entries)
+            newest_timestamp = entries[0]["timestamp"] if entries else ""
+            oldest_timestamp = entries[-1]["timestamp"] if entries else ""
+            meta = {
+                "schema_version": "card_journal.v1",
+                "card_id": card.id,
+                "card_short_id": short_entity_id(card.id, prefix="C"),
+                "card_heading": card.heading(),
+                "limit": limit,
+                "events_total": len(card_events),
+                "events_returned": len(events),
+                "has_more": len(card_events) > len(events),
+                "first_timestamp": newest_timestamp,
+                "last_timestamp": oldest_timestamp,
+                "newest_timestamp": newest_timestamp,
+                "oldest_timestamp": oldest_timestamp,
+                "format": "markdown+json",
+                "text_alias": "markdown",
+            }
+            markdown = self._card_log_markdown(
+                card=card,
+                entries=entries,
+                days=days,
+                totals=totals,
+                meta=meta,
+            )
             return {
                 "events": events,
+                "entries": entries,
+                "days": days,
+                "totals": totals,
+                "markdown": markdown,
+                "text": markdown,
                 "meta": {
-                    "limit": limit,
-                    "events_total": len(card_events),
-                    "events_returned": len(events),
-                    "has_more": len(card_events) > len(events),
+                    **meta,
                 },
             }
+
+    def _card_log_value_text(self, value: Any) -> str:
+        if value is None or value == "":
+            return "—"
+        if isinstance(value, bool):
+            return "да" if value else "нет"
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return normalize_text(value, default="—", limit=240) or "—"
+
+    def _card_log_detail_text(self, event: dict[str, Any]) -> str:
+        details = event.get("details")
+        if not isinstance(details, dict) or not details:
+            return ""
+
+        action = str(event.get("action") or "").strip()
+        parts: list[str] = []
+
+        def push(label: str, value: Any) -> None:
+            text = self._card_log_value_text(value)
+            if text != "—":
+                parts.append(f"{label}: {text}")
+
+        if action == "card_created":
+            push("машина", details.get("vehicle"))
+            push("столбец", details.get("column"))
+            push("метки", details.get("tags"))
+            push("сигнал", details.get("deadline_total_seconds"))
+        elif action == "card_moved":
+            push("из", details.get("before_column"))
+            push("в", details.get("after_column"))
+        elif action in {"card_archived", "card_restored"}:
+            push("столбец", details.get("column"))
+        elif action == "vehicle_changed":
+            push("было", details.get("before"))
+            push("стало", details.get("after"))
+        elif action in {"title_changed", "description_changed"}:
+            push("было", details.get("before"))
+            push("стало", details.get("after"))
+        elif action == "signal_changed":
+            push("было", details.get("before_total_seconds"))
+            push("стало", details.get("after_total_seconds"))
+        elif action == "signal_indicator_changed":
+            push("было", details.get("before_indicator"))
+            push("стало", details.get("after_indicator"))
+            push("сигнал", details.get("deadline_total_seconds"))
+        elif action in {"attachment_added", "attachment_removed"}:
+            push("файл", details.get("file_name"))
+            push("размер", details.get("size_bytes"))
+        elif action in {"tag_added", "tag_removed"}:
+            push("метка", details.get("tag"))
+        elif action == "tags_changed":
+            push("было", details.get("before"))
+            push("стало", details.get("after"))
+        else:
+            for key in sorted(details.keys()):
+                push(key.replace("_", " "), details.get(key))
+
+        return " | ".join(parts)
+
+    def _card_log_entries(
+        self,
+        events: list[dict[str, Any]],
+        *,
+        card: Card,
+    ) -> list[dict[str, Any]]:
+        entries: list[dict[str, Any]] = []
+        card_short_id = short_entity_id(card.id, prefix="C")
+        card_heading = card.heading()
+        for event in events:
+            timestamp = parse_datetime(event.get("timestamp")) or utc_now()
+            day_key = timestamp.date().isoformat()
+            time_short = timestamp.strftime("%H:%M")
+            details = event.get("details")
+            details_text = self._card_log_detail_text(event)
+            details_copy = dict(details) if isinstance(details, dict) else {}
+            entry = {
+                "schema_version": "card_journal.entry.v1",
+                "id": event.get("id") or "",
+                "timestamp": timestamp.isoformat(),
+                "date": day_key,
+                "time": timestamp.strftime("%H:%M:%S"),
+                "time_short": time_short,
+                "day_key": day_key,
+                "actor_name": normalize_actor_name(event.get("actor_name")),
+                "source": event.get("source") or "system",
+                "action": normalize_text(event.get("action"), default="unknown", limit=80),
+                "message": normalize_text(event.get("message"), default="Событие", limit=300),
+                "card_id": card.id,
+                "card_short_id": card_short_id,
+                "card_heading": card_heading,
+                "details": details_copy,
+                "details_text": details_text,
+            }
+            entry["summary"] = " · ".join(
+                value
+                for value in (
+                    entry["time_short"],
+                    entry["actor_name"],
+                    str(entry["message"] or "").strip(),
+                )
+                if value
+            )
+            entries.append(entry)
+        return entries
+
+    def _card_log_group_entries(
+        self, entries: list[dict[str, Any]], *, key: str, kind: str
+    ) -> list[dict[str, Any]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for item in entries:
+            grouped.setdefault(str(item.get(key) or "unknown"), []).append(item)
+        result: list[dict[str, Any]] = []
+        for group_key in sorted(grouped.keys(), reverse=True):
+            group_entries = grouped[group_key]
+            payload: dict[str, Any] = {
+                "key": group_key,
+                "entries": group_entries,
+                "count": len(group_entries),
+            }
+            if kind == "day":
+                payload["day_key"] = group_key
+                payload["label"] = self._card_log_day_label(group_key)
+                payload["first_timestamp"] = group_entries[0]["timestamp"]
+                payload["last_timestamp"] = group_entries[-1]["timestamp"]
+            result.append(payload)
+        return result
+
+    def _card_log_day_label(self, date_key: str) -> str:
+        try:
+            value = datetime.strptime(date_key, "%Y-%m-%d")
+        except ValueError:
+            return date_key
+        weekdays = [
+            "понедельник",
+            "вторник",
+            "среда",
+            "четверг",
+            "пятница",
+            "суббота",
+            "воскресенье",
+        ]
+        return f"{value.strftime('%d.%m.%Y')}, {weekdays[value.weekday()]}"
+
+    def _card_log_totals(self, entries: list[dict[str, Any]]) -> dict[str, object]:
+        return {
+            "count": len(entries),
+            "actors": len({str(item.get("actor_name") or "") for item in entries if item.get("actor_name")}),
+            "sources": len({str(item.get("source") or "") for item in entries if item.get("source")}),
+            "actions": len({str(item.get("action") or "") for item in entries if item.get("action")}),
+        }
+
+    def _card_log_markdown(
+        self,
+        *,
+        card: Card,
+        entries: list[dict[str, Any]],
+        days: list[dict[str, Any]],
+        totals: dict[str, object],
+        meta: dict[str, object],
+    ) -> str:
+        lines = [
+            "# Журнал карточки",
+            "",
+            "## 📌 Карточка",
+            f"- {card.heading()}",
+            f"- ID: {meta['card_short_id']}",
+            f"- Событий: {totals['count']} из {meta['events_total']}",
+        ]
+        if meta.get("has_more"):
+            lines.append("- Показана только часть журнала по лимиту выгрузки.")
+        if meta.get("oldest_timestamp") and meta.get("newest_timestamp"):
+            lines.append(f"- Диапазон: {meta['oldest_timestamp']} → {meta['newest_timestamp']}")
+        lines.extend(
+            [
+                "",
+                "## 🧾 Структура",
+                f"- Участников: {totals['actors']}",
+                f"- Источников: {totals['sources']}",
+                f"- Типов событий: {totals['actions']}",
+                "",
+                "## 🗓️ По дням",
+            ]
+        )
+        if not entries:
+            lines.extend(["Журнал пуст."])
+            return "\n".join(lines).strip()
+        for day in days:
+            lines.append(f"### {day['label']}")
+            lines.append(f"- Событий за день: {day['count']}")
+            for item in day["entries"]:
+                lines.append(
+                    f"- {item['time_short']} | {item['actor_name']} | {item['source']} | {item['message']}"
+                )
+                if item.get("details_text"):
+                    lines.append(f"  - Детали: {item['details_text']}")
+            lines.append("")
+        return "\n".join(lines).strip()
 
     def _latest_event_by_card(self, events: list[AuditEvent]) -> dict[str, AuditEvent]:
         latest: dict[str, AuditEvent] = {}

@@ -4245,11 +4245,125 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .log-row__meta { font-size: 11px; }
     .log-view {
+      display: block;
+      padding: 0;
+      border: 0;
+      background: transparent;
+    }
+    .card-journal {
       border: 1px solid var(--line-soft);
-      background: rgba(0,0,0,0.12);
+      background: rgba(8, 12, 10, 0.68);
+      padding: 14px 16px;
+      min-height: 420px;
+      max-height: min(68vh, 720px);
+      overflow: auto;
+      display: grid;
+      gap: 12px;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.48;
+      font-variant-numeric: tabular-nums;
+    }
+    .card-journal__header {
+      display: grid;
+      gap: 4px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(115, 126, 105, 0.24);
+    }
+    .card-journal__title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .card-journal__meta {
+      color: var(--text-soft);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .card-journal__empty {
+      color: var(--text-soft);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 4px 0 6px;
+    }
+    .card-journal__day {
+      display: grid;
+      gap: 8px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(115, 126, 105, 0.24);
+    }
+    .card-journal__day:first-child {
+      padding-top: 0;
+      border-top: 0;
+    }
+    .card-journal__day-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .card-journal__day-label {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .card-journal__day-meta {
+      color: var(--text-soft);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .card-journal-entry {
+      border: 1px solid rgba(167, 178, 132, 0.26);
+      background: rgba(255, 255, 255, 0.02);
       padding: 10px 12px;
       display: grid;
-      gap: 0;
+      gap: 6px;
+    }
+    .card-journal-entry__head {
+      display: flex;
+      align-items: center;
+      gap: 8px 10px;
+      flex-wrap: wrap;
+    }
+    .card-journal-entry__time {
+      color: var(--accent);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .card-journal-entry__actor,
+    .card-journal-entry__source,
+    .card-journal-entry__action {
+      color: var(--text-soft);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .card-journal-entry__action {
+      padding: 2px 6px;
+      border: 1px solid rgba(167, 178, 132, 0.24);
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .card-journal-entry__message {
+      font-size: 13px;
+      line-height: 1.38;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .card-journal-entry__details {
+      color: var(--text-soft);
+      font-size: 11px;
+      line-height: 1.42;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
     .wall-meta {
       color: var(--text-soft);
@@ -16523,18 +16637,151 @@ BOARD_WEB_APP_HTML = "".join(
       await refreshSnapshot(true);
     }
 
-    function renderLogs(events) {
-      els.logList.innerHTML = events.length
-        ? events.map((event) => {
-            const sourceLabel = formatSourceLabel(event.source);
-            const details = formatLogDetails(event);
-            const parts = [formatDate(event.timestamp), event.actor_name];
-            if (sourceLabel) parts.push(sourceLabel);
-            parts.push(event.message);
-            if (details) parts.push(details);
-            return '<div class="log-row">' + escapeHtml(parts.join(' | ')) + '</div>';
-          }).join('')
-        : '<div class="log-row__meta">ЗАПИСЕЙ НЕТ.</div>';
+    function formatJournalDayLabel(value) {
+      if (!value) return 'без даты';
+      try {
+        const date = value instanceof Date ? value : new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        const weekdays = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
+        const dd = String(date.getDate()).padStart(2, '0');
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const yyyy = String(date.getFullYear());
+        return dd + '.' + mm + '.' + yyyy + ', ' + weekdays[date.getDay()];
+      } catch {
+        return String(value);
+      }
+    }
+
+    function formatJournalTime(value) {
+      if (!value) return '—';
+      try {
+        const date = value instanceof Date ? value : new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+      } catch {
+        return String(value);
+      }
+    }
+
+    function formatJournalEventCount(count) {
+      const value = Number(count || 0);
+      const lastDigit = value % 10;
+      const lastTwo = value % 100;
+      if (lastDigit === 1 && lastTwo !== 11) return value + ' СОБЫТИЕ';
+      if (lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 10 || lastTwo >= 20)) return value + ' СОБЫТИЯ';
+      return value + ' СОБЫТИЙ';
+    }
+
+    function normalizeCardJournalEntries(data) {
+      const rawEntries = Array.isArray(data?.entries) && data.entries.length
+        ? data.entries
+        : Array.isArray(data?.events) ? data.events : [];
+      return rawEntries.map((item) => {
+        const timestamp = item?.timestamp || '';
+        const dayKey = item?.day_key || item?.date || (timestamp ? String(timestamp).slice(0, 10) : '');
+        const dayLabel = item?.day_label || item?.label || formatJournalDayLabel(timestamp || dayKey);
+        return {
+          ...item,
+          timestamp,
+          day_key: dayKey,
+          day_label: dayLabel,
+          time_short: item?.time_short || formatJournalTime(timestamp),
+          actor_name: item?.actor_name || 'СИСТЕМА',
+          source: item?.source || 'system',
+          action: item?.action || '',
+          message: item?.message || 'Событие',
+          details_text: item?.details_text || formatLogDetails(item),
+        };
+      });
+    }
+
+    function groupCardJournalEntries(entries) {
+      const grouped = new Map();
+      entries.forEach((entry) => {
+        const key = String(entry.day_key || entry.timestamp || 'unknown');
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key).push(entry);
+      });
+      return Array.from(grouped.entries()).map(([key, groupEntries]) => {
+        const first = groupEntries[0] || {};
+        return {
+          key,
+          label: first.day_label || formatJournalDayLabel(first.timestamp || key),
+          count: groupEntries.length,
+          entries: groupEntries,
+        };
+      });
+    }
+
+    function renderCardJournalEntry(entry) {
+      const sourceLabel = formatSourceLabel(entry.source);
+      const headParts = [
+        '<div class="card-journal-entry__time">' + escapeHtml(entry.time_short || '—') + '</div>',
+        '<div class="card-journal-entry__actor">' + escapeHtml(entry.actor_name || 'СИСТЕМА') + '</div>',
+      ];
+      if (sourceLabel) {
+        headParts.push('<div class="card-journal-entry__source">' + escapeHtml(sourceLabel) + '</div>');
+      }
+      if (entry.action) {
+        headParts.push('<div class="card-journal-entry__action">' + escapeHtml(entry.action) + '</div>');
+      }
+      const detailsHtml = entry.details_text
+        ? '<div class="card-journal-entry__details">' + escapeHtml(entry.details_text) + '</div>'
+        : '';
+      return '<article class="card-journal-entry">'
+        + '<div class="card-journal-entry__head">' + headParts.join('') + '</div>'
+        + '<div class="card-journal-entry__message">' + escapeHtml(entry.message || 'Событие') + '</div>'
+        + detailsHtml
+        + '</article>';
+    }
+
+    function renderLogs(payload) {
+      const data = Array.isArray(payload) ? { events: payload } : (payload || {});
+      const meta = data.meta || {};
+      const entries = normalizeCardJournalEntries(data);
+      const days = Array.isArray(data.days) && data.days.length
+        ? data.days.map((day) => ({
+            key: day.key || day.day_key || day.date || '',
+            label: day.label || formatJournalDayLabel(day.first_timestamp || day.last_timestamp || day.key || day.day_key || day.date),
+            count: day.count ?? (Array.isArray(day.entries) ? day.entries.length : 0),
+            entries: normalizeCardJournalEntries({
+              entries: Array.isArray(day.entries) ? day.entries : [],
+            }),
+          }))
+        : groupCardJournalEntries(entries);
+      const heading = meta.card_heading || entries[0]?.card_heading || 'ЖУРНАЛ КАРТОЧКИ';
+      const idLabel = meta.card_short_id || meta.card_id || entries[0]?.card_short_id || entries[0]?.card_id || '';
+      const summaryParts = [];
+      if (idLabel) summaryParts.push(idLabel);
+      if (meta.events_returned !== undefined && meta.events_total !== undefined) {
+        summaryParts.push('СОБЫТИЙ: ' + meta.events_returned + ' / ' + meta.events_total);
+      } else if (entries.length) {
+        summaryParts.push('СОБЫТИЙ: ' + entries.length);
+      }
+      if (meta.has_more) summaryParts.push('ПОКАЗАНО ПО ЛИМИТУ');
+      if (meta.oldest_timestamp && meta.newest_timestamp) {
+        summaryParts.push(formatJournalDayLabel(meta.oldest_timestamp) + ' → ' + formatJournalDayLabel(meta.newest_timestamp));
+      } else if (meta.first_timestamp && meta.last_timestamp) {
+        summaryParts.push(formatJournalDayLabel(meta.last_timestamp) + ' → ' + formatJournalDayLabel(meta.first_timestamp));
+      }
+      const headerMeta = summaryParts.filter(Boolean).join(' · ') || 'СОБЫТИЙ НЕТ';
+      els.logList.innerHTML = '<div class="card-journal">'
+        + '<div class="card-journal__header">'
+          + '<div class="card-journal__title">' + escapeHtml(heading) + '</div>'
+          + '<div class="card-journal__meta">' + escapeHtml(headerMeta) + '</div>'
+        + '</div>'
+        + (entries.length
+          ? days.map((day) => {
+              return '<section class="card-journal__day">'
+                + '<div class="card-journal__day-head">'
+                  + '<div class="card-journal__day-label">' + escapeHtml(day.label || 'БЕЗ ДАТЫ') + '</div>'
+                  + '<div class="card-journal__day-meta">' + escapeHtml(formatJournalEventCount(day.count || 0)) + '</div>'
+                + '</div>'
+                + day.entries.map((entry) => renderCardJournalEntry(entry)).join('')
+              + '</section>';
+            }).join('')
+          : '<div class="card-journal__empty">ЗАПИСЕЙ НЕТ.</div>')
+        + '</div>';
     }
 
     function renderArchive() {
@@ -17583,9 +17830,22 @@ function renderCompactArchiveRows(cards) {
     async function loadLogs(cardId) {
       try {
         const data = await api('/api/get_card_log?card_id=' + encodeURIComponent(cardId));
-        renderLogs(data.events || []);
+        renderLogs(data);
       } catch (error) {
-        renderLogs([{ message: error.message, timestamp: new Date().toISOString(), actor_name: 'СИСТЕМА', source: 'ui', details: {} }]);
+        renderLogs({
+          events: [{
+            message: error.message,
+            timestamp: new Date().toISOString(),
+            actor_name: 'СИСТЕМА',
+            source: 'ui',
+            action: 'journal_error',
+            details: {},
+          }],
+          meta: {
+            card_heading: 'ЖУРНАЛ КАРТОЧКИ',
+            card_short_id: '',
+          },
+        });
       }
     }
 

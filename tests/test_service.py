@@ -3362,11 +3362,18 @@ class CardServiceTests(unittest.TestCase):
 
         log = self.service.get_card_log({"card_id": card_id, "limit": 2})
 
+        self.assertEqual(log["meta"]["schema_version"], "card_journal.v1")
         self.assertEqual(log["meta"]["limit"], 2)
         self.assertEqual(log["meta"]["events_returned"], 2)
         self.assertGreaterEqual(log["meta"]["events_total"], 3)
         self.assertTrue(log["meta"]["has_more"])
         self.assertEqual(len(log["events"]), 2)
+        self.assertEqual(len(log["entries"]), 2)
+        self.assertGreaterEqual(len(log["days"]), 1)
+        self.assertIn("markdown", log)
+        self.assertEqual(log["text"], log["markdown"])
+        self.assertTrue(log["markdown"].startswith("# Журнал карточки"))
+        self.assertEqual(log["entries"][0]["schema_version"], "card_journal.entry.v1")
 
     def test_search_cards_skips_event_count_build_when_no_matches(self) -> None:
         self.service.create_card(
