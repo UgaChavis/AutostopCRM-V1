@@ -124,7 +124,14 @@ BOARD_WEB_APP_HTML = "".join(
       position: relative;
       z-index: 3;
     }
-    .topbar__left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .topbar__left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1 1 auto;
+      flex-wrap: wrap;
+    }
     .brand { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
     .brand__title {
       font-family: var(--mono);
@@ -154,8 +161,17 @@ BOARD_WEB_APP_HTML = "".join(
       row-gap: 5px;
       flex-wrap: wrap;
       justify-content: flex-end;
+      flex: 0 1 auto;
     }
-    .topbar__actions .btn {
+    .topbar__rare-actions {
+      display: flex;
+      gap: 5px;
+      row-gap: 5px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .topbar__actions .btn,
+    .topbar__rare-actions .btn {
       min-height: 32px;
       padding: 7px 10px;
     }
@@ -4445,7 +4461,8 @@ BOARD_WEB_APP_HTML = "".join(
       width: 100%;
       gap: 6px;
     }
-    body.is-mobile-lite .topbar__actions .btn {
+    body.is-mobile-lite .topbar__actions .btn,
+    body.is-mobile-lite .topbar__rare-actions .btn {
       min-height: 40px;
       padding: 10px 10px;
       font-size: 11px;
@@ -4453,7 +4470,11 @@ BOARD_WEB_APP_HTML = "".join(
     body.is-mobile-lite .topbar__actions .btn:not(#cardButton):not(#archiveButton) {
       display: none;
     }
+    body.is-mobile-lite .topbar__rare-actions .btn:not(#archiveButton) {
+      display: none;
+    }
     body.is-mobile-lite .topbar__actions #cardButton,
+    body.is-mobile-lite .topbar__rare-actions #archiveButton,
     body.is-mobile-lite .topbar__actions #archiveButton {
       width: 100%;
     }
@@ -6275,13 +6296,15 @@ BOARD_WEB_APP_HTML = "".join(
             <div class="status-shell" id="topbarStatusHost"></div>
           </div>
         </div>
+        <div class="topbar__rare-actions" aria-label="Редкие модули">
+          <button class="btn" id="operatorButton">ОПЕРАТОР</button>
+          <button class="btn" id="archiveButton">АРХИВ</button>
+          <button class="btn" id="sharedFilesButton">ФАЙЛЫ</button>
+        </div>
       </div>
       <div class="topbar__actions">
-        <button class="btn" id="operatorButton">ОПЕРАТОР</button>
-        <button class="btn" id="archiveButton">АРХИВ</button>
         <button class="btn" id="repairOrdersButton">ЗАКАЗ-НАРЯДЫ</button>
         <button class="btn" id="clientsButton">КЛИЕНТЫ</button>
-        <button class="btn" id="sharedFilesButton">ФАЙЛЫ</button>
         <button class="btn" id="cashboxesButton">КАССЫ</button>
         <button class="btn" id="employeesButton">СОТРУДНИКИ</button>
         <button class="btn" id="columnButton">+ СТОЛБЕЦ</button>

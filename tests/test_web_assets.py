@@ -70,7 +70,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".status-shell .message {", BOARD_WEB_APP_HTML)
         self.assertIn(".status-shell .message::before {", BOARD_WEB_APP_HTML)
         self.assertIn("width: max-content;", BOARD_WEB_APP_HTML)
-        self.assertIn(".topbar__actions .btn {", BOARD_WEB_APP_HTML)
+        self.assertIn(".topbar__actions .btn,", BOARD_WEB_APP_HTML)
+        self.assertIn(".topbar__rare-actions .btn {", BOARD_WEB_APP_HTML)
 
     def test_shared_files_workspace_is_wired_to_api_routes(self) -> None:
         self.assertIn('id="sharedFilesButton">ФАЙЛЫ</button>', BOARD_WEB_APP_HTML)
@@ -82,6 +83,31 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("api('/api/delete_shared_file'", BOARD_WEB_APP_HTML)
         self.assertIn("api('/api/paste_shared_file'", BOARD_WEB_APP_HTML)
         self.assertIn("api('/api/update_shared_file_position'", BOARD_WEB_APP_HTML)
+
+    def test_topbar_splits_rare_and_primary_actions(self) -> None:
+        match = re.search(
+            r'<div class="topbar__rare-actions"[^>]*>(?P<rare>.*?)</div>\s*</div>\s*'
+            r'<div class="topbar__actions">(?P<primary>.*?)</div>',
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(match)
+        rare_html = match.group("rare")
+        primary_html = match.group("primary")
+        for button_id in ("operatorButton", "archiveButton", "sharedFilesButton"):
+            self.assertIn(f'id="{button_id}"', rare_html)
+            self.assertNotIn(f'id="{button_id}"', primary_html)
+        for button_id in (
+            "repairOrdersButton",
+            "clientsButton",
+            "cashboxesButton",
+            "employeesButton",
+            "columnButton",
+            "cardButton",
+        ):
+            self.assertIn(f'id="{button_id}"', primary_html)
+            self.assertNotIn(f'id="{button_id}"', rare_html)
+        self.assertIn(".topbar__rare-actions {", BOARD_WEB_APP_HTML)
 
     def test_card_enrichment_button_uses_open_card_context(self) -> None:
         self.assertIn(
