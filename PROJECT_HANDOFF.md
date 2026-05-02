@@ -26,6 +26,7 @@ Current product scope:
 - repair orders with works, materials, payments, status flow, exports, and printing
 - operator authentication and admin user management
 - cashboxes, cash transactions, employees, and payroll reports
+- shared Files workspace for common workshop documents
 - MCP server for ChatGPT / OpenAI tool access
 - Telegram AI Board Manager for owner-controlled CRM operations through text, voice and photo messages
 - lower-right card indicator that enqueues the bounded agent-driven card enrichment flow without opening the agent modal
@@ -67,6 +68,15 @@ Current alignment rule:
 
 - local `autostopcrm-v1`, GitHub `autostopcrm-v1`, and production `/opt/autostopcrm` must be verified with commands before release work
 - this handoff intentionally avoids pinning a stale commit hash; use `git rev-parse --short HEAD` and the runbook sync commands
+
+Last verified sync snapshot:
+
+- date: `2026-05-02`
+- local HEAD: `fdb6e5b`
+- GitHub `origin/autostopcrm-v1`: `fdb6e5b`
+- production HEAD: `fdb6e5b`
+- production working tree had one untracked file during verification: `telegram-ai.env`
+- commit message: `Harden CRM diagnostics and compact snapshot`
 
 ## 3. Runtime Architecture
 
@@ -220,6 +230,7 @@ Latest completed stabilization wave:
 - client profiles can now store imported `vehicles[]` directly with stable vehicle ids; cards may link to both `client_id` and `client_vehicle_id`, so the add-card flow can choose a concrete car from a client's garage
 - the Clients module vehicle block now supports add/edit/delete for saved client cars; edits sync VIN/license/model into linked card vehicle passports, and deletion removes only the car link, not cards or repair orders
 - MCP client tools include client list/search/profile/stats/create/update/delete/link/unlink/suggestion plus client vehicle upsert/delete commands
+- shared Files v1.0 was added as a small server-side file exchange: separate storage folder, JSON metadata index, 500 MB limit, browser UI, API routes, and MCP tools
 - clients module audit fixed the connection-card allowed tool list, direct API nested `client`/`patch` payloads, and `+7`/`8` phone matching for client suggestions/history
 
 Most recent important commits in the current line:
@@ -265,11 +276,13 @@ At the current verification baseline, production reported:
 - `autostopcrm` container is healthy
 - no separate `autostopcrm-agent` container is expected anymore
 - `autostopcrm-telegram-ai` is expected when Telegram AI is enabled; it opens no public ports
+- production repo HEAD matched local and GitHub on `fdb6e5b` during the latest sync check
 
 Operational reality:
 
 - production is currently healthy enough for continued iterative work
 - the main workflow risk is accidental drift between local, GitHub, and server state
+- the server repo was not perfectly clean because of an untracked `telegram-ai.env`; treat that as environment drift, not branch drift
 
 Current post-sync rule for this pass:
 

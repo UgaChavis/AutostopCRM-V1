@@ -22,6 +22,7 @@ from ..config import (
 )
 from ..operator_auth import OperatorAuthService
 from ..services.card_service import CardService, ServiceError
+from ..services.shared_files_service import SharedFilesService
 from ..web_assets import BOARD_WEB_APP_HTML
 
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
@@ -93,8 +94,10 @@ class ApiServer:
         start_port: int | None = None,
         fallback_limit: int | None = None,
         bearer_token: str | None = None,
+        shared_files_service: SharedFilesService | None = None,
     ) -> None:
         self._service = service
+        self._shared_files_service = shared_files_service
         self._logger = logger
         self._thread: threading.Thread | None = None
         self._server: ThreadingHTTPServer | None = None
@@ -156,8 +159,23 @@ class ApiServer:
         server.server_close()
         self._logger.info("api_server_stopped")
 
+    def _build_shared_files_service(self, service: CardService) -> SharedFilesService:
+        store = getattr(service, "_store", None)
+        base_dir = getattr(store, "base_dir", None)
+        if isinstance(base_dir, Path):
+            return SharedFilesService(
+                storage_dir=base_dir / "shared-files",
+                index_file=base_dir / "shared_files_index.json",
+                logger=self._logger,
+            )
+        return SharedFilesService(logger=self._logger)
+
     def _make_handler(self):
         service = self._service
+        shared_files_service = self._shared_files_service
+        if shared_files_service is None:
+            shared_files_service = self._build_shared_files_service(service)
+            self._shared_files_service = shared_files_service
         logger = self._logger
         bearer_token = self._bearer_token
         operator_service = self._operator_service
@@ -261,6 +279,15 @@ class ApiServer:
             "/api/list_card_attachments": service.list_card_attachments,
             "/api/get_card_attachment": service.get_card_attachment,
             "/api/read_card_attachment": service.read_card_attachment,
+            "/api/list_shared_files": shared_files_service.list_shared_files,
+            "/api/get_shared_file_info": shared_files_service.get_shared_file_info,
+            "/api/fetch_shared_file": shared_files_service.fetch_shared_file,
+            "/api/upload_shared_file": shared_files_service.upload_shared_file,
+            "/api/rename_shared_file": shared_files_service.rename_shared_file,
+            "/api/delete_shared_file": shared_files_service.delete_shared_file,
+            "/api/copy_shared_file": shared_files_service.copy_shared_file,
+            "/api/paste_shared_file": shared_files_service.paste_shared_file,
+            "/api/update_shared_file_position": shared_files_service.update_shared_file_position,
         }
         proxied_write_routes = {
             "/api/create_card",
@@ -324,6 +351,11 @@ class ApiServer:
             "/api/delete_sticky",
             "/api/add_card_attachment",
             "/api/remove_card_attachment",
+            "/api/upload_shared_file",
+            "/api/rename_shared_file",
+            "/api/delete_shared_file",
+            "/api/paste_shared_file",
+            "/api/update_shared_file_position",
         }
         operator_session_routes = {
             "/api/logout_operator",
@@ -458,6 +490,11 @@ class ApiServer:
                         return
                     self._serve_attachment(request_id, query)
                     return
+                if route == "/api/shared_file":
+                    if not self._authenticate(request_id, query):
+                        return
+                    self._serve_shared_file(request_id, query)
+                    return
                 if route == "/api/repair_order_text":
                     if not self._authenticate(request_id, query):
                         return
@@ -495,6 +532,8 @@ class ApiServer:
                     "/api/get_operator_profile",
                     "/api/list_operator_users",
                     "/api/get_operator_user_report",
+                    "/api/list_shared_files",
+                    "/api/get_shared_file_info",
                 }
                 if route in readonly_routes:
                     if not self._authenticate(request_id, query):
@@ -591,6 +630,46 @@ class ApiServer:
                     self.send_header(
                         "Content-Disposition",
                         _content_disposition_header(attachment.file_name, disposition="attachment"),
+                    )
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.end_headers()
+                    self.wfile.write(body)
+                except ServiceError as exc:
+                    self._send_error_response(
+                        request_id, exc.status_code, exc.code, exc.message, exc.details
+                    )
+                except FileNotFoundError:
+                    self._send_error_response(
+                        request_id,
+                        HTTPStatus.NOT_FOUND,
+                        "not_found",
+                        "Файл не найден на диске.",
+                    )
+
+            def _serve_shared_file(self, request_id: str, payload: dict) -> None:
+                try:
+                    path, file_meta = shared_files_service.get_shared_file_download(
+                        str(payload.get("file_id", ""))
+                    )
+                    body = path.read_bytes()
+                    disposition = (
+                        "inline"
+                        if str(payload.get("disposition", "")).strip().lower() == "inline"
+                        else "attachment"
+                    )
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header(
+                        "Content-Type",
+                        str(file_meta.get("mime_type") or "application/octet-stream"),
+                    )
+                    self.send_header("Content-Length", str(len(body)))
+                    self.send_header(
+                        "Content-Disposition",
+                        _content_disposition_header(
+                            str(file_meta.get("original_name") or "shared-file"),
+                            disposition=disposition,
+                        ),
                     )
                     self.send_header("Cache-Control", "no-store")
                     self.send_header("X-Content-Type-Options", "nosniff")

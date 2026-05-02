@@ -26,6 +26,7 @@ AutoStop CRM is an auto-workshop CRM built around:
 - repair orders, works, materials, payments, printing
 - operator authentication and admin users
 - cashboxes, employees, payroll
+- shared Files workspace for common workshop documents
 - MCP server for external tool access
 - Telegram AI Board Manager worker for owner-controlled CRM operations
 - background card enrichment action from the card indicator
@@ -95,6 +96,7 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - employees workspace was rebuilt into a clearer master-detail layout
 - board columns can now be reordered left-to-right with native drag-and-drop
 - column drag capture now starts from the whole column, not only a narrow header area
+- shared Files v1.0 is implemented locally: server folder, metadata index, 500 MB limit, API, UI, and MCP tools
 
 ## Current Verification Baseline
 
@@ -104,7 +106,8 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - latest full local regression after the current bulk client import/search optimization pass: `471/471 OK`
 - latest local/GitHub/production synced commit must be verified with `git rev-parse --short HEAD`
 - production site: `200 OK`
-- production MCP at last verification: OK with `60` tools
+- production MCP at last verification before the Files module: OK with `60` tools
+- local MCP inventory after the Files v1.0 implementation: `66` tools
 - this deployment path covers the CRM repo at `/opt/autostopcrm` and its optional in-repo Telegram AI worker; VPN helpers are separate deploy targets
 
 ## Current Clients Module

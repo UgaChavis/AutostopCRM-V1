@@ -69,6 +69,7 @@ EXPECTED_MCP_TOOLS = {
     "get_repair_order",
     "get_repair_order_text",
     "get_runtime_status",
+    "get_shared_file_info",
     "list_archived_cards",
     "list_card_attachments",
     "list_cashboxes",
@@ -77,6 +78,7 @@ EXPECTED_MCP_TOOLS = {
     "list_overdue_cards",
     "list_repair_orders",
     "mark_card_ready",
+    "list_shared_files",
     "move_card",
     "move_sticky",
     "ping_connector",
@@ -96,7 +98,11 @@ EXPECTED_MCP_TOOLS = {
     "update_card",
     "update_client",
     "update_repair_order",
+    "update_shared_file_position",
     "update_sticky",
+    "upload_shared_file",
+    "download_shared_file",
+    "delete_shared_file",
     "link_card_to_client",
     "upsert_client_vehicle",
     "delete_client_vehicle",
@@ -221,7 +227,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 63)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 69)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 self.assertTrue(tool_map["ping_connector"].annotations.readOnlyHint)
                 self.assertFalse(tool_map["ping_connector"].annotations.destructiveHint)
@@ -231,6 +237,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(tool_map["delete_sticky"].annotations.destructiveHint)
                 self.assertIn("vehicle_profile_compact", tool_map["get_card"].description)
                 self.assertTrue(tool_map["read_card_attachment"].annotations.readOnlyHint)
+                self.assertTrue(tool_map["list_shared_files"].annotations.readOnlyHint)
+                self.assertFalse(tool_map["upload_shared_file"].annotations.readOnlyHint)
+                self.assertTrue(tool_map["delete_shared_file"].annotations.destructiveHint)
                 self.assertIn("hidden machine wall", tool_map["get_board_content"].description)
                 self.assertIn("Markdown", tool_map["get_board_content"].description)
                 self.assertIn("hidden machine wall", tool_map["get_board_events"].description)
@@ -1282,9 +1291,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 attachment_id = added["attachment"]["id"]
 
-                listed = await session.call_tool(
-                    "list_card_attachments", {"card_id": card_id}
-                )
+                listed = await session.call_tool("list_card_attachments", {"card_id": card_id})
                 self.assertFalse(listed.isError)
                 self.assertTrue(listed.structuredContent["ok"])
                 self.assertEqual(
@@ -1315,10 +1322,55 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertFalse(read.isError)
                 self.assertTrue(read.structuredContent["ok"])
-                self.assertIn("AutoStop attachment text", read.structuredContent["data"]["content"]["text"])
+                self.assertIn(
+                    "AutoStop attachment text", read.structuredContent["data"]["content"]["text"]
+                )
                 self.assertEqual(
                     read.structuredContent["data"]["content"]["extraction_status"], "ok"
                 )
+
+    async def test_mcp_shared_file_tools_reach_backend(self) -> None:
+        async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
+            async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
+                uploaded = await session.call_tool(
+                    "upload_shared_file",
+                    {
+                        "file_name": "Shared invoice.txt",
+                        "mime_type": "text/plain",
+                        "content_base64": base64.b64encode(b"shared mcp file").decode("ascii"),
+                        "x": 16,
+                        "y": 32,
+                    },
+                )
+                self.assertFalse(uploaded.isError)
+                file_id = uploaded.structuredContent["data"]["file"]["id"]
+
+                listed = await session.call_tool("list_shared_files", {})
+                self.assertFalse(listed.isError)
+                self.assertEqual(listed.structuredContent["data"]["files"][0]["id"], file_id)
+
+                info = await session.call_tool("get_shared_file_info", {"file_id": file_id})
+                self.assertEqual(
+                    info.structuredContent["data"]["file"]["original_name"], "Shared invoice.txt"
+                )
+
+                fetched = await session.call_tool(
+                    "download_shared_file",
+                    {"file_id": file_id, "include_base64": True, "max_base64_bytes": 128},
+                )
+                self.assertFalse(fetched.isError)
+                self.assertEqual(
+                    base64.b64decode(fetched.structuredContent["data"]["content"]["base64"]),
+                    b"shared mcp file",
+                )
+
+                moved = await session.call_tool(
+                    "update_shared_file_position", {"file_id": file_id, "x": 64, "y": 96}
+                )
+                self.assertEqual(moved.structuredContent["data"]["file"]["x"], 64)
+
+                deleted = await session.call_tool("delete_shared_file", {"file_id": file_id})
+                self.assertTrue(deleted.structuredContent["data"]["deleted"])
 
     async def test_mcp_cleanup_tool_reaches_backend(self) -> None:
         async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
@@ -1435,7 +1487,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     },
                 )
                 self.assertFalse(updated.isError)
-                self.assertEqual(updated.structuredContent["data"]["client"]["email"], "petrov@example.test")
+                self.assertEqual(
+                    updated.structuredContent["data"]["client"]["email"], "petrov@example.test"
+                )
 
                 created_card = await session.call_tool(
                     "create_card",
@@ -1458,7 +1512,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     {"card_id": card_id, "limit": 5},
                 )
                 self.assertFalse(suggestions.isError)
-                self.assertEqual(suggestions.structuredContent["data"]["clients"][0]["id"], client_id)
+                self.assertEqual(
+                    suggestions.structuredContent["data"]["clients"][0]["id"], client_id
+                )
 
                 linked = await session.call_tool(
                     "link_card_to_client",

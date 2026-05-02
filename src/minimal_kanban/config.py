@@ -6,7 +6,6 @@ from pathlib import Path
 from . import __version__
 from .texts import APP_DISPLAY_NAME
 
-
 APP_NAME = "Minimal Kanban"
 APP_SLUG = "minimal-kanban"
 APP_VERSION = __version__
@@ -25,6 +24,8 @@ LOG_FILE_NAME = "minimal-kanban.log"
 MCP_STARTUP_LOG_FILE_NAME = "mcp-startup.log"
 MCP_OAUTH_STATE_FILE_NAME = "mcp-oauth-state.json"
 ATTACHMENTS_DIR_NAME = "attachments"
+SHARED_FILES_DIR_NAME = "shared-files"
+SHARED_FILES_INDEX_FILE_NAME = "shared_files_index.json"
 DEFAULT_OPENAI_PROVIDER = "openai"
 DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
@@ -70,6 +71,14 @@ def get_attachments_dir() -> Path:
     return get_app_data_dir() / ATTACHMENTS_DIR_NAME
 
 
+def get_shared_files_dir() -> Path:
+    return get_app_data_dir() / SHARED_FILES_DIR_NAME
+
+
+def get_shared_files_index_file() -> Path:
+    return get_app_data_dir() / SHARED_FILES_INDEX_FILE_NAME
+
+
 def _read_env_int(name: str, default: int, *, minimum: int) -> int:
     raw_value = os.environ.get(name)
     if raw_value is None:
@@ -82,7 +91,9 @@ def _read_env_int(name: str, default: int, *, minimum: int) -> int:
 
 
 def get_api_host() -> str:
-    return (os.environ.get("MINIMAL_KANBAN_API_HOST") or DEFAULT_API_HOST).strip() or DEFAULT_API_HOST
+    return (
+        os.environ.get("MINIMAL_KANBAN_API_HOST") or DEFAULT_API_HOST
+    ).strip() or DEFAULT_API_HOST
 
 
 def get_api_port() -> int:
@@ -90,7 +101,9 @@ def get_api_port() -> int:
 
 
 def get_api_port_fallback_limit() -> int:
-    return _read_env_int("MINIMAL_KANBAN_API_PORT_FALLBACK_LIMIT", API_PORT_FALLBACK_LIMIT, minimum=1)
+    return _read_env_int(
+        "MINIMAL_KANBAN_API_PORT_FALLBACK_LIMIT", API_PORT_FALLBACK_LIMIT, minimum=1
+    )
 
 
 def get_api_bearer_token() -> str | None:
@@ -100,10 +113,14 @@ def get_api_bearer_token() -> str | None:
 
 def get_api_base_url() -> str | None:
     value = (
-        os.environ.get("MINIMAL_KANBAN_API_BASE_URL")
-        or os.environ.get("MINIMAL_KANBAN_BOARD_API_URL")
-        or ""
-    ).strip().rstrip("/")
+        (
+            os.environ.get("MINIMAL_KANBAN_API_BASE_URL")
+            or os.environ.get("MINIMAL_KANBAN_BOARD_API_URL")
+            or ""
+        )
+        .strip()
+        .rstrip("/")
+    )
     return value or None
 
 
@@ -116,7 +133,9 @@ def get_default_admin_password() -> str:
 
 
 def get_mcp_host() -> str:
-    return (os.environ.get("MINIMAL_KANBAN_MCP_HOST") or DEFAULT_MCP_HOST).strip() or DEFAULT_MCP_HOST
+    return (
+        os.environ.get("MINIMAL_KANBAN_MCP_HOST") or DEFAULT_MCP_HOST
+    ).strip() or DEFAULT_MCP_HOST
 
 
 def get_mcp_port() -> int:
@@ -124,7 +143,9 @@ def get_mcp_port() -> int:
 
 
 def get_mcp_port_fallback_limit() -> int:
-    return _read_env_int("MINIMAL_KANBAN_MCP_PORT_FALLBACK_LIMIT", MCP_PORT_FALLBACK_LIMIT, minimum=1)
+    return _read_env_int(
+        "MINIMAL_KANBAN_MCP_PORT_FALLBACK_LIMIT", MCP_PORT_FALLBACK_LIMIT, minimum=1
+    )
 
 
 def get_mcp_path() -> str:

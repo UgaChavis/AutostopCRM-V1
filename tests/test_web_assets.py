@@ -72,6 +72,17 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("width: max-content;", BOARD_WEB_APP_HTML)
         self.assertIn(".topbar__actions .btn {", BOARD_WEB_APP_HTML)
 
+    def test_shared_files_workspace_is_wired_to_api_routes(self) -> None:
+        self.assertIn('id="sharedFilesButton">ФАЙЛЫ</button>', BOARD_WEB_APP_HTML)
+        self.assertIn('id="sharedFilesModal"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="sharedFilesDesktop"', BOARD_WEB_APP_HTML)
+        self.assertIn("api('/api/list_shared_files'", BOARD_WEB_APP_HTML)
+        self.assertIn("api('/api/upload_shared_file'", BOARD_WEB_APP_HTML)
+        self.assertIn("api('/api/rename_shared_file'", BOARD_WEB_APP_HTML)
+        self.assertIn("api('/api/delete_shared_file'", BOARD_WEB_APP_HTML)
+        self.assertIn("api('/api/paste_shared_file'", BOARD_WEB_APP_HTML)
+        self.assertIn("api('/api/update_shared_file_position'", BOARD_WEB_APP_HTML)
+
     def test_card_enrichment_button_uses_open_card_context(self) -> None:
         self.assertIn(
             "const card = state.activeCard && typeof state.activeCard === 'object'",

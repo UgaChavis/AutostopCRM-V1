@@ -24,6 +24,7 @@ The repository still contains legacy technical names from the earlier `Minimal K
 - cashboxes, cash transactions, employees, and payroll reports
 - client-to-vehicle linking: cards can reference both `client_id` and a concrete `client_vehicle_id`
 - client vehicle management: the Clients module can add, edit, and delete a client's saved cars by model, VIN, and license plate
+- shared Files workspace for workshop documents with a 500 MB server-side limit
 
 ## Runtime Modes
 
@@ -127,6 +128,7 @@ The local API is broader than the original board-only stage. Current route group
 - print preview, PDF export, and template management
 - cashboxes and cash transactions
 - employees and payroll
+- shared files: list, upload, download/open, rename, delete, copy/paste, icon positions
 - operator auth and user management
 - manual autofill and enrichment endpoints
 
@@ -141,6 +143,7 @@ The MCP server exposes the current AutoStop CRM board and services as tools over
 - cashbox access
 - repair-order access and updates
 - client directory search, profile, vehicle, requisites, client-vehicle upsert and card-link tools
+- shared file list/info/upload/download/delete tools
 - bounded board/card reads; automatic cleanup is intentionally not exposed as an MCP tool
 
 The exact runtime inventory is documented in [MCP_GUIDE.md](MCP_GUIDE.md). The user-facing autofill endpoints remain available in the HTTP API and UI, but they are not MCP tools.

@@ -595,6 +595,56 @@ Authorization: Bearer ваш_секрет
 }
 ```
 
+## Модуль «Файлы»
+
+Назначение: общая серверная папка автосервиса для счетов, PDF, Word/Excel, изображений и похожих рабочих файлов.
+
+Хранилище:
+
+- папка файлов: `%APPDATA%\Minimal Kanban\shared-files`
+- индекс: `%APPDATA%\Minimal Kanban\shared_files_index.json`
+- общий лимит: `500` МБ
+- запрещённые расширения: `exe`, `bat`, `cmd`, `ps1`, `msi`, `scr`, `vbs`
+
+Endpoint-ы:
+
+- `GET /api/list_shared_files`
+- `POST /api/get_shared_file_info`
+- `POST /api/fetch_shared_file`
+- `POST /api/upload_shared_file`
+- `POST /api/rename_shared_file`
+- `POST /api/delete_shared_file`
+- `POST /api/copy_shared_file`
+- `POST /api/paste_shared_file`
+- `POST /api/update_shared_file_position`
+- `GET /api/shared_file?file_id=FILE_ID`
+
+Загрузка файла:
+
+```json
+{
+  "file_name": "invoice.pdf",
+  "mime_type": "application/pdf",
+  "content_base64": "JVBERi0xLjQK...",
+  "x": 24,
+  "y": 48
+}
+```
+
+Скачивание:
+
+```text
+GET /api/shared_file?file_id=FILE_ID
+```
+
+Открытие в браузере, если тип файла поддерживается:
+
+```text
+GET /api/shared_file?file_id=FILE_ID&disposition=inline
+```
+
+`fetch_shared_file` возвращает base64 только если файл укладывается в `max_base64_bytes`; для крупных файлов используйте `download_path`.
+
 ## Типовые ошибки
 
 ### `validation_error`
@@ -606,13 +656,21 @@ Authorization: Bearer ваш_секрет
 - несуществующий `column`
 - некорректный `indicator`
 - неверный тип `include_archived`
+- запрещённое или пустое имя файла
 
 ### `not_found`
 
 Когда возникает:
 
 - карточка не найдена
+- общий файл не найден
 - маршрут API не найден
+
+### `storage_limit_exceeded`
+
+Когда возникает:
+
+- upload или copy/paste превысит общий лимит файлового хранилища
 
 ### `archived_card`
 

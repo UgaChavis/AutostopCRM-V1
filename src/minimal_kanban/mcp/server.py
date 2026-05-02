@@ -23,11 +23,11 @@ from ..config import (
     get_mcp_port,
     get_mcp_public_base_url,
 )
+from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
 from ..settings_models import derive_allowed_hosts, derive_allowed_origins
 from .auth import build_auth_settings
 from .client import BoardApiClient, BoardApiTransportError
 from .oauth_provider import EmbeddedOAuthAuthorizationServerProvider
-from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
 
 
 def _try_register_autostop_manager_tools(server: FastMCP, logger: Logger) -> None:
@@ -268,8 +268,7 @@ def _resolved_create_card_deadline(deadline: DeadlinePayload | None) -> dict[str
     if int(payload.get("total_seconds", 0) or 0) > 0:
         return payload
     if not any(
-        int(payload.get(part, 0) or 0) > 0
-        for part in ("days", "hours", "minutes", "seconds")
+        int(payload.get(part, 0) or 0) > 0 for part in ("days", "hours", "minutes", "seconds")
     ):
         return {"days": 1, "hours": 0, "minutes": 0, "seconds": 0}
     return payload
@@ -817,9 +816,7 @@ def create_mcp_server(
             error = runtime_status.get("board_context_error") or {}
             lines.append(f"board_context_error: {error.get('message', 'unknown')}")
         lines.append("full_board_context_tool: get_board_context")
-        lines.append(
-            "recommended_bootstrap: bootstrap_context -> get_runtime_status -> writes"
-        )
+        lines.append("recommended_bootstrap: bootstrap_context -> get_runtime_status -> writes")
         return "\n".join(lines) + "\n"
 
     def _enrich_gpt_wall_response(response: dict[str, Any]) -> dict[str, Any]:
@@ -1297,14 +1294,10 @@ def create_mcp_server(
         annotations=_read_tool_annotations("List Card Attachments"),
         structured_output=True,
     )
-    def list_card_attachments(
-        card_id: str, include_removed: bool = False
-    ) -> JsonEnvelope:
+    def list_card_attachments(card_id: str, include_removed: bool = False) -> JsonEnvelope:
         return _relay_board_call(
             "list_card_attachments",
-            lambda: board_api.list_card_attachments(
-                card_id, include_removed=include_removed
-            ),
+            lambda: board_api.list_card_attachments(card_id, include_removed=include_removed),
             params={"card_id": card_id, "include_removed": include_removed},
             transform=lambda response: _with_data_meta(
                 response,
@@ -1373,6 +1366,143 @@ def create_mcp_server(
                 response_mode="attachment_read",
                 view_mode=mode,
             ),
+        )
+
+    @server.tool(
+        name="list_shared_files",
+        description=_scoped_description(
+            "List shared workshop files from the AutoStop CRM Files module without returning file bytes."
+        ),
+        annotations=_read_tool_annotations("List Shared Files"),
+        structured_output=True,
+    )
+    def list_shared_files() -> JsonEnvelope:
+        return _relay_board_call(
+            "list_shared_files",
+            board_api.list_shared_files,
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="shared_file_list",
+                view_mode="metadata",
+            ),
+        )
+
+    @server.tool(
+        name="get_shared_file_info",
+        description=_scoped_description(
+            "Return metadata for one shared workshop file from the AutoStop CRM Files module, including size, name, position, and download path."
+        ),
+        annotations=_read_tool_annotations("Get Shared File Info"),
+        structured_output=True,
+    )
+    def get_shared_file_info(file_id: str) -> JsonEnvelope:
+        return _relay_board_call(
+            "get_shared_file_info",
+            lambda: board_api.get_shared_file_info(file_id),
+            params={"file_id": file_id},
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="shared_file_metadata",
+                view_mode="metadata",
+            ),
+        )
+
+    @server.tool(
+        name="download_shared_file",
+        description=_scoped_description(
+            "Fetch one shared workshop file through the AutoStop CRM backend. Small files can return base64; larger files return metadata and download path without file bytes."
+        ),
+        annotations=_read_tool_annotations("Download Shared File"),
+        structured_output=True,
+    )
+    def download_shared_file(
+        file_id: str,
+        include_base64: bool = True,
+        max_base64_bytes: int = 2_097_152,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "download_shared_file",
+            lambda: board_api.download_shared_file(
+                file_id,
+                include_base64=include_base64,
+                max_base64_bytes=max_base64_bytes,
+            ),
+            params={
+                "file_id": file_id,
+                "include_base64": include_base64,
+                "max_base64_bytes": max_base64_bytes,
+            },
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="shared_file_download",
+                view_mode="base64" if include_base64 else "metadata",
+            ),
+        )
+
+    @server.tool(
+        name="upload_shared_file",
+        description=_scoped_description(
+            "Upload one file into the AutoStop CRM Files module. Pass file_name and base64 content; executable script/install extensions are rejected by the backend."
+        ),
+        annotations=_write_tool_annotations("Upload Shared File"),
+        structured_output=True,
+    )
+    def upload_shared_file(
+        file_name: str,
+        content_base64: str,
+        mime_type: str = "application/octet-stream",
+        x: int = 0,
+        y: int = 0,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "upload_shared_file",
+            lambda: board_api.upload_shared_file(
+                file_name=file_name,
+                content_base64=content_base64,
+                mime_type=mime_type,
+                x=x,
+                y=y,
+                actor_name=actor_name,
+            ),
+            params={"file_name": file_name, "mime_type": mime_type, "x": x, "y": y},
+        )
+
+    @server.tool(
+        name="delete_shared_file",
+        description=_scoped_description(
+            "Delete one file from the AutoStop CRM Files module. This is a destructive write action."
+        ),
+        annotations=_write_tool_annotations("Delete Shared File", destructive=True),
+        structured_output=True,
+    )
+    def delete_shared_file(file_id: str, actor_name: str | None = None) -> JsonEnvelope:
+        return _relay_board_call(
+            "delete_shared_file",
+            lambda: board_api.delete_shared_file(file_id, actor_name=actor_name),
+            params={"file_id": file_id},
+        )
+
+    @server.tool(
+        name="update_shared_file_position",
+        description=_scoped_description(
+            "Update the saved x/y icon position for one file in the AutoStop CRM Files module."
+        ),
+        annotations=_write_tool_annotations("Update Shared File Position", idempotent=True),
+        structured_output=True,
+    )
+    def update_shared_file_position(
+        file_id: str, x: int, y: int, actor_name: str | None = None
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "update_shared_file_position",
+            lambda: board_api.update_shared_file_position(
+                file_id,
+                x=x,
+                y=y,
+                actor_name=actor_name,
+            ),
+            params={"file_id": file_id, "x": x, "y": y},
         )
 
     @server.tool(
@@ -1571,9 +1701,7 @@ def create_mcp_server(
 
     @server.tool(
         name="delete_cashbox",
-        description=_scoped_description(
-            "Delete an empty cashbox from the current board instance."
-        ),
+        description=_scoped_description("Delete an empty cashbox from the current board instance."),
         annotations=_write_tool_annotations("Delete Cashbox", destructive=True),
         structured_output=True,
     )
@@ -1640,9 +1768,7 @@ def create_mcp_server(
         include_archived: bool = True,
         view_mode: Literal["agent", "full"] = "agent",
     ) -> JsonEnvelope:
-        wall_event_limit = (
-            GPT_WALL_AGENT_EVENT_LIMIT if view_mode == "agent" else 100
-        )
+        wall_event_limit = GPT_WALL_AGENT_EVENT_LIMIT if view_mode == "agent" else 100
         return _relay_board_call(
             "get_board_content",
             lambda: _extract_gpt_wall_section_response(
@@ -1727,9 +1853,7 @@ def create_mcp_server(
     ) -> JsonEnvelope:
         compact_cards = view_mode == "agent"
         effective_event_limit = (
-            min(max(1, event_limit), GPT_WALL_AGENT_EVENT_LIMIT)
-            if compact_cards
-            else event_limit
+            min(max(1, event_limit), GPT_WALL_AGENT_EVENT_LIMIT) if compact_cards else event_limit
         )
         return _relay_board_call(
             "get_gpt_wall",

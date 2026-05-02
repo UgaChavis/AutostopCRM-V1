@@ -58,7 +58,7 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 
 ## Доступные MCP tools
 
-Базовый CRM runtime-tool inventory: `60` tools. Если подключен `AutostopManager`, в том же endpoint дополнительно доступны `5` memory-tools.
+Базовый CRM runtime-tool inventory после добавления модуля «Файлы»: `69` tools. Если подключен `AutostopManager`, в том же endpoint дополнительно доступны `5` memory-tools.
 
 Для больших клиентских справочников не тянуть лишние данные:
 
@@ -89,6 +89,7 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 - `get_cards(compact=true)`
 - `search_clients`
 - `list_clients(limit=50)`
+- `list_shared_files`
 
 ### Команды для точечного чтения
 
@@ -108,6 +109,9 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 - `get_client`
 - `get_client_stats`
 - `suggest_clients_for_card`
+- `list_shared_files`
+- `get_shared_file_info`
+- `download_shared_file`
 
 ### Тяжелые команды, которые стоит вызывать редко
 
@@ -182,6 +186,22 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 - `bulk_move_cards`
 - `archive_card`
 - `restore_card`
+
+### Общие файлы
+
+- `list_shared_files`
+- `get_shared_file_info`
+- `download_shared_file`
+- `upload_shared_file`
+- `delete_shared_file`
+- `update_shared_file_position`
+
+Правила:
+
+- MCP работает с файлами только через backend/API слой CRM.
+- `download_shared_file` возвращает base64 только если файл укладывается в заданный `max_base64_bytes`; для крупных файлов остаётся metadata/download path.
+- `upload_shared_file` принимает `content_base64` и использует те же backend-проверки имени, запрещённых расширений и общего лимита 500 МБ.
+- `delete_shared_file` является destructive write-action.
 
 ### Вложения карточек
 

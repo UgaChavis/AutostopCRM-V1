@@ -6129,6 +6129,101 @@ BOARD_WEB_APP_HTML = "".join(
       min-height: 30px;
       justify-content: center;
     }
+    #sharedFilesModal .dialog { width: min(1120px, 100%); }
+    .shared-files-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .shared-files-toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .shared-files-toolbar .btn {
+      min-height: 32px;
+      padding: 7px 10px;
+      font-size: 11px;
+    }
+    .shared-files-desktop {
+      position: relative;
+      min-height: 460px;
+      overflow: auto;
+      border: 1px solid rgba(160, 174, 135, 0.18);
+      background:
+        linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+        rgba(16, 22, 18, 0.92);
+      background-size: 32px 32px;
+      padding: 12px;
+    }
+    .shared-files-empty {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 18px;
+    }
+    .shared-file-icon {
+      position: absolute;
+      width: 106px;
+      min-height: 112px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text);
+      display: grid;
+      justify-items: center;
+      align-content: start;
+      gap: 7px;
+      padding: 8px 6px;
+      cursor: default;
+      user-select: none;
+      touch-action: none;
+    }
+    .shared-file-icon:hover,
+    .shared-file-icon.is-active {
+      border-color: rgba(167, 178, 132, 0.55);
+      background: rgba(44, 55, 45, 0.72);
+    }
+    .shared-file-icon__glyph {
+      width: 48px;
+      height: 58px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(214, 218, 198, 0.42);
+      background: linear-gradient(180deg, rgba(238, 239, 226, 0.95), rgba(184, 191, 171, 0.9));
+      color: #1b211c;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      position: relative;
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.22);
+    }
+    .shared-file-icon__glyph::after {
+      content: "";
+      position: absolute;
+      top: -1px;
+      right: -1px;
+      border-top: 13px solid rgba(16, 22, 18, 0.9);
+      border-left: 13px solid rgba(120, 132, 108, 0.58);
+    }
+    .shared-file-icon__name {
+      width: 96px;
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.2;
+      text-align: center;
+      overflow-wrap: anywhere;
+    }
+    .shared-file-icon__meta {
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1;
+    }
     @media (max-width: 980px) {
       .clients-layout,
       .clients-profile-columns {
@@ -6144,6 +6239,13 @@ BOARD_WEB_APP_HTML = "".join(
       }
       .clients-field--wide {
         grid-column: auto;
+      }
+      .shared-files-head {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      .shared-files-desktop {
+        min-height: 420px;
       }
     }
     .repair-order-table__select {
@@ -6179,6 +6281,7 @@ BOARD_WEB_APP_HTML = "".join(
         <button class="btn" id="archiveButton">АРХИВ</button>
         <button class="btn" id="repairOrdersButton">ЗАКАЗ-НАРЯДЫ</button>
         <button class="btn" id="clientsButton">КЛИЕНТЫ</button>
+        <button class="btn" id="sharedFilesButton">ФАЙЛЫ</button>
         <button class="btn" id="cashboxesButton">КАССЫ</button>
         <button class="btn" id="employeesButton">СОТРУДНИКИ</button>
         <button class="btn" id="columnButton">+ СТОЛБЕЦ</button>
@@ -6441,6 +6544,31 @@ BOARD_WEB_APP_HTML = "".join(
           </div>
         </section>
       </div>
+    </div>
+  </div>
+
+  <div class="modal" id="sharedFilesModal">
+    <div class="dialog">
+      <div class="dialog__head">
+        <div>
+          <div class="dialog__title">ФАЙЛЫ</div>
+          <div class="wall-meta" id="sharedFilesMeta">ЗАГРУЗКА...</div>
+        </div>
+        <button class="btn" data-close="shared-files">ЗАКРЫТЬ</button>
+      </div>
+      <div class="shared-files-head">
+        <div class="shared-files-toolbar">
+          <button class="btn btn--accent" id="sharedFilesUploadButton" type="button">+ ЗАГРУЗИТЬ</button>
+          <button class="btn" id="sharedFilesOpenButton" type="button">ОТКРЫТЬ</button>
+          <button class="btn" id="sharedFilesDownloadButton" type="button">СКАЧАТЬ</button>
+          <button class="btn" id="sharedFilesRenameButton" type="button">ПЕРЕИМЕНОВАТЬ</button>
+          <button class="btn" id="sharedFilesCopyButton" type="button">КОПИРОВАТЬ</button>
+          <button class="btn" id="sharedFilesPasteButton" type="button">ВСТАВИТЬ</button>
+          <button class="btn btn--danger" id="sharedFilesDeleteButton" type="button">УДАЛИТЬ</button>
+        </div>
+        <input id="sharedFilesInput" type="file" multiple hidden>
+      </div>
+      <div class="shared-files-desktop" id="sharedFilesDesktop"></div>
     </div>
   </div>
 
@@ -7005,6 +7133,11 @@ BOARD_WEB_APP_HTML = "".join(
       clientsRequestSeq: 0,
       clientsMetaState: null,
       clientVehicleEditor: null,
+      sharedFiles: [],
+      sharedFilesActiveId: '',
+      sharedFilesStorage: null,
+      sharedFilesClipboardId: '',
+      sharedFilesDrag: null,
       clientSuggestTimer: null,
       clientSuggestions: [],
       clientSuggestionProfiles: {},
@@ -7451,6 +7584,7 @@ BOARD_WEB_APP_HTML = "".join(
       archiveButton: document.getElementById('archiveButton'),
       repairOrdersButton: document.getElementById('repairOrdersButton'),
       clientsButton: document.getElementById('clientsButton'),
+      sharedFilesButton: document.getElementById('sharedFilesButton'),
       cashboxesButton: document.getElementById('cashboxesButton'),
       employeesButton: document.getElementById('employeesButton'),
       repairOrdersSearchInput: document.getElementById('repairOrdersSearchInput'),
@@ -7526,6 +7660,17 @@ BOARD_WEB_APP_HTML = "".join(
       clientVehicleAddButton: document.getElementById('clientVehicleAddButton'),
       clientVehiclesList: document.getElementById('clientVehiclesList'),
       clientOrdersList: document.getElementById('clientOrdersList'),
+      sharedFilesModal: document.getElementById('sharedFilesModal'),
+      sharedFilesMeta: document.getElementById('sharedFilesMeta'),
+      sharedFilesDesktop: document.getElementById('sharedFilesDesktop'),
+      sharedFilesInput: document.getElementById('sharedFilesInput'),
+      sharedFilesUploadButton: document.getElementById('sharedFilesUploadButton'),
+      sharedFilesOpenButton: document.getElementById('sharedFilesOpenButton'),
+      sharedFilesDownloadButton: document.getElementById('sharedFilesDownloadButton'),
+      sharedFilesRenameButton: document.getElementById('sharedFilesRenameButton'),
+      sharedFilesCopyButton: document.getElementById('sharedFilesCopyButton'),
+      sharedFilesPasteButton: document.getElementById('sharedFilesPasteButton'),
+      sharedFilesDeleteButton: document.getElementById('sharedFilesDeleteButton'),
       cashboxesModal: document.getElementById('cashboxesModal'),
       cashboxJournalModal: document.getElementById('cashboxJournalModal'),
       cashboxTransferModal: document.getElementById('cashboxTransferModal'),
@@ -9465,6 +9610,7 @@ BOARD_WEB_APP_HTML = "".join(
         },
         'repair-orders': () => els.repairOrdersModal.classList.remove('is-open'),
         clients: () => els.clientsModal.classList.remove('is-open'),
+        'shared-files': () => els.sharedFilesModal.classList.remove('is-open'),
         cashboxes: () => els.cashboxesModal.classList.remove('is-open'),
         'cashbox-journal': () => els.cashboxJournalModal.classList.remove('is-open'),
         'cashbox-transfer': () => els.cashboxTransferModal.classList.remove('is-open'),
@@ -18648,6 +18794,288 @@ function renderCompactArchiveRows(cards) {
       return uploadProvidedFiles(els.fileInput.files);
     }
 
+    function sharedFileById(fileId) {
+      const normalizedId = String(fileId || '').trim();
+      return (state.sharedFiles || []).find((item) => item.id === normalizedId) || null;
+    }
+
+    function activeSharedFile() {
+      return sharedFileById(state.sharedFilesActiveId);
+    }
+
+    function sharedFileKindLabel(file) {
+      const extension = String(file?.extension || '').replace('.', '').toUpperCase();
+      if (!extension) return 'FILE';
+      if (['JPG', 'JPEG', 'PNG', 'WEBP', 'GIF'].includes(extension)) return 'IMG';
+      if (extension.length > 5) return extension.slice(0, 5);
+      return extension;
+    }
+
+    function sharedFileDownloadUrl(file, { inline = false } = {}) {
+      if (!file?.id) return '#';
+      const path = '/api/shared_file?file_id=' + encodeURIComponent(file.id) + (inline ? '&disposition=inline' : '');
+      return withAccessToken(path);
+    }
+
+    function updateSharedFilesActions() {
+      const hasActive = Boolean(activeSharedFile());
+      [
+        els.sharedFilesOpenButton,
+        els.sharedFilesDownloadButton,
+        els.sharedFilesRenameButton,
+        els.sharedFilesCopyButton,
+        els.sharedFilesDeleteButton,
+      ].forEach((button) => {
+        if (button) button.disabled = !hasActive;
+      });
+      if (els.sharedFilesPasteButton) {
+        els.sharedFilesPasteButton.disabled = !state.sharedFilesClipboardId;
+      }
+    }
+
+    function renderSharedFiles() {
+      const files = Array.isArray(state.sharedFiles) ? state.sharedFiles : [];
+      if (!els.sharedFilesDesktop) return;
+      if (!files.length) {
+        els.sharedFilesDesktop.innerHTML = '<div class="shared-files-empty">ФАЙЛОВ ПОКА НЕТ.</div>';
+      } else {
+        els.sharedFilesDesktop.innerHTML = files.map((file, index) => {
+          const x = Math.max(0, Number(file.x ?? (24 + (index % 6) * 116)) || 0);
+          const y = Math.max(0, Number(file.y ?? (24 + Math.floor(index / 6) * 126)) || 0);
+          const activeClass = file.id === state.sharedFilesActiveId ? ' is-active' : '';
+          const name = String(file.original_name || 'Файл');
+          return '<button class="shared-file-icon' + activeClass + '" type="button" data-shared-file-id="' + escapeHtml(file.id) + '" style="left:' + x + 'px; top:' + y + 'px" title="' + escapeHtml(name) + '">'
+            + '<span class="shared-file-icon__glyph">' + escapeHtml(sharedFileKindLabel(file)) + '</span>'
+            + '<span class="shared-file-icon__name">' + escapeHtml(name) + '</span>'
+            + '<span class="shared-file-icon__meta">' + escapeHtml(formatBytes(file.size_bytes || 0)) + '</span>'
+            + '</button>';
+        }).join('');
+      }
+      const storage = state.sharedFilesStorage || {};
+      if (els.sharedFilesMeta) {
+        els.sharedFilesMeta.textContent = formatBytes(storage.used_bytes || 0) + ' / ' + formatBytes(storage.limit_bytes || 0) + ' · ' + files.length + ' ФАЙЛ.';
+      }
+      updateSharedFilesActions();
+    }
+
+    async function loadSharedFiles({ openModal = false } = {}) {
+      try {
+        const data = await api('/api/list_shared_files');
+        state.sharedFiles = Array.isArray(data?.files) ? data.files : [];
+        state.sharedFilesStorage = data?.storage || null;
+        if (state.sharedFilesActiveId && !sharedFileById(state.sharedFilesActiveId)) {
+          state.sharedFilesActiveId = '';
+        }
+        renderSharedFiles();
+        maybeOpenModal(els.sharedFilesModal, openModal);
+      } catch (error) {
+        if (els.sharedFilesMeta) els.sharedFilesMeta.textContent = error.message;
+        maybeOpenModal(els.sharedFilesModal, openModal);
+        setStatus(error.message, true);
+      }
+    }
+
+    async function openSharedFilesModal() {
+      await loadSharedFiles({ openModal: true });
+    }
+
+    function selectSharedFile(fileId) {
+      state.sharedFilesActiveId = String(fileId || '').trim();
+      renderSharedFiles();
+    }
+
+    async function uploadSharedFiles(files) {
+      const selectedFiles = Array.from(files || []).filter(Boolean);
+      if (!selectedFiles.length) return;
+      try {
+        const baseIndex = (state.sharedFiles || []).length;
+        for (let index = 0; index < selectedFiles.length; index += 1) {
+          const file = selectedFiles[index];
+          const buffer = await file.arrayBuffer();
+          const extension = attachmentExtension(file.name);
+          const mimeType = normalizeAttachmentMimeType(file.type) || attachmentMimeTypeFromExtension(extension) || 'application/octet-stream';
+          const uploaded = await api('/api/upload_shared_file', {
+            method: 'POST',
+            body: {
+              actor_name: state.actor,
+              source: 'ui',
+              file_name: file.name,
+              mime_type: mimeType,
+              content_base64: arrayBufferToBase64(buffer),
+              x: 24 + ((baseIndex + index) % 7) * 116,
+              y: 24 + Math.floor((baseIndex + index) / 7) * 126,
+            },
+          });
+          if (uploaded?.file?.id) state.sharedFilesActiveId = uploaded.file.id;
+        }
+        await loadSharedFiles();
+        setStatus(selectedFiles.length > 1 ? 'ФАЙЛЫ ЗАГРУЖЕНЫ.' : 'ФАЙЛ ЗАГРУЖЕН.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        if (els.sharedFilesInput) els.sharedFilesInput.value = '';
+      }
+    }
+
+    function openActiveSharedFile() {
+      const file = activeSharedFile();
+      if (!file) return;
+      window.open(sharedFileDownloadUrl(file, { inline: true }), '_blank', 'noopener');
+    }
+
+    async function downloadActiveSharedFile() {
+      const file = activeSharedFile();
+      if (!file) return;
+      try {
+        await downloadAttachment(sharedFileDownloadUrl(file));
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    async function renameActiveSharedFile() {
+      const file = activeSharedFile();
+      if (!file) return;
+      const nextName = window.prompt('Новое имя файла', file.original_name || '');
+      if (nextName === null) return;
+      const normalized = String(nextName || '').trim();
+      if (!normalized) return;
+      try {
+        const data = await api('/api/rename_shared_file', {
+          method: 'POST',
+          body: { file_id: file.id, file_name: normalized, actor_name: state.actor, source: 'ui' },
+        });
+        if (data?.file?.id) state.sharedFilesActiveId = data.file.id;
+        await loadSharedFiles();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    async function copyActiveSharedFile() {
+      const file = activeSharedFile();
+      if (!file) return;
+      try {
+        const data = await api('/api/copy_shared_file', {
+          method: 'POST',
+          body: { file_id: file.id, actor_name: state.actor, source: 'ui' },
+        });
+        state.sharedFilesClipboardId = data?.clipboard?.source_id || file.id;
+        updateSharedFilesActions();
+        setStatus('ФАЙЛ СКОПИРОВАН.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    async function pasteSharedFile() {
+      if (!state.sharedFilesClipboardId) return;
+      const source = sharedFileById(state.sharedFilesClipboardId);
+      const x = Math.max(24, Number(source?.x || 24) + 32);
+      const y = Math.max(24, Number(source?.y || 24) + 32);
+      try {
+        const data = await api('/api/paste_shared_file', {
+          method: 'POST',
+          body: { source_id: state.sharedFilesClipboardId, x, y, actor_name: state.actor, source: 'ui' },
+        });
+        if (data?.file?.id) state.sharedFilesActiveId = data.file.id;
+        await loadSharedFiles();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    async function deleteActiveSharedFile() {
+      const file = activeSharedFile();
+      if (!file) return;
+      if (!window.confirm('Удалить файл "' + String(file.original_name || '').trim() + '"?')) return;
+      try {
+        await api('/api/delete_shared_file', {
+          method: 'POST',
+          body: { file_id: file.id, actor_name: state.actor, source: 'ui' },
+        });
+        if (state.sharedFilesClipboardId === file.id) state.sharedFilesClipboardId = '';
+        state.sharedFilesActiveId = '';
+        await loadSharedFiles();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    function beginSharedFileDrag(event) {
+      const icon = event.target?.closest?.('[data-shared-file-id]');
+      if (!(icon instanceof HTMLElement) || event.button !== 0) return;
+      const fileId = String(icon.dataset.sharedFileId || '').trim();
+      if (!fileId) return;
+      selectSharedFile(fileId);
+      const desktopRect = els.sharedFilesDesktop.getBoundingClientRect();
+      const iconRect = icon.getBoundingClientRect();
+      state.sharedFilesDrag = {
+        fileId,
+        pointerId: event.pointerId,
+        offsetX: event.clientX - iconRect.left,
+        offsetY: event.clientY - iconRect.top,
+        moved: false,
+      };
+      icon.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+      void desktopRect;
+    }
+
+    function moveSharedFileDrag(event) {
+      const drag = state.sharedFilesDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const icon = els.sharedFilesDesktop?.querySelector('[data-shared-file-id="' + CSS.escape(drag.fileId) + '"]');
+      if (!(icon instanceof HTMLElement)) return;
+      const desktopRect = els.sharedFilesDesktop.getBoundingClientRect();
+      const nextX = Math.max(0, Math.round(event.clientX - desktopRect.left + els.sharedFilesDesktop.scrollLeft - drag.offsetX));
+      const nextY = Math.max(0, Math.round(event.clientY - desktopRect.top + els.sharedFilesDesktop.scrollTop - drag.offsetY));
+      icon.style.left = nextX + 'px';
+      icon.style.top = nextY + 'px';
+      icon.dataset.dragX = String(nextX);
+      icon.dataset.dragY = String(nextY);
+      drag.moved = true;
+      event.preventDefault();
+    }
+
+    async function finishSharedFileDrag(event) {
+      const drag = state.sharedFilesDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      state.sharedFilesDrag = null;
+      const icon = els.sharedFilesDesktop?.querySelector('[data-shared-file-id="' + CSS.escape(drag.fileId) + '"]');
+      if (!(icon instanceof HTMLElement) || !drag.moved) return;
+      const x = Number(icon.dataset.dragX || 0) || 0;
+      const y = Number(icon.dataset.dragY || 0) || 0;
+      try {
+        const data = await api('/api/update_shared_file_position', {
+          method: 'POST',
+          body: { file_id: drag.fileId, x, y, actor_name: state.actor, source: 'ui' },
+        });
+        if (data?.file?.id) {
+          const file = sharedFileById(data.file.id);
+          if (file) {
+            file.x = data.file.x;
+            file.y = data.file.y;
+          }
+        }
+      } catch (error) {
+        setStatus(error.message, true);
+        await loadSharedFiles();
+      }
+    }
+
+    function handleSharedFilesDesktopClick(event) {
+      const icon = event.target?.closest?.('[data-shared-file-id]');
+      if (icon instanceof HTMLElement) selectSharedFile(icon.dataset.sharedFileId);
+    }
+
+    function handleSharedFilesDesktopDoubleClick(event) {
+      const icon = event.target?.closest?.('[data-shared-file-id]');
+      if (!(icon instanceof HTMLElement)) return;
+      selectSharedFile(icon.dataset.sharedFileId);
+      openActiveSharedFile();
+    }
+
     function addRepairOrderRowFromButton(section, event) {
       event.preventDefault();
       event.stopPropagation();
@@ -19067,6 +19495,14 @@ function renderCompactArchiveRows(cards) {
     remountElement('operatorLogoutButton');
     remountElement('operatorAdminButton');
     remountElement('adminSaveUserButton');
+    remountElement('sharedFilesButton');
+    remountElement('sharedFilesUploadButton');
+    remountElement('sharedFilesOpenButton');
+    remountElement('sharedFilesDownloadButton');
+    remountElement('sharedFilesRenameButton');
+    remountElement('sharedFilesCopyButton');
+    remountElement('sharedFilesPasteButton');
+    remountElement('sharedFilesDeleteButton');
     remountElement('cashboxesButton');
     remountElement('employeesButton');
     remountElement('cashboxCreateButton');
@@ -19093,6 +19529,7 @@ function renderCompactArchiveRows(cards) {
     els.boardSettingsButton.addEventListener('click', openBoardSettings);
     els.archiveButton.addEventListener('click', openArchiveModal);
     els.repairOrdersButton.addEventListener('click', openRepairOrdersModal);
+    els.sharedFilesButton.addEventListener('click', openSharedFilesModal);
     els.cardAgentButton.addEventListener('click', runFullCardEnrichment);
     els.cashboxesButton.addEventListener('click', openCashboxesModal);
     els.employeesButton.addEventListener('click', openEmployeesModal);
@@ -19107,6 +19544,20 @@ function renderCompactArchiveRows(cards) {
     els.cashboxJournalButton.addEventListener('click', openCashJournalModal);
     els.cashboxJournalDownloadButton.addEventListener('click', downloadCashJournal);
     els.cashboxDeleteButton.addEventListener('click', deleteActiveCashbox);
+    els.sharedFilesUploadButton.addEventListener('click', () => els.sharedFilesInput.click());
+    els.sharedFilesInput.addEventListener('change', () => uploadSharedFiles(els.sharedFilesInput.files));
+    els.sharedFilesOpenButton.addEventListener('click', openActiveSharedFile);
+    els.sharedFilesDownloadButton.addEventListener('click', downloadActiveSharedFile);
+    els.sharedFilesRenameButton.addEventListener('click', renameActiveSharedFile);
+    els.sharedFilesCopyButton.addEventListener('click', copyActiveSharedFile);
+    els.sharedFilesPasteButton.addEventListener('click', pasteSharedFile);
+    els.sharedFilesDeleteButton.addEventListener('click', deleteActiveSharedFile);
+    els.sharedFilesDesktop.addEventListener('click', handleSharedFilesDesktopClick);
+    els.sharedFilesDesktop.addEventListener('dblclick', handleSharedFilesDesktopDoubleClick);
+    els.sharedFilesDesktop.addEventListener('pointerdown', beginSharedFileDrag);
+    els.sharedFilesDesktop.addEventListener('pointermove', moveSharedFileDrag);
+    els.sharedFilesDesktop.addEventListener('pointerup', finishSharedFileDrag);
+    els.sharedFilesDesktop.addEventListener('pointercancel', finishSharedFileDrag);
     if (els.cashboxCancelLastButton) {
       els.cashboxCancelLastButton.addEventListener('click', cancelLastCashboxTransaction);
     }

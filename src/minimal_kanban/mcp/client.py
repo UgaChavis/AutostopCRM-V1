@@ -166,6 +166,67 @@ class BoardApiClient:
             actor_name=actor_name,
         )
 
+    def list_shared_files(self) -> dict:
+        return self._request("/api/list_shared_files", method="GET")
+
+    def get_shared_file_info(self, file_id: str) -> dict:
+        return self._request("/api/get_shared_file_info", {"file_id": file_id})
+
+    def download_shared_file(
+        self,
+        file_id: str,
+        *,
+        include_base64: bool = True,
+        max_base64_bytes: int = 2_097_152,
+    ) -> dict:
+        return self._request(
+            "/api/fetch_shared_file",
+            {
+                "file_id": file_id,
+                "include_base64": include_base64,
+                "max_base64_bytes": max_base64_bytes,
+            },
+        )
+
+    def upload_shared_file(
+        self,
+        *,
+        file_name: str,
+        content_base64: str | None = None,
+        content: bytes | None = None,
+        mime_type: str = "application/octet-stream",
+        x: int = 0,
+        y: int = 0,
+        actor_name: str | None = None,
+    ) -> dict:
+        if content_base64 is None and content is not None:
+            content_base64 = base64.b64encode(content).decode("ascii")
+        return self._request_with_identity(
+            "/api/upload_shared_file",
+            {
+                "file_name": file_name,
+                "mime_type": mime_type,
+                "content_base64": content_base64 or "",
+                "x": x,
+                "y": y,
+            },
+            actor_name=actor_name,
+        )
+
+    def delete_shared_file(self, file_id: str, *, actor_name: str | None = None) -> dict:
+        return self._request_with_identity(
+            "/api/delete_shared_file", {"file_id": file_id}, actor_name=actor_name
+        )
+
+    def update_shared_file_position(
+        self, file_id: str, *, x: int, y: int, actor_name: str | None = None
+    ) -> dict:
+        return self._request_with_identity(
+            "/api/update_shared_file_position",
+            {"file_id": file_id, "x": x, "y": y},
+            actor_name=actor_name,
+        )
+
     def get_card_context(
         self,
         card_id: str,
@@ -284,9 +345,7 @@ class BoardApiClient:
     def get_client_stats(self, client_id: str) -> dict:
         return self._request("/api/get_client_stats", {"client_id": client_id})
 
-    def create_client(
-        self, client: dict[str, object], *, actor_name: str | None = None
-    ) -> dict:
+    def create_client(self, client: dict[str, object], *, actor_name: str | None = None) -> dict:
         return self._request_with_identity("/api/create_client", client, actor_name=actor_name)
 
     def update_client(
@@ -377,9 +436,7 @@ class BoardApiClient:
             actor_name=actor_name,
         )
 
-    def unlink_card_from_client(
-        self, card_id: str, *, actor_name: str | None = None
-    ) -> dict:
+    def unlink_card_from_client(self, card_id: str, *, actor_name: str | None = None) -> dict:
         return self._request_with_identity(
             "/api/unlink_card_from_client", {"card_id": card_id}, actor_name=actor_name
         )
