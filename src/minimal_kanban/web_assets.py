@@ -19032,8 +19032,17 @@ function renderCompactArchiveRows(cards) {
     }
 
     function sharedFilesLayout(files) {
+      const orderedFiles = Array.from(files || []).sort((left, right) => {
+        const leftSlot = sharedFilesStoredSlot(left);
+        const rightSlot = sharedFilesStoredSlot(right);
+        if (leftSlot !== rightSlot) return leftSlot - rightSlot;
+        const leftTime = sharedFilesStableTime(left);
+        const rightTime = sharedFilesStableTime(right);
+        if (leftTime !== rightTime) return leftTime - rightTime;
+        return String(left?.id || '').localeCompare(String(right?.id || ''));
+      });
       const occupied = new Set();
-      return files.map((file, index) => {
+      return orderedFiles.map((file, index) => {
         const hasStoredPosition = Number.isFinite(Number(file?.x)) && Number.isFinite(Number(file?.y));
         let slot = hasStoredPosition ? sharedFilesGridSlotFromPoint(file.x, file.y) : index;
         while (occupied.has(slot)) slot += 1;
@@ -19046,6 +19055,22 @@ function renderCompactArchiveRows(cards) {
           shared_files_layout_slot: slot,
         };
       });
+    }
+
+    function sharedFilesStoredSlot(file) {
+      if (!file) return Number.MAX_SAFE_INTEGER;
+      const x = Number(file.x);
+      const y = Number(file.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return Number.MAX_SAFE_INTEGER;
+      return sharedFilesGridSlotFromPoint(x, y);
+    }
+
+    function sharedFilesStableTime(file) {
+      const createdAt = Date.parse(String(file?.created_at || ''));
+      if (Number.isFinite(createdAt)) return createdAt;
+      const updatedAt = Date.parse(String(file?.updated_at || ''));
+      if (Number.isFinite(updatedAt)) return updatedAt;
+      return 0;
     }
 
     function sharedFilesClipboardFileName(mimeType, index = 0) {
