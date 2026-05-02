@@ -312,9 +312,7 @@ class BoardApiClient:
     def list_cashboxes(self, *, limit: int | None = None) -> dict:
         return self._request_optional_scalar_filter("/api/list_cashboxes", key="limit", value=limit)
 
-    def get_cash_journal(
-        self, *, months: int | None = None, limit: int | None = None
-    ) -> dict:
+    def get_cash_journal(self, *, months: int | None = None, limit: int | None = None) -> dict:
         payload: dict[str, object] = {}
         if months is not None:
             payload["months"] = months

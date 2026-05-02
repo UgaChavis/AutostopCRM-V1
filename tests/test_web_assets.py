@@ -749,7 +749,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="clientPhoneFields"', BOARD_WEB_APP_HTML)
         self.assertIn('id="clientPhoneAddButton"', BOARD_WEB_APP_HTML)
         self.assertIn("function renderClientPhoneFields(values = [''])", BOARD_WEB_APP_HTML)
-        self.assertIn("function renderVehicleCustomerPhoneFields(values = [''])", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function renderVehicleCustomerPhoneFields(values = [''])", BOARD_WEB_APP_HTML
+        )
         self.assertIn("customer_phones", BOARD_WEB_APP_HTML)
         self.assertIn("clientDebtCard", BOARD_WEB_APP_HTML)
         self.assertIn("clientDebtValue", BOARD_WEB_APP_HTML)
@@ -784,7 +786,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("flex-direction: column;", BOARD_WEB_APP_HTML)
         self.assertIn("data-client-vehicle-edit", BOARD_WEB_APP_HTML)
         self.assertIn("data-client-vehicle-delete", BOARD_WEB_APP_HTML)
-        self.assertIn("data-client-vehicle-field=\"vin\"", BOARD_WEB_APP_HTML)
+        self.assertIn('data-client-vehicle-field="vin"', BOARD_WEB_APP_HTML)
         self.assertIn("'/api/delete_client_vehicle'", BOARD_WEB_APP_HTML)
         self.assertIn("sync_linked_cards: true", BOARD_WEB_APP_HTML)
         self.assertIn("client-match-item__vehicles", BOARD_WEB_APP_HTML)
@@ -814,7 +816,9 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn('id="clientRequisitesDetails"', BOARD_WEB_APP_HTML)
         self.assertIn('id="clientMatchPanel"', BOARD_WEB_APP_HTML)
-        self.assertIn("id=\"' + inputId + '\" data-client-phone-input=\"' + index + '\"", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "id=\"' + inputId + '\" data-client-phone-input=\"' + index + '\"", BOARD_WEB_APP_HTML
+        )
         self.assertIn(
             'id="clientLegalNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"',
             BOARD_WEB_APP_HTML,
@@ -822,21 +826,43 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function openClientsModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function linkActiveCardToClient(clientId,", BOARD_WEB_APP_HTML)
         self.assertIn("async function loadClientSuggestionVehicles(clientId)", BOARD_WEB_APP_HTML)
-        self.assertIn("const fullProfileLoaded = Array.isArray(state.clientSuggestionProfiles?.[client?.id]?.vehicles);", BOARD_WEB_APP_HTML)
-        self.assertIn("const visibleVehicles = fullProfileLoaded ? vehicles : vehicles.slice(0, 3);", BOARD_WEB_APP_HTML)
-        self.assertIn("const loadMore = !fullProfileLoaded && total > visibleVehicles.length", BOARD_WEB_APP_HTML)
-        self.assertIn("const loadedProfiles = state.clientSuggestionProfiles || {};", BOARD_WEB_APP_HTML)
-        self.assertIn("if (clientId && loadedProfiles[clientId]) profiles[clientId] = loadedProfiles[clientId];", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const fullProfileLoaded = Array.isArray(state.clientSuggestionProfiles?.[client?.id]?.vehicles);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "const visibleVehicles = fullProfileLoaded ? vehicles : vehicles.slice(0, 3);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "const loadMore = !fullProfileLoaded && total > visibleVehicles.length",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "const loadedProfiles = state.clientSuggestionProfiles || {};", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "if (clientId && loadedProfiles[clientId]) profiles[clientId] = loadedProfiles[clientId];",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("window.clearTimeout(state.clientSuggestTimer);", BOARD_WEB_APP_HTML)
         self.assertIn("state.clientSuggestTimer = null;", BOARD_WEB_APP_HTML)
         self.assertIn("if (trimmedQuery.length < 3 && queryDigits.length < 3)", BOARD_WEB_APP_HTML)
         self.assertIn("window.setTimeout(refreshClientSuggestionsForCard, 450)", BOARD_WEB_APP_HTML)
         self.assertIn("function clientSuggestionVehicleKey(vehicle)", BOARD_WEB_APP_HTML)
         self.assertIn("return cardId ? ('card:' + cardId) : '';", BOARD_WEB_APP_HTML)
-        self.assertIn("function findClientSuggestionVehicle(vehicles, vehicleKey = '')", BOARD_WEB_APP_HTML)
-        self.assertIn("async function ensureStableClientSuggestionVehicle(clientId, vehicle)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function findClientSuggestionVehicle(vehicles, vehicleKey = '')", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "async function ensureStableClientSuggestionVehicle(clientId, vehicle)",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("'/api/upsert_client_vehicle'", BOARD_WEB_APP_HTML)
-        self.assertIn("selectedVehicle = await ensureStableClientSuggestionVehicle(clientId, selectedVehicle);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "selectedVehicle = await ensureStableClientSuggestionVehicle(clientId, selectedVehicle);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("'/api/link_card_to_client'", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/search_clients?query='", BOARD_WEB_APP_HTML)
         self.assertIn("client_vehicle_id: state.pendingCardClientVehicleId", BOARD_WEB_APP_HTML)
@@ -1899,7 +1925,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function cashboxTransactionIsTransfer(item)", BOARD_WEB_APP_HTML)
         self.assertIn("function resetCashboxDragState()", BOARD_WEB_APP_HTML)
         self.assertIn("function syncCashboxDragClasses()", BOARD_WEB_APP_HTML)
-        self.assertIn("els.cashboxesList.classList.toggle('is-drag-active', isDragActive);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.cashboxesList.classList.toggle('is-drag-active', isDragActive);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("cashboxId !== state.cashboxDragId", BOARD_WEB_APP_HTML)
         self.assertIn("function cashboxDropBeforeIdFromRow(row, clientY)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleCashboxesListDragStart(event)", BOARD_WEB_APP_HTML)

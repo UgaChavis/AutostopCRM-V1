@@ -1386,7 +1386,6 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     },
                 )
                 self.assertFalse(created.isError)
-                card_id = created.structuredContent["data"]["card"]["id"]
 
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
