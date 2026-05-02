@@ -231,6 +231,8 @@ Latest completed stabilization wave:
 - the Clients module vehicle block now supports add/edit/delete for saved client cars; edits sync VIN/license/model into linked card vehicle passports, and deletion removes only the car link, not cards or repair orders
 - MCP client tools include client list/search/profile/stats/create/update/delete/link/unlink/suggestion plus client vehicle upsert/delete commands
 - shared Files v1.0 was added as a small server-side file exchange: separate storage folder, JSON metadata index, 500 MB limit, browser UI, API routes, and MCP tools
+- the board header and cards were compacted for smaller monitors: rare module buttons sit on the left, primary workflow buttons stay on the right, button/card padding is tighter, and the card signal row shares one line with tags
+- shared Files now supports right-click paste from files copied in Windows Explorer through the local API clipboard backend fallback; browser clipboard paste and drag-and-drop upload remain available
 - clients module audit fixed the connection-card allowed tool list, direct API nested `client`/`patch` payloads, and `+7`/`8` phone matching for client suggestions/history
 
 Most recent important commits in the current line:
@@ -307,7 +309,7 @@ Current known verification baseline:
 - latest targeted regressions for `tests.test_service`, `tests.test_api`, and `tests.test_web_assets` are green
 - latest targeted `tests.test_service`, `tests.test_api`, `tests.test_web_assets`, `tests.test_mcp`, and `tests.test_mcp_main` runs are green
 - import smoke for `main.py` and `main_mcp.py` is green
-- latest full-suite validation on the current local bulk client import/search optimization pass: `471/471 OK`
+- latest full-suite validation on the current local shared Files clipboard/topbar pass: `510/510 OK`
 - latest portable release verifier: passed during the current `autostopcrm-v1` quality pass
 
 Main test areas:

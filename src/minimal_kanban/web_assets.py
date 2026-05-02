@@ -93,11 +93,11 @@ BOARD_WEB_APP_HTML = "".join(
     .status-shell .message {
       display: inline-flex;
       align-items: center;
-      gap: 7px;
+      gap: 5px;
       width: max-content;
       max-width: 100%;
-      padding: 5px 9px;
-      font-size: 11px;
+      padding: 3px 7px;
+      font-size: 10px;
       line-height: 1.2;
       letter-spacing: 0.04em;
       color: var(--text-soft);
@@ -116,27 +116,27 @@ BOARD_WEB_APP_HTML = "".join(
     .topbar {
       border-bottom: 1px solid var(--line);
       background: rgba(0, 0, 0, 0.16);
-      padding: 10px 14px;
+      padding: 6px 10px;
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-start;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
       position: relative;
       z-index: 3;
     }
     .topbar__left {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       min-width: 0;
-      flex: 1 1 auto;
+      flex: 0 1 auto;
       flex-wrap: wrap;
     }
     .brand { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
     .brand__title {
       font-family: var(--mono);
-      font-size: 17px;
-      letter-spacing: 0.11em;
+      font-size: 14px;
+      letter-spacing: 0.1em;
       font-weight: 700;
       line-height: 1.05;
     }
@@ -162,18 +162,22 @@ BOARD_WEB_APP_HTML = "".join(
       flex-wrap: wrap;
       justify-content: flex-end;
       flex: 0 1 auto;
+      margin-left: auto;
     }
     .topbar__rare-actions {
       display: flex;
-      gap: 5px;
-      row-gap: 5px;
+      gap: 4px;
+      row-gap: 4px;
       flex-wrap: wrap;
       align-items: center;
     }
     .topbar__actions .btn,
     .topbar__rare-actions .btn {
-      min-height: 32px;
-      padding: 7px 10px;
+      min-height: 27px;
+      padding: 5px 8px;
+      font-size: 10.5px;
+      letter-spacing: 0.065em;
+      line-height: 1.1;
     }
     .btn, .pill {
       border: 1px solid var(--line);
@@ -246,8 +250,8 @@ BOARD_WEB_APP_HTML = "".join(
       transform: translateY(0);
     }
     .gear-button {
-      width: 48px;
-      height: 48px;
+      width: 36px;
+      height: 36px;
       padding: 0;
       display: grid;
       place-items: center;
@@ -262,8 +266,8 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .gear-button:hover { border-color: var(--accent); }
     .gear-button__logo {
-      width: 28px;
-      height: 28px;
+      width: 22px;
+      height: 22px;
       display: block;
       object-fit: contain;
       image-rendering: -webkit-optimize-contrast;
@@ -551,11 +555,11 @@ BOARD_WEB_APP_HTML = "".join(
         linear-gradient(180deg, rgba(255,255,255,0.14), transparent 18%),
         linear-gradient(180deg, var(--card) 0, var(--card-2) 100%);
       color: var(--card-text);
-      padding: calc(11px * var(--board-scale)) calc(11px * var(--board-scale)) calc(10px * var(--board-scale));
-      min-height: calc(172px * var(--board-scale));
+      padding: calc(9px * var(--board-scale)) calc(10px * var(--board-scale)) calc(7px * var(--board-scale));
+      min-height: calc(154px * var(--board-scale));
       display: grid;
-      grid-template-rows: auto auto 1fr auto auto auto;
-      gap: calc(6px * var(--board-scale));
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: calc(5px * var(--board-scale));
       cursor: pointer;
       transition: border-color 160ms linear, box-shadow 160ms linear;
       box-shadow:
@@ -773,25 +777,32 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .card__desc {
       font-size: calc(13px * var(--board-scale));
-      line-height: 1.28;
+      line-height: 1.24;
       display: -webkit-box;
       -webkit-line-clamp: 5;
       -webkit-box-orient: vertical;
       overflow: hidden;
       white-space: pre-wrap;
     }
-    .card__signal {
+    .card__footer {
       display: flex;
       align-items: center;
+      gap: calc(6px * var(--board-scale));
+      min-width: 0;
+      border-top: 1px solid rgba(78, 73, 61, 0.26);
+      padding-top: calc(5px * var(--board-scale));
+    }
+    .card__signal {
+      display: inline-flex;
+      align-items: center;
       justify-content: flex-start;
-      gap: calc(8px * var(--board-scale));
+      gap: calc(5px * var(--board-scale));
       font-family: var(--mono);
       font-size: calc(11px * var(--board-scale));
       text-transform: uppercase;
-      border-top: 1px solid rgba(78, 73, 61, 0.26);
-      padding-top: calc(8px * var(--board-scale));
+      flex: 0 0 auto;
     }
-    .card__signal-label { display: inline-flex; align-items: center; gap: calc(7px * var(--board-scale)); color: #544f42; flex: 0 0 auto; }
+    .card__signal-label { display: inline-flex; align-items: center; color: #544f42; flex: 0 0 auto; }
     .card__signal-value { font-weight: 700; letter-spacing: 0.04em; margin-left: 0; flex: 0 0 auto; }
     .time-readout {
       display: inline-flex;
@@ -854,6 +865,14 @@ BOARD_WEB_APP_HTML = "".join(
       align-content: flex-start;
       align-items: flex-start;
     }
+    .card__footer .card__tags {
+      flex: 1 1 auto;
+      min-width: 0;
+      flex-wrap: nowrap;
+      align-items: center;
+      align-content: center;
+      overflow: hidden;
+    }
     .tag {
       border: 1px solid #7d7a6c;
       padding: calc(2px * var(--board-scale)) calc(5px * var(--board-scale));
@@ -866,6 +885,8 @@ BOARD_WEB_APP_HTML = "".join(
       display: inline-flex;
       align-items: center;
       gap: calc(4px * var(--board-scale));
+      white-space: nowrap;
+      flex: 0 0 auto;
     }
     .tag[data-tag-color="green"] {
       border-color: rgba(67, 126, 79, 0.82);
@@ -4526,8 +4547,8 @@ BOARD_WEB_APP_HTML = "".join(
       min-height: 56px;
     }
     body.is-mobile-lite .card {
-      min-height: 124px;
-      padding: 10px;
+      min-height: 112px;
+      padding: 8px;
     }
     body.is-mobile-lite .card__desc {
       -webkit-line-clamp: 3;
@@ -4535,10 +4556,6 @@ BOARD_WEB_APP_HTML = "".join(
     }
     body.is-mobile-lite .card__tags {
       gap: 4px;
-      flex-wrap: wrap;
-    }
-    body.is-mobile-lite .card__signal {
-      margin-top: 2px;
     }
     body.is-mobile-lite .card__signal-value {
       font-size: 12px;
@@ -6181,6 +6198,41 @@ BOARD_WEB_APP_HTML = "".join(
       background-size: 32px 32px;
       padding: 12px;
     }
+    .shared-files-desktop:focus-visible {
+      outline: none;
+      border-color: rgba(116, 180, 255, 0.74);
+      box-shadow: 0 0 0 1px rgba(80, 154, 255, 0.36);
+    }
+    .shared-files-desktop.is-drop-target {
+      border-color: rgba(159, 190, 115, 0.72);
+      box-shadow: inset 0 0 0 1px rgba(159, 190, 115, 0.28);
+    }
+    .shared-files-context-menu {
+      position: fixed;
+      z-index: 70;
+      min-width: 236px;
+      display: grid;
+      gap: 4px;
+      padding: 6px;
+      border: 1px solid rgba(160, 174, 135, 0.42);
+      background: rgba(20, 28, 23, 0.98);
+      box-shadow: 0 18px 36px rgba(0, 0, 0, 0.42);
+    }
+    .shared-files-context-menu[hidden] {
+      display: none;
+    }
+    .shared-files-context-menu .btn {
+      width: 100%;
+      justify-content: flex-start;
+      min-height: 28px;
+      padding: 6px 8px;
+      font-size: 10.5px;
+      text-align: left;
+    }
+    .shared-files-context-menu .btn:disabled {
+      opacity: 0.46;
+      cursor: not-allowed;
+    }
     .shared-files-empty {
       color: var(--muted);
       font-size: 12px;
@@ -6591,7 +6643,12 @@ BOARD_WEB_APP_HTML = "".join(
         </div>
         <input id="sharedFilesInput" type="file" multiple hidden>
       </div>
-      <div class="shared-files-desktop" id="sharedFilesDesktop"></div>
+      <div class="shared-files-desktop" id="sharedFilesDesktop" tabindex="0" aria-label="Рабочее поле файлов"></div>
+      <div class="shared-files-context-menu" id="sharedFilesContextMenu" hidden>
+        <button class="btn" type="button" data-shared-files-menu-action="paste-clipboard">ВСТАВИТЬ ФАЙЛ ИЗ БУФЕРА</button>
+        <button class="btn" type="button" data-shared-files-menu-action="paste-crm">ВСТАВИТЬ КОПИЮ CRM</button>
+        <button class="btn" type="button" data-shared-files-menu-action="upload">ЗАГРУЗИТЬ ФАЙЛ...</button>
+      </div>
     </div>
   </div>
 
@@ -7160,6 +7217,7 @@ BOARD_WEB_APP_HTML = "".join(
       sharedFilesActiveId: '',
       sharedFilesStorage: null,
       sharedFilesClipboardId: '',
+      sharedFilesContextPoint: null,
       sharedFilesDrag: null,
       clientSuggestTimer: null,
       clientSuggestions: [],
@@ -7686,6 +7744,7 @@ BOARD_WEB_APP_HTML = "".join(
       sharedFilesModal: document.getElementById('sharedFilesModal'),
       sharedFilesMeta: document.getElementById('sharedFilesMeta'),
       sharedFilesDesktop: document.getElementById('sharedFilesDesktop'),
+      sharedFilesContextMenu: document.getElementById('sharedFilesContextMenu'),
       sharedFilesInput: document.getElementById('sharedFilesInput'),
       sharedFilesUploadButton: document.getElementById('sharedFilesUploadButton'),
       sharedFilesOpenButton: document.getElementById('sharedFilesOpenButton'),
@@ -9282,14 +9341,24 @@ BOARD_WEB_APP_HTML = "".join(
         if (response.status === 401) {
           clearOperatorSession({ openLogin: true, preserveStatus: true });
         }
-        throw new Error(payload?.error?.message || 'Need operator login.');
+        const error = new Error(payload?.error?.message || 'Need operator login.');
+        error.code = payload?.error?.code || '';
+        throw error;
       }
       if (response.status === 401 || payload?.error?.code === 'unauthorized') {
-        throw new Error(accessDeniedMessage());
+        const error = new Error(accessDeniedMessage());
+        error.code = payload?.error?.code || 'unauthorized';
+        throw error;
       }
-      if (!payload.ok) throw new Error(payload.error?.message || 'Ошибка API');
+      if (!payload.ok) {
+        const error = new Error(payload.error?.message || 'Ошибка API');
+        error.code = payload?.error?.code || '';
+        throw error;
+      }
       if (!response.ok) {
-        throw new Error(payload?.error?.message || ('HTTP ' + response.status));
+        const error = new Error(payload?.error?.message || ('HTTP ' + response.status));
+        error.code = payload?.error?.code || '';
+        throw error;
       }
       return payload.data;
     }
@@ -9633,7 +9702,10 @@ BOARD_WEB_APP_HTML = "".join(
         },
         'repair-orders': () => els.repairOrdersModal.classList.remove('is-open'),
         clients: () => els.clientsModal.classList.remove('is-open'),
-        'shared-files': () => els.sharedFilesModal.classList.remove('is-open'),
+        'shared-files': () => {
+          hideSharedFilesContextMenu();
+          els.sharedFilesModal.classList.remove('is-open');
+        },
         cashboxes: () => els.cashboxesModal.classList.remove('is-open'),
         'cashbox-journal': () => els.cashboxJournalModal.classList.remove('is-open'),
         'cashbox-transfer': () => els.cashboxTransferModal.classList.remove('is-open'),
@@ -14551,7 +14623,7 @@ BOARD_WEB_APP_HTML = "".join(
         ? previewTags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
         : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
-      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
+      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
     };
 
     renderCardHtml = function(card) {
@@ -14563,7 +14635,7 @@ BOARD_WEB_APP_HTML = "".join(
         : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
     };
 
     renderBoardCardHtml = function(card) {
@@ -14576,7 +14648,7 @@ BOARD_WEB_APP_HTML = "".join(
       const headingHtml = buildCardHeadingHtml(card);
       const unreadBadgeHtml = cardUnreadBadgeHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
     };
 
     function applyVehicleProfileToForm(profile, { preserveStatus = false } = {}) {
@@ -17085,7 +17157,7 @@ function renderCompactArchiveRows(cards) {
       const headingHtml = card.vehicle
         ? '<div class="card__heading"><div class="card__vehicle">' + escapeHtml(card.vehicle) + '</div><span class="card__slash">/</span><div class="card__title">' + escapeHtml(card.title) + '</div></div>'
         : '<div class="card__title">' + escapeHtml(card.title) + '</div>';
-      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
+      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
     }
 
     function renderCardHtml(card) {
@@ -17099,7 +17171,7 @@ function renderCompactArchiveRows(cards) {
         ? '<div class="card__heading"><div class="card__vehicle">' + escapeHtml(card.vehicle) + '</div><span class="card__slash">/</span><div class="card__title">' + escapeHtml(card.title) + '</div></div>'
         : '<div class="card__title">' + escapeHtml(card.title) + '</div>';
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
     }
 
     function renderBoardCardHtml(card) {
@@ -17112,7 +17184,7 @@ function renderCompactArchiveRows(cards) {
       const headingHtml = buildCardHeadingHtml(card);
       const unreadBadgeHtml = cardUnreadBadgeHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
     }
 
     function sortBoardCards(cards) {
@@ -18854,6 +18926,10 @@ function renderCompactArchiveRows(cards) {
       if (els.sharedFilesPasteButton) {
         els.sharedFilesPasteButton.disabled = !state.sharedFilesClipboardId;
       }
+      const crmPasteButton = els.sharedFilesContextMenu?.querySelector('[data-shared-files-menu-action="paste-crm"]');
+      if (crmPasteButton instanceof HTMLButtonElement) {
+        crmPasteButton.disabled = !state.sharedFilesClipboardId;
+      }
     }
 
     function renderSharedFiles() {
@@ -18900,6 +18976,7 @@ function renderCompactArchiveRows(cards) {
 
     async function openSharedFilesModal() {
       await loadSharedFiles({ openModal: true });
+      els.sharedFilesDesktop?.focus?.({ preventScroll: true });
     }
 
     function selectSharedFile(fileId) {
@@ -18907,26 +18984,265 @@ function renderCompactArchiveRows(cards) {
       renderSharedFiles();
     }
 
-    async function uploadSharedFiles(files) {
+    function normalizeSharedFilesDropPoint(point) {
+      const x = Number(point?.x);
+      const y = Number(point?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      return { x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)) };
+    }
+
+    function sharedFilesDropPointFromEvent(event) {
+      if (!els.sharedFilesDesktop) return null;
+      const rect = els.sharedFilesDesktop.getBoundingClientRect();
+      return normalizeSharedFilesDropPoint({
+        x: event.clientX - rect.left + els.sharedFilesDesktop.scrollLeft,
+        y: event.clientY - rect.top + els.sharedFilesDesktop.scrollTop,
+      });
+    }
+
+    function sharedFilesUploadPoint(index, baseIndex, dropPoint) {
+      const point = normalizeSharedFilesDropPoint(dropPoint);
+      if (!point) {
+        return {
+          x: 24 + ((baseIndex + index) % 7) * 116,
+          y: 24 + Math.floor((baseIndex + index) / 7) * 126,
+        };
+      }
+      return {
+        x: point.x + (index % 7) * 116,
+        y: point.y + Math.floor(index / 7) * 126,
+      };
+    }
+
+    function sharedFilesClipboardFileName(mimeType, index = 0) {
+      const normalizedMime = normalizeAttachmentMimeType(mimeType);
+      const extension = ATTACHMENT_MIME_TO_EXTENSION[normalizedMime] || '.bin';
+      const prefix = normalizedMime.startsWith('image/') ? 'clipboard-image' : 'clipboard-file';
+      return clipboardAttachmentName(index > 0 ? prefix + '-' + (index + 1) : prefix, extension);
+    }
+
+    function sharedFilesFileNameForUpload(file, index) {
+      const fileName = String(file?.name || '').trim();
+      return fileName || sharedFilesClipboardFileName(file?.type || '', index);
+    }
+
+    function sharedFilesClipboardTypeLooksFile(mimeType) {
+      const normalizedMime = normalizeAttachmentMimeType(mimeType);
+      if (!normalizedMime) return false;
+      return !normalizedMime.startsWith('text/');
+    }
+
+    async function readSharedFilesClipboardFiles() {
+      if (!navigator.clipboard?.read) {
+        throw new Error('БРАУЗЕР НЕ ДАЁТ ПРОЧИТАТЬ ФАЙЛ ИЗ БУФЕРА. ИСПОЛЬЗУЙТЕ CTRL+V ИЛИ ПЕРЕТАСКИВАНИЕ.');
+      }
+      const items = await navigator.clipboard.read();
+      const files = [];
+      for (const item of items || []) {
+        const types = Array.from(item.types || []);
+        for (const type of types) {
+          if (!sharedFilesClipboardTypeLooksFile(type)) continue;
+          const blob = await item.getType(type);
+          if (!blob || !blob.size) continue;
+          const mimeType = normalizeAttachmentMimeType(blob.type || type) || 'application/octet-stream';
+          files.push(new File([blob], sharedFilesClipboardFileName(mimeType, files.length), { type: mimeType, lastModified: Date.now() }));
+          break;
+        }
+      }
+      return files;
+    }
+
+    function filesFromSharedFilesPasteEvent(event) {
+      const clipboardData = event?.clipboardData;
+      const directFiles = Array.from(clipboardData?.files || []).filter(Boolean);
+      if (directFiles.length) return directFiles;
+      const files = [];
+      Array.from(clipboardData?.items || []).forEach((item) => {
+        if (item.kind !== 'file') return;
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      });
+      return files;
+    }
+
+    function sharedFilesClipboardFallbackAllowed(error) {
+      const code = String(error?.code || '').trim();
+      return !code || code === 'clipboard_empty' || code === 'clipboard_unavailable';
+    }
+
+    async function pasteSharedFilesFromLocalClipboard(dropPoint) {
+      const point = normalizeSharedFilesDropPoint(dropPoint);
+      const pasted = await api('/api/paste_shared_files_from_clipboard', {
+        method: 'POST',
+        body: {
+          actor_name: state.actor,
+          source: 'ui',
+          x: point?.x ?? 24,
+          y: point?.y ?? 24,
+        },
+      });
+      const pastedFiles = Array.isArray(pasted?.files) ? pasted.files : [];
+      if (!pastedFiles.length) return false;
+      state.sharedFilesActiveId = pastedFiles[pastedFiles.length - 1]?.id || state.sharedFilesActiveId;
+      await loadSharedFiles();
+      setStatus(pastedFiles.length > 1 ? 'ФАЙЛЫ ВСТАВЛЕНЫ ИЗ БУФЕРА.' : 'ФАЙЛ ВСТАВЛЕН ИЗ БУФЕРА.', false);
+      return true;
+    }
+
+    async function pasteSharedFilesFromSystemClipboard() {
+      const dropPoint = state.sharedFilesContextPoint || null;
+      let localClipboardError = null;
+      try {
+        if (await pasteSharedFilesFromLocalClipboard(dropPoint)) {
+          hideSharedFilesContextMenu();
+          return;
+        }
+      } catch (error) {
+        localClipboardError = error;
+        if (!sharedFilesClipboardFallbackAllowed(error)) {
+          setStatus(error.message || 'НЕ УДАЛОСЬ ВСТАВИТЬ ФАЙЛ ИЗ БУФЕРА.', true);
+          return;
+        }
+      }
+      try {
+        const files = await readSharedFilesClipboardFiles();
+        if (!files.length) {
+          setStatus(localClipboardError?.message || 'В БУФЕРЕ НЕТ ФАЙЛА ДЛЯ ВСТАВКИ. ИСПОЛЬЗУЙТЕ CTRL+V ИЛИ ПЕРЕТАСКИВАНИЕ.', true);
+          return;
+        }
+        await uploadSharedFiles(files, { dropPoint });
+        hideSharedFilesContextMenu();
+      } catch (error) {
+        setStatus(localClipboardError?.message || error.message || 'НЕ УДАЛОСЬ ВСТАВИТЬ ФАЙЛ ИЗ БУФЕРА.', true);
+      }
+    }
+
+    async function handleSharedFilesPaste(event) {
+      if (!els.sharedFilesModal?.classList.contains('is-open')) return;
+      const files = filesFromSharedFilesPasteEvent(event);
+      if (!files.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+      await uploadSharedFiles(files, { dropPoint: state.sharedFilesContextPoint || null });
+      hideSharedFilesContextMenu();
+    }
+
+    function hideSharedFilesContextMenu() {
+      if (els.sharedFilesContextMenu) {
+        els.sharedFilesContextMenu.hidden = true;
+        els.sharedFilesContextMenu.style.left = '';
+        els.sharedFilesContextMenu.style.top = '';
+      }
+      state.sharedFilesContextPoint = null;
+    }
+
+    function positionSharedFilesContextMenu(clientX, clientY) {
+      if (!els.sharedFilesContextMenu) return;
+      const padding = 8;
+      els.sharedFilesContextMenu.style.left = Math.max(padding, Math.round(clientX)) + 'px';
+      els.sharedFilesContextMenu.style.top = Math.max(padding, Math.round(clientY)) + 'px';
+      window.requestAnimationFrame(() => {
+        const rect = els.sharedFilesContextMenu.getBoundingClientRect();
+        const maxLeft = Math.max(padding, window.innerWidth - rect.width - padding);
+        const maxTop = Math.max(padding, window.innerHeight - rect.height - padding);
+        els.sharedFilesContextMenu.style.left = Math.min(Math.max(padding, Math.round(clientX)), maxLeft) + 'px';
+        els.sharedFilesContextMenu.style.top = Math.min(Math.max(padding, Math.round(clientY)), maxTop) + 'px';
+      });
+    }
+
+    function handleSharedFilesContextMenu(event) {
+      if (!els.sharedFilesDesktop?.contains(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const icon = event.target?.closest?.('[data-shared-file-id]');
+      if (icon instanceof HTMLElement) selectSharedFile(icon.dataset.sharedFileId);
+      state.sharedFilesContextPoint = sharedFilesDropPointFromEvent(event);
+      updateSharedFilesActions();
+      if (els.sharedFilesContextMenu) {
+        els.sharedFilesContextMenu.hidden = false;
+        positionSharedFilesContextMenu(event.clientX, event.clientY);
+      }
+      els.sharedFilesDesktop?.focus?.({ preventScroll: true });
+    }
+
+    async function handleSharedFilesContextMenuClick(event) {
+      const button = event.target?.closest?.('[data-shared-files-menu-action]');
+      if (!(button instanceof HTMLButtonElement) || button.disabled) return;
+      event.preventDefault();
+      const action = String(button.dataset.sharedFilesMenuAction || '').trim();
+      if (action === 'paste-clipboard') {
+        await pasteSharedFilesFromSystemClipboard();
+        return;
+      }
+      if (action === 'paste-crm') {
+        await pasteSharedFile({ dropPoint: state.sharedFilesContextPoint || null });
+        hideSharedFilesContextMenu();
+        return;
+      }
+      if (action === 'upload') {
+        hideSharedFilesContextMenu();
+        els.sharedFilesInput?.click();
+      }
+    }
+
+    function handleSharedFilesDocumentClick(event) {
+      if (!els.sharedFilesContextMenu || els.sharedFilesContextMenu.hidden) return;
+      if (els.sharedFilesContextMenu.contains(event.target)) return;
+      hideSharedFilesContextMenu();
+    }
+
+    function handleSharedFilesGlobalKeydown(event) {
+      if (event.key === 'Escape') hideSharedFilesContextMenu();
+    }
+
+    function handleSharedFilesDragOver(event) {
+      const types = Array.from(event.dataTransfer?.types || []);
+      if (!types.includes('Files')) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      els.sharedFilesDesktop?.classList.add('is-drop-target');
+      els.sharedFilesDesktop?.focus?.({ preventScroll: true });
+    }
+
+    function handleSharedFilesDragLeave(event) {
+      if (!els.sharedFilesDesktop) return;
+      if (event.relatedTarget instanceof Node && els.sharedFilesDesktop.contains(event.relatedTarget)) return;
+      els.sharedFilesDesktop.classList.remove('is-drop-target');
+    }
+
+    async function handleSharedFilesDrop(event) {
+      const files = Array.from(event.dataTransfer?.files || []).filter(Boolean);
+      els.sharedFilesDesktop?.classList.remove('is-drop-target');
+      if (!files.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+      hideSharedFilesContextMenu();
+      await uploadSharedFiles(files, { dropPoint: sharedFilesDropPointFromEvent(event) });
+    }
+
+    async function uploadSharedFiles(files, { dropPoint = null } = {}) {
       const selectedFiles = Array.from(files || []).filter(Boolean);
       if (!selectedFiles.length) return;
       try {
         const baseIndex = (state.sharedFiles || []).length;
+        const normalizedDropPoint = normalizeSharedFilesDropPoint(dropPoint);
         for (let index = 0; index < selectedFiles.length; index += 1) {
           const file = selectedFiles[index];
           const buffer = await file.arrayBuffer();
-          const extension = attachmentExtension(file.name);
+          const fileName = sharedFilesFileNameForUpload(file, index);
+          const extension = attachmentExtension(fileName);
           const mimeType = normalizeAttachmentMimeType(file.type) || attachmentMimeTypeFromExtension(extension) || 'application/octet-stream';
+          const point = sharedFilesUploadPoint(index, baseIndex, normalizedDropPoint);
           const uploaded = await api('/api/upload_shared_file', {
             method: 'POST',
             body: {
               actor_name: state.actor,
               source: 'ui',
-              file_name: file.name,
+              file_name: fileName,
               mime_type: mimeType,
               content_base64: arrayBufferToBase64(buffer),
-              x: 24 + ((baseIndex + index) % 7) * 116,
-              y: 24 + Math.floor((baseIndex + index) / 7) * 126,
+              x: point.x,
+              y: point.y,
             },
           });
           if (uploaded?.file?.id) state.sharedFilesActiveId = uploaded.file.id;
@@ -18991,11 +19307,12 @@ function renderCompactArchiveRows(cards) {
       }
     }
 
-    async function pasteSharedFile() {
+    async function pasteSharedFile({ dropPoint = null } = {}) {
       if (!state.sharedFilesClipboardId) return;
       const source = sharedFileById(state.sharedFilesClipboardId);
-      const x = Math.max(24, Number(source?.x || 24) + 32);
-      const y = Math.max(24, Number(source?.y || 24) + 32);
+      const point = normalizeSharedFilesDropPoint(dropPoint);
+      const x = point ? point.x : Math.max(24, Number(source?.x || 24) + 32);
+      const y = point ? point.y : Math.max(24, Number(source?.y || 24) + 32);
       try {
         const data = await api('/api/paste_shared_file', {
           method: 'POST',
@@ -19030,6 +19347,7 @@ function renderCompactArchiveRows(cards) {
       if (!(icon instanceof HTMLElement) || event.button !== 0) return;
       const fileId = String(icon.dataset.sharedFileId || '').trim();
       if (!fileId) return;
+      hideSharedFilesContextMenu();
       selectSharedFile(fileId);
       const desktopRect = els.sharedFilesDesktop.getBoundingClientRect();
       const iconRect = icon.getBoundingClientRect();
@@ -19088,11 +19406,14 @@ function renderCompactArchiveRows(cards) {
     }
 
     function handleSharedFilesDesktopClick(event) {
+      els.sharedFilesDesktop?.focus?.({ preventScroll: true });
+      hideSharedFilesContextMenu();
       const icon = event.target?.closest?.('[data-shared-file-id]');
       if (icon instanceof HTMLElement) selectSharedFile(icon.dataset.sharedFileId);
     }
 
     function handleSharedFilesDesktopDoubleClick(event) {
+      hideSharedFilesContextMenu();
       const icon = event.target?.closest?.('[data-shared-file-id]');
       if (!(icon instanceof HTMLElement)) return;
       selectSharedFile(icon.dataset.sharedFileId);
@@ -19526,6 +19847,7 @@ function renderCompactArchiveRows(cards) {
     remountElement('sharedFilesCopyButton');
     remountElement('sharedFilesPasteButton');
     remountElement('sharedFilesDeleteButton');
+    remountElement('sharedFilesContextMenu');
     remountElement('cashboxesButton');
     remountElement('employeesButton');
     remountElement('cashboxCreateButton');
@@ -19573,14 +19895,22 @@ function renderCompactArchiveRows(cards) {
     els.sharedFilesDownloadButton.addEventListener('click', downloadActiveSharedFile);
     els.sharedFilesRenameButton.addEventListener('click', renameActiveSharedFile);
     els.sharedFilesCopyButton.addEventListener('click', copyActiveSharedFile);
-    els.sharedFilesPasteButton.addEventListener('click', pasteSharedFile);
+    els.sharedFilesPasteButton.addEventListener('click', () => pasteSharedFile());
     els.sharedFilesDeleteButton.addEventListener('click', deleteActiveSharedFile);
     els.sharedFilesDesktop.addEventListener('click', handleSharedFilesDesktopClick);
     els.sharedFilesDesktop.addEventListener('dblclick', handleSharedFilesDesktopDoubleClick);
+    els.sharedFilesDesktop.addEventListener('contextmenu', handleSharedFilesContextMenu);
+    els.sharedFilesDesktop.addEventListener('paste', handleSharedFilesPaste);
+    els.sharedFilesDesktop.addEventListener('dragover', handleSharedFilesDragOver);
+    els.sharedFilesDesktop.addEventListener('dragleave', handleSharedFilesDragLeave);
+    els.sharedFilesDesktop.addEventListener('drop', handleSharedFilesDrop);
     els.sharedFilesDesktop.addEventListener('pointerdown', beginSharedFileDrag);
     els.sharedFilesDesktop.addEventListener('pointermove', moveSharedFileDrag);
     els.sharedFilesDesktop.addEventListener('pointerup', finishSharedFileDrag);
     els.sharedFilesDesktop.addEventListener('pointercancel', finishSharedFileDrag);
+    els.sharedFilesContextMenu.addEventListener('click', handleSharedFilesContextMenuClick);
+    document.addEventListener('click', handleSharedFilesDocumentClick);
+    document.addEventListener('keydown', handleSharedFilesGlobalKeydown);
     if (els.cashboxCancelLastButton) {
       els.cashboxCancelLastButton.addEventListener('click', cancelLastCashboxTransaction);
     }
@@ -19742,7 +20072,7 @@ function renderCompactArchiveRows(cards) {
       const headingHtml = buildCardHeadingHtml(card);
       const badgeHtml = cardUnreadBadgeHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-updated-unseen="' + (card.has_unseen_update ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + badgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(boardCardDescription(card)) + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-updated-unseen="' + (card.has_unseen_update ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + badgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(boardCardDescription(card)) + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
     };
 
     function legacyCardHtmlBase(card) {
@@ -19752,7 +20082,7 @@ function renderCompactArchiveRows(cards) {
         ? previewTags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
         : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
-      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
+      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
     }
 
     function legacyRenderCardHtmlBase(card) {
@@ -19765,7 +20095,7 @@ function renderCompactArchiveRows(cards) {
       const headingHtml = buildCardHeadingHtml(card);
       const unreadBadgeHtml = cardUnreadBadgeHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
     }
 
     function legacyCardHtmlShadow(card) {
@@ -19775,7 +20105,7 @@ function renderCompactArchiveRows(cards) {
         ? previewTags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
         : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
-      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
+      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
     }
 
     function legacyRenderCardHtmlShadow(card) {
@@ -19787,7 +20117,7 @@ function renderCompactArchiveRows(cards) {
         : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
       const headingHtml = buildCardHeadingHtml(card);
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span><span>СИГН</span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></article>';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
     }
 
     function refreshVehiclePanel() {

@@ -6,6 +6,7 @@ import re
 import threading
 import unicodedata
 import uuid
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from functools import cache
 from http import HTTPStatus
@@ -23,6 +24,7 @@ from ..config import (
 from ..operator_auth import OperatorAuthService
 from ..services.card_service import CardService, ServiceError
 from ..services.shared_files_service import SharedFilesService
+from ..system_clipboard import ClipboardUnavailableError, list_clipboard_file_paths
 from ..web_assets import BOARD_WEB_APP_HTML
 
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
@@ -60,6 +62,13 @@ def _success_log_level(route: str) -> int:
     return logging.DEBUG if route in QUIET_SUCCESS_ROUTES else logging.INFO
 
 
+def _shared_file_clipboard_position(value: object, *, default: int = 24) -> int:
+    try:
+        return max(0, int(float(str(value))))
+    except (TypeError, ValueError):
+        return default
+
+
 def _ascii_download_name(file_name: str, *, fallback: str = "attachment") -> str:
     suffix = PurePath(str(file_name or "")).suffix
     stem = str(file_name or "")
@@ -95,6 +104,7 @@ class ApiServer:
         fallback_limit: int | None = None,
         bearer_token: str | None = None,
         shared_files_service: SharedFilesService | None = None,
+        clipboard_file_provider: Callable[[], Iterable[Path | str]] | None = None,
     ) -> None:
         self._service = service
         self._shared_files_service = shared_files_service
@@ -112,6 +122,7 @@ class ApiServer:
         self._fallback_limit = resolved_fallback_limit
         self._bearer_token = bearer_token if bearer_token is not None else get_api_bearer_token()
         self._operator_service = operator_service
+        self._clipboard_file_provider = clipboard_file_provider or list_clipboard_file_paths
 
     @property
     def base_url(self) -> str:
@@ -180,6 +191,45 @@ class ApiServer:
         bearer_token = self._bearer_token
         operator_service = self._operator_service
         base_url = self.base_url
+
+        def paste_shared_files_from_clipboard(payload: dict | None = None) -> dict:
+            payload = payload or {}
+            try:
+                clipboard_paths = [Path(item) for item in self._clipboard_file_provider()]
+            except ClipboardUnavailableError as exc:
+                raise ServiceError(
+                    "clipboard_unavailable",
+                    str(exc) or "Не удалось прочитать буфер обмена Windows.",
+                    status_code=HTTPStatus.CONFLICT,
+                ) from exc
+            file_paths = [path for path in clipboard_paths if path.exists() and path.is_file()]
+            if not file_paths:
+                raise ServiceError(
+                    "clipboard_empty",
+                    "В буфере обмена нет файлов. Скопируйте файл в Проводнике и повторите вставку.",
+                    status_code=HTTPStatus.CONFLICT,
+                )
+            base_x = _shared_file_clipboard_position(payload.get("x"))
+            base_y = _shared_file_clipboard_position(payload.get("y"))
+            files: list[dict] = []
+            storage: dict | None = None
+            for index, file_path in enumerate(file_paths):
+                uploaded = shared_files_service.upload_shared_file_from_local_path(
+                    {
+                        "path": str(file_path),
+                        "actor_name": payload.get("actor_name"),
+                        "source": payload.get("source") or "ui",
+                        "x": base_x + (index % 7) * 116,
+                        "y": base_y + (index // 7) * 126,
+                    }
+                )
+                files.append(uploaded["file"])
+                storage = uploaded.get("storage")
+            return {
+                "files": files,
+                "storage": storage or shared_files_service.list_shared_files({})["storage"],
+            }
+
         routes = {
             "/api/create_card": service.create_card,
             "/api/create_column": service.create_column,
@@ -287,6 +337,7 @@ class ApiServer:
             "/api/delete_shared_file": shared_files_service.delete_shared_file,
             "/api/copy_shared_file": shared_files_service.copy_shared_file,
             "/api/paste_shared_file": shared_files_service.paste_shared_file,
+            "/api/paste_shared_files_from_clipboard": paste_shared_files_from_clipboard,
             "/api/update_shared_file_position": shared_files_service.update_shared_file_position,
         }
         proxied_write_routes = {
@@ -355,6 +406,7 @@ class ApiServer:
             "/api/rename_shared_file",
             "/api/delete_shared_file",
             "/api/paste_shared_file",
+            "/api/paste_shared_files_from_clipboard",
             "/api/update_shared_file_position",
         }
         operator_session_routes = {

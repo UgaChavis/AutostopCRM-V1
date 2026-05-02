@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import mimetypes
 import os
 import shutil
 import threading
@@ -167,6 +168,48 @@ class SharedFilesService:
             )
             return {"file": self._public_file_dict(item), "storage": self._storage_payload(files)}
 
+    def upload_shared_file_from_local_path(self, payload: dict | None = None) -> dict:
+        payload = payload or {}
+        actor_name, source = self._audit_identity(payload)
+        source_path = self._validated_source_path(payload.get("path"))
+        file_name = self._validated_file_name(payload.get("file_name") or source_path.name)
+        mime_type = _normalize_mime_type(payload.get("mime_type")) or (
+            mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+        )
+        x = _normalize_position(payload.get("x"))
+        y = _normalize_position(payload.get("y"))
+        source_size = source_path.stat().st_size
+        with self._locked_files(write=True) as files:
+            self._ensure_storage_capacity(files, source_size)
+            file_id = str(uuid4())
+            stored_name = self._unique_stored_name(file_id, PurePath(file_name).suffix)
+            file_path = self._storage_path(stored_name)
+            shutil.copyfile(source_path, file_path)
+            now = _utc_now_iso()
+            item = SharedFile(
+                id=file_id,
+                original_name=file_name,
+                stored_name=stored_name,
+                extension=_normalized_extension(PurePath(file_name).suffix),
+                size_bytes=source_size,
+                created_at=now,
+                updated_at=now,
+                x=x,
+                y=y,
+                mime_type=mime_type,
+            )
+            files.append(item)
+            self._write_index(files)
+            self._audit(
+                "shared_file_uploaded",
+                actor_name=actor_name,
+                source=source,
+                file_id=file_id,
+                file_name=file_name,
+                size_bytes=source_size,
+            )
+            return {"file": self._public_file_dict(item), "storage": self._storage_payload(files)}
+
     def rename_shared_file(self, payload: dict | None = None) -> dict:
         payload = payload or {}
         actor_name, source = self._audit_identity(payload)
@@ -327,6 +370,30 @@ class SharedFilesService:
                 details={"extension": blocked},
             )
         return file_name
+
+    def _validated_source_path(self, value: Any) -> Path:
+        raw_path = str(value or "").strip()
+        if not raw_path:
+            raise ServiceError(
+                "validation_error",
+                "Нужно передать путь к файлу.",
+                details={"field": "path"},
+            )
+        try:
+            file_path = Path(raw_path).expanduser().resolve(strict=True)
+        except (OSError, RuntimeError):
+            raise ServiceError(
+                "not_found",
+                "Файл из буфера обмена не найден на диске.",
+                status_code=HTTPStatus.NOT_FOUND,
+            ) from None
+        if not file_path.is_file():
+            raise ServiceError(
+                "validation_error",
+                "В буфере обмена должен быть файл, а не папка.",
+                details={"path_kind": "not_file"},
+            )
+        return file_path
 
     def _validated_content(self, value: Any) -> bytes:
         if value is None:

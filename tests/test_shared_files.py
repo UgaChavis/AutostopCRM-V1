@@ -125,6 +125,22 @@ class SharedFilesServiceTests(unittest.TestCase):
             self.service.paste_shared_file({"source_id": uploaded["file"]["id"]})
         self.assertEqual(copy_limit_error.exception.code, "storage_limit_exceeded")
 
+    def test_upload_shared_file_from_local_path_uses_existing_storage_rules(self) -> None:
+        source = self.base_dir / "Clipboard Invoice.pdf"
+        source.write_bytes(b"clipboard invoice body")
+
+        uploaded = self.service.upload_shared_file_from_local_path(
+            {"path": str(source), "x": 32, "y": 64, "actor_name": "tester", "source": "ui"}
+        )
+
+        file_meta = uploaded["file"]
+        self.assertEqual(file_meta["original_name"], "Clipboard Invoice.pdf")
+        self.assertEqual(file_meta["extension"], ".pdf")
+        self.assertEqual(file_meta["x"], 32)
+        self.assertEqual(file_meta["y"], 64)
+        stored_path, _ = self.service.get_shared_file_download(file_meta["id"])
+        self.assertEqual(stored_path.read_bytes(), b"clipboard invoice body")
+
     def test_index_persists_across_service_restart(self) -> None:
         uploaded = self.service.upload_shared_file(
             {"file_name": "persist.xlsx", "content_base64": b64(b"xlsx bytes")}
@@ -142,19 +158,20 @@ class SharedFilesServiceTests(unittest.TestCase):
 class SharedFilesApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        base_dir = Path(self.temp_dir.name)
+        self.base_dir = Path(self.temp_dir.name)
         self.logger = logging.getLogger(f"test.shared_files.api.{self._testMethodName}")
         self.logger.handlers.clear()
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
-        self.store = JsonStore(state_file=base_dir / "state.json", logger=self.logger)
+        self.store = JsonStore(state_file=self.base_dir / "state.json", logger=self.logger)
         self.card_service = CardService(self.store, self.logger)
         self.shared_files = SharedFilesService(
-            storage_dir=base_dir / "shared-files",
-            index_file=base_dir / "shared_files_index.json",
+            storage_dir=self.base_dir / "shared-files",
+            index_file=self.base_dir / "shared_files_index.json",
             logger=self.logger,
             storage_limit_bytes=256,
         )
+        self.clipboard_paths: list[Path] = []
         self.port = reserve_port()
         self.server = ApiServer(
             self.card_service,
@@ -163,6 +180,7 @@ class SharedFilesApiTests(unittest.TestCase):
             start_port=self.port,
             fallback_limit=1,
             bearer_token="secret-token",
+            clipboard_file_provider=lambda: list(self.clipboard_paths),
         )
         self.server.start()
         self.base_url = self.server.base_url
@@ -250,3 +268,19 @@ class SharedFilesApiTests(unittest.TestCase):
         status, deleted = self.request("/api/delete_shared_file", {"file_id": file_id})
         self.assertEqual(status, 200)
         self.assertTrue(deleted["data"]["deleted"])
+
+    def test_shared_files_api_pastes_files_from_system_clipboard_provider(self) -> None:
+        source = self.base_dir / "clipboard invoice.txt"
+        source.write_bytes(b"clipboard body")
+        self.clipboard_paths = [source]
+
+        status, pasted = self.request("/api/paste_shared_files_from_clipboard", {"x": 40, "y": 72})
+
+        self.assertEqual(status, 200)
+        files = pasted["data"]["files"]
+        self.assertEqual(len(files), 1)
+        self.assertEqual(files[0]["original_name"], "clipboard invoice.txt")
+        self.assertEqual(files[0]["x"], 40)
+        self.assertEqual(files[0]["y"], 72)
+        stored_path, _ = self.shared_files.get_shared_file_download(files[0]["id"])
+        self.assertEqual(stored_path.read_bytes(), b"clipboard body")

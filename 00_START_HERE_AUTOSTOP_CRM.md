@@ -97,13 +97,15 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - board columns can now be reordered left-to-right with native drag-and-drop
 - column drag capture now starts from the whole column, not only a narrow header area
 - shared Files v1.0 is implemented locally: server folder, metadata index, 500 MB limit, API, UI, and MCP tools
+- board topbar and cards were compacted for smaller monitors: rare module buttons moved left, button/card padding reduced, and the card signal row now shares space with tags
+- shared Files now supports right-click paste from copied Windows Explorer files through a local clipboard backend fallback, plus the existing browser paste and drag-and-drop paths
 
 ## Current Verification Baseline
 
 - last known full-suite baseline before this update cycle was green
 - latest targeted local regressions for `service + api + web_assets` are green
 - latest targeted `service + api + web_assets + MCP` runs are green
-- latest full local regression after the current bulk client import/search optimization pass: `471/471 OK`
+- latest full local regression after the current shared Files clipboard/topbar pass: `510/510 OK`
 - latest local/GitHub/production synced commit must be verified with `git rev-parse --short HEAD`
 - production site: `200 OK`
 - production MCP at last verification before the Files module: OK with `60` tools

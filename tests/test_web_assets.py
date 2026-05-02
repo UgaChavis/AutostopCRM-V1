@@ -56,9 +56,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('class="gear-button" id="boardSettingsButton"', BOARD_WEB_APP_HTML)
         self.assertIn('class="gear-button__logo" src="/favicon.png"', BOARD_WEB_APP_HTML)
         self.assertIn(".gear-button {", BOARD_WEB_APP_HTML)
-        self.assertIn("width: 48px;", BOARD_WEB_APP_HTML)
+        self.assertIn("width: 36px;", BOARD_WEB_APP_HTML)
         self.assertIn(".gear-button__logo {", BOARD_WEB_APP_HTML)
-        self.assertIn("width: 28px;", BOARD_WEB_APP_HTML)
+        self.assertIn("width: 22px;", BOARD_WEB_APP_HTML)
         self.assertIn('id="boardScaleInput"', BOARD_WEB_APP_HTML)
         self.assertIn('class="scale-track"', BOARD_WEB_APP_HTML)
         self.assertNotIn("addEventListener('wheel'", BOARD_WEB_APP_HTML)
@@ -84,6 +84,39 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("api('/api/paste_shared_file'", BOARD_WEB_APP_HTML)
         self.assertIn("api('/api/update_shared_file_position'", BOARD_WEB_APP_HTML)
 
+    def test_shared_files_desktop_supports_context_and_clipboard_paste(self) -> None:
+        self.assertIn('class="shared-files-context-menu"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="sharedFilesDesktop" tabindex="0"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-shared-files-menu-action="paste-clipboard"', BOARD_WEB_APP_HTML)
+        self.assertIn("ВСТАВИТЬ ФАЙЛ ИЗ БУФЕРА", BOARD_WEB_APP_HTML)
+        self.assertIn(".shared-files-desktop.is-drop-target", BOARD_WEB_APP_HTML)
+        self.assertIn("api('/api/paste_shared_files_from_clipboard'", BOARD_WEB_APP_HTML)
+        self.assertIn("function sharedFilesDropPointFromEvent(event)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "async function pasteSharedFilesFromLocalClipboard(dropPoint)", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("async function pasteSharedFilesFromSystemClipboard()", BOARD_WEB_APP_HTML)
+        self.assertIn("function filesFromSharedFilesPasteEvent(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleSharedFilesContextMenu(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleSharedFilesPaste(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleSharedFilesDrop(event)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.sharedFilesDesktop.addEventListener('contextmenu', handleSharedFilesContextMenu);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.sharedFilesDesktop.addEventListener('paste', handleSharedFilesPaste);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.sharedFilesDesktop.addEventListener('drop', handleSharedFilesDrop);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "uploadSharedFiles(files, { dropPoint: state.sharedFilesContextPoint",
+            BOARD_WEB_APP_HTML,
+        )
+
     def test_topbar_splits_rare_and_primary_actions(self) -> None:
         match = re.search(
             r'<div class="topbar__rare-actions"[^>]*>(?P<rare>.*?)</div>\s*</div>\s*'
@@ -108,6 +141,8 @@ class WebAssetsTests(unittest.TestCase):
             self.assertIn(f'id="{button_id}"', primary_html)
             self.assertNotIn(f'id="{button_id}"', rare_html)
         self.assertIn(".topbar__rare-actions {", BOARD_WEB_APP_HTML)
+        self.assertIn("min-height: 27px;", BOARD_WEB_APP_HTML)
+        self.assertIn("padding: 5px 8px;", BOARD_WEB_APP_HTML)
 
     def test_card_enrichment_button_uses_open_card_context(self) -> None:
         self.assertIn(
@@ -967,7 +1002,9 @@ class WebAssetsTests(unittest.TestCase):
     def test_card_preview_uses_readable_russian_meta_labels(self) -> None:
         self.assertIn("БЕЗ МЕТОК", BOARD_WEB_APP_HTML)
         self.assertIn("Описание не указано", BOARD_WEB_APP_HTML)
-        self.assertIn("СИГН", BOARD_WEB_APP_HTML)
+        self.assertNotIn("СИГН", BOARD_WEB_APP_HTML)
+        self.assertIn(".card__footer {", BOARD_WEB_APP_HTML)
+        self.assertIn('class="card__footer"', BOARD_WEB_APP_HTML)
         self.assertIn("ФАЙЛЫ ", BOARD_WEB_APP_HTML)
         self.assertIn("ЖУРНАЛ ", BOARD_WEB_APP_HTML)
 
@@ -2251,7 +2288,9 @@ class WebAssetsTests(unittest.TestCase):
     def test_card_preview_clean_russian_labels_override_broken_legacy_copy(self) -> None:
         self.assertIn("БЕЗ МЕТОК", BOARD_WEB_APP_HTML)
         self.assertIn("Описание не указано", BOARD_WEB_APP_HTML)
-        self.assertIn("СИГН", BOARD_WEB_APP_HTML)
+        self.assertNotIn("СИГН", BOARD_WEB_APP_HTML)
+        self.assertIn(".card__footer {", BOARD_WEB_APP_HTML)
+        self.assertIn('class="card__footer"', BOARD_WEB_APP_HTML)
         self.assertIn("ФАЙЛЫ ", BOARD_WEB_APP_HTML)
         self.assertIn("ЖУРНАЛ ", BOARD_WEB_APP_HTML)
         self.assertIn('title="Не прочитано"', BOARD_WEB_APP_HTML)
