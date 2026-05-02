@@ -90,8 +90,16 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('data-shared-files-menu-action="paste-clipboard"', BOARD_WEB_APP_HTML)
         self.assertIn("ВСТАВИТЬ ФАЙЛ ИЗ БУФЕРА", BOARD_WEB_APP_HTML)
         self.assertIn(".shared-files-desktop.is-drop-target", BOARD_WEB_APP_HTML)
+        self.assertIn(".shared-file-icon {", BOARD_WEB_APP_HTML)
+        self.assertIn("cursor: grab;", BOARD_WEB_APP_HTML)
+        self.assertIn(".shared-file-icon.is-dragging {", BOARD_WEB_APP_HTML)
         self.assertIn("api('/api/paste_shared_files_from_clipboard'", BOARD_WEB_APP_HTML)
         self.assertIn("function sharedFilesDropPointFromEvent(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("function sharedFilesGridSlotFromPoint(x, y)", BOARD_WEB_APP_HTML)
+        self.assertIn("function sharedFilesGridPointFromSlot(slot)", BOARD_WEB_APP_HTML)
+        self.assertIn("function sharedFilesSnapPointToGrid(x, y)", BOARD_WEB_APP_HTML)
+        self.assertIn("function sharedFilesLayout(files)", BOARD_WEB_APP_HTML)
+        self.assertIn("const laidOutFiles = sharedFilesLayout(files);", BOARD_WEB_APP_HTML)
         self.assertIn(
             "async function pasteSharedFilesFromLocalClipboard(dropPoint)", BOARD_WEB_APP_HTML
         )
@@ -116,6 +124,8 @@ class WebAssetsTests(unittest.TestCase):
             "uploadSharedFiles(files, { dropPoint: state.sharedFilesContextPoint",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn("sharedFilesGridPointFromSlot(baseIndex + index)", BOARD_WEB_APP_HTML)
+        self.assertIn("sharedFilesSnapPointToGrid(nextX, nextY)", BOARD_WEB_APP_HTML)
 
     def test_topbar_splits_rare_and_primary_actions(self) -> None:
         match = re.search(

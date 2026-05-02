@@ -6253,9 +6253,13 @@ BOARD_WEB_APP_HTML = "".join(
       align-content: start;
       gap: 7px;
       padding: 8px 6px;
-      cursor: default;
+      cursor: grab;
       user-select: none;
       touch-action: none;
+    }
+    .shared-file-icon:active,
+    .shared-file-icon.is-dragging {
+      cursor: grabbing;
     }
     .shared-file-icon:hover,
     .shared-file-icon.is-active {
@@ -18935,12 +18939,13 @@ function renderCompactArchiveRows(cards) {
     function renderSharedFiles() {
       const files = Array.isArray(state.sharedFiles) ? state.sharedFiles : [];
       if (!els.sharedFilesDesktop) return;
+      const laidOutFiles = sharedFilesLayout(files);
       if (!files.length) {
         els.sharedFilesDesktop.innerHTML = '<div class="shared-files-empty">ФАЙЛОВ ПОКА НЕТ.</div>';
       } else {
-        els.sharedFilesDesktop.innerHTML = files.map((file, index) => {
-          const x = Math.max(0, Number(file.x ?? (24 + (index % 6) * 116)) || 0);
-          const y = Math.max(0, Number(file.y ?? (24 + Math.floor(index / 6) * 126)) || 0);
+        els.sharedFilesDesktop.innerHTML = laidOutFiles.map((file) => {
+          const x = Math.max(0, Number(file.x ?? 0) || 0);
+          const y = Math.max(0, Number(file.y ?? 0) || 0);
           const activeClass = file.id === state.sharedFilesActiveId ? ' is-active' : '';
           const name = String(file.original_name || 'Файл');
           return '<button class="shared-file-icon' + activeClass + '" type="button" data-shared-file-id="' + escapeHtml(file.id) + '" style="left:' + x + 'px; top:' + y + 'px" title="' + escapeHtml(name) + '">'
@@ -19003,15 +19008,44 @@ function renderCompactArchiveRows(cards) {
     function sharedFilesUploadPoint(index, baseIndex, dropPoint) {
       const point = normalizeSharedFilesDropPoint(dropPoint);
       if (!point) {
-        return {
-          x: 24 + ((baseIndex + index) % 7) * 116,
-          y: 24 + Math.floor((baseIndex + index) / 7) * 126,
-        };
+        return sharedFilesGridPointFromSlot(baseIndex + index);
       }
+      return sharedFilesGridPointFromSlot(sharedFilesGridSlotFromPoint(point.x, point.y) + index);
+    }
+
+    function sharedFilesGridSlotFromPoint(x, y) {
+      const col = Math.max(0, Math.round((Number(x) - 24) / 116));
+      const row = Math.max(0, Math.round((Number(y) - 24) / 126));
+      return row * 7 + col;
+    }
+
+    function sharedFilesGridPointFromSlot(slot) {
+      const index = Math.max(0, Math.floor(Number(slot) || 0));
       return {
-        x: point.x + (index % 7) * 116,
-        y: point.y + Math.floor(index / 7) * 126,
+        x: 24 + (index % 7) * 116,
+        y: 24 + Math.floor(index / 7) * 126,
       };
+    }
+
+    function sharedFilesSnapPointToGrid(x, y) {
+      return sharedFilesGridPointFromSlot(sharedFilesGridSlotFromPoint(x, y));
+    }
+
+    function sharedFilesLayout(files) {
+      const occupied = new Set();
+      return files.map((file, index) => {
+        const hasStoredPosition = Number.isFinite(Number(file?.x)) && Number.isFinite(Number(file?.y));
+        let slot = hasStoredPosition ? sharedFilesGridSlotFromPoint(file.x, file.y) : index;
+        while (occupied.has(slot)) slot += 1;
+        occupied.add(slot);
+        const point = sharedFilesGridPointFromSlot(slot);
+        return {
+          ...file,
+          x: point.x,
+          y: point.y,
+          shared_files_layout_slot: slot,
+        };
+      });
     }
 
     function sharedFilesClipboardFileName(mimeType, index = 0) {
@@ -19311,12 +19345,23 @@ function renderCompactArchiveRows(cards) {
       if (!state.sharedFilesClipboardId) return;
       const source = sharedFileById(state.sharedFilesClipboardId);
       const point = normalizeSharedFilesDropPoint(dropPoint);
-      const x = point ? point.x : Math.max(24, Number(source?.x || 24) + 32);
-      const y = point ? point.y : Math.max(24, Number(source?.y || 24) + 32);
+      const basePoint = point
+        ? point
+        : {
+            x: Math.max(24, Number(source?.x || 24) + 32),
+            y: Math.max(24, Number(source?.y || 24) + 32),
+          };
+      const snappedPoint = sharedFilesSnapPointToGrid(basePoint.x, basePoint.y);
       try {
         const data = await api('/api/paste_shared_file', {
           method: 'POST',
-          body: { source_id: state.sharedFilesClipboardId, x, y, actor_name: state.actor, source: 'ui' },
+          body: {
+            source_id: state.sharedFilesClipboardId,
+            x: snappedPoint.x,
+            y: snappedPoint.y,
+            actor_name: state.actor,
+            source: 'ui',
+          },
         });
         if (data?.file?.id) state.sharedFilesActiveId = data.file.id;
         await loadSharedFiles();
@@ -19358,6 +19403,7 @@ function renderCompactArchiveRows(cards) {
         offsetY: event.clientY - iconRect.top,
         moved: false,
       };
+      icon.classList.add('is-dragging');
       icon.setPointerCapture?.(event.pointerId);
       event.preventDefault();
       void desktopRect;
@@ -19369,12 +19415,19 @@ function renderCompactArchiveRows(cards) {
       const icon = els.sharedFilesDesktop?.querySelector('[data-shared-file-id="' + CSS.escape(drag.fileId) + '"]');
       if (!(icon instanceof HTMLElement)) return;
       const desktopRect = els.sharedFilesDesktop.getBoundingClientRect();
-      const nextX = Math.max(0, Math.round(event.clientX - desktopRect.left + els.sharedFilesDesktop.scrollLeft - drag.offsetX));
-      const nextY = Math.max(0, Math.round(event.clientY - desktopRect.top + els.sharedFilesDesktop.scrollTop - drag.offsetY));
-      icon.style.left = nextX + 'px';
-      icon.style.top = nextY + 'px';
-      icon.dataset.dragX = String(nextX);
-      icon.dataset.dragY = String(nextY);
+      const nextX = Math.max(
+        0,
+        Math.round(event.clientX - desktopRect.left + els.sharedFilesDesktop.scrollLeft - drag.offsetX),
+      );
+      const nextY = Math.max(
+        0,
+        Math.round(event.clientY - desktopRect.top + els.sharedFilesDesktop.scrollTop - drag.offsetY),
+      );
+      const snappedPoint = sharedFilesSnapPointToGrid(nextX, nextY);
+      icon.style.left = snappedPoint.x + 'px';
+      icon.style.top = snappedPoint.y + 'px';
+      icon.dataset.dragX = String(snappedPoint.x);
+      icon.dataset.dragY = String(snappedPoint.y);
       drag.moved = true;
       event.preventDefault();
     }
@@ -19384,6 +19437,7 @@ function renderCompactArchiveRows(cards) {
       if (!drag || drag.pointerId !== event.pointerId) return;
       state.sharedFilesDrag = null;
       const icon = els.sharedFilesDesktop?.querySelector('[data-shared-file-id="' + CSS.escape(drag.fileId) + '"]');
+      if (icon instanceof HTMLElement) icon.classList.remove('is-dragging');
       if (!(icon instanceof HTMLElement) || !drag.moved) return;
       const x = Number(icon.dataset.dragX || 0) || 0;
       const y = Number(icon.dataset.dragY || 0) || 0;
