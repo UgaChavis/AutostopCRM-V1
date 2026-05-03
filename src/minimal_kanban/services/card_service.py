@@ -46,6 +46,7 @@ from ..models import (
     ClientVehicle,
     Column,
     StickyNote,
+    business_timezone,
     format_money_minor,
     normalize_actor_name,
     normalize_bool,
@@ -56,6 +57,7 @@ from ..models import (
     normalize_tag_label,
     normalize_tags,
     normalize_text,
+    parse_business_datetime,
     parse_datetime,
     short_entity_id,
     utc_now,
@@ -1319,10 +1321,16 @@ class CardService:
             cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
             transactions = self._cashbox_transactions(bundle["cash_transactions"], cashbox.id)
+            repair_order_transaction_context = self._repair_order_transaction_context(
+                bundle["cards"]
+            )
             return {
                 "cashbox": self._serialize_cashbox(cashbox, bundle["cash_transactions"]),
                 "transactions": [
-                    self._serialize_cash_transaction(item)
+                    self._serialize_cash_transaction(
+                        item,
+                        repair_order_context=repair_order_transaction_context.get(item.id),
+                    )
                     for item in transactions[:transaction_limit]
                 ],
                 "meta": {
@@ -4031,6 +4039,7 @@ class CardService:
                 )
                 return {
                     "file_name": file_name,
+                    "mime_type": "application/pdf",
                     "content_base64": base64.b64encode(pdf_bytes).decode("ascii"),
                     "size_bytes": len(pdf_bytes),
                     "meta": meta,
@@ -6454,8 +6463,46 @@ class CardService:
     def _serialize_sticky(self, sticky: StickyNote) -> dict:
         return sticky.to_dict()
 
-    def _serialize_cash_transaction(self, transaction: CashTransaction) -> dict[str, object]:
-        return transaction.to_dict()
+    def _serialize_cash_transaction(
+        self,
+        transaction: CashTransaction,
+        *,
+        repair_order_context: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        serialized = transaction.to_dict()
+        source_label = (
+            "заказ-наряд"
+            if repair_order_context
+            else self._cash_transaction_source_label(transaction)
+        )
+        serialized["source_label"] = source_label
+        serialized["direction_label"] = (
+            "Поступление" if transaction.direction == "income" else "Списание"
+        )
+        if repair_order_context:
+            serialized.update(repair_order_context)
+        return serialized
+
+    def _repair_order_transaction_context(self, cards: list[Card]) -> dict[str, dict[str, object]]:
+        contexts: dict[str, dict[str, object]] = {}
+        for card in cards:
+            order = card.repair_order
+            for payment in order.payments:
+                transaction_id = normalize_text(
+                    payment.cash_transaction_id,
+                    default="",
+                    limit=128,
+                )
+                if not transaction_id:
+                    continue
+                contexts[transaction_id] = {
+                    "source_label": "заказ-наряд",
+                    "repair_order_number": order.number,
+                    "repair_order_card_id": card.id,
+                    "repair_order_vehicle": order.vehicle or card.vehicle,
+                    "repair_order_payment_id": payment.id,
+                }
+        return contexts
 
     def _cash_transaction_sortable_datetime(self, value: str | None) -> datetime:
         parsed = parse_datetime(value)
@@ -6538,6 +6585,8 @@ class CardService:
 
     def _cash_transaction_kind_label(self, transaction_kind: str) -> str:
         normalized = normalize_text(transaction_kind, default="", limit=32).casefold()
+        if normalized == "repair_order_payment":
+            return "заказ-наряд"
         if normalized == "salary_payout":
             return "зарплата"
         if normalized == "salary_advance":
@@ -8679,9 +8728,10 @@ class CardService:
                 note=self._validated_cash_transaction_note(
                     payment.note or f"Заказ-наряд №{next_order.number or '-'}"
                 ),
-                created_at=payment.paid_at or utc_now_iso(),
+                created_at=self._repair_order_payment_transaction_created_at(payment.paid_at),
                 actor_name=payment.actor_name or actor_name,
                 source=source,
+                transaction_kind="repair_order_payment",
             )
             cash_transactions.append(transaction)
             cash_transactions.sort(
@@ -10133,11 +10183,18 @@ class CardService:
             return "Готов"
         return "Открыт"
 
+    def _parse_repair_order_business_datetime(self, value: str | None) -> datetime | None:
+        return parse_business_datetime(value)
+
+    def _repair_order_payment_transaction_created_at(self, value: str | None) -> str:
+        parsed = self._parse_repair_order_business_datetime(value)
+        return (parsed or utc_now()).isoformat()
+
     def _repair_order_card_datetime(self, value: str | None) -> str:
         parsed = parse_datetime(value)
         if parsed is None:
             return ""
-        return parsed.astimezone().strftime("%d.%m.%Y %H:%M")
+        return parsed.astimezone(business_timezone()).strftime("%d.%m.%Y %H:%M")
 
     def _repair_order_sort_key(self, card: Card) -> tuple[str, int]:
         raw_number = str(card.repair_order.number or "").strip()
@@ -10145,9 +10202,9 @@ class CardService:
         return str(card.created_at or ""), numeric_number
 
     def _repair_order_sortable_datetime(self, value: str | None) -> str:
-        parsed = parse_datetime(value)
+        parsed = self._parse_repair_order_business_datetime(value)
         if parsed is not None:
-            return parsed.astimezone().strftime("%Y%m%d%H%M%S")
+            return parsed.astimezone(business_timezone()).strftime("%Y%m%d%H%M%S")
         raw_value = normalize_text(value, default="", limit=32)
         if not raw_value:
             return ""
@@ -10157,18 +10214,10 @@ class CardService:
             return raw_value
 
     def _parse_repair_order_datetime(self, value: str | None) -> datetime | None:
-        parsed = parse_datetime(value)
+        parsed = self._parse_repair_order_business_datetime(value)
         if parsed is not None:
             return parsed.astimezone(UTC)
-        raw_value = normalize_text(value, default="", limit=32)
-        if not raw_value:
-            return None
-        try:
-            local_dt = datetime.strptime(raw_value, "%d.%m.%Y %H:%M")
-        except ValueError:
-            return None
-        local_tz = datetime.now().astimezone().tzinfo or UTC
-        return local_dt.replace(tzinfo=local_tz).astimezone(UTC)
+        return None
 
     def _repair_order_opened_sort_value(self, card: Card) -> str:
         order = card.repair_order

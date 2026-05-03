@@ -2235,6 +2235,53 @@ def create_mcp_server(
         )
 
     @server.tool(
+        name="download_repair_order_print_pdf",
+        description=_scoped_description(
+            "Export one repair order, invoice, invoice-factura, completion act, acceptance act, parts sale document, or inspection sheet as the same CRM-generated PDF that operators download from the print window. Returns application/pdf base64 for attaching to emails or messages."
+        ),
+        annotations=_read_tool_annotations("Download Repair Order PDF"),
+        structured_output=True,
+    )
+    def download_repair_order_print_pdf(
+        card_id: str,
+        selected_document_ids: list[
+            Literal[
+                "repair_order",
+                "vehicle_acceptance_act",
+                "invoice",
+                "invoice_factura",
+                "inspection_sheet",
+                "completion_act",
+                "parts_sale",
+            ]
+        ]
+        | None = None,
+        selected_template_ids: dict[str, str] | None = None,
+        print_settings: dict[str, Any] | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "download_repair_order_print_pdf",
+            lambda: board_api.download_repair_order_print_pdf(
+                card_id=card_id,
+                selected_document_ids=selected_document_ids,
+                selected_template_ids=selected_template_ids,
+                print_settings=print_settings,
+            ),
+            params={
+                "card_id": card_id,
+                "selected_document_ids": selected_document_ids,
+                "selected_template_ids": selected_template_ids,
+                "print_settings": print_settings,
+            },
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="repair_order_pdf_download",
+                view_mode="base64_pdf",
+                mime_type="application/pdf",
+            ),
+        )
+
+    @server.tool(
         name="list_archived_cards",
         description=_scoped_description(
             "List archived cards from the current Minimal Kanban board."

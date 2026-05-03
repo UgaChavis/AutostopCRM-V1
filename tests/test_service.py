@@ -4139,6 +4139,53 @@ class CardServiceTests(unittest.TestCase):
             second_details["transactions"][0]["created_at"].startswith("2026-04-07T11:15:00")
         )
 
+    def test_repair_order_payment_transaction_stores_business_timezone_iso(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        card = self.service.create_card(
+            {"vehicle": "TOYOTA CAMRY", "title": "Предоплата", "deadline": {"hours": 2}}
+        )["card"]
+
+        self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "works": [{"name": "Работы", "quantity": "1", "price": "6000"}],
+                    "payments": [
+                        {
+                            "amount": "500",
+                            "paid_at": "03.05.2026 21:26",
+                            "note": "Предоплата",
+                            "payment_method": "cash",
+                            "cashbox_id": cashbox["id"],
+                            "actor_name": "ADMIN",
+                        }
+                    ],
+                },
+            }
+        )
+
+        stored_state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        stored_transaction = stored_state["cash_transactions"][0]
+        self.assertEqual(stored_transaction["created_at"], "2026-05-03T21:26:00+07:00")
+        self.assertEqual(stored_transaction["transaction_kind"], "repair_order_payment")
+
+        details = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 5})
+        self.assertEqual(details["transactions"][0]["created_at"], "2026-05-03T21:26:00+07:00")
+        self.assertEqual(details["transactions"][0]["source_label"], "заказ-наряд")
+
+        stored_state["cash_transactions"][0]["transaction_kind"] = ""
+        self.state_file.write_text(
+            json.dumps(stored_state, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        reloaded = CardService(
+            JsonStore(state_file=self.state_file, logger=self.logger), self.logger
+        )
+        legacy_details = reloaded.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 5})
+        self.assertEqual(legacy_details["transactions"][0]["source_label"], "заказ-наряд")
+
     def test_repair_order_payment_summary_handles_cash_cashless_and_mixed_payments(self) -> None:
         cashless_cashbox = self.service.create_cashbox(
             {"name": "Безналичный", "actor_name": "ADMIN"}

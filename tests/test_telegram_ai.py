@@ -304,9 +304,7 @@ class TelegramAIOrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             config = build_config(temp_dir, owner_ids=frozenset({1001}))
             model = FakeModelClient()
-            model.internet_search_responses = [
-                "Нашёл в интернете: официальный сайт toyota.ru"
-            ]
+            model.internet_search_responses = ["Нашёл в интернете: официальный сайт toyota.ru"]
             orchestrator = TelegramAIOrchestrator(
                 auth=TelegramAuthService(config),
                 model_client=model,
@@ -1048,7 +1046,9 @@ class TelegramAITranscriptionTests(unittest.TestCase):
             seen_posts: list[dict[str, object]] = []
 
             class FakeResponse:
-                def __init__(self, *, status_code: int = 200, payload: dict[str, object] | None = None):
+                def __init__(
+                    self, *, status_code: int = 200, payload: dict[str, object] | None = None
+                ):
                     self.status_code = status_code
                     self._payload = payload or {"text": "Создай карточку"}
                     self.headers = {"retry-after": "0"}
@@ -1176,7 +1176,9 @@ class TelegramAIResponsesPayloadTests(unittest.TestCase):
                     return httpx.Response(200, request=request, json={"output_text": "ok"})
 
             with patch("minimal_kanban.telegram_ai.openai_client.httpx.Client", FakeClient):
-                payload = client._post_with_retry("/responses", {"model": "gpt-5.4-mini"}, max_attempts=2)
+                payload = client._post_with_retry(
+                    "/responses", {"model": "gpt-5.4-mini"}, max_attempts=2
+                )
 
             self.assertEqual(payload["output_text"], "ok")
             self.assertEqual(attempts["count"], 2)
@@ -1968,6 +1970,50 @@ class TelegramAICRMToolTests(unittest.TestCase):
         ):
             result = registry.execute({"tool": tool, "arguments": {}}, role="owner")
             self.assertIn("result", result)
+
+    def test_registry_exports_repair_order_pdf_as_read_tool(self) -> None:
+        class _FakeBoardApi:
+            def __init__(self) -> None:
+                self.payload: dict[str, object] | None = None
+
+            def download_repair_order_print_pdf(self, **kwargs) -> dict[str, object]:
+                self.payload = kwargs
+                return {
+                    "ok": True,
+                    "data": {
+                        "file_name": "invoice-card-1.pdf",
+                        "mime_type": "application/pdf",
+                        "content_base64": "JVBERi0xLjQ=",
+                        "size_bytes": 8,
+                        "meta": {"documents": [{"id": "invoice"}]},
+                    },
+                }
+
+        fake_api = _FakeBoardApi()
+        registry = CRMToolRegistry(fake_api, actor_name="TEST_TELEGRAM_AI")
+
+        self.assertIn(
+            "download_repair_order_print_pdf",
+            {definition.name for definition in registry.definitions},
+        )
+        result = registry.execute(
+            {
+                "tool": "download_repair_order_print_pdf",
+                "arguments": {"card_id": "card-1", "selected_document_ids": ["invoice"]},
+            },
+            role="viewer",
+        )
+
+        self.assertEqual(result["result"]["data"]["mime_type"], "application/pdf")
+        self.assertEqual(
+            fake_api.payload,
+            {
+                "card_id": "card-1",
+                "selected_document_ids": ["invoice"],
+                "selected_template_ids": None,
+                "print_settings": None,
+            },
+        )
 
     def test_registry_rejects_unknown_and_non_owner_write(self) -> None:
         registry = CRMToolRegistry(self.client, actor_name="TEST_TELEGRAM_AI")

@@ -73,6 +73,12 @@ def _tool_result_detail(item: dict[str, Any]) -> str:
         if text and heading:
             return f"  Заказ-наряд: {heading}\n{text}"
         return text
+    if tool_name == "download_repair_order_print_pdf":
+        file_name = str(data.get("file_name") or "").strip()
+        size_bytes = data.get("size_bytes")
+        if file_name and isinstance(size_bytes, int):
+            return f"  PDF: {file_name}, {size_bytes} байт"
+        return f"  PDF: {file_name}" if file_name else ""
     if tool_name in {
         "get_cards",
         "search_cards",
@@ -86,9 +92,7 @@ def _tool_result_detail(item: dict[str, Any]) -> str:
     if tool_name in {"get_board_content", "get_gpt_wall"}:
         return _truncate(str(data.get("text") or data.get("content") or "").strip(), limit=1800)
     if tool_name == "internet_search":
-        answer = str(
-            data.get("answer") or data.get("text") or data.get("content") or ""
-        ).strip()
+        answer = str(data.get("answer") or data.get("text") or data.get("content") or "").strip()
         return _clean_internet_search_answer(_truncate(answer, limit=1800))
     if tool_name == "analyze_card_image_attachment":
         facts = data.get("image_facts") if isinstance(data.get("image_facts"), dict) else {}

@@ -29,7 +29,7 @@ This is a historical checkpoint, not the current release pin:
   - public site `https://crm.autostopcrm.ru`: `200 OK`
   - local API: OK
   - public anonymous writes: blocked with `401`
-  - MCP: OK, `60` tools
+  - MCP: OK, tool count is verified by smoke checks and can change when CRM modules add tools
   - Docker services: `autostopcrm` healthy, `autostopcrm-telegram-ai` running
 - live Telegram AI web-search smoke passed inside the production container:
   - query: `Найди в интернете артикул воздушного фильтра для Toyota Land Cruiser Prado J150 2010 дизель 3.0`
@@ -258,6 +258,7 @@ Read tools:
 - `list_repair_orders`
 - `get_repair_order`
 - `get_repair_order_text`
+- `download_repair_order_print_pdf`
 - `list_cashboxes`
 - `get_cashbox`
 

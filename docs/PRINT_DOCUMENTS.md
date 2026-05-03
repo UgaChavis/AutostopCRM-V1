@@ -58,6 +58,25 @@
 Для дефектовочной ведомости доступна кнопка `ЗАПОЛНИТЬ ВЕДОМОСТЬ`.
 Для изменения шаблонов используется кнопка `ШАБЛОНЫ`.
 
+## PDF для агента и MCP
+
+Агенты не должны собирать счета и заказ-наряды своим отдельным PDF-генератором. Для отправки клиенту используется общий CRM-экспорт:
+
+- API: `POST /api/export_repair_order_print_pdf`
+- MCP: `download_repair_order_print_pdf`
+- Agent/Telegram tool: `download_repair_order_print_pdf`
+
+Минимальный payload:
+
+```json
+{
+  "card_id": "CARD_ID",
+  "selected_document_ids": ["invoice"]
+}
+```
+
+Ответ содержит `mime_type="application/pdf"` и `content_base64`; эти байты можно прикладывать к письму или сообщению. Поддерживаются все встроенные документы: `repair_order`, `vehicle_acceptance_act`, `invoice`, `invoice_factura`, `inspection_sheet`, `completion_act`, `parts_sale`.
+
 ## Проверка документов
 
 - Акт приема: проверить клиента, автомобиль, VIN/госномер, причину обращения, фотофиксацию и юридический блок.

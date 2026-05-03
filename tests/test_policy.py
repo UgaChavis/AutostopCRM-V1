@@ -217,6 +217,47 @@ class ToolPolicyEngineTests(unittest.TestCase):
         payload = executor.execute("DECODE_VIN", {"vin": "WBAPF71060A798127"})
         self.assertEqual(payload["vin"], "WBAPF71060A798127")
 
+    def test_agent_tool_executor_exports_repair_order_pdf(self) -> None:
+        class _FakeBoardApi:
+            def __init__(self) -> None:
+                self.payload: dict[str, object] | None = None
+
+            def download_repair_order_print_pdf(self, **kwargs) -> dict[str, object]:
+                self.payload = kwargs
+                return {
+                    "ok": True,
+                    "data": {
+                        "file_name": "repair-order-card-1.pdf",
+                        "mime_type": "application/pdf",
+                        "content_base64": "JVBERi0xLjQ=",
+                        "size_bytes": 8,
+                        "meta": {"documents": [{"id": "invoice"}]},
+                    },
+                }
+
+        fake_api = _FakeBoardApi()
+        executor = AgentToolExecutor(fake_api)
+
+        self.assertIn(
+            "download_repair_order_print_pdf",
+            {definition.name for definition in executor.definitions},
+        )
+        result = executor.execute(
+            "download_repair_order_print_pdf",
+            {"card_id": "card-1", "selected_document_ids": ["invoice"]},
+        )
+
+        self.assertEqual(result["data"]["mime_type"], "application/pdf")
+        self.assertEqual(
+            fake_api.payload,
+            {
+                "card_id": "card-1",
+                "selected_document_ids": ["invoice"],
+                "selected_template_ids": None,
+                "print_settings": None,
+            },
+        )
+
     def test_full_card_enrichment_prompt_exposes_only_completion_tools(self) -> None:
         class _FakeBoardApi:
             def health(self) -> dict[str, object]:

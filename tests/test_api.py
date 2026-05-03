@@ -2382,6 +2382,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertTrue(
             base64.b64decode(exported["data"]["content_base64"]).startswith(b"%PDF-1.4")
         )
+        self.assertEqual(exported["data"]["mime_type"], "application/pdf")
         self.assertEqual(exported["data"]["meta"]["documents"][0]["id"], "repair_order")
 
         with patch("minimal_kanban.printing.service.print_html") as print_backend:
@@ -2704,6 +2705,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         content = base64.b64decode(exported["data"]["content_base64"])
         self.assertTrue(content.startswith(b"%PDF"))
+        self.assertEqual(exported["data"]["mime_type"], "application/pdf")
         self.assertEqual(exported["data"]["meta"]["documents"][0]["id"], "repair_order")
 
     def test_save_print_module_settings_route_persists_workspace_settings(self) -> None:

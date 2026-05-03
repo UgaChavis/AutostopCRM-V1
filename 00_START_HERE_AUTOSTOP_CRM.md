@@ -104,6 +104,8 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - hidden AI-managed card board summaries are available through API/MCP/Telegram and are shown on board cards before raw description text
 - stale legacy AI dock/chat DOM lookups and unused CSS were pruned from the board HTML; the active card AI indicator path remains unchanged
 - generated inline browser JavaScript is now checked with `scripts/check_web_assets_js.py` and through `scripts/run_checks.ps1`
+- MCP/server-agent/Telegram AI can download CRM-generated repair-order and invoice PDFs with `download_repair_order_print_pdf`; the command reuses the print module and returns `application/pdf` base64
+- cashbox movements created from repair-order payments now keep business-local timestamps and show source labels for order payments versus manual movements
 
 ## Current Verification Baseline
 

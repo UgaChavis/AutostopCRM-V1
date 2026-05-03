@@ -142,7 +142,7 @@ The MCP server exposes the current AutoStop CRM board and services as tools over
 - bootstrap and runtime diagnostics
 - board review and GPT wall
 - cashbox access
-- repair-order access and updates
+- repair-order access, updates, and CRM-generated PDF export for invoices/acts/order documents
 - client directory search, profile, vehicle, requisites, client-vehicle upsert and card-link tools
 - shared file list/info/upload/download/delete tools
 - agent-only card board summary updates through `set_card_board_summary`

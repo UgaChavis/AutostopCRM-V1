@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import uuid
 from collections.abc import Collection
@@ -10,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePath
 from typing import Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .repair_order import RepairOrder
 from .vehicle_profile import VehicleProfile, build_vehicle_display, normalize_license_plate
@@ -68,6 +70,7 @@ AUDIT_EVENT_RETENTION_LIMIT = 5000
 REPAIR_ORDER_FILE_RETENTION_LIMIT = 300
 MAX_ATTACHMENT_SIZE_BYTES = 15 * 1024 * 1024
 CARD_AI_AUTOFILL_LOG_LIMIT = 24
+DEFAULT_BUSINESS_TIMEZONE = "Asia/Krasnoyarsk"
 _COLUMN_ID_PATTERN = re.compile(r"[^a-z0-9_]+")
 _SPACES_PATTERN = re.compile(r"\s+")
 _CARD_COMPACT_VIN_LABEL_PATTERN = re.compile(r"(?i)\bVIN\s*[:=]?\s*[A-Z0-9-]{6,24}\b")
@@ -84,6 +87,39 @@ def utc_now() -> datetime:
 
 def utc_now_iso() -> str:
     return utc_now().isoformat()
+
+
+def business_timezone():
+    timezone_name = (
+        os.environ.get("AUTOSTOPCRM_BUSINESS_TIMEZONE")
+        or os.environ.get("AUTOSTOPCRM_TIMEZONE")
+        or DEFAULT_BUSINESS_TIMEZONE
+    )
+    try:
+        return ZoneInfo(timezone_name)
+    except (ValueError, ZoneInfoNotFoundError):
+        return datetime.now().astimezone().tzinfo or UTC
+
+
+def parse_business_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    business_tz = business_timezone()
+    for date_format in ("%d.%m.%Y %H:%M", "%d.%m.%y %H:%M", "%d.%m.%Y", "%d.%m.%y"):
+        try:
+            return datetime.strptime(raw, date_format).replace(tzinfo=business_tz)
+        except ValueError:
+            continue
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return parse_datetime(raw)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=business_tz)
+    return parsed
 
 
 def parse_datetime(value: str | None) -> datetime | None:
@@ -964,7 +1000,7 @@ class CashTransaction:
     def from_dict(cls, payload: dict) -> CashTransaction:
         if not isinstance(payload, dict):
             raise TypeError("Cash transaction payload must be a dictionary.")
-        created_at = parse_datetime(payload.get("created_at")) or utc_now()
+        created_at = parse_business_datetime(payload.get("created_at")) or utc_now()
         cashbox_id = normalize_text(payload.get("cashbox_id"), default="", limit=128)
         if not cashbox_id:
             raise ValueError("Cash transaction cashbox_id is required.")

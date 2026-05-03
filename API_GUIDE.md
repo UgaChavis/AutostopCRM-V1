@@ -647,6 +647,51 @@ Authorization: Bearer ваш_секрет
 }
 ```
 
+## Печатные PDF для заказ-нарядов и счетов
+
+### `POST /api/export_repair_order_print_pdf`
+
+Назначение: сгенерировать CRM-штатный PDF из окна печати заказ-наряда. Endpoint используется UI, MCP и агентами, чтобы не создавать отдельные PDF вне CRM.
+
+Запрос:
+
+```json
+{
+  "card_id": "CARD_ID",
+  "selected_document_ids": ["invoice"],
+  "selected_template_ids": {
+    "invoice": "custom:invoice:..."
+  },
+  "print_settings": {
+    "paper_size": "A4",
+    "orientation": "portrait"
+  }
+}
+```
+
+Минимально нужен только `card_id`; если `selected_document_ids` не передан, печатный модуль использует свой дефолтный набор. Поддерживаемые документы: `repair_order`, `vehicle_acceptance_act`, `invoice`, `invoice_factura`, `inspection_sheet`, `completion_act`, `parts_sale`.
+
+Ответ:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "file_name": "invoice-card.pdf",
+    "mime_type": "application/pdf",
+    "content_base64": "JVBERi0xLjQK...",
+    "size_bytes": 12345,
+    "meta": {
+      "documents": [
+        {"id": "invoice", "label": "Счет на оплату"}
+      ],
+      "paper_size": "A4",
+      "orientation": "portrait"
+    }
+  }
+}
+```
+
 ## Модуль «Файлы»
 
 Назначение: общая серверная папка автосервиса для счетов, PDF, Word/Excel, изображений и похожих рабочих файлов.

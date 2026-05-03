@@ -18064,6 +18064,12 @@ function renderCompactArchiveRows(cards) {
     }
 
     function cashboxTransactionSourceLabel(item) {
+      const payloadLabel = String(item?.source_label ?? item?.sourceLabel ?? '').trim();
+      if (payloadLabel) return payloadLabel;
+      const transactionKind = String(item?.transaction_kind ?? item?.transactionKind ?? '').trim().toLowerCase();
+      if (transactionKind === 'repair_order_payment') return 'заказ-наряд';
+      if (transactionKind === 'salary_payout') return 'зарплата';
+      if (transactionKind === 'salary_advance') return 'аванс';
       const note = String(item?.note || '').trim();
       if (/^перемещение\b/i.test(note)) return 'перемещение';
       if (/заказ-наряд\\s*№/i.test(note)) return 'заказ-наряд';
@@ -18169,10 +18175,11 @@ function renderCompactArchiveRows(cards) {
         const note = String(item?.note || '').trim() || 'Без комментария';
         const actor = String(item?.actor_name || '').trim() || '—';
         const sourceLabel = cashboxTransactionSourceLabel(item);
+        const contextLabel = 'Источник: ' + sourceLabel;
         const absoluteAmount = cashboxFormatMinorAmount(item?.amount_minor || 0).replace(/^-/, '');
         return '<div class="cashbox-transaction">'
           + '<div class="cashbox-transaction__badge" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(direction === 'expense' ? 'списание' : 'поступление') + '</div>'
-          + '<div class="cashbox-transaction__body"><div class="cashbox-transaction__summary"><div class="cashbox-transaction__note">' + escapeHtml(note) + '</div><div class="cashbox-transaction__context">' + escapeHtml(sourceLabel) + '</div></div><div class="cashbox-transaction__meta">' + escapeHtml(formatDate(item?.created_at)) + ' | ' + escapeHtml(actor) + '</div></div>'
+          + '<div class="cashbox-transaction__body"><div class="cashbox-transaction__summary"><div class="cashbox-transaction__note">' + escapeHtml(note) + '</div><div class="cashbox-transaction__context">' + escapeHtml(contextLabel) + '</div></div><div class="cashbox-transaction__meta">' + escapeHtml(formatDate(item?.created_at)) + ' | ' + escapeHtml(actor) + '</div></div>'
           + '<div class="cashbox-transaction__amount" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(direction === 'expense' ? '-' : '+') + escapeHtml(absoluteAmount) + '</div>'
           + '</div>';
       }).join('') : '<div class="cashboxes-empty">ПО ФИЛЬТРУ НИЧЕГО НЕ НАЙДЕНО.</div>';

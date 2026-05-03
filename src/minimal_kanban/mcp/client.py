@@ -566,6 +566,26 @@ class BoardApiClient:
     def get_repair_order_text(self, card_id: str) -> dict:
         return self._request("/api/get_repair_order_text", {"card_id": card_id})
 
+    def download_repair_order_print_pdf(
+        self,
+        *,
+        card_id: str,
+        selected_document_ids: list[str] | None = None,
+        selected_template_ids: dict[str, str] | None = None,
+        template_overrides: dict[str, str] | None = None,
+        print_settings: dict[str, object] | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {"card_id": card_id}
+        if selected_document_ids is not None:
+            payload["selected_document_ids"] = selected_document_ids
+        if selected_template_ids is not None:
+            payload["selected_template_ids"] = selected_template_ids
+        if template_overrides is not None:
+            payload["template_overrides"] = template_overrides
+        if print_settings is not None:
+            payload["print_settings"] = print_settings
+        return self._request("/api/export_repair_order_print_pdf", payload)
+
     def list_archived_cards(self, *, limit: int | None = None, compact: bool | None = None) -> dict:
         payload: dict[str, object] = {}
         if limit is not None:

@@ -68,6 +68,7 @@ EXPECTED_MCP_TOOLS = {
     "get_gpt_wall",
     "get_repair_order",
     "get_repair_order_text",
+    "download_repair_order_print_pdf",
     "get_runtime_status",
     "get_shared_file_info",
     "list_archived_cards",
@@ -228,7 +229,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 70)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 71)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 self.assertTrue(tool_map["ping_connector"].annotations.readOnlyHint)
                 self.assertFalse(tool_map["ping_connector"].annotations.destructiveHint)
@@ -829,6 +830,21 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(
                     "К доплате: 3065", repair_order_text.structuredContent["data"]["text"]
                 )
+
+                with patch(
+                    "minimal_kanban.printing.service.render_html_to_pdf_bytes",
+                    return_value=b"%PDF-1.4 mcp repair-order export",
+                ):
+                    repair_order_pdf = await session.call_tool(
+                        "download_repair_order_print_pdf",
+                        {"card_id": card_id, "selected_document_ids": ["invoice"]},
+                    )
+                self.assertTrue(repair_order_pdf.structuredContent["ok"])
+                pdf_payload = repair_order_pdf.structuredContent["data"]
+                self.assertEqual(pdf_payload["mime_type"], "application/pdf")
+                self.assertTrue(pdf_payload["file_name"].endswith(".pdf"))
+                self.assertTrue(base64.b64decode(pdf_payload["content_base64"]).startswith(b"%PDF"))
+                self.assertEqual(pdf_payload["meta"]["documents"][0]["id"], "invoice")
 
                 repair_orders = await session.call_tool(
                     "list_repair_orders",
@@ -2140,6 +2156,27 @@ class BoardApiClientTests(unittest.TestCase):
                     method="POST",
                 ),
             ],
+        )
+
+    def test_repair_order_pdf_export_uses_expected_api_payload(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.download_repair_order_print_pdf(
+                card_id="card-1",
+                selected_document_ids=["invoice", "completion_act"],
+                selected_template_ids={"invoice": "tpl-invoice"},
+                print_settings={"stamp_enabled": True},
+            )
+
+        request.assert_called_once_with(
+            "/api/export_repair_order_print_pdf",
+            {
+                "card_id": "card-1",
+                "selected_document_ids": ["invoice", "completion_act"],
+                "selected_template_ids": {"invoice": "tpl-invoice"},
+                "print_settings": {"stamp_enabled": True},
+            },
         )
 
     def test_wall_helpers_call_expected_api_endpoints(self) -> None:

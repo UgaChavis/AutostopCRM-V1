@@ -68,6 +68,7 @@ class CRMToolRegistry:
             "list_archived_cards": self._list_archived_cards,
             "list_repair_orders": self._list_repair_orders,
             "get_repair_order_text": self._get_repair_order_text,
+            "download_repair_order_print_pdf": self._download_repair_order_print_pdf,
             "list_clients": self._list_clients,
             "search_clients": self._search_clients,
             "get_client": self._get_client_profile,
@@ -240,6 +241,16 @@ class CRMToolRegistry:
                 "get_repair_order_text",
                 "Read printable repair order text by card id.",
                 {"card_id": "required string"},
+            ),
+            CRMToolDefinition(
+                "download_repair_order_print_pdf",
+                "Download the CRM-generated PDF for a repair order, invoice, invoice-factura, completion act, acceptance act, parts sale document, or inspection sheet as base64.",
+                {
+                    "card_id": "required string",
+                    "selected_document_ids": "optional array of document ids",
+                    "selected_template_ids": "optional object",
+                    "print_settings": "optional object",
+                },
             ),
             CRMToolDefinition(
                 "list_clients",
@@ -917,6 +928,18 @@ class CRMToolRegistry:
     def _get_repair_order_text(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.get_repair_order_text(str(arguments.get("card_id") or ""))
 
+    def _download_repair_order_print_pdf(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.download_repair_order_print_pdf(
+            card_id=str(arguments.get("card_id") or ""),
+            selected_document_ids=_optional_text_list(arguments, "selected_document_ids"),
+            selected_template_ids=arguments.get("selected_template_ids")
+            if isinstance(arguments.get("selected_template_ids"), dict)
+            else None,
+            print_settings=arguments.get("print_settings")
+            if isinstance(arguments.get("print_settings"), dict)
+            else None,
+        )
+
     def _list_clients(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.list_clients(
             limit=_optional_int(arguments, "limit"),
@@ -1226,6 +1249,14 @@ def _optional_bool(arguments: dict[str, Any], key: str) -> bool | None:
     if key not in arguments:
         return None
     return bool(arguments.get(key))
+
+
+def _optional_text_list(arguments: dict[str, Any], key: str) -> list[str] | None:
+    value = arguments.get(key)
+    if not isinstance(value, list):
+        return None
+    normalized = [str(item).strip() for item in value if str(item).strip()]
+    return normalized or None
 
 
 def _telegram_photo_name(item: DownloadedAttachment) -> str:

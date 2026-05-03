@@ -104,6 +104,7 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 - `get_repair_order`
 - `list_repair_orders`
 - `get_repair_order_text`
+- `download_repair_order_print_pdf`
 - `list_overdue_cards`
 - `list_archived_cards`
 - `list_clients`
@@ -303,11 +304,25 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 - `list_repair_orders`
 - `get_repair_order`
 - `get_repair_order_text`
+- `download_repair_order_print_pdf`
 - `update_repair_order`
 - `set_repair_order_status`
 - `mark_card_ready`
 - `replace_repair_order_works`
 - `replace_repair_order_materials`
+
+`download_repair_order_print_pdf` возвращает тот же PDF, который оператор скачивает из окна печати CRM. Используйте его, когда агенту нужно приложить к письму или сообщению счет, заказ-наряд, счет-фактуру, акт выполненных работ, акт приема, дефектовочную ведомость или документ продажи запчастей.
+
+Минимальный вызов:
+
+```json
+{
+  "card_id": "CARD_ID",
+  "selected_document_ids": ["invoice"]
+}
+```
+
+Ответ содержит `file_name`, `mime_type="application/pdf"`, `content_base64`, `size_bytes` и `meta.documents[]`. Поддерживаемые `selected_document_ids`: `repair_order`, `vehicle_acceptance_act`, `invoice`, `invoice_factura`, `inspection_sheet`, `completion_act`, `parts_sale`.
 
 ### Cashboxes
 

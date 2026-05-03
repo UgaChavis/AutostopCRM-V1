@@ -237,6 +237,8 @@ Latest completed stabilization wave:
 - hidden AI-managed card board summaries were added: API/MCP/Telegram can write a five-line `board_summary`, board cards show it before raw description text, and normal card edits mark the summary stale for agent refresh
 - updated-card badges now clear optimistically in the browser on hover/open, while the existing API path still persists the seen state
 - generated inline browser JavaScript is now extracted from `BOARD_WEB_APP_HTML` and checked with Node syntax validation through `scripts/check_web_assets_js.py`
+- repair-order and invoice PDF export is now available to MCP, the server agent, and Telegram AI through `download_repair_order_print_pdf`; it reuses the CRM print module and returns `application/pdf` base64 instead of letting agents create separate PDFs
+- repair-order payment cashbox movements now preserve business-local timestamps and expose source labels so incoming order payments are distinguishable from manual cashbox movements
 
 Most recent important commits in the current line:
 

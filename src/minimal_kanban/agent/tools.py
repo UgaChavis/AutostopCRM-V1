@@ -47,6 +47,7 @@ class AgentToolExecutor:
             "restore_card": self._restore_card,
             "list_repair_orders": self._list_repair_orders,
             "get_repair_order": self._get_repair_order,
+            "download_repair_order_print_pdf": self._download_repair_order_print_pdf,
             "update_repair_order": self._update_repair_order,
             "replace_repair_order_works": self._replace_repair_order_works,
             "replace_repair_order_materials": self._replace_repair_order_materials,
@@ -193,6 +194,16 @@ class AgentToolExecutor:
             ),
             AgentToolDefinition(
                 "get_repair_order", "Get repair order by card id.", {"card_id": "required string"}
+            ),
+            AgentToolDefinition(
+                "download_repair_order_print_pdf",
+                "Download the CRM-generated PDF for a repair order, invoice, invoice-factura, completion act, acceptance act, parts sale document, or inspection sheet as base64.",
+                {
+                    "card_id": "required string",
+                    "selected_document_ids": "optional array of document ids",
+                    "selected_template_ids": "optional object",
+                    "print_settings": "optional object",
+                },
             ),
             AgentToolDefinition(
                 "update_repair_order",
@@ -478,6 +489,14 @@ class AgentToolExecutor:
     def _get_repair_order(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.get_repair_order(self._required_text(args, "card_id"))
 
+    def _download_repair_order_print_pdf(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.download_repair_order_print_pdf(
+            card_id=self._required_text(args, "card_id"),
+            selected_document_ids=self._maybe_text_list(args.get("selected_document_ids")),
+            selected_template_ids=self._maybe_dict(args.get("selected_template_ids")),
+            print_settings=self._maybe_dict(args.get("print_settings")),
+        )
+
     def _update_repair_order(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.update_repair_order(
             card_id=self._required_text(args, "card_id"),
@@ -654,6 +673,13 @@ class AgentToolExecutor:
     def _maybe_list(self, value: Any) -> list[Any] | None:
         return value if isinstance(value, list) else None
 
+    def _maybe_text_list(self, value: Any) -> list[str] | None:
+        items = self._maybe_list(value)
+        if items is None:
+            return None
+        normalized = [str(item).strip() for item in items if str(item).strip()]
+        return normalized or None
+
     def _vehicle_payload(self, value: Any) -> dict[str, Any] | None:
         if isinstance(value, dict):
             return value
@@ -699,6 +725,7 @@ class AgentToolExecutor:
         }
         repair_order = {
             "get_repair_order",
+            "download_repair_order_print_pdf",
             "update_repair_order",
             "replace_repair_order_works",
             "replace_repair_order_materials",
@@ -796,6 +823,7 @@ class AgentToolExecutor:
                 "get_card_context",
                 "update_card",
                 "get_repair_order",
+                "download_repair_order_print_pdf",
                 "get_board_content",
                 "get_board_events",
                 "get_gpt_wall",
