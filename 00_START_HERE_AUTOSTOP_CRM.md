@@ -102,6 +102,7 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - card journal UI was made minimal and recoverable: changes expose `до:` and `после:` text instead of hiding previous content
 - updated-card badges now clear optimistically on hover/open so cards with `ОБНОВЛЕНО` do not wait on the API response before becoming clickable-feeling again
 - hidden AI-managed card board summaries are available through API/MCP/Telegram and are shown on board cards before raw description text
+- stale legacy AI dock/chat DOM lookups and unused CSS were pruned from the board HTML; the active card AI indicator path remains unchanged
 - generated inline browser JavaScript is now checked with `scripts/check_web_assets_js.py` and through `scripts/run_checks.ps1`
 
 ## Current Verification Baseline

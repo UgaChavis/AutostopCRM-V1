@@ -324,6 +324,7 @@ Current known verification baseline:
 - `python scripts/audit_localization.py` must pass when UI/docs text changed
 - isolated browser smoke on 2026-05-03 loaded the board, opened topbar modules, opened a card journal, and reported no console errors or failed requests
 - post-cleanup public smoke on 2026-05-03: root HTML `200 OK`, about `998902` bytes in `869 ms`; compact no-archive board snapshot about `269666` bytes in `664 ms`
+- current local generated board HTML after pruning stale legacy AI selectors/CSS is about `981981` bytes; verify public bytes again after deploy
 
 Main test areas:
 
@@ -367,7 +368,7 @@ Known risks:
 
 - production still currently accepts the default admin account
 - some docs and source files still carry older naming and historical assumptions
-- `web_assets.py` still contains inert legacy agent/chat functions that are no longer wired into the visible UX
+- `web_assets.py` still contains some inert legacy agent/chat compatibility functions, but stale legacy AI DOM lookups and unused AI dock/chat CSS have been pruned
 - board column drag currently relies on native HTML5 DnD and should be rechecked on touch-oriented setups
 - `src/minimal_kanban/web_assets.py` is still a large inline asset file; split it only as a separate measured phase with rollback verification
 
