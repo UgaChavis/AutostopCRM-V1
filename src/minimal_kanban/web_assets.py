@@ -7487,6 +7487,7 @@ BOARD_WEB_APP_HTML = "".join(
     const SNAPSHOT_POLL_MODAL_INTERVAL_MS = 15000;
     const SNAPSHOT_POLL_HIDDEN_INTERVAL_MS = 120000;
     const CARD_UNREAD_HOVER_DELAY_MS = 260;
+    const CARD_UPDATED_HOVER_DELAY_MS = 80;
 
     const COLUMN_TONES = [
       { tint: 'rgba(38, 47, 41, 0.95)', head: 'rgba(95, 109, 86, 0.22)', edge: '#70796c', empty: 'rgba(167, 178, 132, 0.06)' },
@@ -17884,11 +17885,38 @@ function renderCompactArchiveRows(cards) {
       }
     }
 
+    function markCardSeenOptimistically(cardId) {
+      const normalizedCardId = String(cardId || '').trim();
+      if (!normalizedCardId) return false;
+      clearUnreadHoverTimer(normalizedCardId);
+      const currentCard = snapshotCardById(normalizedCardId);
+      const cardElement = boardCardElementById(normalizedCardId);
+      const hadMarker = Boolean(
+        currentCard?.is_unread
+        || currentCard?.has_unseen_update
+        || cardElement?.querySelector('.card__unread-badge, .card__updated-badge')
+      );
+      if (currentCard) {
+        currentCard.is_unread = false;
+        currentCard.has_unseen_update = false;
+      }
+      if (state.activeCard?.id === normalizedCardId) {
+        state.activeCard.is_unread = false;
+        state.activeCard.has_unseen_update = false;
+      }
+      if (cardElement) {
+        cardElement.dataset.unread = 'false';
+        cardElement.dataset.updatedUnseen = 'false';
+        cardElement.querySelectorAll('.card__unread-badge, .card__updated-badge').forEach((badge) => badge.remove());
+      }
+      return hadMarker;
+    }
+
     async function markCardSeen(cardId) {
       if (!cardId) return;
-      clearUnreadHoverTimer(cardId);
       const currentCard = snapshotCardById(cardId) || state.activeCard;
       if (currentCard && !currentCard.is_unread && !currentCard.has_unseen_update) return;
+      markCardSeenOptimistically(cardId);
       if (state.unreadSeenInFlight.has(cardId)) return;
       state.unreadSeenInFlight.add(cardId);
       try {
@@ -17909,10 +17937,11 @@ function renderCompactArchiveRows(cards) {
       if (!currentCard || (!currentCard.is_unread && !currentCard.has_unseen_update)) return;
       if (state.unreadSeenInFlight.has(cardId)) return;
       clearUnreadHoverTimer(cardId);
+      const delayMs = currentCard.has_unseen_update && !currentCard.is_unread ? CARD_UPDATED_HOVER_DELAY_MS : CARD_UNREAD_HOVER_DELAY_MS;
       const timerId = setTimeout(() => {
         state.unreadHoverTimers.delete(cardId);
         markCardSeen(cardId);
-      }, CARD_UNREAD_HOVER_DELAY_MS);
+      }, delayMs);
       state.unreadHoverTimers.set(cardId, timerId);
     }
 
@@ -18267,6 +18296,7 @@ function renderCompactArchiveRows(cards) {
       }
       const boardCard = target.closest('.card');
       if (boardCard) {
+        markCardSeenOptimistically(boardCard.dataset.cardId);
         await openCardById(boardCard.dataset.cardId);
         return true;
       }

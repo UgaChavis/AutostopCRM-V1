@@ -1087,6 +1087,24 @@ class WebAssetsTests(unittest.TestCase):
             "const hasUpdatedMarker = card.dataset.updatedUnseen === 'true';", BOARD_WEB_APP_HTML
         )
 
+    def test_updated_badge_is_cleared_optimistically_for_fast_hover_and_open(self) -> None:
+        self.assertIn("const CARD_UPDATED_HOVER_DELAY_MS = 80;", BOARD_WEB_APP_HTML)
+        self.assertIn("function markCardSeenOptimistically(cardId)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const delayMs = currentCard.has_unseen_update && !currentCard.is_unread ? CARD_UPDATED_HOVER_DELAY_MS : CARD_UNREAD_HOVER_DELAY_MS;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("markCardSeenOptimistically(cardId);", BOARD_WEB_APP_HTML)
+        self.assertIn("cardElement.dataset.updatedUnseen = 'false';", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "cardElement.querySelectorAll('.card__unread-badge, .card__updated-badge').forEach((badge) => badge.remove());",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "markCardSeenOptimistically(boardCard.dataset.cardId);",
+            BOARD_WEB_APP_HTML,
+        )
+
     def test_board_drag_drop_supports_reordering_inside_column(self) -> None:
         self.assertIn(".card.is-drop-before::before {", BOARD_WEB_APP_HTML)
         self.assertIn("function updateBoardDragAutoScroll(clientX, clientY)", BOARD_WEB_APP_HTML)
