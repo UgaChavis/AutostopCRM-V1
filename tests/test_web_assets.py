@@ -27,7 +27,12 @@ class _EmployeesLayoutParser(HTMLParser):
         attrs_map = {key: value or "" for key, value in attrs}
         class_name = attrs_map.get("class", "")
         parent = self.stack[-1] if self.stack else None
-        if parent and parent[0] == "div" and parent[1] == "employees-layout" and tag == "div":
+        if (
+            parent
+            and parent[0] == "div"
+            and "employees-layout" in parent[1].split()
+            and tag == "div"
+        ):
             self.layout_children.append(class_name)
         self.stack.append((tag, class_name))
 
@@ -659,9 +664,12 @@ class WebAssetsTests(unittest.TestCase):
         )
 
     def test_card_modal_includes_centered_work_zone_and_separate_vehicle_panel(self) -> None:
-        self.assertIn('class="dialog dialog--card"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="dialog dialog--card dialog--fixed-actions"', BOARD_WEB_APP_HTML)
         self.assertIn(".dialog--card {", BOARD_WEB_APP_HTML)
-        self.assertIn('class="dialog__head dialog__head--card"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'class="dialog__head dialog__head--card dialog__floating-actions"',
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn('class="dialog__tabs dialog__tabs--card"', BOARD_WEB_APP_HTML)
         self.assertIn(".dialog__title--card {", BOARD_WEB_APP_HTML)
         self.assertIn("text-overflow: ellipsis;", BOARD_WEB_APP_HTML)
@@ -732,9 +740,112 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "els.restoreAction.addEventListener('click', restoreActiveCard);", BOARD_WEB_APP_HTML
         )
-        self.assertIn('class="dialog__foot dialog__foot--card"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'class="dialog__foot dialog__foot--card dialog__floating-actions"',
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn('class="dialog__foot-group dialog__foot-group--danger"', BOARD_WEB_APP_HTML)
         self.assertIn('class="dialog__foot-group dialog__foot-group--main"', BOARD_WEB_APP_HTML)
+
+    def test_long_modals_keep_action_buttons_outside_scroll_regions(self) -> None:
+        self.assertIn('class="dialog dialog--card dialog--fixed-actions"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'class="dialog__head dialog__head--card dialog__floating-actions"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn('class="dialog__body-scroll" data-panel="overview"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="dialog__body-scroll hidden" data-panel="files"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="dialog__body-scroll hidden" data-panel="journal"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'class="dialog__foot dialog__foot--card dialog__floating-actions"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(".dialog--card > .dialog__body-scroll {", BOARD_WEB_APP_HTML)
+        self.assertIn("grid-row: 3;", BOARD_WEB_APP_HTML)
+
+        self.assertIn(
+            'class="dialog dialog--repair-order dialog--fixed-actions"', BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            ".dialog--repair-order {\n      width: min(1320px, calc(100% - 16px));\n"
+            "      height: min(93vh, 940px);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn('class="repair-order-shell dialog__body-scroll"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'class="dialog__foot repair-order-footer dialog__floating-actions"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            '      </div>\n        <div class="dialog__foot repair-order-footer dialog__floating-actions">',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertNotIn(
+            '      </div>\n        </div>\n        <div class="dialog__foot repair-order-footer dialog__floating-actions">',
+            BOARD_WEB_APP_HTML,
+        )
+
+        self.assertIn('class="dialog dialog--clients dialog--fixed-actions"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="dialog__body-scroll clients-layout"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="clients-profile-head dialog__floating-actions"', BOARD_WEB_APP_HTML)
+        self.assertIn("position: sticky;", BOARD_WEB_APP_HTML)
+
+        self.assertIn('class="dialog dialog--employees dialog--fixed-actions"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="dialog__body-scroll employees-layout"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="employees-card-head dialog__floating-actions"', BOARD_WEB_APP_HTML)
+        self.assertIn(".dialog--employees {", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            ".dialog--employees .employees-card-head.dialog__floating-actions {",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("body.is-mobile-lite .dialog--fixed-actions {", BOARD_WEB_APP_HTML)
+        self.assertIn("position: fixed;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "body.is-mobile-lite .modal {\n      padding: 0;\n      z-index: 60;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "body.is-mobile-lite #repairOrderModal {\n      z-index: 64;", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "body.is-mobile-lite .dialog--card {\n      width: 100vw;\n"
+            "      height: 100dvh;\n      max-height: 100dvh;\n"
+            "      padding: 10px;\n      grid-template-rows: auto auto minmax(0, 1fr) auto;",
+            BOARD_WEB_APP_HTML,
+        )
+
+        self.assertIn(
+            'class="dialog dialog--repair-order-print dialog--fixed-actions"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'class="dialog__head dialog__floating-actions"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'class="dialog__body dialog__body-scroll repair-order-print-layout"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'class="dialog__foot repair-order-print-footer dialog__floating-actions"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'class="dialog dialog--print-template-editor dialog--fixed-actions"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'class="dialog__body dialog__body-scroll print-template-editor"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'class="dialog dialog--inspection-sheet-form dialog--fixed-actions"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'class="dialog__body dialog__body-scroll inspection-sheet-form"',
+            BOARD_WEB_APP_HTML,
+        )
 
     def test_vehicle_panel_exposes_only_minimal_profile_fields(self) -> None:
         self.assertIn('id="vehicleAutofillButton"', BOARD_WEB_APP_HTML)
@@ -975,7 +1086,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".vehicle-copy {", BOARD_WEB_APP_HTML)
 
     def test_employees_modal_keeps_both_panes_inside_the_layout(self) -> None:
-        start = BOARD_WEB_APP_HTML.index("+ '<div class=\"employees-layout\">'")
+        start = BOARD_WEB_APP_HTML.index("+ '<div class=\"dialog__body-scroll employees-layout\">'")
         end = BOARD_WEB_APP_HTML.index('+ \'<div class="modal" id="employeeSalaryModal">\'')
         fragment = BOARD_WEB_APP_HTML[start:end]
         html = "".join(re.findall(r"\+\s*'([^']*)'", fragment))
@@ -1867,7 +1978,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="repairOrderClosedAt"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderStatus"', BOARD_WEB_APP_HTML)
         self.assertIn(
-            'class="dialog__head dialog__head--card dialog__head--repair-order"', BOARD_WEB_APP_HTML
+            'class="dialog__head dialog__head--card dialog__head--repair-order dialog__floating-actions"',
+            BOARD_WEB_APP_HTML,
         )
         self.assertIn('class="repair-order-headline"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderVin"', BOARD_WEB_APP_HTML)

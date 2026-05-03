@@ -12,6 +12,7 @@ PRINTING_WEB_MODULE_STYLE = r"""
       width: min(1860px, calc(100% - 18px));
       max-width: none;
       height: min(96vh, 1160px);
+      overflow: hidden;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr) auto;
     }
@@ -19,6 +20,7 @@ PRINTING_WEB_MODULE_STYLE = r"""
       width: min(1880px, calc(100% - 18px));
       max-width: none;
       height: min(96vh, 1160px);
+      overflow: hidden;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr) auto;
     }
@@ -174,6 +176,7 @@ PRINTING_WEB_MODULE_STYLE = r"""
       width: min(1080px, calc(100% - 18px));
       max-width: none;
       height: min(92vh, 980px);
+      overflow: hidden;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr) auto;
     }
@@ -254,12 +257,12 @@ PRINTING_WEB_MODULE_STYLE = r"""
 
 PRINTING_WEB_MODULE_HTML = r"""
   <div class="modal" id="repairOrderPrintModal">
-    <div class="dialog dialog--repair-order-print" role="dialog" aria-modal="true" aria-labelledby="repairOrderPrintTitle">
-      <div class="dialog__head">
+    <div class="dialog dialog--repair-order-print dialog--fixed-actions" role="dialog" aria-modal="true" aria-labelledby="repairOrderPrintTitle">
+      <div class="dialog__head dialog__floating-actions">
         <div><div class="dialog__title-prefix">ПЕЧАТЬ</div><h2 class="dialog__title" id="repairOrderPrintTitle">Документы автосервиса</h2></div>
         <button class="btn btn--ghost" id="repairOrderPrintCloseX" type="button">ЗАКРЫТЬ</button>
       </div>
-      <div class="dialog__body repair-order-print-layout">
+      <div class="dialog__body dialog__body-scroll repair-order-print-layout">
         <section class="repair-order-print-panel">
           <div class="repair-order-print-panel__title">Документы</div>
           <div class="repair-order-print-preview__meta" id="repairOrderPrintDocumentsMeta">Выберите документы для печати.</div>
@@ -321,7 +324,7 @@ PRINTING_WEB_MODULE_HTML = r"""
           </div>
         </section>
       </div>
-      <div class="dialog__foot repair-order-print-footer">
+      <div class="dialog__foot repair-order-print-footer dialog__floating-actions">
         <div class="repair-order-print-preview__meta" id="repairOrderPrintFooterMeta">PDF генерируется из шаблона и текущих данных заказ-наряда.</div>
         <div class="repair-order-print-footer__actions"><button class="btn btn--ghost" id="repairOrderPrintTemplateEditorButton" type="button">ШАБЛОНЫ</button><button class="btn btn--ghost" id="repairOrderPrintExportButton" type="button">PDF</button><button class="btn" id="repairOrderPrintRunButton" type="button">ПЕЧАТЬ</button></div>
       </div>
@@ -329,12 +332,12 @@ PRINTING_WEB_MODULE_HTML = r"""
   </div>
 
   <div class="modal" id="printTemplateEditorModal">
-    <div class="dialog dialog--print-template-editor" role="dialog" aria-modal="true" aria-labelledby="printTemplateEditorTitle">
-      <div class="dialog__head">
+    <div class="dialog dialog--print-template-editor dialog--fixed-actions" role="dialog" aria-modal="true" aria-labelledby="printTemplateEditorTitle">
+      <div class="dialog__head dialog__floating-actions">
         <div><div class="dialog__title-prefix">ШАБЛОНЫ</div><h2 class="dialog__title" id="printTemplateEditorTitle">Редактор печатных шаблонов</h2></div>
         <button class="btn btn--ghost" id="printTemplateEditorCloseX" type="button">ЗАКРЫТЬ</button>
       </div>
-      <div class="dialog__body print-template-editor">
+      <div class="dialog__body dialog__body-scroll print-template-editor">
         <aside class="print-template-editor__panel">
           <div class="print-template-editor__title">Тип документа</div>
           <div class="field field--compact"><label for="printTemplateDocumentType">Документ</label><select id="printTemplateDocumentType"></select></div>
@@ -370,7 +373,7 @@ PRINTING_WEB_MODULE_HTML = r"""
           <div class="print-template-editor__preview-wrap"><iframe class="print-template-editor__preview-frame" id="printTemplatePreviewFrame" title="Предпросмотр шаблона"></iframe></div>
         </section>
       </div>
-      <div class="dialog__foot print-template-editor__footer">
+      <div class="dialog__foot print-template-editor__footer dialog__floating-actions">
         <div class="print-template-editor__meta" id="printTemplateFooterMeta">Встроенные шаблоны можно дублировать и делать шаблоном по умолчанию.</div>
         <div class="print-template-editor__actions"><button class="btn btn--ghost" id="printTemplateSetDefaultButton" type="button">ПО УМОЛЧАНИЮ</button><button class="btn btn--ghost" id="printTemplatePreviewButton" type="button">ПРЕДПРОСМОТР</button><button class="btn" id="printTemplateSaveButton" type="button">СОХРАНИТЬ</button></div>
       </div>
@@ -378,12 +381,12 @@ PRINTING_WEB_MODULE_HTML = r"""
   </div>
 
   <div class="modal" id="inspectionSheetFormModal">
-    <div class="dialog dialog--inspection-sheet-form" role="dialog" aria-modal="true" aria-labelledby="inspectionSheetFormTitle">
-      <div class="dialog__head">
+    <div class="dialog dialog--inspection-sheet-form dialog--fixed-actions" role="dialog" aria-modal="true" aria-labelledby="inspectionSheetFormTitle">
+      <div class="dialog__head dialog__floating-actions">
         <div><div class="dialog__title-prefix">ВЕДОМОСТЬ</div><h2 class="dialog__title" id="inspectionSheetFormTitle">Заполнение дефектовочной ведомости</h2></div>
         <button class="btn btn--ghost" id="inspectionSheetFormCloseX" type="button">ЗАКРЫТЬ</button>
       </div>
-      <div class="dialog__body inspection-sheet-form">
+      <div class="dialog__body dialog__body-scroll inspection-sheet-form">
         <div class="inspection-sheet-form__surface">
           <div class="inspection-sheet-form__hint" id="inspectionSheetFormMeta">Заполните поля вручную или используйте автозаполнение по данным карточки.</div>
           <div class="inspection-sheet-form__grid">
@@ -417,7 +420,7 @@ PRINTING_WEB_MODULE_HTML = r"""
           <div class="inspection-sheet-form__field inspection-sheet-form__field--wide"><div class="field field--compact"><label for="inspectionSheetMasterComment">Комментарий мастера</label><textarea id="inspectionSheetMasterComment"></textarea></div></div>
         </div>
       </div>
-      <div class="dialog__foot inspection-sheet-form__footer">
+      <div class="dialog__foot inspection-sheet-form__footer dialog__floating-actions">
         <div class="inspection-sheet-form__hint" id="inspectionSheetFormFooterMeta">После применения предпросмотр и печать будут использовать заполненную ведомость.</div>
         <div class="inspection-sheet-form__actions">
           <button class="btn btn--ghost" id="inspectionSheetFormAutofillButton" type="button">АВТОЗАПОЛНЕНИЕ</button>

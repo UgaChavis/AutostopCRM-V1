@@ -904,11 +904,51 @@ BOARD_WEB_APP_HTML = "".join(
       display: grid;
       gap: 14px;
     }
+    .dialog--fixed-actions {
+      overflow: hidden;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+    .dialog--fixed-actions > .dialog__body-scroll,
+    .dialog--fixed-actions .dialog__body-scroll {
+      min-height: 0;
+      overflow: auto;
+      scrollbar-gutter: stable;
+    }
+    .dialog__floating-actions {
+      position: relative;
+      z-index: 3;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.03), transparent 62%),
+        rgba(28, 36, 30, 0.96);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
+    }
+    .dialog__head.dialog__floating-actions,
+    .dialog__foot.dialog__floating-actions {
+      border-color: rgba(115, 126, 105, 0.22);
+    }
     .dialog--card {
       width: min(1200px, calc(100% - 28px));
+      height: min(92vh, 900px);
+      max-height: min(92vh, 900px);
       padding: 14px;
       transform: none;
       gap: 10px;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+    }
+    .dialog--card > .dialog__body-scroll {
+      grid-row: 3;
+      min-height: 0;
+      overflow: auto;
+      padding: 2px 3px 8px;
+    }
+    .dialog--card > .dialog__head--card {
+      grid-row: 1;
+    }
+    .dialog--card > .dialog__tabs--card {
+      grid-row: 2;
+    }
+    .dialog--card > .dialog__foot--card {
+      grid-row: 4;
     }
     .dialog__head, .dialog__foot, .dialog__tabs {
       display: flex;
@@ -1732,6 +1772,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .dialog--repair-order {
       width: min(1320px, calc(100% - 16px));
+      height: min(93vh, 940px);
       max-height: min(93vh, 940px);
       padding: 0;
       gap: 0;
@@ -4307,6 +4348,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
     body.is-mobile-lite .modal {
       padding: 0;
+      z-index: 60;
     }
     body.is-mobile-lite .dialog {
       width: min(100vw, 100%);
@@ -4314,14 +4356,52 @@ BOARD_WEB_APP_HTML = "".join(
       padding: 12px;
       border-radius: 0;
     }
+    body.is-mobile-lite .dialog--fixed-actions {
+      position: fixed;
+      inset: 0;
+      height: 100dvh;
+      max-height: 100dvh;
+      width: 100vw;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+    body.is-mobile-lite .dialog__floating-actions {
+      width: 100%;
+      box-shadow: none;
+    }
     body.is-mobile-lite .dialog--card {
       width: 100vw;
       height: 100dvh;
       max-height: 100dvh;
       padding: 10px;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
     }
     body.is-mobile-lite .dialog__head--card {
-      grid-template-columns: minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) auto;
+      flex-wrap: nowrap;
+      min-height: 46px;
+      padding: 8px 10px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.05), transparent 58%),
+        rgba(28, 36, 30, 0.98);
+      border-bottom: 1px solid rgba(115, 126, 105, 0.28);
+    }
+    body.is-mobile-lite .dialog__head--card .dialog__title-prefix {
+      display: none;
+    }
+    body.is-mobile-lite .dialog__head--card .dialog__title--card {
+      font-size: 12px;
+      line-height: 1.18;
+    }
+    body.is-mobile-lite .dialog__head--card > .btn {
+      min-height: 32px;
+      padding: 7px 9px;
+      white-space: nowrap;
+    }
+    body.is-mobile-lite #repairOrderModal {
+      z-index: 64;
+    }
+    body.is-mobile-lite #repairOrderPaymentsModal {
+      z-index: 66;
     }
     body.is-mobile-lite .dialog__tabs--card {
       align-items: center;
@@ -4831,6 +4911,26 @@ BOARD_WEB_APP_HTML = "".join(
       grid-template-columns: minmax(360px, 390px) minmax(0, 1fr);
       gap: 14px;
       align-items: start;
+    }
+    .dialog--employees {
+      width: min(1240px, 100%);
+      height: min(88vh, 900px);
+      max-height: min(88vh, 900px);
+    }
+    .dialog--employees > .employees-layout,
+    .dialog--employees > .dialog__body-scroll {
+      min-height: 0;
+      align-items: start;
+      padding-right: 2px;
+    }
+    .dialog--employees .employees-card-head.dialog__floating-actions {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      align-items: center;
+      margin: -2px -2px 10px;
+      padding: 8px;
+      border: 1px solid rgba(115, 126, 105, 0.22);
     }
     .employees-pane {
       display: flex;
@@ -5521,6 +5621,15 @@ BOARD_WEB_APP_HTML = "".join(
       align-items: start;
       gap: 12px;
       margin-bottom: 10px;
+    }
+    .clients-profile-head.dialog__floating-actions {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      align-items: center;
+      margin: -2px -2px 10px;
+      padding: 8px;
+      border: 1px solid rgba(115, 126, 105, 0.22);
     }
     .clients-profile-actions {
       display: flex;
@@ -6281,15 +6390,15 @@ BOARD_WEB_APP_HTML = "".join(
   </div>
 
   <div class="modal" id="clientsModal">
-    <div class="dialog dialog--clients">
-      <div class="dialog__head">
+    <div class="dialog dialog--clients dialog--fixed-actions">
+      <div class="dialog__head dialog__floating-actions">
         <div>
           <div class="dialog__title">КЛИЕНТЫ</div>
           <div class="wall-meta" id="clientsMeta">ЗАГРУЗКА...</div>
         </div>
         <button class="btn" data-close="clients">ЗАКРЫТЬ</button>
       </div>
-      <div class="clients-layout">
+      <div class="dialog__body-scroll clients-layout">
         <section class="clients-list-pane">
           <div class="clients-toolbar">
             <input id="clientsSearchInput" type="text" maxlength="160" placeholder="ПОИСК: ФИО, телефон, госномер, авто">
@@ -6298,7 +6407,7 @@ BOARD_WEB_APP_HTML = "".join(
           <div class="clients-list" id="clientsList"></div>
         </section>
         <section class="clients-profile-pane">
-          <div class="clients-profile-head">
+          <div class="clients-profile-head dialog__floating-actions">
             <div>
               <div class="panel-title" id="clientProfileTitle">КЛИЕНТ НЕ ВЫБРАН</div>
               <div class="client-profile-phone" id="clientProfilePhone">ТЕЛЕФОН НЕ УКАЗАН</div>
@@ -6547,8 +6656,8 @@ BOARD_WEB_APP_HTML = "".join(
   </div>
 
   <div class="modal" id="cardModal">
-    <div class="dialog dialog--card">
-      <div class="dialog__head dialog__head--card">
+    <div class="dialog dialog--card dialog--fixed-actions">
+      <div class="dialog__head dialog__head--card dialog__floating-actions">
         <div class="dialog__title-wrap">
           <div class="dialog__title-prefix">КАРТОЧКА</div>
           <div class="dialog__title dialog__title--card" id="cardModalTitle">РАБОЧАЯ КАРТОЧКА</div>
@@ -6563,7 +6672,7 @@ BOARD_WEB_APP_HTML = "".join(
         </div>
         <div class="log-row__meta" id="cardMetaLine"></div>
       </div>
-      <section data-panel="overview">
+      <section class="dialog__body-scroll" data-panel="overview">
         <div class="overview-layout">
           <div class="overview-main">
             <div class="grid grid--overview">
@@ -6641,7 +6750,7 @@ BOARD_WEB_APP_HTML = "".join(
           </aside>
         </div>
       </section>
-      <section data-panel="files" class="hidden">
+      <section class="dialog__body-scroll hidden" data-panel="files">
         <div class="subpanel file-zone-panel">
           <div class="file-dropzone" id="fileDropzone" tabindex="0" contenteditable="plaintext-only" spellcheck="false" data-title="ПЕРЕНЕСИТЕ ИЛИ ВСТАВЬТЕ ФАЙЛ" data-hint="Ctrl+V, правый клик -> Вставить, drag-and-drop или клик для выбора. PNG, JPG, JPEG, WEBP, GIF, TXT, PDF, Word, Excel." aria-label="Поле для вставки и переноса файлов"></div>
           <div class="file-dropzone__meta" id="fileDropMeta">Сначала сохраните карточку, затем добавляйте вложения.</div>
@@ -6665,10 +6774,10 @@ BOARD_WEB_APP_HTML = "".join(
           </div>
         </div>
       </section>
-      <section data-panel="journal" class="hidden">
+      <section class="dialog__body-scroll hidden" data-panel="journal">
         <div class="log-view" id="logList"></div>
       </section>
-      <div class="dialog__foot dialog__foot--card">
+      <div class="dialog__foot dialog__foot--card dialog__floating-actions">
         <div class="dialog__foot-group dialog__foot-group--danger">
           <button class="btn btn--danger hidden" id="archiveAction">В АРХИВ</button>
           <button class="btn hidden" id="restoreAction">ВЕРНУТЬ ИЗ АРХИВА</button>
@@ -6683,8 +6792,8 @@ BOARD_WEB_APP_HTML = "".join(
   </div>
 
     <div class="modal" id="repairOrderModal">
-      <div class="dialog dialog--repair-order">
-        <div class="dialog__head dialog__head--card dialog__head--repair-order">
+      <div class="dialog dialog--repair-order dialog--fixed-actions">
+        <div class="dialog__head dialog__head--card dialog__head--repair-order dialog__floating-actions">
           <div class="dialog__title-wrap">
             <div class="repair-order-headline">
               <div class="dialog__title dialog__title--card" id="repairOrderModalTitle">ЗАКАЗ-НАРЯД</div>
@@ -6696,7 +6805,7 @@ BOARD_WEB_APP_HTML = "".join(
           </div>
           <button class="btn" data-close="repair-order">ЗАКРЫТЬ</button>
         </div>
-        <div class="repair-order-shell">
+        <div class="repair-order-shell dialog__body-scroll">
           <div class="repair-order-groups">
             <section class="repair-order-card" data-repair-order-section="document">
               <div class="panel-title">ДОКУМЕНТ</div>
@@ -6843,7 +6952,7 @@ BOARD_WEB_APP_HTML = "".join(
           <div class="repair-order-subtotal"><span>ИТОГО МАТЕРИАЛЫ</span><strong data-repair-order-total="materials">0,00</strong></div>
         </section>
       </div>
-        <div class="dialog__foot repair-order-footer">
+        <div class="dialog__foot repair-order-footer dialog__floating-actions">
           <div class="repair-order-footer__totals">
             <div class="repair-order-total repair-order-total--subtotal">
               <span>ИТОГО ПО ЗАКАЗ-НАРЯДУ</span>
@@ -7283,12 +7392,12 @@ BOARD_WEB_APP_HTML = "".join(
         'beforeend',
         ''
           + '<div class="modal" id="employeesModal">'
-            + '<div class="dialog" style="width:min(1240px,100%);">'
-              + '<div class="dialog__head">'
+            + '<div class="dialog dialog--employees dialog--fixed-actions">'
+              + '<div class="dialog__head dialog__floating-actions">'
                 + '<div class="dialog__title">СОТРУДНИКИ</div>'
                 + '<button class="btn" data-close="employees">ЗАКРЫТЬ</button>'
               + '</div>'
-              + '<div class="employees-layout">'
+              + '<div class="dialog__body-scroll employees-layout">'
                 + '<div class="employees-pane employees-pane--list">'
                   + '<div class="subpanel">'
                     + '<div class="employees-panel-head">'
@@ -7299,7 +7408,7 @@ BOARD_WEB_APP_HTML = "".join(
                   + '</div>'
                 + '<div class="employees-pane">'
                   + '<div class="subpanel">'
-                    + '<div class="employees-card-head">'
+                    + '<div class="employees-card-head dialog__floating-actions">'
                       + '<div class="employees-card-head-main">'
                         + '<div class="panel-title">ПРОФИЛЬ</div>'
                         + '<div class="employees-card-title"><strong id="employeesCardMode">НОВЫЙ СОТРУДНИК</strong></div>'
