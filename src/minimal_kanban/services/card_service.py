@@ -2067,9 +2067,7 @@ class CardService:
             clients = self._ordered_clients(bundle["clients"])
             matches = self._rank_client_matches(clients, query, bundle["cards"])
             selected = [client for _, client in matches[:limit]]
-            related_cards_by_client_id = self._client_related_cards_map(
-                selected, bundle["cards"]
-            )
+            related_cards_by_client_id = self._client_related_cards_map(selected, bundle["cards"])
             return {
                 "clients": [
                     self._serialize_client(
@@ -2295,7 +2293,9 @@ class CardService:
                 default="",
                 limit=128,
             )
-            card = self._find_card(cards, payload.get("card_id")) if payload.get("card_id") else None
+            card = (
+                self._find_card(cards, payload.get("card_id")) if payload.get("card_id") else None
+            )
             if card is not None and not payload.get("vehicle"):
                 next_vehicle = self._client_vehicle_from_card(card, vehicle_id=vehicle_id)
             else:
@@ -2398,9 +2398,7 @@ class CardService:
             vehicle = self._find_client_vehicle(
                 client, payload.get("client_vehicle_id") or payload.get("vehicle_id")
             )
-            unlink_cards = self._validated_optional_bool(
-                payload, "unlink_cards", default=True
-            )
+            unlink_cards = self._validated_optional_bool(payload, "unlink_cards", default=True)
             linked_cards = [
                 card
                 for card in cards
@@ -3263,7 +3261,9 @@ class CardService:
                         "card_id": card.id,
                         "vehicle": order.vehicle or card.vehicle,
                         "work_name": row.name,
-                        "amount_minor": int((amount * Decimal("100")).to_integral_value(rounding=ROUND_HALF_UP)),
+                        "amount_minor": int(
+                            (amount * Decimal("100")).to_integral_value(rounding=ROUND_HALF_UP)
+                        ),
                         "amount_display": self._format_payroll_decimal(amount),
                         "source_label": "заказ-наряд",
                     }
@@ -3369,7 +3369,9 @@ class CardService:
             )
             return ledger
 
-    def _employee_salary_report_amount_text(self, amount_minor: int, *, signed: bool = False) -> str:
+    def _employee_salary_report_amount_text(
+        self, amount_minor: int, *, signed: bool = False
+    ) -> str:
         formatted = format_money_minor(abs(int(amount_minor)))
         if not signed:
             return formatted
@@ -3402,12 +3404,18 @@ class CardService:
     def _employee_salary_report_group_totals(
         self, entries: list[dict[str, Any]]
     ) -> dict[str, object]:
-        accrued_minor = sum(int(item.get("amount_minor") or 0) for item in entries if item.get("kind") == "accrual")
+        accrued_minor = sum(
+            int(item.get("amount_minor") or 0) for item in entries if item.get("kind") == "accrual"
+        )
         payout_minor = sum(
-            int(item.get("amount_minor") or 0) for item in entries if item.get("kind") == "salary_payout"
+            int(item.get("amount_minor") or 0)
+            for item in entries
+            if item.get("kind") == "salary_payout"
         )
         advance_minor = sum(
-            int(item.get("amount_minor") or 0) for item in entries if item.get("kind") == "salary_advance"
+            int(item.get("amount_minor") or 0)
+            for item in entries
+            if item.get("kind") == "salary_advance"
         )
         balance_minor = accrued_minor - payout_minor - advance_minor
         return {
@@ -3451,9 +3459,7 @@ class CardService:
             payloads.append(payload)
         return payloads
 
-    def _employee_salary_report_entries(
-        self, ledger: dict[str, Any]
-    ) -> list[dict[str, Any]]:
+    def _employee_salary_report_entries(self, ledger: dict[str, Any]) -> list[dict[str, Any]]:
         grouped: dict[tuple[str, ...], dict[str, Any]] = {}
         journal_rows = ledger.get("journal_rows") or []
         for row in journal_rows:
@@ -3506,7 +3512,11 @@ class CardService:
             if kind not in {"salary_payout", "salary_advance"}:
                 continue
             transaction_id = str(row.get("transaction_id") or "")
-            group_key = (kind, transaction_id or str(row.get("created_at") or ""), str(row.get("amount_minor") or "0"))
+            group_key = (
+                kind,
+                transaction_id or str(row.get("created_at") or ""),
+                str(row.get("amount_minor") or "0"),
+            )
             amount_minor = int(row.get("amount_minor") or 0)
             entry = grouped.setdefault(
                 group_key,
@@ -3529,7 +3539,9 @@ class CardService:
             amount_minor = int(entry.get("amount_minor") or 0)
             signed_amount_minor = int(entry.get("signed_amount_minor") or 0)
             kind = str(entry.get("kind") or "")
-            work_names = [str(item) for item in (entry.get("work_names") or []) if str(item).strip()]
+            work_names = [
+                str(item) for item in (entry.get("work_names") or []) if str(item).strip()
+            ]
             if kind == "accrual":
                 detail_line = ""
                 if work_names:
@@ -4323,9 +4335,7 @@ class CardService:
                     changed_fields.append("client_vehicle")
             repair_order_profile_fields = []
             if changed and {"vehicle", "vehicle_profile"}.intersection(changed_fields):
-                repair_order_profile_fields = self._fill_missing_repair_order_fields_from_card(
-                    card
-                )
+                repair_order_profile_fields = self._fill_missing_repair_order_fields_from_card(card)
                 if repair_order_profile_fields:
                     changed = True
                     changed_fields.append("repair_order_profile_fields")
@@ -5634,7 +5644,11 @@ class CardService:
                 continue
             seen.add(key)
             vehicles.append({**payload, "card_id": ""})
-        for card in related_cards if related_cards is not None else self._client_related_cards(client, cards):
+        for card in (
+            related_cards
+            if related_cards is not None
+            else self._client_related_cards(client, cards)
+        ):
             vehicle = card.vehicle_display() or card.repair_order.vehicle
             vin = card.vehicle_profile.vin or card.repair_order.vin
             plate = card.vehicle_profile.registration_plate or card.repair_order.license_plate
@@ -5665,6 +5679,7 @@ class CardService:
         query_compact = re.sub(r"[\W_]+", "", query_text)
         query_digits = re.sub(r"\D+", "", query)
         if query_text or query_digits:
+
             def vehicle_score(item: dict[str, str]) -> int:
                 score = 0
                 values = [
@@ -5726,7 +5741,9 @@ class CardService:
         )
         if include_stats:
             resolved_related_cards = (
-                related_cards if related_cards is not None else self._client_related_cards(client, cards)
+                related_cards
+                if related_cards is not None
+                else self._client_related_cards(client, cards)
             )
             payload["stats"] = self._client_stats_from_related(
                 client,
@@ -6327,9 +6344,12 @@ class CardService:
         self, card: Card, vehicle: ClientVehicle, *, overwrite: bool = True
     ) -> bool:
         changed = False
-        vehicle_label = vehicle.vehicle or " ".join(
-            part for part in (vehicle.brand, vehicle.model, vehicle.year) if part
-        ).strip()
+        vehicle_label = (
+            vehicle.vehicle
+            or " ".join(
+                part for part in (vehicle.brand, vehicle.model, vehicle.year) if part
+            ).strip()
+        )
         if vehicle_label and (overwrite or not card.vehicle):
             next_vehicle = self._validated_vehicle(vehicle_label)
             if card.vehicle != next_vehicle:
@@ -6531,9 +6551,7 @@ class CardService:
                     "time_short": short_time_label,
                     "month_key": month_key,
                     "week_key": week_key,
-                    "direction_label": "Поступление"
-                    if item.direction == "income"
-                    else "Списание",
+                    "direction_label": "Поступление" if item.direction == "income" else "Списание",
                     "direction_sign": direction_sign,
                     "signed_amount_minor": signed_amount_minor,
                     "signed_amount_display": self._cash_journal_money_text(
@@ -6768,9 +6786,7 @@ class CardService:
                     lines.append(detail)
         return "\n".join(lines).strip()
 
-    def _cash_journal_display_rows(
-        self, entries: list[dict[str, object]]
-    ) -> list[dict[str, str]]:
+    def _cash_journal_display_rows(self, entries: list[dict[str, object]]) -> list[dict[str, str]]:
         rows: list[dict[str, str]] = []
         used_ids: set[str] = set()
         for item in entries:
@@ -6871,57 +6887,6 @@ class CardService:
             period_start=utc_now() - timedelta(days=30 * months),
         )
         return str(journal["markdown"])
-        for item in transactions:
-            created_at = parse_datetime(item.created_at)
-            if created_at is None:
-                continue
-            grouped.setdefault(created_at.strftime("%d.%m.%y"), []).append(item)
-
-        lines = [
-            "КАССОВЫЙ ЖУРНАЛ",
-            f"ПЕРИОД: ПОСЛЕДНИЕ {months} МЕС.",
-            f"ДВИЖЕНИЙ: {len(transactions)}",
-            "",
-        ]
-        for date_label, day_items in grouped.items():
-            income_minor = sum(
-                item.amount_minor for item in day_items if item.direction == "income"
-            )
-            expense_minor = sum(
-                item.amount_minor for item in day_items if item.direction == "expense"
-            )
-            day_balance_minor = income_minor - expense_minor
-            lines.append(date_label)
-            lines.append(
-                "ИТОГО ЗА ДЕНЬ: "
-                + f"ПОСТУПЛЕНИЯ {self._cash_journal_amount_text(income_minor)} | "
-                + f"СПИСАНИЯ {self._cash_journal_amount_text(expense_minor)} | "
-                + f"БАЛАНС {self._cash_journal_amount_text(day_balance_minor, allow_sign=True)}"
-            )
-            for item in day_items:
-                created_at = parse_datetime(item.created_at)
-                time_label = created_at.strftime("%H:%M") if created_at is not None else "—"
-                cashbox_name = (
-                    cashboxes_by_id.get(item.cashbox_id).name
-                    if cashboxes_by_id.get(item.cashbox_id)
-                    else "Неизвестная касса"
-                )
-                direction_label = "ПОСТУПЛЕНИЕ" if item.direction == "income" else "СПИСАНИЕ"
-                amount_label = self._cash_journal_amount_text(
-                    item.amount_minor,
-                    allow_sign=item.direction == "income",
-                    force_negative=item.direction == "expense",
-                )
-                lines.append(
-                    f"  {time_label} | {cashbox_name} | {direction_label} | {amount_label}"
-                )
-                note = normalize_text(item.note, default="Без комментария", limit=240)
-                lines.append(f"    {note}")
-                lines.append(
-                    f"    {normalize_actor_name(item.actor_name)} | {self._cash_transaction_source_label(item)}"
-                )
-            lines.append("")
-        return "\n".join(lines).strip()
 
     def _cashbox_statistics(
         self,
@@ -8230,6 +8195,8 @@ class CardService:
             "changed_fields": changed_fields,
             "completion_state": profile.data_completion_state,
             "confidence": profile.source_confidence,
+            "before": previous_profile.to_storage_dict(),
+            "after": profile.to_storage_dict(),
         }
         if profile.source_summary:
             details["source_summary"] = profile.source_summary
@@ -8424,6 +8391,8 @@ class CardService:
             message=f"{actor_name} обновил заказ-наряд",
             card_id=card.id,
             details={
+                "before": previous_order.to_storage_dict(),
+                "after": order.to_storage_dict(),
                 "number": order.number,
                 "status": order.status,
                 "works": len(order.works),
@@ -9814,20 +9783,23 @@ class CardService:
         was_ready_before = before_column == ready_column_id
 
         if is_ready_after:
-            changed = self._set_ready_card_tag(
-                card, events, actor_name, source, enabled=True
-            ) or changed
+            changed = (
+                self._set_ready_card_tag(card, events, actor_name, source, enabled=True) or changed
+            )
             if self._card_has_repair_order(card):
                 if card.repair_order.status != REPAIR_ORDER_STATUS_CLOSED:
-                    changed = self._set_repair_order_status_internal(
-                        card,
-                        cards,
-                        REPAIR_ORDER_STATUS_READY,
-                        events,
-                        actor_name,
-                        source,
-                        bundle,
-                    ) or changed
+                    changed = (
+                        self._set_repair_order_status_internal(
+                            card,
+                            cards,
+                            REPAIR_ORDER_STATUS_READY,
+                            events,
+                            actor_name,
+                            source,
+                            bundle,
+                        )
+                        or changed
+                    )
             else:
                 warnings.append(
                     {
@@ -9836,22 +9808,25 @@ class CardService:
                     }
                 )
         elif was_ready_before:
-            changed = self._set_ready_card_tag(
-                card, events, actor_name, source, enabled=False
-            ) or changed
+            changed = (
+                self._set_ready_card_tag(card, events, actor_name, source, enabled=False) or changed
+            )
             if (
                 self._card_has_repair_order(card)
                 and card.repair_order.status == REPAIR_ORDER_STATUS_READY
             ):
-                changed = self._set_repair_order_status_internal(
-                    card,
-                    cards,
-                    REPAIR_ORDER_STATUS_OPEN,
-                    events,
-                    actor_name,
-                    source,
-                    bundle,
-                ) or changed
+                changed = (
+                    self._set_repair_order_status_internal(
+                        card,
+                        cards,
+                        REPAIR_ORDER_STATUS_OPEN,
+                        events,
+                        actor_name,
+                        source,
+                        bundle,
+                    )
+                    or changed
+                )
         return changed, warnings
 
     def _set_ready_card_tag(
@@ -10002,9 +9977,7 @@ class CardService:
             current_value = normalize_text(
                 getattr(card.repair_order, field_name, ""), default="", limit=160
             )
-            suggested_value = normalize_text(
-                suggestions.get(field_name, ""), default="", limit=160
-            )
+            suggested_value = normalize_text(suggestions.get(field_name, ""), default="", limit=160)
             if current_value or not suggested_value:
                 continue
             setattr(card.repair_order, field_name, suggested_value)

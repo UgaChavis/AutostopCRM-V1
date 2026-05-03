@@ -3376,6 +3376,124 @@ class CardServiceTests(unittest.TestCase):
         self.assertTrue(log["markdown"].startswith("# Журнал карточки"))
         self.assertEqual(log["entries"][0]["schema_version"], "card_journal.entry.v1")
 
+    def test_get_card_log_exposes_full_before_after_changes(self) -> None:
+        created = self.service.create_card(
+            {
+                "title": "ЖУРНАЛ ИЗМЕНЕНИЙ",
+                "description": "Первая строка\nВторая строка с важной информацией",
+                "deadline": {"hours": 2},
+                "actor_name": "МАСТЕР",
+                "source": "api",
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "description": "Новая строка\nВторая строка заменена",
+                "actor_name": "ПРИЁМЩИК",
+                "source": "ui",
+            }
+        )
+
+        log = self.service.get_card_log({"card_id": card_id})
+        entry = next(item for item in log["entries"] if item["action"] == "description_changed")
+
+        self.assertEqual(entry["icon"], "📝")
+        self.assertEqual(entry["action_label"], "Изменено описание")
+        self.assertEqual(entry["source_label"], "интерфейс")
+        self.assertEqual(entry["change_count"], 1)
+        self.assertFalse(entry["has_deletion"])
+        self.assertEqual(len(entry["changes"]), 1)
+        change = entry["changes"][0]
+        self.assertEqual(change["field"], "description")
+        self.assertEqual(change["label"], "Описание")
+        self.assertEqual(change["before"], "Первая строка\nВторая строка с важной информацией")
+        self.assertEqual(change["after"], "Новая строка\nВторая строка заменена")
+        self.assertIn("📝", log["markdown"])
+        self.assertIn("Было:", log["markdown"])
+        self.assertIn("Стало:", log["markdown"])
+        self.assertIn("Первая строка", log["markdown"])
+        self.assertIn("Вторая строка с важной информацией", log["markdown"])
+
+    def test_get_card_log_marks_cleared_fields_as_deletions(self) -> None:
+        created = self.service.create_card(
+            {
+                "title": "ЖУРНАЛ УДАЛЕНИЯ",
+                "description": "Текст, который нельзя потерять",
+                "deadline": {"hours": 2},
+                "actor_name": "МАСТЕР",
+                "source": "api",
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "description": "",
+                "actor_name": "GPT",
+                "source": "mcp",
+            }
+        )
+
+        log = self.service.get_card_log({"card_id": card_id})
+        entry = next(item for item in log["entries"] if item["action"] == "description_changed")
+
+        self.assertTrue(entry["has_deletion"])
+        self.assertEqual(entry["source_label"], "MCP/GPT")
+        self.assertEqual(entry["changes"][0]["kind"], "removed")
+        self.assertEqual(entry["changes"][0]["before"], "Текст, который нельзя потерять")
+        self.assertEqual(entry["changes"][0]["after"], "")
+        self.assertIn("⚠️ Очищено поле", log["markdown"])
+        self.assertIn("Текст, который нельзя потерять", log["text"])
+
+    def test_repair_order_updates_keep_previous_snapshot_in_card_log(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "TOYOTA CAMRY",
+                "title": "ЗАКАЗ-НАРЯД ЖУРНАЛ",
+                "description": "Проверка заказ-наряда",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Иван",
+                    "reason": "Первичная причина",
+                    "works": [{"name": "Диагностика", "qty": "1", "price": "1000"}],
+                },
+                "actor_name": "МАСТЕР",
+                "source": "api",
+            }
+        )
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Иван",
+                    "reason": "Причина изменена",
+                    "works": [],
+                },
+                "actor_name": "МАСТЕР",
+                "source": "api",
+            }
+        )
+
+        log = self.service.get_card_log({"card_id": card_id})
+        entry = next(item for item in log["entries"] if item["action"] == "repair_order_updated")
+        repair_order_change = next(
+            change for change in entry["changes"] if change["field"] == "repair_order"
+        )
+
+        self.assertEqual(repair_order_change["label"], "Заказ-наряд")
+        self.assertIn("Первичная причина", repair_order_change["before"])
+        self.assertIn("Диагностика", repair_order_change["before"])
+        self.assertIn("Причина изменена", repair_order_change["after"])
+        self.assertIn("Диагностика", log["markdown"])
+
     def test_search_cards_skips_event_count_build_when_no_matches(self) -> None:
         self.service.create_card(
             {

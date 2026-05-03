@@ -1179,12 +1179,18 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 log = await session.call_tool("get_card_log", {"card_id": card_id, "limit": 2})
                 self.assertTrue(log.structuredContent["ok"])
                 self.assertEqual(log.structuredContent["data"]["events"][0]["source"], "mcp")
-                self.assertEqual(log.structuredContent["data"]["meta"]["schema_version"], "card_journal.v1")
+                self.assertEqual(
+                    log.structuredContent["data"]["meta"]["schema_version"], "card_journal.v1"
+                )
                 self.assertEqual(log.structuredContent["data"]["meta"]["limit"], 2)
                 self.assertEqual(log.structuredContent["data"]["meta"]["response_mode"], "audit")
                 self.assertIn("markdown", log.structuredContent["data"])
                 self.assertIn("text", log.structuredContent["data"])
                 self.assertIn("entries", log.structuredContent["data"])
+                self.assertIn("icon", log.structuredContent["data"]["entries"][0])
+                self.assertIn("action_label", log.structuredContent["data"]["entries"][0])
+                self.assertIn("source_label", log.structuredContent["data"]["entries"][0])
+                self.assertIn("changes", log.structuredContent["data"]["entries"][0])
 
                 overdue = await session.call_tool("list_overdue_cards", {})
                 self.assertTrue(overdue.structuredContent["ok"])

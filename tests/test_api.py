@@ -3228,6 +3228,10 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("days", log["data"])
         self.assertIn("markdown", log["data"])
         self.assertIn("text", log["data"])
+        self.assertIn("icon", log["data"]["entries"][0])
+        self.assertIn("action_label", log["data"]["entries"][0])
+        self.assertIn("source_label", log["data"]["entries"][0])
+        self.assertIn("changes", log["data"]["entries"][0])
         self.assertTrue(log["data"]["text"].startswith("ЖУРНАЛ КАРТОЧКИ"))
 
         status, archived = self.request("/api/archive_card", {"card_id": card_id})
