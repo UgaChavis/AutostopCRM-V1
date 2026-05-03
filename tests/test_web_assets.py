@@ -778,10 +778,8 @@ class WebAssetsTests(unittest.TestCase):
             "(group.title ? '<div class=\"vehicle-group__title\">' + escapeHtml(group.title) + '</div>' : '')",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn(
-            "if (profile.mileage) summaryLines.push('Пробег: ' + profile.mileage);",
-            BOARD_WEB_APP_HTML,
-        )
+        self.assertIn("const summaryLines = [];", BOARD_WEB_APP_HTML)
+        self.assertNotIn("summaryLines.push('Пробег: ' + profile.mileage)", BOARD_WEB_APP_HTML)
         self.assertNotIn("const display = vehicleDisplayFromProfile(profile);", BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.vehiclePanelSummary.style.display = summaryLines.length ? '' : 'none';",
@@ -1067,6 +1065,20 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "document.addEventListener('pointerout', handleCardSeenPointerOut);", BOARD_WEB_APP_HTML
         )
+
+    def test_web_assets_do_not_ship_dead_legacy_shadow_helpers(self) -> None:
+        stale_helpers = [
+            "legacyRenderRepairOrderRowsExpandedShadow",
+            "legacyRepairOrdersMetaTextExpandedShadow",
+            "legacySaveCardShadow",
+            "legacyRefreshVehiclePanelShadow",
+            "legacyCardHtmlBase",
+            "legacyRenderCardHtmlBase",
+            "legacyCardHtmlShadow",
+            "legacyRenderCardHtmlShadow",
+        ]
+        for helper_name in stale_helpers:
+            self.assertNotIn(helper_name, BOARD_WEB_APP_HTML)
 
     def test_updated_cards_expose_yellow_badge_and_hover_seen_flow(self) -> None:
         self.assertIn(".card__updated-badge {", BOARD_WEB_APP_HTML)

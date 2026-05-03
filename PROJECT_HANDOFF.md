@@ -72,11 +72,11 @@ Current alignment rule:
 Last verified sync snapshot:
 
 - date: `2026-05-03`
-- local HEAD before this audit pass: `fae732b`
-- GitHub `origin/autostopcrm-v1` before this audit pass: `fae732b`
-- production HEAD before this audit pass: `fae732b`
+- local HEAD: `061cda8`
+- GitHub `origin/autostopcrm-v1`: `061cda8`
+- production HEAD: `061cda8`
 - production working tree had one untracked file during verification: `telegram-ai.env`
-- commit message: `Fix board startup newline in journal JS`
+- commit message: `Speed up updated card badge clearing`
 
 ## 3. Runtime Architecture
 
@@ -237,10 +237,16 @@ Latest completed stabilization wave:
 - shared Files icon placement was stabilized around a non-overlapping grid, persisted icon positions, and drag movement
 - card journal display is intentionally minimal: it keeps previous and new text visible as `до:` / `после:` so deleted text can be recovered from the journal
 - hidden AI-managed card board summaries were added: API/MCP/Telegram can write a five-line `board_summary`, board cards show it before raw description text, and normal card edits mark the summary stale for agent refresh
+- updated-card badges now clear optimistically in the browser on hover/open, while the existing API path still persists the seen state
 - generated inline browser JavaScript is now extracted from `BOARD_WEB_APP_HTML` and checked with Node syntax validation through `scripts/check_web_assets_js.py`
 
 Most recent important commits in the current line:
 
+- `061cda8` `Speed up updated card badge clearing`
+- `43ce413` `Add AI card board summaries`
+- `0ab779b` `Refine card journal with full before-after history`
+- `82d1f3e` `Audit docs and harden browser asset checks`
+- `fae732b` `Fix board startup newline in journal JS`
 - `c8e081a` `Fix repeated client import matching`
 - `1ab93bf` `Add client vehicle import support`
 - `18e1326` `Consolidate MCP docs and remove stale guides`
@@ -282,8 +288,9 @@ At the current verification baseline, production reported:
 - `autostopcrm` container is healthy
 - no separate `autostopcrm-agent` container is expected anymore
 - `autostopcrm-telegram-ai` is expected when Telegram AI is enabled; it opens no public ports
-- production repo HEAD matched local and GitHub on `fae732b` before this audit pass
-- public MCP is expected to return `75` tools with optional manager memory tools available; isolated local CRM runtime is expected to return `70` base tools after the hidden board-summary command
+- production repo HEAD matched local and GitHub on `061cda8`
+- public MCP returned `75` tools
+- public anonymous write protection returned `401 unauthorized`
 
 Operational reality:
 
@@ -314,10 +321,11 @@ Current known verification baseline:
 - `scripts/doctor.ps1` must pass before release
 - `scripts/run_checks.ps1` must pass, including generated browser-JS syntax validation
 - `python -m unittest discover -s tests -v` must pass before deploy
-- 2026-05-03 board-summary pass: `516` unittest tests passed locally after adding `set_card_board_summary`
+- 2026-05-03 latest full local pass: `518` unittest tests passed after the dead legacy web-helper cleanup
 - `python scripts/audit_localization.py` must pass when UI/docs text changed
 - isolated browser smoke on 2026-05-03 loaded the board, opened topbar modules, opened a card journal, and reported no console errors or failed requests
-- latest measured isolated smoke before documentation cleanup: board load about `2460 ms`, HTML about `1064361` bytes, compact snapshot about `66942` bytes
+- pre-cleanup public smoke on 2026-05-03 at `061cda8`: root HTML `200 OK`, about `1007658` bytes in `839 ms`; compact no-archive board snapshot about `267838` bytes in `914 ms`
+- local generated HTML after dead legacy web-helper cleanup: about `998902` bytes before deploy
 
 Main test areas:
 

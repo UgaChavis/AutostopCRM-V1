@@ -16949,10 +16949,6 @@ BOARD_WEB_APP_HTML = "".join(
         : '<div class="log-row__meta">АРХИВ ПУСТ.</div>';
     }
 
-    function legacyRenderRepairOrderRowsExpandedShadow(items) {
-      return items.map((item) => '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Открыть заказ-наряд"><div class="repair-orders-row__number">№ ' + escapeHtml(item.number || '-') + '</div><div class="repair-orders-row__vehicle" title="' + escapeHtml(item.vehicle || '-') + '">' + escapeHtml(item.vehicle || 'Авто не указано') + '</div><div class="repair-orders-row__title" title="' + escapeHtml(item.heading || 'Заказ-наряд') + '">' + escapeHtml(item.heading || 'Заказ-наряд') + '</div></div>').join('');
-    }
-
     function renderRepairOrders(data) {
       const items = data?.repair_orders || [];
         const meta = data?.meta || {};
@@ -16984,12 +16980,6 @@ function renderCompactArchiveRows(cards) {
         const summary = compactDescription.length > 180 ? compactDescription.slice(0, 177) + '...' : compactDescription;
         return '<div class="archive-row archive-row--compact"><div class="archive-row__main"><div class="archive-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div><div class="archive-row__summary" title="' + escapeHtml(compactDescription || 'Описание не указано') + '">' + escapeHtml(summary || 'Описание не указано') + '</div></div><div class="archive-row__side"><div class="archive-row__meta">АРХИВ: ' + escapeHtml(formatDate(card.updated_at)) + '</div><button class="btn" data-restore-card="' + escapeHtml(card.id) + '">ВЕРНУТЬ</button></div></div>';
       }).join('');
-    }
-
-    function legacyRepairOrdersMetaTextExpandedShadow(items, meta) {
-      return 'ПОКАЗАНО: ' + items.length +
-        ' | ВСЕГО: ' + (meta.total ?? items.length) +
-        ' | СПИСОК: НОМЕР / МАРКА / ЗАГОЛОВОК';
     }
 
     function gptWallMetaText(meta) {
@@ -17995,22 +17985,6 @@ function renderCompactArchiveRows(cards) {
     function handleSnapshotVisibilityChange() {
       startSnapshotPolling();
       if (!document.hidden) refreshSnapshot(false);
-    }
-
-    async function legacySaveCardShadow() {
-      const payload = currentCardPayload();
-      if (!payload.title) return setStatus('УКАЖИ ЗАГОЛОВОК КАРТОЧКИ.', true);
-      try {
-        if (state.editingId) {
-          await api('/api/update_card', { method: 'POST', body: { card_id: state.editingId, ...payload } });
-        } else {
-          await api('/api/create_card', { method: 'POST', body: payload });
-        }
-        closeCardModal();
-        await refreshSnapshot(true);
-      } catch (error) {
-        setStatus(error.message, true);
-      }
     }
 
     async function loadLogs(cardId) {
@@ -20575,19 +20549,6 @@ function renderCompactArchiveRows(cards) {
       return String(card?.board_summary || card?.description_preview || card?.description || 'Описание не указано');
     }
 
-    function legacyRefreshVehiclePanelShadow() {
-      const profile = cloneVehicleProfile(state.vehicleProfileDraft || emptyVehicleProfile());
-      const summaryLines = [];
-      if (profile.mileage) summaryLines.push('Пробег: ' + profile.mileage);
-      els.vehiclePanelSummary.textContent = summaryLines.join('\\n');
-      els.vehiclePanelSummary.style.display = summaryLines.length ? '' : 'none';
-
-      const vinInput = getVehicleFieldInput('vin');
-      if (vinInput) vinInput.classList.toggle('vehicle-suspect', vinLooksSuspicious(profile.vin));
-
-      if (!state.vehicleAutofillResult) renderVehicleAutofillStatus(defaultVehicleStatusText(profile), Boolean(profile?.warnings?.length || vinLooksSuspicious(profile.vin)));
-    }
-
     cardUnreadBadgeHtml = function(card) {
       if (card?.is_unread) {
         return '<div class="card__unread-badge" title="Не прочитано" aria-label="Не прочитано">NEW</div>';
@@ -20610,51 +20571,6 @@ function renderCompactArchiveRows(cards) {
       const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
       return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-updated-unseen="' + (card.has_unseen_update ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + badgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(boardCardDescription(card)) + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
     };
-
-    function legacyCardHtmlBase(card) {
-      const previewTags = (card.tags || []).slice(0, CARD_TAG_LIMIT);
-      const extraTags = (card.tags || []).length - previewTags.length;
-      const tagsHtml = previewTags.length
-        ? previewTags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
-        : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
-      const headingHtml = buildCardHeadingHtml(card);
-      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
-    }
-
-    function legacyRenderCardHtmlBase(card) {
-      const normalizedTags = normalizeDraftTags(card.tag_items || card.tags || []);
-      const previewTags = normalizedTags.slice(0, CARD_TAG_LIMIT);
-      const extraTags = normalizedTags.length - previewTags.length;
-      const tagsHtml = previewTags.length
-        ? previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
-        : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
-      const headingHtml = buildCardHeadingHtml(card);
-      const unreadBadgeHtml = cardUnreadBadgeHtml(card);
-      const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + unreadBadgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
-    }
-
-    function legacyCardHtmlShadow(card) {
-      const previewTags = (card.tags || []).slice(0, CARD_TAG_LIMIT);
-      const extraTags = (card.tags || []).length - previewTags.length;
-      const tagsHtml = previewTags.length
-        ? previewTags.map((tag) => '<span class="tag">' + escapeHtml(tag) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
-        : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
-      const headingHtml = buildCardHeadingHtml(card);
-      return '<article class="card" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? 'true' : 'false') + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
-    }
-
-    function legacyRenderCardHtmlShadow(card) {
-      const normalizedTags = normalizeDraftTags(card.tag_items || card.tags || []);
-      const previewTags = normalizedTags.slice(0, CARD_TAG_LIMIT);
-      const extraTags = normalizedTags.length - previewTags.length;
-      const tagsHtml = previewTags.length
-        ? previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '')
-        : '<span class="tag tag--muted">БЕЗ МЕТОК</span>';
-      const headingHtml = buildCardHeadingHtml(card);
-      const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + headingHtml + '<div class="card__desc">' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="card__footer"><div class="card__signal"><span class="card__signal-label"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></span><span class="card__signal-value">' + durationToMarkup(card.remaining_seconds, false) + '</span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
-    }
 
     function refreshVehiclePanel() {
       const profile = cloneVehicleProfile(state.vehicleProfileDraft || emptyVehicleProfile());

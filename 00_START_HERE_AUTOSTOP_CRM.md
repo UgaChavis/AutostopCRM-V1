@@ -100,15 +100,18 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - shared Files now supports right-click paste from copied Windows Explorer files through a local clipboard backend fallback, plus the existing browser paste and drag-and-drop paths
 - shared Files icon placement was stabilized around a grid with persisted positions and drag movement
 - card journal UI was made minimal and recoverable: changes expose `до:` and `после:` text instead of hiding previous content
+- updated-card badges now clear optimistically on hover/open so cards with `ОБНОВЛЕНО` do not wait on the API response before becoming clickable-feeling again
+- hidden AI-managed card board summaries are available through API/MCP/Telegram and are shown on board cards before raw description text
 - generated inline browser JavaScript is now checked with `scripts/check_web_assets_js.py` and through `scripts/run_checks.ps1`
 
 ## Current Verification Baseline
 
 - latest local/GitHub/production synced commit must always be verified with `git rev-parse --short HEAD`
-- deep-audit baseline before this pass, verified on 2026-05-03: local, GitHub and production were aligned at `fae732b`
-- production site was `200 OK`, Docker `autostopcrm` was healthy, and `autostopcrm-telegram-ai` was running at that baseline
-- production MCP strict smoke returned `74` tools when the optional manager memory tools were available
-- isolated local MCP smoke returned the base CRM inventory of `69` tools
+- latest verified sync on 2026-05-03: local, GitHub, and production were aligned at `061cda8`
+- production site returned `200 OK`, Docker `autostopcrm` was healthy, and `autostopcrm-telegram-ai` was running at that baseline
+- production MCP strict smoke returned `75` tools
+- public anonymous write protection returned `401 unauthorized`
+- latest local full unit discovery in this line ran `518` tests successfully
 - generated browser JS syntax check is part of `scripts/run_checks.ps1`
 - this deployment path covers the CRM repo at `/opt/autostopcrm` and its optional in-repo Telegram AI worker; VPN helpers are separate deploy targets
 
