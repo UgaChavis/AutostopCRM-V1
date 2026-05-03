@@ -107,7 +107,7 @@ The older lower-right card enrichment button remains compatibility behavior, but
 ## Current Verification Baseline
 
 - latest local/GitHub/production synced commit must always be verified with `git rev-parse --short HEAD`
-- latest verified sync on 2026-05-03: local, GitHub, and production were aligned at `2c7c544`
+- latest verified post-cleanup sync on 2026-05-03: local, GitHub, and production were aligned; verify the exact current HEAD with `git rev-parse --short HEAD`
 - production site returned `200 OK`, Docker `autostopcrm` was healthy, and `autostopcrm-telegram-ai` was running at that baseline
 - production MCP strict smoke returned `75` tools
 - public anonymous write protection returned `401 unauthorized`

@@ -72,11 +72,9 @@ Current alignment rule:
 Last verified sync snapshot:
 
 - date: `2026-05-03`
-- local HEAD: `2c7c544`
-- GitHub `origin/autostopcrm-v1`: `2c7c544`
-- production HEAD: `2c7c544`
+- local HEAD, GitHub `origin/autostopcrm-v1`, and production HEAD were verified aligned after the dead-helper cleanup; verify the exact current commit with the runbook commands
 - production working tree had one untracked file during verification: `telegram-ai.env`
-- commit message: `Remove dead web helpers and refresh docs`
+- application cleanup commit: `2c7c544` `Remove dead web helpers and refresh docs`
 
 ## 3. Runtime Architecture
 
@@ -289,7 +287,7 @@ At the current verification baseline, production reported:
 - `autostopcrm` container is healthy
 - no separate `autostopcrm-agent` container is expected anymore
 - `autostopcrm-telegram-ai` is expected when Telegram AI is enabled; it opens no public ports
-- production repo HEAD matched local and GitHub on `2c7c544`
+- production repo HEAD matched local and GitHub during the post-cleanup deploy check; verify the exact current commit from command output
 - public MCP returned `75` tools
 - public anonymous write protection returned `401 unauthorized`
 
@@ -325,7 +323,7 @@ Current known verification baseline:
 - 2026-05-03 latest full local pass: `518` unittest tests passed after the dead legacy web-helper cleanup
 - `python scripts/audit_localization.py` must pass when UI/docs text changed
 - isolated browser smoke on 2026-05-03 loaded the board, opened topbar modules, opened a card journal, and reported no console errors or failed requests
-- post-cleanup public smoke on 2026-05-03 at `2c7c544`: root HTML `200 OK`, about `998902` bytes in `869 ms`; compact no-archive board snapshot about `269666` bytes in `664 ms`
+- post-cleanup public smoke on 2026-05-03: root HTML `200 OK`, about `998902` bytes in `869 ms`; compact no-archive board snapshot about `269666` bytes in `664 ms`
 
 Main test areas:
 
