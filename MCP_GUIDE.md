@@ -58,7 +58,9 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 
 ## Доступные MCP tools
 
-Базовый CRM runtime-tool inventory после добавления модуля «Файлы»: `69` tools. Если подключен `AutostopManager`, в том же endpoint дополнительно доступны `5` memory-tools.
+Базовый CRM runtime-tool inventory после добавления модуля «Файлы»: `69` tools. Если подключен `AutostopManager`, в том же endpoint дополнительно доступны `5` memory-tools. Production smoke 2026-05-03 видел `74` tools именно из-за этой связки.
+
+Полный статический справочник команд больше не ведётся отдельным файлом: он быстро устаревает. Источник правды — `src/minimal_kanban/mcp/server.py`, live `tools/list`, этот guide и MCP-тесты.
 
 Для больших клиентских справочников не тянуть лишние данные:
 
@@ -400,7 +402,7 @@ Authorization: Bearer ваш_секрет
 - прямой интеграции через Responses API
 - собственных клиентов
 
-Для публичного подключения в ChatGPT workspace OpenAI рекомендует OAuth и dynamic client registration. Структура проекта уже подготовлена под следующий шаг, но полноценный OAuth provider в этом этапе ещё не добавлен.
+Для публичного подключения в ChatGPT workspace используется встроенный OAuth/dynamic client registration слой, если публичный MCP endpoint работает в bearer-token режиме. Legacy bearer token остаётся полезным для Responses API, локальной разработки и собственных клиентов.
 
 ## Как тестировать MCP локально
 

@@ -2,9 +2,9 @@
 
 This is the primary developer handoff document for branch `autostopcrm-v1`.
 
-Use it as the operational overview after reading `00_START_HERE_AUTOSTOP_CRM.md` and `MASTER-PLAN.md`.
+Use it as the operational overview after reading `00_START_HERE_AUTOSTOP_CRM.md`.
 
-Supplement it with `docs/OPERATIONS_RUNBOOK.md` and `docs/CODEX_WORKFLOW.md` for the practical release path.
+Supplement it with `docs/OPERATIONS_RUNBOOK.md` for the practical release path.
 
 It should answer four questions fast:
 
@@ -71,12 +71,12 @@ Current alignment rule:
 
 Last verified sync snapshot:
 
-- date: `2026-05-02`
-- local HEAD: `fdb6e5b`
-- GitHub `origin/autostopcrm-v1`: `fdb6e5b`
-- production HEAD: `fdb6e5b`
+- date: `2026-05-03`
+- local HEAD before this audit pass: `fae732b`
+- GitHub `origin/autostopcrm-v1` before this audit pass: `fae732b`
+- production HEAD before this audit pass: `fae732b`
 - production working tree had one untracked file during verification: `telegram-ai.env`
-- commit message: `Harden CRM diagnostics and compact snapshot`
+- commit message: `Fix board startup newline in journal JS`
 
 ## 3. Runtime Architecture
 
@@ -234,6 +234,9 @@ Latest completed stabilization wave:
 - the board header and cards were compacted for smaller monitors: rare module buttons sit on the left, primary workflow buttons stay on the right, button/card padding is tighter, and the card signal row shares one line with tags
 - shared Files now supports right-click paste from files copied in Windows Explorer through the local API clipboard backend fallback; browser clipboard paste and drag-and-drop upload remain available
 - clients module audit fixed the connection-card allowed tool list, direct API nested `client`/`patch` payloads, and `+7`/`8` phone matching for client suggestions/history
+- shared Files icon placement was stabilized around a non-overlapping grid, persisted icon positions, and drag movement
+- card journal display is intentionally minimal: it keeps previous and new text visible as `до:` / `после:` so deleted text can be recovered from the journal
+- generated inline browser JavaScript is now extracted from `BOARD_WEB_APP_HTML` and checked with Node syntax validation through `scripts/check_web_assets_js.py`
 
 Most recent important commits in the current line:
 
@@ -278,7 +281,8 @@ At the current verification baseline, production reported:
 - `autostopcrm` container is healthy
 - no separate `autostopcrm-agent` container is expected anymore
 - `autostopcrm-telegram-ai` is expected when Telegram AI is enabled; it opens no public ports
-- production repo HEAD matched local and GitHub on `fdb6e5b` during the latest sync check
+- production repo HEAD matched local and GitHub on `fae732b` before this audit pass
+- public MCP returned `74` tools with optional manager memory tools available; isolated local CRM runtime returned `69` base tools
 
 Operational reality:
 
@@ -288,7 +292,7 @@ Operational reality:
 
 Current post-sync rule for this pass:
 
-- local regression must be rerun after the Telegram AI changes
+- local regression must be rerun after meaningful code or UI changes
 - local/GitHub/production parity must be verified from command output, not from stale handoff notes
 - connector and MCP live checks should be repeated after deploy
 - client MCP checks should cover `list_clients`, `search_clients`, `create_client`, `update_client`, `suggest_clients_for_card`, `link_card_to_client`, `unlink_card_from_client`, `get_client`, and `get_client_stats`
@@ -305,12 +309,12 @@ Main local regression command:
 
 Current known verification baseline:
 
-- last known full-suite baseline before the latest UI/employee work was green
-- latest targeted regressions for `tests.test_service`, `tests.test_api`, and `tests.test_web_assets` are green
-- latest targeted `tests.test_service`, `tests.test_api`, `tests.test_web_assets`, `tests.test_mcp`, and `tests.test_mcp_main` runs are green
-- import smoke for `main.py` and `main_mcp.py` is green
-- latest full-suite validation on the current local shared Files clipboard/topbar pass: `510/510 OK`
-- latest portable release verifier: passed during the current `autostopcrm-v1` quality pass
+- `scripts/doctor.ps1` must pass before release
+- `scripts/run_checks.ps1` must pass, including generated browser-JS syntax validation
+- `python -m unittest discover -s tests -v` must pass before deploy
+- `python scripts/audit_localization.py` must pass when UI/docs text changed
+- isolated browser smoke on 2026-05-03 loaded the board, opened topbar modules, opened a card journal, and reported no console errors or failed requests
+- latest measured isolated smoke before documentation cleanup: board load about `2460 ms`, HTML about `1064361` bytes, compact snapshot about `66942` bytes
 
 Main test areas:
 
@@ -356,6 +360,7 @@ Known risks:
 - some docs and source files still carry older naming and historical assumptions
 - `web_assets.py` still contains inert legacy agent/chat functions that are no longer wired into the visible UX
 - board column drag currently relies on native HTML5 DnD and should be rechecked on touch-oriented setups
+- `src/minimal_kanban/web_assets.py` is still a large inline asset file; split it only as a separate measured phase with rollback verification
 
 Current cleanup policy:
 
@@ -363,18 +368,20 @@ Current cleanup policy:
 - do not rewrite production data by hand
 - prefer GitHub-first changes, then deploy
 - before server edits, always inspect `git status`
+- keep documentation canonical; duplicate workflow, memory, module-note, and stale MCP command references should be merged into `README.md`, this handoff, `docs/OPERATIONS_RUNBOOK.md`, `API_GUIDE.md`, or `MCP_GUIDE.md`
 
 ## 11. Recommended First Read Order For A New Agent
 
 1. `00_START_HERE_AUTOSTOP_CRM.md`
 2. `PROJECT_HANDOFF.md`
 3. `README.md`
-4. `AUTOSTOPCRM_FULL_INSTRUCTION.txt`
+4. `docs/OPERATIONS_RUNBOOK.md`
 5. `API_GUIDE.md`
 6. `MCP_GUIDE.md`
-7. `src/minimal_kanban/services/card_service.py`
-8. `src/minimal_kanban/mcp/server.py`
-9. `src/minimal_kanban/web_assets.py`
+7. `AUTOSTOPCRM_FULL_INSTRUCTION.txt` for server-specific legacy setup details
+8. `src/minimal_kanban/services/card_service.py`
+9. `src/minimal_kanban/mcp/server.py`
+10. `src/minimal_kanban/web_assets.py`
 
 ## 12. Maintenance Rule For This File
 

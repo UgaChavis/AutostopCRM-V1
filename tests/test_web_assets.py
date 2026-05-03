@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 from html.parser import HTMLParser
 import sys
 import unittest
@@ -51,6 +53,20 @@ class WebAssetsTests(unittest.TestCase):
     def test_inline_javascript_does_not_embed_raw_newline_in_string_literal(self) -> None:
         self.assertIn("markdown + '\\n'", BOARD_WEB_APP_HTML)
         self.assertNotIn("markdown + '\n'", BOARD_WEB_APP_HTML)
+
+    @unittest.skipUnless(
+        shutil.which("node"), "Node.js is required for generated browser JS syntax check"
+    )
+    def test_generated_inline_javascript_is_syntax_valid(self) -> None:
+        script = ROOT / "scripts" / "check_web_assets_js.py"
+        result = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_board_settings_keep_slider_but_remove_wheel_zoom_binding(self) -> None:
         self.assertIn('class="gear-button" id="boardSettingsButton"', BOARD_WEB_APP_HTML)

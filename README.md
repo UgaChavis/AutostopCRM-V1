@@ -214,6 +214,12 @@ Lint and format checks:
 .\scripts\run_checks.ps1
 ```
 
+`run_checks.ps1` also extracts generated inline JavaScript from `BOARD_WEB_APP_HTML` and validates it with `node --check`. When touching `src/minimal_kanban/web_assets.py`, the same check can be run directly:
+
+```powershell
+python scripts\check_web_assets_js.py
+```
+
 Desktop app:
 
 ```powershell
@@ -292,24 +298,27 @@ The production compose stack currently has these services:
 Read first:
 
 - [00_START_HERE_AUTOSTOP_CRM.md](00_START_HERE_AUTOSTOP_CRM.md): visible root-level onboarding file for the next developer or agent
-- [MASTER-PLAN.md](MASTER-PLAN.md): central architecture plan with module tree, internal versions, and parallel development lanes
 - [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md): current developer handoff, architecture snapshot, and latest development state
 - [README.md](README.md): current project overview
-- [docs/README.md](docs/README.md): documentation index for the operator workflow, runbook, skill guide, and project memory
 - [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md): sync, deploy, and verification workflow
-- [docs/CODEX_WORKFLOW.md](docs/CODEX_WORKFLOW.md): step-by-step improvement plan and working rules
-- [docs/EMPLOYEES_MODULE.md](docs/EMPLOYEES_MODULE.md): module-specific context for payroll and employee workflows
-- [AUTOSTOPCRM_FULL_INSTRUCTION.txt](AUTOSTOPCRM_FULL_INSTRUCTION.txt): server and deployment operations
 - [API_GUIDE.md](API_GUIDE.md): local API contract
 - [MCP_GUIDE.md](MCP_GUIDE.md): MCP architecture and runtime behavior
+
+Keep when relevant to the touched workflow:
+
+- [MASTER-PLAN.md](MASTER-PLAN.md): product/module plan; still referenced by scripts and curated AI knowledge
+- [AUTOSTOPCRM_FULL_INSTRUCTION.txt](AUTOSTOPCRM_FULL_INSTRUCTION.txt): legacy server/deployment operator notes
 - [README_SETTINGS.md](README_SETTINGS.md): integration settings model
+- [CHATGPT_CONNECTOR_SETUP.md](CHATGPT_CONNECTOR_SETUP.md): retained under this exact name because runtime/tests copy and reference it
+- [docs/PRINT_DOCUMENTS.md](docs/PRINT_DOCUMENTS.md): print module and template verification
+- [docs/TELEGRAM_AI_BOARD_MANAGER.md](docs/TELEGRAM_AI_BOARD_MANAGER.md): Telegram AI technical map
+- [docs/AUTOSTOP_TELEGRAM_AI_SETUP_RU.md](docs/AUTOSTOP_TELEGRAM_AI_SETUP_RU.md): Telegram AI setup guide
 
 Cleanup notes:
 
 - obsolete AI remake notes and GPT-agent docs were removed
 - frozen historical test reports were removed
-- duplicated documentation bundles that only mirrored the root files were removed
-- `CHATGPT_CONNECTOR_SETUP.md` remains in the root because the runtime and tests reference that exact path
+- duplicated workflow, project-memory, module-note and stale MCP command references are merged into the canonical docs above instead of kept as separate files
 
 ## Current Branch Policy
 

@@ -13,8 +13,9 @@ This is the compact operational guide for local work, GitHub sync, and productio
 ## Branch Rule
 
 - active branch: `autostopcrm-v1`
-- in this workspace the GitHub remote for that line is `autostop-v1`
+- in this workspace the GitHub remote for that line is `origin`
 - the same commit should be present locally, on GitHub, and on production before and after release work
+- do not trust pinned commit notes in documentation; verify with command output
 
 ## Standard Sync Check
 
@@ -23,8 +24,8 @@ Run these checks before serious work:
 ```powershell
 git status --short --branch
 git rev-parse --short HEAD
-git fetch autostop-v1 --prune
-git rev-parse --short autostop-v1/autostopcrm-v1
+git fetch origin autostopcrm-v1 --prune
+git rev-parse --short origin/autostopcrm-v1
 ```
 
 Then verify the server:
@@ -37,14 +38,22 @@ ssh -i C:\Users\User\.ssh\codex_autostopcrm root@vps26457.mnogoweb.in "cd /opt/a
 
 1. Use Python 3.12 for the repo venv.
 2. Run `scripts\doctor.ps1` before and after larger changes.
-3. Run `scripts\run_checks.ps1` for focused Python-file validation.
-4. Run the unit suite when the change touches shared behavior.
-5. Keep the worktree clean before deployment.
+3. Run `scripts\run_checks.ps1` for focused Python validation and generated browser-JS syntax validation.
+4. Run `python scripts\check_web_assets_js.py` directly when touching `src/minimal_kanban/web_assets.py`.
+5. Run `python -m unittest discover -s tests -v` when the change touches shared behavior.
+6. Run `python scripts\audit_localization.py` before release if UI/docs text changed.
+7. Keep the worktree clean before deployment.
+
+Local production-like connector smoke:
+
+```powershell
+python scripts\check_live_connector.py --strict --skip-public-site --skip-public-write-protection --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username admin --operator-password admin --expect-admin
+```
 
 ## Deployment Workflow
 
 1. Commit the intended change.
-2. Push to `autostop-v1/autostopcrm-v1`.
+2. Push to `origin/autostopcrm-v1`.
 3. On the server, fetch and reset to `origin/autostopcrm-v1`.
 4. Run `./deploy.sh`; by default it syncs `origin/autostopcrm-v1` before rebuilding.
 5. Confirm the smoke check passes.
@@ -113,6 +122,39 @@ The technical map is `docs/TELEGRAM_AI_BOARD_MANAGER.md`.
 - do not change secrets casually
 - do not rotate credentials without a controlled plan
 - do not rely on memory for production state; verify it
+- `telegram-ai.env` can appear as an untracked server-local environment file; do not remove it during repo sync
+
+## Production Verification
+
+From the local workstation, verify the public stack after deploy:
+
+```powershell
+python scripts\check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url https://crm.autostopcrm.ru --mcp-url https://crm.autostopcrm.ru/mcp --operator-username admin --operator-password admin --expect-admin
+```
+
+From the server, verify the container-local API path:
+
+```bash
+cd /opt/autostopcrm
+docker compose ps
+docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --mcp-url https://crm.autostopcrm.ru/mcp --operator-username admin --operator-password admin --expect-admin
+```
+
+Minimum manual UI smoke after UI changes:
+
+- board loads past `СОЕДИНЕНИЕ С ДОСКОЙ...`
+- all topbar modules open
+- card open/save and card journal remain readable
+- Files grid, upload/paste, drag, download/open and delete work
+- clients, repair orders, cashboxes and employees modals open without console errors
+- anonymous public writes remain blocked
+
+## Documentation Policy
+
+- canonical operational docs: root `README.md`, `00_START_HERE_AUTOSTOP_CRM.md`, `PROJECT_HANDOFF.md`, this runbook, `API_GUIDE.md`, `MCP_GUIDE.md`
+- keep `MASTER-PLAN.md`, `README_SETTINGS.md`, `CHATGPT_CONNECTOR_SETUP.md` and print/Telegram docs while code, scripts, or active workflows reference them
+- delete duplicate planning/memory docs after moving still-valid content into the canonical files
+- every release should prefer current command output over historical commit IDs in docs
 
 ## Useful Files
 
@@ -121,6 +163,8 @@ The technical map is `docs/TELEGRAM_AI_BOARD_MANAGER.md`.
 - `PROJECT_HANDOFF.md`
 - `README.md`
 - `AUTOSTOPCRM_FULL_INSTRUCTION.txt`
+- `API_GUIDE.md`
+- `MCP_GUIDE.md`
 - `scripts/doctor.ps1`
 - `scripts/setup_dev.ps1`
 - `scripts/run_checks.ps1`

@@ -13,7 +13,7 @@ This is the first file a new developer or agent should read in branch `autostopc
 - production server IP at last verification: `46.8.254.243`
 - production repo path: `/opt/autostopcrm`
 - operator runbook: `docs/OPERATIONS_RUNBOOK.md`
-- workflow guide: `docs/CODEX_WORKFLOW.md`
+- workflow guide: consolidated into `docs/OPERATIONS_RUNBOOK.md`
 
 ## What The Product Is
 
@@ -34,17 +34,16 @@ AutoStop CRM is an auto-workshop CRM built around:
 ## First Read Order
 
 1. `00_START_HERE_AUTOSTOP_CRM.md`
-2. `MASTER-PLAN.md`
-3. `PROJECT_HANDOFF.md`
+2. `PROJECT_HANDOFF.md`
+3. `README.md`
 4. `docs/OPERATIONS_RUNBOOK.md`
-5. `docs/CODEX_WORKFLOW.md`
-6. `README.md`
-7. `AUTOSTOPCRM_FULL_INSTRUCTION.txt`
-8. `API_GUIDE.md`
-9. `MCP_GUIDE.md`
-10. `src/minimal_kanban/services/card_service.py`
-11. `src/minimal_kanban/mcp/server.py`
-12. `src/minimal_kanban/web_assets.py`
+5. `API_GUIDE.md`
+6. `MCP_GUIDE.md`
+7. `MASTER-PLAN.md` if product direction or module ownership matters
+8. `README_SETTINGS.md`, `docs/PRINT_DOCUMENTS.md`, or Telegram docs only when touching those workflows
+9. `src/minimal_kanban/services/card_service.py`
+10. `src/minimal_kanban/mcp/server.py`
+11. `src/minimal_kanban/web_assets.py`
 
 ## Main Runtime Layers
 
@@ -99,17 +98,18 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - shared Files v1.0 is implemented locally: server folder, metadata index, 500 MB limit, API, UI, and MCP tools
 - board topbar and cards were compacted for smaller monitors: rare module buttons moved left, button/card padding reduced, and the card signal row now shares space with tags
 - shared Files now supports right-click paste from copied Windows Explorer files through a local clipboard backend fallback, plus the existing browser paste and drag-and-drop paths
+- shared Files icon placement was stabilized around a grid with persisted positions and drag movement
+- card journal UI was made minimal and recoverable: changes expose `до:` and `после:` text instead of hiding previous content
+- generated inline browser JavaScript is now checked with `scripts/check_web_assets_js.py` and through `scripts/run_checks.ps1`
 
 ## Current Verification Baseline
 
-- last known full-suite baseline before this update cycle was green
-- latest targeted local regressions for `service + api + web_assets` are green
-- latest targeted `service + api + web_assets + MCP` runs are green
-- latest full local regression after the current shared Files clipboard/topbar pass: `510/510 OK`
-- latest local/GitHub/production synced commit must be verified with `git rev-parse --short HEAD`
-- production site: `200 OK`
-- production MCP at last verification before the Files module: OK with `60` tools
-- local MCP inventory after the Files v1.0 implementation: `66` tools
+- latest local/GitHub/production synced commit must always be verified with `git rev-parse --short HEAD`
+- deep-audit baseline before this pass, verified on 2026-05-03: local, GitHub and production were aligned at `fae732b`
+- production site was `200 OK`, Docker `autostopcrm` was healthy, and `autostopcrm-telegram-ai` was running at that baseline
+- production MCP strict smoke returned `74` tools when the optional manager memory tools were available
+- isolated local MCP smoke returned the base CRM inventory of `69` tools
+- generated browser JS syntax check is part of `scripts/run_checks.ps1`
 - this deployment path covers the CRM repo at `/opt/autostopcrm` and its optional in-repo Telegram AI worker; VPN helpers are separate deploy targets
 
 ## Current Clients Module
@@ -135,10 +135,13 @@ Primary active docs kept in the repo root:
 - `API_GUIDE.md`
 - `MCP_GUIDE.md`
 - `README_SETTINGS.md`
+- `CHATGPT_CONNECTOR_SETUP.md`
+- `docs/OPERATIONS_RUNBOOK.md`
+- `docs/PRINT_DOCUMENTS.md`
 - `docs/TELEGRAM_AI_BOARD_MANAGER.md`
 - `docs/AUTOSTOP_TELEGRAM_AI_SETUP_RU.md`
 
-Obsolete root-level release docs and duplicated doc bundles were removed during the April 2026 cleanup pass.
+Duplicate workflow, memory, module-note, and stale MCP command docs should be deleted after their still-valid content is merged into the canonical files above.
 
 ## Current Risks
 

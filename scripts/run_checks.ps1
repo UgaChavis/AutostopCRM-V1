@@ -32,3 +32,6 @@ if ($targets.Count -gt 0) {
 else {
     Write-Host "No changed Python files found for ruff checks."
 }
+
+& $pythonExe (Join-Path $PSScriptRoot "check_web_assets_js.py")
+if ($LASTEXITCODE -ne 0) { throw "generated web assets JavaScript check failed." }

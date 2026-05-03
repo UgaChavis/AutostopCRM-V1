@@ -1,21 +1,20 @@
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
-import json
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from minimal_kanban.settings_models import IntegrationSettings
-from minimal_kanban.tunnel_runtime import TunnelRuntimeController
+from minimal_kanban.settings_models import IntegrationSettings  # noqa: E402
+from minimal_kanban.tunnel_runtime import TunnelRuntimeController  # noqa: E402
 
 
 class TunnelRuntimeControllerTests(unittest.TestCase):
@@ -24,11 +23,14 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
         self.logger.handlers.clear()
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
+        self.temp_dir = tempfile.TemporaryDirectory()
         self.controller = TunnelRuntimeController(logger=self.logger)
+        self.controller._state_file_path = Path(self.temp_dir.name) / "tunnel-state.json"
         self.settings = IntegrationSettings.defaults()
 
     def tearDown(self) -> None:
         self.controller.stop()
+        self.temp_dir.cleanup()
 
     def test_start_prefers_cloudflared_and_parses_log_url(self) -> None:
         process = Mock()
@@ -50,16 +52,26 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
                 return process
 
             with (
-                patch.object(self.controller, "_find_cloudflared_executable", return_value="C:\\cloudflared.exe"),
-                patch.object(self.controller, "_find_ngrok_executable", return_value="C:\\ngrok.exe"),
+                patch.object(
+                    self.controller,
+                    "_find_cloudflared_executable",
+                    return_value="C:\\cloudflared.exe",
+                ),
+                patch.object(
+                    self.controller, "_find_ngrok_executable", return_value="C:\\ngrok.exe"
+                ),
                 patch.object(self.controller, "_create_log_file_path", return_value=log_path),
-                patch("minimal_kanban.tunnel_runtime.subprocess.Popen", side_effect=fake_popen) as popen_mock,
+                patch(
+                    "minimal_kanban.tunnel_runtime.subprocess.Popen", side_effect=fake_popen
+                ) as popen_mock,
                 patch("minimal_kanban.tunnel_runtime.time.sleep", return_value=None),
             ):
                 state = self.controller.start(self.settings)
 
         self.assertTrue(state.running)
-        self.assertEqual(state.public_url, "https://acrylic-arrived-attend-delivery.trycloudflare.com")
+        self.assertEqual(
+            state.public_url, "https://acrylic-arrived-attend-delivery.trycloudflare.com"
+        )
         self.assertIn("cloudflared", state.message)
         command = popen_mock.call_args.args[0]
         self.assertEqual(command[:2], ["C:\\cloudflared.exe", "tunnel"])
@@ -96,10 +108,18 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
 
             with (
                 patch.object(self.controller, "_find_cloudflared_executable", return_value=None),
-                patch.object(self.controller, "_find_ngrok_executable", return_value="C:\\ngrok.exe"),
+                patch.object(
+                    self.controller, "_find_ngrok_executable", return_value="C:\\ngrok.exe"
+                ),
                 patch.object(self.controller, "_create_log_file_path", return_value=log_path),
-                patch("minimal_kanban.tunnel_runtime.subprocess.Popen", return_value=process) as popen_mock,
-                patch.object(self.controller, "_probe_existing_ngrok_tunnel", side_effect=["", "https://demo.ngrok-free.app"]),
+                patch(
+                    "minimal_kanban.tunnel_runtime.subprocess.Popen", return_value=process
+                ) as popen_mock,
+                patch.object(
+                    self.controller,
+                    "_probe_existing_ngrok_tunnel",
+                    side_effect=["", "https://demo.ngrok-free.app"],
+                ),
                 patch("minimal_kanban.tunnel_runtime.time.sleep", return_value=None),
             ):
                 state = self.controller.start(self.settings)

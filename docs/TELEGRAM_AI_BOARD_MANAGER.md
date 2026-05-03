@@ -20,7 +20,7 @@
 
 ## Historical checkpoint: 2026-04-28
 
-This is the point a new developer/agent should resume from:
+This is a historical checkpoint, not the current release pin:
 
 - local branch, GitHub branch, and production were aligned on `autostopcrm-v1` at `18e1326` at the time of this checkpoint
 - full local regression suite passed: `470/470 OK`
@@ -375,7 +375,7 @@ Current known green commands:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Historical results on `18e1326`:
+Historical results on `18e1326`; rerun the commands above for the current branch head:
 
 - focused Telegram AI tests: `48/48 OK`
 - full test suite: `470/470 OK`
