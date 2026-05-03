@@ -58,7 +58,7 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 
 ## Доступные MCP tools
 
-Базовый CRM runtime-tool inventory после добавления модуля «Файлы»: `69` tools. Если подключен `AutostopManager`, в том же endpoint дополнительно доступны `5` memory-tools. Production smoke 2026-05-03 видел `74` tools именно из-за этой связки.
+Базовый CRM runtime-tool inventory после добавления скрытой AI-краткой сути карточек: `70` tools. Если подключен `AutostopManager`, в том же endpoint дополнительно доступны `5` memory-tools. Production smoke после этого изменения должен видеть `75` tools именно из-за этой связки.
 
 Полный статический справочник команд больше не ведётся отдельным файлом: он быстро устаревает. Источник правды — `src/minimal_kanban/mcp/server.py`, live `tools/list`, этот guide и MCP-тесты.
 
@@ -169,6 +169,7 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 - `list_overdue_cards`
 - `create_card`
 - `update_card`
+- `set_card_board_summary`
 - `list_clients`
 - `search_clients`
 - `get_client`
@@ -188,6 +189,23 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 - `bulk_move_cards`
 - `archive_card`
 - `restore_card`
+
+### Краткая суть карточки на доске
+
+- `set_card_board_summary(card_id, summary, actor_name=None)` обновляет скрытую AI-краткую суть карточки.
+- Команда нужна, когда агент прочитал карточку через `get_card_context` / `get_card` и должен заменить техническое превью на доске понятной рабочей выжимкой.
+- Это write-action: она идет через local API и `CardService`, пишет audit/journal event `board_summary_changed`, но не меняет `title` и `description`.
+- Ограничение: максимум `5` непустых строк и `560` символов.
+- Если карточку потом изменили обычным способом, в карточке появляется `board_summary_stale=true`; агент должен прочитать актуальный контекст и вызвать `set_card_board_summary` заново.
+
+Рекомендуемый формат `summary`:
+
+```text
+Что сейчас: коротко, что происходит с машиной/задачей.
+Стадия: диагностика / согласование / ожидание / ремонт / выдача.
+Следующее действие: один понятный шаг для оператора.
+Важно: только рабочий риск или блокер, без VIN и лишних техданных.
+```
 
 ### Общие файлы
 
@@ -450,6 +468,7 @@ python -m unittest discover -s .\tests -v
 - `create_column`
 - `create_card`
 - `update_card`
+- `set_card_board_summary`
 - `move_card`
 - `set_card_indicator`
 - `archive_card`

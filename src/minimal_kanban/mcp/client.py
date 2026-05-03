@@ -679,6 +679,18 @@ class BoardApiClient:
             payload["vehicle_profile"] = vehicle_profile
         return self._request_with_identity("/api/update_card", payload, actor_name=actor_name)
 
+    def set_card_board_summary(
+        self,
+        *,
+        card_id: str,
+        summary: str,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {"card_id": card_id, "summary": summary}
+        return self._request_with_identity(
+            "/api/set_card_board_summary", payload, actor_name=actor_name
+        )
+
     def update_repair_order(
         self,
         *,

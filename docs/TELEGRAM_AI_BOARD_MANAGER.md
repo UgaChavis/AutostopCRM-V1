@@ -10,6 +10,7 @@
 - Telegram transport: long polling, без публичного webhook-порта
 - CRM write path: только через `BoardApiClient` и локальный HTTP API
 - model-failure fallback treats transient OpenAI outages and rate limits as recoverable paths
+- hidden board-summary write path: `set_card_board_summary` через тот же локальный API, без ручного UI-поля
 - audit: `/root/.minimal-kanban/telegram_ai/audit.jsonl` внутри production volume
 - state: `/root/.minimal-kanban/telegram_ai/state.json`
 - conversation memory: `/root/.minimal-kanban/telegram_ai/conversation.jsonl`
@@ -39,6 +40,7 @@ Current product goal:
 
 - Telegram AI is the active AI layer for owner-controlled CRM operations.
 - It must handle text, voice, photo, conversation follow-ups, CRM reads/writes, audit, rollback basics, and explicit internet-search commands.
+- It can maintain the hidden five-line board summary for cards so the board preview shows the current operator action instead of raw technical text.
 - Next feature direction is a composed parts-search flow: read a CRM card, extract vehicle/VIN context, perform internet search for requested parts, and optionally write a compact note/attachment back to CRM.
 
 ## Runtime flow
@@ -263,6 +265,7 @@ Write tools:
 
 - `create_card`
 - `update_card`
+- `set_card_board_summary`
 - `move_card`
 - `bulk_move_cards`
 - `archive_card`
@@ -284,6 +287,14 @@ Write tools:
 - `set_repair_order_status`
 
 All write tools require `role=owner`. There is no mandatory confirmation step for owner, but every write is verified by read-back where possible; attachment writes are verified by the card attachment list instead of forcing an immediate file-byte read.
+
+`set_card_board_summary` is the agent-facing way to update the visible board preview:
+
+- first read the card with `get_card_context` or `get_card`
+- write no more than five non-empty lines
+- focus on `что сейчас`, `стадия`, `следующее действие`, and one important blocker if needed
+- do not copy VIN, phone numbers, raw diagnostics dumps, or full descriptions into the board preview
+- the original card `description` remains the recoverable source of truth and is not overwritten
 
 ## Safety boundaries
 
@@ -409,6 +420,7 @@ Minimal rollback is implemented for the latest reversible AI tool result:
 - `create_card` -> archive created card
 - `move_card` -> move card back to the previous column
 - `update_card` / deadline / indicator -> restore main card text/profile fields from before snapshot
+- `set_card_board_summary` -> restore the previous hidden board summary
 - repair-order updates -> restore the previous repair-order snapshot where available
 - `archive_card` -> restore card through the API
 

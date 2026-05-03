@@ -646,7 +646,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("font-size: calc(13px * var(--board-scale));", BOARD_WEB_APP_HTML)
         self.assertIn("-webkit-line-clamp: 5;", BOARD_WEB_APP_HTML)
         self.assertIn("function boardCardDescription(card)", BOARD_WEB_APP_HTML)
-        self.assertIn("card?.description_preview || card?.description", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "card?.board_summary || card?.description_preview || card?.description",
+            BOARD_WEB_APP_HTML,
+        )
 
     def test_card_modal_includes_centered_work_zone_and_separate_vehicle_panel(self) -> None:
         self.assertIn('class="dialog dialog--card"', BOARD_WEB_APP_HTML)

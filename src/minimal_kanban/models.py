@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import re
 import uuid
@@ -41,6 +43,8 @@ COLUMN_LABEL_LIMIT = 40
 CARD_TITLE_LIMIT = 120
 CARD_VEHICLE_LIMIT = 60
 CARD_DESCRIPTION_LIMIT = 20000
+CARD_BOARD_SUMMARY_LIMIT = 560
+CARD_BOARD_SUMMARY_LINE_LIMIT = 5
 CARD_MANUAL_TAG_LIMIT = 3
 TAG_LIMIT = 4
 TAG_LABEL_LIMIT = 24
@@ -259,9 +263,7 @@ class ClientVehicle:
             self.vehicle, default=generated_vehicle, limit=CLIENT_FIELD_LIMIT
         )
         self.vin = normalize_text(self.vin, default="", limit=CLIENT_FIELD_LIMIT).upper()
-        self.license_plate = normalize_license_plate(
-            self.license_plate, limit=CLIENT_FIELD_LIMIT
-        )
+        self.license_plate = normalize_license_plate(self.license_plate, limit=CLIENT_FIELD_LIMIT)
         self.year = normalize_text(self.year, default="", limit=CLIENT_VEHICLE_YEAR_LIMIT)
         self.mileage = normalize_text(self.mileage, default="", limit=CLIENT_FIELD_LIMIT)
         self.body_number = normalize_text(self.body_number, default="", limit=CLIENT_FIELD_LIMIT)
@@ -1163,6 +1165,10 @@ class Card:
     updated_at: str
     deadline_timestamp: str
     deadline_total_seconds: int = DEFAULT_DEADLINE_TOTAL_SECONDS
+    board_summary: str = ""
+    board_summary_updated_at: str = ""
+    board_summary_source: str = ""
+    board_summary_card_fingerprint: str = ""
     position: int = 0
     vehicle: str = ""
     client_id: str = ""
@@ -1183,6 +1189,19 @@ class Card:
     ai_autofill_log: list[dict[str, str]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        self.board_summary = normalize_text(
+            self.board_summary, default="", limit=CARD_BOARD_SUMMARY_LIMIT
+        )
+        self.board_summary_updated_at = normalize_text(
+            self.board_summary_updated_at, default="", limit=64
+        )
+        board_summary_source = str(self.board_summary_source or "").strip().lower()
+        self.board_summary_source = (
+            board_summary_source if board_summary_source in VALID_AUDIT_SOURCES else ""
+        )
+        self.board_summary_card_fingerprint = normalize_text(
+            self.board_summary_card_fingerprint, default="", limit=128
+        )
         self.client_id = normalize_text(self.client_id, default="", limit=128)
         self.client_vehicle_id = normalize_text(self.client_vehicle_id, default="", limit=128)
         self.tags = normalize_tags(self.tags)
@@ -1309,6 +1328,37 @@ class Card:
             return False
         return seen_at < updated_at
 
+    def board_summary_content_fingerprint(self) -> str:
+        payload = {
+            "vehicle": self.vehicle,
+            "title": self.title,
+            "description": self.description,
+            "column": self.column,
+            "archived": self.archived,
+            "deadline_timestamp": self.deadline_timestamp,
+            "deadline_total_seconds": self.deadline_total_seconds,
+            "tags": self.tag_items(),
+            "vehicle_profile": self.vehicle_profile.to_storage_dict(),
+            "repair_order": self.repair_order.to_storage_dict(),
+            "attachments": [
+                {
+                    "id": attachment.id,
+                    "file_name": attachment.file_name,
+                    "removed": attachment.removed,
+                }
+                for attachment in self.attachments
+            ],
+        }
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:24]
+
+    def board_summary_stale(self) -> bool:
+        if not self.board_summary:
+            return False
+        if not self.board_summary_card_fingerprint:
+            return True
+        return self.board_summary_card_fingerprint != self.board_summary_content_fingerprint()
+
     def to_dict(
         self,
         reference_time: datetime | None = None,
@@ -1341,6 +1391,11 @@ class Card:
             "title": self.title,
             "description": self.description,
             "description_preview": description_preview,
+            "board_summary": self.board_summary,
+            "board_summary_updated_at": self.board_summary_updated_at,
+            "board_summary_source": self.board_summary_source,
+            "board_summary_card_fingerprint": self.board_summary_card_fingerprint,
+            "board_summary_stale": self.board_summary_stale(),
             "column": self.column,
             "position": self.position,
             "archived": self.archived,
@@ -1411,6 +1466,10 @@ class Card:
             "repair_order": self.repair_order.to_storage_dict(),
             "title": self.title,
             "description": self.description,
+            "board_summary": self.board_summary,
+            "board_summary_updated_at": self.board_summary_updated_at,
+            "board_summary_source": self.board_summary_source,
+            "board_summary_card_fingerprint": self.board_summary_card_fingerprint,
             "column": self.column,
             "position": self.position,
             "archived": self.archived,
@@ -1486,6 +1545,18 @@ class Card:
             ),
             description=normalize_text(
                 payload.get("description"), default="", limit=CARD_DESCRIPTION_LIMIT
+            ),
+            board_summary=normalize_text(
+                payload.get("board_summary"), default="", limit=CARD_BOARD_SUMMARY_LIMIT
+            ),
+            board_summary_updated_at=normalize_text(
+                payload.get("board_summary_updated_at"), default="", limit=64
+            ),
+            board_summary_source=normalize_text(
+                payload.get("board_summary_source"), default="", limit=24
+            ),
+            board_summary_card_fingerprint=normalize_text(
+                payload.get("board_summary_card_fingerprint"), default="", limit=128
             ),
             column=normalize_column(
                 payload.get("column"), valid_columns=valid_columns, default=default_column

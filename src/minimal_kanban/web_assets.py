@@ -20542,7 +20542,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     function boardCardDescription(card) {
-      return String(card?.description_preview || card?.description || 'Описание не указано');
+      return String(card?.board_summary || card?.description_preview || card?.description || 'Описание не указано');
     }
 
     function legacyRefreshVehiclePanelShadow() {

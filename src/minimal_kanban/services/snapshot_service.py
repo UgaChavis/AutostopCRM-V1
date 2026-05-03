@@ -37,6 +37,7 @@ CARD_JOURNAL_ACTION_LABELS = {
     "title_changed": "Изменён заголовок",
     "vehicle_changed": "Изменён автомобиль",
     "description_changed": "Изменено описание",
+    "board_summary_changed": "Обновлена краткая суть для доски",
     "signal_changed": "Изменён срок/сигнал",
     "signal_indicator_changed": "Изменён индикатор",
     "tag_added": "Добавлена метка",
@@ -57,6 +58,7 @@ CARD_JOURNAL_ACTION_ICONS = {
     "title_changed": "✏️",
     "vehicle_changed": "🚗",
     "description_changed": "📝",
+    "board_summary_changed": "🧭",
     "signal_changed": "⏰",
     "signal_indicator_changed": "🚦",
     "tag_added": "🏷️",
@@ -73,6 +75,7 @@ CARD_JOURNAL_FIELD_LABELS = {
     "vehicle": "Автомобиль",
     "title": "Заголовок",
     "description": "Описание",
+    "board_summary": "Краткая суть для доски",
     "column": "Столбец",
     "deadline": "Срок/сигнал",
     "indicator": "Индикатор",
@@ -1140,6 +1143,8 @@ class SnapshotService:
             add("title", before=details.get("before"), after=details.get("after"))
         elif action == "description_changed":
             add("description", before=details.get("before"), after=details.get("after"))
+        elif action == "board_summary_changed":
+            add("board_summary", before=details.get("before"), after=details.get("after"))
         elif action == "signal_changed":
             add(
                 "deadline",

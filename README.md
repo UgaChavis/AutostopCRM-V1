@@ -24,6 +24,7 @@ The repository still contains legacy technical names from the earlier `Minimal K
 - cashboxes, cash transactions, employees, and payroll reports
 - client-to-vehicle linking: cards can reference both `client_id` and a concrete `client_vehicle_id`
 - client vehicle management: the Clients module can add, edit, and delete a client's saved cars by model, VIN, and license plate
+- hidden AI-managed board summaries: cards can show a compact five-line operational summary on the board without exposing a manual user field
 - shared Files workspace for workshop documents with a 500 MB server-side limit
 
 ## Runtime Modes
@@ -144,6 +145,7 @@ The MCP server exposes the current AutoStop CRM board and services as tools over
 - repair-order access and updates
 - client directory search, profile, vehicle, requisites, client-vehicle upsert and card-link tools
 - shared file list/info/upload/download/delete tools
+- agent-only card board summary updates through `set_card_board_summary`
 - bounded board/card reads; automatic cleanup is intentionally not exposed as an MCP tool
 
 The exact runtime inventory is documented in [MCP_GUIDE.md](MCP_GUIDE.md). The user-facing autofill endpoints remain available in the HTTP API and UI, but they are not MCP tools.
@@ -160,6 +162,7 @@ The active server-side AI expansion is now Telegram-first:
 - explicit `найди в интернете` / `загугли` commands and the model-planned `internet_search` tool use OpenAI `web_search_preview`
 - CRM writes go through the explicit tool registry and local HTTP API
 - every write is verified by read-back
+- the worker can update the hidden card board summary through the same API path as MCP
 - every run is written to `telegram_ai/audit.jsonl`
 - compact per-chat memory is stored for follow-up commands
 

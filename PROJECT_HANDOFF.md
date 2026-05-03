@@ -236,6 +236,7 @@ Latest completed stabilization wave:
 - clients module audit fixed the connection-card allowed tool list, direct API nested `client`/`patch` payloads, and `+7`/`8` phone matching for client suggestions/history
 - shared Files icon placement was stabilized around a non-overlapping grid, persisted icon positions, and drag movement
 - card journal display is intentionally minimal: it keeps previous and new text visible as `до:` / `после:` so deleted text can be recovered from the journal
+- hidden AI-managed card board summaries were added: API/MCP/Telegram can write a five-line `board_summary`, board cards show it before raw description text, and normal card edits mark the summary stale for agent refresh
 - generated inline browser JavaScript is now extracted from `BOARD_WEB_APP_HTML` and checked with Node syntax validation through `scripts/check_web_assets_js.py`
 
 Most recent important commits in the current line:
@@ -282,7 +283,7 @@ At the current verification baseline, production reported:
 - no separate `autostopcrm-agent` container is expected anymore
 - `autostopcrm-telegram-ai` is expected when Telegram AI is enabled; it opens no public ports
 - production repo HEAD matched local and GitHub on `fae732b` before this audit pass
-- public MCP returned `74` tools with optional manager memory tools available; isolated local CRM runtime returned `69` base tools
+- public MCP is expected to return `75` tools with optional manager memory tools available; isolated local CRM runtime is expected to return `70` base tools after the hidden board-summary command
 
 Operational reality:
 
@@ -295,6 +296,7 @@ Current post-sync rule for this pass:
 - local regression must be rerun after meaningful code or UI changes
 - local/GitHub/production parity must be verified from command output, not from stale handoff notes
 - connector and MCP live checks should be repeated after deploy
+- board-summary checks should cover `set_card_board_summary`, `board_summary_stale`, card journal entry `board_summary_changed`, and board preview fallback to `description_preview`
 - client MCP checks should cover `list_clients`, `search_clients`, `create_client`, `update_client`, `suggest_clients_for_card`, `link_card_to_client`, `unlink_card_from_client`, `get_client`, and `get_client_stats`
 - the active API surface includes `/api/agent_status`, `/api/agent_tasks`, `/api/agent_actions`, `/api/agent_scheduled_tasks`, and `/api/agent_enqueue_task`
 - `deploy.sh` must sync `autostopcrm-v1`
@@ -312,6 +314,7 @@ Current known verification baseline:
 - `scripts/doctor.ps1` must pass before release
 - `scripts/run_checks.ps1` must pass, including generated browser-JS syntax validation
 - `python -m unittest discover -s tests -v` must pass before deploy
+- 2026-05-03 board-summary pass: `516` unittest tests passed locally after adding `set_card_board_summary`
 - `python scripts/audit_localization.py` must pass when UI/docs text changed
 - isolated browser smoke on 2026-05-03 loaded the board, opened topbar modules, opened a card journal, and reported no console errors or failed requests
 - latest measured isolated smoke before documentation cleanup: board load about `2460 ms`, HTML about `1064361` bytes, compact snapshot about `66942` bytes

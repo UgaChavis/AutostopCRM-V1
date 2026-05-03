@@ -2373,6 +2373,30 @@ def create_mcp_server(
         )
 
     @server.tool(
+        name="set_card_board_summary",
+        description=_scoped_description(
+            "Set the hidden AI-managed board summary for one card. This is the short text shown on the board card instead of raw description preview. "
+            "Use only after reading get_card_context. Keep it Russian, human-readable, max five non-empty lines, focused on what should happen next. "
+            "Do not include phone numbers, VIN, private client data, or long technical dumps."
+        ),
+        annotations=_write_tool_annotations("Set Card Board Summary"),
+        structured_output=True,
+    )
+    def set_card_board_summary(
+        card_id: str,
+        summary: str,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "set_card_board_summary",
+            lambda: board_api.set_card_board_summary(
+                card_id=card_id,
+                summary=summary,
+                actor_name=actor_name,
+            ),
+        )
+
+    @server.tool(
         name="update_repair_order",
         description=_scoped_description(
             "Patch the structured repair order of one card on the current Minimal Kanban board. Pass a JSON object with only the fields to change; unspecified fields remain unchanged."

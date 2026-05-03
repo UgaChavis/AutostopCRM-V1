@@ -3283,6 +3283,97 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("[VIN]", compact_card["description"])
         self.assertEqual(compact_card["description"], compact_card["description_preview"])
 
+    def test_set_card_board_summary_updates_hidden_board_preview_and_staleness(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "AUDI A4",
+                "title": "PCV И КОЛОДКИ",
+                "description": "VIN: WAUZZZ8K9DA123456\nДвигатель: EA888\nТехнический текст\nПроверить PCV",
+                "deadline": {"hours": 2},
+                "actor_name": "МАСТЕР",
+                "source": "api",
+            }
+        )
+        card_id = created["card"]["id"]
+        summary = "\n".join(
+            [
+                "Что сейчас: проверить жалобу по PCV и тормозам.",
+                "Стадия: диагностика, нужна проверка причины.",
+                "Следующее действие: подтвердить неисправность и согласовать работы.",
+                "Важно: не показывать VIN и лишние техданные на доске.",
+            ]
+        )
+
+        updated = self.service.set_card_board_summary(
+            {
+                "card_id": card_id,
+                "summary": summary,
+                "actor_name": "AI",
+                "source": "mcp",
+            }
+        )
+        card = updated["card"]
+
+        self.assertEqual(card["board_summary"], summary)
+        self.assertFalse(card["board_summary_stale"])
+        self.assertEqual(card["board_summary_source"], "mcp")
+        self.assertTrue(card["board_summary_updated_at"])
+        self.assertTrue(card["board_summary_card_fingerprint"])
+        self.assertEqual(card["description"], created["card"]["description"])
+
+        compact_card = next(
+            card
+            for card in self.service.get_cards({"compact": True})["cards"]
+            if card["id"] == card_id
+        )
+        self.assertEqual(compact_card["board_summary"], summary)
+        self.assertFalse(compact_card["board_summary_stale"])
+        self.assertIn("VIN", compact_card["description"])
+
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "description": "Обновили внутреннее описание после summary",
+                "actor_name": "МАСТЕР",
+                "source": "api",
+            }
+        )
+        stale_card = self.service.get_card({"card_id": card_id})["card"]
+        self.assertEqual(stale_card["board_summary"], summary)
+        self.assertTrue(stale_card["board_summary_stale"])
+
+        refreshed = self.service.set_card_board_summary(
+            {
+                "card_id": card_id,
+                "summary": summary,
+                "actor_name": "AI",
+                "source": "mcp",
+            }
+        )
+        self.assertTrue(refreshed["meta"]["changed"])
+        self.assertFalse(refreshed["card"]["board_summary_stale"])
+
+        log = self.service.get_card_log({"card_id": card_id})
+        summary_entry = next(
+            item for item in log["entries"] if item["action"] == "board_summary_changed"
+        )
+        self.assertEqual(summary_entry["action_label"], "Обновлена краткая суть для доски")
+        self.assertEqual(summary_entry["source_label"], "MCP/GPT")
+        self.assertEqual(summary_entry["changes"][0]["field"], "board_summary")
+        self.assertIn("Что сейчас", summary_entry["changes"][0]["after"])
+
+    def test_set_card_board_summary_rejects_more_than_five_lines(self) -> None:
+        created = self.service.create_card({"title": "Лимит summary", "deadline": {"hours": 2}})
+        too_many_lines = "\n".join([f"Строка {index}" for index in range(1, 7)])
+
+        with self.assertRaises(ServiceError) as ctx:
+            self.service.set_card_board_summary(
+                {"card_id": created["card"]["id"], "summary": too_many_lines}
+            )
+
+        self.assertEqual(ctx.exception.code, "validation_error")
+        self.assertIn("5 строк", ctx.exception.message)
+
     def test_search_cards_supports_query_filters_and_archive(self) -> None:
         created_column = self.service.create_column({"label": "ЭЛЕКТРИКИ"})
         column_id = created_column["column"]["id"]

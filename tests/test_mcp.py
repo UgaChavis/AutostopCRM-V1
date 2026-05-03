@@ -91,6 +91,7 @@ EXPECTED_MCP_TOOLS = {
     "search_cards",
     "search_clients",
     "set_card_deadline",
+    "set_card_board_summary",
     "set_card_indicator",
     "set_repair_order_status",
     "suggest_clients_for_card",
@@ -227,7 +228,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 69)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 70)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 self.assertTrue(tool_map["ping_connector"].annotations.readOnlyHint)
                 self.assertFalse(tool_map["ping_connector"].annotations.destructiveHint)
@@ -1175,6 +1176,23 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertTrue(red.structuredContent["ok"])
                 self.assertEqual(red.structuredContent["data"]["card"]["status"], "expired")
+
+                board_summary = await session.call_tool(
+                    "set_card_board_summary",
+                    {
+                        "card_id": card_id,
+                        "summary": "Что сейчас: проверить карточку.\nСтадия: MCP smoke.\nСледующее действие: подтвердить.",
+                        "actor_name": "AI",
+                    },
+                )
+                self.assertTrue(board_summary.structuredContent["ok"])
+                self.assertEqual(
+                    board_summary.structuredContent["data"]["card"]["board_summary_source"],
+                    "mcp",
+                )
+                self.assertFalse(
+                    board_summary.structuredContent["data"]["card"]["board_summary_stale"]
+                )
 
                 log = await session.call_tool("get_card_log", {"card_id": card_id, "limit": 2})
                 self.assertTrue(log.structuredContent["ok"])
@@ -2222,6 +2240,11 @@ class McpServerRuntimeTests(unittest.TestCase):
             client.archive_card(card_id="card-1", actor_name="ОПЕРАТОР")
             client.set_repair_order_status(card_id="card-1", status="closed", actor_name="ОПЕРАТОР")
             client.mark_card_ready(card_id="card-1", actor_name="ОПЕРАТОР")
+            client.set_card_board_summary(
+                card_id="card-1",
+                summary="Что сейчас: проверить.\nСтадия: агент.",
+                actor_name="AI",
+            )
 
         self.assertEqual(
             request.call_args_list,
@@ -2256,6 +2279,15 @@ class McpServerRuntimeTests(unittest.TestCase):
                 unittest.mock.call(
                     "/api/mark_card_ready",
                     {"card_id": "card-1", "source": "mcp", "actor_name": "ОПЕРАТОР"},
+                ),
+                unittest.mock.call(
+                    "/api/set_card_board_summary",
+                    {
+                        "card_id": "card-1",
+                        "summary": "Что сейчас: проверить.\nСтадия: агент.",
+                        "source": "mcp",
+                        "actor_name": "AI",
+                    },
                 ),
             ],
         )

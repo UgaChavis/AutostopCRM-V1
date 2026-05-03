@@ -926,6 +926,20 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(red["data"]["card"]["status"], "expired")
 
+        status, summary = self.request(
+            "/api/set_card_board_summary",
+            {
+                "card_id": card_id,
+                "summary": "Что сейчас: проверить карточку.\nСтадия: в работе.\nСледующее действие: согласовать.",
+                "actor_name": "AI",
+                "source": "mcp",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(summary["data"]["card"]["board_summary_source"], "mcp")
+        self.assertFalse(summary["data"]["card"]["board_summary_stale"])
+        self.assertIn("Что сейчас", summary["data"]["card"]["board_summary"])
+
         status, overdue = self.request("/api/list_overdue_cards", method="GET")
         self.assertEqual(status, 200)
         self.assertTrue(any(card["id"] == card_id for card in overdue["data"]["cards"]))

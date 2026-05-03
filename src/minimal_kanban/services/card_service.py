@@ -23,6 +23,8 @@ from ..agent.openai_client import AgentModelError, OpenAIJsonAgentClient
 from ..config import get_attachments_dir
 from ..demo_seed import build_demo_board
 from ..models import (
+    CARD_BOARD_SUMMARY_LIMIT,
+    CARD_BOARD_SUMMARY_LINE_LIMIT,
     CARD_DESCRIPTION_LIMIT,
     CARD_MANUAL_TAG_LIMIT,
     CARD_TITLE_LIMIT,
@@ -738,6 +740,63 @@ class CardService:
             )
             self._notify_agent_card_created(card)
             return {"card": self._serialize_card(card, events, column_labels=column_labels)}
+
+    def set_card_board_summary(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            events = bundle["events"]
+            card = self._find_card(cards, payload.get("card_id"))
+            self._ensure_not_archived(card)
+            actor_name, source = self._audit_identity(payload, default_source="mcp")
+            summary = self._validated_board_summary(payload.get("summary"))
+            previous = card.board_summary
+            previous_fingerprint = card.board_summary_card_fingerprint
+            stale_refresh = bool(summary and card.board_summary_stale())
+            changed = summary != previous or stale_refresh
+            if changed:
+                now_iso = self._touch_card(card, actor_name)
+                card.board_summary = summary
+                card.board_summary_updated_at = now_iso if summary else ""
+                card.board_summary_source = source if summary else ""
+                card.board_summary_card_fingerprint = (
+                    card.board_summary_content_fingerprint() if summary else ""
+                )
+                self._append_event(
+                    events,
+                    actor_name=actor_name,
+                    source=source,
+                    action="board_summary_changed",
+                    message=f"{actor_name} обновил краткую суть для доски",
+                    card_id=card.id,
+                    details={
+                        "before": previous,
+                        "after": summary,
+                        "before_fingerprint": previous_fingerprint,
+                        "after_fingerprint": card.board_summary_card_fingerprint,
+                        "stale_refresh": stale_refresh,
+                    },
+                )
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=cards,
+                    events=events,
+                )
+            return {
+                "card": self._serialize_card(
+                    card,
+                    events,
+                    column_labels=self._column_labels(bundle["columns"]),
+                    include_removed_attachments=True,
+                ),
+                "meta": {
+                    "changed": changed,
+                    "summary_lines": len([line for line in summary.splitlines() if line.strip()]),
+                    "board_summary_stale": card.board_summary_stale(),
+                },
+            }
 
     def set_card_ai_autofill(self, payload: dict | None = None) -> dict:
         if self._agent_control is not None:
@@ -11039,6 +11098,24 @@ class CardService:
                 details={"field": "description"},
             )
         return description
+
+    def _validated_board_summary(self, value) -> str:
+        raw = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+        lines = [line.strip() for line in raw.split("\n") if line.strip()]
+        if len(lines) > CARD_BOARD_SUMMARY_LINE_LIMIT:
+            self._fail(
+                "validation_error",
+                f"Краткая суть для доски не должна превышать {CARD_BOARD_SUMMARY_LINE_LIMIT} строк.",
+                details={"field": "summary", "line_limit": CARD_BOARD_SUMMARY_LINE_LIMIT},
+            )
+        summary = "\n".join(lines)
+        if len(summary) > CARD_BOARD_SUMMARY_LIMIT:
+            self._fail(
+                "validation_error",
+                f"Краткая суть для доски не должна превышать {CARD_BOARD_SUMMARY_LIMIT} символов.",
+                details={"field": "summary", "limit": CARD_BOARD_SUMMARY_LIMIT},
+            )
+        return summary
 
     def _validated_deadline(self, value) -> int:
         if not isinstance(value, dict):

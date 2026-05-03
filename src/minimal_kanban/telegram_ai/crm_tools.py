@@ -79,6 +79,7 @@ class CRMToolRegistry:
             "get_cashbox": self._get_cashbox,
             "create_card": self._create_card,
             "update_card": self._update_card,
+            "set_card_board_summary": self._set_card_board_summary,
             "move_card": self._move_card,
             "mark_card_ready": self._mark_card_ready,
             "bulk_move_cards": self._bulk_move_cards,
@@ -332,6 +333,12 @@ class CRMToolRegistry:
                     "deadline": "optional object",
                     "vehicle_profile": "optional object",
                 },
+                write=True,
+            ),
+            CRMToolDefinition(
+                "set_card_board_summary",
+                "Set hidden AI board summary shown on the card tile. Read get_card_context first; write max five concise lines about current stage and next action.",
+                {"card_id": "required string", "summary": "required string, max 5 lines"},
                 write=True,
             ),
             CRMToolDefinition(
@@ -593,6 +600,17 @@ class CRMToolRegistry:
                 actor_name=self._actor_name,
             )
             return {"tool": "rollback_attach_telegram_photo", "result": rollback_result}
+        if tool_name == "set_card_board_summary":
+            card = _api_data(before).get("card", {})
+            card_id = str(card.get("id") or "")
+            if not card_id:
+                raise CRMToolError("Cannot rollback set_card_board_summary without before card.")
+            rollback_result = self._board_api.set_card_board_summary(
+                card_id=card_id,
+                summary=str(card.get("board_summary") or ""),
+                actor_name=self._actor_name,
+            )
+            return {"tool": "rollback_set_card_board_summary", "result": rollback_result}
         if tool_name in {"update_card", "set_card_deadline", "set_card_indicator"}:
             card = _api_data(before).get("card", {})
             card_id = str(card.get("id") or "")
@@ -649,7 +667,12 @@ class CRMToolRegistry:
             if not card_id:
                 return {"passed": False, "message": "created card id is missing"}
             return self._verify_card_exists(card_id)
-        if tool_name in {"update_card", "set_card_deadline", "set_card_indicator"}:
+        if tool_name in {
+            "update_card",
+            "set_card_deadline",
+            "set_card_indicator",
+            "set_card_board_summary",
+        }:
             return self._verify_card_exists(str(arguments.get("card_id") or ""))
         if tool_name == "bulk_move_cards":
             card_ids = (
@@ -987,6 +1010,13 @@ class CRMToolRegistry:
             vehicle_profile=arguments.get("vehicle_profile")
             if isinstance(arguments.get("vehicle_profile"), dict)
             else None,
+            actor_name=self._actor_name,
+        )
+
+    def _set_card_board_summary(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._board_api.set_card_board_summary(
+            card_id=str(arguments.get("card_id") or ""),
+            summary=str(arguments.get("summary") or ""),
             actor_name=self._actor_name,
         )
 

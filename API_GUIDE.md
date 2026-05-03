@@ -83,6 +83,10 @@ Authorization: Bearer ваш_секрет
   "deadline_timestamp": "2026-03-25T10:00:00+00:00",
   "client_id": "",
   "client_vehicle_id": "",
+  "board_summary": "Что сейчас: согласовать диагностику.\nСледующее действие: позвонить клиенту.",
+  "board_summary_updated_at": "2026-03-24T10:05:00+00:00",
+  "board_summary_source": "mcp",
+  "board_summary_stale": false,
   "remaining_seconds": 86395,
   "remaining_display": "0д 23:59:55",
   "status": "ok",
@@ -100,6 +104,10 @@ Authorization: Bearer ваш_секрет
 - `deadline_timestamp` — абсолютный UTC deadline
 - `client_id` — необязательная связь карточки с записью клиента
 - `client_vehicle_id` — необязательная связь карточки с конкретным автомобилем внутри профиля клиента
+- `board_summary` — скрытая краткая суть для превью карточки на доске, заполняется агентом/API/MCP, а не ручным UI-полем
+- `board_summary_updated_at` — когда агент обновил краткую суть
+- `board_summary_source` — нормализованный источник обновления (`mcp`, `api`, `ui` или `system`)
+- `board_summary_stale` — `true`, если содержимое карточки изменилось после последнего обновления краткой сути
 - `remaining_seconds` — оставшееся время
 - `remaining_display` — готовая строка для UI
 - `status` — `ok`, `warning`, `expired`
@@ -109,6 +117,7 @@ Authorization: Bearer ваш_секрет
 
 - `indicator` не хранится отдельно, а вычисляется из дедлайна
 - endpoint `set_card_indicator` меняет дедлайн так, чтобы карточка получила нужный цвет лампочки
+- `board_summary` не заменяет `description`: полное описание остается источником восстановления, журнал карточки фиксирует обновления краткой сути отдельно
 
 ## Модель deadline
 
@@ -254,6 +263,49 @@ Authorization: Bearer ваш_секрет
   "deadline": {
     "days": 0,
     "hours": 8
+  }
+}
+```
+
+### `POST /api/set_card_board_summary`
+
+Назначение: обновить скрытую AI-краткую суть карточки для отображения на доске.
+
+Это служебный endpoint для агента/MCP/Telegram. Он не меняет `title` и `description`, чтобы операторские данные и восстановление через журнал не терялись. UI карточки на доске берет `board_summary`, если поле заполнено, и только потом падает обратно на `description_preview`.
+
+Ограничения:
+
+- максимум `5` непустых строк
+- максимум `560` символов
+- архивные карточки не изменяются
+- после обычного изменения карточки `board_summary_stale` становится `true`, пока агент не обновит краткую суть заново
+
+Запрос:
+
+```json
+{
+  "card_id": "a4d4d10a-0a5a-4d7f-99e1-4d7ddbc6b0a4",
+  "summary": "Что сейчас: проверить жалобу по тормозам.\nСтадия: диагностика.\nСледующее действие: согласовать работы."
+}
+```
+
+Ответ содержит обновленную карточку и метаданные:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "card": {
+      "id": "a4d4d10a-0a5a-4d7f-99e1-4d7ddbc6b0a4",
+      "board_summary": "Что сейчас: проверить жалобу по тормозам.\nСтадия: диагностика.\nСледующее действие: согласовать работы.",
+      "board_summary_source": "mcp",
+      "board_summary_stale": false
+    },
+    "meta": {
+      "changed": true,
+      "summary_lines": 3,
+      "board_summary_stale": false
+    }
   }
 }
 ```
