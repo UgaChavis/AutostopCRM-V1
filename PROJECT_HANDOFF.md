@@ -72,11 +72,11 @@ Current alignment rule:
 Last verified sync snapshot:
 
 - date: `2026-05-03`
-- local HEAD: `061cda8`
-- GitHub `origin/autostopcrm-v1`: `061cda8`
-- production HEAD: `061cda8`
+- local HEAD: `2c7c544`
+- GitHub `origin/autostopcrm-v1`: `2c7c544`
+- production HEAD: `2c7c544`
 - production working tree had one untracked file during verification: `telegram-ai.env`
-- commit message: `Speed up updated card badge clearing`
+- commit message: `Remove dead web helpers and refresh docs`
 
 ## 3. Runtime Architecture
 
@@ -242,6 +242,7 @@ Latest completed stabilization wave:
 
 Most recent important commits in the current line:
 
+- `2c7c544` `Remove dead web helpers and refresh docs`
 - `061cda8` `Speed up updated card badge clearing`
 - `43ce413` `Add AI card board summaries`
 - `0ab779b` `Refine card journal with full before-after history`
@@ -288,7 +289,7 @@ At the current verification baseline, production reported:
 - `autostopcrm` container is healthy
 - no separate `autostopcrm-agent` container is expected anymore
 - `autostopcrm-telegram-ai` is expected when Telegram AI is enabled; it opens no public ports
-- production repo HEAD matched local and GitHub on `061cda8`
+- production repo HEAD matched local and GitHub on `2c7c544`
 - public MCP returned `75` tools
 - public anonymous write protection returned `401 unauthorized`
 
@@ -324,8 +325,7 @@ Current known verification baseline:
 - 2026-05-03 latest full local pass: `518` unittest tests passed after the dead legacy web-helper cleanup
 - `python scripts/audit_localization.py` must pass when UI/docs text changed
 - isolated browser smoke on 2026-05-03 loaded the board, opened topbar modules, opened a card journal, and reported no console errors or failed requests
-- pre-cleanup public smoke on 2026-05-03 at `061cda8`: root HTML `200 OK`, about `1007658` bytes in `839 ms`; compact no-archive board snapshot about `267838` bytes in `914 ms`
-- local generated HTML after dead legacy web-helper cleanup: about `998902` bytes before deploy
+- post-cleanup public smoke on 2026-05-03 at `2c7c544`: root HTML `200 OK`, about `998902` bytes in `869 ms`; compact no-archive board snapshot about `269666` bytes in `664 ms`
 
 Main test areas:
 
