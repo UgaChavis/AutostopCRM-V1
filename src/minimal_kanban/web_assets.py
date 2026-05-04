@@ -3858,6 +3858,172 @@ BOARD_WEB_APP_HTML = "".join(
       line-height: 1.62;
       font-variant-numeric: tabular-nums;
     }
+    .card-journal-view {
+      border: 1px solid var(--line-soft);
+      background: rgba(8, 12, 10, 0.66);
+      padding: 12px;
+      min-height: 420px;
+      max-height: min(68vh, 720px);
+      overflow: auto;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.45;
+      font-variant-numeric: tabular-nums;
+    }
+    .card-journal-header {
+      display: grid;
+      gap: 4px;
+      padding: 4px 2px 10px;
+      border-bottom: 1px solid rgba(115, 126, 105, 0.26);
+      margin-bottom: 10px;
+    }
+    .card-journal-header__title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .card-journal-header__subtitle {
+      color: var(--text-soft);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .card-journal-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 0 0 12px;
+    }
+    .card-journal-stat {
+      border: 1px solid rgba(167, 178, 132, 0.2);
+      background: rgba(167, 178, 132, 0.06);
+      padding: 5px 7px;
+      color: var(--text-soft);
+      font-size: 11px;
+    }
+    .card-journal-stat strong {
+      color: var(--text);
+      font-size: 12px;
+    }
+    .card-journal-note {
+      border: 1px solid rgba(212, 175, 55, 0.32);
+      background: rgba(212, 175, 55, 0.08);
+      color: #f3df9d;
+      padding: 7px 9px;
+      margin: 0 0 12px;
+      font-size: 11px;
+    }
+    .card-journal-day {
+      margin: 0 0 12px;
+    }
+    .card-journal-day__head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid rgba(115, 126, 105, 0.3);
+      background: rgba(34, 42, 36, 0.74);
+      padding: 7px 9px;
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .card-journal-day__meta {
+      color: var(--text-soft);
+      font-size: 10.5px;
+      font-weight: 400;
+      white-space: nowrap;
+    }
+    .card-journal-events {
+      display: grid;
+      gap: 7px;
+      padding: 8px 0 0;
+    }
+    .card-journal-entry {
+      display: grid;
+      grid-template-columns: 52px minmax(0, 1fr);
+      gap: 8px;
+      border: 1px solid rgba(115, 126, 105, 0.24);
+      background: rgba(0, 0, 0, 0.15);
+      padding: 8px;
+    }
+    .card-journal-entry--deletion {
+      border-color: rgba(207, 91, 75, 0.42);
+      background: rgba(95, 34, 28, 0.16);
+    }
+    .card-journal-entry__time {
+      color: var(--accent);
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    .card-journal-entry__body {
+      min-width: 0;
+      display: grid;
+      gap: 6px;
+    }
+    .card-journal-entry__title {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 6px;
+      color: var(--text);
+      font-weight: 700;
+    }
+    .card-journal-entry__actor {
+      color: var(--text-soft);
+      font-weight: 400;
+      font-size: 11px;
+    }
+    .card-journal-entry__actor::before {
+      content: "• ";
+    }
+    .card-journal-entry__details {
+      display: grid;
+      gap: 4px;
+      color: var(--text-soft);
+      font-size: 11.5px;
+    }
+    .card-journal-detail {
+      color: var(--text-soft);
+    }
+    .card-journal-detail--summary {
+      color: var(--text);
+    }
+    .card-journal-change {
+      border: 1px solid rgba(115, 126, 105, 0.22);
+      background: rgba(255,255,255,0.025);
+      margin-top: 2px;
+    }
+    .card-journal-change__label {
+      padding: 4px 6px;
+      color: var(--text);
+      border-bottom: 1px solid rgba(115, 126, 105, 0.2);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 10px;
+    }
+    .card-journal-change--before .card-journal-change__label {
+      color: #f1c0b7;
+    }
+    .card-journal-change--after .card-journal-change__label {
+      color: #dbe8b7;
+    }
+    .card-journal-change__text {
+      margin: 0;
+      padding: 6px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .card-journal-empty {
+      color: var(--text-soft);
+      border: 1px dashed rgba(115, 126, 105, 0.3);
+      padding: 18px;
+      text-align: center;
+    }
     .wall-meta {
       color: var(--text-soft);
       font-family: var(--mono);
@@ -16208,9 +16374,156 @@ BOARD_WEB_APP_HTML = "".join(
       return value + ' СОБЫТИЙ';
     }
 
+    function cardJournalPluralRu(count, one, few, many) {
+      const value = Math.abs(Number(count || 0));
+      const lastDigit = value % 10;
+      const lastTwo = value % 100;
+      if (lastDigit === 1 && lastTwo !== 11) return one;
+      if (lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 10 || lastTwo >= 20)) return few;
+      return many;
+    }
+
+    function cardJournalCountText(count, one, few, many) {
+      const value = Number(count || 0);
+      return value + ' ' + cardJournalPluralRu(value, one, few, many);
+    }
+
+    function cardJournalGroupSummary(group) {
+      const parts = [formatJournalEventCount(group?.count || 0).toLowerCase()];
+      const changes = Number(group?.changes || 0);
+      const deletions = Number(group?.deletions || 0);
+      if (changes) parts.push(cardJournalCountText(changes, 'изменение', 'изменения', 'изменений'));
+      if (deletions) parts.push(cardJournalCountText(deletions, 'очищение', 'очищения', 'очищений'));
+      return parts.join(' · ');
+    }
+
+    function cardJournalEntriesFromPayload(payload) {
+      if (Array.isArray(payload?.entries)) return payload.entries;
+      if (Array.isArray(payload?.timeline)) return payload.timeline;
+      return [];
+    }
+
+    function buildCardJournalDays(entries) {
+      const byDay = new Map();
+      (Array.isArray(entries) ? entries : []).forEach((entry) => {
+        const key = String(entry?.day_key || entry?.date || '').trim() || 'unknown';
+        if (!byDay.has(key)) {
+          byDay.set(key, {
+            key,
+            label: key === 'unknown' ? 'без даты' : formatJournalDayLabel(entry?.business_timestamp || entry?.timestamp || key),
+            count: 0,
+            changes: 0,
+            deletions: 0,
+            entries: [],
+          });
+        }
+        const day = byDay.get(key);
+        day.entries.push(entry);
+        day.count += 1;
+        day.changes += Number(entry?.change_count || 0);
+        if (entry?.has_deletion) day.deletions += 1;
+      });
+      return Array.from(byDay.values()).sort((left, right) => String(right.key).localeCompare(String(left.key)));
+    }
+
+    function renderCardJournalStat(label, value) {
+      return '<div class="card-journal-stat"><strong>' + escapeHtml(value) + '</strong> ' + escapeHtml(label) + '</div>';
+    }
+
+    function renderCardJournalChangeBlock(kind, lines) {
+      const label = kind === 'before' ? 'Было до изменения' : 'Стало после изменения';
+      const text = (Array.isArray(lines) && lines.length ? lines.join('\\n') : '—').trim() || '—';
+      return '<div class="card-journal-change card-journal-change--' + escapeHtml(kind) + '"><div class="card-journal-change__label">' + escapeHtml(label) + '</div><pre class="card-journal-change__text">' + escapeHtml(text) + '</pre></div>';
+    }
+
+    function renderCardJournalDetailLines(detailLines) {
+      const lines = Array.isArray(detailLines) ? detailLines : [];
+      let html = '';
+      let blockKind = '';
+      let blockLines = [];
+      const flushBlock = () => {
+        if (!blockKind) return;
+        html += renderCardJournalChangeBlock(blockKind, blockLines);
+        blockKind = '';
+        blockLines = [];
+      };
+
+      lines.forEach((line) => {
+        const raw = String(line ?? '').replace(/\\r/g, '').trimEnd();
+        const trimmed = raw.trim();
+        if (!trimmed) return;
+        const lower = trimmed.toLowerCase();
+        if (lower === 'до:' || lower === 'до') {
+          flushBlock();
+          blockKind = 'before';
+          return;
+        }
+        if (lower === 'после:' || lower === 'после') {
+          flushBlock();
+          blockKind = 'after';
+          return;
+        }
+        if (blockKind) {
+          blockLines.push(raw.replace(/^\\s{2}/, ''));
+          return;
+        }
+        const isSummary = trimmed.startsWith('Что произошло:');
+        const text = isSummary ? trimmed.replace(/^Что произошло:\\s*/i, '') : trimmed;
+        html += '<div class="card-journal-detail' + (isSummary ? ' card-journal-detail--summary' : '') + '">' + escapeHtml(text) + '</div>';
+      });
+      flushBlock();
+      return html || '<div class="card-journal-detail">Подробностей по событию нет.</div>';
+    }
+
+    function renderCardJournalEntry(entry) {
+      const lineParts = String(entry?.display_line || '').split('|').map((item) => item.trim()).filter(Boolean);
+      const time = escapeHtml(entry?.time_short || formatJournalTime(entry?.business_timestamp || entry?.timestamp) || lineParts[0] || '—');
+      const title = lineParts[1] || [entry?.icon || '', entry?.action_label || entry?.human_message || entry?.message || 'Событие'].filter(Boolean).join(' ');
+      const actor = entry?.display_actor_name || entry?.actor_name || lineParts[2] || 'неизвестно';
+      const detailLines = Array.isArray(entry?.detail_lines)
+        ? entry.detail_lines
+        : (entry?.details_text ? String(entry.details_text).split('\\n') : []);
+      return '<article class="card-journal-entry' + (entry?.has_deletion ? ' card-journal-entry--deletion' : '') + '"><div class="card-journal-entry__time">' + time + '</div><div class="card-journal-entry__body"><div class="card-journal-entry__title"><span>' + escapeHtml(title) + '</span><span class="card-journal-entry__actor">' + escapeHtml(actor) + '</span></div><div class="card-journal-entry__details">' + renderCardJournalDetailLines(detailLines) + '</div></div></article>';
+    }
+
+    function buildCardJournalHtml(payload) {
+      const data = payload || {};
+      const meta = data.meta || {};
+      const totals = data.totals || {};
+      const entries = cardJournalEntriesFromPayload(data);
+      const days = Array.isArray(data.days) && data.days.length ? data.days : buildCardJournalDays(entries);
+      const returned = Number(totals.count ?? meta.events_returned ?? entries.length ?? 0);
+      const total = Number(meta.events_total ?? returned);
+      let html = '<div class="card-journal-header"><div class="card-journal-header__title">🧾 Журнал карточки</div><div class="card-journal-header__subtitle">' + escapeHtml(meta.card_heading || 'Карточка') + '</div></div>';
+      html += '<div class="card-journal-stats">';
+      html += renderCardJournalStat('показано', returned + ' из ' + total);
+      html += renderCardJournalStat('участников', Number(totals.actors || 0));
+      html += renderCardJournalStat('изменений', Number(totals.changes || 0));
+      html += renderCardJournalStat('очищений', Number(totals.deletions || 0));
+      html += '</div>';
+      if (meta.has_more) {
+        html += '<div class="card-journal-note">Показана только часть журнала. Для полной истории увеличьте лимит выгрузки.</div>';
+      }
+      if (!entries.length && !days.length) {
+        return html + '<div class="card-journal-empty">Журнал пуст.</div>';
+      }
+      days.forEach((day) => {
+        const dayEntries = Array.isArray(day?.entries) ? day.entries : [];
+        html += '<section class="card-journal-day"><div class="card-journal-day__head"><span>📆 ' + escapeHtml(day?.label || day?.key || 'без даты') + '</span><span class="card-journal-day__meta">' + escapeHtml(cardJournalGroupSummary({ ...day, count: day?.count ?? dayEntries.length })) + '</span></div><div class="card-journal-events">';
+        html += dayEntries.map(renderCardJournalEntry).join('');
+        html += '</div></section>';
+      });
+      return html;
+    }
+
     function renderLogs(payload) {
       const data = Array.isArray(payload) ? { events: payload } : (payload || {});
       const text = String(data?.markdown || data?.text || buildCardJournalFallbackText(data?.events || data?.entries || []));
+      if (data?.meta?.schema_version === 'card_journal.v2' || Array.isArray(data?.entries) || Array.isArray(data?.days)) {
+        els.logList.className = 'card-journal-view';
+        els.logList.innerHTML = buildCardJournalHtml(data);
+        return;
+      }
       els.logList.className = 'card-journal-text';
       els.logList.textContent = text;
     }

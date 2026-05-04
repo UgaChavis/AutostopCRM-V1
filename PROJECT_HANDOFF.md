@@ -233,7 +233,7 @@ Latest completed stabilization wave:
 - shared Files now supports right-click paste from files copied in Windows Explorer through the local API clipboard backend fallback; browser clipboard paste and drag-and-drop upload remain available
 - clients module audit fixed the connection-card allowed tool list, direct API nested `client`/`patch` payloads, and `+7`/`8` phone matching for client suggestions/history
 - shared Files icon placement was stabilized around a non-overlapping grid, persisted icon positions, and drag movement
-- card journal is now `card_journal.v2`: API/MCP return machine-readable `entries`, `timeline`, `days`, `weeks`, `months`, `totals` plus raw `changes[].before/after`; the card UI shows a Markdown report styled like the cashbox journal with readable Russian `до:` / `после:` blocks instead of service JSON dumps
+- card journal is now `card_journal.v2`: API/MCP return machine-readable `entries`, `timeline`, `days`, `weeks`, `months`, `totals` plus raw `changes[].before/after`; the card UI renders a compact human timeline from that JSON, with readable Russian `до:` / `после:` blocks instead of raw Markdown or service JSON dumps
 - hidden AI-managed card board summaries were added: API/MCP/Telegram can write a five-line `board_summary`, board cards show it before raw description text, and normal card edits mark the summary stale for agent refresh
 - updated-card badges now clear optimistically in the browser on hover/open, while the existing API path still persists the seen state
 - generated inline browser JavaScript is now extracted from `BOARD_WEB_APP_HTML` and checked with Node syntax validation through `scripts/check_web_assets_js.py`

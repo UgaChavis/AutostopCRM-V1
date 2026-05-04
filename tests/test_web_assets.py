@@ -2165,6 +2165,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function openCashJournalModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function loadCashJournalText()", BOARD_WEB_APP_HTML)
         self.assertIn("async function downloadCashJournal()", BOARD_WEB_APP_HTML)
+        self.assertIn(".card-journal-view {", BOARD_WEB_APP_HTML)
         self.assertIn("data?.markdown || data?.text", BOARD_WEB_APP_HTML)
         self.assertIn("text/markdown;charset=utf-8", BOARD_WEB_APP_HTML)
         self.assertIn("'.md'", BOARD_WEB_APP_HTML)
@@ -2262,10 +2263,13 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function maybeOpenModal(modalEl, openModal)", BOARD_WEB_APP_HTML)
         self.assertIn("function renderLogs(payload)", BOARD_WEB_APP_HTML)
         self.assertIn("function buildCardJournalFallbackText(events)", BOARD_WEB_APP_HTML)
+        self.assertIn("function buildCardJournalHtml(payload)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderCardJournalDetailLines(detailLines)", BOARD_WEB_APP_HTML)
         self.assertIn(
             "data?.markdown || data?.text || buildCardJournalFallbackText", BOARD_WEB_APP_HTML
         )
-        self.assertIn("els.logList.className = 'card-journal-text';", BOARD_WEB_APP_HTML)
+        self.assertIn("els.logList.className = 'card-journal-view';", BOARD_WEB_APP_HTML)
+        self.assertIn("els.logList.innerHTML = buildCardJournalHtml(data);", BOARD_WEB_APP_HTML)
         self.assertIn("els.logList.textContent = text;", BOARD_WEB_APP_HTML)
         self.assertIn("async function openArchiveModal()", BOARD_WEB_APP_HTML)
         self.assertIn("await loadArchive(true);", BOARD_WEB_APP_HTML)
