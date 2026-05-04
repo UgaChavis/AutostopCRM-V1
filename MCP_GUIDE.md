@@ -189,7 +189,7 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 - `get_cards`
 - `get_card`
 - `get_card_context`
-- `get_card_log` - structured card journal `card_journal.v2`: `entries`, `timeline`, `days`, `weeks`, `months`, `totals`, and Markdown in the same readable style as the cashbox journal. Use it to reconstruct who changed the card, when, and what the previous/new values were.
+- `get_card_log` - structured card journal `card_journal.v2`: `entries`, `timeline`, `days`, `weeks`, `months`, `totals`, full raw `changes[].before/after`, and readable Markdown in the same style as the cashbox journal. Use JSON for exact recovery and Markdown for quick human review.
 - `list_card_attachments`
 - `get_card_attachment`
 - `read_card_attachment`

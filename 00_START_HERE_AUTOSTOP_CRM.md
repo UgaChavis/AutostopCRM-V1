@@ -99,7 +99,7 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - board topbar and cards were compacted for smaller monitors: rare module buttons moved left, button/card padding reduced, and the card signal row now shares space with tags
 - shared Files now supports right-click paste from copied Windows Explorer files through a local clipboard backend fallback, plus the existing browser paste and drag-and-drop paths
 - shared Files icon placement was stabilized around a grid with persisted positions and drag movement
-- card journal UI was made minimal and recoverable: changes expose `до:` and `после:` text instead of hiding previous content
+- card journal UI is minimal and recoverable: machine JSON keeps full raw `before/after`, while visible Markdown uses Russian `до:` / `после:` blocks without dumping service JSON snapshots
 - updated-card badges now clear optimistically on hover/open so cards with `ОБНОВЛЕНО` do not wait on the API response before becoming clickable-feeling again
 - hidden AI-managed card board summaries are available through API/MCP/Telegram and are shown on board cards before raw description text
 - stale legacy AI dock/chat DOM lookups and unused CSS were pruned from the board HTML; the active card AI indicator path remains unchanged

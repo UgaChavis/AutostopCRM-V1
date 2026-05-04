@@ -3473,6 +3473,12 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("## 🗓️ По месяцам", log["markdown"])
         self.assertIn("## 📅 По неделям", log["markdown"])
         self.assertIn("## 🧾 События по дням", log["markdown"])
+        self.assertNotIn("ID:", log["markdown"])
+        self.assertNotIn("inbox", log["markdown"])
+        self.assertNotIn("событ.", log["markdown"])
+        self.assertNotIn("изм.", log["markdown"])
+        self.assertNotIn("участн.", log["markdown"])
+        self.assertNotIn("T", log["markdown"].split("## 🗓️ По месяцам", 1)[0])
         self.assertEqual(log["entries"][0]["schema_version"], "card_journal.entry.v2")
         self.assertIn("display_line", log["entries"][0])
         self.assertIn("detail_lines", log["entries"][0])
@@ -3513,7 +3519,8 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(change["before"], "Первая строка\nВторая строка с важной информацией")
         self.assertEqual(change["after"], "Новая строка\nВторая строка заменена")
         self.assertIn("📝", log["markdown"])
-        self.assertIn("Изменено поле Описание", log["markdown"])
+        self.assertIn("Описание изменили", log["markdown"])
+        self.assertNotIn("Изменено поле", log["markdown"])
         self.assertIn("до:", log["markdown"])
         self.assertIn("после:", log["markdown"])
         self.assertIn("Первая строка", log["markdown"])
@@ -3550,7 +3557,8 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(entry["changes"][0]["before"], "Текст, который нельзя потерять")
         self.assertEqual(entry["changes"][0]["after"], "")
         self.assertGreaterEqual(log["totals"]["deletions"], 1)
-        self.assertIn("⚠️ Очищено поле", log["markdown"])
+        self.assertIn("⚠️ Описание очистили", log["markdown"])
+        self.assertNotIn("Очищено поле", log["markdown"])
         self.assertIn("Текст, который нельзя потерять", log["text"])
 
     def test_repair_order_updates_keep_previous_snapshot_in_card_log(self) -> None:
@@ -3599,6 +3607,62 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("Диагностика", repair_order_change["before"])
         self.assertIn("Причина изменена", repair_order_change["after"])
         self.assertIn("Диагностика", log["markdown"])
+        self.assertIn("Заказ-наряд изменили", log["markdown"])
+        self.assertIn("Клиент: Иван", log["markdown"])
+        self.assertIn("Причина обращения: Первичная причина", log["markdown"])
+        self.assertIn("Работы: 1 позиция", log["markdown"])
+        self.assertNotIn('"works"', log["markdown"])
+        self.assertNotIn('"client"', log["markdown"])
+        self.assertNotIn("Оплата: cash", log["markdown"])
+        self.assertNotIn("через API", log["markdown"])
+        self.assertNotIn("API", log["markdown"])
+        self.assertNotIn("inbox", log["markdown"])
+        self.assertNotIn("{", log["markdown"])
+        self.assertIn('"works"', repair_order_change["before"])
+
+    def test_get_card_log_humanizes_vehicle_profile_snapshots(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "Volkswagen Golf",
+                "title": "ТЕХКАРТА В ЖУРНАЛЕ",
+                "description": "Проверка читаемости техкарты",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "vehicle_profile": {
+                    "make_display": "Volkswagen",
+                    "model_display": "Golf",
+                    "vin": "WVWZZZAUZFP518988",
+                    "registration_plate": "М276УВ124",
+                    "customer_name": "Иван",
+                    "customer_phone": "89080162605",
+                    "field_sources": {"vin": "manual_ui"},
+                    "source_confidence": 0.95,
+                    "warnings": [],
+                },
+                "actor_name": "ADMIN",
+                "source": "ui",
+            }
+        )
+
+        log = self.service.get_card_log({"card_id": card_id})
+        entry = next(item for item in log["entries"] if item["action"] == "vehicle_profile_updated")
+        change = entry["changes"][0]
+
+        self.assertIn('"field_sources"', change["after"])
+        self.assertIn("Техкарту автомобиля заполнили", log["markdown"])
+        self.assertIn("Марка: Volkswagen", log["markdown"])
+        self.assertIn("Модель: Golf", log["markdown"])
+        self.assertIn("Госномер: М276УВ124", log["markdown"])
+        self.assertIn("Клиент: Иван", log["markdown"])
+        self.assertNotIn("field_sources", log["markdown"])
+        self.assertNotIn("source_confidence", log["markdown"])
+        self.assertNotIn("manual_ui", log["markdown"])
+        self.assertNotIn("{", log["markdown"])
 
     def test_search_cards_skips_event_count_build_when_no_matches(self) -> None:
         self.service.create_card(
