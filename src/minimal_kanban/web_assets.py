@@ -14846,6 +14846,10 @@ BOARD_WEB_APP_HTML = "".join(
       return repairOrderPaymentsValueByMethod(payments, 'cash');
     }
 
+    function repairOrderCardPaymentsValue(payments) {
+      return repairOrderPaymentsValueByMethod(payments, 'card');
+    }
+
     function repairOrderCashlessPaymentsValue(payments) {
       return repairOrderPaymentsValueByMethod(payments, 'cashless');
     }
@@ -14854,18 +14858,20 @@ BOARD_WEB_APP_HTML = "".join(
       const normalizedBaseTotal = repairOrderRoundMoney(repairOrderParseNumber(baseTotal) ?? 0);
       const normalizedPayments = Array.isArray(payments) ? payments : [];
       const basePaidCash = repairOrderCashPaymentsValue(normalizedPayments);
+      const basePaidCard = repairOrderCardPaymentsValue(normalizedPayments);
       const basePaidNoncash = repairOrderCashlessPaymentsValue(normalizedPayments);
-      const baseRemaining = repairOrderRoundMoney(Math.max(normalizedBaseTotal - basePaidCash - basePaidNoncash, 0));
+      const baseRemaining = repairOrderRoundMoney(Math.max(normalizedBaseTotal - basePaidCash - basePaidCard - basePaidNoncash, 0));
       const taxesAndFees = repairOrderRoundMoney(basePaidNoncash * repairOrderTaxRate('cashless'));
       return {
         base_total: normalizedBaseTotal,
-        base_paid_cash: basePaidCash,
+        base_paid_cash: repairOrderRoundMoney(basePaidCash + basePaidCard),
+        base_paid_card: basePaidCard,
         base_paid_noncash: basePaidNoncash,
         base_remaining: baseRemaining,
         cash_due: baseRemaining,
         noncash_due: repairOrderRoundMoney(baseRemaining * (1 + repairOrderTaxRate('cashless'))),
         taxes_and_fees: taxesAndFees,
-        total_paid: repairOrderRoundMoney(basePaidCash + basePaidNoncash),
+        total_paid: repairOrderRoundMoney(basePaidCash + basePaidCard + basePaidNoncash),
         grand_total: repairOrderRoundMoney(normalizedBaseTotal + taxesAndFees),
         due_total: baseRemaining,
       };

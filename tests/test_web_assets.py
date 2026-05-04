@@ -1618,6 +1618,7 @@ class WebAssetsTests(unittest.TestCase):
             "function repairOrderPaymentsValueByMethod(payments, method)", BOARD_WEB_APP_HTML
         )
         self.assertIn("function repairOrderCashPaymentsValue(payments)", BOARD_WEB_APP_HTML)
+        self.assertIn("function repairOrderCardPaymentsValue(payments)", BOARD_WEB_APP_HTML)
         self.assertIn("function repairOrderTaxRate(value)", BOARD_WEB_APP_HTML)
         self.assertIn(
             "function repairOrderProjectedTaxesValue(subtotal, paymentMethod)", BOARD_WEB_APP_HTML
@@ -1633,6 +1634,19 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("state.repairOrderSummary = summary;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const basePaidCard = repairOrderCardPaymentsValue(normalizedPayments);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "Math.max(normalizedBaseTotal - basePaidCash - basePaidCard - basePaidNoncash, 0)",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("base_paid_card: basePaidCard", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "total_paid: repairOrderRoundMoney(basePaidCash + basePaidCard + basePaidNoncash)",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "node.textContent = repairOrderFormatMoney(summary.base_total);", BOARD_WEB_APP_HTML
         )
