@@ -146,9 +146,10 @@ The MCP server exposes the current AutoStop CRM board and services as tools over
 - client directory search, profile, vehicle, requisites, client-vehicle upsert and card-link tools
 - shared file list/info/upload/download/delete tools
 - agent-only card board summary updates through `set_card_board_summary`
+- optional AutostopManager memory/routing tools when the manager project is mounted next to the CRM
 - bounded board/card reads; automatic cleanup is intentionally not exposed as an MCP tool
 
-The exact runtime inventory is documented in [MCP_GUIDE.md](MCP_GUIDE.md). The user-facing autofill endpoints remain available in the HTTP API and UI, but they are not MCP tools.
+The current base CRM MCP inventory is 71 tools. With the mounted AutostopManager layer the production endpoint exposes 84 tools. The exact runtime inventory is documented in [MCP_GUIDE.md](MCP_GUIDE.md). The user-facing autofill endpoints remain available in the HTTP API and UI, but they are not MCP tools.
 
 See [MCP_GUIDE.md](MCP_GUIDE.md) and [src/minimal_kanban/mcp/server.py](src/minimal_kanban/mcp/server.py).
 

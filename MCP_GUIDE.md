@@ -47,6 +47,14 @@ JsonStore
 - `add_manager_task`
 - `today_context`
 - `manager_journal`
+- `sync_knowledge_base`
+- `probe_knowledge_base`
+- `search_knowledge_base`
+- `audit_knowledge_base`
+- `lookup_original_parts`
+- `recommend_automotive_sources`
+- `recommend_fluid_maintenance_sources`
+- `recommend_service_management_actions`
 
 Это не дублирует CRM. Карточки, клиенты, автомобили, заказ-наряды и кассы остаются в AutoStop CRM. AutostopManager хранит только долговременную память менеджера: факты, договоренности, личные дела, аренду, напоминания, правила и журнал решений.
 
@@ -58,9 +66,9 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 
 ## Доступные MCP tools
 
-Базовый CRM runtime-tool inventory после добавления скрытой AI-краткой сути карточек: `70` tools. Если подключен `AutostopManager`, в том же endpoint дополнительно доступны `5` memory-tools. Production smoke после этого изменения должен видеть `75` tools именно из-за этой связки.
+Базовый CRM runtime-tool inventory: `71` tools. Если подключен актуальный `AutostopManager`, в том же endpoint дополнительно доступны `13` manager memory/routing tools. Production smoke от 2026-05-04 должен видеть `84` tools именно из-за этой связки.
 
-Полный статический справочник команд больше не ведётся отдельным файлом: он быстро устаревает. Источник правды — `src/minimal_kanban/mcp/server.py`, live `tools/list`, этот guide и MCP-тесты.
+Полный статический справочник команд больше не ведётся отдельным файлом: он быстро устаревает. Источник правды — `src/minimal_kanban/mcp/server.py`, live `tools/list`, этот guide, `src/minimal_kanban/connection_card.py` и MCP-тесты.
 
 Для больших клиентских справочников не тянуть лишние данные:
 
@@ -92,6 +100,7 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 - `search_clients`
 - `list_clients(limit=50)`
 - `list_shared_files`
+- `today_context`, если в endpoint подключен `AutostopManager`
 
 ### Команды для точечного чтения
 
@@ -145,6 +154,31 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 - `get_connector_identity`
 - `bootstrap_context`
 - `get_runtime_status`
+
+### Память менеджера AutostopManager
+
+Эти команды появляются в том же `/mcp` endpoint только если сервер видит проект `AutostopManager`:
+
+- `remember`
+- `recall`
+- `add_manager_task`
+- `today_context`
+- `manager_journal`
+- `sync_knowledge_base`
+- `probe_knowledge_base`
+- `search_knowledge_base`
+- `audit_knowledge_base`
+- `lookup_original_parts`
+- `recommend_automotive_sources`
+- `recommend_fluid_maintenance_sources`
+- `recommend_service_management_actions`
+
+Правила:
+
+- CRM остаётся источником правды по карточкам, клиентам, заказ-нарядам, платежам и кассам.
+- `remember` использовать только для долговременной памяти менеджера: договорённости, личные задачи, аренда, правила, выводы из документов.
+- `today_context` и `recall` вызывать перед управленческой работой, если нужен контекст владельца или прошлые договорённости.
+- `probe_knowledge_base` / `search_knowledge_base` использовать перед широким чтением локальных документов.
 
 ### Доска и карточки
 
@@ -488,9 +522,12 @@ python -m unittest discover -s .\tests -v
 - `set_card_indicator`
 - `archive_card`
 - `list_overdue_cards`
+- `list_shared_files`
+- `download_shared_file`
+- optional manager tools через подключенный `AutostopManager`
 - структурированные ошибки для невалидных случаев
 
-Полная проверка current runtime tool surface должна опираться на `tools/list` в живом MCP runtime и на `tests/test_mcp.py`.
+Полная проверка current runtime tool surface должна опираться на `tools/list` в живом MCP runtime, `scripts/check_live_connector.py`, `tests/test_mcp.py` и `tests/test_connection_card.py`.
 
 ## Ограничения текущей реализации
 

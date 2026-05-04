@@ -25,6 +25,12 @@ MCP_TOOL_NAMES = [
     "list_card_attachments",
     "get_card_attachment",
     "read_card_attachment",
+    "list_shared_files",
+    "get_shared_file_info",
+    "download_shared_file",
+    "upload_shared_file",
+    "delete_shared_file",
+    "update_shared_file_position",
     "get_card_context",
     "list_clients",
     "search_clients",
@@ -76,6 +82,22 @@ MCP_TOOL_NAMES = [
     "archive_card",
     "restore_card",
     "list_overdue_cards",
+]
+
+OPTIONAL_MANAGER_MCP_TOOL_NAMES = [
+    "remember",
+    "recall",
+    "add_manager_task",
+    "today_context",
+    "manager_journal",
+    "sync_knowledge_base",
+    "probe_knowledge_base",
+    "search_knowledge_base",
+    "audit_knowledge_base",
+    "lookup_original_parts",
+    "recommend_automotive_sources",
+    "recommend_fluid_maintenance_sources",
+    "recommend_service_management_actions",
 ]
 
 GPT_CONNECTOR_REQUIRED_TOOL_NAMES = [
@@ -241,6 +263,7 @@ def build_chatgpt_connect_payload(
         "8b. For wide board scans prefer get_cards(compact=true) or get_board_snapshot(compact=true) before switching to full/export tools.",
         "8c. For client work, call suggest_clients_for_card(card_id) or search_clients before create_client. Clients support up to 3 phone numbers in phones[]; phone is always the first/main one, and search_clients matches any saved phone. Choose a concrete vehicles_preview[].id when known and pass it as client_vehicle_id to link_card_to_client; use upsert_client_vehicle to add or correct a client's car; use delete_client_vehicle only when the operator wants to remove a car from the client profile without deleting cards. Cards may stay unlinked when the customer is a one-off manual entry. delete_client is destructive and rejects linked cards unless allow_linked=true is explicitly confirmed.",
         "8d. To improve the five-line board preview for a card, first read get_card_context(card_id), then call set_card_board_summary(card_id, summary). Keep summary under 5 lines, focus on what to do now, and do not copy VIN, phone numbers, or raw technical dumps into the board preview.",
+        "8e. If AutostopManager tools are visible, use today_context/recall/remember for durable manager memory; do not copy CRM cards, payments, clients, or repair orders into memory.",
         "9. The compact 1.1 vehicle profile for GPT should focus on make_display, model_display, production_year, vin, engine_model, gearbox_model, drivetrain, and oem_notes.",
         "10. Do not ask GPT to edit cards until it confirms connector_name, resource_url, board_name, and scope_rule.",
         "11. For mass column migrations, use bulk_move_cards instead of many sequential move_card calls.",
@@ -298,6 +321,14 @@ def build_chatgpt_connect_payload(
         ]
     )
     lines.extend(f"- {tool}" for tool in MCP_TOOL_NAMES)
+    lines.extend(
+        [
+            "",
+            "[OPTIONAL AUTOSTOPMANAGER TOOLS]",
+            "These appear in the same endpoint only when the AutostopManager project is mounted next to the CRM.",
+        ]
+    )
+    lines.extend(f"- {tool}" for tool in OPTIONAL_MANAGER_MCP_TOOL_NAMES)
     return "\n".join(lines) + "\n"
 
 
@@ -318,6 +349,7 @@ def build_chatgpt_connector_payload(settings: IntegrationSettings) -> str:
             "Use MCP tool names directly, not resource URLs. If metadata shows /AutoStopCRM/link_.../tool_name, normalize it internally to /AutoStopCRM/tool_name.",
             "For vehicle cards, call get_board_snapshot first when you need a quick board-wide fallback, or get_board_content when broad context or recent history matters; use get_gpt_wall only when you need both hidden machine wall sections in one response and a compact agent dump is acceptable.",
             "For vehicle cards, call get_board_events when you need the latest change journal in Markdown.",
+            "If AutostopManager tools are visible, use today_context/recall/remember only for durable non-CRM manager memory.",
             "When creating or updating a card, keep vehicle limited to make/model only, and keep title limited to the short essence of the issue, task, or result.",
             "The 1.1 compact vehicle profile should focus on make_display, model_display, production_year, vin, engine_model, gearbox_model, drivetrain, and oem_notes.",
             "For client work, use suggest_clients_for_card or search_clients before create_client; clients can store up to 3 phones in phones[] with phone as the first/main number; select a concrete client vehicle when possible; use upsert_client_vehicle for a new or corrected vehicle of an existing client; use delete_client_vehicle to remove a car from the client profile without deleting cards; link_card_to_client should not overwrite manual client fields unless the operator confirms it; delete_client is destructive and should not be used on linked clients without explicit confirmation.",

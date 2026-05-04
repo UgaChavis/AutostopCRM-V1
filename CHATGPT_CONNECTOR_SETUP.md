@@ -17,6 +17,7 @@
 - поддерживает dynamic client registration и PKCE;
 - продолжает принимать legacy bearer token для Responses API и ручных MCP-клиентов.
 - содержит клиентские инструменты для поиска, профиля, статистики, создания, обновления, удаления и привязки клиентов к карточкам
+- если рядом смонтирован `AutostopManager`, в этот же endpoint добавляются manager memory/routing tools для долговременной памяти и навигации по знаниям
 
 ## Практический смысл
 
@@ -63,9 +64,13 @@
 - `search_cards`
 - `search_clients`
 - `list_clients`
+- `list_shared_files`
+- `download_repair_order_print_pdf`
 - `create_card`
 - `move_card`
 - `update_card`
+- `today_context`, если подключен `AutostopManager`
+- `remember`, если подключен `AutostopManager`
 
 ## Как подключать через Responses API
 
