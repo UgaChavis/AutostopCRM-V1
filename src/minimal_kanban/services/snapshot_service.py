@@ -1317,6 +1317,9 @@ class SnapshotService:
             return str(value)
         return self._card_log_trim_human_text(value, limit=600)
 
+    def _card_log_is_punctuation_only_text(self, value: str) -> bool:
+        return bool(value) and not any(char.isalnum() for char in value)
+
     def _card_log_vehicle_profile_human_value(self, value: Any) -> str:
         if not isinstance(value, dict) or not value:
             return self._card_log_scalar_human_value(value)
@@ -1327,6 +1330,8 @@ class SnapshotService:
                 continue
             text = self._card_log_scalar_human_value(raw)
             if not text:
+                continue
+            if key == "customer_name" and self._card_log_is_punctuation_only_text(text):
                 continue
             if key == "registration_plate":
                 text = text.upper()

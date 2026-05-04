@@ -3627,6 +3627,7 @@ class CardServiceTests(unittest.TestCase):
                 "title": "ТЕХКАРТА В ЖУРНАЛЕ",
                 "description": "Проверка читаемости техкарты",
                 "deadline": {"hours": 2},
+                "vehicle_profile": {"customer_name": ","},
             }
         )
         card_id = created["card"]["id"]
@@ -3659,6 +3660,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("Модель: Golf", log["markdown"])
         self.assertIn("Госномер: М276УВ124", log["markdown"])
         self.assertIn("Клиент: Иван", log["markdown"])
+        self.assertNotIn("Клиент: ,", log["markdown"])
         self.assertNotIn("field_sources", log["markdown"])
         self.assertNotIn("source_confidence", log["markdown"])
         self.assertNotIn("manual_ui", log["markdown"])
