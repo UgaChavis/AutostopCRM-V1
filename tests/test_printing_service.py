@@ -16,7 +16,7 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.models import Card, ClientProfile
 from minimal_kanban.printing.models import SUPPORTED_PRINT_DOCUMENT_TYPES
-from minimal_kanban.printing.pdf import render_html_to_pdf_bytes
+from minimal_kanban.printing.pdf import _html_to_plain_text, render_html_to_pdf_bytes
 from minimal_kanban.printing.service import PrintModuleError, PrintModuleService
 from minimal_kanban.printing.template_engine import render_template
 
@@ -646,11 +646,38 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual(context.exception.code, "validation_error")
         self.assertIn("Не выбран принтер", context.exception.message)
 
+    def test_plain_text_pdf_fallback_strips_head_style_and_script_blocks(self) -> None:
+        text = _html_to_plain_text(
+            """
+            <!doctype html>
+            <html>
+              <head>
+                <style>body { color: red; }</style>
+                <script>alert('bad')</script>
+              </head>
+              <body><h1>Счет на оплату</h1><p>Владимир Регин</p></body>
+            </html>
+            """
+        )
+
+        self.assertIn("Счет на оплату", text)
+        self.assertIn("Владимир Регин", text)
+        self.assertNotIn("body { color", text)
+        self.assertNotIn("alert", text)
+
     def test_pdf_renderer_falls_back_safely_from_worker_thread(self) -> None:
         result: dict[str, bytes] = {}
 
         def run() -> None:
-            result["pdf"] = render_html_to_pdf_bytes("<h1>Worker thread</h1>")
+            result["pdf"] = render_html_to_pdf_bytes(
+                """
+                <!doctype html>
+                <html>
+                  <head><style>body { color: red; }</style></head>
+                  <body><h1>Счет на оплату</h1><p>Владимир Регин</p></body>
+                </html>
+                """
+            )
 
         thread = threading.Thread(target=run, name="pdf-worker-test")
         thread.start()
@@ -659,6 +686,8 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertIn("pdf", result)
         self.assertTrue(result["pdf"].startswith(b"%PDF"))
+        self.assertNotIn(b"(????", result["pdf"])
+        self.assertNotIn(b"body { color", result["pdf"])
 
 
 if __name__ == "__main__":

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import base64
 import html as html_lib
+import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -27,14 +31,43 @@ def _ensure_qt_application():
 
 
 def _should_use_qt_renderer() -> bool:
-    if str(os.environ.get("MINIMAL_KANBAN_FORCE_FALLBACK_PDF", "")).strip().lower() in {"1", "true", "yes"}:
+    if str(os.environ.get("MINIMAL_KANBAN_FORCE_FALLBACK_PDF", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
         return False
+    if str(os.environ.get("MINIMAL_KANBAN_PDF_RENDER_CHILD", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return True
     # QTextDocument/QPrinter from non-main threads is unstable on Windows and
     # can crash the process at interpreter shutdown after otherwise successful
-    # requests. In worker threads we always use the deterministic fallback.
+    # requests. Worker threads use a short-lived subprocess so the full HTML
+    # renderer still handles Cyrillic invoices correctly.
     if threading.current_thread() is not threading.main_thread():
         return False
     return True
+
+
+def _should_use_qt_subprocess_renderer() -> bool:
+    if str(os.environ.get("MINIMAL_KANBAN_FORCE_FALLBACK_PDF", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return False
+    if str(os.environ.get("MINIMAL_KANBAN_PDF_RENDER_CHILD", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return False
+    if getattr(sys, "frozen", False):
+        return False
+    return threading.current_thread() is not threading.main_thread()
 
 
 def render_html_to_pdf_bytes(
@@ -44,25 +77,45 @@ def render_html_to_pdf_bytes(
     orientation: str = "portrait",
     title: str = "AutoStop CRM",
 ) -> bytes:
-    if not _should_use_qt_renderer():
-        return _render_fallback_pdf_bytes(
-            html,
-            paper_size=paper_size,
-            orientation=orientation,
-            title=title,
-        )
-    try:
-        _ensure_qt_application()
-        from PySide6.QtCore import QMarginsF, QSizeF
-        from PySide6.QtGui import QPageLayout, QPageSize, QTextDocument
-        from PySide6.QtPrintSupport import QPrinter
-    except Exception:
-        return _render_fallback_pdf_bytes(
-            html,
-            paper_size=paper_size,
-            orientation=orientation,
-            title=title,
-        )
+    if _should_use_qt_renderer():
+        try:
+            return _render_qt_pdf_bytes(
+                html,
+                paper_size=paper_size,
+                orientation=orientation,
+                title=title,
+            )
+        except Exception:
+            pass
+    if _should_use_qt_subprocess_renderer():
+        try:
+            return _render_qt_pdf_in_subprocess(
+                html,
+                paper_size=paper_size,
+                orientation=orientation,
+                title=title,
+            )
+        except Exception:
+            pass
+    return _render_fallback_pdf_bytes(
+        html,
+        paper_size=paper_size,
+        orientation=orientation,
+        title=title,
+    )
+
+
+def _render_qt_pdf_bytes(
+    html: str,
+    *,
+    paper_size: str = "A4",
+    orientation: str = "portrait",
+    title: str = "AutoStop CRM",
+) -> bytes:
+    _ensure_qt_application()
+    from PySide6.QtCore import QMarginsF, QSizeF
+    from PySide6.QtGui import QPageLayout, QPageSize, QTextDocument
+    from PySide6.QtPrintSupport import QPrinter
 
     page_sizes = {
         "A4": QPageSize(QPageSize.PageSizeId.A4),
@@ -76,14 +129,18 @@ def render_html_to_pdf_bytes(
         else QPageLayout.Orientation.Portrait
     )
 
-    with tempfile.NamedTemporaryFile(prefix="autostopcrm-print-", suffix=".pdf", delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(
+        prefix="autostopcrm-print-", suffix=".pdf", delete=False
+    ) as tmp:
         pdf_path = Path(tmp.name)
     try:
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
         printer.setOutputFileName(str(pdf_path))
         printer.setDocName(str(title or "AutoStop CRM"))
-        printer.setPageLayout(QPageLayout(selected_size, selected_orientation, QMarginsF(10, 10, 10, 10)))
+        printer.setPageLayout(
+            QPageLayout(selected_size, selected_orientation, QMarginsF(10, 10, 10, 10))
+        )
         document = QTextDocument()
         document.setDocumentMargin(0)
         document.setDefaultStyleSheet(
@@ -105,6 +162,51 @@ def render_html_to_pdf_bytes(
             pass
 
 
+def _render_qt_pdf_in_subprocess(
+    html: str,
+    *,
+    paper_size: str = "A4",
+    orientation: str = "portrait",
+    title: str = "AutoStop CRM",
+) -> bytes:
+    script_path = Path(__file__).resolve()
+    if not script_path.exists():
+        raise PdfRenderError("Не найден модуль генерации PDF для subprocess.")
+    payload = json.dumps(
+        {
+            "html": str(html or ""),
+            "paper_size": str(paper_size or "A4"),
+            "orientation": str(orientation or "portrait"),
+            "title": str(title or "AutoStop CRM"),
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    env = os.environ.copy()
+    env["MINIMAL_KANBAN_PDF_RENDER_CHILD"] = "1"
+    if not os.environ.get("QT_QPA_PLATFORM") and os.name != "nt":
+        env["QT_QPA_PLATFORM"] = "offscreen"
+    completed = subprocess.run(
+        [sys.executable, str(script_path)],
+        input=payload,
+        capture_output=True,
+        env=env,
+        timeout=45,
+        check=False,
+    )
+    if completed.returncode != 0:
+        stderr = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise PdfRenderError(f"Qt subprocess не создал PDF: {stderr}")
+    try:
+        response = json.loads(completed.stdout.decode("utf-8"))
+        pdf_bytes = base64.b64decode(str(response["content_base64"]))
+    except Exception as exc:
+        stderr = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise PdfRenderError(f"Qt subprocess вернул некорректный PDF: {stderr}") from exc
+    if not pdf_bytes.startswith(b"%PDF"):
+        raise PdfRenderError("Qt subprocess вернул не PDF.")
+    return pdf_bytes
+
+
 def _render_fallback_pdf_bytes(
     html: str,
     *,
@@ -118,6 +220,8 @@ def _render_fallback_pdf_bytes(
 
 def _html_to_plain_text(html: str, *, default_title: str = "AutoStop CRM") -> str:
     text = str(html or "")
+    text = re.sub(r"(?is)<\s*head[^>]*>.*?</\s*head\s*>", "", text)
+    text = re.sub(r"(?is)<\s*(style|script)[^>]*>.*?</\s*\1\s*>", "", text)
     replacements = [
         (r"(?i)<\s*br\s*/?>", "\n"),
         (r"(?i)</\s*(p|div|tr|h1|h2|h3|h4|h5|h6)\s*>", "\n"),
@@ -167,7 +271,11 @@ def _build_pdf_bytes(objects: list[bytes]) -> bytes:
     out.extend(b"0000000000 65535 f \n")
     for offset in offsets[1:]:
         out.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
-    out.extend(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF".encode("ascii"))
+    out.extend(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF".encode(
+            "ascii"
+        )
+    )
     return bytes(out)
 
 
@@ -186,7 +294,9 @@ def _render_plain_text_pdf(
     lines_per_page = max(1, usable_height // line_height)
     raw_lines = [line.rstrip() for line in str(text or title or "AutoStop CRM").splitlines()]
     lines = raw_lines or [str(title or "AutoStop CRM")]
-    pages = [lines[index:index + lines_per_page] for index in range(0, len(lines), lines_per_page)] or [[str(title or "AutoStop CRM")]]
+    pages = [
+        lines[index : index + lines_per_page] for index in range(0, len(lines), lines_per_page)
+    ] or [[str(title or "AutoStop CRM")]]
 
     font_object = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n"
     objects: list[bytes] = [b"", b"", font_object]
@@ -212,10 +322,40 @@ def _render_plain_text_pdf(
             f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] "
             f"/Resources << /Font << /F1 3 0 R >> >> /Contents {content_object_id} 0 R >>\n"
         ).encode("ascii")
-        content_object = b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream\n"
+        content_object = (
+            b"<< /Length "
+            + str(len(stream)).encode("ascii")
+            + b" >>\nstream\n"
+            + stream
+            + b"\nendstream\n"
+        )
         objects.append(page_object)
         objects.append(content_object)
 
     objects[0] = b"<< /Type /Catalog /Pages 2 0 R >>\n"
-    objects[1] = f"<< /Type /Pages /Count {len(page_refs)} /Kids [{' '.join(page_refs)}] >>\n".encode("ascii")
+    objects[1] = (
+        f"<< /Type /Pages /Count {len(page_refs)} /Kids [{' '.join(page_refs)}] >>\n".encode(
+            "ascii"
+        )
+    )
     return _build_pdf_bytes(objects)
+
+
+def _render_pdf_cli() -> int:
+    try:
+        payload = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+        pdf_bytes = _render_qt_pdf_bytes(
+            str(payload.get("html", "") or ""),
+            paper_size=str(payload.get("paper_size", "A4") or "A4"),
+            orientation=str(payload.get("orientation", "portrait") or "portrait"),
+            title=str(payload.get("title", "AutoStop CRM") or "AutoStop CRM"),
+        )
+    except Exception as exc:
+        sys.stderr.write(str(exc))
+        return 1
+    sys.stdout.write(json.dumps({"content_base64": base64.b64encode(pdf_bytes).decode("ascii")}))
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised through subprocess tests
+    raise SystemExit(_render_pdf_cli())
