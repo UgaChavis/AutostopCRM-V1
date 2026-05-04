@@ -48,7 +48,18 @@ CARD_JOURNAL_ACTION_LABELS = {
     "attachment_removed": "Удалён файл",
     "vehicle_profile_updated": "Обновлена техкарта",
     "repair_order_updated": "Обновлён заказ-наряд",
+    "repair_order_autofilled": "Автозаполнен заказ-наряд",
+    "repair_order_vehicle_fields_synced": "Синхронизированы данные заказ-наряда",
+    "ready_column_synchronized": "Синхронизирован столбец готовности",
     "cash_transaction_deleted": "Удалено движение кассы",
+    "cash_transaction_created": "Добавлено движение кассы",
+    "card_client_linked": "Привязан клиент",
+    "card_client_unlinked": "Клиент отвязан",
+    "card_client_vehicle_synced": "Синхронизирован автомобиль клиента",
+    "card_client_vehicle_unlinked": "Автомобиль клиента отвязан",
+    "card_cleanup_applied": "Выполнена очистка карточки",
+    "card_auto_cleanup_blocked": "Автоочистка карточки заблокирована",
+    "card_full_enrichment_requested": "Запрошено полное обогащение карточки",
 }
 CARD_JOURNAL_ACTION_ICONS = {
     "card_created": "✨",
@@ -69,7 +80,18 @@ CARD_JOURNAL_ACTION_ICONS = {
     "attachment_removed": "🗑️",
     "vehicle_profile_updated": "🧾",
     "repair_order_updated": "🛠️",
+    "repair_order_autofilled": "🛠️",
+    "repair_order_vehicle_fields_synced": "🛠️",
+    "ready_column_synchronized": "✅",
     "cash_transaction_deleted": "💸",
+    "cash_transaction_created": "💸",
+    "card_client_linked": "👤",
+    "card_client_unlinked": "👤",
+    "card_client_vehicle_synced": "🚗",
+    "card_client_vehicle_unlinked": "🚗",
+    "card_cleanup_applied": "🧹",
+    "card_auto_cleanup_blocked": "⚠️",
+    "card_full_enrichment_requested": "🤖",
 }
 CARD_JOURNAL_FIELD_LABELS = {
     "vehicle": "Автомобиль",
@@ -86,6 +108,9 @@ CARD_JOURNAL_FIELD_LABELS = {
     "vehicle_profile": "Техкарта автомобиля",
     "repair_order": "Заказ-наряд",
     "cash_transaction": "Движение кассы",
+    "client": "Клиент",
+    "client_vehicle": "Автомобиль клиента",
+    "ready_state": "Готовность",
 }
 CARD_JOURNAL_SOURCE_LABELS = {
     "ui": "интерфейс",
@@ -996,11 +1021,13 @@ class SnapshotService:
             ]
             entries = self._card_log_entries(events, card=card)
             days = self._card_log_group_entries(entries, key="day_key", kind="day")
+            weeks = self._card_log_group_entries(entries, key="week_key", kind="week")
+            months = self._card_log_group_entries(entries, key="month_key", kind="month")
             totals = self._card_log_totals(entries)
             newest_timestamp = entries[0]["timestamp"] if entries else ""
             oldest_timestamp = entries[-1]["timestamp"] if entries else ""
             meta = {
-                "schema_version": "card_journal.v1",
+                "schema_version": "card_journal.v2",
                 "card_id": card.id,
                 "card_short_id": short_entity_id(card.id, prefix="C"),
                 "card_heading": card.heading(),
@@ -1014,28 +1041,27 @@ class SnapshotService:
                 "oldest_timestamp": oldest_timestamp,
                 "format": "markdown+json",
                 "text_alias": "markdown",
+                "event_order": "newest_first",
             }
             markdown = self._card_log_markdown(
                 card=card,
                 entries=entries,
                 days=days,
-                totals=totals,
-                meta=meta,
-            )
-            text = self._card_log_text(
-                card=card,
-                entries=entries,
-                days=days,
+                weeks=weeks,
+                months=months,
                 totals=totals,
                 meta=meta,
             )
             return {
                 "events": events,
                 "entries": entries,
+                "timeline": entries,
                 "days": days,
+                "weeks": weeks,
+                "months": months,
                 "totals": totals,
                 "markdown": markdown,
-                "text": text,
+                "text": markdown,
                 "meta": {
                     **meta,
                 },
@@ -1094,7 +1120,7 @@ class SnapshotService:
     ) -> dict[str, Any]:
         kind = self._card_log_change_kind(before, after)
         return {
-            "schema_version": "card_journal.change.v1",
+            "schema_version": "card_journal.change.v2",
             "field": field,
             "label": label or CARD_JOURNAL_FIELD_LABELS.get(field, field.replace("_", " ")),
             "kind": kind,
@@ -1210,6 +1236,50 @@ class SnapshotService:
                 parts.append(f"{key.replace('_', ' ')}: {text}")
         return " | ".join(parts)
 
+    def _card_log_value_lines(self, value: Any) -> list[str]:
+        text = self._card_log_full_value_text(value)
+        if not text:
+            return ["—"]
+        return [line.rstrip() or "—" for line in text.splitlines()]
+
+    def _card_log_change_detail_lines(self, change: dict[str, Any]) -> list[str]:
+        label = str(change.get("label") or change.get("field") or "Изменение")
+        removed = change.get("kind") == "removed"
+        marker = "⚠️ Очищено поле" if removed else "Изменено поле"
+        lines = [f"{marker} {label}", "до:"]
+        lines.extend(f"  {line}" for line in self._card_log_value_lines(change.get("before")))
+        lines.append("после:")
+        lines.extend(f"  {line}" for line in self._card_log_value_lines(change.get("after")))
+        return lines
+
+    def _card_log_entry_detail_lines(
+        self,
+        event: dict[str, Any],
+        changes: list[dict[str, Any]],
+        *,
+        action_label: str,
+        message: str,
+    ) -> list[str]:
+        lines: list[str] = []
+        if message and message != action_label:
+            lines.append(f"Сообщение: {message}")
+        if changes:
+            for change in changes:
+                lines.extend(self._card_log_change_detail_lines(change))
+            return lines
+
+        details = event.get("details")
+        if not isinstance(details, dict) or not details:
+            return lines
+        for key in sorted(details.keys()):
+            value = details.get(key)
+            if self._card_log_is_empty_value(value):
+                continue
+            label = CARD_JOURNAL_FIELD_LABELS.get(key, key.replace("_", " "))
+            compact = self._card_log_compact_change_value(value)
+            lines.append(f"{label}: {compact}")
+        return lines
+
     def _card_log_entries(
         self,
         events: list[dict[str, Any]],
@@ -1222,37 +1292,55 @@ class SnapshotService:
         for event in events:
             timestamp = parse_datetime(event.get("timestamp")) or utc_now()
             day_key = timestamp.date().isoformat()
+            iso_year, iso_week, _ = timestamp.isocalendar()
+            week_key = f"{iso_year}-W{iso_week:02d}"
+            month_key = timestamp.strftime("%Y-%m")
             time_short = timestamp.strftime("%H:%M")
             details = event.get("details")
             action = normalize_text(event.get("action"), default="unknown", limit=80)
             source = event.get("source") or "system"
             changes = self._card_log_changes(event)
-            details_text = self._card_log_detail_text(event, changes)
             details_copy = dict(details) if isinstance(details, dict) else {}
             has_deletion = any(item.get("kind") == "removed" for item in changes)
+            actor_name = normalize_actor_name(event.get("actor_name"))
+            action_label = self._card_log_action_label(action)
+            source_label = self._card_log_source_label(source)
+            icon = self._card_log_action_icon(action)
+            message = normalize_text(event.get("message"), default="Событие", limit=300)
+            detail_lines = self._card_log_entry_detail_lines(
+                event,
+                changes,
+                action_label=action_label,
+                message=message,
+            )
+            display_line = f"{time_short} | {icon} {action_label} | {actor_name} | {source_label}"
             entry = {
-                "schema_version": "card_journal.entry.v1",
+                "schema_version": "card_journal.entry.v2",
                 "id": event.get("id") or "",
                 "timestamp": timestamp.isoformat(),
                 "date": day_key,
                 "time": timestamp.strftime("%H:%M:%S"),
                 "time_short": time_short,
                 "day_key": day_key,
-                "actor_name": normalize_actor_name(event.get("actor_name")),
+                "week_key": week_key,
+                "month_key": month_key,
+                "actor_name": actor_name,
                 "source": source,
-                "source_label": self._card_log_source_label(source),
+                "source_label": source_label,
                 "action": action,
-                "action_label": self._card_log_action_label(action),
-                "icon": self._card_log_action_icon(action),
-                "message": normalize_text(event.get("message"), default="Событие", limit=300),
+                "action_label": action_label,
+                "icon": icon,
+                "message": message,
                 "card_id": card.id,
                 "card_short_id": card_short_id,
                 "card_heading": card_heading,
                 "details": details_copy,
-                "details_text": details_text,
+                "details_text": "\n".join(detail_lines),
+                "detail_lines": detail_lines,
                 "changes": changes,
                 "change_count": len(changes),
                 "has_deletion": has_deletion,
+                "display_line": display_line,
             }
             entry["summary"] = " · ".join(
                 value
@@ -1275,16 +1363,23 @@ class SnapshotService:
         result: list[dict[str, Any]] = []
         for group_key in sorted(grouped.keys(), reverse=True):
             group_entries = grouped[group_key]
+            totals = self._card_log_totals(group_entries)
             payload: dict[str, Any] = {
                 "key": group_key,
                 "entries": group_entries,
-                "count": len(group_entries),
+                **totals,
             }
             if kind == "day":
                 payload["day_key"] = group_key
                 payload["label"] = self._card_log_day_label(group_key)
                 payload["first_timestamp"] = group_entries[0]["timestamp"]
                 payload["last_timestamp"] = group_entries[-1]["timestamp"]
+            elif kind == "week":
+                payload["week_key"] = group_key
+                payload["label"] = self._card_log_week_label(group_key)
+            else:
+                payload["month_key"] = group_key
+                payload["label"] = self._card_log_month_label(group_key)
             result.append(payload)
         return result
 
@@ -1304,6 +1399,36 @@ class SnapshotService:
         ]
         return f"{value.strftime('%d.%m.%Y')}, {weekdays[value.weekday()]}"
 
+    def _card_log_week_label(self, week_key: str) -> str:
+        try:
+            year_text, week_text = week_key.split("-W", 1)
+            start = datetime.fromisocalendar(int(year_text), int(week_text), 1)
+            end = datetime.fromisocalendar(int(year_text), int(week_text), 7)
+        except (ValueError, TypeError):
+            return week_key
+        return f"{week_text} неделя: {start.strftime('%d.%m')} - {end.strftime('%d.%m.%Y')}"
+
+    def _card_log_month_label(self, month_key: str) -> str:
+        try:
+            value = datetime.strptime(month_key, "%Y-%m")
+        except ValueError:
+            return month_key
+        month_names = [
+            "Январь",
+            "Февраль",
+            "Март",
+            "Апрель",
+            "Май",
+            "Июнь",
+            "Июль",
+            "Август",
+            "Сентябрь",
+            "Октябрь",
+            "Ноябрь",
+            "Декабрь",
+        ]
+        return f"{month_names[value.month - 1]} {value.year}"
+
     def _card_log_totals(self, entries: list[dict[str, Any]]) -> dict[str, object]:
         return {
             "count": len(entries),
@@ -1316,59 +1441,9 @@ class SnapshotService:
             "actions": len(
                 {str(item.get("action") or "") for item in entries if item.get("action")}
             ),
+            "changes": sum(int(item.get("change_count") or 0) for item in entries),
+            "deletions": sum(1 for item in entries if item.get("has_deletion")),
         }
-
-    def _append_card_log_value_block(
-        self,
-        lines: list[str],
-        *,
-        label: str,
-        value: str,
-        indent: str,
-    ) -> None:
-        lines.append(f"{indent}{label}:")
-        text = str(value or "")
-        value_lines = text.splitlines() if text else ["—"]
-        for raw_line in value_lines:
-            lines.append(f"{indent}  {raw_line.rstrip() or '—'}")
-
-    def _append_card_log_markdown_changes(
-        self, lines: list[str], changes: list[dict[str, Any]]
-    ) -> None:
-        for change in changes:
-            marker = "⚠️ Очищено поле" if change.get("kind") == "removed" else "↔️ Изменение"
-            lines.append(f"  - {marker}: {change.get('label') or change.get('field')}")
-            self._append_card_log_value_block(
-                lines,
-                label="Было",
-                value=str(change.get("before") or ""),
-                indent="    ",
-            )
-            self._append_card_log_value_block(
-                lines,
-                label="Стало",
-                value=str(change.get("after") or ""),
-                indent="    ",
-            )
-
-    def _append_card_log_text_changes(
-        self, lines: list[str], changes: list[dict[str, Any]]
-    ) -> None:
-        for change in changes:
-            marker = "ОЧИЩЕНО ПОЛЕ" if change.get("kind") == "removed" else "ИЗМЕНЕНИЕ"
-            lines.append(f"    {marker}: {change.get('label') or change.get('field')}")
-            self._append_card_log_value_block(
-                lines,
-                label="БЫЛО",
-                value=str(change.get("before") or ""),
-                indent="      ",
-            )
-            self._append_card_log_value_block(
-                lines,
-                label="СТАЛО",
-                value=str(change.get("after") or ""),
-                indent="      ",
-            )
 
     def _card_log_markdown(
         self,
@@ -1376,92 +1451,72 @@ class SnapshotService:
         card: Card,
         entries: list[dict[str, Any]],
         days: list[dict[str, Any]],
+        weeks: list[dict[str, Any]],
+        months: list[dict[str, Any]],
         totals: dict[str, object],
         meta: dict[str, object],
     ) -> str:
         lines = [
-            "# Журнал карточки",
+            "# 🧾 Журнал карточки",
             "",
-            "## 📌 Карточка",
-            f"- {card.heading()}",
+            "## 📊 Итоги карточки",
+            f"- Карточка: {card.heading()}",
             f"- ID: {meta['card_short_id']}",
-            f"- Событий: {totals['count']} из {meta['events_total']}",
+            f"- Показано событий: {totals['count']} из {meta['events_total']}",
+            f"- Участников: {totals['actors']}",
+            f"- Источников: {totals['sources']}",
+            f"- Типов действий: {totals['actions']}",
+            f"- Изменений полей: {totals['changes']}",
+            f"- Очищений/удалений: {totals['deletions']}",
         ]
         if meta.get("has_more"):
             lines.append("- Показана только часть журнала по лимиту выгрузки.")
         if meta.get("oldest_timestamp") and meta.get("newest_timestamp"):
             lines.append(f"- Диапазон: {meta['oldest_timestamp']} → {meta['newest_timestamp']}")
-        lines.extend(
-            [
-                "",
-                "## 🗓️ По дням",
-            ]
-        )
+        lines.append("")
         if not entries:
-            lines.extend(["Журнал пуст."])
+            lines.extend(["## 🧾 События", "Журнал пуст."])
             return "\n".join(lines).strip()
+
+        lines.extend(["## 🗓️ По месяцам"])
+        for item in months:
+            lines.append(
+                f"- **{item['label']}**: {item['count']} событ. | "
+                + f"{item['changes']} изм. | {item['deletions']} очищ. | "
+                + f"{item['actors']} участн."
+            )
+        lines.extend(["", "## 📅 По неделям"])
+        for item in weeks:
+            lines.append(
+                f"- **{item['label']}**: {item['count']} событ. | "
+                + f"{item['changes']} изм. | {item['deletions']} очищ. | "
+                + f"{item['actors']} участн."
+            )
+        lines.extend(["", "## 🧾 События по дням"])
         for day in days:
-            lines.append(f"### {day['label']}")
-            lines.append(f"- Событий за день: {day['count']}")
+            lines.extend(
+                [
+                    "",
+                    f"### 📆 {day['label']}",
+                    f"Итого: {day['count']} событ. | {day['changes']} изм. | "
+                    + f"{day['deletions']} очищ. | {day['actors']} участн.",
+                    "",
+                ]
+            )
             for item in day["entries"]:
-                lines.append(
-                    "- "
-                    f"{item.get('icon') or '•'} {item['time_short']} | "
-                    f"{item['actor_name']} | {item.get('source_label') or item.get('source')} | "
-                    f"{item.get('action_label') or item['message']}"
-                )
-                if item.get("message") and item.get("message") != item.get("action_label"):
-                    lines.append(f"  - Сообщение: {item['message']}")
-                changes = item.get("changes") if isinstance(item.get("changes"), list) else []
-                if changes:
-                    self._append_card_log_markdown_changes(lines, changes)
-                elif item.get("details_text"):
-                    lines.append(f"  - Детали: {item['details_text']}")
-            lines.append("")
+                lines.append(f"- {item['display_line']}")
+                self._append_card_log_detail_lines(lines, item.get("detail_lines"))
         return "\n".join(lines).strip()
 
-    def _card_log_text(
-        self,
-        *,
-        card: Card,
-        entries: list[dict[str, Any]],
-        days: list[dict[str, Any]],
-        totals: dict[str, object],
-        meta: dict[str, object],
-    ) -> str:
-        lines = [
-            "ЖУРНАЛ КАРТОЧКИ",
-            f"КАРТОЧКА: {card.heading()}",
-            f"ID: {meta['card_short_id']}",
-            f"СОБЫТИЙ: {totals['count']} ИЗ {meta['events_total']}",
-        ]
-        if meta.get("has_more"):
-            lines.append("ПОКАЗАНА ТОЛЬКО ЧАСТЬ ЖУРНАЛА ПО ЛИМИТУ ВЫГРУЗКИ.")
-        if meta.get("oldest_timestamp") and meta.get("newest_timestamp"):
-            lines.append(f"ДИАПАЗОН: {meta['oldest_timestamp']} → {meta['newest_timestamp']}")
-        lines.extend(["", "ПО ДНЯМ"])
-        if not entries:
-            lines.append("ЗАПИСЕЙ НЕТ.")
-            return "\n".join(lines).strip()
-        for day in days:
-            lines.append(f"{day['label']}")
-            lines.append(f"  СОБЫТИЙ ЗА ДЕНЬ: {day['count']}")
-            for item in day["entries"]:
-                lines.append(
-                    "  "
-                    f"{item.get('icon') or '•'} {item['time_short']} | "
-                    f"{item['actor_name']} | {item.get('source_label') or item.get('source')} | "
-                    f"{item.get('action_label') or item['message']}"
-                )
-                if item.get("message") and item.get("message") != item.get("action_label"):
-                    lines.append(f"    СООБЩЕНИЕ: {item['message']}")
-                changes = item.get("changes") if isinstance(item.get("changes"), list) else []
-                if changes:
-                    self._append_card_log_text_changes(lines, changes)
-                elif item.get("details_text"):
-                    lines.append(f"    {item['details_text']}")
-            lines.append("")
-        return "\n".join(lines).strip()
+    def _append_card_log_detail_lines(self, lines: list[str], detail_lines: Any) -> None:
+        if not isinstance(detail_lines, list):
+            return
+        for raw_line in detail_lines:
+            line = str(raw_line)
+            if line.startswith("  ") or line in {"до:", "после:"}:
+                lines.append(f"    {line}")
+            else:
+                lines.append(f"  - {line}")
 
     def _latest_event_by_card(self, events: list[AuditEvent]) -> dict[str, AuditEvent]:
         latest: dict[str, AuditEvent] = {}

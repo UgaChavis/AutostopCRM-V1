@@ -177,7 +177,7 @@ class CRMToolRegistry:
             ),
             CRMToolDefinition(
                 "get_card_log",
-                "Read one card audit log.",
+                "Read one card_journal.v2 audit log with structured timeline and Markdown.",
                 {"card_id": "required string", "limit": "optional int"},
             ),
             CRMToolDefinition(

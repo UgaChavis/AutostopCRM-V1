@@ -1214,13 +1214,19 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(log.structuredContent["ok"])
                 self.assertEqual(log.structuredContent["data"]["events"][0]["source"], "mcp")
                 self.assertEqual(
-                    log.structuredContent["data"]["meta"]["schema_version"], "card_journal.v1"
+                    log.structuredContent["data"]["meta"]["schema_version"], "card_journal.v2"
                 )
                 self.assertEqual(log.structuredContent["data"]["meta"]["limit"], 2)
+                self.assertEqual(
+                    log.structuredContent["data"]["meta"]["event_order"], "newest_first"
+                )
                 self.assertEqual(log.structuredContent["data"]["meta"]["response_mode"], "audit")
                 self.assertIn("markdown", log.structuredContent["data"])
                 self.assertIn("text", log.structuredContent["data"])
                 self.assertIn("entries", log.structuredContent["data"])
+                self.assertIn("timeline", log.structuredContent["data"])
+                self.assertIn("weeks", log.structuredContent["data"])
+                self.assertIn("months", log.structuredContent["data"])
                 self.assertIn("icon", log.structuredContent["data"]["entries"][0])
                 self.assertIn("action_label", log.structuredContent["data"]["entries"][0])
                 self.assertIn("source_label", log.structuredContent["data"]["entries"][0])

@@ -1888,7 +1888,7 @@ def create_mcp_server(
     @server.tool(
         name="get_card_log",
         description=_scoped_description(
-            "Return the audit log of one card from the current Minimal Kanban board. Use limit to keep the journal slice compact for GPT."
+            "Return the card_journal.v2 audit log of one card from the current Minimal Kanban board: machine-readable entries/timeline/days/weeks/months/totals plus Markdown with full before/after values. Use limit to keep the journal slice compact for GPT."
         ),
         annotations=_read_tool_annotations("Card Log"),
         structured_output=True,

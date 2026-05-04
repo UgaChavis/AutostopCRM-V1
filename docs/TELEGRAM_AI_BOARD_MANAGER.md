@@ -247,7 +247,7 @@ Read tools:
 - `get_card`
 - `search_cards`
 - `get_card_context`
-- `get_card_log`
+- `get_card_log` (`card_journal.v2`): machine-readable card journal plus Markdown grouped by months, weeks, and days; use it to recover previous `до:` values after user/AI edits.
 - `list_card_attachments`
 - `get_card_attachment`
 - `read_card_attachment`

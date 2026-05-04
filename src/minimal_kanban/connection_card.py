@@ -349,6 +349,7 @@ def build_chatgpt_connector_payload(settings: IntegrationSettings) -> str:
             "Use MCP tool names directly, not resource URLs. If metadata shows /AutoStopCRM/link_.../tool_name, normalize it internally to /AutoStopCRM/tool_name.",
             "For vehicle cards, call get_board_snapshot first when you need a quick board-wide fallback, or get_board_content when broad context or recent history matters; use get_gpt_wall only when you need both hidden machine wall sections in one response and a compact agent dump is acceptable.",
             "For vehicle cards, call get_board_events when you need the latest change journal in Markdown.",
+            "For one card's recovery journal, call get_card_log; it returns card_journal.v2 JSON plus Markdown with full before/after values.",
             "If AutostopManager tools are visible, use today_context/recall/remember only for durable non-CRM manager memory.",
             "When creating or updating a card, keep vehicle limited to make/model only, and keep title limited to the short essence of the issue, task, or result.",
             "The 1.1 compact vehicle profile should focus on make_display, model_display, production_year, vin, engine_model, gearbox_model, drivetrain, and oem_notes.",
