@@ -1622,6 +1622,32 @@ class SnapshotService:
         lines.extend(f"  {line}" for line in self._card_log_value_lines(change.get("after_human")))
         return lines
 
+    def _card_log_event_specific_detail_lines(self, event: dict[str, Any]) -> list[str]:
+        details = event.get("details")
+        if not isinstance(details, dict):
+            return []
+        action = str(event.get("action") or "").strip()
+        lines: list[str] = []
+        if action == "card_client_linked":
+            client_name = self._card_log_trim_human_text(details.get("client_name"), limit=160)
+            if client_name:
+                lines.append(f"Клиент: {client_name}")
+            if details.get("vehicle_created") is True:
+                lines.append("Автомобиль клиента: создан из карточки")
+            elif details.get("client_vehicle_id"):
+                lines.append("Автомобиль клиента: привязан существующий автомобиль")
+            return lines
+        if action == "card_client_unlinked":
+            lines.append("Клиент: отвязан от карточки")
+            return lines
+        if action == "card_client_vehicle_synced":
+            lines.append("Автомобиль клиента: обновлён по данным карточки")
+            return lines
+        if action == "card_client_vehicle_unlinked":
+            lines.append("Автомобиль клиента: отвязан от карточки")
+            return lines
+        return lines
+
     def _card_log_entry_detail_lines(
         self,
         event: dict[str, Any],
@@ -1636,6 +1662,11 @@ class SnapshotService:
         if changes:
             for change in changes:
                 lines.extend(self._card_log_change_detail_lines(change))
+            return lines
+
+        event_specific_lines = self._card_log_event_specific_detail_lines(event)
+        if event_specific_lines:
+            lines.extend(event_specific_lines)
             return lines
 
         details = event.get("details")

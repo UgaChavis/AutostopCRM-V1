@@ -3664,6 +3664,46 @@ class CardServiceTests(unittest.TestCase):
         self.assertNotIn("manual_ui", log["markdown"])
         self.assertNotIn("{", log["markdown"])
 
+    def test_get_card_log_humanizes_client_link_details(self) -> None:
+        client = self.service.create_client(
+            {"display_name": "Иван Клиент", "phone": "+7 913 111-22-33"}
+        )["client"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Nissan X-Trail",
+                "title": "ПРИВЯЗКА КЛИЕНТА",
+                "description": "Проверка журнала клиента",
+                "deadline": {"hours": 2},
+                "vehicle_profile": {
+                    "make_display": "Nissan",
+                    "model_display": "X-Trail",
+                    "vin": "JN1TANT32U0012345",
+                    "registration_plate": "Н111НН124",
+                },
+            }
+        )["card"]
+
+        self.service.link_card_to_client(
+            {
+                "card_id": created["id"],
+                "client_id": client["id"],
+                "create_vehicle_from_card": True,
+                "actor_name": "ADMIN",
+                "source": "api",
+            }
+        )
+
+        log = self.service.get_card_log({"card_id": created["id"]})
+        entry = next(item for item in log["entries"] if item["action"] == "card_client_linked")
+
+        self.assertIn("Клиент: Иван Клиент", log["markdown"])
+        self.assertIn("Автомобиль клиента: создан из карточки", log["markdown"])
+        self.assertNotIn("client id", log["markdown"].lower())
+        self.assertNotIn("client vehicle id", log["markdown"].lower())
+        self.assertNotIn("vehicle created", log["markdown"].lower())
+        self.assertNotIn(client["id"], log["markdown"])
+        self.assertEqual(entry["details"]["client_id"], client["id"])
+
     def test_search_cards_skips_event_count_build_when_no_matches(self) -> None:
         self.service.create_card(
             {
