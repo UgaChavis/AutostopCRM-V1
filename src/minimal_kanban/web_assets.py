@@ -4866,7 +4866,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .cashbox-journal-summary {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
       gap: 6px;
     }
     .cashbox-journal-stat,
@@ -4925,7 +4925,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .cashbox-journal-opening__grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
       gap: 6px;
     }
     .cashbox-journal-balance {
@@ -4937,7 +4937,12 @@ BOARD_WEB_APP_HTML = "".join(
       border: 1px solid rgba(255,255,255,0.055);
       background: rgba(0,0,0,0.14);
     }
-    .cashbox-journal-balance__name,
+    .cashbox-journal-balance__name {
+      min-width: 0;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: none;
+    }
     .cashbox-journal-entry__note {
       min-width: 0;
       overflow-wrap: anywhere;
@@ -18105,11 +18110,10 @@ function renderCompactArchiveRows(cards) {
 
     function cashboxFormatMinorAmount(value) {
       const amount = Number(value || 0);
-      const sign = amount < 0 ? '-' : '';
-      const absolute = Math.abs(amount) / 100;
-      return sign + absolute.toLocaleString('ru-RU', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
+      const rounded = Math.round(Math.abs(amount) / 100);
+      const sign = amount < 0 && rounded > 0 ? '-' : '';
+      return sign + rounded.toLocaleString('ru-RU', {
+        maximumFractionDigits: 0,
       }) + ' ₽';
     }
 

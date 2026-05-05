@@ -2331,7 +2331,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("Кассовый журнал", journal["markdown"])
         self.assertIn("Наличный", journal["markdown"])
         self.assertIn("ОПЛАТА КЛИЕНТА", journal["markdown"].upper())
-        self.assertIn("+1 000,00 ₽", journal["markdown"])
+        self.assertIn("+1 000 ₽", journal["markdown"])
         self.assertEqual(journal["entries"][0]["cashbox_name"], "Наличный")
         self.assertEqual(journal["entries"][0]["source_label"], "api")
         self.assertEqual(journal["entries"][0]["signed_amount_minor"], 100000)
@@ -2367,7 +2367,7 @@ class CardServiceTests(unittest.TestCase):
                 id="tx-1",
                 cashbox_id=cashbox.id,
                 direction="income",
-                amount_minor=100000,
+                amount_minor=100075,
                 note="Оплата клиента",
                 created_at="2026-04-01T10:00:00+00:00",
                 actor_name="ADMIN",
@@ -2411,10 +2411,10 @@ class CardServiceTests(unittest.TestCase):
             item["cashbox_name"]: item["balance_minor"]
             for item in second_day["opening_balances"]
         }
-        self.assertEqual(balances, {"Наличный": 100000, "Карта Мария": 0})
-        self.assertEqual(second_day["opening_total_minor"], 100000)
-        self.assertIn("- Наличный: 1 000,00 ₽", journal["markdown"])
-        self.assertIn("- Карта Мария: 0,00 ₽", journal["markdown"])
+        self.assertEqual(balances, {"Наличный": 100075, "Карта Мария": 0})
+        self.assertEqual(second_day["opening_total_minor"], 100075)
+        self.assertIn("- Наличный: 1 001 ₽", journal["markdown"])
+        self.assertIn("- Карта Мария: 0 ₽", journal["markdown"])
 
     def test_cash_journal_markdown_compacts_transfer_pairs(self) -> None:
         source = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})["cashbox"]
@@ -2434,7 +2434,7 @@ class CardServiceTests(unittest.TestCase):
 
         self.assertIn("Наличный → Карта Мария", journal["markdown"])
         self.assertIn(
-            "Внутренние перемещения: пришло 3 000,00 ₽ | ушло 3 000,00 ₽", journal["markdown"]
+            "Внутренние перемещения: пришло 3 000 ₽ | ушло 3 000 ₽", journal["markdown"]
         )
         self.assertNotIn("`", journal["markdown"])
         self.assertEqual(journal["totals"]["transfer_income_minor"], 300000)

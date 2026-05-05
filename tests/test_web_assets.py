@@ -2206,13 +2206,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function handleCashboxesListDragOver(event)", BOARD_WEB_APP_HTML)
         self.assertIn("async function handleCashboxesListDrop(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleCashboxesListDragEnd()", BOARD_WEB_APP_HTML)
-        self.assertIn("const absolute = Math.abs(amount) / 100;", BOARD_WEB_APP_HTML)
+        self.assertIn("const rounded = Math.round(Math.abs(amount) / 100);", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "minimumFractionDigits: 2,",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn(
-            "maximumFractionDigits: 2,",
+            "maximumFractionDigits: 0,",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(

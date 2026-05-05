@@ -6552,23 +6552,23 @@ class CardService:
         allow_sign: bool = False,
         force_negative: bool = False,
     ) -> str:
-        absolute_amount = round(abs(int(amount_minor)) / 100)
-        sign = ""
-        if force_negative:
-            sign = "-"
-        elif allow_sign and int(amount_minor) > 0:
-            sign = "+"
-        return f"{sign}{absolute_amount:,}".replace(",", " ") + " ₽"
+        signed_value = -abs(int(amount_minor)) if force_negative else int(amount_minor)
+        return self._cashbox_rounded_money_text(signed_value, signed=allow_sign or force_negative)
 
-    def _cash_journal_money_text(self, amount_minor: int, *, signed: bool = False) -> str:
-        formatted = format_money_minor(abs(int(amount_minor)))
-        if not signed:
+    def _cashbox_rounded_money_text(self, amount_minor: int, *, signed: bool = False) -> str:
+        value = int(amount_minor)
+        rounded_rubles = (abs(value) + 50) // 100
+        formatted = f"{rounded_rubles:,}".replace(",", " ") + " ₽"
+        if rounded_rubles == 0:
             return formatted
-        if int(amount_minor) > 0:
+        if signed and value > 0:
             return f"+{formatted}"
-        if int(amount_minor) < 0:
+        if value < 0:
             return f"-{formatted}"
         return formatted
+
+    def _cash_journal_money_text(self, amount_minor: int, *, signed: bool = False) -> str:
+        return self._cashbox_rounded_money_text(amount_minor, signed=signed)
 
     def _cash_transaction_source_label(self, transaction: CashTransaction) -> str:
         transaction_kind = self._cash_transaction_kind_label(transaction.transaction_kind)
@@ -6818,7 +6818,7 @@ class CardService:
             )
             day["opening_balances"] = opening_balances
             day["opening_total_minor"] = opening_total_minor
-            day["opening_total_display"] = format_money_minor(opening_total_minor)
+            day["opening_total_display"] = self._cashbox_rounded_money_text(opening_total_minor)
             day["opening_total_sign"] = "negative" if opening_total_minor < 0 else "positive"
         return days
 
@@ -6845,7 +6845,9 @@ class CardService:
                 "cashbox_id": cashbox_id,
                 "cashbox_name": cashbox_name,
                 "balance_minor": int(balances_by_id.get(cashbox_id) or 0),
-                "balance_display": format_money_minor(int(balances_by_id.get(cashbox_id) or 0)),
+                "balance_display": self._cashbox_rounded_money_text(
+                    int(balances_by_id.get(cashbox_id) or 0)
+                ),
                 "balance_sign": (
                     "negative" if int(balances_by_id.get(cashbox_id) or 0) < 0 else "positive"
                 ),
@@ -7101,11 +7103,11 @@ class CardService:
         return {
             "transactions_total": len(related),
             "income_total_minor": income_minor,
-            "income_total_display": format_money_minor(income_minor),
+            "income_total_display": self._cashbox_rounded_money_text(income_minor),
             "expense_total_minor": expense_minor,
-            "expense_total_display": format_money_minor(expense_minor),
+            "expense_total_display": self._cashbox_rounded_money_text(expense_minor),
             "balance_minor": balance_minor,
-            "balance_display": format_money_minor(balance_minor),
+            "balance_display": self._cashbox_rounded_money_text(balance_minor),
             "balance_sign": "negative" if balance_minor < 0 else "positive",
             "last_transaction_at": related[0].created_at if related else None,
         }
