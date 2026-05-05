@@ -30,7 +30,14 @@ from attachment_samples import (
     minimal_text_bytes,
     minimal_xlsx_bytes,
 )
-from minimal_kanban.models import CARD_DESCRIPTION_LIMIT, AuditEvent, Card, utc_now
+from minimal_kanban.models import (
+    CARD_DESCRIPTION_LIMIT,
+    AuditEvent,
+    Card,
+    CashBox,
+    CashTransaction,
+    utc_now,
+)
 from minimal_kanban.agent.config import get_agent_name
 from minimal_kanban.repair_order import RepairOrder
 from minimal_kanban.services.card_service import CardService, ServiceError
@@ -2331,8 +2338,83 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(journal["totals"]["income_minor"], 100000)
         self.assertEqual(journal["totals"]["balance_minor"], 100000)
         self.assertEqual(journal["days"][0]["count"], 1)
+        self.assertEqual(journal["days"][0]["opening_total_minor"], 0)
+        self.assertEqual(journal["days"][0]["opening_balances"][0]["cashbox_name"], "Наличный")
+        self.assertEqual(journal["days"][0]["opening_balances"][0]["balance_minor"], 0)
+        self.assertIn("Остаток на начало дня", journal["markdown"])
+        self.assertNotIn("**", journal["markdown"])
         self.assertEqual(journal["weeks"][0]["count"], 1)
         self.assertEqual(journal["months"][0]["count"], 1)
+
+    def test_cash_journal_includes_daily_opening_balances_by_cashbox(self) -> None:
+        cashbox_created_at = "2026-04-01T00:00:00+00:00"
+        cashbox = CashBox(
+            id="cashbox-cash",
+            name="Наличный",
+            order=0,
+            created_at=cashbox_created_at,
+            updated_at=cashbox_created_at,
+        )
+        card_cashbox = CashBox(
+            id="cashbox-card",
+            name="Карта Мария",
+            order=1,
+            created_at=cashbox_created_at,
+            updated_at=cashbox_created_at,
+        )
+        transactions = [
+            CashTransaction(
+                id="tx-1",
+                cashbox_id=cashbox.id,
+                direction="income",
+                amount_minor=100000,
+                note="Оплата клиента",
+                created_at="2026-04-01T10:00:00+00:00",
+                actor_name="ADMIN",
+                source="api",
+            ),
+            CashTransaction(
+                id="tx-2",
+                cashbox_id=cashbox.id,
+                direction="expense",
+                amount_minor=25000,
+                note="Списание",
+                created_at="2026-04-02T09:00:00+00:00",
+                actor_name="ADMIN",
+                source="api",
+            ),
+            CashTransaction(
+                id="tx-3",
+                cashbox_id=card_cashbox.id,
+                direction="income",
+                amount_minor=50000,
+                note="Оплата по карте",
+                created_at="2026-04-02T11:00:00+00:00",
+                actor_name="ADMIN",
+                source="ui",
+            ),
+        ]
+
+        journal = self.service._build_cash_journal(
+            transactions,
+            {cashbox.id: cashbox, card_cashbox.id: card_cashbox},
+            months=3,
+            limit=100,
+            total=len(transactions),
+            period_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            all_transactions=transactions,
+            cashboxes=[cashbox, card_cashbox],
+        )
+
+        second_day = next(day for day in journal["days"] if day["date"] == "2026-04-02")
+        balances = {
+            item["cashbox_name"]: item["balance_minor"]
+            for item in second_day["opening_balances"]
+        }
+        self.assertEqual(balances, {"Наличный": 100000, "Карта Мария": 0})
+        self.assertEqual(second_day["opening_total_minor"], 100000)
+        self.assertIn("- Наличный: 1 000,00 ₽", journal["markdown"])
+        self.assertIn("- Карта Мария: 0,00 ₽", journal["markdown"])
 
     def test_cash_journal_markdown_compacts_transfer_pairs(self) -> None:
         source = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})["cashbox"]

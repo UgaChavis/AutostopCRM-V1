@@ -1360,7 +1360,8 @@ class CardService:
                 reverse=True,
             )
             returned_transactions = recent_transactions[:limit]
-            cashboxes_by_id = {cashbox.id: cashbox for cashbox in bundle["cashboxes"]}
+            cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
+            cashboxes_by_id = {cashbox.id: cashbox for cashbox in cashboxes}
             journal = self._build_cash_journal(
                 returned_transactions,
                 cashboxes_by_id,
@@ -1368,6 +1369,8 @@ class CardService:
                 limit=limit,
                 total=len(recent_transactions),
                 period_start=period_start,
+                all_transactions=bundle["cash_transactions"],
+                cashboxes=cashboxes,
             )
             return {
                 "entries": journal["entries"],
@@ -6629,6 +6632,8 @@ class CardService:
         limit: int,
         total: int,
         period_start: datetime,
+        all_transactions: list[CashTransaction] | None = None,
+        cashboxes: list[CashBox] | None = None,
     ) -> dict[str, object]:
         entries: list[dict[str, object]] = []
         for item in transactions:
@@ -6674,6 +6679,12 @@ class CardService:
             entries.append(base)
 
         days = self._cash_journal_group_entries(entries, key="date", kind="day")
+        days = self._cash_journal_with_opening_balances(
+            days,
+            all_transactions=all_transactions or transactions,
+            cashboxes_by_id=cashboxes_by_id,
+            cashboxes=cashboxes,
+        )
         weeks = self._cash_journal_group_entries(entries, key="week_key", kind="week")
         months_grouped = self._cash_journal_group_entries(entries, key="month_key", kind="month")
         totals = self._cash_journal_totals(entries)
@@ -6774,6 +6785,80 @@ class CardService:
             result.append(payload)
         return result
 
+    def _cash_journal_with_opening_balances(
+        self,
+        days: list[dict[str, object]],
+        *,
+        all_transactions: list[CashTransaction],
+        cashboxes_by_id: dict[str, CashBox],
+        cashboxes: list[CashBox] | None = None,
+    ) -> list[dict[str, object]]:
+        ordered_cashboxes = self._ordered_cashboxes(
+            list(cashboxes) if cashboxes is not None else list(cashboxes_by_id.values())
+        )
+        known_ids = {cashbox.id for cashbox in ordered_cashboxes}
+        cashbox_labels = [(cashbox.id, cashbox.name) for cashbox in ordered_cashboxes]
+        unknown_ids = sorted(
+            {
+                transaction.cashbox_id
+                for transaction in all_transactions
+                if transaction.cashbox_id and transaction.cashbox_id not in known_ids
+            }
+        )
+        cashbox_labels.extend((cashbox_id, "Неизвестная касса") for cashbox_id in unknown_ids)
+        for day in days:
+            date_key = str(day.get("date") or day.get("key") or "")
+            opening_balances = self._cash_journal_opening_balances(
+                date_key,
+                all_transactions=all_transactions,
+                cashbox_labels=cashbox_labels,
+            )
+            opening_total_minor = sum(
+                int(item.get("balance_minor") or 0) for item in opening_balances
+            )
+            day["opening_balances"] = opening_balances
+            day["opening_total_minor"] = opening_total_minor
+            day["opening_total_display"] = format_money_minor(opening_total_minor)
+            day["opening_total_sign"] = "negative" if opening_total_minor < 0 else "positive"
+        return days
+
+    def _cash_journal_opening_balances(
+        self,
+        date_key: str,
+        *,
+        all_transactions: list[CashTransaction],
+        cashbox_labels: list[tuple[str, str]],
+    ) -> list[dict[str, object]]:
+        balances_by_id = {cashbox_id: 0 for cashbox_id, _ in cashbox_labels}
+        if date_key and date_key != "unknown":
+            for transaction in all_transactions:
+                transaction_date_key = self._cash_journal_transaction_date_key(transaction)
+                if transaction_date_key == "unknown" or transaction_date_key >= date_key:
+                    continue
+                direction_sign = 1 if transaction.direction == "income" else -1
+                balances_by_id.setdefault(transaction.cashbox_id, 0)
+                balances_by_id[transaction.cashbox_id] += (
+                    int(transaction.amount_minor) * direction_sign
+                )
+        return [
+            {
+                "cashbox_id": cashbox_id,
+                "cashbox_name": cashbox_name,
+                "balance_minor": int(balances_by_id.get(cashbox_id) or 0),
+                "balance_display": format_money_minor(int(balances_by_id.get(cashbox_id) or 0)),
+                "balance_sign": (
+                    "negative" if int(balances_by_id.get(cashbox_id) or 0) < 0 else "positive"
+                ),
+            }
+            for cashbox_id, cashbox_name in cashbox_labels
+        ]
+
+    def _cash_journal_transaction_date_key(self, transaction: CashTransaction) -> str:
+        created_at = parse_datetime(transaction.created_at)
+        if created_at is None:
+            return "unknown"
+        return created_at.date().isoformat()
+
     def _cash_journal_day_label(self, date_key: str) -> str:
         try:
             value = datetime.strptime(date_key, "%Y-%m-%d")
@@ -6831,9 +6916,9 @@ class CardService:
         meta: dict[str, object],
     ) -> str:
         lines = [
-            "# 💰 Кассовый журнал",
+            "# Кассовый журнал",
             "",
-            "## 📊 Итоги периода",
+            "## Итоги периода",
             f"- Период: последние {meta['months']} мес.",
             f"- Показано операций: {totals['count']} из {meta['total']}",
             f"- Реальные поступления: {totals['external_income_display']}",
@@ -6845,42 +6930,51 @@ class CardService:
         if int(meta["total"]) > int(totals["count"]):
             lines.extend(
                 [
-                    "⚠️ Выгрузка ограничена лимитом. Для полного журнала увеличьте лимит выгрузки.",
+                    "Выгрузка ограничена лимитом. Для полного журнала увеличьте лимит выгрузки.",
                     "",
                 ]
             )
         if not entries:
             lines.extend(
                 [
-                    "## 🧾 Операции",
+                    "## Операции",
                     "За выбранный период движений нет.",
                 ]
             )
             return "\n".join(lines).strip()
 
-        lines.extend(["## 🗓️ По месяцам"])
+        lines.extend(["## По месяцам"])
         for item in months:
             lines.append(
-                f"- **{item['label']}**: приход {item['external_income_display']} | "
+                f"- {item['label']}: приход {item['external_income_display']} | "
                 + f"расход {item['external_expense_display']} | итог {item['balance_display']} | "
                 + f"перемещения {item['transfer_income_display']}/{item['transfer_expense_display']} | "
                 + f"{item['count']} оп."
             )
-        lines.extend(["", "## 📅 По неделям"])
+        lines.extend(["", "## По неделям"])
         for item in weeks:
             lines.append(
-                f"- **{item['label']}**: приход {item['external_income_display']} | "
+                f"- {item['label']}: приход {item['external_income_display']} | "
                 + f"расход {item['external_expense_display']} | итог {item['balance_display']} | "
                 + f"перемещения {item['transfer_income_display']}/{item['transfer_expense_display']} | "
                 + f"{item['count']} оп."
             )
-        lines.extend(["", "## 🧾 Операции по дням"])
+        lines.extend(["", "## Операции по дням"])
         for day in days:
             display_rows = self._cash_journal_display_rows(day["entries"])
             lines.extend(
                 [
                     "",
-                    f"### 📆 {day['label']}",
+                    f"### {day['label']}",
+                    "Остаток на начало дня:",
+                ]
+            )
+            for balance in day.get("opening_balances") or []:
+                lines.append(
+                    f"- {balance['cashbox_name']}: {balance['balance_display']}"
+                )
+            lines.extend(
+                [
                     f"Итого: приход {day['external_income_display']} | расход {day['external_expense_display']} | "
                     + f"итог {day['balance_display']} | перемещения {day['transfer_income_display']}/{day['transfer_expense_display']} | "
                     + f"{day['count']} оп.",
@@ -6941,7 +7035,7 @@ class CardService:
     ) -> dict[str, str]:
         amount = self._cash_journal_money_text(int(source.get("amount_minor") or 0))
         line = (
-            f"- {source.get('time_short') or '--:--'} | 🔁 {amount} | "
+            f"- {source.get('time_short') or '--:--'} | перемещение {amount} | "
             + f"{source.get('cashbox_name')} → {target.get('cashbox_name')}"
         )
         return {
@@ -6952,10 +7046,9 @@ class CardService:
         }
 
     def _cash_journal_operation_row(self, item: dict[str, object]) -> dict[str, str]:
-        icon = "🟢" if item.get("direction") == "income" else "🔴"
         action = "приход" if item.get("direction") == "income" else "расход"
         line = (
-            f"- {item.get('time_short') or '--:--'} | {icon} "
+            f"- {item.get('time_short') or '--:--'} | "
             + f"{item['signed_amount_display']} | {item['cashbox_name']} | "
             + f"{action}: {item['note']}"
         )
@@ -6973,7 +7066,7 @@ class CardService:
         parts = []
         if actor:
             parts.append(f"оператор {actor}")
-        if include_source and source and source not in {"ручное"}:
+        if include_source and source and source not in {"ручное", "api", "система"}:
             parts.append(source)
         if not parts:
             return ""

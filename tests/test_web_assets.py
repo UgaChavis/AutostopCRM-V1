@@ -2138,6 +2138,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".cashbox-transactions-card {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-cancel-last-button[disabled] {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-text {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-journal-view {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-journal-opening {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-journal-entry {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-download-button {", BOARD_WEB_APP_HTML)
         self.assertIn(".card-journal-text {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-delete-button {", BOARD_WEB_APP_HTML)
@@ -2164,6 +2167,13 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function loadCashJournalData()", BOARD_WEB_APP_HTML)
         self.assertIn("async function openCashJournalModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function loadCashJournalText()", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderCashJournal(data)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderCashJournalOpening(day)", BOARD_WEB_APP_HTML)
+        self.assertIn("opening_balances", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.cashboxJournalText.innerHTML = renderCashJournal(data);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("async function downloadCashJournal()", BOARD_WEB_APP_HTML)
         self.assertIn(".card-journal-view {", BOARD_WEB_APP_HTML)
         self.assertIn("data?.markdown || data?.text", BOARD_WEB_APP_HTML)
