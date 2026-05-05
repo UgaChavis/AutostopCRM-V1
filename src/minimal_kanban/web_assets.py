@@ -17978,8 +17978,11 @@ function renderCompactArchiveRows(cards) {
     function cashboxFormatMinorAmount(value) {
       const amount = Number(value || 0);
       const sign = amount < 0 ? '-' : '';
-      const absolute = Math.round(Math.abs(amount) / 100);
-      return sign + absolute.toLocaleString('ru-RU', { maximumFractionDigits: 0 }) + ' ₽';
+      const absolute = Math.abs(amount) / 100;
+      return sign + absolute.toLocaleString('ru-RU', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }) + ' ₽';
     }
 
     function activeCashboxStatistics() {
@@ -18115,13 +18118,15 @@ function renderCompactArchiveRows(cards) {
       els.cashboxesList.innerHTML = items.length ? items.map((item) => {
         const stats = item?.statistics || {};
         const balanceMinor = Number(stats?.balance_minor || 0);
+        const balanceDisplay = String(stats?.balance_display || cashboxFormatMinorAmount(balanceMinor));
+        const balanceSign = String(stats?.balance_sign || (balanceMinor < 0 ? 'negative' : 'positive'));
         const activeClass = item.id === state.activeCashboxId ? ' is-active' : '';
         const draggingClass = item.id === state.cashboxDragId ? ' is-dragging' : '';
         const dropClass = item.id === state.cashboxDropBeforeId ? ' is-drop-target' : '';
         return '<div class="cashbox-row' + activeClass + draggingClass + dropClass + '" role="button" tabindex="0" data-cashbox-id="' + escapeHtml(item.id) + '" draggable="true" title="Перетащите, чтобы изменить порядок касс">'
           + '<div class="cashbox-row__head">'
           + '<div class="cashbox-row__name">' + escapeHtml(item.name || '—') + '</div>'
-          + '<div class="cashbox-row__balance" data-balance-sign="' + escapeHtml(balanceMinor < 0 ? 'negative' : 'positive') + '">' + escapeHtml(cashboxFormatMinorAmount(balanceMinor)) + '</div>'
+          + '<div class="cashbox-row__balance" data-balance-sign="' + escapeHtml(balanceSign) + '">' + escapeHtml(balanceDisplay) + '</div>'
           + '</div>'
           + '</div>';
       }).join('') : '<div class="cashboxes-empty">КАСС ПОКА НЕТ.</div>';
@@ -18129,12 +18134,12 @@ function renderCompactArchiveRows(cards) {
     }
 
     function renderCashboxStats() {
-      const stats = buildCashboxStatistics(filteredCashboxTransactions());
+      const stats = activeCashboxStatistics();
       const balanceMinor = Number(stats.balance_minor || 0);
       els.cashboxStats.innerHTML = [
-        { label: 'Баланс', value: cashboxFormatMinorAmount(balanceMinor), sign: balanceMinor < 0 ? 'negative' : 'positive' },
-        { label: 'Поступления', value: cashboxFormatMinorAmount(stats.income_total_minor || 0), sign: 'positive' },
-        { label: 'Списания', value: cashboxFormatMinorAmount(stats.expense_total_minor || 0), sign: 'positive' },
+        { label: 'Баланс', value: stats.balance_display || cashboxFormatMinorAmount(balanceMinor), sign: stats.balance_sign || (balanceMinor < 0 ? 'negative' : 'positive') },
+        { label: 'Поступления', value: stats.income_total_display || cashboxFormatMinorAmount(stats.income_total_minor || 0), sign: 'positive' },
+        { label: 'Списания', value: stats.expense_total_display || cashboxFormatMinorAmount(stats.expense_total_minor || 0), sign: 'positive' },
       ].map((item) => '<div class="cashbox-stat-grid"><div class="cashbox-stat-grid__label">' + escapeHtml(item.label) + '</div><div class="cashbox-stat-grid__value" data-balance-sign="' + escapeHtml(item.sign) + '">' + escapeHtml(item.value) + '</div></div>').join('');
     }
 

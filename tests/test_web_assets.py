@@ -2196,9 +2196,30 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function handleCashboxesListDragOver(event)", BOARD_WEB_APP_HTML)
         self.assertIn("async function handleCashboxesListDrop(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleCashboxesListDragEnd()", BOARD_WEB_APP_HTML)
-        self.assertIn("Math.round(Math.abs(amount) / 100)", BOARD_WEB_APP_HTML)
+        self.assertIn("const absolute = Math.abs(amount) / 100;", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "toLocaleString('ru-RU', { maximumFractionDigits: 0 }) + ' ₽'", BOARD_WEB_APP_HTML
+            "minimumFractionDigits: 2,",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "maximumFractionDigits: 2,",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "const stats = activeCashboxStatistics();",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "stats.balance_display || cashboxFormatMinorAmount(balanceMinor)",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "stats.income_total_display || cashboxFormatMinorAmount(stats.income_total_minor || 0)",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "stats.expense_total_display || cashboxFormatMinorAmount(stats.expense_total_minor || 0)",
+            BOARD_WEB_APP_HTML,
         )
         self.assertIn(
             "els.cashboxesButton.addEventListener('click', openCashboxesModal);", BOARD_WEB_APP_HTML
