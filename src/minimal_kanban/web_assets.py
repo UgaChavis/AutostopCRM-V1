@@ -151,7 +151,7 @@ BOARD_WEB_APP_HTML = "".join(
       color: var(--text-soft);
       font-size: 9.5px;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
+      letter-spacing: 0;
       font-family: var(--mono);
       opacity: 0.68;
     }
@@ -170,6 +170,187 @@ BOARD_WEB_APP_HTML = "".join(
       row-gap: 4px;
       flex-wrap: wrap;
       align-items: center;
+    }
+    .topbar-search {
+      position: relative;
+      flex: 1 1 320px;
+      min-width: 260px;
+      max-width: 520px;
+      z-index: 8;
+    }
+    .topbar-search__box {
+      position: relative;
+      display: grid;
+      min-height: 36px;
+      border: 1px solid rgba(167, 178, 132, 0.52);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.04), transparent 32%),
+        rgba(8, 12, 9, 0.72);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.05),
+        0 0 0 1px rgba(0,0,0,0.18);
+    }
+    .topbar-search__label {
+      position: absolute;
+      left: 10px;
+      top: 4px;
+      z-index: 1;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 7.8px;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      opacity: 0.88;
+      pointer-events: none;
+    }
+    .topbar-search__input {
+      width: 100%;
+      height: 36px;
+      border: 0;
+      background: transparent;
+      color: var(--text);
+      padding: 15px 38px 5px 10px;
+      outline: none;
+      font-size: 12.5px;
+      line-height: 1.15;
+    }
+    .topbar-search__input::placeholder {
+      color: rgba(200, 198, 187, 0.56);
+    }
+    .topbar-search__box:focus-within {
+      border-color: var(--accent);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.07),
+        0 0 0 1px rgba(167, 178, 132, 0.18),
+        0 8px 18px rgba(0,0,0,0.22);
+    }
+    .topbar-search__clear {
+      position: absolute;
+      right: 5px;
+      top: 5px;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(0,0,0,0.18);
+      color: var(--text-soft);
+      font-family: var(--mono);
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .topbar-search__clear:hover {
+      color: var(--text);
+      border-color: var(--line);
+      background: var(--bg-panel);
+    }
+    .topbar-search__clear[hidden] {
+      display: none;
+    }
+    .topbar-search__results {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% + 6px);
+      display: none;
+      max-height: min(420px, calc(100vh - 92px));
+      overflow: auto;
+      border: 1px solid rgba(167, 178, 132, 0.58);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.04), transparent 28%),
+        rgba(12, 17, 13, 0.98);
+      box-shadow:
+        0 18px 42px rgba(0,0,0,0.38),
+        inset 0 1px 0 rgba(255,255,255,0.06);
+      padding: 7px;
+    }
+    .topbar-search__results.is-open {
+      display: grid;
+      gap: 6px;
+    }
+    .topbar-search__meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 4px 5px 7px;
+      color: var(--text-soft);
+      font-family: var(--mono);
+      font-size: 8.4px;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+    .topbar-search__row {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(28, 36, 30, 0.94);
+      color: var(--text);
+      padding: 9px 10px 8px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .topbar-search__row:hover,
+    .topbar-search__row.is-active {
+      border-color: rgba(212, 175, 55, 0.76);
+      background: rgba(49, 43, 24, 0.98);
+    }
+    .topbar-search__title {
+      font-weight: 700;
+      line-height: 1.15;
+      font-size: 12.5px;
+      color: var(--text);
+    }
+    .topbar-search__summary {
+      margin-top: 4px;
+      color: var(--text-soft);
+      font-size: 10.5px;
+      line-height: 1.25;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .topbar-search__side {
+      display: grid;
+      gap: 5px;
+      justify-items: end;
+      min-width: 112px;
+    }
+    .topbar-search__column,
+    .topbar-search__match {
+      max-width: 150px;
+      border: 1px solid rgba(167, 178, 132, 0.24);
+      background: rgba(0,0,0,0.14);
+      color: var(--accent);
+      padding: 3px 6px;
+      font-family: var(--mono);
+      font-size: 8px;
+      line-height: 1.2;
+      text-transform: uppercase;
+      text-align: right;
+    }
+    .topbar-search__match {
+      color: var(--warn);
+      border-color: rgba(212, 175, 55, 0.28);
+    }
+    .topbar-search__empty,
+    .topbar-search__error {
+      padding: 16px 12px;
+      border: 1px dashed rgba(255,255,255,0.12);
+      color: var(--text-soft);
+      font-size: 12px;
+      line-height: 1.35;
+      text-align: center;
+    }
+    .topbar-search__error {
+      color: #ffd1ca;
+      border-color: rgba(207, 91, 75, 0.42);
     }
     .topbar__actions .btn,
     .topbar__rare-actions .btn {
@@ -4221,6 +4402,7 @@ BOARD_WEB_APP_HTML = "".join(
       top: 0;
       z-index: 30;
       align-items: flex-start;
+      flex-wrap: wrap;
       gap: 8px;
       padding: 8px 10px 10px;
       background: rgba(0, 0, 0, 0.46);
@@ -4228,6 +4410,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
     body.is-mobile-lite .topbar__left {
       width: 100%;
+      flex: 1 0 100%;
       align-items: flex-start;
       gap: 10px;
     }
@@ -4245,6 +4428,28 @@ BOARD_WEB_APP_HTML = "".join(
     body.is-mobile-lite .status-shell {
       width: 100%;
     }
+    body.is-mobile-lite .topbar-search {
+      width: 100%;
+      min-width: 0;
+      max-width: none;
+      flex: 1 0 100%;
+      order: 2;
+    }
+    body.is-mobile-lite .topbar-search__box {
+      min-height: 42px;
+    }
+    body.is-mobile-lite .topbar-search__input {
+      height: 42px;
+      font-size: 14px;
+      padding-top: 17px;
+    }
+    body.is-mobile-lite .topbar-search__results {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% + 6px);
+      max-height: calc(100dvh - 180px);
+    }
     body.is-mobile-lite .status-shell .message {
       width: 100%;
       justify-content: center;
@@ -4253,6 +4458,7 @@ BOARD_WEB_APP_HTML = "".join(
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       width: 100%;
+      order: 1;
       gap: 6px;
     }
     body.is-mobile-lite .topbar__actions .btn,
@@ -6332,6 +6538,14 @@ BOARD_WEB_APP_HTML = "".join(
           <button class="btn" id="sharedFilesButton">ФАЙЛЫ</button>
         </div>
       </div>
+      <div class="topbar-search" role="search" aria-label="Поиск по карточкам">
+        <div class="topbar-search__box">
+          <label class="topbar-search__label" for="boardSearchInput">ПОИСК ПО ДОСКЕ</label>
+          <input class="topbar-search__input" id="boardSearchInput" type="search" autocomplete="off" spellcheck="false" placeholder="НАЙТИ КАРТОЧКУ" aria-controls="boardSearchResults" aria-expanded="false">
+          <button class="topbar-search__clear" id="boardSearchClearButton" type="button" aria-label="Очистить поиск" hidden>×</button>
+        </div>
+        <div class="topbar-search__results" id="boardSearchResults" role="listbox" aria-label="Результаты поиска"></div>
+      </div>
       <div class="topbar__actions">
         <button class="btn" id="repairOrdersButton">ЗАКАЗ-НАРЯДЫ</button>
         <button class="btn" id="clientsButton">КЛИЕНТЫ</button>
@@ -7115,6 +7329,9 @@ BOARD_WEB_APP_HTML = "".join(
     const ARCHIVE_PREVIEW_LIMIT = 30;
     const CLIENTS_INITIAL_LIMIT = 35;
     const CLIENTS_SEARCH_LIMIT = 50;
+    const BOARD_SEARCH_LIMIT = 8;
+    const BOARD_SEARCH_DEBOUNCE_MS = 90;
+    const BOARD_SEARCH_CACHE_TTL_MS = 20000;
 
     const state = {
       actor: '',
@@ -7182,6 +7399,22 @@ BOARD_WEB_APP_HTML = "".join(
       repairOrdersItems: [],
       repairOrdersMetaState: null,
       repairOrderParentLayer: '',
+      boardSearch: {
+        query: '',
+        results: [],
+        meta: null,
+        loading: false,
+        error: '',
+        timer: null,
+        requestSeq: 0,
+        activeIndex: -1,
+        open: false,
+        completedQuery: '',
+        completedResults: [],
+        completedMeta: null,
+        completedAt: 0,
+        controller: null,
+      },
       clients: [],
       clientsQuery: '',
       clientsActiveId: '',
@@ -7651,6 +7884,9 @@ BOARD_WEB_APP_HTML = "".join(
       repairOrdersSearchSpinner: document.getElementById('repairOrdersSearchSpinner'),
       repairOrdersSortBy: document.getElementById('repairOrdersSortBy'),
       repairOrdersSortDir: document.getElementById('repairOrdersSortDir'),
+      boardSearchInput: document.getElementById('boardSearchInput'),
+      boardSearchClearButton: document.getElementById('boardSearchClearButton'),
+      boardSearchResults: document.getElementById('boardSearchResults'),
       columnButton: document.getElementById('columnButton'),
       cardButton: document.getElementById('cardButton'),
       boardSettingsModal: document.getElementById('boardSettingsModal'),
@@ -9248,6 +9484,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     async function api(path, options = {}) {
       const request = { method: options.method || 'GET', headers: {}, cache: 'no-store' };
+      if (options.signal) request.signal = options.signal;
       if (options.body) {
         request.method = options.method || 'POST';
         request.headers['Content-Type'] = 'application/json';
@@ -9258,7 +9495,8 @@ BOARD_WEB_APP_HTML = "".join(
       let response;
       try {
         response = await fetch(path, request);
-      } catch (_) {
+      } catch (error) {
+        if (error?.name === 'AbortError') throw error;
         throw new Error('НЕТ СВЯЗИ С ДОСКОЙ. ПРОВЕРЬ СЕТЬ ИЛИ ПУБЛИЧНЫЙ АДРЕС.');
       }
       const rawText = await response.text();
@@ -13481,6 +13719,283 @@ BOARD_WEB_APP_HTML = "".join(
       } catch { return value; }
     }
 
+    function boardSearchFieldLabel(field) {
+      const labels = {
+        short_id: 'ID',
+        id: 'ID',
+        heading: 'карточка',
+        vehicle: 'машина',
+        title: 'суть',
+        description: 'описание',
+        tags: 'метки',
+        make_display: 'марка',
+        model_display: 'модель',
+        vin: 'VIN',
+        customer_name: 'клиент',
+        customer_phone: 'телефон',
+        engine_code: 'двигатель',
+        engine_model: 'двигатель',
+        gearbox_type: 'КПП',
+        gearbox_model: 'КПП',
+        drivetrain: 'привод',
+        repair_order_number: 'заказ',
+        repair_order_client: 'клиент',
+        repair_order_phone: 'телефон',
+        repair_order_license_plate: 'госномер',
+        repair_order_vehicle: 'машина',
+        repair_order_vin: 'VIN',
+        repair_order_reason: 'причина',
+        repair_order_tags: 'метки',
+        repair_order_works: 'работы',
+        repair_order_materials: 'материалы',
+        repair_order_comment: 'комментарий',
+        repair_order_note: 'заметка',
+      };
+      return labels[field] || String(field || '').replace(/^repair_order_/, '').replace(/_/g, ' ');
+    }
+
+    function boardSearchCardTitle(card) {
+      const vehicle = String(card?.vehicle || '').trim();
+      const titleText = String(card?.title || '').trim();
+      const heading = String(card?.heading || '').trim();
+      if (vehicle && titleText) return vehicle + ' / ' + titleText;
+      return vehicle || titleText || heading || 'Карточка без названия';
+    }
+
+    function boardSearchCardSummary(card) {
+      const summary = boardCardDescription(card).replace(/\\s+/g, ' ').trim();
+      if (!summary) return 'Описание не указано';
+      return summary.length > 180 ? summary.slice(0, 177).trim() + '...' : summary;
+    }
+
+    function boardSearchMatchLabel(card) {
+      const fields = Array.isArray(card?.match?.fields) ? card.match.fields : [];
+      const labels = [];
+      fields.forEach((field) => {
+        const label = boardSearchFieldLabel(field);
+        if (label && !labels.includes(label)) labels.push(label);
+      });
+      return labels.slice(0, 3).join(' + ') || 'совпадение';
+    }
+
+    function boardSearchCacheKey(query) {
+      return String(query || '').trim().toLowerCase();
+    }
+
+    function abortBoardSearchRequest() {
+      if (!state.boardSearch.controller) return;
+      state.boardSearch.controller.abort();
+      state.boardSearch.controller = null;
+    }
+
+    function rememberBoardSearchCache(query) {
+      const key = boardSearchCacheKey(query);
+      if (!key) return;
+      state.boardSearch.completedQuery = key;
+      state.boardSearch.completedResults = Array.isArray(state.boardSearch.results)
+        ? state.boardSearch.results.slice()
+        : [];
+      state.boardSearch.completedMeta = state.boardSearch.meta || null;
+      state.boardSearch.completedAt = Date.now();
+    }
+
+    function reuseBoardSearchCache(query) {
+      const key = boardSearchCacheKey(query);
+      const ageMs = Date.now() - Number(state.boardSearch.completedAt || 0);
+      if (!key || key !== state.boardSearch.completedQuery || ageMs > BOARD_SEARCH_CACHE_TTL_MS) return false;
+      state.boardSearch.results = Array.isArray(state.boardSearch.completedResults)
+        ? state.boardSearch.completedResults.slice()
+        : [];
+      state.boardSearch.meta = state.boardSearch.completedMeta || null;
+      state.boardSearch.loading = false;
+      state.boardSearch.error = '';
+      state.boardSearch.activeIndex = state.boardSearch.results.length ? 0 : -1;
+      state.boardSearch.open = true;
+      renderBoardSearchResults();
+      return true;
+    }
+
+    function setBoardSearchOpen(open) {
+      state.boardSearch.open = Boolean(open);
+      if (els.boardSearchResults) {
+        els.boardSearchResults.classList.toggle('is-open', state.boardSearch.open);
+      }
+      if (els.boardSearchInput) {
+        els.boardSearchInput.setAttribute('aria-expanded', state.boardSearch.open ? 'true' : 'false');
+      }
+    }
+
+    function renderBoardSearchResults() {
+      if (!els.boardSearchResults || !els.boardSearchInput) return;
+      const query = String(state.boardSearch.query || '').trim();
+      const results = Array.isArray(state.boardSearch.results) ? state.boardSearch.results : [];
+      if (els.boardSearchClearButton) els.boardSearchClearButton.hidden = !query;
+      if (!query || !state.boardSearch.open) {
+        els.boardSearchResults.innerHTML = '';
+        setBoardSearchOpen(false);
+        return;
+      }
+      const total = Number(state.boardSearch.meta?.total_matches ?? results.length) || 0;
+      const metaText = state.boardSearch.loading
+        ? 'ИЩЕМ ПО АКТИВНОЙ ДОСКЕ...'
+        : results.length
+          ? 'НАЙДЕНО: ' + total + (state.boardSearch.meta?.has_more ? ' · ПОКАЗАНЫ ПЕРВЫЕ ' + results.length : '')
+          : 'СОВПАДЕНИЙ НЕТ';
+      const helpText = results.length ? 'ENTER ОТКРЫТЬ · ↑/↓ ВЫБОР · ESC ЗАКРЫТЬ' : 'ПОИСК ПО МАШИНЕ, КЛИЕНТУ, VIN, ГОСНОМЕРУ И РАБОТАМ';
+      const metaHtml = '<div class="topbar-search__meta"><span>' + escapeHtml(metaText) + '</span><span>' + escapeHtml(helpText) + '</span></div>';
+      if (state.boardSearch.error) {
+        els.boardSearchResults.innerHTML = metaHtml + '<div class="topbar-search__error">' + escapeHtml(state.boardSearch.error) + '</div>';
+        setBoardSearchOpen(true);
+        return;
+      }
+      if (!results.length) {
+        const emptyText = state.boardSearch.loading ? 'Поиск выполняется...' : 'В активных карточках ничего не найдено.';
+        els.boardSearchResults.innerHTML = metaHtml + '<div class="topbar-search__empty">' + escapeHtml(emptyText) + '</div>';
+        setBoardSearchOpen(true);
+        return;
+      }
+      const rowsHtml = results.map((card, index) => {
+        const activeClass = index === state.boardSearch.activeIndex ? ' is-active' : '';
+        const columnLabel = String(card?.column_label || card?.column || 'ДОСКА').trim().toUpperCase();
+        return '<button class="topbar-search__row' + activeClass + '" type="button" role="option" aria-selected="' + (activeClass ? 'true' : 'false') + '" data-board-search-card-id="' + escapeHtml(card?.id || '') + '" data-board-search-index="' + index + '">'
+          + '<span class="topbar-search__main">'
+            + '<span class="topbar-search__title">' + escapeHtml(boardSearchCardTitle(card)) + '</span>'
+            + '<span class="topbar-search__summary">' + escapeHtml(boardSearchCardSummary(card)) + '</span>'
+          + '</span>'
+          + '<span class="topbar-search__side">'
+            + '<span class="topbar-search__column">' + escapeHtml(columnLabel) + '</span>'
+            + '<span class="topbar-search__match">' + escapeHtml(boardSearchMatchLabel(card)) + '</span>'
+          + '</span>'
+        + '</button>';
+      }).join('');
+      els.boardSearchResults.innerHTML = metaHtml + rowsHtml;
+      setBoardSearchOpen(true);
+    }
+
+    function clearBoardSearchState({ keepInput = false } = {}) {
+      if (state.boardSearch.timer) window.clearTimeout(state.boardSearch.timer);
+      state.boardSearch.timer = null;
+      abortBoardSearchRequest();
+      state.boardSearch.requestSeq += 1;
+      state.boardSearch.query = keepInput ? String(els.boardSearchInput?.value || '').trim() : '';
+      state.boardSearch.results = [];
+      state.boardSearch.meta = null;
+      state.boardSearch.loading = false;
+      state.boardSearch.error = '';
+      state.boardSearch.activeIndex = -1;
+      state.boardSearch.open = false;
+      if (!keepInput && els.boardSearchInput) els.boardSearchInput.value = '';
+      renderBoardSearchResults();
+    }
+
+    async function loadBoardSearch(query, requestSeq) {
+      const controller = new AbortController();
+      state.boardSearch.controller = controller;
+      try {
+        const data = await api('/api/search_cards?query=' + encodeURIComponent(query) + '&limit=' + BOARD_SEARCH_LIMIT, { signal: controller.signal });
+        if (requestSeq !== state.boardSearch.requestSeq) return;
+        state.boardSearch.results = Array.isArray(data?.cards) ? data.cards : [];
+        state.boardSearch.meta = data?.meta || null;
+        state.boardSearch.error = '';
+        state.boardSearch.activeIndex = state.boardSearch.results.length ? 0 : -1;
+        rememberBoardSearchCache(query);
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        if (requestSeq !== state.boardSearch.requestSeq) return;
+        state.boardSearch.results = [];
+        state.boardSearch.meta = null;
+        state.boardSearch.error = error.message || 'Не удалось выполнить поиск.';
+        state.boardSearch.activeIndex = -1;
+      } finally {
+        if (state.boardSearch.controller === controller) state.boardSearch.controller = null;
+        if (requestSeq === state.boardSearch.requestSeq) {
+          state.boardSearch.loading = false;
+          state.boardSearch.open = true;
+          renderBoardSearchResults();
+        }
+      }
+    }
+
+    function scheduleBoardSearch() {
+      const query = String(els.boardSearchInput?.value || '').trim();
+      if (state.boardSearch.timer) window.clearTimeout(state.boardSearch.timer);
+      abortBoardSearchRequest();
+      state.boardSearch.query = query;
+      state.boardSearch.error = '';
+      state.boardSearch.meta = null;
+      if (query.length < 2) {
+        clearBoardSearchState({ keepInput: true });
+        return;
+      }
+      state.boardSearch.requestSeq += 1;
+      const requestSeq = state.boardSearch.requestSeq;
+      if (reuseBoardSearchCache(query)) return;
+      state.boardSearch.results = [];
+      state.boardSearch.activeIndex = -1;
+      state.boardSearch.loading = true;
+      state.boardSearch.open = true;
+      renderBoardSearchResults();
+      state.boardSearch.timer = window.setTimeout(() => loadBoardSearch(query, requestSeq), BOARD_SEARCH_DEBOUNCE_MS);
+    }
+
+    function openBoardSearchOnFocus() {
+      const query = String(els.boardSearchInput?.value || '').trim();
+      if (!query || query.length < 2) return;
+      state.boardSearch.query = query;
+      if (reuseBoardSearchCache(query)) return;
+      state.boardSearch.open = true;
+      renderBoardSearchResults();
+    }
+
+    async function openBoardSearchResult(index) {
+      const results = Array.isArray(state.boardSearch.results) ? state.boardSearch.results : [];
+      const normalizedIndex = Math.max(0, Math.min(results.length - 1, Number(index) || 0));
+      const cardId = String(results[normalizedIndex]?.id || '').trim();
+      if (!cardId) return;
+      clearBoardSearchState({ keepInput: true });
+      if (els.boardSearchInput) els.boardSearchInput.blur();
+      await openCardById(cardId);
+    }
+
+    function handleBoardSearchKeydown(event) {
+      const results = Array.isArray(state.boardSearch.results) ? state.boardSearch.results : [];
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (state.boardSearch.open) setBoardSearchOpen(false);
+        else clearBoardSearchState();
+        return;
+      }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        if (!results.length) return;
+        event.preventDefault();
+        const direction = event.key === 'ArrowDown' ? 1 : -1;
+        const nextIndex = state.boardSearch.activeIndex < 0
+          ? 0
+          : (state.boardSearch.activeIndex + direction + results.length) % results.length;
+        state.boardSearch.activeIndex = nextIndex;
+        state.boardSearch.open = true;
+        renderBoardSearchResults();
+        return;
+      }
+      if (event.key === 'Enter') {
+        if (!results.length) return;
+        event.preventDefault();
+        openBoardSearchResult(state.boardSearch.activeIndex >= 0 ? state.boardSearch.activeIndex : 0);
+      }
+    }
+
+    function handleBoardSearchResultsClick(event) {
+      const button = event.target.closest('[data-board-search-card-id]');
+      if (!button) return;
+      const index = Number(button.dataset.boardSearchIndex || 0);
+      openBoardSearchResult(index);
+    }
+
+    function handleBoardSearchDocumentClick(event) {
+      if (event.target?.closest?.('.topbar-search')) return;
+      setBoardSearchOpen(false);
+    }
+
     function formatAgentClock(value, { withSeconds = false } = {}) {
       if (!value) return '';
       try {
@@ -16804,16 +17319,32 @@ function renderCompactArchiveRows(cards) {
         : '<div class="log-row__meta">АРХИВ ПУСТ.</div>';
     };
 
+    async function recordCardOpenSideEffects(cardId) {
+      const normalizedCardId = String(cardId || '').trim();
+      if (!normalizedCardId) return;
+      try {
+        await api('/api/open_card', { method: 'POST', body: { card_id: normalizedCardId } });
+      } catch (_) {
+      }
+    }
+
     async function openCardWorkspace(cardId, { closeModalEl = null, openCardModalEl = true, openRepairOrder = false, repairOrderParentLayer = '' } = {}) {
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return null;
-      const data = await api('/api/open_card', { method: 'POST', body: { card_id: normalizedCardId } });
-      if (openCardModalEl) {
+      const cachedCard = snapshotCardById(normalizedCardId);
+      const openedFromCache = Boolean(openCardModalEl && cachedCard);
+      if (openedFromCache) {
         if (closeModalEl) closeModalEl.classList.remove('is-open');
+        openCardModal(cachedCard);
+      }
+      const data = await api('/api/get_card', { method: 'POST', body: { card_id: normalizedCardId } });
+      if (openCardModalEl) {
+        if (!openedFromCache && closeModalEl) closeModalEl.classList.remove('is-open');
         openCardModal(data.card);
       } else {
         applyCardModalState(data.card);
       }
+      recordCardOpenSideEffects(normalizedCardId);
       if (openRepairOrder) {
         state.repairOrderParentLayer = String(repairOrderParentLayer || (openCardModalEl ? 'card' : '')).trim();
         await openRepairOrderModal();
@@ -20230,6 +20761,15 @@ function renderCompactArchiveRows(cards) {
     els.repairOrdersTableHead.addEventListener('click', handleRepairOrdersSearchFieldClick);
     els.repairOrdersSortBy.addEventListener('change', handleRepairOrdersSortChange);
     els.repairOrdersSortDir.addEventListener('change', handleRepairOrdersSortChange);
+    els.boardSearchInput.addEventListener('input', scheduleBoardSearch);
+    els.boardSearchInput.addEventListener('focus', openBoardSearchOnFocus);
+    els.boardSearchInput.addEventListener('keydown', handleBoardSearchKeydown);
+    els.boardSearchClearButton.addEventListener('click', () => {
+      clearBoardSearchState();
+      els.boardSearchInput.focus();
+    });
+    els.boardSearchResults.addEventListener('click', handleBoardSearchResultsClick);
+    document.addEventListener('click', handleBoardSearchDocumentClick);
     els.cashboxCreateButton.addEventListener('click', createCashbox);
     els.cashboxJournalButton.addEventListener('click', openCashJournalModal);
     els.cashboxJournalDownloadButton.addEventListener('click', downloadCashJournal);

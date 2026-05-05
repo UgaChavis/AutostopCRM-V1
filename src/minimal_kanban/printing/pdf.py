@@ -19,6 +19,8 @@ class PdfRenderError(RuntimeError):
 def _ensure_qt_application():
     if not os.environ.get("QT_QPA_PLATFORM") and os.name != "nt":
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    if not os.environ.get("QTWEBENGINE_DISABLE_SANDBOX"):
+        os.environ["QTWEBENGINE_DISABLE_SANDBOX"] = "1"
     try:
         from PySide6.QtWidgets import QApplication
     except Exception as exc:  # pragma: no cover
@@ -79,7 +81,7 @@ def render_html_to_pdf_bytes(
 ) -> bytes:
     if _should_use_qt_renderer():
         try:
-            return _render_qt_pdf_bytes(
+            return _render_preferred_qt_pdf_bytes(
                 html,
                 paper_size=paper_size,
                 orientation=orientation,
@@ -105,6 +107,137 @@ def render_html_to_pdf_bytes(
     )
 
 
+def _render_preferred_qt_pdf_bytes(
+    html: str,
+    *,
+    paper_size: str = "A4",
+    orientation: str = "portrait",
+    title: str = "AutoStop CRM",
+) -> bytes:
+    try:
+        return _render_webengine_pdf_bytes(
+            html,
+            paper_size=paper_size,
+            orientation=orientation,
+            title=title,
+        )
+    except Exception:
+        return _render_qt_pdf_bytes(
+            html,
+            paper_size=paper_size,
+            orientation=orientation,
+            title=title,
+        )
+
+
+def _qt_page_size(paper_size: str):
+    from PySide6.QtGui import QPageSize
+
+    page_sizes = {
+        "A4": QPageSize(QPageSize.PageSizeId.A4),
+        "A5": QPageSize(QPageSize.PageSizeId.A5),
+        "LETTER": QPageSize(QPageSize.PageSizeId.Letter),
+    }
+    return page_sizes.get(str(paper_size or "A4").upper(), page_sizes["A4"])
+
+
+def _qt_page_orientation(orientation: str):
+    from PySide6.QtGui import QPageLayout
+
+    return (
+        QPageLayout.Orientation.Landscape
+        if str(orientation or "").strip().lower() == "landscape"
+        else QPageLayout.Orientation.Portrait
+    )
+
+
+def _render_webengine_pdf_bytes(
+    html: str,
+    *,
+    paper_size: str = "A4",
+    orientation: str = "portrait",
+    title: str = "AutoStop CRM",
+) -> bytes:
+    del title
+    _ensure_qt_application()
+    try:
+        from PySide6.QtCore import QEventLoop, QMarginsF, QTimer, QUrl
+        from PySide6.QtGui import QPageLayout
+        from PySide6.QtWebEngineCore import QWebEnginePage
+    except Exception as exc:
+        raise PdfRenderError("Qt WebEngine недоступен для генерации красивого PDF.") from exc
+
+    with tempfile.NamedTemporaryFile(
+        prefix="autostopcrm-print-web-", suffix=".pdf", delete=False
+    ) as tmp:
+        pdf_path = Path(tmp.name)
+
+    page = QWebEnginePage()
+    loop = QEventLoop()
+    state: dict[str, object] = {"done": False, "error": ""}
+    timer = QTimer()
+    timer.setSingleShot(True)
+
+    def finish(error: str = "") -> None:
+        if state["done"]:
+            return
+        state["done"] = True
+        state["error"] = error
+        loop.quit()
+
+    def handle_pdf_finished(file_path: str, success: bool) -> None:
+        if not success:
+            finish("Qt WebEngine не создал PDF-файл.")
+            return
+        if Path(file_path) != pdf_path:
+            finish("Qt WebEngine вернул неожиданный путь PDF.")
+            return
+        finish()
+
+    def handle_load_finished(success: bool) -> None:
+        if not success:
+            finish("Qt WebEngine не загрузил HTML для PDF.")
+            return
+        layout = QPageLayout(
+            _qt_page_size(paper_size),
+            _qt_page_orientation(orientation),
+            QMarginsF(9, 9, 9, 9),
+            QPageLayout.Unit.Millimeter,
+        )
+        page.pdfPrintingFinished.connect(handle_pdf_finished)
+        page.printToPdf(str(pdf_path), layout)
+
+    timer.timeout.connect(lambda: finish("Истекло время генерации PDF через Qt WebEngine."))
+    page.loadFinished.connect(handle_load_finished)
+    try:
+        try:
+            pdf_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        page.setHtml(str(html or ""), QUrl("about:blank"))
+        timer.start(45_000)
+        loop.exec()
+        timer.stop()
+        error = str(state["error"] or "")
+        if error:
+            raise PdfRenderError(error)
+        if not pdf_path.exists():
+            raise PdfRenderError("Qt WebEngine не создал PDF-файл.")
+        pdf_bytes = pdf_path.read_bytes()
+        if not pdf_bytes.startswith(b"%PDF"):
+            raise PdfRenderError("Qt WebEngine вернул не PDF.")
+        return pdf_bytes
+    finally:
+        try:
+            page.deleteLater()
+        except RuntimeError:
+            pass
+        try:
+            pdf_path.unlink(missing_ok=True)
+        except OSError:  # pragma: no cover
+            pass
+
+
 def _render_qt_pdf_bytes(
     html: str,
     *,
@@ -114,20 +247,11 @@ def _render_qt_pdf_bytes(
 ) -> bytes:
     _ensure_qt_application()
     from PySide6.QtCore import QMarginsF, QSizeF
-    from PySide6.QtGui import QPageLayout, QPageSize, QTextDocument
+    from PySide6.QtGui import QPageLayout, QTextDocument
     from PySide6.QtPrintSupport import QPrinter
 
-    page_sizes = {
-        "A4": QPageSize(QPageSize.PageSizeId.A4),
-        "A5": QPageSize(QPageSize.PageSizeId.A5),
-        "LETTER": QPageSize(QPageSize.PageSizeId.Letter),
-    }
-    selected_size = page_sizes.get(str(paper_size or "A4").upper(), page_sizes["A4"])
-    selected_orientation = (
-        QPageLayout.Orientation.Landscape
-        if str(orientation or "").strip().lower() == "landscape"
-        else QPageLayout.Orientation.Portrait
-    )
+    selected_size = _qt_page_size(paper_size)
+    selected_orientation = _qt_page_orientation(orientation)
 
     with tempfile.NamedTemporaryFile(
         prefix="autostopcrm-print-", suffix=".pdf", delete=False
@@ -183,6 +307,7 @@ def _render_qt_pdf_in_subprocess(
     ).encode("utf-8")
     env = os.environ.copy()
     env["MINIMAL_KANBAN_PDF_RENDER_CHILD"] = "1"
+    env.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
     if not os.environ.get("QT_QPA_PLATFORM") and os.name != "nt":
         env["QT_QPA_PLATFORM"] = "offscreen"
     completed = subprocess.run(
@@ -344,7 +469,7 @@ def _render_plain_text_pdf(
 def _render_pdf_cli() -> int:
     try:
         payload = json.loads(sys.stdin.buffer.read().decode("utf-8"))
-        pdf_bytes = _render_qt_pdf_bytes(
+        pdf_bytes = _render_preferred_qt_pdf_bytes(
             str(payload.get("html", "") or ""),
             paper_size=str(payload.get("paper_size", "A4") or "A4"),
             orientation=str(payload.get("orientation", "portrait") or "portrait"),

@@ -179,6 +179,51 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("min-height: 27px;", BOARD_WEB_APP_HTML)
         self.assertIn("padding: 5px 8px;", BOARD_WEB_APP_HTML)
 
+    def test_topbar_card_search_workspace_is_wired_to_search_cards(self) -> None:
+        self.assertIn('class="topbar-search"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="boardSearchInput"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="boardSearchResults"', BOARD_WEB_APP_HTML)
+        self.assertIn(".topbar-search__clear[hidden]", BOARD_WEB_APP_HTML)
+        self.assertIn(".topbar-search__results.is-open", BOARD_WEB_APP_HTML)
+        self.assertIn("body.is-mobile-lite .topbar-search {", BOARD_WEB_APP_HTML)
+        self.assertIn("flex: 1 0 100%;", BOARD_WEB_APP_HTML)
+        self.assertIn("body.is-mobile-lite .topbar__actions {", BOARD_WEB_APP_HTML)
+        self.assertIn("order: 1;", BOARD_WEB_APP_HTML)
+        self.assertIn("max-height: calc(100dvh - 180px);", BOARD_WEB_APP_HTML)
+        self.assertIn("boardSearch: {", BOARD_WEB_APP_HTML)
+        self.assertIn("function scheduleBoardSearch()", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderBoardSearchResults()", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleBoardSearchKeydown(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("const BOARD_SEARCH_LIMIT = 8;", BOARD_WEB_APP_HTML)
+        self.assertIn("const BOARD_SEARCH_DEBOUNCE_MS = 90;", BOARD_WEB_APP_HTML)
+        self.assertIn("const BOARD_SEARCH_CACHE_TTL_MS = 20000;", BOARD_WEB_APP_HTML)
+        self.assertIn("completedQuery: '',", BOARD_WEB_APP_HTML)
+        self.assertIn("completedAt: 0,", BOARD_WEB_APP_HTML)
+        self.assertIn("controller: null,", BOARD_WEB_APP_HTML)
+        self.assertIn("function boardSearchCacheKey(query)", BOARD_WEB_APP_HTML)
+        self.assertIn("function abortBoardSearchRequest()", BOARD_WEB_APP_HTML)
+        self.assertIn("function reuseBoardSearchCache(query)", BOARD_WEB_APP_HTML)
+        self.assertIn("if (reuseBoardSearchCache(query)) return;", BOARD_WEB_APP_HTML)
+        self.assertIn("if (options.signal) request.signal = options.signal;", BOARD_WEB_APP_HTML)
+        self.assertIn("const controller = new AbortController();", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "api('/api/search_cards?query=' + encodeURIComponent(query) + '&limit=' + BOARD_SEARCH_LIMIT, { signal: controller.signal })",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("if (error.name === 'AbortError') return;", BOARD_WEB_APP_HTML)
+        self.assertIn("rememberBoardSearchCache(query);", BOARD_WEB_APP_HTML)
+        self.assertIn("state.boardSearch.results = [];", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "window.setTimeout(() => loadBoardSearch(query, requestSeq), BOARD_SEARCH_DEBOUNCE_MS)",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("await openCardById(cardId);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.boardSearchInput.addEventListener('input', scheduleBoardSearch);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertNotIn("String(card?.indicator || '').trim()", BOARD_WEB_APP_HTML)
+
     def test_card_enrichment_button_uses_open_card_context(self) -> None:
         self.assertIn(
             "const card = state.activeCard && typeof state.activeCard === 'object'",
@@ -699,9 +744,12 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="cardButton" type="button"', BOARD_WEB_APP_HTML)
         self.assertIn('data-create-in="', BOARD_WEB_APP_HTML)
         self.assertIn('id="saveCardButton" type="button"', BOARD_WEB_APP_HTML)
-        self.assertNotIn("openCardModal(cachedCard);", BOARD_WEB_APP_HTML)
-        self.assertNotIn("applyCardModalState(cachedCard);", BOARD_WEB_APP_HTML)
-        self.assertIn("const data = await api('/api/open_card'", BOARD_WEB_APP_HTML)
+        self.assertIn("const cachedCard = snapshotCardById(normalizedCardId);", BOARD_WEB_APP_HTML)
+        self.assertIn("openCardModal(cachedCard);", BOARD_WEB_APP_HTML)
+        self.assertIn("const data = await api('/api/get_card'", BOARD_WEB_APP_HTML)
+        self.assertIn("recordCardOpenSideEffects(normalizedCardId);", BOARD_WEB_APP_HTML)
+        self.assertIn("async function recordCardOpenSideEffects(cardId)", BOARD_WEB_APP_HTML)
+        self.assertIn("await api('/api/open_card'", BOARD_WEB_APP_HTML)
         self.assertIn("requestAnimationFrame(() => renderFiles(currentCard));", BOARD_WEB_APP_HTML)
         self.assertIn(
             "if (els.cardModal?.classList.contains('is-open')) {\n        requestAnimationFrame(() => syncCardDescriptionHeight());\n      }",

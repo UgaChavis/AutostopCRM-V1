@@ -317,6 +317,26 @@ PRINT_BASE_STYLES = """
   .doc-hint { color: var(--paper-soft); font-size: 11px; }
   .doc-page-break { display: block; height: 0; clear: both; page-break-before: always; page-break-after: always; }
   @page { size: A4; margin: 9mm; }
+  @media print {
+    html,
+    body {
+      background: #ffffff;
+      padding: 0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .document-shell {
+      max-width: none;
+      margin: 0;
+    }
+    .document-page {
+      width: auto;
+      min-height: auto;
+      margin: 0;
+      border: 0;
+      box-shadow: none;
+    }
+  }
 """.strip()
 
 

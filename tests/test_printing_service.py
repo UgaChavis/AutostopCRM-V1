@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.models import Card, ClientProfile
+from minimal_kanban.printing.defaults import PRINT_BASE_STYLES
 from minimal_kanban.printing.models import SUPPORTED_PRINT_DOCUMENT_TYPES
 from minimal_kanban.printing.pdf import _html_to_plain_text, render_html_to_pdf_bytes
 from minimal_kanban.printing.service import PrintModuleError, PrintModuleService
@@ -664,6 +665,33 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Владимир Регин", text)
         self.assertNotIn("body { color", text)
         self.assertNotIn("alert", text)
+
+    def test_print_styles_remove_preview_chrome_for_pdf_output(self) -> None:
+        self.assertIn("@media print", PRINT_BASE_STYLES)
+        self.assertIn("background: #ffffff;", PRINT_BASE_STYLES)
+        self.assertIn("box-shadow: none;", PRINT_BASE_STYLES)
+        self.assertIn("print-color-adjust: exact;", PRINT_BASE_STYLES)
+
+    def test_pdf_renderer_prefers_webengine_html_printing(self) -> None:
+        with (
+            patch("minimal_kanban.printing.pdf._should_use_qt_renderer", return_value=True),
+            patch(
+                "minimal_kanban.printing.pdf._should_use_qt_subprocess_renderer",
+                return_value=False,
+            ),
+            patch(
+                "minimal_kanban.printing.pdf._render_webengine_pdf_bytes",
+                return_value=b"%PDF-1.4 webengine",
+            ) as webengine,
+            patch("minimal_kanban.printing.pdf._render_qt_pdf_bytes") as legacy_qt,
+        ):
+            pdf_bytes = render_html_to_pdf_bytes(
+                "<!doctype html><html><body><h1>Заказ-наряд</h1></body></html>"
+            )
+
+        self.assertEqual(pdf_bytes, b"%PDF-1.4 webengine")
+        webengine.assert_called_once()
+        legacy_qt.assert_not_called()
 
     def test_pdf_renderer_falls_back_safely_from_worker_thread(self) -> None:
         result: dict[str, bytes] = {}
