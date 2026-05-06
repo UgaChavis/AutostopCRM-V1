@@ -103,15 +103,34 @@ BOARD_WEB_APP_HTML = "".join(
       color: var(--text-soft);
       border-color: rgba(167, 178, 132, 0.24);
       background: rgba(13, 17, 14, 0.32);
+      white-space: nowrap;
     }
     .status-shell .message::before {
       content: "";
       width: 7px;
       height: 7px;
       border-radius: 999px;
-      background: rgba(167, 178, 132, 0.92);
-      box-shadow: 0 0 0 1px rgba(167, 178, 132, 0.22);
+      background: var(--ok);
+      box-shadow:
+        0 0 0 1px rgba(114, 182, 107, 0.3),
+        0 0 7px rgba(114, 182, 107, 0.78);
       flex: 0 0 auto;
+    }
+    .status-shell .message[data-connection="pending"]::before {
+      background: var(--warn);
+      box-shadow:
+        0 0 0 1px rgba(212, 175, 55, 0.32),
+        0 0 7px rgba(212, 175, 55, 0.8);
+    }
+    .status-shell .message[data-connection="offline"]::before {
+      background: var(--danger);
+      box-shadow:
+        0 0 0 1px rgba(207, 91, 75, 0.34),
+        0 0 7px rgba(207, 91, 75, 0.82);
+    }
+    .status-shell .message[data-tone="error"] {
+      border-color: rgba(207, 91, 75, 0.62);
+      color: #ffd1ca;
     }
     .topbar {
       border-bottom: 1px solid var(--line);
@@ -6723,7 +6742,7 @@ BOARD_WEB_APP_HTML = "".join(
       </div>
     </header>
     <div class="board-scroll">
-      <div class="message" id="statusLine">СОЕДИНЕНИЕ С ДОСКОЙ...</div>
+      <div class="message" id="statusLine" data-connection="pending" data-tone="normal">СОЕДИНЕНИЕ С ДОСКОЙ...</div>
       <div class="board" id="board"></div>
     </div>
   </div>
@@ -14207,10 +14226,28 @@ BOARD_WEB_APP_HTML = "".join(
       return requireOperatorSession();
     */
 
-    function setStatus(text, isError = false) {
+    function normalizeConnectionState(value) {
+      const normalized = String(value || '').trim().toLowerCase();
+      return ['online', 'pending', 'offline'].includes(normalized) ? normalized : '';
+    }
+
+    function connectionStateFromStatusText(text, isError = false) {
+      const normalizedText = String(text || '').toUpperCase();
+      if (normalizedText.includes('СОЕДИНЕНИЕ') || normalizedText.includes('ОЖИД')) return 'pending';
+      if (normalizedText.includes('НЕТ СВЯЗИ') || normalizedText.includes('ПРОВЕРЬ СЕТЬ') || normalizedText.includes('HTTP ')) return 'offline';
+      if (isError) return els.statusLine?.dataset.connection || 'online';
+      return 'online';
+    }
+
+    function setStatus(text, isError = false, connectionState = '') {
+      const nextConnectionState = normalizeConnectionState(connectionState) || connectionStateFromStatusText(text, isError);
       els.statusLine.textContent = text;
-      els.statusLine.style.borderColor = isError ? 'var(--danger)' : 'var(--line)';
-      els.statusLine.style.color = isError ? '#ffd1ca' : 'var(--text)';
+      els.statusLine.dataset.connection = nextConnectionState;
+      els.statusLine.dataset.tone = isError ? 'error' : 'normal';
+    }
+
+    function showConnectionPendingStatus() {
+      setStatus('СОЕДИНЕНИЕ С ДОСКОЙ...', false, 'pending');
     }
 
     function formatDate(value) {
@@ -18574,6 +18611,7 @@ function renderCompactArchiveRows(cards) {
 
         state.refreshInFlight = (async () => {
           try {
+            if (!state.snapshot || els.statusLine?.dataset.connection === 'offline') showConnectionPendingStatus();
             const nextSnapshot = await api('/api/get_board_snapshot?compact=1&include_archive=0');
             const previousRevision = String(state.lastSnapshotRevision || '');
             const nextRevision = String(nextSnapshot?.meta?.revision || '');
@@ -18589,8 +18627,7 @@ function renderCompactArchiveRows(cards) {
               await loadArchive(false, { force: true });
             }
             if (els.gptWallModal.classList.contains('is-open')) await loadGptWall(false);
-            const data = state.snapshot;
-            setStatus(showSuccess ? ('ДОСКА ОБНОВЛЕНА · ' + new Date().toLocaleTimeString('ru-RU')) : ('СЕРВЕР АКТИВЕН · КАРТОЧЕК: ' + data.cards.length + ' · АРХИВ: ' + archivedCardsTotal()));
+            updateSnapshotStatusLine({ showSuccess });
           } catch (error) {
             setStatus(error.message, true);
           } finally {
@@ -18609,6 +18646,7 @@ function renderCompactArchiveRows(cards) {
             await refreshSnapshot(false);
             return;
           }
+          if (els.statusLine?.dataset.connection === 'offline') showConnectionPendingStatus();
           const data = await api('/api/get_board_revision?compact=1&include_archive=0');
           const nextRevision = String(data?.revision || data?.meta?.revision || '');
           if (!nextRevision || nextRevision !== String(state.lastSnapshotRevision || '')) {
@@ -18683,7 +18721,7 @@ function renderCompactArchiveRows(cards) {
       setStatus(
         showSuccess
           ? ('ДОСКА ОБНОВЛЕНА · ' + new Date().toLocaleTimeString('ru-RU'))
-          : ('СЕРВЕР АКТИВЕН · КАРТОЧЕК: ' + data.cards.length + ' · АРХИВ: ' + archivedCardsTotal()),
+          : 'СЕРВЕР АКТИВЕН',
         false,
       );
     }
@@ -19657,8 +19695,14 @@ function renderCompactArchiveRows(cards) {
     }
 
     async function loadCashJournalData() {
-      const data = await api('/api/get_cash_journal?months=3&limit=5000');
-      return data || {};
+      const [journalData, cashboxesData] = await Promise.all([
+        api('/api/get_cash_journal?months=3&limit=5000'),
+        api('/api/list_cashboxes?limit=200'),
+      ]);
+      return {
+        ...(journalData || {}),
+        cashboxes: Array.isArray(cashboxesData?.cashboxes) ? cashboxesData.cashboxes : [],
+      };
     }
 
     async function loadCashJournalText() {
@@ -19673,6 +19717,18 @@ function renderCompactArchiveRows(cards) {
         + '</div>';
     }
 
+    function cashJournalMetricHtml(label, value, sign = 'positive') {
+      return '<div class="cashbox-journal-metric">'
+        + '<div class="cashbox-journal-metric__label">' + escapeHtml(label) + '</div>'
+        + '<div class="cashbox-journal-metric__value" data-balance-sign="' + escapeHtml(sign) + '">' + escapeHtml(value) + '</div>'
+        + '</div>';
+    }
+
+    function cashJournalSingleTransferDisplay(incomeMinor, expenseMinor) {
+      const transferMinor = Math.max(Math.abs(Number(incomeMinor || 0)), Math.abs(Number(expenseMinor || 0)));
+      return cashboxFormatMinorAmount(transferMinor);
+    }
+
     function cashJournalVisibleSource(sourceLabel) {
       const source = String(sourceLabel || '').trim();
       if (!source) return '';
@@ -19681,19 +19737,65 @@ function renderCompactArchiveRows(cards) {
       return source;
     }
 
-    function cashJournalDaySummary(day) {
+    function cashJournalTransferNote(item) {
+      return String(item?.note || '')
+        .replace(/^перемещение\\s+(?:в|из)\\s+[^:]+:\\s*/i, '')
+        .trim();
+    }
+
+    function cashJournalFindTransferPair(item, entries, usedIds) {
+      const itemId = String(item?.id || '');
+      if (item?.source_label !== 'перемещение' || usedIds.has(itemId)) return null;
+      for (const candidate of entries) {
+        const candidateId = String(candidate?.id || '');
+        if (!candidateId || candidateId === itemId || usedIds.has(candidateId)) continue;
+        if (candidate?.source_label !== 'перемещение') continue;
+        if (candidate?.time !== item?.time) continue;
+        if (String(candidate?.amount_minor || 0) !== String(item?.amount_minor || 0)) continue;
+        if (candidate?.direction === item?.direction) continue;
+        const source = item?.direction === 'expense' ? item : candidate;
+        const target = item?.direction === 'income' ? item : candidate;
+        return { source, target };
+      }
+      return null;
+    }
+
+    function cashJournalDisplayRows(entries) {
+      const sourceEntries = Array.isArray(entries) ? entries : [];
+      const rows = [];
+      const usedIds = new Set();
+      sourceEntries.forEach((item) => {
+        const itemId = String(item?.id || '');
+        if (itemId && usedIds.has(itemId)) return;
+        const transferPair = cashJournalFindTransferPair(item, sourceEntries, usedIds);
+        if (transferPair) {
+          if (transferPair.source?.id) usedIds.add(String(transferPair.source.id));
+          if (transferPair.target?.id) usedIds.add(String(transferPair.target.id));
+          rows.push({ kind: 'transfer', ...transferPair });
+          return;
+        }
+        if (itemId) usedIds.add(itemId);
+        rows.push({ kind: 'operation', item });
+      });
+      return rows;
+    }
+
+    function cashJournalDaySummaryHtml(day) {
       const transferIncomeMinor = Number(day?.transfer_income_minor || 0);
       const transferExpenseMinor = Number(day?.transfer_expense_minor || 0);
+      const balanceMinor = Number(day?.balance_minor || 0);
+      const entries = Array.isArray(day?.entries) ? day.entries : [];
+      const operationCount = cashJournalDisplayRows(entries).length || Number(day?.count || 0);
       const parts = [
-        'приход ' + String(day?.external_income_display || cashboxFormatMinorAmount(day?.external_income_minor || 0)),
-        'расход ' + String(day?.external_expense_display || cashboxFormatMinorAmount(day?.external_expense_minor || 0)),
-        'итог ' + String(day?.balance_display || cashboxFormatMinorAmount(day?.balance_minor || 0)),
-        String(day?.count || 0) + ' оп.',
+        cashJournalMetricHtml('Приход', String(day?.external_income_display || cashboxFormatMinorAmount(day?.external_income_minor || 0))),
+        cashJournalMetricHtml('Расход', String(day?.external_expense_display || cashboxFormatMinorAmount(day?.external_expense_minor || 0)), 'negative'),
+        cashJournalMetricHtml('Итог', String(day?.balance_display || cashboxFormatMinorAmount(balanceMinor)), balanceMinor < 0 ? 'negative' : 'positive'),
       ];
       if (transferIncomeMinor || transferExpenseMinor) {
-        parts.splice(3, 0, 'перемещения ' + String(day?.transfer_income_display || cashboxFormatMinorAmount(transferIncomeMinor)) + ' / ' + String(day?.transfer_expense_display || cashboxFormatMinorAmount(transferExpenseMinor)));
+        parts.push(cashJournalMetricHtml('Перемещения', cashJournalSingleTransferDisplay(transferIncomeMinor, transferExpenseMinor)));
       }
-      return parts.join(' | ');
+      parts.push(cashJournalMetricHtml('Операции', String(operationCount)));
+      return parts.join('');
     }
 
     function renderCashJournalOpening(day) {
@@ -19735,46 +19837,155 @@ function renderCompactArchiveRows(cards) {
         + '</div>';
     }
 
+    function renderCashJournalTransferEntry(source, target) {
+      const amount = cashboxFormatMinorAmount(source?.amount_minor || target?.amount_minor || 0);
+      const note = cashJournalTransferNote(source) || cashJournalTransferNote(target);
+      const actor = String(source?.actor_label || source?.actor_name || target?.actor_label || target?.actor_name || '').trim();
+      const meta = [];
+      if (note) meta.push(note);
+      if (actor && actor !== 'СИСТЕМА') meta.push(actor);
+      return '<div class="cashbox-journal-entry cashbox-journal-entry--transfer">'
+        + '<div class="cashbox-journal-entry__time">' + escapeHtml(source?.time_short || target?.time_short || '--:--') + '</div>'
+        + '<div class="cashbox-journal-entry__body">'
+        + '<div class="cashbox-journal-entry__note">' + escapeHtml('Перемещение: ' + String(source?.cashbox_name || 'Касса') + ' → ' + String(target?.cashbox_name || 'Касса')) + '</div>'
+        + '<div class="cashbox-journal-entry__meta">' + escapeHtml(meta.join(' | ')) + '</div>'
+        + '</div>'
+        + '<div class="cashbox-journal-entry__amount" data-direction="transfer">' + escapeHtml(amount) + '</div>'
+        + '</div>';
+    }
+
+    function renderCashJournalRow(row) {
+      if (row?.kind === 'transfer') return renderCashJournalTransferEntry(row.source, row.target);
+      return renderCashJournalEntry(row?.item || {});
+    }
+
     function renderCashJournalDay(day) {
       const entries = Array.isArray(day?.entries) ? day.entries : [];
+      const rows = cashJournalDisplayRows(entries);
       return '<section class="cashbox-journal-day">'
         + '<div class="cashbox-journal-day__head">'
         + '<div class="cashbox-journal-day__title">' + escapeHtml(day?.label || day?.date || 'День') + '</div>'
-        + '<div class="cashbox-journal-day__summary">' + escapeHtml(cashJournalDaySummary(day || {})) + '</div>'
+        + '<div class="cashbox-journal-day__summary">' + cashJournalDaySummaryHtml(day || {}) + '</div>'
         + '</div>'
         + renderCashJournalOpening(day || {})
         + '<div class="cashbox-journal-entries">'
-        + (entries.length ? entries.map(renderCashJournalEntry).join('') : '<div class="cashbox-journal-empty">Операций за день нет.</div>')
+        + (rows.length ? rows.map(renderCashJournalRow).join('') : '<div class="cashbox-journal-empty">Операций за день нет.</div>')
         + '</div>'
         + '</section>';
     }
 
-    function renderCashJournal(data) {
-      const days = Array.isArray(data?.days) ? data.days : [];
+    function renderCashJournalCurrentBalances(data) {
+      const cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
+      if (!cashboxes.length) return '<div class="cashbox-journal-empty">Текущие остатки касс не загружены.</div>';
+      const totalMinor = cashboxes.reduce((sum, cashbox) => sum + Number(cashbox?.statistics?.balance_minor || 0), 0);
+      const rows = cashboxes.map((cashbox) => {
+        const balanceMinor = Number(cashbox?.statistics?.balance_minor || 0);
+        const sign = String(cashbox?.statistics?.balance_sign || (balanceMinor < 0 ? 'negative' : 'positive'));
+        const display = String(cashbox?.statistics?.balance_display || cashboxFormatMinorAmount(balanceMinor));
+        return '<div class="cashbox-journal-balance">'
+          + '<div class="cashbox-journal-balance__name">' + escapeHtml(cashbox?.name || 'Касса') + '</div>'
+          + '<div class="cashbox-journal-balance__amount" data-balance-sign="' + escapeHtml(sign) + '">' + escapeHtml(display) + '</div>'
+          + '</div>';
+      }).join('');
+      const totalSign = totalMinor < 0 ? 'negative' : 'positive';
+      return '<section class="cashbox-journal-current">'
+        + '<div class="cashbox-journal-current__head">Текущие остатки в кассах</div>'
+        + '<div class="cashbox-journal-current__grid">'
+        + rows
+        + '<div class="cashbox-journal-balance">'
+        + '<div class="cashbox-journal-balance__name">Итого</div>'
+        + '<div class="cashbox-journal-balance__amount" data-balance-sign="' + escapeHtml(totalSign) + '">' + escapeHtml(cashboxFormatMinorAmount(totalMinor)) + '</div>'
+        + '</div>'
+        + '</div>'
+        + '</section>';
+    }
+
+    function cashJournalStatsRowHtml(item) {
+      const balanceMinor = Number(item?.balance_minor || 0);
+      const transferMinor = Math.max(Math.abs(Number(item?.transfer_income_minor || 0)), Math.abs(Number(item?.transfer_expense_minor || 0)));
+      return '<div class="cashbox-journal-stats-row">'
+        + '<div class="cashbox-journal-stats-row__label">' + escapeHtml(item?.label || item?.key || 'Период') + '</div>'
+        + '<div class="cashbox-journal-stats-row__value">' + escapeHtml(String(item?.external_income_display || cashboxFormatMinorAmount(item?.external_income_minor || 0))) + '</div>'
+        + '<div class="cashbox-journal-stats-row__value" data-balance-sign="negative">' + escapeHtml(String(item?.external_expense_display || cashboxFormatMinorAmount(item?.external_expense_minor || 0))) + '</div>'
+        + '<div class="cashbox-journal-stats-row__value" data-balance-sign="' + escapeHtml(balanceMinor < 0 ? 'negative' : 'positive') + '">' + escapeHtml(String(item?.balance_display || cashboxFormatMinorAmount(balanceMinor))) + '</div>'
+        + '<div class="cashbox-journal-stats-row__meta">' + escapeHtml('перемещения ' + cashboxFormatMinorAmount(transferMinor) + ' | ' + String(item?.count || 0) + ' оп.') + '</div>'
+        + '</div>';
+    }
+
+    function renderCashJournalStatsSection(title, items) {
+      const rows = Array.isArray(items) && items.length
+        ? items.map(cashJournalStatsRowHtml).join('')
+        : '<div class="cashbox-journal-empty">Данных пока нет.</div>';
+      return '<section class="cashbox-journal-stats-section">'
+        + '<div class="cashbox-journal-stats-section__head">' + escapeHtml(title) + '</div>'
+        + '<div class="cashbox-journal-stats-section__rows">' + rows + '</div>'
+        + '</section>';
+    }
+
+    function renderCashJournalStats(data) {
       const totals = data?.totals || {};
       const meta = data?.meta || {};
       const shownText = String(totals?.count ?? meta?.returned ?? 0) + ' из ' + String(meta?.total ?? totals?.count ?? 0);
+      const balanceMinor = Number(totals?.balance_minor || 0);
+      const transferMinor = Math.max(Math.abs(Number(totals?.transfer_income_minor || 0)), Math.abs(Number(totals?.transfer_expense_minor || 0)));
       const summaryHtml = '<div class="cashbox-journal-summary">'
         + cashJournalStatHtml('Период', 'последние ' + String(meta?.months || 3) + ' мес.')
         + cashJournalStatHtml('Операции', shownText)
         + cashJournalStatHtml('Поступления', String(totals?.external_income_display || cashboxFormatMinorAmount(totals?.external_income_minor || 0)))
-        + cashJournalStatHtml('Списания', String(totals?.external_expense_display || cashboxFormatMinorAmount(totals?.external_expense_minor || 0)))
-        + cashJournalStatHtml('Итог периода', String(totals?.balance_display || cashboxFormatMinorAmount(totals?.balance_minor || 0)), Number(totals?.balance_minor || 0) < 0 ? 'negative' : 'positive')
+        + cashJournalStatHtml('Списания', String(totals?.external_expense_display || cashboxFormatMinorAmount(totals?.external_expense_minor || 0)), 'negative')
+        + cashJournalStatHtml('Итог периода', String(totals?.balance_display || cashboxFormatMinorAmount(balanceMinor)), balanceMinor < 0 ? 'negative' : 'positive')
+        + cashJournalStatHtml('Перемещения', cashboxFormatMinorAmount(transferMinor))
         + '</div>';
+      return '<div class="cashbox-journal-view cashbox-journal-view--stats">'
+        + summaryHtml
+        + renderCashJournalStatsSection('По месяцам', data?.months || [])
+        + renderCashJournalStatsSection('По неделям', data?.weeks || [])
+        + renderCashJournalStatsSection('По дням', data?.days || [])
+        + '</div>';
+    }
+
+    function renderCashJournalLedger(data) {
+      const days = Array.isArray(data?.days) ? data.days : [];
+      const totals = data?.totals || {};
+      const meta = data?.meta || {};
       const limitNotice = Number(meta?.total || 0) > Number(totals?.count || 0)
         ? '<div class="cashbox-journal-empty">Показана часть операций. Для полной выгрузки увеличьте лимит журнала.</div>'
         : '';
       const daysHtml = days.length
         ? days.map(renderCashJournalDay).join('')
         : '<div class="cashbox-journal-empty">За выбранный период движений нет.</div>';
-      return '<div class="cashbox-journal-view">' + summaryHtml + limitNotice + daysHtml + '</div>';
+      return '<div class="cashbox-journal-view">' + renderCashJournalCurrentBalances(data) + limitNotice + daysHtml + '</div>';
+    }
+
+    function renderCashJournal(data) {
+      return state.cashboxJournalView === 'stats'
+        ? renderCashJournalStats(data)
+        : renderCashJournalLedger(data);
+    }
+
+    function syncCashJournalStatsButton() {
+      if (!els.cashboxJournalStatsButton) return;
+      const statsOpen = state.cashboxJournalView === 'stats';
+      els.cashboxJournalStatsButton.textContent = statsOpen ? 'ЖУРНАЛ' : 'СТАТИСТИКА';
+      els.cashboxJournalStatsButton.setAttribute('aria-pressed', statsOpen ? 'true' : 'false');
+    }
+
+    function toggleCashJournalStats() {
+      state.cashboxJournalView = state.cashboxJournalView === 'stats' ? 'journal' : 'stats';
+      syncCashJournalStatsButton();
+      if (state.cashboxJournalData) {
+        els.cashboxJournalText.innerHTML = renderCashJournal(state.cashboxJournalData);
+      }
     }
 
     async function openCashJournalModal() {
+      state.cashboxJournalView = 'journal';
+      syncCashJournalStatsButton();
       els.cashboxJournalText.innerHTML = '<div class="cashbox-journal-loading">ЗАГРУЗКА...</div>';
       maybeOpenModal(els.cashboxJournalModal, true);
       try {
         const data = await loadCashJournalData();
+        state.cashboxJournalData = data;
         els.cashboxJournalText.innerHTML = renderCashJournal(data);
       } catch (error) {
         els.cashboxJournalText.innerHTML = '<div class="cashbox-journal-empty">' + escapeHtml(String(error?.message || 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ ЖУРНАЛ.')) + '</div>';
@@ -21460,6 +21671,7 @@ function renderCompactArchiveRows(cards) {
     remountElement('employeesButton');
     remountElement('cashboxCreateButton');
     remountElement('cashboxJournalButton');
+    remountElement('cashboxJournalStatsButton');
     remountElement('cashboxJournalDownloadButton');
     remountElement('cashboxDeleteButton');
     remountElement('cashboxCancelLastButton');
@@ -21504,6 +21716,9 @@ function renderCompactArchiveRows(cards) {
     document.addEventListener('click', handleBoardSearchDocumentClick);
     els.cashboxCreateButton.addEventListener('click', createCashbox);
     els.cashboxJournalButton.addEventListener('click', openCashJournalModal);
+    if (els.cashboxJournalStatsButton) {
+      els.cashboxJournalStatsButton.addEventListener('click', toggleCashJournalStats);
+    }
     els.cashboxJournalDownloadButton.addEventListener('click', downloadCashJournal);
     els.cashboxDeleteButton.addEventListener('click', deleteActiveCashbox);
     els.sharedFilesUploadButton.addEventListener('click', () => els.sharedFilesInput.click());

@@ -90,7 +90,30 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".topbar__meta {", BOARD_WEB_APP_HTML)
         self.assertIn(".status-shell .message {", BOARD_WEB_APP_HTML)
         self.assertIn(".status-shell .message::before {", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            '.status-shell .message[data-connection="pending"]::before', BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            '.status-shell .message[data-connection="offline"]::before', BOARD_WEB_APP_HTML
+        )
         self.assertIn("width: max-content;", BOARD_WEB_APP_HTML)
+        self.assertIn("white-space: nowrap;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'id="statusLine" data-connection="pending" data-tone="normal"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "function connectionStateFromStatusText(text, isError = false)", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("function showConnectionPendingStatus()", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.statusLine.dataset.connection = nextConnectionState;", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "els.statusLine.dataset.tone = isError ? 'error' : 'normal';", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(": 'СЕРВЕР АКТИВЕН'", BOARD_WEB_APP_HTML)
+        self.assertNotIn("СЕРВЕР АКТИВЕН · КАРТОЧЕК:", BOARD_WEB_APP_HTML)
         self.assertIn(".topbar__actions .btn,", BOARD_WEB_APP_HTML)
         self.assertIn(".topbar__rare-actions .btn {", BOARD_WEB_APP_HTML)
 
@@ -1099,7 +1122,10 @@ class WebAssetsTests(unittest.TestCase):
             'body.is-mobile-lite .dialog__tabs--card .tab-btn[data-tab="journal"] {',
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("body.is-mobile-lite .dialog__tabs--card .tab-btn[data-tab=\"journal\"] {\n      display: inline-block;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'body.is-mobile-lite .dialog__tabs--card .tab-btn[data-tab="journal"] {\n      display: inline-block;',
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("body.is-mobile-lite .vehicle-panel__fields {", BOARD_WEB_APP_HTML)
         self.assertIn("applyMobileLiteMode(detectMobileLiteMode());", BOARD_WEB_APP_HTML)
         self.assertIn("window.addEventListener('resize', syncMobileLiteMode);", BOARD_WEB_APP_HTML)
@@ -2278,6 +2304,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="cashboxesList"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxCreateButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxJournalButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="cashboxJournalStatsButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxJournalDownloadButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxDeleteButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxCancelLastButton"', BOARD_WEB_APP_HTML)
@@ -2298,8 +2325,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".cashbox-cancel-last-button[disabled] {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-text {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-view {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-journal-current {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-journal-metric {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-opening {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-entry {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-journal-stats-section {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-download-button {", BOARD_WEB_APP_HTML)
         self.assertIn(".card-journal-text {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-delete-button {", BOARD_WEB_APP_HTML)
@@ -2327,8 +2357,13 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function openCashJournalModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function loadCashJournalText()", BOARD_WEB_APP_HTML)
         self.assertIn("function renderCashJournal(data)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderCashJournalCurrentBalances(data)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderCashJournalStats(data)", BOARD_WEB_APP_HTML)
         self.assertIn("function renderCashJournalOpening(day)", BOARD_WEB_APP_HTML)
+        self.assertIn("function cashJournalDisplayRows(entries)", BOARD_WEB_APP_HTML)
+        self.assertIn("function toggleCashJournalStats()", BOARD_WEB_APP_HTML)
         self.assertIn("opening_balances", BOARD_WEB_APP_HTML)
+        self.assertIn("cashboxJournalStatsButton.addEventListener('click', toggleCashJournalStats);", BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.cashboxJournalText.innerHTML = renderCashJournal(data);",
             BOARD_WEB_APP_HTML,
