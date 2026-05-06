@@ -173,15 +173,16 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .topbar-search {
       position: relative;
-      flex: 1 1 320px;
-      min-width: 260px;
-      max-width: 520px;
+      flex: 0 0 132px;
+      width: 132px;
+      min-width: 132px;
+      max-width: 132px;
       z-index: 8;
     }
     .topbar-search__box {
       position: relative;
       display: grid;
-      min-height: 36px;
+      min-height: 27px;
       border: 1px solid rgba(167, 178, 132, 0.52);
       background:
         linear-gradient(180deg, rgba(255,255,255,0.04), transparent 32%),
@@ -192,31 +193,27 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .topbar-search__label {
       position: absolute;
-      left: 10px;
-      top: 4px;
+      left: 8px;
+      top: 3px;
       z-index: 1;
       color: var(--accent);
       font-family: var(--mono);
-      font-size: 7.8px;
+      font-size: 7.4px;
       font-weight: 700;
       letter-spacing: 0;
-      text-transform: uppercase;
       opacity: 0.88;
       pointer-events: none;
     }
     .topbar-search__input {
       width: 100%;
-      height: 36px;
+      height: 27px;
       border: 0;
       background: transparent;
       color: var(--text);
-      padding: 15px 38px 5px 10px;
+      padding: 12px 27px 2px 8px;
       outline: none;
-      font-size: 12.5px;
+      font-size: 10.5px;
       line-height: 1.15;
-    }
-    .topbar-search__input::placeholder {
-      color: rgba(200, 198, 187, 0.56);
     }
     .topbar-search__box:focus-within {
       border-color: var(--accent);
@@ -227,10 +224,10 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .topbar-search__clear {
       position: absolute;
-      right: 5px;
-      top: 5px;
-      width: 26px;
-      height: 26px;
+      right: 3px;
+      top: 3px;
+      width: 21px;
+      height: 21px;
       padding: 0;
       display: grid;
       place-items: center;
@@ -238,7 +235,7 @@ BOARD_WEB_APP_HTML = "".join(
       background: rgba(0,0,0,0.18);
       color: var(--text-soft);
       font-family: var(--mono);
-      font-size: 14px;
+      font-size: 12px;
       cursor: pointer;
     }
     .topbar-search__clear:hover {
@@ -252,8 +249,9 @@ BOARD_WEB_APP_HTML = "".join(
     .topbar-search__results {
       position: absolute;
       left: 0;
-      right: 0;
+      right: auto;
       top: calc(100% + 6px);
+      width: min(420px, calc(100vw - 20px));
       display: none;
       max-height: min(420px, calc(100vh - 92px));
       overflow: auto;
@@ -1363,6 +1361,14 @@ BOARD_WEB_APP_HTML = "".join(
       padding: 9px 10px;
       resize: vertical;
       min-height: 38px;
+    }
+    .topbar-search .topbar-search__input {
+      height: 27px;
+      min-height: 0;
+      border: 0;
+      background: transparent;
+      padding: 12px 27px 2px 8px;
+      resize: none;
     }
     input[type="range"] {
       width: 100%;
@@ -4447,6 +4453,7 @@ BOARD_WEB_APP_HTML = "".join(
       position: absolute;
       left: 0;
       right: 0;
+      width: auto;
       top: calc(100% + 6px);
       max-height: calc(100dvh - 180px);
     }
@@ -6540,8 +6547,8 @@ BOARD_WEB_APP_HTML = "".join(
       </div>
       <div class="topbar-search" role="search" aria-label="Поиск по карточкам">
         <div class="topbar-search__box">
-          <label class="topbar-search__label" for="boardSearchInput">ПОИСК ПО ДОСКЕ</label>
-          <input class="topbar-search__input" id="boardSearchInput" type="search" autocomplete="off" spellcheck="false" placeholder="НАЙТИ КАРТОЧКУ" aria-controls="boardSearchResults" aria-expanded="false">
+          <label class="topbar-search__label" for="boardSearchInput">поиск по доске</label>
+          <input class="topbar-search__input" id="boardSearchInput" type="search" autocomplete="off" spellcheck="false" aria-controls="boardSearchResults" aria-expanded="false">
           <button class="topbar-search__clear" id="boardSearchClearButton" type="button" aria-label="Очистить поиск" hidden>×</button>
         </div>
         <div class="topbar-search__results" id="boardSearchResults" role="listbox" aria-label="Результаты поиска"></div>

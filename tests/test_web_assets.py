@@ -183,6 +183,24 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('class="topbar-search"', BOARD_WEB_APP_HTML)
         self.assertIn('id="boardSearchInput"', BOARD_WEB_APP_HTML)
         self.assertIn('id="boardSearchResults"', BOARD_WEB_APP_HTML)
+        self.assertIn("flex: 0 0 132px;", BOARD_WEB_APP_HTML)
+        self.assertIn("width: 132px;", BOARD_WEB_APP_HTML)
+        self.assertIn("height: 27px;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            '<label class="topbar-search__label" for="boardSearchInput">поиск по доске</label>',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertNotIn("НАЙТИ КАРТОЧКУ", BOARD_WEB_APP_HTML)
+        self.assertNotIn('placeholder="НАЙТИ КАРТОЧКУ"', BOARD_WEB_APP_HTML)
+        generic_search_input_index = BOARD_WEB_APP_HTML.index(
+            'input[type="text"], input[type="password"], input[type="search"]'
+        )
+        self.assertIn(".topbar-search .topbar-search__input {", BOARD_WEB_APP_HTML)
+        compact_search_input_index = BOARD_WEB_APP_HTML.index(
+            ".topbar-search .topbar-search__input {"
+        )
+        self.assertGreater(compact_search_input_index, generic_search_input_index)
+        self.assertIn("min-height: 0;", BOARD_WEB_APP_HTML)
         self.assertIn(".topbar-search__clear[hidden]", BOARD_WEB_APP_HTML)
         self.assertIn(".topbar-search__results.is-open", BOARD_WEB_APP_HTML)
         self.assertIn("body.is-mobile-lite .topbar-search {", BOARD_WEB_APP_HTML)
