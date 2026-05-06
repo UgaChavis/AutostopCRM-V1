@@ -3061,6 +3061,25 @@ class CardServiceTests(unittest.TestCase):
             first_snapshot["meta"]["revision"], changed_snapshot["meta"]["revision"]
         )
 
+    def test_board_revision_matches_snapshot_revision_without_card_payload(self) -> None:
+        self.service.create_card(
+            {
+                "vehicle": "Ford Focus",
+                "title": "Revision probe",
+                "description": "Проверить развал-схождение",
+                "deadline": {"hours": 2},
+            }
+        )
+
+        snapshot = self.service.get_board_snapshot({"compact": True, "include_archive": False})
+        revision = self.service.get_board_revision({"compact": True, "include_archive": False})
+
+        self.assertEqual(revision["revision"], snapshot["meta"]["revision"])
+        self.assertEqual(revision["meta"]["revision"], snapshot["meta"]["revision"])
+        self.assertEqual(revision["counts"]["cards"], len(snapshot["cards"]))
+        self.assertNotIn("cards", revision)
+        self.assertNotIn("archive", revision)
+
     def test_board_snapshot_skips_expensive_prep_when_there_are_no_cards(self) -> None:
         snapshot_service = self.service._snapshot_service
         snapshot_service._column_labels = Mock(wraps=snapshot_service._column_labels)
@@ -3590,6 +3609,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(log["entries"][0]["schema_version"], "card_journal.entry.v2")
         self.assertIn("display_line", log["entries"][0])
         self.assertIn("detail_lines", log["entries"][0])
+        self.assertIn("journal_blocks", log["entries"][0])
 
     def test_get_card_log_exposes_full_before_after_changes(self) -> None:
         created = self.service.create_card(
@@ -3611,7 +3631,18 @@ class CardServiceTests(unittest.TestCase):
             }
         )
 
-        log = self.service.get_card_log({"card_id": card_id})
+        full_log = self.service.get_card_log({"card_id": card_id})
+        created_entry = next(
+            item for item in full_log["entries"] if item["action"] == "card_created"
+        )
+        created_description = next(
+            block for block in created_entry["journal_blocks"] if block["field"] == "description"
+        )
+        self.assertEqual(
+            created_description["text"], "Первая строка\nВторая строка с важной информацией"
+        )
+
+        log = self.service.get_card_log({"card_id": card_id, "limit": 1})
         entry = next(item for item in log["entries"] if item["action"] == "description_changed")
 
         self.assertEqual(entry["icon"], "📝")
@@ -3626,15 +3657,21 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(change["schema_version"], "card_journal.change.v2")
         self.assertEqual(change["before"], "Первая строка\nВторая строка с важной информацией")
         self.assertEqual(change["after"], "Новая строка\nВторая строка заменена")
+        self.assertEqual(len(entry["journal_blocks"]), 1)
+        self.assertEqual(entry["journal_blocks"][0]["title"], "Описание обновлено")
+        self.assertEqual(entry["journal_blocks"][0]["text"], "Новая строка\nВторая строка заменена")
+        self.assertTrue(entry["journal_blocks"][0]["is_full_value"])
         self.assertIn("📝", log["markdown"])
-        self.assertIn("Описание изменили", log["markdown"])
+        self.assertIn("Описание обновлено", log["markdown"])
         self.assertNotIn("Изменено поле", log["markdown"])
-        self.assertIn("до:", log["markdown"])
-        self.assertIn("после:", log["markdown"])
-        self.assertIn("Первая строка", log["markdown"])
-        self.assertIn("Вторая строка с важной информацией", log["markdown"])
+        self.assertNotIn("до:", log["markdown"])
+        self.assertNotIn("после:", log["markdown"])
+        self.assertNotIn("Первая строка", log["markdown"])
+        self.assertNotIn("Вторая строка с важной информацией", log["markdown"])
+        self.assertIn("Новая строка", log["markdown"])
+        self.assertIn("Вторая строка заменена", log["markdown"])
         self.assertIn("ПРИЁМЩИК", entry["display_line"])
-        self.assertTrue(any("до:" in line for line in entry["detail_lines"]))
+        self.assertFalse(any("до:" in line or "после:" in line for line in entry["detail_lines"]))
 
     def test_get_card_log_marks_cleared_fields_as_deletions(self) -> None:
         created = self.service.create_card(
@@ -3656,7 +3693,7 @@ class CardServiceTests(unittest.TestCase):
             }
         )
 
-        log = self.service.get_card_log({"card_id": card_id})
+        log = self.service.get_card_log({"card_id": card_id, "limit": 1})
         entry = next(item for item in log["entries"] if item["action"] == "description_changed")
 
         self.assertTrue(entry["has_deletion"])
@@ -3664,10 +3701,12 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(entry["changes"][0]["kind"], "removed")
         self.assertEqual(entry["changes"][0]["before"], "Текст, который нельзя потерять")
         self.assertEqual(entry["changes"][0]["after"], "")
+        self.assertEqual(entry["journal_blocks"][0]["title"], "⚠️ Описание очищено")
+        self.assertEqual(entry["journal_blocks"][0]["text"], "")
         self.assertGreaterEqual(log["totals"]["deletions"], 1)
-        self.assertIn("⚠️ Описание очистили", log["markdown"])
+        self.assertIn("⚠️ Описание очищено", log["markdown"])
         self.assertNotIn("Очищено поле", log["markdown"])
-        self.assertIn("Текст, который нельзя потерять", log["text"])
+        self.assertNotIn("Текст, который нельзя потерять", log["text"])
 
     def test_repair_order_updates_keep_previous_snapshot_in_card_log(self) -> None:
         created = self.service.create_card(
@@ -3715,7 +3754,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("Диагностика", repair_order_change["before"])
         self.assertIn("Причина изменена", repair_order_change["after"])
         self.assertIn("Диагностика", log["markdown"])
-        self.assertIn("Заказ-наряд изменили", log["markdown"])
+        self.assertIn("Заказ-наряд обновлён", log["markdown"])
         self.assertIn("Клиент: Иван", log["markdown"])
         self.assertIn("Причина обращения: Первичная причина", log["markdown"])
         self.assertIn("Работы: 1 позиция", log["markdown"])
@@ -3763,7 +3802,7 @@ class CardServiceTests(unittest.TestCase):
         change = entry["changes"][0]
 
         self.assertIn('"field_sources"', change["after"])
-        self.assertIn("Техкарту автомобиля заполнили", log["markdown"])
+        self.assertIn("Техкарта автомобиля заполнена", log["markdown"])
         self.assertIn("Марка: Volkswagen", log["markdown"])
         self.assertIn("Модель: Golf", log["markdown"])
         self.assertIn("Госномер: М276УВ124", log["markdown"])

@@ -29,8 +29,8 @@
 ## MCP Surface
 
 - Base CRM MCP tools: 71.
-- Optional AutostopManager tools: 13 when `/opt/AutostopManager` or sibling `AutostopManager` is mounted.
-- Expected production `tools/list` with manager mounted: 84.
+- Optional AutostopManager tools: current manager catalog lists 19 when `/opt/AutostopManager` or sibling `AutostopManager` is mounted.
+- Expected production `tools/list` with current manager mounted: 90, but verify live before release or connector docs work.
 - `cleanup_card_content`, `autofill_vehicle_data`, and `autofill_repair_order` are not MCP runtime tools.
 
 ## Verification

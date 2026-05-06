@@ -360,16 +360,31 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function snapshotPollIntervalMs()", BOARD_WEB_APP_HTML)
         self.assertIn("function scheduleNextSnapshotPoll()", BOARD_WEB_APP_HTML)
         self.assertIn("function handleSnapshotVisibilityChange()", BOARD_WEB_APP_HTML)
-        self.assertIn("if (!document.hidden) refreshSnapshot(false);", BOARD_WEB_APP_HTML)
+        self.assertIn("function refreshSnapshotRevision()", BOARD_WEB_APP_HTML)
+        self.assertIn("if (!document.hidden) refreshSnapshotRevision();", BOARD_WEB_APP_HTML)
         self.assertIn(
             "document.addEventListener('visibilitychange', handleSnapshotVisibilityChange);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("state.pollHandle = window.setTimeout(async () => {", BOARD_WEB_APP_HTML)
-        self.assertIn("await refreshSnapshot(false);", BOARD_WEB_APP_HTML)
+        self.assertIn("await refreshSnapshotRevision();", BOARD_WEB_APP_HTML)
+        self.assertIn("/api/get_board_revision?compact=1&include_archive=0", BOARD_WEB_APP_HTML)
         self.assertIn("scheduleNextSnapshotPoll();", BOARD_WEB_APP_HTML)
         self.assertIn("const SNAPSHOT_POLL_MODAL_INTERVAL_MS = 15000;", BOARD_WEB_APP_HTML)
         self.assertIn("function hasOpenWorkspaceModal()", BOARD_WEB_APP_HTML)
+
+    def test_perf_instrumentation_is_wired_for_slow_paths(self) -> None:
+        self.assertIn("const PERF_STORAGE_KEY = 'autostop-perf';", BOARD_WEB_APP_HTML)
+        self.assertIn("function perfStart(name)", BOARD_WEB_APP_HTML)
+        self.assertIn("function perfEnd(token, detail = {})", BOARD_WEB_APP_HTML)
+        self.assertIn("window.performance?.measure?.(token.name", BOARD_WEB_APP_HTML)
+        self.assertIn("perfStart('api:' + String(path || '').split('?')[0])", BOARD_WEB_APP_HTML)
+        self.assertIn("perfMeasureAsync('refreshSnapshot'", BOARD_WEB_APP_HTML)
+        self.assertIn("perfMeasureAsync('openCardWorkspace'", BOARD_WEB_APP_HTML)
+        self.assertIn("perfStart('hydrateCard')", BOARD_WEB_APP_HTML)
+        self.assertIn("perfStart('renderBoard')", BOARD_WEB_APP_HTML)
+        self.assertIn("perfStart('renderFiles')", BOARD_WEB_APP_HTML)
+        self.assertIn("perfMeasureAsync('saveCard'", BOARD_WEB_APP_HTML)
 
     def test_archive_modal_uses_last_30_compact_rows(self) -> None:
         self.assertIn("АРХИВ / ПОСЛЕДНИЕ 30", BOARD_WEB_APP_HTML)
@@ -803,7 +818,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".field--description .description-editor {", BOARD_WEB_APP_HTML)
         self.assertIn(".signal-panel {", BOARD_WEB_APP_HTML)
         self.assertIn(".tag-entry {", BOARD_WEB_APP_HTML)
-        self.assertIn("function applyCardModalState(card)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function applyCardModalState(card, { descriptionLoading = false, cardIsFull = true, preserveLazyPanels = false } = {})",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("function resetCardModalState()", BOARD_WEB_APP_HTML)
         self.assertIn("async function persistCardPayload(payload)", BOARD_WEB_APP_HTML)
         self.assertIn("state.cardCreateColumnId = ''", BOARD_WEB_APP_HTML)
@@ -814,13 +832,27 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="cardButton" type="button"', BOARD_WEB_APP_HTML)
         self.assertIn('data-create-in="', BOARD_WEB_APP_HTML)
         self.assertIn('id="saveCardButton" type="button"', BOARD_WEB_APP_HTML)
+        self.assertIn("fullCardCache: new Map()", BOARD_WEB_APP_HTML)
+        self.assertIn("cardFetchInFlight: new Map()", BOARD_WEB_APP_HTML)
+        self.assertIn("function cachedFullCardForSnapshot(card)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "async function fetchFullCard(cardId, expectedUpdatedAt = '')", BOARD_WEB_APP_HTML
+        )
         self.assertIn("const cachedCard = snapshotCardById(normalizedCardId);", BOARD_WEB_APP_HTML)
-        self.assertIn("openCardModal(cachedCard);", BOARD_WEB_APP_HTML)
-        self.assertIn("const data = await api('/api/get_card'", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "openCardModal(cachedCard, { descriptionLoading: true, cardIsFull: false });",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("fullCard = cachedFullCard || await fetchFullCard", BOARD_WEB_APP_HTML)
+        self.assertIn("function setCardDescriptionLoading(isLoading", BOARD_WEB_APP_HTML)
         self.assertIn("recordCardOpenSideEffects(normalizedCardId);", BOARD_WEB_APP_HTML)
         self.assertIn("async function recordCardOpenSideEffects(cardId)", BOARD_WEB_APP_HTML)
         self.assertIn("await api('/api/open_card'", BOARD_WEB_APP_HTML)
-        self.assertIn("requestAnimationFrame(() => renderFiles(currentCard));", BOARD_WEB_APP_HTML)
+        self.assertIn("function loadActiveCardTab(tabName)", BOARD_WEB_APP_HTML)
+        self.assertIn("if (tabName === 'files') {", BOARD_WEB_APP_HTML)
+        self.assertIn("if (tabName !== 'journal') return;", BOARD_WEB_APP_HTML)
+        self.assertIn("renderActiveCardFiles();", BOARD_WEB_APP_HTML)
+        self.assertNotIn("if (card?.id) loadLogs(card.id);", BOARD_WEB_APP_HTML)
         self.assertIn(
             "if (els.cardModal?.classList.contains('is-open')) {\n        requestAnimationFrame(() => syncCardDescriptionHeight());\n      }",
             BOARD_WEB_APP_HTML,
@@ -837,9 +869,17 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("async function restoreActiveCard()", BOARD_WEB_APP_HTML)
         self.assertIn("async function handleCardWorkspaceClick(target)", BOARD_WEB_APP_HTML)
-        self.assertIn("applyCardModalState(card);", BOARD_WEB_APP_HTML)
+        self.assertIn("applyCardModalState(card, { descriptionLoading", BOARD_WEB_APP_HTML)
         self.assertIn("resetCardModalState();", BOARD_WEB_APP_HTML)
-        self.assertIn("await persistCardPayload(payload);", BOARD_WEB_APP_HTML)
+        self.assertIn("const data = await persistCardPayload(payload);", BOARD_WEB_APP_HTML)
+        self.assertIn("if (data?.card) applySavedCardLocalPatch(data.card);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "scheduleBackgroundSnapshotRefresh({ showSuccess: false, delay: 900 });",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertNotIn(
+            "closeCardModal();\n        await refreshSnapshot(true);", BOARD_WEB_APP_HTML
+        )
         self.assertIn("await openCardWorkspace(cardId);", BOARD_WEB_APP_HTML)
         self.assertIn(
             "const createInTrigger = target.closest('[data-create-in]');", BOARD_WEB_APP_HTML
@@ -1059,6 +1099,7 @@ class WebAssetsTests(unittest.TestCase):
             'body.is-mobile-lite .dialog__tabs--card .tab-btn[data-tab="journal"] {',
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn("body.is-mobile-lite .dialog__tabs--card .tab-btn[data-tab=\"journal\"] {\n      display: inline-block;", BOARD_WEB_APP_HTML)
         self.assertIn("body.is-mobile-lite .vehicle-panel__fields {", BOARD_WEB_APP_HTML)
         self.assertIn("applyMobileLiteMode(detectMobileLiteMode());", BOARD_WEB_APP_HTML)
         self.assertIn("window.addEventListener('resize', syncMobileLiteMode);", BOARD_WEB_APP_HTML)
@@ -2409,7 +2450,12 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function renderLogs(payload)", BOARD_WEB_APP_HTML)
         self.assertIn("function buildCardJournalFallbackText(events)", BOARD_WEB_APP_HTML)
         self.assertIn("function buildCardJournalHtml(payload)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderCardJournalBlock(block)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderCardJournalDetails(entry)", BOARD_WEB_APP_HTML)
         self.assertIn("function renderCardJournalDetailLines(detailLines)", BOARD_WEB_APP_HTML)
+        self.assertIn(".card-journal-block {", BOARD_WEB_APP_HTML)
+        self.assertNotIn("Было до изменения", BOARD_WEB_APP_HTML)
+        self.assertNotIn("Стало после изменения", BOARD_WEB_APP_HTML)
         self.assertIn(
             "data?.markdown || data?.text || buildCardJournalFallbackText", BOARD_WEB_APP_HTML
         )

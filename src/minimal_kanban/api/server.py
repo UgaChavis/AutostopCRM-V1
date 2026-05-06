@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import re
@@ -13,6 +14,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from logging import Logger
 from pathlib import Path, PurePath
+from time import perf_counter
 from urllib.parse import parse_qs, quote, urlsplit
 
 from ..config import (
@@ -33,10 +35,13 @@ STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 QUIET_SUCCESS_ROUTES = frozenset(
     {
         "/api/health",
+        "/api/get_board_revision",
         "/api/get_board_snapshot",
         "/api/mark_card_seen",
     }
 )
+
+JSON_GZIP_MIN_BYTES = 1024
 
 
 def _json_response(
@@ -240,6 +245,7 @@ class ApiServer:
             "/api/get_cards": service.get_cards,
             "/api/get_card": service.get_card,
             "/api/get_card_context": service.get_card_context,
+            "/api/get_board_revision": service.get_board_revision,
             "/api/get_board_snapshot": service.get_board_snapshot,
             "/api/get_board_context": service.get_board_context,
             "/api/review_board": service.review_board,
@@ -558,6 +564,7 @@ class ApiServer:
                     "/api/list_columns",
                     "/api/get_cards",
                     "/api/get_card",
+                    "/api/get_board_revision",
                     "/api/get_board_snapshot",
                     "/api/get_board_context",
                     "/api/review_board",
@@ -791,22 +798,40 @@ class ApiServer:
                 return False
 
             def _dispatch(self, route: str, request_id: str, payload: dict) -> None:
+                started_at = perf_counter()
                 try:
                     payload = self._operator_context_payload(route, payload, request_id)
                     if payload is None:
                         return
                     result = self.ROUTES[route](payload)
                     body = _json_response(ok=True, data=result, error=None, request_id=request_id)
+                    app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
+                    response_body, extra_headers = self._prepare_response_body(
+                        body,
+                        content_type="application/json",
+                        server_timing=f"app;dur={app_duration_ms:.1f}",
+                    )
                     self.send_response(HTTPStatus.OK)
-                    self._send_headers("application/json", len(body))
+                    self._send_headers(
+                        "application/json",
+                        len(response_body),
+                        extra_headers=extra_headers,
+                    )
                     if self._write_body(
-                        body, route=route, request_id=request_id, status_code=HTTPStatus.OK
+                        response_body,
+                        route=route,
+                        request_id=request_id,
+                        status_code=HTTPStatus.OK,
                     ):
                         logger.log(
                             _success_log_level(route),
-                            "api_request route=%s request_id=%s status=ok",
+                            "api_request route=%s request_id=%s status=ok duration_ms=%.1f body_bytes=%s encoded_bytes=%s gzip=%s",
                             route,
                             request_id,
+                            app_duration_ms,
+                            len(body),
+                            len(response_body),
+                            bool(extra_headers.get("Content-Encoding") == "gzip"),
                         )
                 except ServiceError as exc:
                     logger.warning(
@@ -856,10 +881,21 @@ class ApiServer:
                     request_id=request_id,
                 )
                 try:
+                    response_body, extra_headers = self._prepare_response_body(
+                        body,
+                        content_type="application/json",
+                    )
                     self.send_response(status_code)
-                    self._send_headers("application/json", len(body))
+                    self._send_headers(
+                        "application/json",
+                        len(response_body),
+                        extra_headers=extra_headers,
+                    )
                     self._write_body(
-                        body, route=self.path, request_id=request_id, status_code=status_code
+                        response_body,
+                        route=self.path,
+                        request_id=request_id,
+                        status_code=status_code,
                     )
                 except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                     logger.warning(
@@ -884,6 +920,7 @@ class ApiServer:
                 content_length: int,
                 *,
                 cache_control: str = "no-store",
+                extra_headers: dict[str, str] | None = None,
             ) -> None:
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(content_length))
@@ -894,7 +931,32 @@ class ApiServer:
                     "Content-Type, Authorization, X-Operator-Session",
                 )
                 self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+                for header, value in (extra_headers or {}).items():
+                    if value:
+                        self.send_header(header, value)
                 self.end_headers()
+
+            def _prepare_response_body(
+                self,
+                body: bytes,
+                *,
+                content_type: str,
+                server_timing: str = "",
+            ) -> tuple[bytes, dict[str, str]]:
+                headers: dict[str, str] = {}
+                if server_timing:
+                    headers["Server-Timing"] = server_timing
+                if (
+                    content_type.startswith("application/json")
+                    and len(body) >= JSON_GZIP_MIN_BYTES
+                    and "gzip" in str(self.headers.get("Accept-Encoding", "")).lower()
+                ):
+                    headers["Content-Encoding"] = "gzip"
+                    headers["Vary"] = "Accept-Encoding"
+                    return gzip.compress(body), headers
+                if content_type.startswith("application/json"):
+                    headers["Vary"] = "Accept-Encoding"
+                return body, headers
 
             def _operator_context_payload(
                 self, route: str, payload: dict, request_id: str

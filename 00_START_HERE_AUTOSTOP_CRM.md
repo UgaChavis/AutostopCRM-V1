@@ -102,6 +102,7 @@ The older lower-right card enrichment button remains compatibility behavior, but
 - card journal UI is minimal and recoverable: machine JSON keeps full raw `before/after`, while visible Markdown uses Russian `до:` / `после:` blocks without dumping service JSON snapshots
 - updated-card badges now clear optimistically on hover/open so cards with `ОБНОВЛЕНО` do not wait on the API response before becoming clickable-feeling again
 - hidden AI-managed card board summaries are available through API/MCP/Telegram and are shown on board cards before raw description text
+- owner command `Приберись` now means a safe manager cleanup pass: patch confirmed card fields, refresh `board_summary`, enrich source-backed vehicle passport data by VIN when possible, and do not move/archive cards without a separate explicit command
 - stale legacy AI dock/chat DOM lookups and unused CSS were pruned from the board HTML; the active card AI indicator path remains unchanged
 - generated inline browser JavaScript is now checked with `scripts/check_web_assets_js.py` and through `scripts/run_checks.ps1`
 - MCP/server-agent/Telegram AI can download CRM-generated repair-order and invoice PDFs with `download_repair_order_print_pdf`; the command reuses the print module and returns `application/pdf` base64
@@ -154,6 +155,7 @@ Duplicate workflow, memory, module-note, and stale MCP command docs should be de
 - production still uses the default admin account and needs a separate credential rotation pass
 - the CRM now depends on the external/shared agent runtime being started if you want the enrichment flow to complete end-to-end
 - direct Telegram AI web-search is intentionally tuned for reliability, not maximum reasoning; do not switch it back to strong-model search without live timeout and 429 checks
+- manager cleanup docs must keep full card `description` and short board `board_summary` separate; old instructions that treat the first five description lines as the board preview are stale
 
 ## Rule For Future Updates
 

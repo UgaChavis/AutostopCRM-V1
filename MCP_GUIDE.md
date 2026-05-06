@@ -66,7 +66,7 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 
 ## Доступные MCP tools
 
-Базовый CRM runtime-tool inventory: `71` tools. Если подключен актуальный `AutostopManager`, в том же endpoint дополнительно доступны `13` manager memory/routing tools. Production smoke от 2026-05-04 должен видеть `84` tools именно из-за этой связки.
+Базовый CRM runtime-tool inventory: `71` tools. Если подключен актуальный `AutostopManager`, в том же endpoint дополнительно доступны manager memory/routing/source tools; текущий manager catalog от 2026-05-06 описывает `19` таких tools и `90` tools суммарно. Точный runtime surface всегда проверять через live `tools/list` / `scripts/check_live_connector.py`, потому что CRM и manager tools развиваются отдельно.
 
 Полный статический справочник команд больше не ведётся отдельным файлом: он быстро устаревает. Источник правды — `src/minimal_kanban/mcp/server.py`, live `tools/list`, этот guide, `src/minimal_kanban/connection_card.py` и MCP-тесты.
 
@@ -241,6 +241,29 @@ AUTOSTOP_MANAGER_PATH=/opt/AutostopManager
 Следующее действие: один понятный шаг для оператора.
 Важно: только рабочий риск или блокер, без VIN и лишних техданных.
 ```
+
+### Менеджерская команда `Приберись`
+
+`Приберись`, `прибейсь`, `прибери доску`, `обслужи доску` и похожие команды — это агентский регламент, а не отдельный MCP tool. Агент выполняет его через обычные CRM-команды:
+
+1. прочитать live-контекст карточки или доски через `get_card_context`, `get_card`, `review_board`, `get_board_context`;
+2. привести в порядок только подтвержденные поля: `vehicle`, `title`, `description`, `tags`, безопасные поля `vehicle_profile`;
+3. не перемещать карточку, не архивировать, не менять ЗН/оплаты/кассы/материалы/работы без отдельного явного указания владельца;
+4. после любого изменения `title`, `description`, `tags` или `vehicle_profile` отдельно обновить `board_summary` через `set_card_board_summary`;
+5. перечитать карточку и убедиться, что `board_summary_stale=false`, колонка не изменилась, а пользовательские данные не потеряны.
+
+Полное `description` может быть подробным и красивым. `board_summary` должен быть коротким операторским превью на 4-5 строк: суть, стадия, следующий шаг, один важный срок/блокер/деньги. Не копировать туда телефон, VIN, полное имя клиента, длинные списки жалоб или диагностические дампы.
+
+### VIN-обогащение паспорта автомобиля
+
+Если в карточке, заказ-наряде, клиентском автомобиле или описании есть VIN/chassis/frame number, а в `vehicle_profile` пустые `engine_model`, `gearbox_model` или `drivetrain`, агент должен попытаться обогатить паспорт:
+
+- сначала использовать локальную базу знаний, `lookup_original_parts`, профиль клиента и уже сохраненные данные CRM;
+- если этого недостаточно, искать в интернете по VIN/chassis/frame, марке, модели и году;
+- заполнять только подтвержденные агрегатные поля через `update_card(..., vehicle_profile=...)`;
+- сохранять источник в `source_summary`, `source_links_or_refs`, `field_sources`, `source_confidence`;
+- не перетирать `manual_fields` и ручные данные оператора;
+- если источник дает несколько вариантов, оставить агрегатное поле пустым и добавить осторожную заметку в `oem_notes` / `tentative_fields`, не выбирать наугад.
 
 ### Общие файлы
 

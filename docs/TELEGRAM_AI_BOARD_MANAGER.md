@@ -296,6 +296,20 @@ All write tools require `role=owner`. There is no mandatory confirmation step fo
 - focus on `что сейчас`, `стадия`, `следующее действие`, and one important blocker if needed
 - do not copy VIN, phone numbers, raw diagnostics dumps, or full descriptions into the board preview
 - the original card `description` remains the recoverable source of truth and is not overwritten
+- when a cleanup pass changes `title`, `description`, `tags`, or `vehicle_profile`, refresh this summary as a separate write and verify `board_summary_stale=false`
+
+Owner cleanup command policy:
+
+- `Приберись` / `прибейсь` is an operating procedure over CRM tools, not a standalone backend tool.
+- Routine cleanup may normalize card text, tags, and source-backed vehicle profile fields.
+- Routine cleanup must not move cards between columns or archive them unless the owner gives a separate explicit target/action.
+- Full description and board preview are separate tasks: the description can be detailed; the board preview should be four or five operator lines.
+
+VIN profile enrichment during cleanup:
+
+- if a card/profile/description has VIN, chassis, or frame number and `engine_model`, `gearbox_model`, or `drivetrain` is empty, try to enrich the vehicle passport;
+- use local knowledge and `lookup_original_parts` first, then internet search if the source needs current verification;
+- write only confirmed aggregate facts, preserve `manual_fields`, and put uncertain variants into `oem_notes` / `tentative_fields` instead of guessing.
 
 ## Safety boundaries
 
@@ -434,5 +448,5 @@ Rollback is intentionally not a raw storage edit and does not promise universal 
 - documents/PDFs from Telegram are normalized but not fully processed yet
 - Telegram worker uses polling; webhook mode is intentionally deferred
 - model output is validated at tool-name/role level, but deeper per-field schemas can be tightened in later passes
-- direct web-search currently answers in Telegram only; it does not yet combine with CRM card context in one automatic tool chain
-- parts-search by card/VIN is the next composed workflow, not fully implemented yet
+- direct web-search can be used deliberately for VIN/OEM/profile enrichment, but fully automatic CRM-context + internet-search + writeback still requires careful source checks
+- parts-search by card/VIN and accounting-document intake remain composed workflows that should write only after CRM read-back and source validation

@@ -102,6 +102,30 @@ Current Telegram AI behavior:
 - direct internet search intentionally stays on `AUTOSTOP_AI_MODEL` with a low search context and one retry; this avoids the live strong-model web-search timeout/429 failure mode
 - `/status` reports whether internet search is enabled in the current runtime
 
+## Manager Cleanup Pass
+
+When the owner says `Приберись`, `прибейсь`, `прибери доску`, `обслужи доску`, or asks to clean up a card/board, treat it as a manager procedure over existing CRM tools.
+
+Required order:
+
+1. Read live CRM context first: focused card reads for one card, board review/context for broad cleanup.
+2. Preserve operator data: no deletion of works, materials, prices, payments, cashbox records, files, contacts, VIN/chassis/license data, manual diagnostics, or historical notes.
+3. Patch only confirmed fields: `vehicle`, `title`, `description`, safe `tags`, and source-backed `vehicle_profile`.
+4. Do not move cards or archive cards during routine cleanup unless the owner gives a separate explicit target card and target action.
+5. After content/profile/tag changes, call `set_card_board_summary` separately and verify `board_summary_stale=false`.
+
+Board preview rule:
+
+- `description` is the full recoverable card text.
+- `board_summary` is the four-or-five-line operator preview shown on the board.
+- Do not put phone numbers, VIN, full client identity, raw scan dumps, or long issue lists into `board_summary`.
+
+VIN/profile enrichment rule:
+
+- If VIN/chassis/frame is present and `engine_model`, `gearbox_model`, or `drivetrain` is empty, use local knowledge and `lookup_original_parts` first.
+- Use internet search only when needed for current source-backed confirmation.
+- Fill aggregate fields only when the source is specific enough; otherwise record uncertainty in `oem_notes` / `tentative_fields`.
+
 Useful live smoke after deploy:
 
 ```bash

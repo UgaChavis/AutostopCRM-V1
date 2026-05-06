@@ -724,9 +724,11 @@ class CardService:
                 details={
                     "vehicle": card.vehicle,
                     "title": card.title,
+                    "description": card.description,
                     "column": card.column,
                     "tags": card.tag_labels(),
                     "deadline_total_seconds": card.deadline_total_seconds,
+                    "deadline_timestamp": card.deadline_timestamp,
                     "vehicle_profile_state": card.vehicle_profile.data_completion_state,
                     "is_unread": card.is_unread,
                 },
@@ -1283,6 +1285,9 @@ class CardService:
 
     def get_board_snapshot(self, payload: dict | None = None) -> dict:
         return self._snapshot_service.get_board_snapshot(payload)
+
+    def get_board_revision(self, payload: dict | None = None) -> dict:
+        return self._snapshot_service.get_board_revision(payload)
 
     def get_board_context(self, payload: dict | None = None) -> dict:
         return self._snapshot_service.get_board_context(payload)
@@ -6972,9 +6977,7 @@ class CardService:
                 ]
             )
             for balance in day.get("opening_balances") or []:
-                lines.append(
-                    f"- {balance['cashbox_name']}: {balance['balance_display']}"
-                )
+                lines.append(f"- {balance['cashbox_name']}: {balance['balance_display']}")
             lines.extend(
                 [
                     f"Итого: приход {day['external_income_display']} | расход {day['external_expense_display']} | "

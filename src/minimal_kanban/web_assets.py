@@ -1442,6 +1442,10 @@ BOARD_WEB_APP_HTML = "".join(
     .description-editor:focus {
       border-color: rgba(207, 217, 166, 0.82);
     }
+    .description-editor.is-loading {
+      color: var(--muted);
+      cursor: progress;
+    }
     .description-editor:empty::before {
       content: attr(data-placeholder);
       color: var(--muted);
@@ -4109,20 +4113,19 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .card-journal-view {
       border: 1px solid var(--line-soft);
-      background: rgba(8, 12, 10, 0.66);
-      padding: 12px;
+      background: rgba(8, 12, 10, 0.62);
+      padding: 10px 12px 12px;
       min-height: 420px;
       max-height: min(68vh, 720px);
       overflow: auto;
-      font-family: var(--mono);
-      font-size: 12px;
-      line-height: 1.45;
+      font-size: 13px;
+      line-height: 1.48;
       font-variant-numeric: tabular-nums;
     }
     .card-journal-header {
       display: grid;
-      gap: 4px;
-      padding: 4px 2px 10px;
+      gap: 3px;
+      padding: 3px 2px 9px;
       border-bottom: 1px solid rgba(115, 126, 105, 0.26);
       margin-bottom: 10px;
     }
@@ -4134,7 +4137,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .card-journal-header__subtitle {
       color: var(--text-soft);
-      font-size: 11px;
+      font-size: 11.5px;
       line-height: 1.35;
     }
     .card-journal-stats {
@@ -4146,7 +4149,7 @@ BOARD_WEB_APP_HTML = "".join(
     .card-journal-stat {
       border: 1px solid rgba(167, 178, 132, 0.2);
       background: rgba(167, 178, 132, 0.06);
-      padding: 5px 7px;
+      padding: 4px 7px;
       color: var(--text-soft);
       font-size: 11px;
     }
@@ -4185,30 +4188,35 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .card-journal-events {
       display: grid;
-      gap: 7px;
+      gap: 8px;
       padding: 8px 0 0;
     }
     .card-journal-entry {
       display: grid;
-      grid-template-columns: 52px minmax(0, 1fr);
-      gap: 8px;
+      grid-template-columns: 58px minmax(0, 1fr);
+      gap: 10px;
       border: 1px solid rgba(115, 126, 105, 0.24);
-      background: rgba(0, 0, 0, 0.15);
-      padding: 8px;
+      border-left: 3px solid rgba(167, 178, 132, 0.5);
+      background: rgba(0, 0, 0, 0.14);
+      padding: 8px 9px 9px 7px;
     }
     .card-journal-entry--deletion {
       border-color: rgba(207, 91, 75, 0.42);
+      border-left-color: rgba(207, 91, 75, 0.72);
       background: rgba(95, 34, 28, 0.16);
     }
     .card-journal-entry__time {
       color: var(--accent);
       font-weight: 700;
       letter-spacing: 0.05em;
+      font-family: var(--mono);
+      font-size: 12px;
+      padding-top: 2px;
     }
     .card-journal-entry__body {
       min-width: 0;
       display: grid;
-      gap: 6px;
+      gap: 7px;
     }
     .card-journal-entry__title {
       display: flex;
@@ -4217,20 +4225,21 @@ BOARD_WEB_APP_HTML = "".join(
       gap: 6px;
       color: var(--text);
       font-weight: 700;
+      line-height: 1.3;
     }
     .card-journal-entry__actor {
       color: var(--text-soft);
       font-weight: 400;
-      font-size: 11px;
+      font-size: 11.5px;
     }
     .card-journal-entry__actor::before {
       content: "• ";
     }
     .card-journal-entry__details {
       display: grid;
-      gap: 4px;
+      gap: 6px;
       color: var(--text-soft);
-      font-size: 11.5px;
+      font-size: 12px;
     }
     .card-journal-detail {
       color: var(--text-soft);
@@ -4238,34 +4247,29 @@ BOARD_WEB_APP_HTML = "".join(
     .card-journal-detail--summary {
       color: var(--text);
     }
-    .card-journal-change {
-      border: 1px solid rgba(115, 126, 105, 0.22);
-      background: rgba(255,255,255,0.025);
-      margin-top: 2px;
+    .card-journal-block {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
     }
-    .card-journal-change__label {
-      padding: 4px 6px;
+    .card-journal-block__head {
       color: var(--text);
-      border-bottom: 1px solid rgba(115, 126, 105, 0.2);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-size: 10px;
+      font-weight: 700;
+      font-size: 12px;
     }
-    .card-journal-change--before .card-journal-change__label {
-      color: #f1c0b7;
-    }
-    .card-journal-change--after .card-journal-change__label {
-      color: #dbe8b7;
-    }
-    .card-journal-change__text {
+    .card-journal-block__text {
       margin: 0;
-      padding: 6px;
+      padding: 0;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
       color: var(--text);
       font-family: var(--mono);
-      font-size: 11px;
-      line-height: 1.45;
+      font-size: 11.5px;
+      line-height: 1.5;
+    }
+    .card-journal-block--empty .card-journal-block__text {
+      color: var(--text-soft);
+      font-family: inherit;
     }
     .card-journal-empty {
       color: var(--text-soft);
@@ -4678,7 +4682,7 @@ BOARD_WEB_APP_HTML = "".join(
       flex-wrap: wrap;
     }
     body.is-mobile-lite .dialog__tabs--card .tab-btn[data-tab="journal"] {
-      display: none;
+      display: inline-block;
     }
     body.is-mobile-lite .dialog__tabs--card #cardMetaLine {
       width: 100%;
@@ -5139,14 +5143,41 @@ BOARD_WEB_APP_HTML = "".join(
       display: grid;
       gap: 12px;
     }
+    .cashbox-journal-actions {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      margin-left: auto;
+    }
     .cashbox-journal-summary {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
       gap: 6px;
     }
+    .cashbox-journal-current {
+      border: 1px solid var(--line-soft);
+      background: rgba(255,255,255,0.025);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+    .cashbox-journal-current__head,
+    .cashbox-journal-stats-section__head {
+      color: var(--text);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-current__grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 6px;
+    }
     .cashbox-journal-stat,
+    .cashbox-journal-metric,
     .cashbox-journal-opening,
-    .cashbox-journal-day {
+    .cashbox-journal-day,
+    .cashbox-journal-stats-section {
       border: 1px solid var(--line-soft);
       background: rgba(255,255,255,0.025);
     }
@@ -5157,15 +5188,17 @@ BOARD_WEB_APP_HTML = "".join(
       min-width: 0;
     }
     .cashbox-journal-stat__label,
+    .cashbox-journal-metric__label,
     .cashbox-journal-opening__title,
     .cashbox-journal-entry__meta,
-    .cashbox-journal-day__summary {
+    .cashbox-journal-stats-row__meta {
       color: var(--muted);
       font-size: 10px;
       letter-spacing: 0.06em;
       text-transform: uppercase;
     }
     .cashbox-journal-stat__value,
+    .cashbox-journal-metric__value,
     .cashbox-journal-balance__amount,
     .cashbox-journal-entry__amount {
       font-weight: 700;
@@ -5174,6 +5207,17 @@ BOARD_WEB_APP_HTML = "".join(
     .cashbox-journal-stat__value,
     .cashbox-journal-balance__amount {
       font-size: 15px;
+    }
+    .cashbox-journal-metric {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+      padding: 9px 10px;
+      background: rgba(0,0,0,0.12);
+    }
+    .cashbox-journal-metric__value {
+      font-size: 18px;
+      line-height: 1.15;
     }
     .cashbox-journal-day {
       display: grid;
@@ -5191,6 +5235,12 @@ BOARD_WEB_APP_HTML = "".join(
       font-size: 15px;
       font-weight: 700;
       line-height: 1.25;
+    }
+    .cashbox-journal-day__summary {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+      gap: 6px;
     }
     .cashbox-journal-opening {
       display: grid;
@@ -5247,11 +5297,50 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .cashbox-journal-entry__amount[data-direction="expense"],
     .cashbox-journal-balance__amount[data-balance-sign="negative"],
-    .cashbox-journal-stat__value[data-balance-sign="negative"] {
+    .cashbox-journal-stat__value[data-balance-sign="negative"],
+    .cashbox-journal-metric__value[data-balance-sign="negative"],
+    .cashbox-journal-stats-row__value[data-balance-sign="negative"] {
       color: #f0b1a6;
     }
     .cashbox-journal-entry__amount[data-direction="income"] {
       color: #d3efd9;
+    }
+    .cashbox-journal-metric__value[data-balance-sign="positive"],
+    .cashbox-journal-stats-row__value[data-balance-sign="positive"] {
+      color: #d3efd9;
+    }
+    .cashbox-journal-entry__amount[data-direction="transfer"] {
+      color: #e8dfaf;
+    }
+    .cashbox-journal-entry--transfer {
+      background: rgba(167, 178, 132, 0.045);
+    }
+    .cashbox-journal-stats-section {
+      display: grid;
+      gap: 7px;
+      padding: 10px;
+    }
+    .cashbox-journal-stats-section__rows {
+      display: grid;
+      gap: 5px;
+    }
+    .cashbox-journal-stats-row {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) repeat(4, minmax(110px, auto));
+      gap: 8px;
+      align-items: center;
+      padding: 7px 8px;
+      border: 1px solid rgba(255,255,255,0.055);
+      background: rgba(0,0,0,0.12);
+    }
+    .cashbox-journal-stats-row__label {
+      font-weight: 700;
+      min-width: 0;
+    }
+    .cashbox-journal-stats-row__value {
+      font-weight: 700;
+      white-space: nowrap;
+      text-align: right;
     }
     .cashbox-journal-loading,
     .cashbox-journal-empty {
@@ -5262,11 +5351,21 @@ BOARD_WEB_APP_HTML = "".join(
       .cashbox-journal-summary {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+      .cashbox-journal-day__summary,
+      .cashbox-journal-current__grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
       .cashbox-journal-entry {
         grid-template-columns: 44px minmax(0, 1fr);
       }
       .cashbox-journal-entry__amount {
         grid-column: 2;
+      }
+      .cashbox-journal-stats-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+      }
+      .cashbox-journal-stats-row__meta {
+        grid-column: 1 / -1;
       }
     }
     .cashbox-journal-download-button {
@@ -6975,11 +7074,14 @@ BOARD_WEB_APP_HTML = "".join(
   </div>
 
   <div class="modal" id="cashboxJournalModal">
-    <div class="dialog" style="width:min(980px,100%)">
-      <div class="dialog__head">
-        <div class="dialog__title">ЖУРНАЛ ДВИЖЕНИЯ ДЕНЕГ</div>
-        <button class="btn" data-close="cashbox-journal">ЗАКРЫТЬ</button>
-      </div>
+      <div class="dialog" style="width:min(980px,100%)">
+        <div class="dialog__head">
+          <div class="dialog__title">ЖУРНАЛ ДВИЖЕНИЯ ДЕНЕГ</div>
+          <div class="cashbox-journal-actions">
+            <button class="btn btn--ghost cashbox-journal-stats-button" id="cashboxJournalStatsButton" type="button">СТАТИСТИКА</button>
+            <button class="btn" data-close="cashbox-journal">ЗАКРЫТЬ</button>
+          </div>
+        </div>
       <div class="cashbox-journal-text" id="cashboxJournalText">ЗАГРУЗКА...</div>
     </div>
   </div>
@@ -7408,6 +7510,7 @@ BOARD_WEB_APP_HTML = "".join(
     const BOARD_SEARCH_LIMIT = 8;
     const BOARD_SEARCH_DEBOUNCE_MS = 90;
     const BOARD_SEARCH_CACHE_TTL_MS = 20000;
+    const PERF_STORAGE_KEY = 'autostop-perf';
 
     const state = {
       actor: '',
@@ -7446,9 +7549,17 @@ BOARD_WEB_APP_HTML = "".join(
       gptWall: null,
       gptWallView: 'board_content',
       activeCard: null,
+      activeCardIsFull: false,
       editingId: null,
       cardCreateColumnId: '',
       cardSaveInFlight: false,
+      cardDescriptionLoading: false,
+      cardHydratingId: '',
+      cardHydrationSeq: 0,
+      fullCardCache: new Map(),
+      cardFetchInFlight: new Map(),
+      cardJournalLoadedFor: '',
+      cardFilesRenderedFor: '',
       currentTab: 'overview',
       vehicleProfileDraft: null,
       vehicleProfileBaseline: null,
@@ -7457,6 +7568,7 @@ BOARD_WEB_APP_HTML = "".join(
       draftTagColor: 'green',
       pollHandle: null,
       refreshInFlight: null,
+      backgroundSnapshotTimer: null,
       boardDragCardId: '',
       boardDragColumnId: '',
       boardDropColumnId: '',
@@ -7512,6 +7624,8 @@ BOARD_WEB_APP_HTML = "".join(
       cashboxes: [],
       activeCashboxId: '',
       activeCashbox: null,
+      cashboxJournalData: null,
+      cashboxJournalView: 'journal',
       cashboxDragId: '',
       cashboxDropBeforeId: '',
       cashboxDragIgnoreClicksUntil: 0,
@@ -8091,6 +8205,7 @@ BOARD_WEB_APP_HTML = "".join(
       cashboxesList: document.getElementById('cashboxesList'),
       cashboxCreateButton: document.getElementById('cashboxCreateButton'),
       cashboxJournalButton: document.getElementById('cashboxJournalButton'),
+      cashboxJournalStatsButton: document.getElementById('cashboxJournalStatsButton'),
       cashboxJournalDownloadButton: document.getElementById('cashboxJournalDownloadButton'),
       cashboxDeleteButton: document.getElementById('cashboxDeleteButton'),
       cashboxCancelLastButton: document.getElementById('cashboxCancelLastButton'),
@@ -8245,6 +8360,58 @@ BOARD_WEB_APP_HTML = "".join(
 
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
 
+    function perfEnabled() {
+      try {
+        return localStorage.getItem(PERF_STORAGE_KEY) === '1';
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function perfNow() {
+      return window.performance?.now ? window.performance.now() : Date.now();
+    }
+
+    function perfStart(name) {
+      if (!perfEnabled()) return null;
+      const token = {
+        name,
+        startedAt: perfNow(),
+        startMark: name + ':start:' + Date.now() + ':' + Math.random().toString(16).slice(2),
+      };
+      try {
+        window.performance?.mark?.(token.startMark);
+      } catch (_) {
+      }
+      return token;
+    }
+
+    function perfEnd(token, detail = {}) {
+      if (!token) return;
+      const endedAt = perfNow();
+      const durationMs = Math.max(0, endedAt - token.startedAt);
+      const entry = { name: token.name, duration_ms: Math.round(durationMs * 10) / 10, detail, at: new Date().toISOString() };
+      window.__AUTOSTOP_PERF__ = Array.isArray(window.__AUTOSTOP_PERF__) ? window.__AUTOSTOP_PERF__ : [];
+      window.__AUTOSTOP_PERF__.push(entry);
+      if (window.__AUTOSTOP_PERF__.length > 250) window.__AUTOSTOP_PERF__.shift();
+      try {
+        const endMark = token.startMark + ':end';
+        window.performance?.mark?.(endMark);
+        window.performance?.measure?.(token.name, token.startMark, endMark);
+      } catch (_) {
+      }
+      if (window.console?.debug) window.console.debug('[autostop-perf]', entry);
+    }
+
+    async function perfMeasureAsync(name, callback) {
+      const token = perfStart(name);
+      try {
+        return await callback();
+      } finally {
+        perfEnd(token);
+      }
+    }
+
     function stripDescriptionFormatting(value) {
       let text = String(value || '');
       for (let index = 0; index < 4; index += 1) {
@@ -8334,7 +8501,17 @@ BOARD_WEB_APP_HTML = "".join(
       const maxLength = Number(els.cardDescription?.maxLength || DESCRIPTION_MAX_LENGTH) || DESCRIPTION_MAX_LENGTH;
       const nextValue = String(value || '').slice(0, maxLength);
       if (els.cardDescription) els.cardDescription.value = nextValue;
-      if (els.cardDescriptionEditor) els.cardDescriptionEditor.innerHTML = descriptionMarkdownToHtml(nextValue);
+      state.cardDescriptionLoading = false;
+      if (els.cardDescriptionEditor) {
+        els.cardDescriptionEditor.innerHTML = descriptionMarkdownToHtml(nextValue);
+        els.cardDescriptionEditor.contentEditable = 'true';
+        els.cardDescriptionEditor.classList.remove('is-loading');
+        els.cardDescriptionEditor.removeAttribute('aria-busy');
+      }
+      els.cardDescriptionToolbar?.querySelectorAll('[data-description-format]').forEach((button) => {
+        button.disabled = false;
+      });
+      if (els.saveCardButton && !state.cardSaveInFlight) els.saveCardButton.disabled = false;
       syncCardDescriptionHeight();
     }
 
@@ -8343,7 +8520,33 @@ BOARD_WEB_APP_HTML = "".join(
       return String(els.cardDescription?.value || '').trim();
     }
 
+    function setCardDescriptionLoading(isLoading, message = 'Загрузка описания...') {
+      state.cardDescriptionLoading = Boolean(isLoading);
+      if (!els.cardDescriptionEditor) return;
+      if (isLoading) {
+        if (els.cardDescription) els.cardDescription.value = '';
+        els.cardDescriptionEditor.textContent = message;
+        els.cardDescriptionEditor.contentEditable = 'false';
+        els.cardDescriptionEditor.classList.add('is-loading');
+        els.cardDescriptionEditor.setAttribute('aria-busy', 'true');
+        els.cardDescriptionToolbar?.querySelectorAll('[data-description-format]').forEach((button) => {
+          button.disabled = true;
+        });
+        if (els.saveCardButton) els.saveCardButton.disabled = true;
+      } else {
+        els.cardDescriptionEditor.contentEditable = 'true';
+        els.cardDescriptionEditor.classList.remove('is-loading');
+        els.cardDescriptionEditor.removeAttribute('aria-busy');
+        els.cardDescriptionToolbar?.querySelectorAll('[data-description-format]').forEach((button) => {
+          button.disabled = false;
+        });
+        if (els.saveCardButton && !state.cardSaveInFlight) els.saveCardButton.disabled = false;
+      }
+      syncCardDescriptionHeight();
+    }
+
     function handleCardDescriptionInput() {
+      if (state.cardDescriptionLoading) return;
       syncCardDescriptionSourceFromEditor();
       syncCardDescriptionHeight();
     }
@@ -9775,6 +9978,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     async function api(path, options = {}) {
+      const perfToken = perfStart('api:' + String(path || '').split('?')[0]);
       const request = { method: options.method || 'GET', headers: {}, cache: 'no-store' };
       if (options.signal) request.signal = options.signal;
       if (options.body) {
@@ -9788,6 +9992,7 @@ BOARD_WEB_APP_HTML = "".join(
       try {
         response = await fetch(path, request);
       } catch (error) {
+        perfEnd(perfToken, { error: error?.name || 'network' });
         if (error?.name === 'AbortError') throw error;
         throw new Error('НЕТ СВЯЗИ С ДОСКОЙ. ПРОВЕРЬ СЕТЬ ИЛИ ПУБЛИЧНЫЙ АДРЕС.');
       }
@@ -9798,29 +10003,40 @@ BOARD_WEB_APP_HTML = "".join(
       } catch (_) {
         payload = null;
       }
+      const finishApiPerf = (extra = {}) => perfEnd(perfToken, {
+        status: response.status,
+        bytes: rawText.length,
+        server_timing: response.headers.get('Server-Timing') || '',
+        ...extra,
+      });
       if (payload?.error?.details?.auth_type === 'operator_session') {
         if (response.status === 401) {
           clearOperatorSession({ openLogin: true, preserveStatus: true });
         }
         const error = new Error(payload?.error?.message || 'Need operator login.');
         error.code = payload?.error?.code || '';
+        finishApiPerf({ error: error.code || 'operator_session' });
         throw error;
       }
       if (response.status === 401 || payload?.error?.code === 'unauthorized') {
         const error = new Error(accessDeniedMessage());
         error.code = payload?.error?.code || 'unauthorized';
+        finishApiPerf({ error: error.code });
         throw error;
       }
       if (!payload.ok) {
         const error = new Error(payload.error?.message || 'Ошибка API');
         error.code = payload?.error?.code || '';
+        finishApiPerf({ error: error.code || 'api_error' });
         throw error;
       }
       if (!response.ok) {
         const error = new Error(payload?.error?.message || ('HTTP ' + response.status));
         error.code = payload?.error?.code || '';
+        finishApiPerf({ error: error.code || ('http_' + response.status) });
         throw error;
       }
+      finishApiPerf();
       return payload.data;
     }
 
@@ -16809,11 +17025,19 @@ BOARD_WEB_APP_HTML = "".join(
       }
     }
 
-    function applyCardModalState(card) {
+    function applyCardModalState(card, { descriptionLoading = false, cardIsFull = true, preserveLazyPanels = false } = {}) {
+      const perfToken = perfStart('hydrateCard');
+      const previousCardId = String(state.activeCard?.id || '').trim();
       const currentCard = card || null;
+      const nextCardId = String(currentCard?.id || '').trim();
       state.activeCard = currentCard;
+      state.activeCardIsFull = Boolean(cardIsFull || !nextCardId);
       state.editingId = currentCard?.id || null;
       state.cardCreateColumnId = currentCard?.id ? '' : String(currentCard?.column || state.snapshot?.columns?.[0]?.id || 'inbox').trim();
+      if (!preserveLazyPanels || previousCardId !== nextCardId) {
+        state.cardJournalLoadedFor = '';
+        state.cardFilesRenderedFor = '';
+      }
       state.vehicleAutofillResult = null;
       state.pendingCardClientId = currentCard?.client_id || '';
       state.pendingCardClientVehicleId = currentCard?.client_vehicle_id || '';
@@ -16825,7 +17049,6 @@ BOARD_WEB_APP_HTML = "".join(
       els.cardModalTitle.title = modalHeading;
       els.cardVehicle.value = currentCard?.vehicle || '';
       els.cardTitle.value = currentCard?.title || '';
-      setCardDescriptionValue(currentCard?.description || '');
       const parts = secondsToParts(currentCard?.remaining_seconds || 86400);
       els.signalDays.value = parts.days;
       els.signalHours.value = parts.hours;
@@ -16839,12 +17062,20 @@ BOARD_WEB_APP_HTML = "".join(
       if (currentCard?.id && !currentCard?.client_id) scheduleClientSuggestionsForCard();
       refreshRepairOrderEntry(currentCard);
       renderColorTags();
-      renderLogs([]);
-      if (currentCard?.id) {
-        requestAnimationFrame(() => renderFiles(currentCard));
+      if (!preserveLazyPanels || previousCardId !== nextCardId) renderLogs([]);
+      if (descriptionLoading) {
+        setCardDescriptionLoading(true);
       } else {
-        renderFiles(currentCard);
+        setCardDescriptionValue(currentCard?.description || '');
       }
+      if (!currentCard?.id) {
+        renderFiles(currentCard);
+      } else if (state.currentTab === 'files') {
+        renderActiveCardFiles();
+      } else {
+        renderCardFilesPlaceholder(currentCard, 'ФАЙЛЫ ЗАГРУЗЯТСЯ ПРИ ОТКРЫТИИ ВКЛАДКИ.');
+      }
+      if (state.currentTab === 'journal') loadActiveCardTab('journal');
       if (state.cardCleanupState !== 'error') {
         state.cardCleanupState = currentCard?.id ? 'idle' : 'idle';
         state.cardCleanupError = '';
@@ -16854,13 +17085,19 @@ BOARD_WEB_APP_HTML = "".join(
       if (els.cardModal?.classList.contains('is-open')) {
         requestAnimationFrame(() => syncCardDescriptionHeight());
       }
+      perfEnd(perfToken, { card_id: nextCardId, full: state.activeCardIsFull, description_loading: Boolean(descriptionLoading) });
     }
 
     function resetCardModalState() {
       state.activeCard = null;
+      state.activeCardIsFull = false;
       state.editingId = null;
       state.cardCreateColumnId = '';
       state.cardSaveInFlight = false;
+      state.cardDescriptionLoading = false;
+      state.cardHydratingId = '';
+      state.cardJournalLoadedFor = '';
+      state.cardFilesRenderedFor = '';
       state.vehicleProfileDraft = null;
       state.vehicleProfileBaseline = null;
       state.vehicleAutofillResult = null;
@@ -16952,17 +17189,13 @@ BOARD_WEB_APP_HTML = "".join(
       } else if (event.action === 'card_archived' || event.action === 'card_restored') {
         if (details.column) push('столбец', details.column);
       } else if (event.action === 'vehicle_changed') {
-        push('до:', details.before, '', { showEmpty: true });
-        push('после:', details.after, '', { showEmpty: true });
+        push('автомобиль', details.after, '', { showEmpty: true });
       } else if (event.action === 'title_changed' || event.action === 'description_changed') {
-        push('до:', details.before, '', { showEmpty: true });
-        push('после:', details.after, '', { showEmpty: true });
+        push(event.action === 'description_changed' ? 'описание' : 'заголовок', details.after, '', { showEmpty: true });
       } else if (event.action === 'signal_changed') {
-        push('до:', details.before_total_seconds, 'before_total_seconds', { showEmpty: true });
-        push('после:', details.after_total_seconds, 'after_total_seconds', { showEmpty: true });
+        push('сигнал', details.after_total_seconds, 'after_total_seconds', { showEmpty: true });
       } else if (event.action === 'signal_indicator_changed') {
-        push('до:', details.before_indicator, 'before_indicator', { showEmpty: true });
-        push('после:', details.after_indicator, 'after_indicator', { showEmpty: true });
+        push('индикатор', details.after_indicator, 'after_indicator', { showEmpty: true });
         if (details.deadline_total_seconds !== undefined) push('сигнал', details.deadline_total_seconds, 'deadline_total_seconds');
       } else if (event.action === 'attachment_added' || event.action === 'attachment_removed') {
         if (details.file_name) push('файл', details.file_name);
@@ -16970,8 +17203,7 @@ BOARD_WEB_APP_HTML = "".join(
       } else if (event.action === 'tag_added' || event.action === 'tag_removed') {
         if (details.tag) push('метка', details.tag);
       } else if (event.action === 'tags_changed') {
-        push('до:', details.before, '', { showEmpty: true });
-        push('после:', details.after, '', { showEmpty: true });
+        push('метки', details.after, '', { showEmpty: true });
       } else {
         Object.entries(details).forEach(([key, value]) => push(key.replace(/_/g, ' '), value));
       }
@@ -17228,6 +17460,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function renderFiles(card) {
+      const perfToken = perfStart('renderFiles');
       const attachments = (card?.attachments || []).filter((item) => !item.removed);
       syncFileDropzone(card);
       els.fileDropMeta.textContent = card?.id
@@ -17254,6 +17487,34 @@ BOARD_WEB_APP_HTML = "".join(
           }).join('')
         : '<div class="log-row__meta">ФАЙЛОВ НЕТ.</div>';
       syncFilePreview(card);
+      if (card?.id) {
+        state.cardFilesRenderedFor = String(card.id || '') + '|' + String(card.updated_at || '');
+      }
+      perfEnd(perfToken, { card_id: card?.id || '', attachments: attachments.length });
+    }
+
+    function renderCardFilesPlaceholder(card, message) {
+      syncFileDropzone(card);
+      els.fileDropMeta.textContent = card?.id
+        ? 'ФАЙЛЫ КАРТОЧКИ'
+        : 'СНАЧАЛА СОХРАНИТЕ КАРТОЧКУ, ЗАТЕМ ДОБАВЛЯЙТЕ ВЛОЖЕНИЯ.';
+      els.fileList.innerHTML = '<div class="log-row__meta">' + escapeHtml(message || 'ФАЙЛЫ ЗАГРУЗЯТСЯ ПРИ ОТКРЫТИИ ВКЛАДКИ.') + '</div>';
+      syncFilePreview(card);
+    }
+
+    function renderActiveCardFiles() {
+      const card = state.activeCard;
+      if (!card?.id) {
+        renderFiles(card);
+        return;
+      }
+      if (!state.activeCardIsFull) {
+        renderCardFilesPlaceholder(card, 'ЗАГРУЗКА ФАЙЛОВ...');
+        return;
+      }
+      const renderKey = String(card.id || '') + '|' + String(card.updated_at || '');
+      if (state.cardFilesRenderedFor === renderKey) return;
+      renderFiles(card);
     }
 
     function requireSavedCardForFiles({ syncDropzone = false } = {}) {
@@ -17267,6 +17528,8 @@ BOARD_WEB_APP_HTML = "".join(
       if (!state.editingId) return null;
       const data = await api('/api/get_card?card_id=' + encodeURIComponent(state.editingId));
       state.activeCard = data.card;
+      state.activeCardIsFull = true;
+      cacheFullCard(data.card);
       renderFiles(data.card);
       return data.card;
     }
@@ -17371,21 +17634,33 @@ BOARD_WEB_APP_HTML = "".join(
       return '<div class="card-journal-stat"><strong>' + escapeHtml(value) + '</strong> ' + escapeHtml(label) + '</div>';
     }
 
-    function renderCardJournalChangeBlock(kind, lines) {
-      const label = kind === 'before' ? 'Было до изменения' : 'Стало после изменения';
-      const text = (Array.isArray(lines) && lines.length ? lines.join('\\n') : '—').trim() || '—';
-      return '<div class="card-journal-change card-journal-change--' + escapeHtml(kind) + '"><div class="card-journal-change__label">' + escapeHtml(label) + '</div><pre class="card-journal-change__text">' + escapeHtml(text) + '</pre></div>';
+    function renderCardJournalBlock(block) {
+      const item = block && typeof block === 'object' ? block : {};
+      const title = String(item.title || item.label || 'Запись журнала').trim();
+      const text = String(item.text ?? '').replace(/\\r/g, '').trimEnd();
+      const isEmpty = Boolean(item.is_empty) || !text.trim();
+      const removed = String(item.change_kind || '').toLowerCase() === 'removed';
+      let html = '<div class="card-journal-block' + (isEmpty ? ' card-journal-block--empty' : '') + '">';
+      if (title) html += '<div class="card-journal-block__head">' + escapeHtml(title) + '</div>';
+      if (!isEmpty) {
+        html += '<pre class="card-journal-block__text">' + escapeHtml(text) + '</pre>';
+      } else if (removed) {
+        html += '<div class="card-journal-block__text">Текущее значение очищено.</div>';
+      }
+      return html + '</div>';
     }
 
     function renderCardJournalDetailLines(detailLines) {
       const lines = Array.isArray(detailLines) ? detailLines : [];
       let html = '';
-      let blockKind = '';
+      let captureAfter = false;
       let blockLines = [];
       const flushBlock = () => {
-        if (!blockKind) return;
-        html += renderCardJournalChangeBlock(blockKind, blockLines);
-        blockKind = '';
+        if (!blockLines.length) return;
+        html += renderCardJournalBlock({
+          title: 'Опубликованное значение',
+          text: blockLines.join('\\n'),
+        });
         blockLines = [];
       };
 
@@ -17396,15 +17671,15 @@ BOARD_WEB_APP_HTML = "".join(
         const lower = trimmed.toLowerCase();
         if (lower === 'до:' || lower === 'до') {
           flushBlock();
-          blockKind = 'before';
+          captureAfter = false;
           return;
         }
         if (lower === 'после:' || lower === 'после') {
           flushBlock();
-          blockKind = 'after';
+          captureAfter = true;
           return;
         }
-        if (blockKind) {
+        if (captureAfter) {
           blockLines.push(raw.replace(/^\\s{2}/, ''));
           return;
         }
@@ -17416,15 +17691,23 @@ BOARD_WEB_APP_HTML = "".join(
       return html || '<div class="card-journal-detail">Подробностей по событию нет.</div>';
     }
 
+    function renderCardJournalDetails(entry) {
+      const blocks = Array.isArray(entry?.journal_blocks)
+        ? entry.journal_blocks
+        : (Array.isArray(entry?.published_blocks) ? entry.published_blocks : []);
+      if (blocks.length) return blocks.map(renderCardJournalBlock).join('');
+      const detailLines = Array.isArray(entry?.detail_lines)
+        ? entry.detail_lines
+        : (entry?.details_text ? String(entry.details_text).split('\\n') : []);
+      return renderCardJournalDetailLines(detailLines);
+    }
+
     function renderCardJournalEntry(entry) {
       const lineParts = String(entry?.display_line || '').split('|').map((item) => item.trim()).filter(Boolean);
       const time = escapeHtml(entry?.time_short || formatJournalTime(entry?.business_timestamp || entry?.timestamp) || lineParts[0] || '—');
       const title = lineParts[1] || [entry?.icon || '', entry?.action_label || entry?.human_message || entry?.message || 'Событие'].filter(Boolean).join(' ');
-      const actor = entry?.display_actor_name || entry?.actor_name || lineParts[2] || 'неизвестно';
-      const detailLines = Array.isArray(entry?.detail_lines)
-        ? entry.detail_lines
-        : (entry?.details_text ? String(entry.details_text).split('\\n') : []);
-      return '<article class="card-journal-entry' + (entry?.has_deletion ? ' card-journal-entry--deletion' : '') + '"><div class="card-journal-entry__time">' + time + '</div><div class="card-journal-entry__body"><div class="card-journal-entry__title"><span>' + escapeHtml(title) + '</span><span class="card-journal-entry__actor">' + escapeHtml(actor) + '</span></div><div class="card-journal-entry__details">' + renderCardJournalDetailLines(detailLines) + '</div></div></article>';
+      const actor = lineParts[2] || entry?.display_actor_name || entry?.actor_name || 'неизвестно';
+      return '<article class="card-journal-entry' + (entry?.has_deletion ? ' card-journal-entry--deletion' : '') + '"><div class="card-journal-entry__time">' + time + '</div><div class="card-journal-entry__body"><div class="card-journal-entry__title"><span>' + escapeHtml(title) + '</span><span class="card-journal-entry__actor">' + escapeHtml(actor) + '</span></div><div class="card-journal-entry__details">' + renderCardJournalDetails(entry) + '</div></div></article>';
     }
 
     function buildCardJournalHtml(payload) {
@@ -17622,27 +17905,63 @@ function renderCompactArchiveRows(cards) {
     }
 
     async function openCardWorkspace(cardId, { closeModalEl = null, openCardModalEl = true, openRepairOrder = false, repairOrderParentLayer = '' } = {}) {
-      const normalizedCardId = String(cardId || '').trim();
-      if (!normalizedCardId) return null;
-      const cachedCard = snapshotCardById(normalizedCardId);
-      const openedFromCache = Boolean(openCardModalEl && cachedCard);
-      if (openedFromCache) {
-        if (closeModalEl) closeModalEl.classList.remove('is-open');
-        openCardModal(cachedCard);
-      }
-      const data = await api('/api/get_card', { method: 'POST', body: { card_id: normalizedCardId } });
-      if (openCardModalEl) {
-        if (!openedFromCache && closeModalEl) closeModalEl.classList.remove('is-open');
-        openCardModal(data.card);
-      } else {
-        applyCardModalState(data.card);
-      }
-      recordCardOpenSideEffects(normalizedCardId);
-      if (openRepairOrder) {
-        state.repairOrderParentLayer = String(repairOrderParentLayer || (openCardModalEl ? 'card' : '')).trim();
-        await openRepairOrderModal();
-      }
-      return data.card;
+      return perfMeasureAsync('openCardWorkspace', async () => {
+        const normalizedCardId = String(cardId || '').trim();
+        if (!normalizedCardId) return null;
+        const cachedCard = snapshotCardById(normalizedCardId);
+        const cachedFullCard = cachedCard
+          ? cachedFullCardForSnapshot(cachedCard)
+          : (state.fullCardCache.get(normalizedCardId) || null);
+        let openedFromCache = false;
+        const hydrationSeq = state.cardHydrationSeq + 1;
+        state.cardHydrationSeq = hydrationSeq;
+        state.cardHydratingId = normalizedCardId;
+        if (openCardModalEl && cachedFullCard) {
+          if (closeModalEl) closeModalEl.classList.remove('is-open');
+          openCardModal(cachedFullCard, { cardIsFull: true });
+          openedFromCache = true;
+        } else if (openCardModalEl && cachedCard) {
+          if (closeModalEl) closeModalEl.classList.remove('is-open');
+          openCardModal(cachedCard, { descriptionLoading: true, cardIsFull: false });
+          openedFromCache = true;
+        }
+        let fullCard;
+        try {
+          fullCard = cachedFullCard || await fetchFullCard(normalizedCardId, cachedCard?.updated_at || '');
+        } catch (error) {
+          if (
+            openCardModalEl
+            && openedFromCache
+            && els.cardModal?.classList.contains('is-open')
+            && state.editingId === normalizedCardId
+          ) {
+            setCardDescriptionLoading(true, 'Не удалось загрузить описание.');
+          }
+          if (state.cardHydratingId === normalizedCardId) state.cardHydratingId = '';
+          throw error;
+        }
+        if (openCardModalEl) {
+          if (!openedFromCache && closeModalEl) closeModalEl.classList.remove('is-open');
+          const shouldHydrateOpenModal = !openedFromCache
+            || (
+              els.cardModal?.classList.contains('is-open')
+              && state.cardHydrationSeq === hydrationSeq
+              && state.editingId === normalizedCardId
+            );
+          if (shouldHydrateOpenModal) {
+            openCardModal(fullCard, { cardIsFull: true, preserveTab: openedFromCache });
+          }
+        } else {
+          applyCardModalState(fullCard, { cardIsFull: true });
+        }
+        if (state.cardHydratingId === normalizedCardId) state.cardHydratingId = '';
+        recordCardOpenSideEffects(normalizedCardId);
+        if (openRepairOrder) {
+          state.repairOrderParentLayer = String(repairOrderParentLayer || (openCardModalEl ? 'card' : '')).trim();
+          await openRepairOrderModal();
+        }
+        return fullCard;
+      });
     }
 
     async function openRepairOrderCard(cardId) {
@@ -18197,12 +18516,17 @@ function renderCompactArchiveRows(cards) {
     }
 
     function renderBoard() {
+      const perfToken = perfStart('renderBoard');
       const snapshot = state.snapshot;
-      if (!snapshot) return;
+      if (!snapshot) {
+        perfEnd(perfToken, { skipped: true });
+        return;
+      }
       const cardsByColumn = buildBoardCardsByColumn(snapshot);
       els.board.innerHTML = snapshot.columns.map((column, index) => renderBoardColumnHtml(column, index, snapshot, cardsByColumn)).join('') + '<div class="sticky-layer" id="stickyLayer"></div>';
       els.stickyLayer = document.getElementById('stickyLayer');
       renderStickies();
+      perfEnd(perfToken, { cards: snapshot.cards?.length || 0, columns: snapshot.columns?.length || 0 });
     }
 
     function setTab(name) {
@@ -18210,14 +18534,15 @@ function renderCompactArchiveRows(cards) {
       state.currentTab = nextName;
       document.querySelectorAll('[data-tab]').forEach((button) => button.classList.toggle('is-active', button.dataset.tab === nextName));
       document.querySelectorAll('[data-panel]').forEach((panel) => panel.classList.toggle('hidden', panel.dataset.panel !== nextName));
+      loadActiveCardTab(nextName);
     }
 
-    function openCardModal(card) {
-      applyCardModalState(card);
-      setTab('overview');
+    function openCardModal(card, { descriptionLoading = false, cardIsFull = true, preserveTab = false } = {}) {
+      applyCardModalState(card, { descriptionLoading, cardIsFull, preserveLazyPanels: preserveTab });
+      if (!preserveTab) setTab('overview');
+      else loadActiveCardTab(state.currentTab);
       els.cardModal.classList.add('is-open');
       requestAnimationFrame(() => syncCardDescriptionHeight());
-      if (card?.id) loadLogs(card.id);
     }
 
     function closeCardModal() {
@@ -18240,39 +18565,61 @@ function renderCompactArchiveRows(cards) {
     }
 
     async function refreshSnapshot(showSuccess = false) {
-      if (state.refreshInFlight) {
-        const pending = state.refreshInFlight;
-        await pending;
-        if (!showSuccess) return;
-      }
+      return perfMeasureAsync('refreshSnapshot', async () => {
+        if (state.refreshInFlight) {
+          const pending = state.refreshInFlight;
+          await pending;
+          if (!showSuccess) return;
+        }
 
-      state.refreshInFlight = (async () => {
+        state.refreshInFlight = (async () => {
+          try {
+            const nextSnapshot = await api('/api/get_board_snapshot?compact=1&include_archive=0');
+            const previousRevision = String(state.lastSnapshotRevision || '');
+            const nextRevision = String(nextSnapshot?.meta?.revision || '');
+            const boardChanged = !previousRevision || !nextRevision || previousRevision !== nextRevision;
+            state.snapshot = nextSnapshot;
+            applyBoardScalePreference({ fallbackValue: state.snapshot?.settings?.board_scale ?? 1, syncInput: true, persistFallback: true });
+            if (boardChanged) {
+              renderBoard();
+              primeBoardViewport();
+            }
+            state.lastSnapshotRevision = nextRevision;
+            if (els.archiveModal.classList.contains('is-open')) {
+              await loadArchive(false, { force: true });
+            }
+            if (els.gptWallModal.classList.contains('is-open')) await loadGptWall(false);
+            const data = state.snapshot;
+            setStatus(showSuccess ? ('ДОСКА ОБНОВЛЕНА · ' + new Date().toLocaleTimeString('ru-RU')) : ('СЕРВЕР АКТИВЕН · КАРТОЧЕК: ' + data.cards.length + ' · АРХИВ: ' + archivedCardsTotal()));
+          } catch (error) {
+            setStatus(error.message, true);
+          } finally {
+            state.refreshInFlight = null;
+          }
+        })();
+
+        return state.refreshInFlight;
+      });
+    }
+
+    async function refreshSnapshotRevision() {
+      return perfMeasureAsync('refreshSnapshotRevision', async () => {
         try {
-          const nextSnapshot = await api('/api/get_board_snapshot?compact=1&include_archive=0');
-          const previousRevision = String(state.lastSnapshotRevision || '');
-          const nextRevision = String(nextSnapshot?.meta?.revision || '');
-          const boardChanged = !previousRevision || !nextRevision || previousRevision !== nextRevision;
-          state.snapshot = nextSnapshot;
-          applyBoardScalePreference({ fallbackValue: state.snapshot?.settings?.board_scale ?? 1, syncInput: true, persistFallback: true });
-          if (boardChanged) {
-            renderBoard();
-            primeBoardViewport();
+          if (!state.lastSnapshotRevision) {
+            await refreshSnapshot(false);
+            return;
           }
-          state.lastSnapshotRevision = nextRevision;
-          if (els.archiveModal.classList.contains('is-open')) {
-            await loadArchive(false, { force: true });
+          const data = await api('/api/get_board_revision?compact=1&include_archive=0');
+          const nextRevision = String(data?.revision || data?.meta?.revision || '');
+          if (!nextRevision || nextRevision !== String(state.lastSnapshotRevision || '')) {
+            await refreshSnapshot(false);
+            return;
           }
-          if (els.gptWallModal.classList.contains('is-open')) await loadGptWall(false);
-          const data = state.snapshot;
-        setStatus(showSuccess ? ('ДОСКА ОБНОВЛЕНА · ' + new Date().toLocaleTimeString('ru-RU')) : ('СЕРВЕР АКТИВЕН · КАРТОЧЕК: ' + data.cards.length + ' · АРХИВ: ' + archivedCardsTotal()));
+          updateSnapshotStatusLine();
         } catch (error) {
           setStatus(error.message, true);
-        } finally {
-          state.refreshInFlight = null;
         }
-      })();
-
-      return state.refreshInFlight;
+      });
     }
 
     function snapshotCardById(cardId) {
@@ -18280,6 +18627,38 @@ function renderCompactArchiveRows(cards) {
       const cards = state.snapshot?.cards || [];
       const archive = state.archiveCards || [];
       return cards.find((card) => card.id === cardId) || archive.find((card) => card.id === cardId) || null;
+    }
+
+    function cacheFullCard(card) {
+      const cardId = String(card?.id || '').trim();
+      if (!cardId) return null;
+      state.fullCardCache.set(cardId, card);
+      return card;
+    }
+
+    function cachedFullCardForSnapshot(card) {
+      const cardId = String(card?.id || '').trim();
+      if (!cardId) return null;
+      const cachedCard = state.fullCardCache.get(cardId);
+      if (!cachedCard) return null;
+      const expectedUpdatedAt = String(card?.updated_at || '').trim();
+      if (expectedUpdatedAt && String(cachedCard.updated_at || '').trim() !== expectedUpdatedAt) return null;
+      return cachedCard;
+    }
+
+    async function fetchFullCard(cardId, expectedUpdatedAt = '') {
+      const normalizedCardId = String(cardId || '').trim();
+      if (!normalizedCardId) return null;
+      const cachedCard = state.fullCardCache.get(normalizedCardId);
+      const normalizedExpectedUpdatedAt = String(expectedUpdatedAt || '').trim();
+      if (cachedCard && (!normalizedExpectedUpdatedAt || String(cachedCard.updated_at || '').trim() === normalizedExpectedUpdatedAt)) return cachedCard;
+      const pending = state.cardFetchInFlight.get(normalizedCardId);
+      if (pending) return pending;
+      const request = api('/api/get_card', { method: 'POST', body: { card_id: normalizedCardId } })
+        .then((data) => cacheFullCard(data?.card))
+        .finally(() => state.cardFetchInFlight.delete(normalizedCardId));
+      state.cardFetchInFlight.set(normalizedCardId, request);
+      return request;
     }
 
     function boardCardElementById(cardId) {
@@ -18409,6 +18788,44 @@ function renderCompactArchiveRows(cards) {
       if (!renderedPrevious || !renderedNext) renderBoard();
     }
 
+    function boardCardFromFullCard(card) {
+      if (!card?.id) return card;
+      const preview = stripDescriptionFormatting(card.description_preview || card.board_summary || card.description || '');
+      return {
+        ...card,
+        description: preview,
+        description_preview: preview,
+        board_summary: card.board_summary || preview,
+      };
+    }
+
+    function applySavedCardLocalPatch(card) {
+      if (!card?.id || !Array.isArray(state.snapshot?.cards)) return false;
+      cacheFullCard(card);
+      const nextCard = boardCardFromFullCard(card);
+      const previousCard = snapshotCardById(nextCard.id);
+      if (previousCard) {
+        replaceSnapshotCard(nextCard);
+        updateSnapshotStatusLine({ showSuccess: true });
+        return true;
+      }
+      if (nextCard.archived) return false;
+      state.snapshot.cards = state.snapshot.cards.concat(nextCard);
+      const cardsByColumn = buildBoardCardsByColumn(state.snapshot);
+      const columnId = String(nextCard.column || '').trim();
+      if (!columnId || !renderBoardColumnById(columnId, cardsByColumn)) renderBoard();
+      updateSnapshotStatusLine({ showSuccess: true });
+      return true;
+    }
+
+    function scheduleBackgroundSnapshotRefresh({ showSuccess = false, delay = 900 } = {}) {
+      if (state.backgroundSnapshotTimer) window.clearTimeout(state.backgroundSnapshotTimer);
+      state.backgroundSnapshotTimer = window.setTimeout(() => {
+        state.backgroundSnapshotTimer = null;
+        refreshSnapshot(showSuccess);
+      }, Math.max(0, Number(delay) || 0));
+    }
+
     function clearUnreadHoverTimer(cardId) {
       if (!cardId) return;
       const timerId = state.unreadHoverTimers.get(cardId);
@@ -18516,7 +18933,7 @@ function renderCompactArchiveRows(cards) {
       stopSnapshotPolling();
       state.pollHandle = window.setTimeout(async () => {
         state.pollHandle = null;
-        await refreshSnapshot(false);
+        await refreshSnapshotRevision();
         scheduleNextSnapshotPoll();
       }, snapshotPollIntervalMs());
     }
@@ -18527,14 +18944,34 @@ function renderCompactArchiveRows(cards) {
 
     function handleSnapshotVisibilityChange() {
       startSnapshotPolling();
-      if (!document.hidden) refreshSnapshot(false);
+      if (!document.hidden) refreshSnapshotRevision();
+    }
+
+    function loadActiveCardTab(tabName) {
+      const cardId = String(state.activeCard?.id || '').trim();
+      if (tabName === 'files') {
+        renderActiveCardFiles();
+        return;
+      }
+      if (tabName !== 'journal') return;
+      if (!cardId) {
+        renderLogs([]);
+        return;
+      }
+      if (state.cardJournalLoadedFor === cardId) return;
+      state.cardJournalLoadedFor = cardId;
+      els.logList.className = 'card-journal-text';
+      els.logList.textContent = 'Загрузка журнала...';
+      loadLogs(cardId);
     }
 
     async function loadLogs(cardId) {
+      const perfToken = perfStart('loadLogs');
       try {
         const data = await api('/api/get_card_log?card_id=' + encodeURIComponent(cardId));
         renderLogs(data);
       } catch (error) {
+        if (state.cardJournalLoadedFor === cardId) state.cardJournalLoadedFor = '';
         renderLogs({
           events: [{
             message: error.message,
@@ -18549,6 +18986,8 @@ function renderCompactArchiveRows(cards) {
             card_short_id: '',
           },
         });
+      } finally {
+        perfEnd(perfToken, { card_id: cardId || '' });
       }
     }
 
@@ -21259,20 +21698,25 @@ function renderCompactArchiveRows(cards) {
 
     async function saveCard() {
       if (state.cardSaveInFlight) return;
+      if (state.editingId && !state.activeCardIsFull) return setStatus('ДОЖДИТЕСЬ ЗАГРУЗКИ КАРТОЧКИ.', true);
       const payload = currentCardPayload();
       if (!payload.title) return setStatus(CARD_TITLE_REQUIRED_MESSAGE, true);
       state.cardSaveInFlight = true;
       if (els.saveCardButton) els.saveCardButton.disabled = true;
-      try {
-        await persistCardPayload(payload);
-        closeCardModal();
-        await refreshSnapshot(true);
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        state.cardSaveInFlight = false;
-        if (els.saveCardButton) els.saveCardButton.disabled = false;
-      }
+      return perfMeasureAsync('saveCard', async () => {
+        try {
+          const data = await persistCardPayload(payload);
+          if (data?.card) applySavedCardLocalPatch(data.card);
+          closeCardModal();
+          setStatus('КАРТОЧКА СОХРАНЕНА.', false);
+          scheduleBackgroundSnapshotRefresh({ showSuccess: false, delay: 900 });
+        } catch (error) {
+          setStatus(error.message, true);
+        } finally {
+          state.cardSaveInFlight = false;
+          if (els.saveCardButton) els.saveCardButton.disabled = false;
+        }
+      });
     }
 
     configureCardFieldSemantics();

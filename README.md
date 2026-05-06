@@ -146,10 +146,11 @@ The MCP server exposes the current AutoStop CRM board and services as tools over
 - client directory search, profile, vehicle, requisites, client-vehicle upsert and card-link tools
 - shared file list/info/upload/download/delete tools
 - agent-only card board summary updates through `set_card_board_summary`
+- safe card cleanup workflows can use `update_card`, `set_card_board_summary`, focused reads, and VIN/profile enrichment, but cleanup itself is an agent procedure rather than a standalone MCP tool
 - optional AutostopManager memory/routing tools when the manager project is mounted next to the CRM
 - bounded board/card reads; automatic cleanup is intentionally not exposed as an MCP tool
 
-The current base CRM MCP inventory is 71 tools. With the mounted AutostopManager layer the production endpoint exposes 84 tools. The exact runtime inventory is documented in [MCP_GUIDE.md](MCP_GUIDE.md). The user-facing autofill endpoints remain available in the HTTP API and UI, but they are not MCP tools.
+The current base CRM MCP inventory is 71 tools. With the current mounted AutostopManager layer the manager catalog describes 90 tools total. The exact runtime inventory must be verified through live `tools/list` and is documented in [MCP_GUIDE.md](MCP_GUIDE.md). The user-facing autofill endpoints remain available in the HTTP API and UI, but they are not MCP tools.
 
 See [MCP_GUIDE.md](MCP_GUIDE.md) and [src/minimal_kanban/mcp/server.py](src/minimal_kanban/mcp/server.py).
 
@@ -176,9 +177,9 @@ Current production note:
 - verify the current Telegram AI checkpoint with `git rev-parse --short HEAD` and `scripts/check_live_connector.py`; fixed commit notes are kept only as historical context
 - current clients-module release includes the inline client picker, phone matching fixes, and Chrome autofill suppression in the card and client forms
 
-## Legacy Card Cleanup
+## Manager Card Cleanup
 
-The older card-indicator cleanup/enrichment behavior remains compatibility-only and separate from the Telegram AI manager:
+The older card-indicator cleanup/enrichment behavior remains compatibility-only and separate from the Telegram AI manager. The current owner-facing cleanup command is an agent procedure, not a single backend feature.
 
 - only the card indicator remains
 - the compatibility path stays inside the existing CRM/card-service contour
@@ -189,7 +190,12 @@ Current cleanup contract:
 
 - `read -> evidence -> patch -> write -> verify`
 - normalize description without deleting meaningful user text
-- fill only obvious empty local fields
+- fill only confirmed empty local fields
+- when `description`, `title`, `tags`, or `vehicle_profile` changes, refresh the hidden board preview with `set_card_board_summary`
+- keep `board_summary` to four or five operator-facing lines: what is happening, stage, next action, and one blocker/deadline/payment note when useful
+- keep phone numbers, VIN, full client names, diagnostic dumps, and long complaint lists out of `board_summary`
+- if a VIN/chassis/frame number exists and `engine_model`, `gearbox_model`, or `drivetrain` is empty, enrich the vehicle profile only from source-backed VIN/OEM/catalog data; uncertain variants stay in `oem_notes` / `tentative_fields`
+- do not move cards between columns or archive them during routine cleanup unless the owner gives a separate explicit command
 - use patch-only writes
 - refresh the card after write
 

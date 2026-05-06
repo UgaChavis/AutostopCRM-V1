@@ -181,6 +181,7 @@ Current active AI direction:
 - it keeps compact per-chat memory so follow-up commands can refer to recent cards/actions
 - it answers from completed tool results; future-promise phrases like `сейчас пришлю` are treated as a bug
 - direct internet-search uses the base model for stability; complex CRM planning can escalate to the strong model
+- owner cleanup commands (`Приберись`, `прибейсь`, `прибери доску`) are manager procedures over CRM tools: patch confirmed fields, update `board_summary`, enrich source-backed vehicle passport fields by VIN when possible, and do not move/archive cards without a separate explicit owner command
 
 Compatibility behavior:
 
@@ -235,6 +236,7 @@ Latest completed stabilization wave:
 - shared Files icon placement was stabilized around a non-overlapping grid, persisted icon positions, and drag movement
 - card journal is now `card_journal.v2`: API/MCP return machine-readable `entries`, `timeline`, `days`, `weeks`, `months`, `totals` plus raw `changes[].before/after`; the card UI renders a compact human timeline from that JSON, with readable Russian `до:` / `после:` blocks instead of raw Markdown or service JSON dumps
 - hidden AI-managed card board summaries were added: API/MCP/Telegram can write a five-line `board_summary`, board cards show it before raw description text, and normal card edits mark the summary stale for agent refresh
+- manager cleanup documentation was tightened: `description` remains the detailed recoverable card text; `board_summary` is the four-or-five-line operator preview; VIN/chassis/frame enrichment may fill `engine_model`, `gearbox_model`, and `drivetrain` only from source-backed data while preserving manual fields
 - updated-card badges now clear optimistically in the browser on hover/open, while the existing API path still persists the seen state
 - generated inline browser JavaScript is now extracted from `BOARD_WEB_APP_HTML` and checked with Node syntax validation through `scripts/check_web_assets_js.py`
 - repair-order and invoice PDF export is now available to MCP, the server agent, and Telegram AI through `download_repair_order_print_pdf`; it reuses the CRM print module and returns `application/pdf` base64 instead of letting agents create separate PDFs
@@ -381,6 +383,7 @@ Current cleanup policy:
 - prefer GitHub-first changes, then deploy
 - before server edits, always inspect `git status`
 - keep documentation canonical; duplicate workflow, memory, module-note, and stale MCP command references should be merged into `README.md`, this handoff, `docs/OPERATIONS_RUNBOOK.md`, `API_GUIDE.md`, or `MCP_GUIDE.md`
+- keep manager cleanup docs aligned with the current safety contract: no routine move/archive, no first-five-description-lines-as-preview rule, and always refresh `board_summary` after card content/profile changes
 
 ## 11. Recommended First Read Order For A New Agent
 

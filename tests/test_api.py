@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import gzip
 import json
 import logging
 import socket
@@ -50,6 +51,7 @@ def reserve_port() -> int:
 class ApiServerTests(unittest.TestCase):
     def test_snapshot_success_route_uses_debug_log_level(self) -> None:
         self.assertEqual(_success_log_level("/api/get_board_snapshot"), logging.DEBUG)
+        self.assertEqual(_success_log_level("/api/get_board_revision"), logging.DEBUG)
         self.assertEqual(_success_log_level("/api/health"), logging.DEBUG)
         self.assertEqual(_success_log_level("/api/create_card"), logging.INFO)
 
@@ -125,6 +127,21 @@ class ApiServerTests(unittest.TestCase):
                 return exc.code, json.loads(exc.read().decode("utf-8"))
             finally:
                 exc.close()
+
+    def raw_request(
+        self,
+        path: str,
+        *,
+        method: str = "GET",
+        headers: dict[str, str] | None = None,
+    ) -> tuple[int, dict[str, str], bytes]:
+        request = urllib.request.Request(
+            f"{self.base_url}{path}",
+            headers=headers or {},
+            method=method,
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.status, dict(response.headers.items()), response.read()
 
     def test_health_and_create_card(self) -> None:
         status, health = self.request("/api/health", method="GET")
@@ -1354,6 +1371,57 @@ class ApiServerTests(unittest.TestCase):
         self.assertNotIn("vehicle_profile", compact_card)
         self.assertNotIn("attachments", compact_card)
         self.assertTrue(snapshot["data"]["meta"]["revision"])
+
+    def test_board_revision_route_matches_snapshot_without_card_payload(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"vehicle": "FORD", "title": "Revision API", "deadline": {"hours": 2}},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(created["ok"])
+
+        status, snapshot = self.request(
+            "/api/get_board_snapshot?compact=1&include_archive=0", method="GET"
+        )
+        self.assertEqual(status, 200)
+        status, revision = self.request(
+            "/api/get_board_revision?compact=1&include_archive=0", method="GET"
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(revision["data"]["revision"], snapshot["data"]["meta"]["revision"])
+        self.assertEqual(revision["data"]["meta"]["revision"], snapshot["data"]["meta"]["revision"])
+        self.assertEqual(revision["data"]["counts"]["cards"], len(snapshot["data"]["cards"]))
+        self.assertNotIn("cards", revision["data"])
+        self.assertNotIn("archive", revision["data"])
+
+    def test_json_api_gzips_large_payloads_when_client_accepts_gzip(self) -> None:
+        for index in range(6):
+            status, created = self.request(
+                "/api/create_card",
+                {
+                    "vehicle": f"TEST {index}",
+                    "title": f"Gzip snapshot {index}",
+                    "description": "Длинное описание " * 80,
+                    "deadline": {"hours": 2},
+                },
+            )
+            self.assertEqual(status, 200)
+            self.assertTrue(created["ok"])
+
+        status, headers, body = self.raw_request(
+            "/api/get_board_snapshot?compact=1&include_archive=0",
+            headers={"Accept-Encoding": "gzip"},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get("Content-Encoding"), "gzip")
+        self.assertEqual(headers.get("Vary"), "Accept-Encoding")
+        self.assertIn("Server-Timing", headers)
+        payload = json.loads(gzip.decompress(body).decode("utf-8"))
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["data"]["meta"]["revision"])
+        self.assertGreater(len(payload["data"]["cards"]), 0)
 
     def test_snapshot_without_archive_allows_zero_archive_limit(self) -> None:
         status, snapshot = self.request(
@@ -3252,6 +3320,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("action_label", log["data"]["entries"][0])
         self.assertIn("source_label", log["data"]["entries"][0])
         self.assertIn("changes", log["data"]["entries"][0])
+        self.assertIn("journal_blocks", log["data"]["entries"][0])
         self.assertEqual(log["data"]["text"], log["data"]["markdown"])
         self.assertTrue(log["data"]["text"].startswith("# 🧾 Журнал карточки"))
 
