@@ -1433,20 +1433,6 @@ BOARD_WEB_APP_HTML = "".join(
       resize: vertical;
       overflow-y: auto;
     }
-    .description-preview {
-      border: 1px solid var(--line-soft);
-      background: rgba(0,0,0,0.14);
-      color: var(--text);
-      min-height: 34px;
-      padding: 8px 10px;
-      font-size: 13px;
-      line-height: 1.5;
-      overflow-wrap: anywhere;
-      white-space: normal;
-    }
-    .description-preview[hidden] {
-      display: none;
-    }
     .panel-title {
       font-family: var(--mono);
       font-size: 12px;
@@ -7080,7 +7066,6 @@ BOARD_WEB_APP_HTML = "".join(
                 </div>
               </div>
               <textarea id="cardDescription" maxlength="20000"></textarea>
-              <div class="description-preview" id="cardDescriptionPreview" hidden></div>
             </div>
             <div class="overview-main__meta">
                 <div class="subpanel signal-panel">
@@ -7429,7 +7414,6 @@ BOARD_WEB_APP_HTML = "".join(
       editingId: null,
       cardCreateColumnId: '',
       cardSaveInFlight: false,
-      descriptionPreviewFrame: 0,
       currentTab: 'overview',
       vehicleProfileDraft: null,
       vehicleProfileBaseline: null,
@@ -8146,7 +8130,6 @@ BOARD_WEB_APP_HTML = "".join(
       cardTitle: document.getElementById('cardTitle'),
       cardDescription: document.getElementById('cardDescription'),
       cardDescriptionToolbar: document.getElementById('cardDescriptionToolbar'),
-      cardDescriptionPreview: document.getElementById('cardDescriptionPreview'),
       signalPreview: document.getElementById('signalPreview'),
       signalDays: document.getElementById('signalDays'),
       signalHours: document.getElementById('signalHours'),
@@ -8237,46 +8220,6 @@ BOARD_WEB_APP_HTML = "".join(
         if (text === previous) break;
       }
       return text;
-    }
-
-    function descriptionMarkupToHtml(value) {
-      let html = escapeHtml(String(value || ''));
-      html = html
-        .replace(/\\+\\+([\\s\\S]+?)\\+\\+/g, '<u>$1</u>')
-        .replace(/\\*\\*([\\s\\S]+?)\\*\\*/g, '<strong>$1</strong>')
-        .replace(/(^|[^*])\\*([^*\\n]+?)\\*(?!\\*)/g, '$1<em>$2</em>');
-      return html.replace(/\\r\\n|\\r|\\n/g, '<br>');
-    }
-
-    function renderDescriptionPreview() {
-      const preview = els.cardDescriptionPreview;
-      if (!preview) return;
-      const text = String(els.cardDescription?.value || '').trim();
-      if (!text) {
-        preview.innerHTML = '';
-        preview.hidden = true;
-        return;
-      }
-      preview.innerHTML = descriptionMarkupToHtml(text);
-      preview.hidden = false;
-    }
-
-    function scheduleDescriptionPreview() {
-      if (state.descriptionPreviewFrame) return;
-      state.descriptionPreviewFrame = requestAnimationFrame(() => {
-        state.descriptionPreviewFrame = 0;
-        renderDescriptionPreview();
-      });
-    }
-
-    function resetDescriptionPreview() {
-      if (state.descriptionPreviewFrame) {
-        cancelAnimationFrame(state.descriptionPreviewFrame);
-        state.descriptionPreviewFrame = 0;
-      }
-      if (!els.cardDescriptionPreview) return;
-      els.cardDescriptionPreview.innerHTML = '';
-      els.cardDescriptionPreview.hidden = true;
     }
 
     function descriptionFormatMarkers(kind) {
@@ -14582,11 +14525,6 @@ BOARD_WEB_APP_HTML = "".join(
       textarea.style.height = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight)) + 'px';
     }
 
-    function handleCardDescriptionInput() {
-      syncCardDescriptionHeight();
-      scheduleDescriptionPreview();
-    }
-
     function stickyPayload() {
       return {
         actor_name: state.actor,
@@ -15426,7 +15364,7 @@ BOARD_WEB_APP_HTML = "".join(
         if (!els.cardVehicle.value.trim() && result.card_draft?.vehicle) els.cardVehicle.value = result.card_draft.vehicle;
         if (!els.cardTitle.value.trim() && result.card_draft?.title) els.cardTitle.value = result.card_draft.title;
         if (!els.cardDescription.value.trim() && result.card_draft?.description) els.cardDescription.value = result.card_draft.description;
-        handleCardDescriptionInput();
+        syncCardDescriptionHeight();
         const status = buildVehicleAutofillStatus(result);
         renderVehicleAutofillStatus(status.text, status.isWarning);
         setStatus('ТЕХКАРТА ОБНОВЛЕНА АВТОЗАПОЛНЕНИЕМ.', false);
@@ -16741,7 +16679,6 @@ BOARD_WEB_APP_HTML = "".join(
       if (els.cardModal?.classList.contains('is-open')) {
         requestAnimationFrame(() => syncCardDescriptionHeight());
       }
-      scheduleDescriptionPreview();
     }
 
     function resetCardModalState() {
@@ -16766,7 +16703,6 @@ BOARD_WEB_APP_HTML = "".join(
       clearFilePreview({ sync: false });
       syncFileDropzone(null);
       syncFilePreview(null);
-      resetDescriptionPreview();
       renderCardCleanupIndicator();
     }
 
@@ -21019,7 +20955,7 @@ function renderCompactArchiveRows(cards) {
     els.tagAddButton.addEventListener('click', addDraftTag);
     els.tagInput.addEventListener('keydown', handleTagInputKeydown);
     configureVehicleAutofillUi();
-    els.cardDescription.addEventListener('input', handleCardDescriptionInput);
+    els.cardDescription.addEventListener('input', syncCardDescriptionHeight);
     els.cardDescription.addEventListener('keydown', handleDescriptionKeyboardShortcut);
     els.cardDescriptionToolbar.addEventListener('click', handleDescriptionFormatClick);
     els.vehicleAutofillButton.addEventListener('click', autofillVehicleProfile);

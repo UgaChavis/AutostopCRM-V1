@@ -689,7 +689,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("window.innerHeight * 0.62", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "els.cardDescription.addEventListener('input', handleCardDescriptionInput);",
+            "els.cardDescription.addEventListener('input', syncCardDescriptionHeight);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
@@ -701,9 +701,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('data-description-format="bold"', BOARD_WEB_APP_HTML)
         self.assertIn('data-description-format="italic"', BOARD_WEB_APP_HTML)
         self.assertIn('data-description-format="underline"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="cardDescriptionPreview"', BOARD_WEB_APP_HTML)
         self.assertIn("function applyDescriptionFormat(kind)", BOARD_WEB_APP_HTML)
-        self.assertIn("function renderDescriptionPreview()", BOARD_WEB_APP_HTML)
         self.assertIn("function stripDescriptionFormatting(value)", BOARD_WEB_APP_HTML)
         self.assertIn(
             "textarea.setRangeText(replacement, replaceStart, replaceEnd, 'end');",
@@ -723,6 +721,10 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertNotIn('data-description-format="emoji"', BOARD_WEB_APP_HTML)
         self.assertNotIn("emoji-picker", BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="cardDescriptionPreview"', BOARD_WEB_APP_HTML)
+        self.assertNotIn(".description-preview", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function renderDescriptionPreview()", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function scheduleDescriptionPreview()", BOARD_WEB_APP_HTML)
 
     def test_card_form_semantics_distinguish_make_model_and_short_essence(self) -> None:
         self.assertIn("const CARD_VEHICLE_FIELD_LABEL = 'Марка / модель';", BOARD_WEB_APP_HTML)
