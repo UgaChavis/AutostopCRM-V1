@@ -1334,6 +1334,47 @@ BOARD_WEB_APP_HTML = "".join(
       color: var(--text-soft);
       letter-spacing: 0.08em;
     }
+    .description-field-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+    .description-format-toolbar {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      flex: 0 0 auto;
+    }
+    .description-format-button {
+      width: 26px;
+      height: 24px;
+      min-height: 0;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--line-soft);
+      background: rgba(255,255,255,0.035);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .description-format-button:hover,
+    .description-format-button:focus-visible {
+      border-color: var(--line);
+      background: rgba(255,255,255,0.07);
+    }
+    .description-format-button[data-description-format="italic"] {
+      font-style: italic;
+    }
+    .description-format-button[data-description-format="underline"] {
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
     .field--compact { gap: 4px; }
     .field--compact label {
       font-size: 11px;
@@ -1391,6 +1432,20 @@ BOARD_WEB_APP_HTML = "".join(
       line-height: 1.54;
       resize: vertical;
       overflow-y: auto;
+    }
+    .description-preview {
+      border: 1px solid var(--line-soft);
+      background: rgba(0,0,0,0.14);
+      color: var(--text);
+      min-height: 34px;
+      padding: 8px 10px;
+      font-size: 13px;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
+    .description-preview[hidden] {
+      display: none;
     }
     .panel-title {
       font-family: var(--mono);
@@ -7016,8 +7071,16 @@ BOARD_WEB_APP_HTML = "".join(
               </div>
             </div>
             <div class="field field--description">
-              <label for="cardDescription">ОПИСАНИЕ</label>
-        <textarea id="cardDescription" maxlength="20000"></textarea>
+              <div class="description-field-head">
+                <label for="cardDescription">ОПИСАНИЕ</label>
+                <div class="description-format-toolbar" id="cardDescriptionToolbar" aria-label="Формат описания">
+                  <button class="description-format-button" data-description-format="bold" type="button" aria-label="Жирный" title="Жирный">B</button>
+                  <button class="description-format-button" data-description-format="italic" type="button" aria-label="Курсив" title="Курсив">I</button>
+                  <button class="description-format-button" data-description-format="underline" type="button" aria-label="Подчёркивание" title="Подчёркивание">U</button>
+                </div>
+              </div>
+              <textarea id="cardDescription" maxlength="20000"></textarea>
+              <div class="description-preview" id="cardDescriptionPreview" hidden></div>
             </div>
             <div class="overview-main__meta">
                 <div class="subpanel signal-panel">
@@ -7366,6 +7429,7 @@ BOARD_WEB_APP_HTML = "".join(
       editingId: null,
       cardCreateColumnId: '',
       cardSaveInFlight: false,
+      descriptionPreviewFrame: 0,
       currentTab: 'overview',
       vehicleProfileDraft: null,
       vehicleProfileBaseline: null,
@@ -8081,6 +8145,8 @@ BOARD_WEB_APP_HTML = "".join(
       cardVehicle: document.getElementById('cardVehicle'),
       cardTitle: document.getElementById('cardTitle'),
       cardDescription: document.getElementById('cardDescription'),
+      cardDescriptionToolbar: document.getElementById('cardDescriptionToolbar'),
+      cardDescriptionPreview: document.getElementById('cardDescriptionPreview'),
       signalPreview: document.getElementById('signalPreview'),
       signalDays: document.getElementById('signalDays'),
       signalHours: document.getElementById('signalHours'),
@@ -8159,6 +8225,122 @@ BOARD_WEB_APP_HTML = "".join(
     };
 
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
+
+    function stripDescriptionFormatting(value) {
+      let text = String(value || '');
+      for (let index = 0; index < 4; index += 1) {
+        const previous = text;
+        text = text
+          .replace(/\\+\\+([\\s\\S]+?)\\+\\+/g, '$1')
+          .replace(/\\*\\*([\\s\\S]+?)\\*\\*/g, '$1')
+          .replace(/(^|[^*])\\*([^*\\n]+?)\\*(?!\\*)/g, '$1$2');
+        if (text === previous) break;
+      }
+      return text;
+    }
+
+    function descriptionMarkupToHtml(value) {
+      let html = escapeHtml(String(value || ''));
+      html = html
+        .replace(/\\+\\+([\\s\\S]+?)\\+\\+/g, '<u>$1</u>')
+        .replace(/\\*\\*([\\s\\S]+?)\\*\\*/g, '<strong>$1</strong>')
+        .replace(/(^|[^*])\\*([^*\\n]+?)\\*(?!\\*)/g, '$1<em>$2</em>');
+      return html.replace(/\\r\\n|\\r|\\n/g, '<br>');
+    }
+
+    function renderDescriptionPreview() {
+      const preview = els.cardDescriptionPreview;
+      if (!preview) return;
+      const text = String(els.cardDescription?.value || '').trim();
+      if (!text) {
+        preview.innerHTML = '';
+        preview.hidden = true;
+        return;
+      }
+      preview.innerHTML = descriptionMarkupToHtml(text);
+      preview.hidden = false;
+    }
+
+    function scheduleDescriptionPreview() {
+      if (state.descriptionPreviewFrame) return;
+      state.descriptionPreviewFrame = requestAnimationFrame(() => {
+        state.descriptionPreviewFrame = 0;
+        renderDescriptionPreview();
+      });
+    }
+
+    function resetDescriptionPreview() {
+      if (state.descriptionPreviewFrame) {
+        cancelAnimationFrame(state.descriptionPreviewFrame);
+        state.descriptionPreviewFrame = 0;
+      }
+      if (!els.cardDescriptionPreview) return;
+      els.cardDescriptionPreview.innerHTML = '';
+      els.cardDescriptionPreview.hidden = true;
+    }
+
+    function descriptionFormatMarkers(kind) {
+      if (kind === 'bold') return ['**', '**'];
+      if (kind === 'italic') return ['*', '*'];
+      if (kind === 'underline') return ['++', '++'];
+      return null;
+    }
+
+    function applyDescriptionFormat(kind) {
+      const textarea = els.cardDescription;
+      const markers = descriptionFormatMarkers(kind);
+      if (!textarea || !markers) return;
+      const [openMarker, closeMarker] = markers;
+      const start = textarea.selectionStart ?? 0;
+      const end = textarea.selectionEnd ?? start;
+      const text = String(textarea.value || '');
+      const selected = text.slice(start, end);
+      let replacement = openMarker + selected + closeMarker;
+      let replaceStart = start;
+      let replaceEnd = end;
+      let nextStart = start + openMarker.length;
+      let nextEnd = nextStart + selected.length;
+      if (selected && selected.startsWith(openMarker) && selected.endsWith(closeMarker)) {
+        replacement = selected.slice(openMarker.length, selected.length - closeMarker.length);
+        nextStart = start;
+        nextEnd = start + replacement.length;
+      } else if (
+        selected
+        && start >= openMarker.length
+        && text.slice(start - openMarker.length, start) === openMarker
+        && text.slice(end, end + closeMarker.length) === closeMarker
+      ) {
+        replacement = selected;
+        replaceStart = start - openMarker.length;
+        replaceEnd = end + closeMarker.length;
+        nextStart = replaceStart;
+        nextEnd = replaceStart + selected.length;
+      } else if (!selected) {
+        replacement = openMarker + closeMarker;
+        nextStart = start + openMarker.length;
+        nextEnd = nextStart;
+      }
+      textarea.setRangeText(replacement, replaceStart, replaceEnd, 'end');
+      textarea.focus();
+      textarea.setSelectionRange(nextStart, nextEnd);
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    function handleDescriptionFormatClick(event) {
+      const button = event.target.closest('[data-description-format]');
+      if (!button) return;
+      event.preventDefault();
+      applyDescriptionFormat(button.dataset.descriptionFormat);
+    }
+
+    function handleDescriptionKeyboardShortcut(event) {
+      if (!event.ctrlKey || event.altKey || event.metaKey) return;
+      const key = String(event.key || '').toLowerCase();
+      const format = { b: 'bold', i: 'italic', u: 'underline' }[key];
+      if (!format) return;
+      event.preventDefault();
+      applyDescriptionFormat(format);
+    }
 
     function hydrateEmployeesUiRefs() {
       els.employeesModal = document.getElementById('employeesModal');
@@ -14400,6 +14582,11 @@ BOARD_WEB_APP_HTML = "".join(
       textarea.style.height = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight)) + 'px';
     }
 
+    function handleCardDescriptionInput() {
+      syncCardDescriptionHeight();
+      scheduleDescriptionPreview();
+    }
+
     function stickyPayload() {
       return {
         actor_name: state.actor,
@@ -15239,7 +15426,7 @@ BOARD_WEB_APP_HTML = "".join(
         if (!els.cardVehicle.value.trim() && result.card_draft?.vehicle) els.cardVehicle.value = result.card_draft.vehicle;
         if (!els.cardTitle.value.trim() && result.card_draft?.title) els.cardTitle.value = result.card_draft.title;
         if (!els.cardDescription.value.trim() && result.card_draft?.description) els.cardDescription.value = result.card_draft.description;
-        syncCardDescriptionHeight();
+        handleCardDescriptionInput();
         const status = buildVehicleAutofillStatus(result);
         renderVehicleAutofillStatus(status.text, status.isWarning);
         setStatus('ТЕХКАРТА ОБНОВЛЕНА АВТОЗАПОЛНЕНИЕМ.', false);
@@ -16554,6 +16741,7 @@ BOARD_WEB_APP_HTML = "".join(
       if (els.cardModal?.classList.contains('is-open')) {
         requestAnimationFrame(() => syncCardDescriptionHeight());
       }
+      scheduleDescriptionPreview();
     }
 
     function resetCardModalState() {
@@ -16578,6 +16766,7 @@ BOARD_WEB_APP_HTML = "".join(
       clearFilePreview({ sync: false });
       syncFileDropzone(null);
       syncFilePreview(null);
+      resetDescriptionPreview();
       renderCardCleanupIndicator();
     }
 
@@ -17172,7 +17361,7 @@ BOARD_WEB_APP_HTML = "".join(
     function renderArchive() {
       const cards = Array.isArray(state.archiveCards) ? state.archiveCards : [];
       els.archiveList.innerHTML = cards.length
-        ? cards.map((card) => '<div class="archive-row"><div><strong>' + escapeHtml(cardHeading(card)) + '</strong></div><div>' + escapeHtml(card.description || 'Описание не указано') + '</div><div class="archive-row__meta">АРХИВ: ' + escapeHtml(formatDate(card.updated_at)) + '</div><div style="display:flex; gap:8px;"><button class="btn" data-restore-card="' + escapeHtml(card.id) + '">ВЕРНУТЬ</button></div></div>').join('')
+        ? cards.map((card) => '<div class="archive-row"><div><strong>' + escapeHtml(cardHeading(card)) + '</strong></div><div>' + escapeHtml(stripDescriptionFormatting(card.description || 'Описание не указано')) + '</div><div class="archive-row__meta">АРХИВ: ' + escapeHtml(formatDate(card.updated_at)) + '</div><div style="display:flex; gap:8px;"><button class="btn" data-restore-card="' + escapeHtml(card.id) + '">ВЕРНУТЬ</button></div></div>').join('')
         : '<div class="log-row__meta">АРХИВ ПУСТ.</div>';
     }
 
@@ -17193,7 +17382,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.archiveList.innerHTML = cards.length
         ? cards.map((card) => {
             const heading = cardHeading(card);
-            const compactDescription = String(card.description || 'Описание не указано').replace(/\\s+/g, ' ').trim();
+            const compactDescription = stripDescriptionFormatting(card.description || 'Описание не указано').replace(/\\s+/g, ' ').trim();
             const summary = compactDescription.length > 180 ? compactDescription.slice(0, 177) + '...' : compactDescription;
             return '<div class="archive-row archive-row--compact"><div class="archive-row__main"><div class="archive-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div><div class="archive-row__summary" title="' + escapeHtml(compactDescription || 'Описание не указано') + '">' + escapeHtml(summary || 'Описание не указано') + '</div></div><div class="archive-row__side"><div class="archive-row__meta">АРХИВ: ' + escapeHtml(formatDate(card.updated_at)) + '</div><button class="btn" data-restore-card="' + escapeHtml(card.id) + '">ВЕРНУТЬ</button></div></div>';
           }).join('')
@@ -17203,7 +17392,7 @@ BOARD_WEB_APP_HTML = "".join(
 function renderCompactArchiveRows(cards) {
       return cards.map((card) => {
         const heading = cardHeading(card);
-        const compactDescription = String(card.description || 'Описание не указано').replace(/\\s+/g, ' ').trim();
+        const compactDescription = stripDescriptionFormatting(card.description || 'Описание не указано').replace(/\\s+/g, ' ').trim();
         const summary = compactDescription.length > 180 ? compactDescription.slice(0, 177) + '...' : compactDescription;
         return '<div class="archive-row archive-row--compact"><div class="archive-row__main"><div class="archive-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div><div class="archive-row__summary" title="' + escapeHtml(compactDescription || 'Описание не указано') + '">' + escapeHtml(summary || 'Описание не указано') + '</div></div><div class="archive-row__side"><div class="archive-row__meta">АРХИВ: ' + escapeHtml(formatDate(card.updated_at)) + '</div><button class="btn" data-restore-card="' + escapeHtml(card.id) + '">ВЕРНУТЬ</button></div></div>';
       }).join('');
@@ -20830,7 +21019,9 @@ function renderCompactArchiveRows(cards) {
     els.tagAddButton.addEventListener('click', addDraftTag);
     els.tagInput.addEventListener('keydown', handleTagInputKeydown);
     configureVehicleAutofillUi();
-    els.cardDescription.addEventListener('input', syncCardDescriptionHeight);
+    els.cardDescription.addEventListener('input', handleCardDescriptionInput);
+    els.cardDescription.addEventListener('keydown', handleDescriptionKeyboardShortcut);
+    els.cardDescriptionToolbar.addEventListener('click', handleDescriptionFormatClick);
     els.vehicleAutofillButton.addEventListener('click', autofillVehicleProfile);
     els.repairOrderAddWorkRowButton.addEventListener('click', (event) => addRepairOrderRowFromButton('works', event));
     els.repairOrderAddMaterialRowButton.addEventListener('click', (event) => addRepairOrderRowFromButton('materials', event));
@@ -20914,7 +21105,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     function boardCardDescription(card) {
-      return String(card?.board_summary || card?.description_preview || card?.description || 'Описание не указано');
+      return stripDescriptionFormatting(card?.board_summary || card?.description_preview || card?.description || 'Описание не указано');
     }
 
     cardUnreadBadgeHtml = function(card) {

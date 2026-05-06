@@ -79,6 +79,9 @@ _CARD_COMPACT_PHONE_PATTERN = re.compile(
     r"(?:\+7|8)\s*(?:\(\s*\d{3}\s*\)|\d{3})\s*[\- ]?\s*\d{3}\s*[\- ]?\s*\d{2}\s*[\- ]?\s*\d{2}"
 )
 _CARD_COMPACT_EMAIL_PATTERN = re.compile(r"\b[\w.+-]+@[\w.-]+\.\w+\b", re.IGNORECASE)
+_CARD_DESCRIPTION_UNDERLINE_PATTERN = re.compile(r"\+\+([\s\S]+?)\+\+")
+_CARD_DESCRIPTION_BOLD_PATTERN = re.compile(r"\*\*([\s\S]+?)\*\*")
+_CARD_DESCRIPTION_ITALIC_PATTERN = re.compile(r"(^|[^*])\*([^*\n]+?)\*(?!\*)")
 
 
 def utc_now() -> datetime:
@@ -412,7 +415,8 @@ def normalize_client_vehicles(value) -> list[ClientVehicle]:
 
 
 def _sanitize_card_compact_text(value: str) -> str:
-    text = str(value or "").replace("\r", " ").replace("\n", " ")
+    text = _strip_card_description_formatting(value)
+    text = text.replace("\r", " ").replace("\n", " ")
     text = _SPACES_PATTERN.sub(" ", text).strip()
     if not text:
         return ""
@@ -420,6 +424,18 @@ def _sanitize_card_compact_text(value: str) -> str:
     text = _CARD_COMPACT_VIN_PATTERN.sub("[VIN]", text)
     text = _CARD_COMPACT_PHONE_PATTERN.sub("[PHONE]", text)
     text = _CARD_COMPACT_EMAIL_PATTERN.sub("[EMAIL]", text)
+    return text
+
+
+def _strip_card_description_formatting(value: str) -> str:
+    text = str(value or "")
+    for _ in range(4):
+        previous = text
+        text = _CARD_DESCRIPTION_UNDERLINE_PATTERN.sub(r"\1", text)
+        text = _CARD_DESCRIPTION_BOLD_PATTERN.sub(r"\1", text)
+        text = _CARD_DESCRIPTION_ITALIC_PATTERN.sub(r"\1\2", text)
+        if text == previous:
+            break
     return text
 
 
@@ -1412,7 +1428,10 @@ class Card:
         attachments = self.attachments if include_removed_attachments else self.active_attachments()
         vehicle_display = self.vehicle_display()
         normalized_description = _SPACES_PATTERN.sub(
-            " ", str(self.description or "").replace("\r", " ").replace("\n", " ")
+            " ",
+            _strip_card_description_formatting(self.description)
+            .replace("\r", " ")
+            .replace("\n", " "),
         ).strip()
         description_preview = normalized_description[:480].rstrip()
         if len(normalized_description) > len(description_preview):

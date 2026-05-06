@@ -689,12 +689,40 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("window.innerHeight * 0.62", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "els.cardDescription.addEventListener('input', syncCardDescriptionHeight);",
+            "els.cardDescription.addEventListener('input', handleCardDescriptionInput);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
             "requestAnimationFrame(() => syncCardDescriptionHeight());", BOARD_WEB_APP_HTML
         )
+
+    def test_card_description_supports_minimal_markdown_formatting(self) -> None:
+        self.assertIn('id="cardDescriptionToolbar"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-description-format="bold"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-description-format="italic"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-description-format="underline"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="cardDescriptionPreview"', BOARD_WEB_APP_HTML)
+        self.assertIn("function applyDescriptionFormat(kind)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderDescriptionPreview()", BOARD_WEB_APP_HTML)
+        self.assertIn("function stripDescriptionFormatting(value)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "textarea.setRangeText(replacement, replaceStart, replaceEnd, 'end');",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cardDescription.addEventListener('keydown', handleDescriptionKeyboardShortcut);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cardDescriptionToolbar.addEventListener('click', handleDescriptionFormatClick);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "return stripDescriptionFormatting(card?.board_summary || card?.description_preview || card?.description || 'Описание не указано');",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertNotIn('data-description-format="emoji"', BOARD_WEB_APP_HTML)
+        self.assertNotIn("emoji-picker", BOARD_WEB_APP_HTML)
 
     def test_card_form_semantics_distinguish_make_model_and_short_essence(self) -> None:
         self.assertIn("const CARD_VEHICLE_FIELD_LABEL = 'Марка / модель';", BOARD_WEB_APP_HTML)

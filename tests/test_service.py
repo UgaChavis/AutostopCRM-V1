@@ -2408,8 +2408,7 @@ class CardServiceTests(unittest.TestCase):
 
         second_day = next(day for day in journal["days"] if day["date"] == "2026-04-02")
         balances = {
-            item["cashbox_name"]: item["balance_minor"]
-            for item in second_day["opening_balances"]
+            item["cashbox_name"]: item["balance_minor"] for item in second_day["opening_balances"]
         }
         self.assertEqual(balances, {"Наличный": 100075, "Карта Мария": 0})
         self.assertEqual(second_day["opening_total_minor"], 100075)
@@ -2433,9 +2432,7 @@ class CardServiceTests(unittest.TestCase):
         journal = self.service.get_cash_journal({"months": 3, "limit": 100})
 
         self.assertIn("Наличный → Карта Мария", journal["markdown"])
-        self.assertIn(
-            "Внутренние перемещения: пришло 3 000 ₽ | ушло 3 000 ₽", journal["markdown"]
-        )
+        self.assertIn("Внутренние перемещения: пришло 3 000 ₽ | ушло 3 000 ₽", journal["markdown"])
         self.assertNotIn("`", journal["markdown"])
         self.assertEqual(journal["totals"]["transfer_income_minor"], 300000)
         self.assertEqual(journal["totals"]["transfer_expense_minor"], 300000)
@@ -2997,6 +2994,35 @@ class CardServiceTests(unittest.TestCase):
         self.assertNotIn("repair_order", compact_card)
         self.assertNotIn("vehicle_profile", compact_card)
         self.assertNotIn("attachments", compact_card)
+
+    def test_card_description_preview_strips_minimal_formatting_markers(self) -> None:
+        formatted_description = (
+            "Проверить **подвеску**, *руль* и ++датчик ABS++.\n"
+            "Комментарий Codex: ✅ оставить полный текст."
+        )
+        created = self.service.create_card(
+            {
+                "vehicle": "FORD FOCUS",
+                "title": "Formatting preview",
+                "description": formatted_description,
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+
+        full_card = self.service.get_card({"card_id": card_id})["card"]
+        snapshot = self.service.get_board_snapshot({"compact": True})
+        compact_card = next(card for card in snapshot["cards"] if card["id"] == card_id)
+
+        self.assertEqual(full_card["description"], formatted_description)
+        self.assertNotIn("**", compact_card["description_preview"])
+        self.assertNotIn("*руль*", compact_card["description_preview"])
+        self.assertNotIn("++", compact_card["description_preview"])
+        self.assertIn("подвеску", compact_card["description_preview"])
+        self.assertIn("руль", compact_card["description_preview"])
+        self.assertIn("датчик ABS", compact_card["description_preview"])
+        self.assertIn("✅", compact_card["description_preview"])
+        self.assertEqual(compact_card["description"], compact_card["description_preview"])
 
     def test_board_snapshot_can_skip_archive_payload_but_keep_archive_total(self) -> None:
         created = self.service.create_card(
