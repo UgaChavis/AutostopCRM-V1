@@ -677,8 +677,15 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("function updateEmployeesListMeta()", BOARD_WEB_APP_HTML)
 
     def test_card_description_textarea_allows_extended_text(self) -> None:
-        self.assertIn('id="cardDescription" maxlength="20000"', BOARD_WEB_APP_HTML)
-        self.assertIn(".field--description textarea {", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'id="cardDescriptionEditor" class="description-editor" contenteditable="true"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'id="cardDescription" maxlength="20000" class="description-source" hidden',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(".field--description .description-editor {", BOARD_WEB_APP_HTML)
         self.assertIn("min-height: 180px;", BOARD_WEB_APP_HTML)
         self.assertIn("height: 180px;", BOARD_WEB_APP_HTML)
         self.assertIn("max-height: clamp(480px, 62vh, 760px);", BOARD_WEB_APP_HTML)
@@ -689,7 +696,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("window.innerHeight * 0.62", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "els.cardDescription.addEventListener('input', syncCardDescriptionHeight);",
+            "els.cardDescriptionEditor.addEventListener('input', handleCardDescriptionInput);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
@@ -702,13 +709,29 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('data-description-format="italic"', BOARD_WEB_APP_HTML)
         self.assertIn('data-description-format="underline"', BOARD_WEB_APP_HTML)
         self.assertIn("function applyDescriptionFormat(kind)", BOARD_WEB_APP_HTML)
+        self.assertIn("function descriptionMarkdownToHtml(value)", BOARD_WEB_APP_HTML)
+        self.assertIn("function descriptionEditorToMarkdown(editor)", BOARD_WEB_APP_HTML)
+        self.assertIn("function setCardDescriptionValue(value)", BOARD_WEB_APP_HTML)
+        self.assertIn("function syncCardDescriptionSourceFromEditor()", BOARD_WEB_APP_HTML)
         self.assertIn("function stripDescriptionFormatting(value)", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "textarea.setRangeText(replacement, replaceStart, replaceEnd, 'end');",
+            "const wrapper = document.createElement(tagName);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            "els.cardDescription.addEventListener('keydown', handleDescriptionKeyboardShortcut);",
+            "els.cardDescriptionEditor.addEventListener('beforeinput', handleDescriptionBeforeInput);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cardDescriptionEditor.addEventListener('keydown', handleDescriptionKeyboardShortcut);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cardDescriptionEditor.addEventListener('paste', handleDescriptionPaste);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cardDescriptionToolbar.addEventListener('mousedown', handleDescriptionToolbarMouseDown);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
@@ -777,7 +800,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn('id="vehiclePanelFlags"', BOARD_WEB_APP_HTML)
         self.assertIn('id="vehicleProfileFields"', BOARD_WEB_APP_HTML)
         self.assertIn(".overview-main__meta {", BOARD_WEB_APP_HTML)
-        self.assertIn(".field--description textarea {", BOARD_WEB_APP_HTML)
+        self.assertIn(".field--description .description-editor {", BOARD_WEB_APP_HTML)
         self.assertIn(".signal-panel {", BOARD_WEB_APP_HTML)
         self.assertIn(".tag-entry {", BOARD_WEB_APP_HTML)
         self.assertIn("function applyCardModalState(card)", BOARD_WEB_APP_HTML)

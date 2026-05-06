@@ -1424,13 +1424,47 @@ BOARD_WEB_APP_HTML = "".join(
     }
     input[type="number"] { text-align: center; }
     textarea { min-height: 192px; }
-    .field--description textarea {
+    .description-source {
+      display: none !important;
+    }
+    .description-editor {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #151c17;
+      color: var(--text);
+      color-scheme: dark;
+      padding: 9px 10px;
+      min-height: 38px;
+      outline: none;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+    .description-editor:focus {
+      border-color: rgba(207, 217, 166, 0.82);
+    }
+    .description-editor:empty::before {
+      content: attr(data-placeholder);
+      color: var(--muted);
+      pointer-events: none;
+    }
+    .description-editor b,
+    .description-editor strong {
+      font-weight: 800;
+    }
+    .description-editor i,
+    .description-editor em {
+      font-style: italic;
+    }
+    .description-editor u {
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .field--description .description-editor {
       min-height: 180px;
       height: 180px;
       max-height: clamp(480px, 62vh, 760px);
       padding: 10px 12px;
       line-height: 1.54;
-      resize: vertical;
       overflow-y: auto;
     }
     .panel-title {
@@ -7058,14 +7092,15 @@ BOARD_WEB_APP_HTML = "".join(
             </div>
             <div class="field field--description">
               <div class="description-field-head">
-                <label for="cardDescription">ОПИСАНИЕ</label>
+                <label for="cardDescriptionEditor">ОПИСАНИЕ</label>
                 <div class="description-format-toolbar" id="cardDescriptionToolbar" aria-label="Формат описания">
                   <button class="description-format-button" data-description-format="bold" type="button" aria-label="Жирный" title="Жирный">B</button>
                   <button class="description-format-button" data-description-format="italic" type="button" aria-label="Курсив" title="Курсив">I</button>
                   <button class="description-format-button" data-description-format="underline" type="button" aria-label="Подчёркивание" title="Подчёркивание">U</button>
                 </div>
               </div>
-              <textarea id="cardDescription" maxlength="20000"></textarea>
+              <div id="cardDescriptionEditor" class="description-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Описание" data-placeholder="Описание карточки"></div>
+              <textarea id="cardDescription" maxlength="20000" class="description-source" hidden aria-hidden="true" tabindex="-1"></textarea>
             </div>
             <div class="overview-main__meta">
                 <div class="subpanel signal-panel">
@@ -8129,6 +8164,7 @@ BOARD_WEB_APP_HTML = "".join(
       cardVehicle: document.getElementById('cardVehicle'),
       cardTitle: document.getElementById('cardTitle'),
       cardDescription: document.getElementById('cardDescription'),
+      cardDescriptionEditor: document.getElementById('cardDescriptionEditor'),
       cardDescriptionToolbar: document.getElementById('cardDescriptionToolbar'),
       signalPreview: document.getElementById('signalPreview'),
       signalDays: document.getElementById('signalDays'),
@@ -8222,51 +8258,189 @@ BOARD_WEB_APP_HTML = "".join(
       return text;
     }
 
-    function descriptionFormatMarkers(kind) {
-      if (kind === 'bold') return ['**', '**'];
-      if (kind === 'italic') return ['*', '*'];
-      if (kind === 'underline') return ['++', '++'];
+    const DESCRIPTION_MAX_LENGTH = 20000;
+    const DESCRIPTION_BLOCK_TAGS = new Set(['DIV', 'P', 'LI']);
+
+    function descriptionMarkdownToHtml(value) {
+      let html = escapeHtml(String(value || ''));
+      html = html
+        .replace(/\\+\\+([\\s\\S]+?)\\+\\+/g, '<u>$1</u>')
+        .replace(/\\*\\*([\\s\\S]+?)\\*\\*/g, '<strong>$1</strong>')
+        .replace(/(^|[^*])\\*([^*\\n]+?)\\*(?!\\*)/g, '$1<em>$2</em>');
+      return html.replace(/\\r\\n|\\r|\\n/g, '<br>');
+    }
+
+    function descriptionFormatTagName(kind) {
+      if (kind === 'bold') return 'strong';
+      if (kind === 'italic') return 'em';
+      if (kind === 'underline') return 'u';
       return null;
     }
 
-    function applyDescriptionFormat(kind) {
-      const textarea = els.cardDescription;
-      const markers = descriptionFormatMarkers(kind);
-      if (!textarea || !markers) return;
-      const [openMarker, closeMarker] = markers;
-      const start = textarea.selectionStart ?? 0;
-      const end = textarea.selectionEnd ?? start;
-      const text = String(textarea.value || '');
-      const selected = text.slice(start, end);
-      let replacement = openMarker + selected + closeMarker;
-      let replaceStart = start;
-      let replaceEnd = end;
-      let nextStart = start + openMarker.length;
-      let nextEnd = nextStart + selected.length;
-      if (selected && selected.startsWith(openMarker) && selected.endsWith(closeMarker)) {
-        replacement = selected.slice(openMarker.length, selected.length - closeMarker.length);
-        nextStart = start;
-        nextEnd = start + replacement.length;
-      } else if (
-        selected
-        && start >= openMarker.length
-        && text.slice(start - openMarker.length, start) === openMarker
-        && text.slice(end, end + closeMarker.length) === closeMarker
-      ) {
-        replacement = selected;
-        replaceStart = start - openMarker.length;
-        replaceEnd = end + closeMarker.length;
-        nextStart = replaceStart;
-        nextEnd = replaceStart + selected.length;
-      } else if (!selected) {
-        replacement = openMarker + closeMarker;
-        nextStart = start + openMarker.length;
-        nextEnd = nextStart;
+    function descriptionElementHasStyle(element, kind) {
+      const tag = element.tagName || '';
+      const style = element.style || {};
+      if (kind === 'bold') {
+        const rawWeight = String(style.fontWeight || '').trim();
+        return tag === 'B' || tag === 'STRONG' || rawWeight === 'bold' || Number(rawWeight) >= 600;
       }
-      textarea.setRangeText(replacement, replaceStart, replaceEnd, 'end');
-      textarea.focus();
-      textarea.setSelectionRange(nextStart, nextEnd);
-      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      if (kind === 'italic') return tag === 'I' || tag === 'EM' || String(style.fontStyle || '').trim() === 'italic';
+      if (kind === 'underline') return tag === 'U' || String(style.textDecorationLine || style.textDecoration || '').includes('underline');
+      return false;
+    }
+
+    function wrapDescriptionMarkdown(text, kind) {
+      if (!text) return '';
+      if (kind === 'bold') return '**' + text + '**';
+      if (kind === 'italic') return '*' + text + '*';
+      if (kind === 'underline') return '++' + text + '++';
+      return text;
+    }
+
+    function descriptionNodeToMarkdown(node) {
+      if (!node) return '';
+      if (node.nodeType === Node.TEXT_NODE) return String(node.nodeValue || '');
+      if (node.nodeType !== Node.ELEMENT_NODE) return '';
+      const element = node;
+      const tag = element.tagName || '';
+      if (tag === 'BR') return '\\n';
+      let text = Array.from(element.childNodes || []).map(descriptionNodeToMarkdown).join('');
+      if (descriptionElementHasStyle(element, 'bold')) text = wrapDescriptionMarkdown(text, 'bold');
+      if (descriptionElementHasStyle(element, 'italic')) text = wrapDescriptionMarkdown(text, 'italic');
+      if (descriptionElementHasStyle(element, 'underline')) text = wrapDescriptionMarkdown(text, 'underline');
+      if (tag === 'LI') text = '- ' + text;
+      if (DESCRIPTION_BLOCK_TAGS.has(tag)) text += '\\n';
+      return text;
+    }
+
+    function descriptionEditorToMarkdown(editor) {
+      if (!editor) return '';
+      return Array.from(editor.childNodes || [])
+        .map(descriptionNodeToMarkdown)
+        .join('')
+        .replace(/\\u00a0/g, ' ')
+        .replace(/\\n{3,}/g, '\\n\\n')
+        .replace(/[ \\t]+\\n/g, '\\n')
+        .replace(/\\n+$/g, '');
+    }
+
+    function syncCardDescriptionSourceFromEditor() {
+      if (!els.cardDescription || !els.cardDescriptionEditor) return;
+      const maxLength = Number(els.cardDescription.maxLength || DESCRIPTION_MAX_LENGTH) || DESCRIPTION_MAX_LENGTH;
+      els.cardDescription.value = descriptionEditorToMarkdown(els.cardDescriptionEditor).slice(0, maxLength);
+    }
+
+    function setCardDescriptionValue(value) {
+      const maxLength = Number(els.cardDescription?.maxLength || DESCRIPTION_MAX_LENGTH) || DESCRIPTION_MAX_LENGTH;
+      const nextValue = String(value || '').slice(0, maxLength);
+      if (els.cardDescription) els.cardDescription.value = nextValue;
+      if (els.cardDescriptionEditor) els.cardDescriptionEditor.innerHTML = descriptionMarkdownToHtml(nextValue);
+      syncCardDescriptionHeight();
+    }
+
+    function getCardDescriptionValue() {
+      syncCardDescriptionSourceFromEditor();
+      return String(els.cardDescription?.value || '').trim();
+    }
+
+    function handleCardDescriptionInput() {
+      syncCardDescriptionSourceFromEditor();
+      syncCardDescriptionHeight();
+    }
+
+    function descriptionSelectionRange() {
+      const editor = els.cardDescriptionEditor;
+      const selection = window.getSelection();
+      if (!editor || !selection || !selection.rangeCount) return null;
+      const range = selection.getRangeAt(0);
+      if (!editor.contains(range.commonAncestorContainer) && range.commonAncestorContainer !== editor) return null;
+      return range;
+    }
+
+    function descriptionSelectionCoversEditor() {
+      const editor = els.cardDescriptionEditor;
+      const range = descriptionSelectionRange();
+      if (!editor || !range) return false;
+      const fullRange = document.createRange();
+      fullRange.selectNodeContents(editor);
+      return range.compareBoundaryPoints(Range.START_TO_START, fullRange) <= 0
+        && range.compareBoundaryPoints(Range.END_TO_END, fullRange) >= 0;
+    }
+
+    function descriptionPlainTextFragment(value) {
+      const fragment = document.createDocumentFragment();
+      const marker = document.createTextNode('');
+      String(value || '').split(/\\r\\n|\\r|\\n/).forEach((line, index) => {
+        if (index > 0) fragment.appendChild(document.createElement('br'));
+        fragment.appendChild(document.createTextNode(line));
+      });
+      fragment.appendChild(marker);
+      return { fragment, marker };
+    }
+
+    function insertDescriptionPlainText(value) {
+      const editor = els.cardDescriptionEditor;
+      if (!editor) return;
+      editor.focus();
+      let range = descriptionSelectionRange();
+      if (!range) {
+        range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+      }
+      range.deleteContents();
+      const { fragment, marker } = descriptionPlainTextFragment(value);
+      range.insertNode(fragment);
+      const selection = window.getSelection();
+      const nextRange = document.createRange();
+      nextRange.setStartBefore(marker);
+      nextRange.collapse(true);
+      marker.remove();
+      selection.removeAllRanges();
+      selection.addRange(nextRange);
+      handleCardDescriptionInput();
+    }
+
+    function handleDescriptionBeforeInput(event) {
+      if (event.inputType !== 'insertText' || typeof event.data !== 'string') return;
+      if (!descriptionSelectionCoversEditor()) return;
+      event.preventDefault();
+      insertDescriptionPlainText(event.data);
+    }
+
+    function handleDescriptionPaste(event) {
+      const text = String(event.clipboardData?.getData('text/plain') || '');
+      if (!text) return;
+      event.preventDefault();
+      insertDescriptionPlainText(text);
+    }
+
+    function applyDescriptionFormat(kind) {
+      const editor = els.cardDescriptionEditor;
+      const tagName = descriptionFormatTagName(kind);
+      if (!editor || !tagName) return;
+      editor.focus();
+      const range = descriptionSelectionRange();
+      if (!range) return;
+      const wrapper = document.createElement(tagName);
+      if (range.collapsed) {
+        wrapper.appendChild(document.createTextNode(''));
+        range.insertNode(wrapper);
+      } else {
+        wrapper.appendChild(range.extractContents());
+        range.insertNode(wrapper);
+      }
+      const selection = window.getSelection();
+      const nextRange = document.createRange();
+      nextRange.selectNodeContents(wrapper);
+      if (range.collapsed) nextRange.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(nextRange);
+      handleCardDescriptionInput();
+    }
+
+    function handleDescriptionToolbarMouseDown(event) {
+      if (event.target.closest('[data-description-format]')) event.preventDefault();
     }
 
     function handleDescriptionFormatClick(event) {
@@ -14507,22 +14681,22 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function syncCardDescriptionHeight() {
-      const textarea = els.cardDescription;
-      if (!textarea) return;
-      const style = window.getComputedStyle(textarea);
+      const editor = els.cardDescriptionEditor;
+      if (!editor) return;
+      const style = window.getComputedStyle(editor);
       const lineHeight = Math.max(22, parseFloat(style.lineHeight || '24'));
       const paddingTop = parseFloat(style.paddingTop || '0');
       const paddingBottom = parseFloat(style.paddingBottom || '0');
       const borderTop = parseFloat(style.borderTopWidth || '0');
       const borderBottom = parseFloat(style.borderBottomWidth || '0');
       const chromeHeight = paddingTop + paddingBottom + borderTop + borderBottom;
-      const text = String(textarea.value || '').trim();
+      const text = String(els.cardDescription?.value || editor.innerText || '').trim();
       const lineCount = text ? text.split(/\\r?\\n/).length : 0;
       const minRows = text ? Math.max(8, Math.min(18, lineCount + 2)) : 7;
       const minHeight = Math.round(minRows * lineHeight + chromeHeight);
       const maxHeight = Math.max(minHeight, Math.min(window.innerHeight * 0.62, 760));
-      textarea.style.height = 'auto';
-      textarea.style.height = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight)) + 'px';
+      editor.style.height = 'auto';
+      editor.style.height = Math.max(minHeight, Math.min(editor.scrollHeight, maxHeight)) + 'px';
     }
 
     function stickyPayload() {
@@ -15351,19 +15525,20 @@ BOARD_WEB_APP_HTML = "".join(
       try {
         els.vehicleAutofillButton.disabled = true;
         renderVehicleAutofillStatus('АНАЛИЗИРУЮ МАРКУ, ЗАГОЛОВОК И ОПИСАНИЕ КАРТОЧКИ...', false);
+        const currentDescription = getCardDescriptionValue();
         const payload = {
           raw_text: rawText,
           vehicle_profile: readVehicleProfileForm(),
           vehicle: els.cardVehicle.value.trim(),
           title: els.cardTitle.value.trim(),
-          description: els.cardDescription.value.trim(),
+          description: currentDescription,
         };
         const result = await api('/api/autofill_vehicle_data', { method: 'POST', body: payload });
         state.vehicleAutofillResult = result;
         applyVehicleProfileToForm(result.vehicle_profile || {}, { preserveStatus: true });
         if (!els.cardVehicle.value.trim() && result.card_draft?.vehicle) els.cardVehicle.value = result.card_draft.vehicle;
         if (!els.cardTitle.value.trim() && result.card_draft?.title) els.cardTitle.value = result.card_draft.title;
-        if (!els.cardDescription.value.trim() && result.card_draft?.description) els.cardDescription.value = result.card_draft.description;
+        if (!currentDescription && result.card_draft?.description) setCardDescriptionValue(result.card_draft.description);
         syncCardDescriptionHeight();
         const status = buildVehicleAutofillStatus(result);
         renderVehicleAutofillStatus(status.text, status.isWarning);
@@ -15387,7 +15562,7 @@ BOARD_WEB_APP_HTML = "".join(
         source: 'ui',
         vehicle: els.cardVehicle.value.trim(),
         title: els.cardTitle.value.trim(),
-        description: els.cardDescription.value.trim(),
+        description: getCardDescriptionValue(),
         column,
         tags: state.draftTags.map((tag) => ({ label: tag.label, color: tag.color })),
         deadline: deadlineInput(),
@@ -16650,7 +16825,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.cardModalTitle.title = modalHeading;
       els.cardVehicle.value = currentCard?.vehicle || '';
       els.cardTitle.value = currentCard?.title || '';
-      els.cardDescription.value = currentCard?.description || '';
+      setCardDescriptionValue(currentCard?.description || '');
       const parts = secondsToParts(currentCard?.remaining_seconds || 86400);
       els.signalDays.value = parts.days;
       els.signalHours.value = parts.hours;
@@ -20955,8 +21130,11 @@ function renderCompactArchiveRows(cards) {
     els.tagAddButton.addEventListener('click', addDraftTag);
     els.tagInput.addEventListener('keydown', handleTagInputKeydown);
     configureVehicleAutofillUi();
-    els.cardDescription.addEventListener('input', syncCardDescriptionHeight);
-    els.cardDescription.addEventListener('keydown', handleDescriptionKeyboardShortcut);
+    els.cardDescriptionEditor.addEventListener('beforeinput', handleDescriptionBeforeInput);
+    els.cardDescriptionEditor.addEventListener('input', handleCardDescriptionInput);
+    els.cardDescriptionEditor.addEventListener('keydown', handleDescriptionKeyboardShortcut);
+    els.cardDescriptionEditor.addEventListener('paste', handleDescriptionPaste);
+    els.cardDescriptionToolbar.addEventListener('mousedown', handleDescriptionToolbarMouseDown);
     els.cardDescriptionToolbar.addEventListener('click', handleDescriptionFormatClick);
     els.vehicleAutofillButton.addEventListener('click', autofillVehicleProfile);
     els.repairOrderAddWorkRowButton.addEventListener('click', (event) => addRepairOrderRowFromButton('works', event));
@@ -21017,7 +21195,7 @@ function renderCompactArchiveRows(cards) {
       const parts = [];
       const vehicle = String(els.cardVehicle.value || '').trim();
       const title = String(els.cardTitle.value || '').trim();
-      const description = String(els.cardDescription.value || '').trim();
+      const description = getCardDescriptionValue();
       if (vehicle) parts.push(CARD_VEHICLE_FIELD_LABEL + ': ' + vehicle);
       if (title) parts.push(CARD_TITLE_FIELD_LABEL + ': ' + title);
       if (description) parts.push('Описание:\\n' + description);
