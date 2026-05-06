@@ -183,13 +183,12 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('class="topbar-search"', BOARD_WEB_APP_HTML)
         self.assertIn('id="boardSearchInput"', BOARD_WEB_APP_HTML)
         self.assertIn('id="boardSearchResults"', BOARD_WEB_APP_HTML)
-        self.assertIn("flex: 0 0 132px;", BOARD_WEB_APP_HTML)
-        self.assertIn("width: 132px;", BOARD_WEB_APP_HTML)
+        self.assertIn("flex: 0 0 220px;", BOARD_WEB_APP_HTML)
+        self.assertIn("width: 220px;", BOARD_WEB_APP_HTML)
         self.assertIn("height: 27px;", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            '<label class="topbar-search__label" for="boardSearchInput">поиск по доске</label>',
-            BOARD_WEB_APP_HTML,
-        )
+        self.assertIn('aria-label="Поиск по доске"', BOARD_WEB_APP_HTML)
+        self.assertNotIn("topbar-search__label", BOARD_WEB_APP_HTML)
+        self.assertNotIn("поиск по доске", BOARD_WEB_APP_HTML)
         self.assertNotIn("НАЙТИ КАРТОЧКУ", BOARD_WEB_APP_HTML)
         self.assertNotIn('placeholder="НАЙТИ КАРТОЧКУ"', BOARD_WEB_APP_HTML)
         generic_search_input_index = BOARD_WEB_APP_HTML.index(

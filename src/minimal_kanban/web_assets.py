@@ -173,10 +173,10 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .topbar-search {
       position: relative;
-      flex: 0 0 132px;
-      width: 132px;
-      min-width: 132px;
-      max-width: 132px;
+      flex: 0 0 220px;
+      width: 220px;
+      min-width: 220px;
+      max-width: 220px;
       z-index: 8;
     }
     .topbar-search__box {
@@ -191,28 +191,15 @@ BOARD_WEB_APP_HTML = "".join(
         inset 0 1px 0 rgba(255,255,255,0.05),
         0 0 0 1px rgba(0,0,0,0.18);
     }
-    .topbar-search__label {
-      position: absolute;
-      left: 8px;
-      top: 3px;
-      z-index: 1;
-      color: var(--accent);
-      font-family: var(--mono);
-      font-size: 7.4px;
-      font-weight: 700;
-      letter-spacing: 0;
-      opacity: 0.88;
-      pointer-events: none;
-    }
     .topbar-search__input {
       width: 100%;
       height: 27px;
       border: 0;
       background: transparent;
       color: var(--text);
-      padding: 12px 27px 2px 8px;
+      padding: 5px 27px 5px 8px;
       outline: none;
-      font-size: 10.5px;
+      font-size: 11px;
       line-height: 1.15;
     }
     .topbar-search__box:focus-within {
@@ -1367,7 +1354,7 @@ BOARD_WEB_APP_HTML = "".join(
       min-height: 0;
       border: 0;
       background: transparent;
-      padding: 12px 27px 2px 8px;
+      padding: 5px 27px 5px 8px;
       resize: none;
     }
     input[type="range"] {
@@ -6547,8 +6534,7 @@ BOARD_WEB_APP_HTML = "".join(
       </div>
       <div class="topbar-search" role="search" aria-label="Поиск по карточкам">
         <div class="topbar-search__box">
-          <label class="topbar-search__label" for="boardSearchInput">поиск по доске</label>
-          <input class="topbar-search__input" id="boardSearchInput" type="search" autocomplete="off" spellcheck="false" aria-controls="boardSearchResults" aria-expanded="false">
+          <input class="topbar-search__input" id="boardSearchInput" type="search" autocomplete="off" spellcheck="false" aria-label="Поиск по доске" aria-controls="boardSearchResults" aria-expanded="false">
           <button class="topbar-search__clear" id="boardSearchClearButton" type="button" aria-label="Очистить поиск" hidden>×</button>
         </div>
         <div class="topbar-search__results" id="boardSearchResults" role="listbox" aria-label="Результаты поиска"></div>
