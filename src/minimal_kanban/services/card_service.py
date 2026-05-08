@@ -1295,6 +1295,12 @@ class CardService:
     def review_board(self, payload: dict | None = None) -> dict:
         return self._snapshot_service.review_board(payload)
 
+    def get_board_content(self, payload: dict | None = None) -> dict:
+        return self._snapshot_service.get_board_content(payload)
+
+    def get_board_events(self, payload: dict | None = None) -> dict:
+        return self._snapshot_service.get_board_events(payload)
+
     def list_cashboxes(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}

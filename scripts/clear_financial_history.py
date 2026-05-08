@@ -1,4 +1,5 @@
 from __future__ import annotations
+# ruff: noqa: E402,I001
 
 import argparse
 import json
@@ -17,7 +18,7 @@ from minimal_kanban.storage.financial_history_cleanup import sanitize_financial_
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Clear historical cash and payroll data from a Minimal Kanban state file."
+        description="Clear historical cash and payroll data from an AutoStop CRM state file."
     )
     parser.add_argument(
         "--state-file",
@@ -39,7 +40,9 @@ def main() -> int:
     sanitized_state = sanitize_financial_history_state(raw_state)
     backup_file = state_file.with_suffix(state_file.suffix + args.backup_suffix)
     backup_file.write_text(json.dumps(raw_state, ensure_ascii=False, indent=2), encoding="utf-8")
-    state_file.write_text(json.dumps(sanitized_state, ensure_ascii=False, indent=2), encoding="utf-8")
+    state_file.write_text(
+        json.dumps(sanitized_state, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     print(f"Sanitized {state_file}")
     print(f"Backup written to {backup_file}")
     return 0

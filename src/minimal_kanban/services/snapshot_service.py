@@ -1007,6 +1007,62 @@ class SnapshotService:
                 "text": wall_text,
             }
 
+    def get_board_content(self, payload: dict | None = None) -> dict:
+        payload = payload or {}
+        view_mode = normalize_text(payload.get("view_mode"), default="agent", limit=20).lower()
+        if view_mode not in {"agent", "full"}:
+            view_mode = "agent"
+        include_archived = self._validated_optional_bool(payload, "include_archived", default=True)
+        wall = self.get_gpt_wall(
+            {
+                "include_archived": include_archived,
+                "event_limit": GPT_WALL_AGENT_EVENT_LIMIT if view_mode == "agent" else 100,
+                "compact": view_mode == "agent",
+                "actor_name": payload.get("actor_name"),
+            }
+        )
+        sections = wall.get("sections") if isinstance(wall.get("sections"), dict) else {}
+        section = dict(sections.get("board_content") or {})
+        meta = dict(section.get("meta") or {})
+        meta.update(
+            {
+                "response_mode": "agent_context" if view_mode == "agent" else "export",
+                "view_mode": view_mode,
+                "include_archived": include_archived,
+            }
+        )
+        section["meta"] = meta
+        return section
+
+    def get_board_events(self, payload: dict | None = None) -> dict:
+        payload = payload or {}
+        event_limit = self._validated_limit(payload.get("event_limit"), default=100, maximum=5000)
+        include_archived = self._validated_optional_bool(payload, "include_archived", default=True)
+        view_mode = normalize_text(payload.get("view_mode"), default="audit", limit=20).lower()
+        if view_mode not in {"audit", "full"}:
+            view_mode = "audit"
+        wall = self.get_gpt_wall(
+            {
+                "include_archived": include_archived,
+                "event_limit": event_limit,
+                "actor_name": payload.get("actor_name"),
+            }
+        )
+        sections = wall.get("sections") if isinstance(wall.get("sections"), dict) else {}
+        section = dict(sections.get("event_log") or {})
+        meta = dict(section.get("meta") or {})
+        meta.update(
+            {
+                "response_mode": "audit",
+                "view_mode": view_mode,
+                "event_limit": event_limit,
+                "include_archived": include_archived,
+                "event_order": "newest_first",
+            }
+        )
+        section["meta"] = meta
+        return section
+
     def list_archived_cards(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}

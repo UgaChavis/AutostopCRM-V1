@@ -1,924 +1,233 @@
 # Руководство по API
 
-Локальный API предназначен для UI-приложения, MCP-адаптера и внешних локальных интеграций.
+Локальный HTTP API обслуживает UI, desktop shell, MCP adapter, Telegram AI worker и локальные интеграции.
 
-## Базовая информация
+Источник правды по маршрутам: `src/minimal_kanban/api/server.py`.
 
-- протокол: HTTP
-- формат: JSON request / JSON response
+## База
+
 - адрес по умолчанию: `http://127.0.0.1:41731`
-- путь health-check: `GET /api/health`
+- health-check: `GET /api/health`
+- формат JSON: request body -> response envelope
+- большинство JSON-маршрутов вызываются через `POST`
+- read-only маршруты, отмеченные ниже как `GET|POST`, также принимают query params через `GET`
+- прямые download routes возвращают файл, а не JSON envelope
 
-Если занят стартовый порт, API автоматически переходит на следующий свободный порт в диапазоне fallback.
-
-## Авторизация
-
-По умолчанию локальный API работает без bearer token.
-
-Если задана переменная окружения:
-
-```text
-MINIMAL_KANBAN_API_BEARER_TOKEN=ваш_секрет
-```
-
-тогда все endpoint-ы, кроме `GET /api/health`, требуют заголовок:
+Если задан `MINIMAL_KANBAN_API_BEARER_TOKEN`, все маршруты кроме `GET /api/health` требуют:
 
 ```http
-Authorization: Bearer ваш_секрет
+Authorization: Bearer <token>
 ```
 
-## Общий формат ответа
+## Envelope
 
 Успех:
 
 ```json
-{
-  "ok": true,
-  "data": {
-    "card": {
-      "id": "..."
-    }
-  },
-  "error": null,
-  "meta": {
-    "request_id": "uuid",
-    "timestamp": "2026-03-24T10:00:00+00:00"
-  }
-}
+{"ok": true, "data": {}, "error": null, "meta": {"request_id": "uuid"}}
 ```
 
 Ошибка:
 
 ```json
-{
-  "ok": false,
-  "data": null,
-  "error": {
-    "code": "validation_error",
-    "message": "Поле deadline.hours должно быть в диапазоне от 0 до 23.",
-    "details": {
-      "field": "deadline.hours"
-    }
-  },
-  "meta": {
-    "request_id": "uuid",
-    "timestamp": "2026-03-24T10:00:00+00:00"
-  }
-}
+{"ok": false, "data": null, "error": {"code": "validation_error", "message": "..."}, "meta": {"request_id": "uuid"}}
 ```
 
-## Модель карточки
+Типовые `error.code`: `validation_error`, `not_found`, `unauthorized`, `archived_card`, `storage_limit_exceeded`, `internal_error`.
 
-Объект карточки содержит:
+## Доска и карточки
+
+Read:
+
+- `GET|POST /api/list_columns`
+- `GET|POST /api/get_cards`
+- `GET|POST /api/get_card`
+- `POST /api/get_card_context`
+- `GET|POST /api/get_card_log`
+- `GET|POST /api/get_board_revision`
+- `GET|POST /api/get_board_snapshot`
+- `GET|POST /api/get_board_context`
+- `GET|POST /api/review_board`
+- `GET|POST /api/get_board_content`
+- `GET|POST /api/get_board_events`
+- `GET|POST /api/get_gpt_wall`
+- `GET|POST /api/search_cards`
+- `GET|POST /api/list_archived_cards`
+- `GET|POST /api/list_overdue_cards`
+
+Write:
+
+- `POST /api/create_column`, `/api/rename_column`, `/api/move_column`, `/api/delete_column`
+- `POST /api/create_card`, `/api/update_card`, `/api/set_card_deadline`, `/api/set_card_indicator`
+- `POST /api/move_card`, `/api/bulk_move_cards`, `/api/mark_card_ready`, `/api/mark_card_seen`
+- `POST /api/archive_card`, `/api/restore_card`
+- `POST /api/create_sticky`, `/api/update_sticky`, `/api/move_sticky`, `/api/delete_sticky`
+- `POST /api/update_board_settings`
+
+`review_board` и compact snapshot предпочтительнее широких exports. `get_board_content`, `get_board_events` и `get_gpt_wall` нужны для полного агентского контекста, когда точечных reads недостаточно.
+
+## Board Summary
+
+`POST /api/set_card_board_summary`
+
+Payload:
 
 ```json
 {
-  "id": "uuid",
-  "title": "Позвонить клиенту",
-  "description": "Подтвердить встречу",
-  "column": "inbox",
-  "archived": false,
-  "created_at": "2026-03-24T10:00:00+00:00",
-  "updated_at": "2026-03-24T10:00:00+00:00",
-  "deadline_timestamp": "2026-03-25T10:00:00+00:00",
-  "client_id": "",
-  "client_vehicle_id": "",
-  "board_summary": "Что сейчас: согласовать диагностику.\nСледующее действие: позвонить клиенту.",
-  "board_summary_updated_at": "2026-03-24T10:05:00+00:00",
-  "board_summary_source": "mcp",
-  "board_summary_stale": false,
-  "remaining_seconds": 86395,
-  "remaining_display": "0д 23:59:55",
-  "status": "ok",
-  "indicator": "green"
+  "card_id": "CARD_ID",
+  "summary": "Что сейчас: ...\nСтадия: ...\nСледующее действие: ..."
 }
 ```
 
-### Поля карточки
-
-- `id` — идентификатор карточки
-- `title` — заголовок
-- `description` — описание
-- `column` — id столбца
-- `archived` — архивирована ли карточка
-- `deadline_timestamp` — абсолютный UTC deadline
-- `client_id` — необязательная связь карточки с записью клиента
-- `client_vehicle_id` — необязательная связь карточки с конкретным автомобилем внутри профиля клиента
-- `board_summary` — скрытая краткая суть для превью карточки на доске, заполняется агентом/API/MCP, а не ручным UI-полем
-- `board_summary_updated_at` — когда агент обновил краткую суть
-- `board_summary_source` — нормализованный источник обновления (`mcp`, `api`, `ui` или `system`)
-- `board_summary_stale` — `true`, если содержимое карточки изменилось после последнего обновления краткой сути
-- `remaining_seconds` — оставшееся время
-- `remaining_display` — готовая строка для UI
-- `status` — `ok`, `warning`, `expired`
-- `indicator` — `green`, `yellow`, `red`
-
-Важно:
-
-- `indicator` не хранится отдельно, а вычисляется из дедлайна
-- endpoint `set_card_indicator` меняет дедлайн так, чтобы карточка получила нужный цвет лампочки
-- `board_summary` не заменяет `description`: полное описание остается источником восстановления, журнал карточки фиксирует обновления краткой сути отдельно
-
-## Модель deadline
-
-Формат входного `deadline`:
-
-```json
-{
-  "days": 1,
-  "hours": 2,
-  "minutes": 0,
-  "seconds": 0
-}
-```
-
-Ограничения:
-
-- `days`: `0..365`
-- `hours`: `0..23`
-- `minutes`: `0..59`
-- `seconds`: `0..59`
-- итоговое время должно быть больше `0`
-
-## Endpoint-ы
-
-### `GET /api/health`
-
-Назначение: проверить, что API поднялся.
-
-Пример ответа:
-
-```json
-{
-  "ok": true,
-  "data": {
-    "status": "ok",
-    "base_url": "http://127.0.0.1:41731",
-    "auth_required": false
-  },
-  "error": null,
-  "meta": {
-    "request_id": "uuid",
-    "timestamp": "2026-03-24T10:00:00+00:00"
-  }
-}
-```
-
-### `GET /api/list_columns`
-
-Назначение: получить все столбцы доски.
-
-Ответ:
-
-```json
-{
-  "ok": true,
-  "data": {
-    "columns": [
-      {"id": "inbox", "label": "Входящие"},
-      {"id": "in_progress", "label": "В работе"},
-      {"id": "done", "label": "Готово"}
-    ]
-  }
-}
-```
-
-### `POST /api/create_column`
-
-Назначение: создать новый столбец.
-
-Запрос:
-
-```json
-{
-  "label": "Блокеры"
-}
-```
-
-### `POST /api/get_cards`
-
-Назначение: получить карточки.
-
-Запрос:
-
-```json
-{
-  "include_archived": false
-}
-```
-
-### `POST /api/list_overdue_cards`
-
-Назначение: получить только просроченные карточки.
-
-Запрос:
-
-```json
-{
-  "include_archived": false
-}
-```
-
-### `POST /api/get_card`
-
-Назначение: получить одну карточку.
-
-Запрос:
-
-```json
-{
-  "card_id": "a4d4d10a-0a5a-4d7f-99e1-4d7ddbc6b0a4"
-}
-```
-
-### `GET|POST /api/get_card_log`
-
-Назначение: получить полный журнал одной карточки для человека и MCP/агента.
-
-Ответ использует схему `card_journal.v2`: `entries`/`timeline` дают машинно-читаемые события, `days`/`weeks`/`months` группируют их по времени, `totals` содержит счетчики, а `markdown`/`text` содержит человекочитаемый отчет в стиле кассового журнала. Для восстановимости `changes[]` хранит полный сырой `before`/`after`, а Markdown показывает русские блоки `до:` и `после:` без служебного JSON-шума.
-
-Запрос:
-
-```json
-{
-  "card_id": "a4d4d10a-0a5a-4d7f-99e1-4d7ddbc6b0a4",
-  "limit": 100
-}
-```
-
-### `POST /api/create_card`
-
-Назначение: создать карточку.
-
-Запрос:
-
-```json
-{
-  "title": "Подготовить созвон",
-  "description": "Собрать вопросы",
-  "column": "inbox",
-  "deadline": {
-    "days": 0,
-    "hours": 6
-  }
-}
-```
-
-### `POST /api/update_card`
-
-Назначение: обновить карточку через тот же сервисный слой, который использует UI/MCP. Поддерживаемые поля зависят от текущего API-контракта и включают `vehicle`, `title`, `description`, `tags`, `deadline` и безопасное обновление `vehicle_profile`.
-
-Запрос:
-
-```json
-{
-  "card_id": "a4d4d10a-0a5a-4d7f-99e1-4d7ddbc6b0a4",
-  "vehicle": "Toyota Camry",
-  "title": "Подготовить созвон с клиентом",
-  "description": "Добавить повестку",
-  "tags": [
-    {"label": "СОГЛАСОВАТЬ", "color": "yellow"}
-  ],
-  "deadline": {
-    "days": 0,
-    "hours": 8
-  },
-  "vehicle_profile": {
-    "make_display": "Toyota",
-    "model_display": "Camry",
-    "production_year": 2017,
-    "vin": "JTDBE32K620654321",
-    "engine_model": "2AR-FE",
-    "gearbox_model": "U760E",
-    "drivetrain": "FWD",
-    "source_summary": "VIN decode + operator-confirmed profile",
-    "source_confidence": 0.9
-  }
-}
-```
-
-Правила для агентов:
-
-- `vehicle` держать коротким: марка/модель, без жалобы и длинного года/номера, если это уже есть в паспорте.
-- `title` держать короткой сутью задачи или следующего шага.
-- `description` может быть подробным, но не должно терять старые пользовательские сведения.
-- Ручные поля `vehicle_profile.manual_fields` считаются авторитетными; автопоиск не должен молча перетирать их.
-- Если после `update_card` у карточки есть `board_summary`, обычное изменение помечает его как устаревшее; агент должен обновить `board_summary` отдельным вызовом.
-
-### `POST /api/set_card_board_summary`
-
-Назначение: обновить скрытую AI-краткую суть карточки для отображения на доске.
-
-Это служебный endpoint для агента/MCP/Telegram. Он не меняет `title` и `description`, чтобы операторские данные и восстановление через журнал не терялись. UI карточки на доске берет `board_summary`, если поле заполнено, и только потом падает обратно на `description_preview`.
-
-Ограничения:
-
-- максимум `5` непустых строк
-- максимум `560` символов
-- архивные карточки не изменяются
-- после обычного изменения карточки `board_summary_stale` становится `true`, пока агент не обновит краткую суть заново
-- в `board_summary` нельзя переносить телефон, VIN, полное описание, длинные списки жалоб или сырые диагностические дампы
-
-Запрос:
-
-```json
-{
-  "card_id": "a4d4d10a-0a5a-4d7f-99e1-4d7ddbc6b0a4",
-  "summary": "Что сейчас: проверить жалобу по тормозам.\nСтадия: диагностика.\nСледующее действие: согласовать работы."
-}
-```
-
-Ответ содержит обновленную карточку и метаданные:
-
-```json
-{
-  "ok": true,
-  "data": {
-    "card": {
-      "id": "a4d4d10a-0a5a-4d7f-99e1-4d7ddbc6b0a4",
-      "board_summary": "Что сейчас: проверить жалобу по тормозам.\nСтадия: диагностика.\nСледующее действие: согласовать работы.",
-      "board_summary_source": "mcp",
-      "board_summary_stale": false
-    },
-    "meta": {
-      "changed": true,
-      "summary_lines": 3,
-      "board_summary_stale": false
-    }
-  }
-}
-```
-
-Практическое правило: `description` — источник подробностей и восстановления; `board_summary` — отдельное операторское превью на 4-5 строк. При менеджерской уборке карточки сначала обновляют полное содержимое карточки, затем отдельным вызовом обновляют `board_summary` и проверяют, что `board_summary_stale=false`.
-
-### `POST /api/set_card_deadline`
-
-Назначение: поменять только дедлайн карточки.
-
-Запрос:
-
-```json
-{
-  "card_id": "a4d4d10a-0a5a-4d7f-99e1-4d7ddbc6b0a4",
-  "deadline": {
-    "minutes": 30
-  }
-}
-```
-
-### `POST /api/set_card_indicator`
-
-Назначение: выставить лампочку карточки в `green`, `yellow` или `red`.
-
-Важно:
-
-- endpoint не хранит отдельное поле `indicator`
-- endpoint меняет deadline так, чтобы вычисляемая лампочка стала нужного цвета
-
-Запрос:
-
-```json
-{
-  "card_id": "a4d4d10a-0a5a-4d7f-99e1-4d7ddbc6b0a4",
-  "indicator": "yellow"
-}
-```
-
-### `POST /api/move_card`
-
-Назначение: переместить карточку в другой столбец.
-
-Запрос:
-
-```json
-{
-  "card_id": "a4d4d10a-0a5a-4d7f-99e1-4d7ddbc6b0a4",
-  "column": "done"
-}
-```
-
-### `POST /api/archive_card`
-
-Назначение: архивировать карточку.
-
-Запрос:
-
-```json
-{
-  "card_id": "a4d4d10a-0a5a-4d7f-99e1-4d7ddbc6b0a4"
-}
-```
+Правила:
+
+- до 5 непустых строк;
+- до 560 символов;
+- без телефона, VIN, полного имени клиента, сырых диагностических дампов и длинных жалоб;
+- не меняет `title` или `description`;
+- пишет событие `board_summary_changed`.
+
+После обычных изменений карточки агент должен отдельно обновить `board_summary` и проверить `board_summary_stale=false`.
 
 ## Клиенты
 
-Клиентский модуль хранит справочник физических лиц, ИП, ООО и организаций. Связь с карточкой необязательна: карточка может содержать ручные поля клиента без создания профиля.
-
-Поиск и привязка клиентов считают российские телефоны с префиксом `+7` и `8` одним номером, чтобы история не терялась из-за разного формата записи.
-
-### Модель клиента
-
-```json
-{
-  "id": "uuid",
-  "client_type": "person",
-  "last_name": "Иванов",
-  "first_name": "Иван",
-  "middle_name": "Иванович",
-  "display_name": "",
-  "phone": "+79130000000",
-  "phones": ["+79130000000"],
-  "email": "",
-  "comment": "",
-  "legal_name": "",
-  "short_name": "",
-  "inn": "",
-  "kpp": "",
-  "ogrn": "",
-  "checking_account": "",
-  "bank_name": "",
-  "bik": "",
-  "correspondent_account": "",
-  "legal_address": "",
-  "actual_address": "",
-  "contact_person": "",
-  "contact_position": "",
-  "vehicles": [
-    {
-      "vehicle": "Toyota Camry",
-      "brand": "Toyota",
-      "model": "Camry",
-      "vin": "JTDBE32K620654321",
-      "license_plate": "А123ВС124",
-      "year": "2017"
-    }
-  ]
-}
-```
-
-Типы:
-
-- `person` — физическое лицо.
-- `ip` — индивидуальный предприниматель.
-- `ooo` — ООО.
-- `company` — другая организация.
-
-### `POST /api/list_clients`
-
-Назначение: получить список клиентов.
-
-Запрос:
-
-```json
-{
-  "limit": 100,
-  "include_stats": true
-}
-```
-
-### `POST /api/search_clients`
-
-Назначение: найти клиента по имени, части ФИО, телефону, email, ИНН, названию организации,
-контактному лицу, а также по автомобилю, госномеру или VIN из связанных карточек и сохраненного профиля клиента.
-Телефон ищется в разных форматах: `+7`, `8`, без пробелов, со скобками и дефисами.
-Для больших справочников поиск сначала проверяет собственные поля клиента и сохраненные `vehicles[]`, а связанную историю карточек использует как fallback.
-Компактный ответ содержит `vehicles_preview` — 1-2 связанных автомобиля для UI-подсказок. У каждого автомобиля есть стабильный `id`; если оператор выбирает конкретную машину, этот `id` нужно передать как `client_vehicle_id` в `/api/link_card_to_client`.
-
-Запрос:
-
-```json
-{
-  "query": "Иванов 913",
-  "limit": 10
-}
-```
-
-### `POST /api/get_client`
-
-Назначение: открыть профиль клиента, связанные автомобили и последние заказ-наряды.
-
-Запрос:
-
-```json
-{
-  "client_id": "CLIENT_ID",
-  "order_limit": 30
-}
-```
-
-### `POST /api/get_client_stats`
-
-Назначение: получить компактную статистику клиента.
-
-Запрос:
-
-```json
-{
-  "client_id": "CLIENT_ID"
-}
-```
-
-### `POST /api/create_client`
-
-Назначение: создать клиента.
-
-Запрос:
-
-```json
-{
-  "client": {
-    "client_type": "person",
-    "last_name": "Иванов",
-    "first_name": "Иван",
-    "middle_name": "Иванович",
-    "phone": "+79130000000",
-    "vehicles": [
-      {
-        "id": "optional-existing-or-generated-id",
-        "brand": "Toyota",
-        "model": "Camry",
-        "vin": "JTDBE32K620654321",
-        "license_plate": "А123ВС124",
-        "year": "2017"
-      }
-    ]
-  },
-  "actor_name": "operator"
-}
-```
-
-### `POST /api/update_client`
-
-Назначение: обновить профиль клиента. Передавать только изменяемые поля.
-
-Запрос:
-
-```json
-{
-  "client_id": "CLIENT_ID",
-  "patch": {
-    "email": "client@example.com",
-    "comment": "Постоянный клиент",
-    "vehicles": [
-      {
-        "brand": "Toyota",
-        "model": "Camry",
-        "vin": "JTDBE32K620654321",
-        "license_plate": "А123ВС124"
-      }
-    ]
-  },
-  "actor_name": "operator"
-}
-```
-
-### `POST /api/delete_client`
-
-Назначение: удалить профиль клиента. Карточки не удаляются. Если к клиенту привязаны карточки, команда по умолчанию вернет ошибку `client_has_linked_cards`.
-
-Запрос:
-
-```json
-{
-  "client_id": "CLIENT_ID",
-  "allow_linked": false,
-  "actor_name": "operator"
-}
-```
-
-Важно:
-
-- `allow_linked=false` безопасный режим по умолчанию.
-- `allow_linked=true` сначала снимет `client_id` со связанных карточек, затем удалит профиль клиента.
-- Использовать `allow_linked=true` только после явного подтверждения пользователя.
-
-### `POST /api/link_card_to_client`
-
-Назначение: привязать карточку к клиенту и, если известно, к конкретному автомобилю клиента.
-
-Запрос:
-
-```json
-{
-  "card_id": "CARD_ID",
-  "client_id": "CLIENT_ID",
-  "client_vehicle_id": "CLIENT_VEHICLE_ID",
-  "create_vehicle_from_card": false,
-  "sync_vehicle_fields": true,
-  "sync_fields": true,
-  "overwrite_card_fields": false
-}
-```
-
-Важно:
-
-- `sync_fields=true` дозаполняет пустые клиентские поля карточки и заказ-наряда.
-- `client_vehicle_id` заполняет паспорт автомобиля из выбранной машины клиента и сохраняется в карточке.
-- `create_vehicle_from_card=true` создает новый автомобиль в профиле существующего клиента из паспорта текущей карточки.
-- `sync_vehicle_fields=true` синхронизирует поля автомобиля; последующие изменения паспорта связанной карточки обновляют выбранный автомобиль клиента.
-- `overwrite_card_fields=true` может заменить ручные поля клиента, поэтому использовать только после подтверждения пользователя.
-
-### `POST /api/upsert_client_vehicle`
-
-Назначение: создать или обновить автомобиль внутри профиля клиента.
-
-Запрос:
-
-```json
-{
-  "client_id": "CLIENT_ID",
-  "client_vehicle_id": "CLIENT_VEHICLE_ID",
-  "vehicle": {
-    "vehicle": "Toyota Camry 2017",
-    "brand": "Toyota",
-    "model": "Camry",
-    "vin": "JTDBE32K620654321",
-    "license_plate": "А123ВС124",
-    "year": "2017",
-    "mileage": "120000",
-    "engine_model": "2AR-FE",
-    "gearbox_model": "U760E",
-    "drivetrain": "FWD"
-  },
-  "sync_linked_cards": true,
-  "actor_name": "operator"
-}
-```
-
-Если `client_vehicle_id` не передан, создается новая машина. Если передан `card_id` и не передан `vehicle`, данные автомобиля берутся из паспорта карточки. По умолчанию `sync_linked_cards=true`: при изменении VIN/госномера/модели выбранного автомобиля связанные карточки с этим `client_vehicle_id` получают обновленный паспорт автомобиля.
-
-### Агентское VIN-обогащение паспорта
-
-Если в карточке или клиентском автомобиле есть VIN/chassis/frame number, но в паспорте пустые агрегатные поля, агент может заполнить их через `update_card` или `upsert_client_vehicle` только после проверки источников.
-
-Заполнять как подтвержденные факты можно:
-
-- `engine_model`
-- `gearbox_model`
-- `drivetrain`
-- связанные стабильные заметки в `oem_notes`
-- `source_summary`, `source_links_or_refs`, `source_confidence`, `field_sources`
-
-Не заполнять наугад:
-
-- комплектацию, опции, тип раздатки, редуктор или коробку, если источник дает несколько вариантов;
-- поля, которые уже находятся в `manual_fields`;
-- сведения из форума/маркетплейса без проверки по VIN/EPC/официальному декодеру/дилерскому маршруту.
-
-Если уверенность неполная, оставьте агрегатное поле пустым и добавьте краткое предупреждение в `oem_notes` или `tentative_fields`, чтобы оператор видел, что нужна проверка по EPC/дилеру.
-
-### `POST /api/delete_client_vehicle`
-
-Назначение: удалить автомобиль из профиля клиента без удаления карточек и заказ-нарядов.
-
-Запрос:
-
-```json
-{
-  "client_id": "CLIENT_ID",
-  "client_vehicle_id": "CLIENT_VEHICLE_ID",
-  "unlink_cards": true,
-  "actor_name": "operator"
-}
-```
-
-Если `unlink_cards=true`, связанные карточки остаются привязанными к клиенту, но у них очищается только `client_vehicle_id`. Удаленный автомобиль скрывается из списка машин клиента, чтобы он не появлялся обратно из старой истории карточек.
-
-### `POST /api/unlink_card_from_client`
-
-Назначение: снять связь карточки с клиентом без удаления ручных текстовых полей.
-
-Запрос:
-
-```json
-{
-  "card_id": "CARD_ID"
-}
-```
-
-### `POST /api/suggest_clients_for_card`
-
-Назначение: подобрать клиентов для карточки по ручному ФИО, телефону и данным заказ-наряда.
-
-Запрос:
-
-```json
-{
-  "card_id": "CARD_ID",
-  "limit": 5
-}
-```
-
-## Печатные PDF для заказ-нарядов и счетов
-
-### `POST /api/export_repair_order_print_pdf`
-
-Назначение: сгенерировать CRM-штатный PDF из окна печати заказ-наряда. Endpoint используется UI, MCP и агентами, чтобы не создавать отдельные PDF вне CRM.
-
-Запрос:
-
-```json
-{
-  "card_id": "CARD_ID",
-  "selected_document_ids": ["invoice"],
-  "selected_template_ids": {
-    "invoice": "custom:invoice:..."
-  },
-  "print_settings": {
-    "paper_size": "A4",
-    "orientation": "portrait"
-  }
-}
-```
-
-Минимально нужен только `card_id`; если `selected_document_ids` не передан, печатный модуль использует свой дефолтный набор. Поддерживаемые документы: `repair_order`, `vehicle_acceptance_act`, `invoice`, `invoice_factura`, `inspection_sheet`, `completion_act`, `parts_sale`.
-
-Ответ:
-
-```json
-{
-  "ok": true,
-  "data": {
-    "file_name": "invoice-card.pdf",
-    "mime_type": "application/pdf",
-    "content_base64": "JVBERi0xLjQK...",
-    "size_bytes": 12345,
-    "meta": {
-      "documents": [
-        {"id": "invoice", "label": "Счет на оплату"}
-      ],
-      "paper_size": "A4",
-      "orientation": "portrait"
-    }
-  }
-}
-```
-
-## Модуль «Файлы»
-
-Назначение: общая серверная папка автосервиса для счетов, PDF, Word/Excel, изображений и похожих рабочих файлов.
-
-Хранилище:
-
-- папка файлов: `%APPDATA%\Minimal Kanban\shared-files`
-- индекс: `%APPDATA%\Minimal Kanban\shared_files_index.json`
-- общий лимит: `500` МБ
-- запрещённые расширения: `exe`, `bat`, `cmd`, `ps1`, `msi`, `scr`, `vbs`
-
-Endpoint-ы:
-
-- `GET /api/list_shared_files`
-- `POST /api/get_shared_file_info`
-- `POST /api/fetch_shared_file`
-- `POST /api/upload_shared_file`
-- `POST /api/rename_shared_file`
-- `POST /api/delete_shared_file`
-- `POST /api/copy_shared_file`
-- `POST /api/paste_shared_file`
-- `POST /api/update_shared_file_position`
+Read:
+
+- `GET|POST /api/list_clients`
+- `GET|POST /api/search_clients`
+- `GET|POST /api/get_client`
+- `GET|POST /api/get_client_stats`
+- `GET|POST /api/suggest_clients_for_card`
+
+Write:
+
+- `POST /api/create_client`, `/api/update_client`, `/api/delete_client`
+- `POST /api/link_card_to_client`, `/api/unlink_card_from_client`
+- `POST /api/upsert_client_vehicle`, `/api/delete_client_vehicle`
+
+Перед созданием клиента используйте search/suggest. `client_id` связывает карточку с клиентом, `client_vehicle_id` - с конкретным сохранённым автомобилем. Деструктивные удаления и `overwrite_card_fields=true` требуют явного намерения владельца.
+
+## Заказ-наряды и печать
+
+Read:
+
+- `GET|POST /api/list_repair_orders`
+- `POST /api/get_repair_order`
+- `POST /api/get_repair_order_text`
+- `POST /api/get_repair_order_print_workspace`
+- `POST /api/get_inspection_sheet_form`
+- `GET /api/repair_order_text?card_id=CARD_ID`
+
+Write / generate:
+
+- `POST /api/update_repair_order`, `/api/set_repair_order_status`
+- `POST /api/replace_repair_order_works`, `/api/replace_repair_order_materials`
+- `POST /api/save_inspection_sheet_form`, `/api/autofill_inspection_sheet_form`
+- `POST /api/preview_repair_order_print_documents`
+- `POST /api/export_repair_order_print_pdf`
+- `POST /api/print_repair_order_documents`
+- `POST /api/save_print_template`, `/api/duplicate_print_template`, `/api/delete_print_template`
+- `POST /api/set_default_print_template`, `/api/save_print_module_settings`
+
+Поддерживаемые документы: `repair_order`, `vehicle_acceptance_act`, `invoice`, `invoice_factura`, `inspection_sheet`, `completion_act`, `parts_sale`.
+
+Для агентов основной путь PDF - `export_repair_order_print_pdf` или MCP `download_repair_order_print_pdf`, без отдельного PDF-генератора.
+
+## Кассы, сотрудники, payroll
+
+Read:
+
+- `GET|POST /api/list_cashboxes`
+- `GET|POST /api/get_cashbox`
+- `GET|POST /api/get_cash_journal`
+- `GET|POST /api/list_employees`
+- `GET|POST /api/get_payroll_report`
+- `GET|POST /api/get_employee_salary_ledger`
+- `GET|POST /api/get_employee_salary_report`
+
+Write:
+
+- `POST /api/create_cashbox`, `/api/reorder_cashboxes`, `/api/create_cashbox_transfer`, `/api/delete_cashbox`
+- `POST /api/create_cash_transaction`, `/api/create_employee_salary_transaction`, `/api/cancel_last_cash_transaction`
+- `POST /api/save_employee`, `/api/toggle_employee`, `/api/delete_employee`
+
+`get_cash_journal` возвращает structured entries/groups и Markdown-текст для human review.
+
+## Файлы
+
+Card attachments:
+
+- `POST /api/add_card_attachment`, `/api/remove_card_attachment`
+- `POST /api/list_card_attachments`, `/api/get_card_attachment`, `/api/read_card_attachment`
+- `GET /api/attachment?card_id=CARD_ID&attachment_id=ATTACHMENT_ID`
+
+Shared files:
+
+- `GET|POST /api/list_shared_files`
+- `GET|POST /api/get_shared_file_info`
+- `POST /api/fetch_shared_file`, `/api/upload_shared_file`, `/api/rename_shared_file`
+- `POST /api/delete_shared_file`, `/api/copy_shared_file`, `/api/paste_shared_file`
+- `POST /api/paste_shared_files_from_clipboard`, `/api/update_shared_file_position`
 - `GET /api/shared_file?file_id=FILE_ID`
 
-Загрузка файла:
+Ограничение общей папки: 500 MB. Backend блокирует опасные executable/script расширения. Delete destructive.
 
-```json
-{
-  "file_name": "invoice.pdf",
-  "mime_type": "application/pdf",
-  "content_base64": "JVBERi0xLjQK...",
-  "x": 24,
-  "y": 48
-}
-```
+## Операторы
 
-Скачивание:
+- `POST /api/login_operator`
+- `POST /api/logout_operator`
+- `GET|POST /api/get_operator_profile`
+- `GET|POST /api/list_operator_users`
+- `POST /api/save_operator_user`
+- `POST /api/delete_operator_user`
+- `GET|POST /api/get_operator_user_report`
+- `POST /api/open_card`
 
-```text
-GET /api/shared_file?file_id=FILE_ID
-```
+Admin-only routes проверяются через `OperatorAuthService`.
 
-Открытие в браузере, если тип файла поддерживается:
+## Agent / compatibility
 
-```text
-GET /api/shared_file?file_id=FILE_ID&disposition=inline
-```
+Read:
 
-`fetch_shared_file` возвращает base64 только если файл укладывается в `max_base64_bytes`; для крупных файлов используйте `download_path`.
+- `GET|POST /api/agent_status`
+- `GET|POST /api/agent_tasks`
+- `GET|POST /api/agent_actions`
+- `GET|POST /api/agent_scheduled_tasks`
 
-## Типовые ошибки
+Write:
 
-### `validation_error`
+- `POST /api/agent_enqueue_task`
+- `POST /api/save_agent_scheduled_task`
+- `POST /api/delete_agent_scheduled_task`
+- `POST /api/pause_agent_scheduled_task`
+- `POST /api/resume_agent_scheduled_task`
+- `POST /api/run_agent_scheduled_task`
+- `POST /api/run_full_card_enrichment`
+- `POST /api/cleanup_card_content`
+- `POST /api/autofill_vehicle_data`
+- `POST /api/autofill_repair_order`
 
-Когда возникает:
+Эти пути оставлены для API/UI/compatibility. Новый owner-facing AI-контур - Telegram AI и MCP/local API tools.
 
-- пустой `title`
-- некорректный `deadline`
-- несуществующий `column`
-- некорректный `indicator`
-- неверный тип `include_archived`
-- запрещённое или пустое имя файла
+## Settings
 
-### `not_found`
+Settings live in `%APPDATA%\Minimal Kanban\settings.json`.
 
-Когда возникает:
-
-- карточка не найдена
-- общий файл не найден
-- маршрут API не найден
-
-### `storage_limit_exceeded`
-
-Когда возникает:
-
-- upload или copy/paste превысит общий лимит файлового хранилища
-
-### `archived_card`
-
-Когда возникает:
-
-- попытка изменить уже архивную карточку
-
-### `unauthorized`
-
-Когда возникает:
-
-- включён bearer token
-- запрос пришёл без правильного `Authorization` заголовка
-
-### `internal_error`
-
-Когда возникает:
-
-- непредвиденный сбой на стороне сервера
-
-## Примеры запросов
-
-Создать карточку:
-
-```powershell
-$body = @{
-  title = "Подготовить демо"
-  description = "Сделать короткий список задач"
-  deadline = @{
-    hours = 4
-  }
-} | ConvertTo-Json -Depth 5
-
-Invoke-WebRequest `
-  -Uri "http://127.0.0.1:41731/api/create_card" `
-  -Method POST `
-  -ContentType "application/json" `
-  -Body $body
-```
-
-Выставить лампочку в красный:
-
-```powershell
-$body = @{
-  card_id = "CARD_ID"
-  indicator = "red"
-} | ConvertTo-Json
-
-Invoke-WebRequest `
-  -Uri "http://127.0.0.1:41731/api/set_card_indicator" `
-  -Method POST `
-  -ContentType "application/json" `
-  -Body $body
-```
-
-## Как этот API используется MCP-слоем
-
-MCP server не реализует бизнес-логику доски повторно.
-
-Он делает следующее:
-
-1. принимает MCP tool call
-2. формирует JSON payload
-3. вызывает локальный endpoint доски
-4. возвращает результат обратно в structured MCP output
-
-Поэтому любые изменения правил карточек, дедлайнов, архивирования и столбцов происходят в одном месте — в backend доски.
-
-## Как API связан с окном настроек
-
-Для интеграции с ChatGPT / OpenAI / MCP в проект добавлен отдельный settings-layer:
+Relevant modules:
 
 - `src/minimal_kanban/settings_models.py`
 - `src/minimal_kanban/settings_store.py`
 - `src/minimal_kanban/settings_service.py`
 - `src/minimal_kanban/ui/settings_window.py`
 
-Что это меняет для API:
+Env variables override saved settings. Secrets redact in logs, but `settings.json` is not system-encrypted.
 
-- host, port и bearer token локального API можно хранить отдельно в `%APPDATA%\Minimal Kanban\settings.json`
-- при следующем запуске приложения локальный API поднимается с сохранёнными параметрами
-- если файл настроек повреждён, приложение откатывается к значениям по умолчанию и не падает
-- если заданы явные переменные окружения `MINIMAL_KANBAN_*`, они имеют приоритет над сохранёнными настройками
+## Verification
 
-Проверка соединения из окна настроек использует этот API так:
+Local API/MCP smoke:
 
-- локальный API проверяется через `GET /api/health`
-- bearer token локального API подставляется автоматически, если он сохранён в настройках
-- результат проверки записывается в диагностическую секцию настроек
+```powershell
+python scripts\check_live_connector.py --strict --skip-public-site --skip-public-write-protection --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username admin --operator-password admin --expect-admin
+```
 
-Ограничение текущего этапа:
-
-- секреты пока хранятся в `settings.json` без системного шифрования, хотя в логах они редактируются и не выводятся открытым текстом
+For route-level behavior, use `tests/test_api.py`, `tests/test_service.py`, `tests/test_mcp.py`, and focused tests around the touched module.

@@ -1577,6 +1577,155 @@ class TelegramAIInternetSearchToolTests(unittest.TestCase):
         self.assertTrue(result["verify"]["passed"])
 
 
+class TelegramAICRMToolArgumentTests(unittest.TestCase):
+    def test_registry_normalizes_string_boolean_args_for_read_tools(self) -> None:
+        class _FakeBoardApi:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, dict[str, object]]] = []
+
+            def get_board_snapshot(self, **kwargs) -> dict[str, object]:
+                self.calls.append(("get_board_snapshot", kwargs))
+                return {"ok": True, "data": {}}
+
+            def get_board_content(self, **kwargs) -> dict[str, object]:
+                self.calls.append(("get_board_content", kwargs))
+                return {"ok": True, "data": {}}
+
+            def get_board_events(self, **kwargs) -> dict[str, object]:
+                self.calls.append(("get_board_events", kwargs))
+                return {"ok": True, "data": {}}
+
+            def get_gpt_wall(self, **kwargs) -> dict[str, object]:
+                self.calls.append(("get_gpt_wall", kwargs))
+                return {"ok": True, "data": {}}
+
+            def get_cards(self, **kwargs) -> dict[str, object]:
+                self.calls.append(("get_cards", kwargs))
+                return {"ok": True, "data": {}}
+
+            def search_cards(self, **kwargs) -> dict[str, object]:
+                self.calls.append(("search_cards", kwargs))
+                return {"ok": True, "data": {}}
+
+            def list_card_attachments(self, card_id: str, **kwargs) -> dict[str, object]:
+                self.calls.append(("list_card_attachments", {"card_id": card_id, **kwargs}))
+                return {"ok": True, "data": {}}
+
+            def read_card_attachment(
+                self, card_id: str, attachment_id: str, **kwargs
+            ) -> dict[str, object]:
+                self.calls.append(
+                    (
+                        "read_card_attachment",
+                        {"card_id": card_id, "attachment_id": attachment_id, **kwargs},
+                    )
+                )
+                return {"ok": True, "data": {}}
+
+            def list_clients(self, **kwargs) -> dict[str, object]:
+                self.calls.append(("list_clients", kwargs))
+                return {"ok": True, "data": {}}
+
+            def list_overdue_cards(self, **kwargs) -> dict[str, object]:
+                self.calls.append(("list_overdue_cards", kwargs))
+                return {"ok": True, "data": {}}
+
+        fake_api = _FakeBoardApi()
+        registry = CRMToolRegistry(fake_api)
+
+        registry.execute(
+            {"tool": "get_board_snapshot", "arguments": {"compact": "false"}}, role="owner"
+        )
+        registry.execute(
+            {"tool": "get_board_content", "arguments": {"include_archived": "false"}},
+            role="owner",
+        )
+        registry.execute(
+            {"tool": "get_board_events", "arguments": {"include_archived": "false"}},
+            role="owner",
+        )
+        registry.execute(
+            {"tool": "get_gpt_wall", "arguments": {"include_archived": "false"}},
+            role="owner",
+        )
+        registry.execute(
+            {
+                "tool": "get_cards",
+                "arguments": {"include_archived": "false", "compact": "false"},
+            },
+            role="owner",
+        )
+        registry.execute(
+            {"tool": "search_cards", "arguments": {"include_archived": "false"}},
+            role="owner",
+        )
+        registry.execute(
+            {
+                "tool": "list_card_attachments",
+                "arguments": {"card_id": "card-1", "include_removed": "false"},
+            },
+            role="owner",
+        )
+        registry.execute(
+            {
+                "tool": "read_card_attachment",
+                "arguments": {
+                    "card_id": "card-1",
+                    "attachment_id": "att-1",
+                    "include_base64": "false",
+                },
+            },
+            role="owner",
+        )
+        registry.execute(
+            {"tool": "list_clients", "arguments": {"include_stats": "false"}},
+            role="owner",
+        )
+        registry.execute(
+            {"tool": "list_overdue_cards", "arguments": {"include_archived": "false"}},
+            role="owner",
+        )
+
+        self.assertEqual(
+            fake_api.calls,
+            [
+                ("get_board_snapshot", {"compact": False}),
+                ("get_board_content", {"include_archived": False, "view_mode": "agent"}),
+                ("get_board_events", {"event_limit": 100, "include_archived": False}),
+                (
+                    "get_gpt_wall",
+                    {"include_archived": False, "event_limit": 20, "compact": True},
+                ),
+                ("get_cards", {"include_archived": False, "compact": False}),
+                (
+                    "search_cards",
+                    {
+                        "query": "",
+                        "limit": 10,
+                        "include_archived": False,
+                        "column": None,
+                        "tag": None,
+                        "indicator": None,
+                        "status": None,
+                    },
+                ),
+                ("list_card_attachments", {"card_id": "card-1", "include_removed": False}),
+                (
+                    "read_card_attachment",
+                    {
+                        "card_id": "card-1",
+                        "attachment_id": "att-1",
+                        "mode": "preview",
+                        "max_chars": 12000,
+                        "include_base64": False,
+                    },
+                ),
+                ("list_clients", {"limit": None, "include_stats": False}),
+                ("list_overdue_cards", {"include_archived": False}),
+            ],
+        )
+
+
 class TelegramAIConversationMemoryTests(unittest.TestCase):
     def test_memory_stores_compact_run_and_filters_by_chat(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

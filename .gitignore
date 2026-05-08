@@ -181,8 +181,6 @@ cython_debug/
 .cursorindexingignore
 release/
 release.staging/
-release_final/
-release_fresh/
-installer-output/
 data/
 .tmp-*/
+telegram-ai.env

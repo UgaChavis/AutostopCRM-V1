@@ -8,9 +8,6 @@ extend-exclude = [
   "dist",
   "release",
   "release.staging",
-  "release_final",
-  "release_fresh",
-  "installer-output",
   "data",
 ]
 

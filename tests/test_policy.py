@@ -258,6 +258,78 @@ class ToolPolicyEngineTests(unittest.TestCase):
             },
         )
 
+    def test_agent_tool_executor_normalizes_string_boolean_args(self) -> None:
+        class _FakeBoardApi:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, dict[str, object]]] = []
+
+            def get_board_content(self, **kwargs) -> dict[str, object]:
+                self.calls.append(("get_board_content", kwargs))
+                return {"ok": True}
+
+            def get_board_events(self, **kwargs) -> dict[str, object]:
+                self.calls.append(("get_board_events", kwargs))
+                return {"ok": True}
+
+            def get_gpt_wall(self, **kwargs) -> dict[str, object]:
+                self.calls.append(("get_gpt_wall", kwargs))
+                return {"ok": True}
+
+            def search_cards(self, **kwargs) -> dict[str, object]:
+                self.calls.append(("search_cards", kwargs))
+                return {"ok": True}
+
+            def get_card_context(self, card_id: str, **kwargs) -> dict[str, object]:
+                self.calls.append(("get_card_context", {"card_id": card_id, **kwargs}))
+                return {"ok": True}
+
+        fake_api = _FakeBoardApi()
+        executor = AgentToolExecutor(fake_api)
+
+        executor.execute("get_board_content", {"include_archived": "false"})
+        executor.execute("get_board_events", {"include_archived": "0"})
+        executor.execute("get_gpt_wall", {"include_archived": "no"})
+        executor.execute("search_cards", {"include_archived": "false"})
+        executor.execute(
+            "get_card_context",
+            {"card_id": "card-1", "include_repair_order_text": "false"},
+        )
+
+        self.assertEqual(
+            fake_api.calls,
+            [
+                (
+                    "get_board_content",
+                    {"include_archived": False, "view_mode": "agent"},
+                ),
+                ("get_board_events", {"event_limit": 100, "include_archived": False}),
+                (
+                    "get_gpt_wall",
+                    {"include_archived": False, "event_limit": 20, "compact": True},
+                ),
+                (
+                    "search_cards",
+                    {
+                        "query": None,
+                        "include_archived": False,
+                        "column": None,
+                        "tag": None,
+                        "indicator": None,
+                        "status": None,
+                        "limit": None,
+                    },
+                ),
+                (
+                    "get_card_context",
+                    {
+                        "card_id": "card-1",
+                        "event_limit": 20,
+                        "include_repair_order_text": False,
+                    },
+                ),
+            ],
+        )
+
     def test_full_card_enrichment_prompt_exposes_only_completion_tools(self) -> None:
         class _FakeBoardApi:
             def health(self) -> dict[str, object]:

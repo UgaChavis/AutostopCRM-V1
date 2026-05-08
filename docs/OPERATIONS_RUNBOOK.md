@@ -1,25 +1,19 @@
 # AutoStop CRM Operations Runbook
 
-This is the compact operational guide for local work, GitHub sync, and production verification.
+Короткий регламент для local work, GitHub sync, deploy и live checks.
 
-## Canonical Endpoints
+## Endpoints
 
 - CRM: `https://crm.autostopcrm.ru`
 - MCP: `https://crm.autostopcrm.ru/mcp`
-- production server: `vps26457.mnogoweb.in`
-- production repo path: `/opt/autostopcrm`
-- this deploy path covers the CRM repo and the in-repo Telegram AI worker service; VPN helpers are separate deploy targets
+- production repo: `/opt/autostopcrm`
+- branch: `autostopcrm-v1`
 
-## Branch Rule
+Этот runbook покрывает CRM repo и in-repo Telegram AI worker. VPN-monitoring проект ведётся отдельно.
 
-- active branch: `autostopcrm-v1`
-- in this workspace the GitHub remote for that line is `origin`
-- the same commit should be present locally, on GitHub, and on production before and after release work
-- do not trust pinned commit notes in documentation; verify with command output
+## Перед Работой
 
-## Standard Sync Check
-
-Run these checks before serious work:
+Local:
 
 ```powershell
 git status --short --branch
@@ -28,136 +22,77 @@ git fetch origin autostopcrm-v1 --prune
 git rev-parse --short origin/autostopcrm-v1
 ```
 
-Then verify the server:
+Production:
 
 ```powershell
-ssh -i C:\Users\User\.ssh\codex_autostopcrm root@vps26457.mnogoweb.in "cd /opt/autostopcrm && git status --short --branch && git rev-parse --short HEAD && git rev-parse --short origin/autostopcrm-v1"
+ssh root@crm.autostopcrm.ru "cd /opt/autostopcrm && git status --short --branch && git rev-parse --short HEAD && git rev-parse --short origin/autostopcrm-v1"
 ```
 
-## Local Workflow
+Если SSH identity/host отличается на машине, используйте local access notes вне репозитория. Credentials не коммитить.
 
-1. Use Python 3.12 for the repo venv.
-2. Run `scripts\doctor.ps1` before and after larger changes.
-3. Run `scripts\run_checks.ps1` for focused Python validation and generated browser-JS syntax validation.
-4. Run `python scripts\check_web_assets_js.py` directly when touching `src/minimal_kanban/web_assets.py`.
-5. Run `python -m unittest discover -s tests -v` when the change touches shared behavior.
-6. Run `python scripts\audit_localization.py` before release if UI/docs text changed.
-7. Keep the worktree clean before deployment.
+## Local Checks
 
-Local production-like connector smoke:
+Common:
+
+```powershell
+.\scripts\doctor.ps1
+.\scripts\run_checks.ps1
+python scripts\audit_localization.py
+```
+
+Full regression when shared behavior changed:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s .\tests -v
+```
+
+Browser assets:
+
+```powershell
+python scripts\check_web_assets_js.py
+```
+
+Local connector smoke:
 
 ```powershell
 python scripts\check_live_connector.py --strict --skip-public-site --skip-public-write-protection --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username admin --operator-password admin --expect-admin
 ```
 
-## Deployment Workflow
+## Deploy
 
-1. Commit the intended change.
-2. Push to `origin/autostopcrm-v1`.
-3. On the server, fetch and reset to `origin/autostopcrm-v1`.
-4. Run `./deploy.sh`; by default it syncs `origin/autostopcrm-v1` before rebuilding.
-5. Confirm the smoke check passes.
+Нормальный путь:
 
-`deploy.sh` can be overridden with `AUTOSTOP_DEPLOY_REMOTE` and
-`AUTOSTOP_DEPLOY_BRANCH`, but the normal production path must stay on
-`autostopcrm-v1`.
+1. commit intended local change;
+2. push to `origin/autostopcrm-v1`;
+3. на production fetch/reset to `origin/autostopcrm-v1`;
+4. run `./deploy.sh`;
+5. run container and connector smoke.
 
-## Telegram AI Worker
-
-The Telegram AI Board Manager runs in Docker service `autostopcrm-telegram-ai`.
-
-It uses long polling and opens no public port. The worker talks to the CRM API at:
-
-```text
-http://autostopcrm:41731
-```
-
-Required production `.env` values when enabled:
-
-```env
-AUTOSTOP_TELEGRAM_AI_ENABLED=1
-AUTOSTOP_TELEGRAM_BOT_TOKEN=...
-AUTOSTOP_TELEGRAM_OWNER_IDS=123456789
-OPENAI_API_KEY=...
-AUTOSTOP_AI_MODEL=gpt-5.4-mini
-AUTOSTOP_AI_STRONG_MODEL=gpt-5.4
-AUTOSTOP_AI_WEB_SEARCH_ENABLED=1
-AUTOSTOP_AI_STRONG_REASONING_EFFORT=high
-```
-
-Verification:
+Server commands:
 
 ```bash
+cd /opt/autostopcrm
+git fetch origin autostopcrm-v1 --prune
+git reset --hard origin/autostopcrm-v1
+./deploy.sh
 docker compose ps
-docker compose logs --tail=100 autostopcrm-telegram-ai
 ```
 
-Current Telegram AI behavior:
+Useful `deploy.sh` env vars:
 
-- text, voice, photo, CRM tools, audit, rollback basics, and conversation memory are implemented
-- voice notes are transcribed locally first with `faster-whisper`; OpenAI transcription is fallback only
-- explicit `найди в интернете` / `загугли` commands and the model-planned `internet_search` tool use OpenAI `web_search_preview`
-- complex CRM-planning commands can escalate to `AUTOSTOP_AI_STRONG_MODEL`
-- hidden card board summaries can be updated through the approved `set_card_board_summary` tool and local API path
-- direct internet search intentionally stays on `AUTOSTOP_AI_MODEL` with a low search context and one retry; this avoids the live strong-model web-search timeout/429 failure mode
-- `/status` reports whether internet search is enabled in the current runtime
+- `AUTOSTOP_DEPLOY_BRANCH` - branch to fetch/reset; default `autostopcrm-v1`
+- `AUTOSTOP_SKIP_GIT_SYNC=1` - skip fetch/reset when already synced
+- `AUTOSTOP_COMPOSE_SERVICE` - compose service name; default `autostopcrm`
+- `AUTOSTOP_VERIFY_PUBLIC_HTTPS=1` - enable public HTTPS smoke
+- `AUTOSTOP_PUBLIC_SITE_URL`, `AUTOSTOP_PUBLIC_MCP_URL` - public smoke URLs
+- `AUTOSTOP_SMOKE_OPERATOR_USERNAME`, `AUTOSTOP_SMOKE_OPERATOR_PASSWORD` - smoke credentials
+- `AUTOSTOP_DESKTOP_INSTRUCTION_PATH` - where to copy `AUTOSTOPCRM_FULL_INSTRUCTION.txt`
 
-## Manager Cleanup Pass
-
-When the owner says `Приберись`, `прибейсь`, `прибери доску`, `обслужи доску`, or asks to clean up a card/board, treat it as a manager procedure over existing CRM tools.
-
-Required order:
-
-1. Read live CRM context first: focused card reads for one card, board review/context for broad cleanup.
-2. Preserve operator data: no deletion of works, materials, prices, payments, cashbox records, files, contacts, VIN/chassis/license data, manual diagnostics, or historical notes.
-3. Patch only confirmed fields: `vehicle`, `title`, `description`, safe `tags`, and source-backed `vehicle_profile`.
-4. Do not move cards or archive cards during routine cleanup unless the owner gives a separate explicit target card and target action.
-5. After content/profile/tag changes, call `set_card_board_summary` separately and verify `board_summary_stale=false`.
-
-Board preview rule:
-
-- `description` is the full recoverable card text.
-- `board_summary` is the four-or-five-line operator preview shown on the board.
-- Do not put phone numbers, VIN, full client identity, raw scan dumps, or long issue lists into `board_summary`.
-
-VIN/profile enrichment rule:
-
-- If VIN/chassis/frame is present and `engine_model`, `gearbox_model`, or `drivetrain` is empty, use local knowledge and `lookup_original_parts` first.
-- Use internet search only when needed for current source-backed confirmation.
-- Fill aggregate fields only when the source is specific enough; otherwise record uncertainty in `oem_notes` / `tentative_fields`.
-
-Useful live smoke after deploy:
-
-```bash
-docker compose exec -T autostopcrm-telegram-ai sh -lc 'set -a; . /run/telegram-ai.env; cd /app; PYTHONPATH=/app/src python - <<'"'"'PY'"'"'
-from minimal_kanban.telegram_ai.config import load_config
-from minimal_kanban.telegram_ai.openai_client import TelegramAIOpenAIClient
-client = TelegramAIOpenAIClient(load_config())
-print(client.internet_search(command_text="Найди в интернете официальный сайт Toyota и ответь одной строкой с источником.", role="owner")[:800])
-PY'
-```
-
-Full setup notes for the operator are in `docs/AUTOSTOP_TELEGRAM_AI_SETUP_RU.md`.
-The desktop copy is `C:\Users\User\Desktop\AUTOSTOP_TELEGRAM_AI_SETUP_RU.md`.
-The technical map is `docs/TELEGRAM_AI_BOARD_MANAGER.md`.
-
-## Production Cautions
-
-- do not assume a stale note reflects the current server head
-- do not change secrets casually
-- do not rotate credentials without a controlled plan
-- do not rely on memory for production state; verify it
-- `telegram-ai.env` can appear as an untracked server-local environment file; do not remove it during repo sync
+Normal production deploy should stay on `autostopcrm-v1`.
 
 ## Production Verification
 
-From the local workstation, verify the public stack after deploy:
-
-```powershell
-python scripts\check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url https://crm.autostopcrm.ru --mcp-url https://crm.autostopcrm.ru/mcp --operator-username admin --operator-password admin --expect-admin
-```
-
-From the server, verify the container-local API path:
+From server:
 
 ```bash
 cd /opt/autostopcrm
@@ -165,32 +100,90 @@ docker compose ps
 docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --mcp-url https://crm.autostopcrm.ru/mcp --operator-username admin --operator-password admin --expect-admin
 ```
 
-Minimum manual UI smoke after UI changes:
+From local machine:
 
-- board loads past `СОЕДИНЕНИЕ С ДОСКОЙ...`
-- all topbar modules open
-- card open/save and card journal remain readable
-- Files grid, upload/paste, drag, download/open and delete work
-- clients, repair orders, cashboxes and employees modals open without console errors
-- anonymous public writes remain blocked
+```powershell
+python scripts\check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url https://crm.autostopcrm.ru --mcp-url https://crm.autostopcrm.ru/mcp --operator-username admin --operator-password admin --expect-admin
+```
+
+Manual UI smoke after UI changes:
+
+- board loads;
+- topbar modules open;
+- card open/save works;
+- card journal is readable;
+- Files grid upload/paste/drag/download/delete works;
+- clients, repair orders, cashboxes and employees modals open;
+- public anonymous writes remain blocked.
+
+## Telegram AI Worker
+
+Docker service: `autostopcrm-telegram-ai`.
+
+Properties:
+
+- long polling, no public port;
+- CRM API inside compose: `http://autostopcrm:41731`;
+- secrets live in server-local `telegram-ai.env`;
+- `telegram-ai.env` is repo-ignored and must not be removed during sync;
+- audit/state/conversation files live under `/root/.minimal-kanban/telegram_ai/`.
+
+Required env when enabled:
+
+```env
+AUTOSTOP_TELEGRAM_AI_ENABLED=1
+AUTOSTOP_TELEGRAM_BOT_TOKEN=...
+AUTOSTOP_TELEGRAM_OWNER_IDS=123456789
+OPENAI_API_KEY=...
+AUTOSTOP_CRM_API_BASE_URL=http://autostopcrm:41731
+```
+
+Useful optional env:
+
+```env
+AUTOSTOP_AI_MODEL=gpt-5.4-mini
+AUTOSTOP_AI_STRONG_MODEL=gpt-5.4
+AUTOSTOP_AI_WEB_SEARCH_ENABLED=1
+AUTOSTOP_AI_REASONING_EFFORT=medium
+AUTOSTOP_AI_STRONG_REASONING_EFFORT=high
+```
+
+Worker checks:
+
+```bash
+docker compose ps
+docker compose logs --tail=100 autostopcrm-telegram-ai
+```
+
+## Manager Cleanup
+
+When the owner says `Приберись`, treat it as an agent procedure:
+
+1. read live card/board context;
+2. preserve operator data;
+3. patch only confirmed `vehicle`, `title`, `description`, safe `tags`, and source-backed `vehicle_profile`;
+4. do not move/archive cards without separate explicit command;
+5. refresh `board_summary` and verify `board_summary_stale=false`.
+
+`description` is full recoverable text. `board_summary` is only the short board preview.
+
+## Production Cautions
+
+- do not trust stale docs for current server HEAD;
+- do not rotate credentials casually;
+- do not remove server-local env files;
+- do not edit production state files by hand;
+- GitHub-first change, then deploy.
 
 ## Documentation Policy
 
-- canonical operational docs: root `README.md`, `00_START_HERE_AUTOSTOP_CRM.md`, `PROJECT_HANDOFF.md`, this runbook, `API_GUIDE.md`, `MCP_GUIDE.md`
-- keep `MASTER-PLAN.md`, `README_SETTINGS.md`, `CHATGPT_CONNECTOR_SETUP.md` and print/Telegram docs while code, scripts, or active workflows reference them
-- delete duplicate planning/memory docs after moving still-valid content into the canonical files
-- every release should prefer current command output over historical commit IDs in docs
-
-## Useful Files
+Canonical active docs:
 
 - `00_START_HERE_AUTOSTOP_CRM.md`
-- `MASTER-PLAN.md`
 - `PROJECT_HANDOFF.md`
 - `README.md`
-- `AUTOSTOPCRM_FULL_INSTRUCTION.txt`
-- `API_GUIDE.md`
+- this runbook
 - `MCP_GUIDE.md`
-- `scripts/doctor.ps1`
-- `scripts/setup_dev.ps1`
-- `scripts/run_checks.ps1`
-- `scripts/run_quality_pass.ps1`
+- `API_GUIDE.md`
+
+Workflow docs остаются только пока их реально используют active code, deploy, release или operator flows. Не добавляйте frozen reports, commit lists и one-off plans в active docs.

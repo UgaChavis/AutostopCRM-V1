@@ -2211,12 +2211,12 @@ class BoardApiClientTests(unittest.TestCase):
                 ),
                 unittest.mock.call(
                     "/api/get_board_events",
-                    {"event_limit": 100, "include_archived": True},
+                    {"event_limit": 100, "include_archived": True, "view_mode": "audit"},
                     method="POST",
                 ),
                 unittest.mock.call(
                     "/api/get_board_events",
-                    {"event_limit": 25, "include_archived": False},
+                    {"event_limit": 25, "include_archived": False, "view_mode": "audit"},
                     method="POST",
                 ),
                 unittest.mock.call(

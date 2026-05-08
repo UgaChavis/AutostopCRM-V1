@@ -690,6 +690,13 @@ def create_mcp_server(
             payload.update({key: value for key, value in extra.items() if value is not None})
         return _with_data_meta({**response, "data": data}, **payload)
 
+    def _with_connector_identity(response: dict[str, Any]) -> dict[str, Any]:
+        if not response.get("ok") or not isinstance(response.get("data"), dict):
+            return response
+        data = dict(response["data"])
+        data["connector_identity"] = dict(connector_identity)
+        return {**response, "data": data}
+
     def _identity_text() -> str:
         return (
             "[CONNECTOR IDENTITY]\n"
@@ -842,35 +849,6 @@ def create_mcp_server(
             sections.append(wall_text)
         data["text"] = "\n\n".join(section for section in sections if section)
         return {**response, "data": data}
-
-    def _extract_gpt_wall_section_response(
-        response: dict[str, Any],
-        *,
-        section_key: str,
-    ) -> dict[str, Any]:
-        enriched = _enrich_gpt_wall_response(response)
-        if not enriched.get("ok") or not isinstance(enriched.get("data"), dict):
-            return enriched
-        data = dict(enriched["data"])
-        sections = data.get("sections") if isinstance(data.get("sections"), dict) else {}
-        section = dict(sections.get(section_key) or {})
-        if not section:
-            if section_key == "board_content":
-                section = {
-                    "meta": dict(data.get("meta") or {}),
-                    "text": str(data.get("text") or ""),
-                    "cards": list(data.get("cards") or []),
-                    "stickies": list(data.get("stickies") or []),
-                    "board_context": data.get("board_context"),
-                }
-            else:
-                section = {
-                    "meta": dict(data.get("meta") or {}),
-                    "text": "",
-                    "events": list(data.get("events") or []),
-                }
-        section["connector_identity"] = dict(connector_identity)
-        return {**enriched, "data": section}
 
     def _bootstrap_wall_preview(wall_data: dict[str, Any]) -> dict[str, Any]:
         cards = wall_data.get("cards") if isinstance(wall_data.get("cards"), list) else []
@@ -1768,25 +1746,19 @@ def create_mcp_server(
         include_archived: bool = True,
         view_mode: Literal["agent", "full"] = "agent",
     ) -> JsonEnvelope:
-        wall_event_limit = GPT_WALL_AGENT_EVENT_LIMIT if view_mode == "agent" else 100
         return _relay_board_call(
             "get_board_content",
-            lambda: _extract_gpt_wall_section_response(
-                board_api.get_gpt_wall(
-                    include_archived=include_archived,
-                    event_limit=wall_event_limit,
-                    compact=view_mode == "agent",
-                ),
-                section_key="board_content",
+            lambda: board_api.get_board_content(
+                include_archived=include_archived,
+                view_mode=view_mode,
             ),
             error_code="board_content_unreachable",
             params={
                 "include_archived": include_archived,
                 "view_mode": view_mode,
-                "event_limit": wall_event_limit,
             },
             transform=lambda response: _with_text_section_meta(
-                response,
+                _with_connector_identity(response),
                 response_mode="agent_context" if view_mode == "agent" else "export",
                 view_mode=view_mode,
                 extra={
@@ -1801,7 +1773,7 @@ def create_mcp_server(
         name="get_board_events",
         description=_scoped_description(
             "Return the hidden machine wall event-log section as Markdown for the current Minimal Kanban board: newest-first events, what happened, when, by whom, and which card it affected when available. "
-            "The default event_limit is 100. Use include_archived to control whether archived-card events stay in the journal slice."
+            "The default event_limit is 100. Use include_archived to keep the surrounding board-content read aligned with archive visibility; events remain a newest-first audit slice."
         ),
         annotations=_read_tool_annotations("Board Events"),
         structured_output=True,
@@ -1813,9 +1785,10 @@ def create_mcp_server(
     ) -> JsonEnvelope:
         return _relay_board_call(
             "get_board_events",
-            lambda: _extract_gpt_wall_section_response(
-                board_api.get_gpt_wall(include_archived=include_archived, event_limit=event_limit),
-                section_key="event_log",
+            lambda: board_api.get_board_events(
+                event_limit=event_limit,
+                include_archived=include_archived,
+                view_mode=view_mode,
             ),
             error_code="board_events_unreachable",
             params={
@@ -1824,7 +1797,7 @@ def create_mcp_server(
                 "view_mode": view_mode,
             },
             transform=lambda response: _with_text_section_meta(
-                response,
+                _with_connector_identity(response),
                 response_mode="audit",
                 view_mode=view_mode,
                 extra={

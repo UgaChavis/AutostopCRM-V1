@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -12,7 +10,6 @@ TARGETS = [
     ROOT / "src" / "minimal_kanban" / "ui" / "dialogs.py",
     ROOT / "src" / "minimal_kanban" / "ui" / "main_window.py",
     ROOT / "src" / "minimal_kanban" / "ui" / "widgets.py",
-    ROOT / "installer" / "minimal-kanban.iss",
     ROOT / "README.md",
     ROOT / "API_GUIDE.md",
     ROOT / "MCP_GUIDE.md",
@@ -32,9 +29,6 @@ FORBIDDEN_PHRASES = [
     "No description",
     "Startup Error",
     "Unexpected Error",
-    "Create a desktop shortcut",
-    "Additional icons",
-    "Launch Minimal Kanban",
 ]
 
 ALLOWED_EXCERPTS = [
@@ -61,7 +55,9 @@ def main() -> int:
         print("\n".join(problems))
         return 1
 
-    print("Проверка локализации завершена успешно: остаточных пользовательских английских строк не найдено.")
+    print(
+        "Проверка локализации завершена успешно: остаточных пользовательских английских строк не найдено."
+    )
     return 0
 
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..mcp.client import BoardApiClient
+from ..models import normalize_bool
 from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
 from .automotive_tools import AutomotiveLookupService
 
@@ -384,14 +385,14 @@ class AgentToolExecutor:
 
     def _get_board_content(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.get_board_content(
-            include_archived=bool(args.get("include_archived", True)),
+            include_archived=self._maybe_bool(args.get("include_archived"), default=True),
             view_mode=self._maybe_text(args.get("view_mode")) or "agent",
         )
 
     def _get_board_events(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.get_board_events(
             event_limit=self._maybe_int(args.get("event_limit")) or 100,
-            include_archived=bool(args.get("include_archived", True)),
+            include_archived=self._maybe_bool(args.get("include_archived"), default=True),
         )
 
     def _get_gpt_wall(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -402,7 +403,7 @@ class AgentToolExecutor:
             else max(1, min(event_limit, GPT_WALL_AGENT_EVENT_LIMIT))
         )
         return self._board_api.get_gpt_wall(
-            include_archived=bool(args.get("include_archived", True)),
+            include_archived=self._maybe_bool(args.get("include_archived"), default=True),
             event_limit=effective_event_limit,
             compact=True,
         )
@@ -410,7 +411,7 @@ class AgentToolExecutor:
     def _search_cards(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.search_cards(
             query=self._maybe_text(args.get("query")),
-            include_archived=bool(args.get("include_archived", False)),
+            include_archived=self._maybe_bool(args.get("include_archived"), default=False),
             column=self._maybe_text(args.get("column")),
             tag=self._maybe_text(args.get("tag")),
             indicator=self._maybe_text(args.get("indicator")),
@@ -425,7 +426,9 @@ class AgentToolExecutor:
         return self._board_api.get_card_context(
             self._required_text(args, "card_id"),
             event_limit=self._maybe_int(args.get("event_limit")) or 20,
-            include_repair_order_text=bool(args.get("include_repair_order_text", True)),
+            include_repair_order_text=self._maybe_bool(
+                args.get("include_repair_order_text"), default=True
+            ),
         )
 
     def _create_card(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -666,6 +669,9 @@ class AgentToolExecutor:
             return int(value)
         except (TypeError, ValueError):
             return None
+
+    def _maybe_bool(self, value: Any, *, default: bool) -> bool:
+        return normalize_bool(value, default=default)
 
     def _maybe_dict(self, value: Any) -> dict[str, Any] | None:
         return value if isinstance(value, dict) else None

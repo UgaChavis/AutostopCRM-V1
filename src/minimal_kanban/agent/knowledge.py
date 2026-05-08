@@ -67,14 +67,6 @@ _INTERNET_CONTEXT_KEYWORDS = (
 
 CURATED_DOCUMENTS: tuple[CuratedDocumentDefinition, ...] = (
     CuratedDocumentDefinition(
-        document_id="master_plan",
-        title="MASTER-PLAN",
-        relative_path="MASTER-PLAN.md",
-        description="Главная рамка новой AI-модели и перехода по модулям.",
-        use_case="Module 1 overview and product direction.",
-        keywords=("ai", "plan", "module", "scenario", "remodel", "model"),
-    ),
-    CuratedDocumentDefinition(
         document_id="project_handoff",
         title="PROJECT_HANDOFF",
         relative_path="PROJECT_HANDOFF.md",
@@ -83,12 +75,12 @@ CURATED_DOCUMENTS: tuple[CuratedDocumentDefinition, ...] = (
         keywords=("handoff", "state", "runtime", "status", "workflow", "project"),
     ),
     CuratedDocumentDefinition(
-        document_id="readme_settings",
-        title="README_SETTINGS",
-        relative_path="README_SETTINGS.md",
-        description="Настройки и runtime switches для локального контура.",
-        use_case="Runtime and settings guidance.",
-        keywords=("settings", "config", "runtime", "toggle", "mode", "switch"),
+        document_id="mcp_guide",
+        title="MCP_GUIDE",
+        relative_path="MCP_GUIDE.md",
+        description="MCP runtime, tool groups, auth and connector rules.",
+        use_case="MCP, connector, settings and tool-selection guidance.",
+        keywords=("mcp", "connector", "settings", "config", "runtime", "tool", "auth"),
     ),
     CuratedDocumentDefinition(
         document_id="api_guide",

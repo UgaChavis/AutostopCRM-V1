@@ -6124,6 +6124,23 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("ПЛАВАЕТ ХОЛОСТОЙ ХОД", wall["text"])
         self.assertIn("МАСТЕР", wall["text"])
 
+        board_content = self.service.get_board_content(
+            {"include_archived": True, "view_mode": "agent"}
+        )
+        self.assertTrue(board_content["text"].startswith("# AutoStop CRM Board Content"))
+        self.assertEqual(board_content["meta"]["section_kind"], "board_content")
+        self.assertEqual(board_content["meta"]["response_mode"], "agent_context")
+        self.assertEqual(board_content["meta"]["view_mode"], "agent")
+        self.assertTrue(board_content["meta"]["cards_compact"])
+        self.assertIn(card_short_id, board_content["text"])
+
+        board_events = self.service.get_board_events({"include_archived": True, "event_limit": 50})
+        self.assertTrue(board_events["text"].startswith("# AutoStop CRM Event Log"))
+        self.assertEqual(board_events["meta"]["section_kind"], "event_log")
+        self.assertEqual(board_events["meta"]["response_mode"], "audit")
+        self.assertEqual(board_events["meta"]["event_limit"], 50)
+        self.assertTrue(any(event["card_id"] == card_id for event in board_events["events"]))
+
     def test_gpt_wall_can_return_compact_cards_for_agent_reads(self) -> None:
         created = self.service.create_card(
             {

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..mcp.client import BoardApiClient
+from ..models import normalize_bool
 from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
 from .models import DownloadedAttachment
 
@@ -802,21 +803,23 @@ class CRMToolRegistry:
             )
 
     def _get_board_snapshot(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        return self._board_api.get_board_snapshot(compact=bool(arguments.get("compact", True)))
+        return self._board_api.get_board_snapshot(
+            compact=normalize_bool(arguments.get("compact"), default=True)
+        )
 
     def _get_board_context(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.get_board_context()
 
     def _get_board_content(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.get_board_content(
-            include_archived=bool(arguments.get("include_archived", True)),
+            include_archived=normalize_bool(arguments.get("include_archived"), default=True),
             view_mode=str(arguments.get("view_mode") or "agent"),
         )
 
     def _get_board_events(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.get_board_events(
             event_limit=int(arguments.get("event_limit") or 100),
-            include_archived=bool(arguments.get("include_archived", True)),
+            include_archived=normalize_bool(arguments.get("include_archived"), default=True),
         )
 
     def _review_board(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -831,15 +834,15 @@ class CRMToolRegistry:
         event_limit = int(arguments.get("event_limit") or GPT_WALL_AGENT_EVENT_LIMIT)
         effective_event_limit = max(1, min(event_limit, GPT_WALL_AGENT_EVENT_LIMIT))
         return self._board_api.get_gpt_wall(
-            include_archived=bool(arguments.get("include_archived", True)),
+            include_archived=normalize_bool(arguments.get("include_archived"), default=True),
             event_limit=effective_event_limit,
             compact=True,
         )
 
     def _get_cards(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.get_cards(
-            include_archived=bool(arguments.get("include_archived", False)),
-            compact=bool(arguments.get("compact", True)),
+            include_archived=normalize_bool(arguments.get("include_archived"), default=False),
+            compact=normalize_bool(arguments.get("compact"), default=True),
         )
 
     def _get_card(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -849,7 +852,7 @@ class CRMToolRegistry:
         return self._board_api.search_cards(
             query=str(arguments.get("query") or ""),
             limit=int(arguments.get("limit") or 10),
-            include_archived=bool(arguments.get("include_archived", False)),
+            include_archived=normalize_bool(arguments.get("include_archived"), default=False),
             column=_optional_text(arguments, "column"),
             tag=_optional_text(arguments, "tag"),
             indicator=_optional_text(arguments, "indicator"),
@@ -868,7 +871,7 @@ class CRMToolRegistry:
     def _list_card_attachments(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.list_card_attachments(
             str(arguments.get("card_id") or ""),
-            include_removed=bool(arguments.get("include_removed", False)),
+            include_removed=normalize_bool(arguments.get("include_removed"), default=False),
         )
 
     def _get_card_attachment(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -883,7 +886,7 @@ class CRMToolRegistry:
             str(arguments.get("attachment_id") or ""),
             mode=str(arguments.get("mode") or "preview"),
             max_chars=int(arguments.get("max_chars") or 12_000),
-            include_base64=bool(arguments.get("include_base64", False)),
+            include_base64=normalize_bool(arguments.get("include_base64"), default=False),
         )
 
     def _analyze_card_image_attachment(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -943,7 +946,7 @@ class CRMToolRegistry:
     def _list_clients(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.list_clients(
             limit=_optional_int(arguments, "limit"),
-            include_stats=bool(arguments.get("include_stats", True)),
+            include_stats=normalize_bool(arguments.get("include_stats"), default=True),
         )
 
     def _search_clients(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -963,10 +966,14 @@ class CRMToolRegistry:
             str(arguments.get("card_id") or ""),
             str(arguments.get("client_id") or ""),
             client_vehicle_id=_optional_text(arguments, "client_vehicle_id"),
-            create_vehicle_from_card=bool(arguments.get("create_vehicle_from_card", False)),
-            sync_vehicle_fields=bool(arguments.get("sync_vehicle_fields", True)),
-            sync_fields=bool(arguments.get("sync_fields", True)),
-            overwrite_card_fields=bool(arguments.get("overwrite_card_fields", False)),
+            create_vehicle_from_card=normalize_bool(
+                arguments.get("create_vehicle_from_card"), default=False
+            ),
+            sync_vehicle_fields=normalize_bool(arguments.get("sync_vehicle_fields"), default=True),
+            sync_fields=normalize_bool(arguments.get("sync_fields"), default=True),
+            overwrite_card_fields=normalize_bool(
+                arguments.get("overwrite_card_fields"), default=False
+            ),
             actor_name=self._actor_name,
         )
 
@@ -1174,7 +1181,7 @@ class CRMToolRegistry:
 
     def _list_overdue_cards(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._board_api.list_overdue_cards(
-            include_archived=bool(arguments.get("include_archived", False))
+            include_archived=normalize_bool(arguments.get("include_archived"), default=False)
         )
 
     def _get_repair_order(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -1248,7 +1255,7 @@ def _optional_int(arguments: dict[str, Any], key: str) -> int | None:
 def _optional_bool(arguments: dict[str, Any], key: str) -> bool | None:
     if key not in arguments:
         return None
-    return bool(arguments.get(key))
+    return normalize_bool(arguments.get(key), default=False)
 
 
 def _optional_text_list(arguments: dict[str, Any], key: str) -> list[str] | None:

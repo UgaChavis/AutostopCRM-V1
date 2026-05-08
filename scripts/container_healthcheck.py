@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import json
-import sys
 import urllib.error
 import urllib.request
-
 
 API_HEALTH_URL = "http://127.0.0.1:41731/api/health"
 MCP_URL = "http://127.0.0.1:41831/mcp"

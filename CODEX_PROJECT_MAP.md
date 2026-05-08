@@ -3,44 +3,56 @@
 ## Canonical Repo
 
 - GitHub: `UgaChavis/AutostopCRM-V1`
-- Active branch: `autostopcrm-v1`
+- Branch: `autostopcrm-v1`
 - Local workspace: `C:\Users\9860606\Desktop\AutostopCRM\autostopcrm`
 - Server workspace: `/opt/autostopcrm`
-- Public site and MCP endpoint: `https://crm.autostopcrm.ru` and `https://crm.autostopcrm.ru/mcp`
+- Public endpoints: `https://crm.autostopcrm.ru` and `https://crm.autostopcrm.ru/mcp`
 
-## First Files
+## Read First
 
-- `README.md` - current product overview and capability groups.
-- `PROJECT_HANDOFF.md` - current handoff/status notes.
-- `MASTER-PLAN.md` - larger roadmap and operating plan.
-- `MCP_GUIDE.md` - MCP tool groups, usage rules, live inventory expectations.
-- `CHATGPT_CONNECTOR_SETUP.md` - ChatGPT connector setup flow.
-- `API_GUIDE.md` - HTTP API behavior.
+1. `00_START_HERE_AUTOSTOP_CRM.md`
+2. `PROJECT_HANDOFF.md`
+3. `README.md`
+4. `docs/OPERATIONS_RUNBOOK.md`
+5. `MCP_GUIDE.md` or `API_GUIDE.md` only when the task needs integration details
 
-## Runtime
+## Main Work Areas
 
-- Desktop/local entrypoints: `main.py`, `main_mcp.py`.
-- MCP server: `src/minimal_kanban/mcp/server.py`.
-- MCP runtime/auth: `src/minimal_kanban/mcp/runtime.py`, `src/minimal_kanban/mcp/auth.py`, `src/minimal_kanban/mcp/oauth_provider.py`.
-- MCP backend client: `src/minimal_kanban/mcp/client.py`.
-- Connection card shown by the app: `src/minimal_kanban/connection_card.py`.
-- Public server deployment: `docker-compose.yml`, `Dockerfile`, `deploy.sh`.
+- `src/minimal_kanban/api/server.py`
+- `src/minimal_kanban/services/card_service.py`
+- `src/minimal_kanban/mcp/server.py`
+- `src/minimal_kanban/mcp/client.py`
+- `src/minimal_kanban/telegram_ai/`
+- `src/minimal_kanban/web_assets.py`
+- `scripts/`
+- `tests/`
+- `deploy.sh`
+- `docker-compose.yml`
 
-## MCP Surface
+## Runtime Flow
 
-- Base CRM MCP tools: 71.
-- Optional AutostopManager tools: current manager catalog lists 19 when `/opt/AutostopManager` or sibling `AutostopManager` is mounted.
-- Expected production `tools/list` with current manager mounted: 90, but verify live before release or connector docs work.
-- `cleanup_card_content`, `autofill_vehicle_data`, and `autofill_repair_order` are not MCP runtime tools.
+```text
+UI -> local API -> CardService -> JsonStore
+MCP -> local API -> CardService
+Telegram AI -> CRM tool registry -> local API -> verify/audit
+```
+
+## MCP Surface Rule
+
+Не фиксируйте в docs количество tools. Проверяйте live `tools/list`, `scripts/check_live_connector.py`, `src/minimal_kanban/mcp/server.py` и MCP tests.
+
+`cleanup_card_content`, `autofill_vehicle_data`, and `autofill_repair_order` are compatibility/API/UI paths, not normal MCP runtime tools.
 
 ## Verification
 
-- Live smoke: `python scripts/check_live_connector.py --strict --expect-https --site-url https://crm.autostopcrm.ru --mcp-url https://crm.autostopcrm.ru/mcp`
-- Core MCP tests: `python -m unittest tests.test_mcp tests.test_connection_card -q`
-- Full test suite: `python -m unittest discover -s tests -q`
+- `git status --short --branch`
+- `python scripts\audit_localization.py`
+- `.\scripts\run_checks.ps1`
+- `python -m unittest discover -s tests -v`
+- live smoke commands from `docs/OPERATIONS_RUNBOOK.md`
 
 ## Deployment Notes
 
-- Do not overwrite server-only files such as `/opt/autostopcrm/telegram-ai.env`.
-- Do not commit runtime data, board snapshots, local JSON storage, SQLite databases, secrets, or credentials.
-- If AutostopManager tools changed, update `/opt/AutostopManager` and restart the `autostopcrm` service so MCP re-imports the manager tools.
+- Keep local, GitHub, and production branch heads aligned before release work.
+- Не коммитьте runtime data, board snapshots, local JSON storage, SQLite databases, secrets или credentials.
+- Не удаляйте server-local env files вроде `telegram-ai.env` during sync.

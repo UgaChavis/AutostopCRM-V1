@@ -1,169 +1,108 @@
-# AutoStop CRM: First Read
+# AutoStop CRM: первый файл
 
-This is the first file a new developer or agent should read in branch `autostopcrm-v1`.
+Этот файл нужен только для быстрого входа в текущую ветку `autostopcrm-v1`.
+Не считайте его журналом релизов: актуальное состояние всегда проверяется командами.
 
-## Current Truth
+## Рабочая истина
 
-- branch: `autostopcrm-v1`
-- current synced HEAD must be verified before work with `git rev-parse --short HEAD`
-- local, GitHub, and production should be kept aligned on the same `autostopcrm-v1` HEAD
-- the local working clone is currently aligned to `origin/autostopcrm-v1`
-- production CRM: `https://crm.autostopcrm.ru`
-- production MCP: `https://crm.autostopcrm.ru/mcp`
-- production server IP at last verification: `46.8.254.243`
-- production repo path: `/opt/autostopcrm`
-- operator runbook: `docs/OPERATIONS_RUNBOOK.md`
-- workflow guide: consolidated into `docs/OPERATIONS_RUNBOOK.md`
+- локальная папка: `C:\Users\9860606\Desktop\AutostopCRM\autostopcrm`
+- ветка: `autostopcrm-v1`
+- GitHub remote: `origin`
+- production repo: `/opt/autostopcrm`
+- CRM: `https://crm.autostopcrm.ru`
+- MCP: `https://crm.autostopcrm.ru/mcp`
+- перед релизной работой сверяйте local / GitHub / production через `docs/OPERATIONS_RUNBOOK.md`
 
-## What The Product Is
+## Что это за продукт
 
-AutoStop CRM is an auto-workshop CRM built around:
+AutoStop CRM - рабочая CRM автосервиса:
 
-- kanban board and card workflow
-- client directory with optional card links, repair history, vehicles and organization requisites
-- drag-and-drop card movement and column reordering
-- vehicle profile enrichment
-- repair orders, works, materials, payments, printing
-- operator authentication and admin users
-- cashboxes, employees, payroll
-- shared Files workspace for common workshop documents
-- MCP server for external tool access
-- Telegram AI Board Manager worker for owner-controlled CRM operations
-- background card enrichment action from the card indicator
+- kanban-доска, карточки, колонки, архив, дедлайны, теги, вложения и заметки;
+- клиенты, автомобили клиента, привязка карточек к клиенту и конкретной машине;
+- заказ-наряды, работы, материалы, оплаты, печатные PDF;
+- кассы, сотрудники, payroll;
+- общая файловая папка мастерской;
+- локальный HTTP API и MCP endpoint для внешних инструментов;
+- Telegram AI Board Manager как основной owner-facing AI-контур.
 
-## First Read Order
+Исторические имена `minimal_kanban`, `%APPDATA%\Minimal Kanban` и `Start Kanban.exe` остаются частью совместимости.
+
+## Что читать
+
+Минимальный порядок для агента:
 
 1. `00_START_HERE_AUTOSTOP_CRM.md`
 2. `PROJECT_HANDOFF.md`
 3. `README.md`
 4. `docs/OPERATIONS_RUNBOOK.md`
-5. `API_GUIDE.md`
-6. `MCP_GUIDE.md`
-7. `MASTER-PLAN.md` if product direction or module ownership matters
-8. `README_SETTINGS.md`, `docs/PRINT_DOCUMENTS.md`, or Telegram docs only when touching those workflows
-9. `src/minimal_kanban/services/card_service.py`
-10. `src/minimal_kanban/mcp/server.py`
-11. `src/minimal_kanban/web_assets.py`
+5. `MCP_GUIDE.md` или `API_GUIDE.md` только если задача про интеграции
 
-## Main Runtime Layers
+Дополнительные документы открывайте только по задаче:
+
+- `CHATGPT_CONNECTOR_SETUP.md` - подключение ChatGPT/MCP;
+- `docs/TELEGRAM_AI_BOARD_MANAGER.md` - техническая карта Telegram AI;
+
+## Основная архитектура
 
 ```text
-UI
- -> local API
- -> CardService + domain services
- -> JsonStore
+Desktop/browser UI
+  -> local HTTP API
+  -> CardService + domain services
+  -> JsonStore
 
-External ChatGPT / MCP client
- -> MCP server
- -> local API
- -> same business core
+ChatGPT / MCP client
+  -> MCP server
+  -> local HTTP API
+  -> same business core
 
+Telegram owner
+  -> Telegram AI worker
+  -> OpenAI + CRM tool registry
+  -> local HTTP API
+  -> read-back verification and audit
 ```
 
-## Key Files
+Ключевые файлы:
 
-- `main.py`: desktop entry
-- `main_mcp.py`: MCP entry
-- `main_telegram_ai.py`: Telegram AI worker entry
-- `src/minimal_kanban/api/server.py`: API surface
-- `src/minimal_kanban/services/card_service.py`: business core
-- `src/minimal_kanban/services/column_service.py`: column ordering and column operations
-- `src/minimal_kanban/mcp/server.py`: MCP server
-- `src/minimal_kanban/web_assets.py`: browser UI
+- `main.py`, `main_mcp.py`, `main_telegram_ai.py`
+- `src/minimal_kanban/api/server.py`
+- `src/minimal_kanban/services/card_service.py`
+- `src/minimal_kanban/mcp/server.py`
+- `src/minimal_kanban/web_assets.py`
+- `src/minimal_kanban/telegram_ai/`
 
-## Current AI Status
+## AI-правила для агентов
 
-The active AI product direction is now the Telegram AI Board Manager:
+- Основной новый AI-контур - Telegram AI Board Manager.
+- Старый card-indicator/enrichment путь оставлен только для совместимости.
+- Команда владельца `Приберись` - это процедура над существующими CRM tools, а не отдельный backend-tool.
+- Порядок уборки: прочитать live-контекст, patch-only обновить подтверждённые поля, отдельно обновить `board_summary`, перечитать и проверить результат.
+- Не двигайте и не архивируйте карточки во время уборки без отдельной явной команды.
+- `description` хранит полные сведения; `board_summary` - короткое превью доски на 4-5 строк.
+- В `board_summary` не переносить телефон, VIN, полное имя клиента, длинные жалобы или сырые диагностические дампы.
 
-- run `main_telegram_ai.py` or Docker service `autostopcrm-telegram-ai`
-- receive text, voice, or photo commands from the authorized Telegram owner
-- call OpenAI for a structured decision
-- call OpenAI web-search for explicit internet-search commands
-- execute CRM tools only through the local HTTP API
-- verify writes and record redacted audit
-- keep compact per-chat memory for follow-up Telegram commands
-- answer from real tool results, not from pre-tool promises
+## Проверки
 
-The older lower-right card enrichment button remains compatibility behavior, but it is not the base for new AI development.
+Быстрая ориентация:
 
-## Recent Practical Changes
+```powershell
+git status --short --branch
+git rev-parse --short HEAD
+git fetch origin autostopcrm-v1 --prune
+git rev-parse --short origin/autostopcrm-v1
+```
 
-- Telegram AI direct internet-search is active for phrases like `найди в интернете` and `загугли`
-- Telegram AI complex CRM planning can use strong model `gpt-5.4`, while direct web-search stays on `gpt-5.4-mini` for production stability
-- Telegram AI live web-search was verified on production with an auto-parts query after timeout/429 stabilization
-- employees module now supports up to `15` employees without stale-ID overwrite on create
-- employees workspace was rebuilt into a clearer master-detail layout
-- board columns can now be reordered left-to-right with native drag-and-drop
-- column drag capture now starts from the whole column, not only a narrow header area
-- shared Files v1.0 is implemented locally: server folder, metadata index, 500 MB limit, API, UI, and MCP tools
-- board topbar and cards were compacted for smaller monitors: rare module buttons moved left, button/card padding reduced, and the card signal row now shares space with tags
-- shared Files now supports right-click paste from copied Windows Explorer files through a local clipboard backend fallback, plus the existing browser paste and drag-and-drop paths
-- shared Files icon placement was stabilized around a grid with persisted positions and drag movement
-- card journal UI is minimal and recoverable: machine JSON keeps full raw `before/after`, while visible Markdown uses Russian `до:` / `после:` blocks without dumping service JSON snapshots
-- updated-card badges now clear optimistically on hover/open so cards with `ОБНОВЛЕНО` do not wait on the API response before becoming clickable-feeling again
-- hidden AI-managed card board summaries are available through API/MCP/Telegram and are shown on board cards before raw description text
-- owner command `Приберись` now means a safe manager cleanup pass: patch confirmed card fields, refresh `board_summary`, enrich source-backed vehicle passport data by VIN when possible, and do not move/archive cards without a separate explicit command
-- stale legacy AI dock/chat DOM lookups and unused CSS were pruned from the board HTML; the active card AI indicator path remains unchanged
-- generated inline browser JavaScript is now checked with `scripts/check_web_assets_js.py` and through `scripts/run_checks.ps1`
-- MCP/server-agent/Telegram AI can download CRM-generated repair-order and invoice PDFs with `download_repair_order_print_pdf`; the command reuses the print module and returns `application/pdf` base64
-- cashbox movements created from repair-order payments now keep business-local timestamps and show source labels for order payments versus manual movements
+Локальная проверка после doc-only правок:
 
-## Current Verification Baseline
+```powershell
+python scripts\audit_localization.py
+```
 
-- latest local/GitHub/production synced commit must always be verified with `git rev-parse --short HEAD`
-- latest verified post-cleanup sync on 2026-05-03: local, GitHub, and production were aligned; verify the exact current HEAD with `git rev-parse --short HEAD`
-- production site returned `200 OK`, Docker `autostopcrm` was healthy, and `autostopcrm-telegram-ai` was running at that baseline
-- production MCP strict smoke returned `75` tools
-- public anonymous write protection returned `401 unauthorized`
-- latest local full unit discovery in this line ran `518` tests successfully
-- generated browser JS syntax check is part of `scripts/run_checks.ps1`
-- this deployment path covers the CRM repo at `/opt/autostopcrm` and its optional in-repo Telegram AI worker; VPN helpers are separate deploy targets
+После изменений кода или UI используйте команды из `docs/OPERATIONS_RUNBOOK.md`.
 
-## Current Clients Module
+## Политика документации
 
-- topbar button: `КЛИЕНТЫ`
-- supported profiles: physical person, IP, OOO, company
-- cards can stay unlinked for one-off clients or link to a `client_id`
-- client history is derived from explicit `client_id` plus matching customer name/phone in card profile and repair order
-- client profiles can store imported `vehicles[]`; search uses profile fields and saved vehicles first, then falls back to related repair history
-- MCP exposes client search, profile, stats, create/update, delete, card link/unlink, and card suggestions
-- the card modal now has an inline existing-client picker with phone and vehicle preview, and Chrome autofill suppression is enabled on the relevant client/card inputs
-- the clients modal opens with a short first page and uses backend search across the full client directory, not a local filter over visible rows
-
-## Documentation Layout
-
-Primary active docs kept in the repo root:
-
-- `00_START_HERE_AUTOSTOP_CRM.md`
-- `MASTER-PLAN.md`
-- `PROJECT_HANDOFF.md`
-- `README.md`
-- `AUTOSTOPCRM_FULL_INSTRUCTION.txt`
-- `API_GUIDE.md`
-- `MCP_GUIDE.md`
-- `README_SETTINGS.md`
-- `CHATGPT_CONNECTOR_SETUP.md`
-- `docs/OPERATIONS_RUNBOOK.md`
-- `docs/PRINT_DOCUMENTS.md`
-- `docs/TELEGRAM_AI_BOARD_MANAGER.md`
-- `docs/AUTOSTOP_TELEGRAM_AI_SETUP_RU.md`
-
-Duplicate workflow, memory, module-note, and stale MCP command docs should be deleted after their still-valid content is merged into the canonical files above.
-
-## Current Risks
-
-- production still uses the default admin account and needs a separate credential rotation pass
-- the CRM now depends on the external/shared agent runtime being started if you want the enrichment flow to complete end-to-end
-- direct Telegram AI web-search is intentionally tuned for reliability, not maximum reasoning; do not switch it back to strong-model search without live timeout and 429 checks
-- manager cleanup docs must keep full card `description` and short board `board_summary` separate; old instructions that treat the first five description lines as the board preview are stale
-
-## Rule For Future Updates
-
-Update this file whenever:
-
-- a new commit is pushed to GitHub
-- production is redeployed
-- server address or DNS changes
-- AI orchestration changes materially
-- the recommended first-read order changes
-- the set of active root-level docs changes
+- Не добавляйте новые root-документы без причины.
+- Не фиксируйте в docs точные commit IDs, количество tools и старые smoke-цифры как текущую истину.
+- Если появился новый workflow, обновляйте один канонический документ, а не создавайте отдельную памятку.
+- Старые планы, memory dumps и agent scratch docs удаляются после переноса полезной части в README, handoff, runbook, API или MCP guide.

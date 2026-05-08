@@ -281,10 +281,12 @@ class BoardApiClient:
         *,
         event_limit: int = 100,
         include_archived: bool = True,
+        view_mode: str = "audit",
     ) -> dict:
         payload: dict[str, object] = {
             "event_limit": event_limit,
             "include_archived": include_archived,
+            "view_mode": view_mode,
         }
         return self._request("/api/get_board_events", payload, method="POST")
 

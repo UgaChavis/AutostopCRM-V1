@@ -3381,6 +3381,36 @@ class ApiServerTests(unittest.TestCase):
             )
         )
 
+        status, board_content = self.request(
+            "/api/get_board_content", {"include_archived": True, "view_mode": "agent"}
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(board_content["data"]["text"].startswith("# AutoStop CRM Board Content"))
+        self.assertEqual(board_content["data"]["meta"]["section_kind"], "board_content")
+        self.assertEqual(board_content["data"]["meta"]["response_mode"], "agent_context")
+        self.assertEqual(board_content["data"]["meta"]["view_mode"], "agent")
+        self.assertTrue(board_content["data"]["meta"]["cards_compact"])
+        self.assertIn(card_short_id, board_content["data"]["text"])
+
+        status, board_events = self.request(
+            "/api/get_board_events", {"include_archived": True, "event_limit": 50}
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(board_events["data"]["text"].startswith("# AutoStop CRM Event Log"))
+        self.assertEqual(board_events["data"]["meta"]["section_kind"], "event_log")
+        self.assertEqual(board_events["data"]["meta"]["response_mode"], "audit")
+        self.assertEqual(board_events["data"]["meta"]["event_limit"], 50)
+        self.assertTrue(
+            any(event["card_id"] == card_id for event in board_events["data"]["events"])
+        )
+
+        status, board_content_get = self.request(
+            "/api/get_board_content?include_archived=true&view_mode=agent",
+            method="GET",
+        )
+        self.assertEqual(status, 200)
+        self.assertIn(card_short_id, board_content_get["data"]["text"])
+
         status, board_settings = self.request(
             "/api/update_board_settings", {"board_scale": 1.25, "actor_name": "ИНСПЕКТОР"}
         )

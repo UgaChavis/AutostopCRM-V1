@@ -1,126 +1,79 @@
 # Подключение AutoStop CRM к ChatGPT
 
-> Файл сохранён под старым именем по совместимости с runtime/tests. По содержанию это уже актуальный AutoStop CRM MCP flow.
+Файл должен оставаться под этим именем: его копируют release/runtime-пути и проверяют тесты.
 
-Этот файл описывает уже актуальный сценарий подключения доски к ChatGPT через MCP.
+## Что подключается
 
-## Что теперь умеет сервер
+ChatGPT подключается к публичному MCP endpoint текущей AutoStop CRM board:
 
-- отдаёт внешний MCP endpoint для ChatGPT и Responses API;
-- в режиме `Bearer token` дополнительно поднимает встроенный OAuth 2.1 слой;
-- публикует:
-  - `/.well-known/oauth-protected-resource/...`
-  - `/.well-known/oauth-authorization-server`
-  - `POST /register`
-  - `GET/POST /authorize`
-  - `POST /token`
-- поддерживает dynamic client registration и PKCE;
-- продолжает принимать legacy bearer token для Responses API и ручных MCP-клиентов.
-- содержит клиентские инструменты для поиска, профиля, статистики, создания, обновления, удаления и привязки клиентов к карточкам
-- если рядом смонтирован `AutostopManager`, в этот же endpoint добавляются manager memory/routing tools для долговременной памяти и навигации по знаниям
+```text
+https://crm.autostopcrm.ru/mcp
+```
 
-## Практический смысл
+Если endpoint работает с bearer auth, сервер публикует embedded OAuth/DCR metadata, и ChatGPT проходит linking flow. Для Responses API и ручных MCP-клиентов bearer token можно передавать напрямую.
 
-Есть два рабочих режима:
+## Что должно быть включено
 
-1. `ChatGPT connector`
-- используйте публичный `https://.../mcp` URL;
-- если у MCP включён `Bearer token`, ChatGPT проходит встроенный OAuth flow автоматически;
-- вручную вставлять bearer token в обычный ChatGPT connector не требуется.
+В настройках интеграции CRM:
 
-2. `Responses API / ручной MCP client`
-- используйте тот же `server_url`;
-- при `Bearer token` можно передавать `authorization` напрямую.
+- integration enabled;
+- local API enabled;
+- MCP enabled;
+- public HTTPS base URL, tunnel URL или full MCP URL override;
+- MCP auth mode и token, если нужен protected endpoint.
 
-## Что должно быть настроено в приложении
-
-1. Запустите приложение AutoStop CRM или portable build `release/Start Kanban.exe`, если используете локальную сборку из этого репозитория.
-2. Откройте настройки интеграции через шестерёнку.
-3. Убедитесь, что включены:
-- интеграция;
-- локальный API;
-- MCP.
-4. Задайте внешний HTTPS адрес:
-- `Public HTTPS Base URL`, или
-- `Tunnel URL`, или
-- `Full MCP URL override`.
-5. Если нужен защищённый режим:
-- оставьте `MCP auth mode = Bearer token`;
-- задайте `Bearer token MCP`.
-
-## Как подключать в ChatGPT
+## ChatGPT connector flow
 
 1. Убедитесь, что итоговый MCP URL начинается с `https://`.
-2. В ChatGPT откройте `Settings -> Apps & Connectors -> Create`.
-3. Укажите:
-- имя: `AutoStop CRM`
-- описание: `Автосервисная CRM с доской, карточками, клиентами, заказ-нарядами, кассами и файлами`
-- URL: итоговый внешний `.../mcp`
-4. Нажмите `Create`.
-5. Если ChatGPT запросит linking, пройдите встроенный OAuth flow.
-6. После подключения проверьте, что видны tools:
-- `get_gpt_wall`
-- `get_board_snapshot`
+2. В ChatGPT откройте Apps & Connectors и создайте новый MCP connector.
+3. Name: `AutoStop CRM`.
+4. Description: `Автосервисная CRM с доской, клиентами, заказ-нарядами, кассами и файлами`.
+5. URL: итоговый `.../mcp`.
+6. Если ChatGPT попросит linking, пройдите embedded OAuth flow.
+7. Первый вызов в новом чате: `ping_connector`.
+8. Второй вызов: `bootstrap_context`.
+9. При сомнениях по tunnel/auth/runtime вызвать `get_runtime_status`.
+
+## Проверочные tools
+
+Точный список tools проверяйте live через `tools/list`, connection card или `scripts/check_live_connector.py`.
+
+Для smoke обычно достаточно увидеть:
+
+- `ping_connector`
+- `bootstrap_context`
+- `get_runtime_status`
+- `review_board`
 - `search_cards`
+- `get_card_context`
 - `search_clients`
-- `list_clients`
 - `list_shared_files`
 - `download_repair_order_print_pdf`
 - `create_card`
-- `move_card`
 - `update_card`
-- `today_context`, если подключен `AutostopManager`
-- `remember`, если подключен `AutostopManager`
+- `set_card_board_summary`
+- `move_card`
 
-## Практические команды с телефона
+Если рядом подключен `AutostopManager`, могут появиться `today_context`, `remember`, `lookup_original_parts` и другие manager-memory/source tools.
 
-Телефонный ChatGPT обычно получает короткие команды, поэтому агент должен превращать их в безопасные цепочки MCP-действий.
+## Правила для агента
 
-### `Приберись`
+- Работать только с текущей AutoStop CRM board.
+- Перед write-action прочитать live context.
+- Для клиента сначала `suggest_clients_for_card` или `search_clients`, потом create/link.
+- Для уборки карточки обновлять подтверждённые поля через `update_card`, затем отдельно `set_card_board_summary`.
+- Не двигать и не архивировать карточки по команде `Приберись`, если владелец отдельно не попросил это действие.
+- Для VIN/profile enrichment писать только source-backed факты и не перетирать manual fields.
+- Для документов использовать CRM PDF tool, а не отдельный PDF-генератор.
 
-Смысл: привести карточку или доску в рабочий вид.
+## Responses API
 
-Правильная цепочка:
+Используйте тот же `server_url`. Список allowed tools лучше брать из live `tools/list`, а не из статического JSON-примера.
 
-1. найти целевую карточку или прочитать обзор доски;
-2. прочитать `get_card_context` / `get_card`;
-3. обновить только подтвержденные поля через `update_card`;
-4. отдельно обновить превью карточки через `set_card_board_summary`;
-5. перечитать карточку и проверить, что колонка, оплаты, ЗН, материалы и работы не изменились без явного запроса.
+Если MCP работает в bearer mode, передавайте `authorization` в MCP tool payload.
 
-Нельзя по этой команде автоматически переносить или архивировать карточки. Для перемещения или архива нужен отдельный явный запрос владельца.
+## Безопасность
 
-### Превью карточки
-
-`board_summary` — это не описание внутри карточки. Это короткое превью на доске для оператора:
-
-```text
-Что сейчас: ...
-Стадия: ...
-Следующее действие: ...
-Важно: ...
-```
-
-Не добавляйте туда телефон, VIN, полное имя клиента, длинные списки жалоб или диагностические дампы.
-
-### Паспорт авто по VIN
-
-Если в карточке есть VIN/chassis/frame number, а в паспорте пустые `engine_model`, `gearbox_model` или `drivetrain`, агент должен попытаться обогатить паспорт:
-
-- сначала через локальную базу знаний и `lookup_original_parts`;
-- затем через интернет-поиск по VIN/марке/модели/году, если нужно актуальное подтверждение;
-- записывать только подтвержденные агрегатные данные;
-- не перетирать ручные поля оператора;
-- сомнительные варианты оставлять в `oem_notes` / `tentative_fields`, а не выдавать за факт.
-
-## Как подключать через Responses API
-
-Используйте текущий список MCP tools из [MCP_GUIDE.md](MCP_GUIDE.md) и live connection card. Статические JSON-примеры удалены, потому что быстро устаревают при изменении набора CRM-команд.
-
-Если MCP работает в `Bearer token` режиме, в tool payload можно передавать `authorization`.
-
-## Что важно по безопасности
-
-- встроенный OAuth слой сделан под текущую архитектуру общей доски с одинаковыми правами у всех;
-- это удобно для приватного хоста и dev/test-публикации;
-- для более строгого production-сценария следующим шагом всё равно лучше выносить авторизацию в отдельный IdP.
+- Connector имеет доступ к одной текущей CRM board.
+- Bearer token не нужно вставлять в обычный ChatGPT connector, если embedded OAuth linking работает.
+- Для более строгого production auth следующим шагом нужен отдельный IdP/authorization layer.
