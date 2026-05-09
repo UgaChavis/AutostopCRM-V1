@@ -4133,96 +4133,71 @@ BOARD_WEB_APP_HTML = "".join(
     .card-journal-view {
       border: 1px solid var(--line-soft);
       background: rgba(8, 12, 10, 0.62);
-      padding: 10px 12px 12px;
+      padding: 0 14px 14px;
       min-height: 420px;
       max-height: min(68vh, 720px);
       overflow: auto;
       font-size: 13px;
-      line-height: 1.48;
+      line-height: 1.52;
       font-variant-numeric: tabular-nums;
     }
     .card-journal-header {
       display: grid;
-      gap: 3px;
-      padding: 3px 2px 9px;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: end;
+      padding: 12px 0 10px;
       border-bottom: 1px solid rgba(115, 126, 105, 0.26);
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
     .card-journal-header__title {
-      font-size: 15px;
+      font-size: 13px;
       font-weight: 700;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
     }
     .card-journal-header__subtitle {
       color: var(--text-soft);
       font-size: 11.5px;
       line-height: 1.35;
+      margin-top: 3px;
     }
-    .card-journal-stats {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin: 0 0 12px;
-    }
-    .card-journal-stat {
-      border: 1px solid rgba(167, 178, 132, 0.2);
-      background: rgba(167, 178, 132, 0.06);
-      padding: 4px 7px;
+    .card-journal-header__meta {
       color: var(--text-soft);
       font-size: 11px;
-    }
-    .card-journal-stat strong {
-      color: var(--text);
-      font-size: 12px;
+      white-space: nowrap;
     }
     .card-journal-note {
-      border: 1px solid rgba(212, 175, 55, 0.32);
-      background: rgba(212, 175, 55, 0.08);
+      border-left: 2px solid rgba(212, 175, 55, 0.58);
       color: #f3df9d;
-      padding: 7px 9px;
+      padding: 5px 0 5px 9px;
       margin: 0 0 12px;
       font-size: 11px;
     }
     .card-journal-day {
-      margin: 0 0 12px;
+      margin: 13px 0 0;
     }
-    .card-journal-day__head {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      align-items: center;
-      border: 1px solid rgba(115, 126, 105, 0.3);
-      background: rgba(34, 42, 36, 0.74);
-      padding: 7px 9px;
-      color: var(--text);
+    .card-journal-day__label {
+      display: block;
+      color: var(--accent);
       font-size: 12px;
       font-weight: 700;
-    }
-    .card-journal-day__meta {
-      color: var(--text-soft);
-      font-size: 10.5px;
-      font-weight: 400;
-      white-space: nowrap;
+      text-transform: uppercase;
+      padding: 0 0 6px;
+      border-bottom: 1px solid rgba(115, 126, 105, 0.22);
     }
     .card-journal-events {
-      display: grid;
-      gap: 8px;
-      padding: 8px 0 0;
+      display: block;
     }
     .card-journal-entry {
       display: grid;
-      grid-template-columns: 58px minmax(0, 1fr);
+      grid-template-columns: 54px minmax(0, 1fr);
       gap: 10px;
-      border: 1px solid rgba(115, 126, 105, 0.24);
-      border-left: 3px solid rgba(167, 178, 132, 0.5);
-      background: rgba(0, 0, 0, 0.14);
-      padding: 8px 9px 9px 7px;
+      padding: 8px 0 9px;
+      border-bottom: 1px solid rgba(115, 126, 105, 0.12);
     }
     .card-journal-entry--deletion {
-      border-color: rgba(207, 91, 75, 0.42);
-      border-left-color: rgba(207, 91, 75, 0.72);
-      background: rgba(95, 34, 28, 0.16);
+      color: #ffd1ca;
     }
     .card-journal-entry__time {
       color: var(--accent);
@@ -4232,47 +4207,41 @@ BOARD_WEB_APP_HTML = "".join(
       font-size: 12px;
       padding-top: 2px;
     }
-    .card-journal-entry__body {
+    .card-journal-entry--deletion .card-journal-entry__time {
+      color: #dba08f;
+    }
+    .card-journal-entry__content {
       min-width: 0;
       display: grid;
-      gap: 7px;
-    }
-    .card-journal-entry__title {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: baseline;
       gap: 6px;
+    }
+    .card-journal-entry__sentence {
       color: var(--text);
-      font-weight: 700;
-      line-height: 1.3;
+      line-height: 1.48;
     }
-    .card-journal-entry__actor {
-      color: var(--text-soft);
-      font-weight: 400;
-      font-size: 11.5px;
-    }
-    .card-journal-entry__actor::before {
-      content: "• ";
+    .card-journal-entry__sentence strong {
+      color: var(--text);
     }
     .card-journal-entry__details {
       display: grid;
-      gap: 6px;
+      gap: 5px;
       color: var(--text-soft);
       font-size: 12px;
     }
     .card-journal-detail {
       color: var(--text-soft);
-    }
-    .card-journal-detail--summary {
-      color: var(--text);
+      font-size: 12px;
     }
     .card-journal-block {
       display: grid;
       gap: 4px;
       min-width: 0;
+      border-left: 2px solid rgba(167, 178, 132, 0.38);
+      background: rgba(255, 255, 255, 0.025);
+      padding: 7px 9px;
     }
     .card-journal-block__head {
-      color: var(--text);
+      color: var(--text-soft);
       font-weight: 700;
       font-size: 12px;
     }
@@ -4286,15 +4255,16 @@ BOARD_WEB_APP_HTML = "".join(
       font-size: 11.5px;
       line-height: 1.5;
     }
+    .card-journal-block--empty {
+      border-left-color: rgba(207, 91, 75, 0.5);
+    }
     .card-journal-block--empty .card-journal-block__text {
       color: var(--text-soft);
       font-family: inherit;
     }
     .card-journal-empty {
       color: var(--text-soft);
-      border: 1px dashed rgba(115, 126, 105, 0.3);
-      padding: 18px;
-      text-align: center;
+      padding: 12px 0;
     }
     .wall-meta {
       color: var(--text-soft);
@@ -4470,6 +4440,20 @@ BOARD_WEB_APP_HTML = "".join(
       .file-row__thumb-button,
       .file-row__thumb-image {
         min-height: 82px;
+      }
+      .card-journal-view {
+        padding: 0 10px 12px;
+      }
+      .card-journal-header {
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+      .card-journal-header__meta {
+        white-space: normal;
+      }
+      .card-journal-entry {
+        grid-template-columns: 46px minmax(0, 1fr);
+        gap: 8px;
       }
     }
     @media (hover: none) {
@@ -17629,15 +17613,6 @@ BOARD_WEB_APP_HTML = "".join(
       return value + ' ' + cardJournalPluralRu(value, one, few, many);
     }
 
-    function cardJournalGroupSummary(group) {
-      const parts = [formatJournalEventCount(group?.count || 0).toLowerCase()];
-      const changes = Number(group?.changes || 0);
-      const deletions = Number(group?.deletions || 0);
-      if (changes) parts.push(cardJournalCountText(changes, 'изменение', 'изменения', 'изменений'));
-      if (deletions) parts.push(cardJournalCountText(deletions, 'очищение', 'очищения', 'очищений'));
-      return parts.join(' · ');
-    }
-
     function cardJournalEntriesFromPayload(payload) {
       if (Array.isArray(payload?.entries)) return payload.entries;
       if (Array.isArray(payload?.timeline)) return payload.timeline;
@@ -17667,13 +17642,48 @@ BOARD_WEB_APP_HTML = "".join(
       return Array.from(byDay.values()).sort((left, right) => String(right.key).localeCompare(String(left.key)));
     }
 
-    function renderCardJournalStat(label, value) {
-      return '<div class="card-journal-stat"><strong>' + escapeHtml(value) + '</strong> ' + escapeHtml(label) + '</div>';
+    function cardJournalStripIcon(value) {
+      return String(value ?? '').replace(/^[\\s\\uFE0F\\u200D\\u2600-\\u27BF\\uD800-\\uDFFF]+/g, '').trim();
+    }
+
+    function cardJournalCollapsedText(value) {
+      return String(value ?? '')
+        .replace(/\\r/g, '')
+        .split('\\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .join(' · ');
+    }
+
+    function cardJournalEnsurePeriod(value) {
+      const text = String(value ?? '').trim();
+      if (!text) return '';
+      return /[.!?…:]$/.test(text) ? text : text + '.';
+    }
+
+    function cardJournalLineParts(entry) {
+      return String(entry?.display_line || '').split('|').map((item) => item.trim()).filter(Boolean);
+    }
+
+    function cardJournalActorName(entry) {
+      const lineParts = cardJournalLineParts(entry);
+      return cardJournalStripIcon(lineParts[2] || entry?.display_actor_name || entry?.actor_name || 'неизвестно') || 'неизвестно';
+    }
+
+    function cardJournalActionLabel(entry) {
+      const lineParts = cardJournalLineParts(entry);
+      return cardJournalStripIcon(entry?.action_label || entry?.human_message || entry?.message || lineParts[1] || 'Событие') || 'Событие';
+    }
+
+    function cardJournalEventSentence(entry) {
+      const actor = cardJournalActorName(entry);
+      const action = cardJournalEnsurePeriod(cardJournalActionLabel(entry));
+      return '<strong>' + escapeHtml(actor) + '</strong> · ' + escapeHtml(action);
     }
 
     function renderCardJournalBlock(block) {
       const item = block && typeof block === 'object' ? block : {};
-      const title = String(item.title || item.label || 'Запись журнала').trim();
+      const title = cardJournalStripIcon(item.title || item.label || 'Запись журнала');
       const text = String(item.text ?? '').replace(/\\r/g, '').trimEnd();
       const isEmpty = Boolean(item.is_empty) || !text.trim();
       const removed = String(item.change_kind || '').toLowerCase() === 'removed';
@@ -17687,14 +17697,45 @@ BOARD_WEB_APP_HTML = "".join(
       return html + '</div>';
     }
 
+    function cardJournalBlockParts(block) {
+      const item = block && typeof block === 'object' ? block : {};
+      const title = cardJournalStripIcon(item.title || item.label || '');
+      const rawText = String(item.text ?? '').replace(/\\r/g, '').trimEnd();
+      const removed = String(item.change_kind || '').toLowerCase() === 'removed';
+      const displayText = rawText.trim() ? rawText : (removed ? 'Текущее значение очищено.' : '');
+      const summary = cardJournalCollapsedText(displayText);
+      if (!title && !summary) return { inlineHtml: '', blockHtml: '' };
+      const valueLines = displayText.split('\\n').filter((line) => line.trim());
+      const isFullValue = Boolean(item.is_full_value);
+      const isLong = isFullValue || displayText.length > 140 || valueLines.length > 2;
+      if (!isLong) {
+        const inlineText = title && summary ? title + ': ' + summary : (title || summary);
+        return {
+          inlineHtml: inlineText ? ' <span class="card-journal-detail">' + escapeHtml(cardJournalEnsurePeriod(inlineText)) + '</span>' : '',
+          blockHtml: '',
+        };
+      }
+      return {
+        inlineHtml: '',
+        blockHtml: renderCardJournalBlock({
+          ...item,
+          title,
+          text: displayText,
+          is_empty: Boolean(item.is_empty) && !summary,
+          change_kind: item.change_kind || (removed ? 'removed' : 'changed'),
+        }),
+      };
+    }
+
     function renderCardJournalDetailLines(detailLines) {
       const lines = Array.isArray(detailLines) ? detailLines : [];
-      let html = '';
+      let inlineHtml = '';
+      let blockHtml = '';
       let captureAfter = false;
       let blockLines = [];
       const flushBlock = () => {
         if (!blockLines.length) return;
-        html += renderCardJournalBlock({
+        blockHtml += renderCardJournalBlock({
           title: 'Опубликованное значение',
           text: blockLines.join('\\n'),
         });
@@ -17722,17 +17763,24 @@ BOARD_WEB_APP_HTML = "".join(
         }
         const isSummary = trimmed.startsWith('Что произошло:');
         const text = isSummary ? trimmed.replace(/^Что произошло:\\s*/i, '') : trimmed;
-        html += '<div class="card-journal-detail' + (isSummary ? ' card-journal-detail--summary' : '') + '">' + escapeHtml(text) + '</div>';
+        inlineHtml += ' <span class="card-journal-detail">' + escapeHtml(cardJournalEnsurePeriod(text)) + '</span>';
       });
       flushBlock();
-      return html || '<div class="card-journal-detail">Подробностей по событию нет.</div>';
+      return { inlineHtml, blockHtml };
     }
 
     function renderCardJournalDetails(entry) {
       const blocks = Array.isArray(entry?.journal_blocks)
         ? entry.journal_blocks
         : (Array.isArray(entry?.published_blocks) ? entry.published_blocks : []);
-      if (blocks.length) return blocks.map(renderCardJournalBlock).join('');
+      if (blocks.length) {
+        return blocks.reduce((acc, block) => {
+          const parts = cardJournalBlockParts(block);
+          acc.inlineHtml += parts.inlineHtml;
+          acc.blockHtml += parts.blockHtml;
+          return acc;
+        }, { inlineHtml: '', blockHtml: '' });
+      }
       const detailLines = Array.isArray(entry?.detail_lines)
         ? entry.detail_lines
         : (entry?.details_text ? String(entry.details_text).split('\\n') : []);
@@ -17740,11 +17788,11 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function renderCardJournalEntry(entry) {
-      const lineParts = String(entry?.display_line || '').split('|').map((item) => item.trim()).filter(Boolean);
+      const lineParts = cardJournalLineParts(entry);
       const time = escapeHtml(entry?.time_short || formatJournalTime(entry?.business_timestamp || entry?.timestamp) || lineParts[0] || '—');
-      const title = lineParts[1] || [entry?.icon || '', entry?.action_label || entry?.human_message || entry?.message || 'Событие'].filter(Boolean).join(' ');
-      const actor = lineParts[2] || entry?.display_actor_name || entry?.actor_name || 'неизвестно';
-      return '<article class="card-journal-entry' + (entry?.has_deletion ? ' card-journal-entry--deletion' : '') + '"><div class="card-journal-entry__time">' + time + '</div><div class="card-journal-entry__body"><div class="card-journal-entry__title"><span>' + escapeHtml(title) + '</span><span class="card-journal-entry__actor">' + escapeHtml(actor) + '</span></div><div class="card-journal-entry__details">' + renderCardJournalDetails(entry) + '</div></div></article>';
+      const deletionClass = entry?.has_deletion ? ' card-journal-entry--deletion' : '';
+      const blockParts = renderCardJournalDetails(entry);
+      return '<article class="card-journal-entry' + deletionClass + '"><div class="card-journal-entry__time">' + time + '</div><div class="card-journal-entry__content"><div class="card-journal-entry__sentence">' + cardJournalEventSentence(entry) + blockParts.inlineHtml + '</div>' + blockParts.blockHtml + '</div></article>';
     }
 
     function buildCardJournalHtml(payload) {
@@ -17755,13 +17803,9 @@ BOARD_WEB_APP_HTML = "".join(
       const days = Array.isArray(data.days) && data.days.length ? data.days : buildCardJournalDays(entries);
       const returned = Number(totals.count ?? meta.events_returned ?? entries.length ?? 0);
       const total = Number(meta.events_total ?? returned);
-      let html = '<div class="card-journal-header"><div class="card-journal-header__title">🧾 Журнал карточки</div><div class="card-journal-header__subtitle">' + escapeHtml(meta.card_heading || 'Карточка') + '</div></div>';
-      html += '<div class="card-journal-stats">';
-      html += renderCardJournalStat('показано', returned + ' из ' + total);
-      html += renderCardJournalStat('участников', Number(totals.actors || 0));
-      html += renderCardJournalStat('изменений', Number(totals.changes || 0));
-      html += renderCardJournalStat('очищений', Number(totals.deletions || 0));
-      html += '</div>';
+      const totalLabel = cardJournalCountText(total, 'событие', 'события', 'событий');
+      const returnedLabel = returned === total ? totalLabel : 'показано ' + returned + ' из ' + totalLabel;
+      let html = '<div class="card-journal-header"><div><div class="card-journal-header__title">Журнал карточки</div><div class="card-journal-header__subtitle">' + escapeHtml(meta.card_heading || 'Карточка') + '</div></div><div class="card-journal-header__meta">' + escapeHtml(returnedLabel + ' · новые сверху') + '</div></div>';
       if (meta.has_more) {
         html += '<div class="card-journal-note">Показана только часть журнала. Для полной истории увеличьте лимит выгрузки.</div>';
       }
@@ -17770,7 +17814,7 @@ BOARD_WEB_APP_HTML = "".join(
       }
       days.forEach((day) => {
         const dayEntries = Array.isArray(day?.entries) ? day.entries : [];
-        html += '<section class="card-journal-day"><div class="card-journal-day__head"><span>📆 ' + escapeHtml(day?.label || day?.key || 'без даты') + '</span><span class="card-journal-day__meta">' + escapeHtml(cardJournalGroupSummary({ ...day, count: day?.count ?? dayEntries.length })) + '</span></div><div class="card-journal-events">';
+        html += '<section class="card-journal-day"><div class="card-journal-day__label">' + escapeHtml(day?.label || day?.key || 'без даты') + '</div><div class="card-journal-events">';
         html += dayEntries.map(renderCardJournalEntry).join('');
         html += '</div></section>';
       });
@@ -18567,7 +18611,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     function setTab(name) {
-      const nextName = state.mobileLite && name === 'journal' ? 'overview' : name;
+      const nextName = name;
       state.currentTab = nextName;
       document.querySelectorAll('[data-tab]').forEach((button) => button.classList.toggle('is-active', button.dataset.tab === nextName));
       document.querySelectorAll('[data-panel]').forEach((panel) => panel.classList.toggle('hidden', panel.dataset.panel !== nextName));

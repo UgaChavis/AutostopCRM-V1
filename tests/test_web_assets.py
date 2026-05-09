@@ -1126,6 +1126,7 @@ class WebAssetsTests(unittest.TestCase):
             'body.is-mobile-lite .dialog__tabs--card .tab-btn[data-tab="journal"] {\n      display: inline-block;',
             BOARD_WEB_APP_HTML,
         )
+        self.assertNotIn("state.mobileLite && name === 'journal'", BOARD_WEB_APP_HTML)
         self.assertIn("body.is-mobile-lite .vehicle-panel__fields {", BOARD_WEB_APP_HTML)
         self.assertIn("applyMobileLiteMode(detectMobileLiteMode());", BOARD_WEB_APP_HTML)
         self.assertIn("window.addEventListener('resize', syncMobileLiteMode);", BOARD_WEB_APP_HTML)
@@ -2485,10 +2486,27 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function renderLogs(payload)", BOARD_WEB_APP_HTML)
         self.assertIn("function buildCardJournalFallbackText(events)", BOARD_WEB_APP_HTML)
         self.assertIn("function buildCardJournalHtml(payload)", BOARD_WEB_APP_HTML)
+        self.assertIn("function cardJournalEventSentence(entry)", BOARD_WEB_APP_HTML)
+        self.assertIn("function cardJournalBlockParts(block)", BOARD_WEB_APP_HTML)
         self.assertIn("function renderCardJournalBlock(block)", BOARD_WEB_APP_HTML)
         self.assertIn("function renderCardJournalDetails(entry)", BOARD_WEB_APP_HTML)
         self.assertIn("function renderCardJournalDetailLines(detailLines)", BOARD_WEB_APP_HTML)
         self.assertIn(".card-journal-block {", BOARD_WEB_APP_HTML)
+        self.assertIn(".card-journal-entry__sentence {", BOARD_WEB_APP_HTML)
+        self.assertIn(".card-journal-header__meta {", BOARD_WEB_APP_HTML)
+        self.assertIn("const blockParts = renderCardJournalDetails(entry);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "inlineHtml: inlineText ? ' <span class=\"card-journal-detail\">'",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("const totalLabel = cardJournalCountText(total, 'событие', 'события', 'событий');", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function renderCardJournalStat(label, value)", BOARD_WEB_APP_HTML)
+        self.assertNotIn("card-journal-stats", BOARD_WEB_APP_HTML)
+        self.assertNotIn("card-journal-stat", BOARD_WEB_APP_HTML)
+        self.assertNotIn("card-journal-day__head", BOARD_WEB_APP_HTML)
+        self.assertNotIn("card-journal-day__meta", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function cardJournalGroupSummary(group)", BOARD_WEB_APP_HTML)
+        self.assertNotIn("card-journal-entry__title", BOARD_WEB_APP_HTML)
         self.assertNotIn("Было до изменения", BOARD_WEB_APP_HTML)
         self.assertNotIn("Стало после изменения", BOARD_WEB_APP_HTML)
         self.assertIn(
