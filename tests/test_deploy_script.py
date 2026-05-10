@@ -25,6 +25,19 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("telegram-ai.env:/run/telegram-ai.env:ro", compose)
         self.assertIn("telegram-ai.env", compose)
 
+    def test_deploy_installs_production_watchdog_timer_by_default(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        installer = (PROJECT_ROOT / "scripts" / "install_production_watchdog.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('INSTALL_WATCHDOG="${AUTOSTOP_INSTALL_WATCHDOG:-1}"', script)
+        self.assertIn("install_production_watchdog.sh", script)
+        self.assertIn("autostopcrm-watchdog.service", installer)
+        self.assertIn("autostopcrm-watchdog.timer", installer)
+        self.assertIn("OnUnitActiveSec=", installer)
+        self.assertIn("production_watchdog.py", installer)
+
 
 if __name__ == "__main__":
     unittest.main()

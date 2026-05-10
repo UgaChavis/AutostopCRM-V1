@@ -87,8 +87,37 @@ Useful `deploy.sh` env vars:
 - `AUTOSTOP_PUBLIC_SITE_URL`, `AUTOSTOP_PUBLIC_MCP_URL` - public smoke URLs
 - `AUTOSTOP_SMOKE_OPERATOR_USERNAME`, `AUTOSTOP_SMOKE_OPERATOR_PASSWORD` - smoke credentials
 - `AUTOSTOP_DESKTOP_INSTRUCTION_PATH` - where to copy `AUTOSTOPCRM_FULL_INSTRUCTION.txt`
+- `AUTOSTOP_INSTALL_WATCHDOG=0` - skip production watchdog timer install
+- `AUTOSTOP_WATCHDOG_INTERVAL` - watchdog timer interval; default `1min`
 
 Normal production deploy should stay on `autostopcrm-v1`.
+
+## Production Watchdog
+
+`deploy.sh` installs and enables `autostopcrm-watchdog.timer` on systemd hosts by default.
+The watchdog runs `scripts/production_watchdog.py` from the production checkout and checks:
+
+- local host API upstream: `http://127.0.0.1:8000/api/health`;
+- local host MCP upstream: `http://127.0.0.1:8001/mcp`;
+- public CRM page: `https://crm.autostopcrm.ru`.
+
+If the container is not ready or the local host upstream fails, it runs:
+
+```bash
+cd /opt/autostopcrm
+docker compose restart autostopcrm
+```
+
+If local upstreams are healthy but the public site fails, it validates nginx config and reloads nginx.
+
+Useful commands:
+
+```bash
+systemctl status autostopcrm-watchdog.timer
+systemctl status autostopcrm-watchdog.service
+journalctl -u autostopcrm-watchdog.service -n 100 --no-pager
+systemctl start autostopcrm-watchdog.service
+```
 
 ## Production Verification
 

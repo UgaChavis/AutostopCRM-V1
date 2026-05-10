@@ -14,6 +14,7 @@ VERIFY_PUBLIC_HTTPS="${AUTOSTOP_VERIFY_PUBLIC_HTTPS:-0}"
 DEPLOY_REMOTE="${AUTOSTOP_DEPLOY_REMOTE:-origin}"
 DEPLOY_BRANCH="${AUTOSTOP_DEPLOY_BRANCH:-autostopcrm-v1}"
 SKIP_GIT_SYNC="${AUTOSTOP_SKIP_GIT_SYNC:-0}"
+INSTALL_WATCHDOG="${AUTOSTOP_INSTALL_WATCHDOG:-1}"
 
 cd "$ROOT_DIR"
 
@@ -83,6 +84,16 @@ fi
 
 if [[ -n "$DESKTOP_INSTRUCTION_PATH" ]]; then
   install -D -m 644 "$ROOT_DIR/AUTOSTOPCRM_FULL_INSTRUCTION.txt" "$DESKTOP_INSTRUCTION_PATH" 2>/dev/null || true
+fi
+
+if [[ "$INSTALL_WATCHDOG" == "1" ]]; then
+  if [[ "$(id -u)" -eq 0 ]] && command -v systemctl >/dev/null 2>&1; then
+    bash "$ROOT_DIR/scripts/install_production_watchdog.sh"
+  else
+    echo "WARN: production watchdog install skipped; root and systemctl are required." >&2
+  fi
+else
+  echo "Skipping production watchdog install because AUTOSTOP_INSTALL_WATCHDOG=0."
 fi
 
 echo "Deploy complete: container is up and smoke-check passed."
