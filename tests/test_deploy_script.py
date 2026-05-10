@@ -38,6 +38,15 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("OnUnitActiveSec=", installer)
         self.assertIn("production_watchdog.py", installer)
 
+    def test_deploy_holds_lock_for_production_watchdog(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+
+        self.assertIn(
+            'DEPLOY_LOCK_PATH="${AUTOSTOP_DEPLOY_LOCK_PATH:-$ROOT_DIR/.autostop-deploy.lock}"',
+            script,
+        )
+        self.assertIn('flock -n "$DEPLOY_LOCK_FD"', script)
+
 
 if __name__ == "__main__":
     unittest.main()

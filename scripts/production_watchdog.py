@@ -36,6 +36,7 @@ class WatchdogConfig:
     local_api_health_url: str = "http://127.0.0.1:8000/api/health"
     local_mcp_url: str = "http://127.0.0.1:8001/mcp"
     public_site_url: str = "https://crm.autostopcrm.ru"
+    deploy_lock_path: Path = PROJECT_ROOT / ".autostop-deploy.lock"
     request_timeout_seconds: float = 5.0
     command_timeout_seconds: int = 30
     post_recovery_delay_seconds: float = 8.0
@@ -53,6 +54,25 @@ def run_command(command: Sequence[str], *, timeout: int) -> CommandResult:
     except Exception as exc:
         return CommandResult(1, stderr=str(exc))
     return CommandResult(completed.returncode, completed.stdout, completed.stderr)
+
+
+def is_deploy_lock_held(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        import fcntl
+    except ImportError:
+        return False
+    try:
+        with path.open("a+", encoding="utf-8") as handle:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        return False
+    return False
 
 
 def check_endpoint(
@@ -111,16 +131,24 @@ class ProductionWatchdog:
         config: WatchdogConfig,
         run_command: Callable[[Sequence[str]], CommandResult] = run_command,
         check_endpoint: Callable[..., EndpointResult] = check_endpoint,
+        is_deploy_in_progress: Callable[[], bool] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         log: Callable[[str], None] = print,
     ) -> None:
         self.config = config
         self._run_command = run_command
         self._check_endpoint = check_endpoint
+        self._is_deploy_in_progress = is_deploy_in_progress or (
+            lambda: is_deploy_lock_held(self.config.deploy_lock_path)
+        )
         self._sleep = sleep
         self._log = log
 
     def run_once(self) -> int:
+        if self._is_deploy_in_progress():
+            self._log("deploy lock is held; skipping watchdog cycle")
+            return 0
+
         container_ok = self._container_ready()
         api = self._check_local_api()
         mcp = self._check_local_mcp()
@@ -259,6 +287,12 @@ def config_from_env(args: argparse.Namespace) -> WatchdogConfig:
             "AUTOSTOP_WATCHDOG_PUBLIC_SITE_URL",
             "https://crm.autostopcrm.ru",
         ),
+        deploy_lock_path=Path(
+            os.environ.get(
+                "AUTOSTOP_DEPLOY_LOCK_PATH",
+                str(root_dir / ".autostop-deploy.lock"),
+            )
+        ).resolve(),
         request_timeout_seconds=float(os.environ.get("AUTOSTOP_WATCHDOG_TIMEOUT", "5")),
         command_timeout_seconds=int(os.environ.get("AUTOSTOP_WATCHDOG_COMMAND_TIMEOUT", "30")),
         post_recovery_delay_seconds=float(os.environ.get("AUTOSTOP_WATCHDOG_RECOVERY_DELAY", "8")),

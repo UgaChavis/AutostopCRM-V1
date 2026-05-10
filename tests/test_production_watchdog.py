@@ -80,6 +80,37 @@ class ProductionWatchdogTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn(("docker", "compose", "restart", "autostopcrm"), runner.commands)
 
+    def test_skips_recovery_while_deploy_lock_is_held(self) -> None:
+        module = load_watchdog_module()
+        config = module.WatchdogConfig(
+            local_api_health_url="http://127.0.0.1:8000/api/health",
+            local_mcp_url="http://127.0.0.1:8001/mcp",
+            public_site_url="https://crm.autostopcrm.ru",
+            post_recovery_delay_seconds=0,
+        )
+        runner = FakeCommandRunner(module)
+        probe = FakeHttpProbe(
+            module,
+            {
+                config.local_api_health_url: [False],
+                config.local_mcp_url: [False],
+                config.public_site_url: [False],
+            },
+        )
+
+        exit_code = module.ProductionWatchdog(
+            config=config,
+            run_command=runner,
+            check_endpoint=probe,
+            is_deploy_in_progress=lambda: True,
+            sleep=lambda seconds: None,
+            log=lambda message: None,
+        ).run_once()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(runner.commands, [])
+        self.assertEqual(probe.urls, [])
+
     def test_reloads_nginx_when_public_site_fails_but_local_upstream_is_healthy(self) -> None:
         module = load_watchdog_module()
         config = module.WatchdogConfig(

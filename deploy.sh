@@ -18,6 +18,18 @@ INSTALL_WATCHDOG="${AUTOSTOP_INSTALL_WATCHDOG:-1}"
 
 cd "$ROOT_DIR"
 
+DEPLOY_LOCK_PATH="${AUTOSTOP_DEPLOY_LOCK_PATH:-$ROOT_DIR/.autostop-deploy.lock}"
+DEPLOY_LOCK_FD=9
+if command -v flock >/dev/null 2>&1; then
+  eval "exec $DEPLOY_LOCK_FD>\"\$DEPLOY_LOCK_PATH\""
+  if ! flock -n "$DEPLOY_LOCK_FD"; then
+    echo "ERROR: another AutoStop CRM deploy is already running." >&2
+    exit 1
+  fi
+else
+  echo "WARN: flock is not available; watchdog deploy coordination is disabled." >&2
+fi
+
 if [[ "$SKIP_GIT_SYNC" != "1" ]]; then
   if git ls-remote --exit-code "$DEPLOY_REMOTE" "refs/heads/$DEPLOY_BRANCH" >/dev/null 2>&1; then
     echo "Syncing deployment checkout from $DEPLOY_REMOTE/$DEPLOY_BRANCH..."
