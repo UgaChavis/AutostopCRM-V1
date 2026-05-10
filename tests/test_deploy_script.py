@@ -47,6 +47,11 @@ class DeployScriptTests(unittest.TestCase):
         )
         self.assertIn('flock -n "$DEPLOY_LOCK_FD"', script)
 
+    def test_deploy_lock_file_is_ignored(self) -> None:
+        gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
+
+        self.assertIn(".autostop-deploy.lock", gitignore)
+
 
 if __name__ == "__main__":
     unittest.main()

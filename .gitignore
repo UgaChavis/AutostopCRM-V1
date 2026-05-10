@@ -184,6 +184,7 @@ release.staging/
 data/
 .tmp-*/
 telegram-ai.env
+.autostop-deploy.lock
 
 # Local agent and QA artifacts
 .playwright-cli/
