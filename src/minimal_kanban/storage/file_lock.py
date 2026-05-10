@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
-from pathlib import Path
 import os
 import time
-
+from contextlib import contextmanager
+from pathlib import Path
 
 if os.name == "nt":  # pragma: no cover - platform specific
     import msvcrt
@@ -13,7 +12,9 @@ else:  # pragma: no cover - platform specific
 
 
 class ProcessFileLock:
-    def __init__(self, lock_file: Path, *, timeout_seconds: float = 10.0, poll_interval: float = 0.05) -> None:
+    def __init__(
+        self, lock_file: Path, *, timeout_seconds: float = 10.0, poll_interval: float = 0.05
+    ) -> None:
         self._lock_file = lock_file
         self._timeout_seconds = timeout_seconds
         self._poll_interval = poll_interval

@@ -81,11 +81,13 @@ def _extract_section(template: str, start_index: int, stop_name: str) -> tuple[s
             elif sigil == "/":
                 depth -= 1
                 if depth == 0:
-                    return template[start_index:match.start()], match.end()
+                    return template[start_index : match.start()], match.end()
         index = match.end()
 
 
-def _render_segment(template: str, stack: list[Any], start_index: int, stop_name: str | None) -> tuple[str, int]:
+def _render_segment(
+    template: str, stack: list[Any], start_index: int, stop_name: str | None
+) -> tuple[str, int]:
     out: list[str] = []
     index = start_index
     while True:
@@ -95,7 +97,7 @@ def _render_segment(template: str, stack: list[Any], start_index: int, stop_name
                 raise TemplateRenderError(f"Не закрыта секция шаблона: {stop_name}")
             out.append(template[index:])
             return "".join(out), len(template)
-        out.append(template[index:match.start()])
+        out.append(template[index : match.start()])
         raw_name = match.group(1)
         if raw_name is not None:
             out.append(_stringify(_resolve(raw_name, stack)))
@@ -110,7 +112,9 @@ def _render_segment(template: str, stack: list[Any], start_index: int, stop_name
         if sigil == "/":
             if stop_name == name:
                 return "".join(out), index
-            raise TemplateRenderError(f"Закрывающая секция {name} не соответствует открытому блоку.")
+            raise TemplateRenderError(
+                f"Закрывающая секция {name} не соответствует открытому блоку."
+            )
         inner, next_index = _extract_section(template, index, name)
         value = _resolve(name, stack)
         if sigil == "#":

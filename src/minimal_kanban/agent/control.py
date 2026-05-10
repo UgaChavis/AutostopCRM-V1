@@ -1396,9 +1396,7 @@ class AgentControlService:
         scenario_id = str(payload.get("scenario_id", "") or "").strip().lower()
         heading = str(payload.get("card_heading", "") or payload.get("title", "") or "").strip()
         vehicle = str(payload.get("vehicle", "") or "").strip()
-        mini_prompt = str(
-            payload.get("prompt", "") or payload.get("task_text", "") or ""
-        ).strip()
+        mini_prompt = str(payload.get("prompt", "") or payload.get("task_text", "") or "").strip()
         lines = [
             "Выполни полное заполнение карточки автосервиса.",
             "Работай только с этой карточкой и заполни все возможные поля самостоятельно.",

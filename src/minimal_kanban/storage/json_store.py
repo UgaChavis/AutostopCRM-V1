@@ -24,8 +24,8 @@ from ..models import (
     parse_datetime,
     utc_now,
 )
-from ..texts import COLUMN_LABELS_RU
 from ..services.ready_column import ensure_ready_column
+from ..texts import COLUMN_LABELS_RU
 from .file_lock import ProcessFileLock
 
 

@@ -21,7 +21,9 @@ def _build_formatter() -> logging.Formatter:
     )
 
 
-def _configure_file_logger(name: str, log_file, *, level: int = logging.INFO, rotating: bool = True) -> logging.Logger:
+def _configure_file_logger(
+    name: str, log_file, *, level: int = logging.INFO, rotating: bool = True
+) -> logging.Logger:
     get_logs_dir().mkdir(parents=True, exist_ok=True)
     logger = logging.getLogger(name)
     logger.setLevel(level)
@@ -30,7 +32,9 @@ def _configure_file_logger(name: str, log_file, *, level: int = logging.INFO, ro
 
     formatter = _build_formatter()
     if rotating:
-        file_handler = RotatingFileHandler(log_file, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+        file_handler = RotatingFileHandler(
+            log_file, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+        )
     else:
         file_handler = FileHandler(log_file, encoding="utf-8")
     file_handler.setFormatter(formatter)
@@ -38,7 +42,9 @@ def _configure_file_logger(name: str, log_file, *, level: int = logging.INFO, ro
     return logger
 
 
-def _configure_stream_fallback_logger(name: str, *, level: int = logging.INFO, warning_message: str = "") -> logging.Logger:
+def _configure_stream_fallback_logger(
+    name: str, *, level: int = logging.INFO, warning_message: str = ""
+) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(level)
     close_logger(logger)

@@ -39,6 +39,11 @@ Assert-LastExitCode "Run environment doctor"
 & (Join-Path $PSScriptRoot "run_checks.ps1")
 Assert-LastExitCode "Run incremental ruff checks"
 
+& $pythonExe -m ruff format --check .
+Assert-LastExitCode "Run full ruff format check"
+& $pythonExe -m ruff check .
+Assert-LastExitCode "Run full ruff check"
+
 & $pythonExe -m unittest discover -s (Join-Path $projectRoot "tests") -v
 Assert-LastExitCode "Run unit tests"
 & $pythonExe (Join-Path $projectRoot "scripts\\audit_localization.py")

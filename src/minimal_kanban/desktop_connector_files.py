@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from urllib.parse import urlsplit
 
-
 CONNECTION_CARD_FILENAME = "GPT_MCP_CONNECTION_CARD.txt"
 CONNECTOR_JSON_FILENAME = "chatgpt-connector.json"
 AUTH_NOTE_FILENAME = "AutoStop CRM Auth Note.txt"
@@ -29,12 +28,16 @@ def _connector_auth_label(auth_mode: str) -> str:
     return "Bearer token" if _normalized_auth_mode(auth_mode) == "bearer" else "No authentication"
 
 
-def build_connector_file_contents(mcp_url: str, local_api_url: str, *, auth_mode: str = "none") -> dict[str, str]:
+def build_connector_file_contents(
+    mcp_url: str, local_api_url: str, *, auth_mode: str = "none"
+) -> dict[str, str]:
     normalized_mcp_url = str(mcp_url or "").strip()
     normalized_local_api_url = str(local_api_url or "").strip()
     normalized_auth_mode = _normalized_auth_mode(auth_mode)
     auth_label = _connector_auth_label(normalized_auth_mode)
-    host_label = (urlsplit(normalized_mcp_url).hostname or "current-connector").strip().lower() or "current-connector"
+    host_label = (
+        urlsplit(normalized_mcp_url).hostname or "current-connector"
+    ).strip().lower() or "current-connector"
 
     connection_card = (
         f"{DISPLAY_PRODUCT_NAME} / This Board Only ({host_label}) -> ChatGPT / MCP\n\n"
@@ -80,7 +83,9 @@ def build_connector_file_contents(mcp_url: str, local_api_url: str, *, auth_mode
     }
 
 
-def build_pending_connector_file_contents(*, auth_mode: str = "none", local_api_url: str = "http://127.0.0.1:41731") -> dict[str, str]:
+def build_pending_connector_file_contents(
+    *, auth_mode: str = "none", local_api_url: str = "http://127.0.0.1:41731"
+) -> dict[str, str]:
     normalized_auth_mode = _normalized_auth_mode(auth_mode)
     auth_label = _connector_auth_label(normalized_auth_mode)
     normalized_local_api_url = str(local_api_url or "").strip() or "http://127.0.0.1:41731"
@@ -100,7 +105,7 @@ def build_pending_connector_file_contents(*, auth_mode: str = "none", local_api_
             "6. In a new chat call ping_connector, then bootstrap_context.\n"
         ),
         CONNECTOR_JSON_FILENAME: (
-            '{\n'
+            "{\n"
             f'  "name": "{DISPLAY_PRODUCT_NAME} / This Board Only (current-connector)",\n'
             '  "description": "Single-board connector for the current AutoStop CRM board only.",\n'
             '  "connector_url": "",\n'
@@ -110,8 +115,8 @@ def build_pending_connector_file_contents(*, auth_mode: str = "none", local_api_
             f'    "Authentication mode: {auth_label}.",\n'
             '    "First call should be ping_connector.",\n'
             '    "Second call should be bootstrap_context."\n'
-            '  ]\n'
-            '}'
+            "  ]\n"
+            "}"
         ),
         AUTH_NOTE_FILENAME: (
             "ChatGPT connector\n\n"
@@ -136,7 +141,9 @@ def write_connector_files(
     target_directory = _resolve_desktop_path(desktop_path)
     target_directory.mkdir(parents=True, exist_ok=True)
     written: dict[str, Path] = {}
-    for filename, content in build_connector_file_contents(mcp_url, local_api_url, auth_mode=auth_mode).items():
+    for filename, content in build_connector_file_contents(
+        mcp_url, local_api_url, auth_mode=auth_mode
+    ).items():
         path = target_directory / filename
         _write_text_no_bom(path, content)
         written[filename] = path

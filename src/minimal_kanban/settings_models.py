@@ -15,13 +15,26 @@ from .config import (
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
 )
 
-
 SETTINGS_SCHEMA_VERSION = 3
 SECRET_REDACTION = "[скрыто]"
 CONNECTION_STATUS_VALUES = ("not_tested", "success", "failed", "skipped", "warning")
 AUTH_MODE_VALUES = ("none", "bearer")
-DEFAULT_ALLOWED_HOST_PATTERNS = ("127.0.0.1", "127.0.0.1:*", "localhost", "localhost:*", "[::1]", "[::1]:*")
-DEFAULT_ALLOWED_ORIGIN_PATTERNS = ("http://127.0.0.1", "http://localhost", "http://[::1]", "http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*")
+DEFAULT_ALLOWED_HOST_PATTERNS = (
+    "127.0.0.1",
+    "127.0.0.1:*",
+    "localhost",
+    "localhost:*",
+    "[::1]",
+    "[::1]:*",
+)
+DEFAULT_ALLOWED_ORIGIN_PATTERNS = (
+    "http://127.0.0.1",
+    "http://localhost",
+    "http://[::1]",
+    "http://127.0.0.1:*",
+    "http://localhost:*",
+    "http://[::1]:*",
+)
 
 
 def normalize_text(value, *, default: str = "", limit: int | None = None) -> str:
@@ -47,7 +60,9 @@ def normalize_bool(value, *, default: bool = False) -> bool:
     return default
 
 
-def normalize_int(value, *, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
+def normalize_int(
+    value, *, default: int, minimum: int | None = None, maximum: int | None = None
+) -> int:
     try:
         parsed = int(value)
     except (TypeError, ValueError):
@@ -225,17 +240,28 @@ class GeneralSettings:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict | None, *, legacy_general: dict | None = None) -> "GeneralSettings":
+    def from_dict(
+        cls, payload: dict | None, *, legacy_general: dict | None = None
+    ) -> GeneralSettings:
         payload = payload if isinstance(payload, dict) else {}
         legacy_general = legacy_general if isinstance(legacy_general, dict) else {}
         return cls(
-            integration_enabled=normalize_bool(payload.get("integration_enabled", legacy_general.get("integration_enabled")), default=True),
-            use_local_api=normalize_bool(payload.get("use_local_api", legacy_general.get("use_local_api")), default=True),
-            auto_connect_on_startup=normalize_bool(
-                payload.get("auto_connect_on_startup", legacy_general.get("auto_connect_on_startup")),
+            integration_enabled=normalize_bool(
+                payload.get("integration_enabled", legacy_general.get("integration_enabled")),
                 default=True,
             ),
-            test_mode=normalize_bool(payload.get("test_mode", legacy_general.get("test_mode")), default=True),
+            use_local_api=normalize_bool(
+                payload.get("use_local_api", legacy_general.get("use_local_api")), default=True
+            ),
+            auto_connect_on_startup=normalize_bool(
+                payload.get(
+                    "auto_connect_on_startup", legacy_general.get("auto_connect_on_startup")
+                ),
+                default=True,
+            ),
+            test_mode=normalize_bool(
+                payload.get("test_mode", legacy_general.get("test_mode")), default=True
+            ),
         )
 
 
@@ -268,7 +294,9 @@ class LocalApiSettings:
             "effective_local_api_url": self.effective_local_api_url,
             "local_api_health_url": self.local_api_health_url,
             "local_api_auth_mode": self.local_api_auth_mode,
-            "local_api_bearer_token": SECRET_REDACTION if redact_secrets and self.local_api_bearer_token else self.local_api_bearer_token,
+            "local_api_bearer_token": SECRET_REDACTION
+            if redact_secrets and self.local_api_bearer_token
+            else self.local_api_bearer_token,
         }
 
     @classmethod
@@ -278,7 +306,7 @@ class LocalApiSettings:
         *,
         legacy_general: dict | None = None,
         legacy_credentials: dict | None = None,
-    ) -> "LocalApiSettings":
+    ) -> LocalApiSettings:
         payload = payload if isinstance(payload, dict) else {}
         legacy_general = legacy_general if isinstance(legacy_general, dict) else {}
         legacy_credentials = legacy_credentials if isinstance(legacy_credentials, dict) else {}
@@ -290,7 +318,10 @@ class LocalApiSettings:
         explicit_auth_mode = payload.get("local_api_auth_mode")
         inferred_auth_mode = "bearer" if token else "none"
         return cls(
-            local_api_host=normalize_host(payload.get("local_api_host", legacy_general.get("local_api_host")), default=DEFAULT_API_HOST),
+            local_api_host=normalize_host(
+                payload.get("local_api_host", legacy_general.get("local_api_host")),
+                default=DEFAULT_API_HOST,
+            ),
             local_api_port=normalize_int(
                 payload.get("local_api_port", legacy_general.get("local_api_port")),
                 default=DEFAULT_API_PORT,
@@ -298,10 +329,14 @@ class LocalApiSettings:
                 maximum=65535,
             ),
             local_api_base_url_override=normalize_url(
-                payload.get("local_api_base_url_override", legacy_general.get("local_api_base_url")),
+                payload.get(
+                    "local_api_base_url_override", legacy_general.get("local_api_base_url")
+                ),
                 default="",
             ),
-            local_api_auth_mode=normalize_choice(explicit_auth_mode, values=AUTH_MODE_VALUES, default=inferred_auth_mode),
+            local_api_auth_mode=normalize_choice(
+                explicit_auth_mode, values=AUTH_MODE_VALUES, default=inferred_auth_mode
+            ),
             local_api_bearer_token=token,
         )
 
@@ -334,7 +369,12 @@ class McpSettings:
 
     @property
     def effective_mcp_url(self) -> str:
-        return self.full_mcp_url_override or self.derived_public_mcp_url or self.derived_tunnel_mcp_url or self.local_mcp_url
+        return (
+            self.full_mcp_url_override
+            or self.derived_public_mcp_url
+            or self.derived_tunnel_mcp_url
+            or self.local_mcp_url
+        )
 
     @property
     def resolved_allowed_hosts(self) -> tuple[str, ...]:
@@ -378,7 +418,9 @@ class McpSettings:
             "resolved_allowed_hosts": list(self.resolved_allowed_hosts),
             "resolved_allowed_origins": list(self.resolved_allowed_origins),
             "mcp_auth_mode": self.mcp_auth_mode,
-            "mcp_bearer_token": SECRET_REDACTION if redact_secrets and self.mcp_bearer_token else self.mcp_bearer_token,
+            "mcp_bearer_token": SECRET_REDACTION
+            if redact_secrets and self.mcp_bearer_token
+            else self.mcp_bearer_token,
         }
 
     @classmethod
@@ -388,7 +430,7 @@ class McpSettings:
         *,
         legacy_mcp: dict | None = None,
         legacy_credentials: dict | None = None,
-    ) -> "McpSettings":
+    ) -> McpSettings:
         payload = payload if isinstance(payload, dict) else {}
         legacy_mcp = legacy_mcp if isinstance(legacy_mcp, dict) else {}
         legacy_credentials = legacy_credentials if isinstance(legacy_credentials, dict) else {}
@@ -400,24 +442,44 @@ class McpSettings:
         explicit_auth_mode = payload.get("mcp_auth_mode")
         inferred_auth_mode = "bearer" if token else "none"
         return cls(
-            mcp_enabled=normalize_bool(payload.get("mcp_enabled", legacy_mcp.get("enabled")), default=False),
-            mcp_host=normalize_host(payload.get("mcp_host", legacy_mcp.get("host")), default=DEFAULT_MCP_HOST),
+            mcp_enabled=normalize_bool(
+                payload.get("mcp_enabled", legacy_mcp.get("enabled")), default=False
+            ),
+            mcp_host=normalize_host(
+                payload.get("mcp_host", legacy_mcp.get("host")), default=DEFAULT_MCP_HOST
+            ),
             mcp_port=normalize_int(
                 payload.get("mcp_port", legacy_mcp.get("port")),
                 default=DEFAULT_MCP_PORT,
                 minimum=1,
                 maximum=65535,
             ),
-            mcp_path=normalize_path(payload.get("mcp_path", legacy_mcp.get("endpoint_path")), default=DEFAULT_MCP_PATH),
+            mcp_path=normalize_path(
+                payload.get("mcp_path", legacy_mcp.get("endpoint_path")), default=DEFAULT_MCP_PATH
+            ),
             public_https_base_url=normalize_url(
-                payload.get("public_https_base_url", legacy_mcp.get("public_base_url", legacy_mcp.get("public_url"))),
+                payload.get(
+                    "public_https_base_url",
+                    legacy_mcp.get("public_base_url", legacy_mcp.get("public_url")),
+                ),
                 default="",
             ),
             tunnel_url=normalize_url(payload.get("tunnel_url"), default=""),
-            full_mcp_url_override=normalize_url(payload.get("full_mcp_url_override", legacy_mcp.get("full_endpoint_url")), default=""),
-            allowed_hosts=tuple(normalize_string_list(payload.get("allowed_hosts", legacy_mcp.get("allowed_hosts")))),
-            allowed_origins=tuple(normalize_string_list(payload.get("allowed_origins", legacy_mcp.get("allowed_origins")))),
-            mcp_auth_mode=normalize_choice(explicit_auth_mode, values=AUTH_MODE_VALUES, default=inferred_auth_mode),
+            full_mcp_url_override=normalize_url(
+                payload.get("full_mcp_url_override", legacy_mcp.get("full_endpoint_url")),
+                default="",
+            ),
+            allowed_hosts=tuple(
+                normalize_string_list(payload.get("allowed_hosts", legacy_mcp.get("allowed_hosts")))
+            ),
+            allowed_origins=tuple(
+                normalize_string_list(
+                    payload.get("allowed_origins", legacy_mcp.get("allowed_origins"))
+                )
+            ),
+            mcp_auth_mode=normalize_choice(
+                explicit_auth_mode, values=AUTH_MODE_VALUES, default=inferred_auth_mode
+            ),
             mcp_bearer_token=token,
         )
 
@@ -442,15 +504,34 @@ class OpenAISettings:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict | None, *, legacy_openai: dict | None = None) -> "OpenAISettings":
+    def from_dict(
+        cls, payload: dict | None, *, legacy_openai: dict | None = None
+    ) -> OpenAISettings:
         payload = payload if isinstance(payload, dict) else {}
         legacy_openai = legacy_openai if isinstance(legacy_openai, dict) else {}
         return cls(
-            provider=normalize_text(payload.get("provider", legacy_openai.get("provider")), default=DEFAULT_OPENAI_PROVIDER, limit=64),
-            model=normalize_text(payload.get("model", legacy_openai.get("model")), default=DEFAULT_OPENAI_MODEL, limit=128),
-            base_url=normalize_url(payload.get("base_url", legacy_openai.get("base_url")), default=DEFAULT_OPENAI_BASE_URL),
-            organization_id=normalize_text(payload.get("organization_id", legacy_openai.get("organization_id")), default="", limit=128),
-            project_id=normalize_text(payload.get("project_id", legacy_openai.get("project_id")), default="", limit=128),
+            provider=normalize_text(
+                payload.get("provider", legacy_openai.get("provider")),
+                default=DEFAULT_OPENAI_PROVIDER,
+                limit=64,
+            ),
+            model=normalize_text(
+                payload.get("model", legacy_openai.get("model")),
+                default=DEFAULT_OPENAI_MODEL,
+                limit=128,
+            ),
+            base_url=normalize_url(
+                payload.get("base_url", legacy_openai.get("base_url")),
+                default=DEFAULT_OPENAI_BASE_URL,
+            ),
+            organization_id=normalize_text(
+                payload.get("organization_id", legacy_openai.get("organization_id")),
+                default="",
+                limit=128,
+            ),
+            project_id=normalize_text(
+                payload.get("project_id", legacy_openai.get("project_id")), default="", limit=128
+            ),
             timeout_seconds=normalize_int(
                 payload.get("timeout_seconds", legacy_openai.get("timeout_seconds")),
                 default=DEFAULT_REQUEST_TIMEOUT_SECONDS,
@@ -471,10 +552,18 @@ class AuthSettings:
     def to_dict(self, *, redact_secrets: bool = False) -> dict:
         return {
             "auth_mode": self.auth_mode,
-            "access_token": SECRET_REDACTION if redact_secrets and self.access_token else self.access_token,
-            "local_api_bearer_token": SECRET_REDACTION if redact_secrets and self.local_api_bearer_token else self.local_api_bearer_token,
-            "mcp_bearer_token": SECRET_REDACTION if redact_secrets and self.mcp_bearer_token else self.mcp_bearer_token,
-            "openai_api_key": SECRET_REDACTION if redact_secrets and self.openai_api_key else self.openai_api_key,
+            "access_token": SECRET_REDACTION
+            if redact_secrets and self.access_token
+            else self.access_token,
+            "local_api_bearer_token": SECRET_REDACTION
+            if redact_secrets and self.local_api_bearer_token
+            else self.local_api_bearer_token,
+            "mcp_bearer_token": SECRET_REDACTION
+            if redact_secrets and self.mcp_bearer_token
+            else self.mcp_bearer_token,
+            "openai_api_key": SECRET_REDACTION
+            if redact_secrets and self.openai_api_key
+            else self.openai_api_key,
         }
 
     @classmethod
@@ -485,25 +574,41 @@ class AuthSettings:
         legacy_credentials: dict | None = None,
         local_api: LocalApiSettings | None = None,
         mcp: McpSettings | None = None,
-    ) -> "AuthSettings":
+    ) -> AuthSettings:
         payload = payload if isinstance(payload, dict) else {}
         legacy_credentials = legacy_credentials if isinstance(legacy_credentials, dict) else {}
         access_token = normalize_text(payload.get("access_token"), default="", limit=500)
         local_api_bearer_token = normalize_text(
-            payload.get("local_api_bearer_token", legacy_credentials.get("local_api_bearer_token", getattr(local_api, "local_api_bearer_token", ""))),
+            payload.get(
+                "local_api_bearer_token",
+                legacy_credentials.get(
+                    "local_api_bearer_token", getattr(local_api, "local_api_bearer_token", "")
+                ),
+            ),
             default="",
             limit=500,
         )
         mcp_bearer_token = normalize_text(
-            payload.get("mcp_bearer_token", legacy_credentials.get("mcp_bearer_token", getattr(mcp, "mcp_bearer_token", ""))),
+            payload.get(
+                "mcp_bearer_token",
+                legacy_credentials.get("mcp_bearer_token", getattr(mcp, "mcp_bearer_token", "")),
+            ),
             default="",
             limit=500,
         )
-        openai_api_key = normalize_text(payload.get("openai_api_key", legacy_credentials.get("openai_api_key")), default="", limit=500)
+        openai_api_key = normalize_text(
+            payload.get("openai_api_key", legacy_credentials.get("openai_api_key")),
+            default="",
+            limit=500,
+        )
         explicit_auth_mode = payload.get("auth_mode", legacy_credentials.get("auth_mode"))
-        inferred_auth_mode = "bearer" if any((access_token, local_api_bearer_token, mcp_bearer_token)) else "none"
+        inferred_auth_mode = (
+            "bearer" if any((access_token, local_api_bearer_token, mcp_bearer_token)) else "none"
+        )
         return cls(
-            auth_mode=normalize_choice(explicit_auth_mode, values=AUTH_MODE_VALUES, default=inferred_auth_mode),
+            auth_mode=normalize_choice(
+                explicit_auth_mode, values=AUTH_MODE_VALUES, default=inferred_auth_mode
+            ),
             access_token=access_token,
             local_api_bearer_token=local_api_bearer_token,
             mcp_bearer_token=mcp_bearer_token,
@@ -551,24 +656,68 @@ class DiagnosticsSettings:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict | None, *, legacy_diagnostics: dict | None = None) -> "DiagnosticsSettings":
+    def from_dict(
+        cls, payload: dict | None, *, legacy_diagnostics: dict | None = None
+    ) -> DiagnosticsSettings:
         payload = payload if isinstance(payload, dict) else {}
         legacy_diagnostics = legacy_diagnostics if isinstance(legacy_diagnostics, dict) else {}
         return cls(
-            local_api_status=normalize_status(payload.get("local_api_status", legacy_diagnostics.get("local_api_status")), default="not_tested"),
-            local_api_message=normalize_text(payload.get("local_api_message", legacy_diagnostics.get("local_api_message")), default="", limit=500),
-            mcp_status=normalize_status(payload.get("mcp_status", legacy_diagnostics.get("mcp_status")), default="not_tested"),
-            mcp_message=normalize_text(payload.get("mcp_message", legacy_diagnostics.get("mcp_message")), default="", limit=500),
+            local_api_status=normalize_status(
+                payload.get("local_api_status", legacy_diagnostics.get("local_api_status")),
+                default="not_tested",
+            ),
+            local_api_message=normalize_text(
+                payload.get("local_api_message", legacy_diagnostics.get("local_api_message")),
+                default="",
+                limit=500,
+            ),
+            mcp_status=normalize_status(
+                payload.get("mcp_status", legacy_diagnostics.get("mcp_status")),
+                default="not_tested",
+            ),
+            mcp_message=normalize_text(
+                payload.get("mcp_message", legacy_diagnostics.get("mcp_message")),
+                default="",
+                limit=500,
+            ),
             external_status=normalize_status(payload.get("external_status"), default="not_tested"),
             external_message=normalize_text(payload.get("external_message"), default="", limit=500),
-            openai_status=normalize_status(payload.get("openai_status", legacy_diagnostics.get("openai_status")), default="not_tested"),
-            openai_message=normalize_text(payload.get("openai_message", legacy_diagnostics.get("openai_message")), default="", limit=500),
-            overall_status=normalize_status(payload.get("overall_status", legacy_diagnostics.get("overall_status")), default="not_tested"),
-            last_local_api_check=normalize_text(payload.get("last_local_api_check", legacy_diagnostics.get("last_tested_at")), default="", limit=64),
-            last_mcp_check=normalize_text(payload.get("last_mcp_check", legacy_diagnostics.get("last_tested_at")), default="", limit=64),
-            last_external_endpoint_check=normalize_text(payload.get("last_external_endpoint_check"), default="", limit=64),
-            last_openai_check=normalize_text(payload.get("last_openai_check", legacy_diagnostics.get("last_tested_at")), default="", limit=64),
-            last_full_check=normalize_text(payload.get("last_full_check", legacy_diagnostics.get("last_tested_at")), default="", limit=64),
+            openai_status=normalize_status(
+                payload.get("openai_status", legacy_diagnostics.get("openai_status")),
+                default="not_tested",
+            ),
+            openai_message=normalize_text(
+                payload.get("openai_message", legacy_diagnostics.get("openai_message")),
+                default="",
+                limit=500,
+            ),
+            overall_status=normalize_status(
+                payload.get("overall_status", legacy_diagnostics.get("overall_status")),
+                default="not_tested",
+            ),
+            last_local_api_check=normalize_text(
+                payload.get("last_local_api_check", legacy_diagnostics.get("last_tested_at")),
+                default="",
+                limit=64,
+            ),
+            last_mcp_check=normalize_text(
+                payload.get("last_mcp_check", legacy_diagnostics.get("last_tested_at")),
+                default="",
+                limit=64,
+            ),
+            last_external_endpoint_check=normalize_text(
+                payload.get("last_external_endpoint_check"), default="", limit=64
+            ),
+            last_openai_check=normalize_text(
+                payload.get("last_openai_check", legacy_diagnostics.get("last_tested_at")),
+                default="",
+                limit=64,
+            ),
+            last_full_check=normalize_text(
+                payload.get("last_full_check", legacy_diagnostics.get("last_tested_at")),
+                default="",
+                limit=64,
+            ),
             last_errors=normalize_messages(payload.get("last_errors")),
             last_warnings=normalize_messages(payload.get("last_warnings")),
         )
@@ -596,28 +745,46 @@ class IntegrationSettings:
         }
 
     @classmethod
-    def defaults(cls) -> "IntegrationSettings":
+    def defaults(cls) -> IntegrationSettings:
         return cls()
 
     @classmethod
-    def from_dict(cls, payload: dict | None) -> "IntegrationSettings":
+    def from_dict(cls, payload: dict | None) -> IntegrationSettings:
         payload = payload if isinstance(payload, dict) else {}
         legacy_general = payload.get("general") if isinstance(payload.get("general"), dict) else {}
-        legacy_credentials = payload.get("credentials") if isinstance(payload.get("credentials"), dict) else {}
+        legacy_credentials = (
+            payload.get("credentials") if isinstance(payload.get("credentials"), dict) else {}
+        )
         legacy_openai = payload.get("openai") if isinstance(payload.get("openai"), dict) else {}
         legacy_mcp = payload.get("mcp") if isinstance(payload.get("mcp"), dict) else {}
-        legacy_diagnostics = payload.get("diagnostics") if isinstance(payload.get("diagnostics"), dict) else {}
+        legacy_diagnostics = (
+            payload.get("diagnostics") if isinstance(payload.get("diagnostics"), dict) else {}
+        )
 
-        local_api = LocalApiSettings.from_dict(payload.get("local_api"), legacy_general=legacy_general, legacy_credentials=legacy_credentials)
-        mcp = McpSettings.from_dict(payload.get("mcp"), legacy_mcp=legacy_mcp, legacy_credentials=legacy_credentials)
-        auth = AuthSettings.from_dict(payload.get("auth"), legacy_credentials=legacy_credentials, local_api=local_api, mcp=mcp)
+        local_api = LocalApiSettings.from_dict(
+            payload.get("local_api"),
+            legacy_general=legacy_general,
+            legacy_credentials=legacy_credentials,
+        )
+        mcp = McpSettings.from_dict(
+            payload.get("mcp"), legacy_mcp=legacy_mcp, legacy_credentials=legacy_credentials
+        )
+        auth = AuthSettings.from_dict(
+            payload.get("auth"), legacy_credentials=legacy_credentials, local_api=local_api, mcp=mcp
+        )
 
         return cls(
-            schema_version=normalize_int(payload.get("schema_version"), default=SETTINGS_SCHEMA_VERSION, minimum=1),
-            general=GeneralSettings.from_dict(payload.get("general"), legacy_general=legacy_general),
+            schema_version=normalize_int(
+                payload.get("schema_version"), default=SETTINGS_SCHEMA_VERSION, minimum=1
+            ),
+            general=GeneralSettings.from_dict(
+                payload.get("general"), legacy_general=legacy_general
+            ),
             local_api=local_api,
             mcp=mcp,
             openai=OpenAISettings.from_dict(payload.get("openai"), legacy_openai=legacy_openai),
             auth=auth,
-            diagnostics=DiagnosticsSettings.from_dict(payload.get("diagnostics"), legacy_diagnostics=legacy_diagnostics),
+            diagnostics=DiagnosticsSettings.from_dict(
+                payload.get("diagnostics"), legacy_diagnostics=legacy_diagnostics
+            ),
         )

@@ -9,7 +9,6 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -36,7 +35,9 @@ class AppStartupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             settings_path = Path(temp_dir) / "settings.json"
             settings_service = SettingsService(
-                SettingsStore(settings_file=settings_path, logger=logging.getLogger("test.settings")),
+                SettingsStore(
+                    settings_file=settings_path, logger=logging.getLogger("test.settings")
+                ),
                 logging.getLogger("test.app"),
             )
             settings = settings_service.load()
@@ -47,7 +48,9 @@ class AppStartupTests(unittest.TestCase):
                 )
             )
 
-            with patch("minimal_kanban.desktop_connector_files.write_pending_connector_files") as write_pending:
+            with patch(
+                "minimal_kanban.desktop_connector_files.write_pending_connector_files"
+            ) as write_pending:
                 updated = _reset_runtime_publication_state(settings_service, settings)
 
             self.assertEqual(updated.mcp.tunnel_url, "")
@@ -59,7 +62,9 @@ class AppStartupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             settings_path = Path(temp_dir) / "settings.json"
             settings_service = SettingsService(
-                SettingsStore(settings_file=settings_path, logger=logging.getLogger("test.settings")),
+                SettingsStore(
+                    settings_file=settings_path, logger=logging.getLogger("test.settings")
+                ),
                 logging.getLogger("test.app"),
             )
             settings = settings_service.load()
@@ -74,7 +79,9 @@ class AppStartupTests(unittest.TestCase):
                 )
             )
 
-            with patch("minimal_kanban.desktop_connector_files.write_pending_connector_files") as write_pending:
+            with patch(
+                "minimal_kanban.desktop_connector_files.write_pending_connector_files"
+            ) as write_pending:
                 updated = _reset_runtime_publication_state(settings_service, settings)
 
             self.assertEqual(updated.mcp.tunnel_url, "")

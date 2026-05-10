@@ -262,9 +262,7 @@ Use empty strings or empty arrays when a fact is not visible. Do not invent fact
             except Exception as exc:
                 raise TelegramAIModelError("Local transcription request failed.") from exc
             text = " ".join(
-                segment.text.strip()
-                for segment in segments
-                if getattr(segment, "text", "").strip()
+                segment.text.strip() for segment in segments if getattr(segment, "text", "").strip()
             ).strip()
         return text
 
@@ -309,7 +307,9 @@ Use empty strings or empty arrays when a fact is not visible. Do not invent fact
             if attempt < attempts:
                 time.sleep(_retry_delay_seconds(last_error, attempt))
         else:
-            raise TelegramAIModelError(f"OpenAI transcription request failed: {last_error}") from last_error
+            raise TelegramAIModelError(
+                f"OpenAI transcription request failed: {last_error}"
+            ) from last_error
         text = str(payload.get("text") or "").strip() if isinstance(payload, dict) else ""
         if not text:
             raise TelegramAIModelError("OpenAI transcription returned empty text.")
@@ -834,6 +834,8 @@ def _get_local_whisper_model(*, model_name: str, download_root: Path) -> Any:
                 download_root=str(download_root),
             )
         except Exception as fallback_exc:
-            raise TelegramAIModelError("Local transcription model failed to load.") from fallback_exc
+            raise TelegramAIModelError(
+                "Local transcription model failed to load."
+            ) from fallback_exc
     _LOCAL_WHISPER_MODELS[cache_key] = model
     return model

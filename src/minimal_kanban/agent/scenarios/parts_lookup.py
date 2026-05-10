@@ -15,7 +15,9 @@ class PartsLookupScenarioExecutor:
         scenario = context.scenario_payload
         if runtime is None:
             raise ValueError("PartsLookupScenarioExecutor requires runtime.")
-        part_query = str(scenario.get("query", "") or "").strip() or (facts["part_queries"][0] if facts["part_queries"] else "")
+        part_query = str(scenario.get("query", "") or "").strip() or (
+            facts["part_queries"][0] if facts["part_queries"] else ""
+        )
         if not part_query:
             return ScenarioExecutionResult(
                 scenario_id=self.scenario_id,
@@ -67,7 +69,9 @@ class PartsLookupScenarioExecutor:
                 needs_followup=True,
                 followup_reason="parts_lookup_failed",
             )
-        orchestration_updates = {"find_part_numbers": runtime._response_data(part_payload) or part_payload}
+        orchestration_updates = {
+            "find_part_numbers": runtime._response_data(part_payload) or part_payload
+        }
         if runtime._is_partial_tool_payload(part_payload):
             return ScenarioExecutionResult(
                 scenario_id=self.scenario_id,
@@ -84,9 +88,13 @@ class PartsLookupScenarioExecutor:
                     )
                 ],
                 orchestration_updates=orchestration_updates,
-                warnings=["parts lookup deferred: external budget exceeded"] if runtime._is_budget_exceeded_payload(part_payload) else ["parts lookup returned partial result"],
+                warnings=["parts lookup deferred: external budget exceeded"]
+                if runtime._is_budget_exceeded_payload(part_payload)
+                else ["parts lookup returned partial result"],
                 needs_followup=True,
-                followup_reason="parts_lookup_budget_deferred" if runtime._is_budget_exceeded_payload(part_payload) else "parts_lookup_partial",
+                followup_reason="parts_lookup_budget_deferred"
+                if runtime._is_budget_exceeded_payload(part_payload)
+                else "parts_lookup_partial",
             )
         tool_results = [
             runtime._build_tool_result(
@@ -99,11 +107,15 @@ class PartsLookupScenarioExecutor:
             )
         ]
         tool_calls_used = 1
-        has_useful_parts = runtime._part_lookup_has_useful_result(orchestration_updates["find_part_numbers"])
+        has_useful_parts = runtime._part_lookup_has_useful_result(
+            orchestration_updates["find_part_numbers"]
+        )
         if isinstance(facts.get("evidence_model"), dict) and has_useful_parts:
             facts["evidence_model"]["external_result_sufficient"] = True
         if bool(scenario.get("with_price")):
-            best_part_number = runtime._pick_best_part_number(orchestration_updates["find_part_numbers"])
+            best_part_number = runtime._pick_best_part_number(
+                orchestration_updates["find_part_numbers"]
+            )
             if best_part_number:
                 price_payload = runtime._run_autofill_tool(
                     task_id=context.task_id,
@@ -119,7 +131,9 @@ class PartsLookupScenarioExecutor:
                 )
                 if price_payload is not None:
                     tool_calls_used += 1
-                    orchestration_updates["estimate_price_ru"] = runtime._response_data(price_payload) or price_payload
+                    orchestration_updates["estimate_price_ru"] = (
+                        runtime._response_data(price_payload) or price_payload
+                    )
                     tool_results.append(
                         runtime._build_tool_result(
                             "estimate_price_ru",

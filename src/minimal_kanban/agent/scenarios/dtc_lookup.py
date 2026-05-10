@@ -15,7 +15,9 @@ class DtcLookupScenarioExecutor:
         scenario = context.scenario_payload
         if runtime is None:
             raise ValueError("DtcLookupScenarioExecutor requires runtime.")
-        dtc_code = str(scenario.get("code", "") or "").strip() or (facts["dtc_codes"][0] if facts["dtc_codes"] else "")
+        dtc_code = str(scenario.get("code", "") or "").strip() or (
+            facts["dtc_codes"][0] if facts["dtc_codes"] else ""
+        )
         if not dtc_code:
             return ScenarioExecutionResult(
                 scenario_id=self.scenario_id,
@@ -66,9 +68,13 @@ class DtcLookupScenarioExecutor:
                         evidence_ref="dtc_codes",
                     )
                 ],
-                warnings=["dtc lookup deferred: external budget exceeded"] if runtime._is_budget_exceeded_payload(payload) else ["dtc lookup returned partial result"],
+                warnings=["dtc lookup deferred: external budget exceeded"]
+                if runtime._is_budget_exceeded_payload(payload)
+                else ["dtc lookup returned partial result"],
                 needs_followup=True,
-                followup_reason="dtc_lookup_budget_deferred" if runtime._is_budget_exceeded_payload(payload) else "dtc_lookup_partial",
+                followup_reason="dtc_lookup_budget_deferred"
+                if runtime._is_budget_exceeded_payload(payload)
+                else "dtc_lookup_partial",
             )
         has_useful_result = runtime._search_payload_has_useful_result(orchestration_payload)
         if isinstance(facts.get("evidence_model"), dict) and has_useful_result:
@@ -88,7 +94,9 @@ class DtcLookupScenarioExecutor:
                     evidence_ref="dtc_codes",
                 )
             ],
-            warnings=["dtc lookup returned no reliable diagnostic excerpt"] if not has_useful_result else [],
+            warnings=["dtc lookup returned no reliable diagnostic excerpt"]
+            if not has_useful_result
+            else [],
             needs_followup=not has_useful_result,
             followup_reason="dtc_lookup_insufficient" if not has_useful_result else "",
         )

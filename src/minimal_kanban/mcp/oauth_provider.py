@@ -20,7 +20,6 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from ..config import get_app_data_dir, get_mcp_oauth_state_file
 from ..storage.file_lock import ProcessFileLock
 
-
 DEFAULT_KANBAN_SCOPES = ("kanban:read", "kanban:write")
 AUTHORIZATION_CODE_TTL_SECONDS = 300
 ACCESS_TOKEN_TTL_SECONDS = 12 * 60 * 60
@@ -73,11 +72,15 @@ class EmbeddedOAuthAuthorizationServerProvider(
         state = self._read_state()
         if not client_info.client_id:
             raise ValueError("client_id is required")
-        state["clients"][client_info.client_id] = client_info.model_dump(mode="json", exclude_none=True)
+        state["clients"][client_info.client_id] = client_info.model_dump(
+            mode="json", exclude_none=True
+        )
         self._write_state(state)
         self._log("oauth.register_client client_id=%s", client_info.client_id)
 
-    async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
+    async def authorize(
+        self, client: OAuthClientInformationFull, params: AuthorizationParams
+    ) -> str:
         if not client.client_id:
             raise ValueError("client_id is required")
 
@@ -95,7 +98,9 @@ class EmbeddedOAuthAuthorizationServerProvider(
         )
 
         state = self._read_state()
-        state["authorization_codes"][code_value] = authorization_code.model_dump(mode="json", exclude_none=True)
+        state["authorization_codes"][code_value] = authorization_code.model_dump(
+            mode="json", exclude_none=True
+        )
         self._write_state(state)
         self._log(
             "oauth.authorize client_id=%s scopes=%s resource=%s",
@@ -137,8 +142,12 @@ class EmbeddedOAuthAuthorizationServerProvider(
 
         state = self._read_state()
         state["authorization_codes"].pop(authorization_code.code, None)
-        state["access_tokens"][access_token.token] = access_token.model_dump(mode="json", exclude_none=True)
-        state["refresh_tokens"][refresh_token.token] = refresh_token.model_dump(mode="json", exclude_none=True)
+        state["access_tokens"][access_token.token] = access_token.model_dump(
+            mode="json", exclude_none=True
+        )
+        state["refresh_tokens"][refresh_token.token] = refresh_token.model_dump(
+            mode="json", exclude_none=True
+        )
         self._write_state(state)
         self._log(
             "oauth.exchange_code client_id=%s resource=%s",
@@ -185,10 +194,16 @@ class EmbeddedOAuthAuthorizationServerProvider(
 
         state = self._read_state()
         state["refresh_tokens"].pop(refresh_token.token, None)
-        state["access_tokens"][access_token.token] = access_token.model_dump(mode="json", exclude_none=True)
-        state["refresh_tokens"][rotated_refresh.token] = rotated_refresh.model_dump(mode="json", exclude_none=True)
+        state["access_tokens"][access_token.token] = access_token.model_dump(
+            mode="json", exclude_none=True
+        )
+        state["refresh_tokens"][rotated_refresh.token] = rotated_refresh.model_dump(
+            mode="json", exclude_none=True
+        )
         self._write_state(state)
-        self._log("oauth.exchange_refresh client_id=%s scopes=%s", client.client_id, ",".join(scopes))
+        self._log(
+            "oauth.exchange_refresh client_id=%s scopes=%s", client.client_id, ",".join(scopes)
+        )
         return OAuthToken(
             access_token=access_token.token,
             expires_in=ACCESS_TOKEN_TTL_SECONDS,
@@ -227,7 +242,9 @@ class EmbeddedOAuthAuthorizationServerProvider(
             self._write_state(state)
             self._log("oauth.revoke token_removed=true")
 
-    def _issue_access_token(self, *, client_id: str, scopes: list[str], resource: str | None) -> AccessToken:
+    def _issue_access_token(
+        self, *, client_id: str, scopes: list[str], resource: str | None
+    ) -> AccessToken:
         return AccessToken(
             token=self._generate_secret("mkat"),
             client_id=client_id,
@@ -236,7 +253,9 @@ class EmbeddedOAuthAuthorizationServerProvider(
             resource=resource or self._resource_url,
         )
 
-    def _issue_refresh_token(self, *, client_id: str, scopes: list[str], resource: str | None) -> RefreshToken:
+    def _issue_refresh_token(
+        self, *, client_id: str, scopes: list[str], resource: str | None
+    ) -> RefreshToken:
         return RefreshToken(
             token=self._generate_secret("mkrt"),
             client_id=client_id,
@@ -288,13 +307,21 @@ class EmbeddedOAuthAuthorizationServerProvider(
             return self._default_state()
 
         return {
-            "clients": payload.get("clients", {}) if isinstance(payload.get("clients"), dict) else {},
+            "clients": payload.get("clients", {})
+            if isinstance(payload.get("clients"), dict)
+            else {},
             "authorization_codes": (
-                payload.get("authorization_codes", {}) if isinstance(payload.get("authorization_codes"), dict) else {}
+                payload.get("authorization_codes", {})
+                if isinstance(payload.get("authorization_codes"), dict)
+                else {}
             ),
-            "access_tokens": payload.get("access_tokens", {}) if isinstance(payload.get("access_tokens"), dict) else {},
+            "access_tokens": payload.get("access_tokens", {})
+            if isinstance(payload.get("access_tokens"), dict)
+            else {},
             "refresh_tokens": (
-                payload.get("refresh_tokens", {}) if isinstance(payload.get("refresh_tokens"), dict) else {}
+                payload.get("refresh_tokens", {})
+                if isinstance(payload.get("refresh_tokens"), dict)
+                else {}
             ),
         }
 

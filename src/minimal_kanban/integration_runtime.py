@@ -131,9 +131,19 @@ class McpRuntimeController:
     def _local_api_token(self, settings: IntegrationSettings) -> str | None:
         if settings.local_api.local_api_auth_mode != "bearer":
             return None
-        return settings.local_api.local_api_bearer_token or settings.auth.local_api_bearer_token or settings.auth.access_token or None
+        return (
+            settings.local_api.local_api_bearer_token
+            or settings.auth.local_api_bearer_token
+            or settings.auth.access_token
+            or None
+        )
 
     def _mcp_token(self, settings: IntegrationSettings) -> str | None:
         if settings.mcp.mcp_auth_mode != "bearer":
             return None
-        return settings.mcp.mcp_bearer_token or settings.auth.mcp_bearer_token or settings.auth.access_token or None
+        return (
+            settings.mcp.mcp_bearer_token
+            or settings.auth.mcp_bearer_token
+            or settings.auth.access_token
+            or None
+        )

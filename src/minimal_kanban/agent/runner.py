@@ -451,9 +451,7 @@ class AgentRunner:
                     fact_evidence=self._build_card_completion_fact_evidence(
                         facts, confirmed_facts=confirmed_facts
                     ),
-                    missing_data=list(
-                        facts.get("missing_vehicle_fields") or []
-                    )[:4]
+                    missing_data=list(facts.get("missing_vehicle_fields") or [])[:4]
                     + list(facts.get("missing_repair_order_fields") or [])[:4],
                     scenario_signals={},
                     sensitive_fields=[
@@ -631,9 +629,7 @@ class AgentRunner:
                 status="confirmed" if vehicle_profile else "absent",
                 source="card_context",
                 confidence=0.95 if vehicle_profile else 0.0,
-                notes=[
-                    "missing: " + ", ".join(confirmed_facts.get("missing_vehicle_fields") or [])
-                ]
+                notes=["missing: " + ", ".join(confirmed_facts.get("missing_vehicle_fields") or [])]
                 if confirmed_facts.get("missing_vehicle_fields")
                 else [],
             ),
@@ -2512,7 +2508,9 @@ class AgentRunner:
     ) -> str:
         purpose = str(metadata.get("purpose", "") or "").strip().lower()
         if purpose == "full_card_enrichment":
-            return "Карточка полностью заполнена." if applied_updates else "Изменений не обнаружено."
+            return (
+                "Карточка полностью заполнена." if applied_updates else "Изменений не обнаружено."
+            )
         if purpose == "card_autofill":
             return "Карточка обновлена." if applied_updates else "Изменений не обнаружено."
         text = str(summary or "").strip()

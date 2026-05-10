@@ -58,7 +58,11 @@ class MaintenanceLookupScenarioExecutor:
                     evidence_ref="mileage",
                 )
             ],
-            warnings=["maintenance lookup returned no usable service plan"] if not runtime._maintenance_lookup_has_useful_result(orchestration_payload) else [],
+            warnings=["maintenance lookup returned no usable service plan"]
+            if not runtime._maintenance_lookup_has_useful_result(orchestration_payload)
+            else [],
             needs_followup=not runtime._maintenance_lookup_has_useful_result(orchestration_payload),
-            followup_reason="maintenance_lookup_insufficient" if not runtime._maintenance_lookup_has_useful_result(orchestration_payload) else "",
+            followup_reason="maintenance_lookup_insufficient"
+            if not runtime._maintenance_lookup_has_useful_result(orchestration_payload)
+            else "",
         )

@@ -16,7 +16,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..models import CARD_DESCRIPTION_LIMIT, DEFAULT_DEADLINE_TOTAL_SECONDS, split_seconds_to_days_hours
+from ..models import (
+    CARD_DESCRIPTION_LIMIT,
+    DEFAULT_DEADLINE_TOTAL_SECONDS,
+    split_seconds_to_days_hours,
+)
 from ..texts import (
     BUTTON_ARCHIVE,
     BUTTON_BACK,
@@ -68,7 +72,9 @@ class CardDialog(QDialog):
         initial_days = default_days
         initial_hours = default_hours
         if initial:
-            initial_days, initial_hours = split_seconds_to_days_hours(int(initial.get("remaining_seconds", 0)))
+            initial_days, initial_hours = split_seconds_to_days_hours(
+                int(initial.get("remaining_seconds", 0))
+            )
         self._initial_deadline = (initial_days, initial_hours)
         self._is_edit = is_edit
         self.archive_requested = False

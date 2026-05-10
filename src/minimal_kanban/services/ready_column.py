@@ -32,9 +32,7 @@ def _column_by_label(columns: list[Column], label: str) -> Column | None:
 
 def ensure_ready_column(columns: list[Column], settings: dict[str, Any]) -> tuple[str, bool]:
     changed = False
-    configured_id = normalize_text(
-        settings.get(READY_COLUMN_SETTINGS_KEY), default="", limit=128
-    )
+    configured_id = normalize_text(settings.get(READY_COLUMN_SETTINGS_KEY), default="", limit=128)
 
     configured_column = _column_by_id(columns, configured_id) if configured_id else None
     label_column = _column_by_label(columns, READY_COLUMN_LABEL)

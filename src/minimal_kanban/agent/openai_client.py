@@ -38,7 +38,9 @@ class OpenAIJsonAgentClient:
     def model(self) -> str:
         return self._model
 
-    def complete_json(self, *, instructions: str, messages: list[dict[str, str]], temperature: float = 0.1) -> dict[str, Any]:
+    def complete_json(
+        self, *, instructions: str, messages: list[dict[str, str]], temperature: float = 0.1
+    ) -> dict[str, Any]:
         input_messages = []
         for message in messages:
             message_text = str(message.get("content") or "")
@@ -132,12 +134,16 @@ class OpenAIJsonAgentClient:
             raise AgentModelError("Agent model returned a non-object JSON payload.")
         return payload
 
-    def _post_with_retry(self, *, headers: dict[str, str], payload: dict[str, Any]) -> httpx.Response:
+    def _post_with_retry(
+        self, *, headers: dict[str, str], payload: dict[str, Any]
+    ) -> httpx.Response:
         last_error: Exception | None = None
         for attempt in range(1, 4):
             try:
                 with httpx.Client(timeout=self._timeout_seconds) as client:
-                    response = client.post(f"{self._base_url}/responses", headers=headers, json=payload)
+                    response = client.post(
+                        f"{self._base_url}/responses", headers=headers, json=payload
+                    )
                 response.raise_for_status()
                 return response
             except httpx.HTTPStatusError as exc:

@@ -11,12 +11,16 @@ from logging import Logger
 from pathlib import Path
 from typing import Any
 
-from .config import get_app_data_dir, get_default_admin_password, get_default_admin_username, get_users_file
+from .config import (
+    get_app_data_dir,
+    get_default_admin_password,
+    get_default_admin_username,
+    get_users_file,
+)
 from .models import normalize_actor_name, normalize_int, parse_datetime, utc_now, utc_now_iso
 from .services.card_service import CardService, ServiceError
 from .storage.file_lock import ProcessFileLock
 from .storage.json_store import JsonStore
-
 
 USER_ROLE_VALUES = frozenset({"operator", "admin"})
 PASSWORD_MIN_LENGTH = 4
@@ -100,7 +104,11 @@ class OperatorAuthService:
             user = self._find_user(state["users"], username)
             password_hash = str(user.get("password_hash", "")) if user is not None else ""
             password_ok = user is not None and _verify_password(password, password_hash)
-            if not password_ok and user is not None and self._can_upgrade_default_admin_password(user, password, password_hash):
+            if (
+                not password_ok
+                and user is not None
+                and self._can_upgrade_default_admin_password(user, password, password_hash)
+            ):
                 user["password_hash"] = _password_hash(password)
                 user["updated_at"] = utc_now_iso()
                 password_ok = True
@@ -109,9 +117,7 @@ class OperatorAuthService:
             token = secrets.token_urlsafe(32)
             now = utc_now()
             state["sessions"] = [
-                session
-                for session in state["sessions"]
-                if session.get("token") != token
+                session for session in state["sessions"] if session.get("token") != token
             ]
             state["sessions"].append(
                 {
@@ -130,12 +136,16 @@ class OperatorAuthService:
         with self._lock:
             state = self._read_normalized_state()
             before = len(state["sessions"])
-            state["sessions"] = [item for item in state["sessions"] if item.get("token") != session["token"]]
+            state["sessions"] = [
+                item for item in state["sessions"] if item.get("token") != session["token"]
+            ]
             if len(state["sessions"]) != before:
                 self._write_state(state)
         return {"logged_out": True}
 
-    def _can_upgrade_default_admin_password(self, user: dict[str, Any], password: str, password_hash: str) -> bool:
+    def _can_upgrade_default_admin_password(
+        self, user: dict[str, Any], password: str, password_hash: str
+    ) -> bool:
         if user.get("role") != "admin":
             return False
         if user.get("username") != _normalized_username(get_default_admin_username()):
@@ -153,7 +163,9 @@ class OperatorAuthService:
             state = self._read_normalized_state()
             user = self._find_user(state["users"], session["username"])
             if user is None:
-                self._fail("unauthorized", "Сессия больше не связана с пользователем.", status_code=401)
+                self._fail(
+                    "unauthorized", "Сессия больше не связана с пользователем.", status_code=401
+                )
             snapshot = deepcopy(user)
         return self._build_profile_payload(snapshot, token=session["token"])
 
@@ -165,7 +177,9 @@ class OperatorAuthService:
         bundle = self._state_store.read_bundle()
         event_activity_index = self._build_event_activity_index(bundle["events"])
         rows = [
-            self._serialize_user_summary(user, bundle=bundle, event_activity_index=event_activity_index)
+            self._serialize_user_summary(
+                user, bundle=bundle, event_activity_index=event_activity_index
+            )
             for user in users
         ]
         rows.sort(key=lambda item: (0 if item["role"] == "admin" else 1, item["username"]))
@@ -214,7 +228,11 @@ class OperatorAuthService:
         payload = payload or {}
         username = self._validated_username(payload.get("username"))
         if username == session["username"]:
-            self._fail("validation_error", "Нельзя удалить текущую активную учётную запись.", status_code=409)
+            self._fail(
+                "validation_error",
+                "Нельзя удалить текущую активную учётную запись.",
+                status_code=409,
+            )
         with self._lock:
             state = self._read_normalized_state()
             target = self._find_user(state["users"], username)
@@ -223,9 +241,15 @@ class OperatorAuthService:
             if target["role"] == "admin":
                 admins_total = sum(1 for user in state["users"] if user.get("role") == "admin")
                 if admins_total <= 1:
-                    self._fail("validation_error", "Нельзя удалить последнего администратора.", status_code=409)
+                    self._fail(
+                        "validation_error",
+                        "Нельзя удалить последнего администратора.",
+                        status_code=409,
+                    )
             state["users"] = [user for user in state["users"] if user.get("username") != username]
-            state["sessions"] = [item for item in state["sessions"] if item.get("username") != username]
+            state["sessions"] = [
+                item for item in state["sessions"] if item.get("username") != username
+            ]
             self._write_state(state)
         return {"deleted": True, "username": username}
 
@@ -365,7 +389,10 @@ class OperatorAuthService:
             return False
         if _verify_password(get_default_admin_password(), password_hash):
             return True
-        return any(_verify_password(legacy_password, password_hash) for legacy_password in LEGACY_DEFAULT_ADMIN_PASSWORDS)
+        return any(
+            _verify_password(legacy_password, password_hash)
+            for legacy_password in LEGACY_DEFAULT_ADMIN_PASSWORDS
+        )
 
     def _serialize_user_summary(
         self,
@@ -439,7 +466,8 @@ class OperatorAuthService:
                 {
                     "timestamp": timestamp.isoformat(),
                     "action": action,
-                    "message": str(item.get("message") or "Действие оператора.").strip() or "Действие оператора.",
+                    "message": str(item.get("message") or "Действие оператора.").strip()
+                    or "Действие оператора.",
                     "card_id": str(item.get("card_id") or "").strip(),
                 }
             )
@@ -539,10 +567,14 @@ class OperatorAuthService:
     def _validated_role(self, value) -> str:
         role = str(value or "operator").strip().lower()
         if role not in USER_ROLE_VALUES:
-            self._fail("validation_error", "Некорректная роль пользователя.", details={"field": "role"})
+            self._fail(
+                "validation_error", "Некорректная роль пользователя.", details={"field": "role"}
+            )
         return role
 
-    def _sort_action_entries(self, entries: list[dict[str, Any]], *, reverse: bool = False) -> list[dict[str, Any]]:
+    def _sort_action_entries(
+        self, entries: list[dict[str, Any]], *, reverse: bool = False
+    ) -> list[dict[str, Any]]:
         fallback_timestamp = utc_now()
         return sorted(
             entries,
@@ -605,9 +637,16 @@ class OperatorAuthService:
         else:
             for item in actions:
                 timestamp = parse_datetime(item.get("timestamp"))
-                formatted = timestamp.strftime("%d.%m.%Y %H:%M:%S") if timestamp else str(item.get("timestamp") or "-")
+                formatted = (
+                    timestamp.strftime("%d.%m.%Y %H:%M:%S")
+                    if timestamp
+                    else str(item.get("timestamp") or "-")
+                )
                 action = str(item.get("action") or "-").strip() or "-"
-                message = str(item.get("message") or "Действие оператора.").strip() or "Действие оператора."
+                message = (
+                    str(item.get("message") or "Действие оператора.").strip()
+                    or "Действие оператора."
+                )
                 card_id = str(item.get("card_id") or "").strip()
                 suffix = f" | card_id={card_id}" if card_id else ""
                 lines.append(f"- {formatted} | {action} | {message}{suffix}")
@@ -684,7 +723,12 @@ class OperatorAuthService:
             username = _normalized_username(item.get("username"))
             password_hash = str(item.get("password_hash") or "").strip()
             role = str(item.get("role") or "operator").strip().lower()
-            if not username or not password_hash or role not in USER_ROLE_VALUES or username in seen:
+            if (
+                not username
+                or not password_hash
+                or role not in USER_ROLE_VALUES
+                or username in seen
+            ):
                 continue
             stats = item.get("stats")
             normalized.append(
@@ -693,9 +737,15 @@ class OperatorAuthService:
                     "password_hash": password_hash,
                     "role": role,
                     "created_at": (parse_datetime(item.get("created_at")) or utc_now()).isoformat(),
-                    "updated_at": (parse_datetime(item.get("updated_at")) or parse_datetime(item.get("created_at")) or utc_now()).isoformat(),
+                    "updated_at": (
+                        parse_datetime(item.get("updated_at"))
+                        or parse_datetime(item.get("created_at"))
+                        or utc_now()
+                    ).isoformat(),
                     "stats": {
-                        OPEN_COUNT_KEY: normalize_int((stats or {}).get(OPEN_COUNT_KEY), default=0, minimum=0)
+                        OPEN_COUNT_KEY: normalize_int(
+                            (stats or {}).get(OPEN_COUNT_KEY), default=0, minimum=0
+                        )
                     },
                     ACTION_HISTORY_KEY: self._prune_action_history(item.get(ACTION_HISTORY_KEY)),
                 }
@@ -703,7 +753,9 @@ class OperatorAuthService:
             seen.add(username)
         return normalized
 
-    def _normalize_sessions(self, raw_sessions, *, valid_usernames: set[str]) -> list[dict[str, Any]]:
+    def _normalize_sessions(
+        self, raw_sessions, *, valid_usernames: set[str]
+    ) -> list[dict[str, Any]]:
         if not isinstance(raw_sessions, list):
             raw_sessions = []
         now = utc_now()
@@ -716,7 +768,13 @@ class OperatorAuthService:
             username = _normalized_username(item.get("username"))
             expires_at = parse_datetime(item.get("expires_at"))
             created_at = parse_datetime(item.get("created_at")) or utc_now()
-            if not token or token in seen_tokens or username not in valid_usernames or expires_at is None or expires_at <= now:
+            if (
+                not token
+                or token in seen_tokens
+                or username not in valid_usernames
+                or expires_at is None
+                or expires_at <= now
+            ):
                 continue
             normalized.append(
                 {

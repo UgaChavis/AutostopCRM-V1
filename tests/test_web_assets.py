@@ -2364,7 +2364,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function cashJournalDisplayRows(entries)", BOARD_WEB_APP_HTML)
         self.assertIn("function toggleCashJournalStats()", BOARD_WEB_APP_HTML)
         self.assertIn("opening_balances", BOARD_WEB_APP_HTML)
-        self.assertIn("cashboxJournalStatsButton.addEventListener('click', toggleCashJournalStats);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "cashboxJournalStatsButton.addEventListener('click', toggleCashJournalStats);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "els.cashboxJournalText.innerHTML = renderCashJournal(data);",
             BOARD_WEB_APP_HTML,
@@ -2499,7 +2502,10 @@ class WebAssetsTests(unittest.TestCase):
             "inlineHtml: inlineText ? ' <span class=\"card-journal-detail\">'",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("const totalLabel = cardJournalCountText(total, 'событие', 'события', 'событий');", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const totalLabel = cardJournalCountText(total, 'событие', 'события', 'событий');",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertNotIn("function renderCardJournalStat(label, value)", BOARD_WEB_APP_HTML)
         self.assertNotIn("card-journal-stats", BOARD_WEB_APP_HTML)
         self.assertNotIn("card-journal-stat", BOARD_WEB_APP_HTML)

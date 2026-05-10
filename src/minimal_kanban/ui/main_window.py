@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import threading
-from typing import TYPE_CHECKING
 import webbrowser
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtGui import QGuiApplication
@@ -17,7 +17,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..connection_card import build_board_share_url, derive_board_root_url, resolve_local_api_bearer_token
+from ..connection_card import (
+    build_board_share_url,
+    derive_board_root_url,
+    resolve_local_api_bearer_token,
+)
 from ..desktop_connector_files import write_connector_files
 from ..services.card_service import CardService, ServiceError
 from ..settings_service import SettingsService
@@ -150,11 +154,15 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(APP_STYLES)
 
         title = QLabel("КАНБАН / ХОСТ")
-        title.setStyleSheet("font-family: Consolas; font-size: 22px; font-weight: 700; letter-spacing: 2px;")
+        title.setStyleSheet(
+            "font-family: Consolas; font-size: 22px; font-weight: 700; letter-spacing: 2px;"
+        )
         subtitle = QLabel("Этот компьютер держит доску и раздаёт её в сеть.")
         subtitle.setStyleSheet("color: #c9c8bc;")
 
-        self.status_label = QLabel("Сервер активен. Можно открывать доску и раздавать адрес коллегам.")
+        self.status_label = QLabel(
+            "Сервер активен. Можно открывать доску и раздавать адрес коллегам."
+        )
         self.status_label.setObjectName("StatusText")
         self.status_label.setWordWrap(True)
         self.api_label = QLabel(f"{API_LABEL_PREFIX} {self._local_board_url}")
@@ -180,17 +188,21 @@ class MainWindow(QMainWindow):
             self.open_network_board,
             self.copy_network_url,
         )
-        access_panel, self.access_value_label, self.access_open_button, self.access_copy_button = self._build_address_panel(
-            "Ссылка доступа",
-            self._access_board_url or self._format_address_placeholder(),
-            self.open_access_board,
-            self.copy_access_url,
+        access_panel, self.access_value_label, self.access_open_button, self.access_copy_button = (
+            self._build_address_panel(
+                "Ссылка доступа",
+                self._access_board_url or self._format_address_placeholder(),
+                self.open_access_board,
+                self.copy_access_url,
+            )
         )
-        mcp_panel, self.mcp_value_label, self.mcp_open_button, self.mcp_copy_button = self._build_address_panel(
-            "MCP URL для ChatGPT",
-            self._effective_mcp_url or self._format_public_mcp_placeholder(),
-            self.open_mcp_endpoint,
-            self.copy_mcp_url,
+        mcp_panel, self.mcp_value_label, self.mcp_open_button, self.mcp_copy_button = (
+            self._build_address_panel(
+                "MCP URL для ChatGPT",
+                self._effective_mcp_url or self._format_public_mcp_placeholder(),
+                self.open_mcp_endpoint,
+                self.copy_mcp_url,
+            )
         )
         self._sync_publish_panel()
 
@@ -284,18 +296,20 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        local_card, self.local_state_value_label, self.local_state_hint_label = self._build_summary_card(
-            "Локальная доска"
+        local_card, self.local_state_value_label, self.local_state_hint_label = (
+            self._build_summary_card("Локальная доска")
         )
-        access_card, self.access_state_value_label, self.access_state_hint_label = self._build_summary_card(
-            "Общий доступ"
+        access_card, self.access_state_value_label, self.access_state_hint_label = (
+            self._build_summary_card("Общий доступ")
         )
-        mcp_card, self.mcp_state_value_label, self.mcp_state_hint_label = self._build_summary_card("ChatGPT / MCP")
-        columns_card, self.columns_total_value_label, self.columns_total_hint_label = self._build_summary_card(
-            "Столбцы"
+        mcp_card, self.mcp_state_value_label, self.mcp_state_hint_label = self._build_summary_card(
+            "ChatGPT / MCP"
         )
-        cards_card, self.cards_total_value_label, self.cards_total_hint_label = self._build_summary_card(
-            "Активные карточки"
+        columns_card, self.columns_total_value_label, self.columns_total_hint_label = (
+            self._build_summary_card("Столбцы")
+        )
+        cards_card, self.cards_total_value_label, self.cards_total_hint_label = (
+            self._build_summary_card("Активные карточки")
         )
 
         for card in (local_card, access_card, mcp_card, columns_card, cards_card):
@@ -363,11 +377,21 @@ class MainWindow(QMainWindow):
 
     def _load_publish_urls(self, settings=None) -> None:
         current_settings = settings or self._settings_service.load()
-        self._public_board_url = derive_board_root_url(current_settings.local_api.local_api_base_url_override)
-        token = resolve_local_api_bearer_token(current_settings) if current_settings.local_api.local_api_auth_mode == "bearer" else ""
-        self._access_board_url = build_board_share_url(self._public_board_url or self._network_board_url, token)
+        self._public_board_url = derive_board_root_url(
+            current_settings.local_api.local_api_base_url_override
+        )
+        token = (
+            resolve_local_api_bearer_token(current_settings)
+            if current_settings.local_api.local_api_auth_mode == "bearer"
+            else ""
+        )
+        self._access_board_url = build_board_share_url(
+            self._public_board_url or self._network_board_url, token
+        )
         effective_mcp_url = current_settings.mcp.effective_mcp_url.strip()
-        self._effective_mcp_url = effective_mcp_url if effective_mcp_url.startswith("https://") else ""
+        self._effective_mcp_url = (
+            effective_mcp_url if effective_mcp_url.startswith("https://") else ""
+        )
 
     def _sync_publish_panel(self) -> None:
         if not hasattr(self, "access_value_label"):
@@ -400,7 +424,11 @@ class MainWindow(QMainWindow):
         )
 
         public_mcp_ready = self._effective_mcp_url.startswith("https://")
-        mcp_state = "ГОТОВО" if public_mcp_ready else ("ЛОКАЛЬНО" if self._effective_mcp_url else "ОЖИДАНИЕ")
+        mcp_state = (
+            "ГОТОВО"
+            if public_mcp_ready
+            else ("ЛОКАЛЬНО" if self._effective_mcp_url else "ОЖИДАНИЕ")
+        )
         self.mcp_state_value_label.setText(mcp_state)
         self.mcp_state_hint_label.setText(
             "MCP URL готов для подключения ChatGPT"
@@ -408,7 +436,9 @@ class MainWindow(QMainWindow):
             else "Для ChatGPT нужен внешний HTTPS MCP URL"
         )
 
-    def _sync_board_summary(self, columns: list[dict] | None = None, cards: list[dict] | None = None) -> None:
+    def _sync_board_summary(
+        self, columns: list[dict] | None = None, cards: list[dict] | None = None
+    ) -> None:
         if not hasattr(self, "columns_total_value_label"):
             return
 
@@ -439,7 +469,9 @@ class MainWindow(QMainWindow):
     def _set_status_text(self, message: str) -> None:
         self.status_label.setText(message)
 
-    def _copy_optional_text(self, value: str, *, missing_message: str, success_message: str) -> None:
+    def _copy_optional_text(
+        self, value: str, *, missing_message: str, success_message: str
+    ) -> None:
         if not value:
             self._set_status_text(missing_message)
             return
@@ -493,7 +525,9 @@ class MainWindow(QMainWindow):
             return
 
     def open_local_board(self) -> None:
-        self._open_url(self._local_board_url, success_message="Доска открыта в браузере на этом компьютере.")
+        self._open_url(
+            self._local_board_url, success_message="Доска открыта в браузере на этом компьютере."
+        )
 
     def open_network_board(self) -> None:
         self._open_url(self._network_board_url, success_message="Открыт сетевой адрес доски.")
@@ -558,7 +592,9 @@ class MainWindow(QMainWindow):
                 return
             if not settings.mcp.mcp_enabled:
                 return
-            self._start_publication_runtime_async(settings, status_text="Поднимаю MCP и внешний доступ в фоне...")
+            self._start_publication_runtime_async(
+                settings, status_text="Поднимаю MCP и внешний доступ в фоне..."
+            )
         except Exception as exc:
             self._show_error(f"Не удалось автоматически запустить MCP сервер.\n\n{exc}")
 
@@ -571,7 +607,9 @@ class MainWindow(QMainWindow):
                 return
             state = self._start_publication_runtime(settings)
             if state.running:
-                self.status_label.setText("MCP сервер поднят. Можно сразу переходить к подключению ChatGPT.")
+                self.status_label.setText(
+                    "MCP сервер поднят. Можно сразу переходить к подключению ChatGPT."
+                )
             elif state.error:
                 self.status_label.setText(f"MCP не поднялся автоматически: {state.error}")
         except Exception as exc:
@@ -601,10 +639,16 @@ class MainWindow(QMainWindow):
     def _start_publication_runtime_core(self, settings):
         if self._mcp_controller is None:
             return None, settings
-        state = self._mcp_controller.restart(settings) if self._mcp_controller.state.running else self._mcp_controller.start(settings)
+        state = (
+            self._mcp_controller.restart(settings)
+            if self._mcp_controller.state.running
+            else self._mcp_controller.start(settings)
+        )
         if not state.running:
             return state, settings
-        needs_public_tunnel = not settings.mcp.full_mcp_url_override and not settings.mcp.public_https_base_url
+        needs_public_tunnel = (
+            not settings.mcp.full_mcp_url_override and not settings.mcp.public_https_base_url
+        )
         if self._tunnel_controller is not None and needs_public_tunnel:
             tunnel_state = self._tunnel_controller.start(settings)
             settings = self._settings_service.update_section(

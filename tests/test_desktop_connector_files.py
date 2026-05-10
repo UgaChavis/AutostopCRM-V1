@@ -6,7 +6,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -36,8 +35,12 @@ class DesktopConnectorFilesTests(unittest.TestCase):
         self.assertIn(CONNECTOR_JSON_FILENAME, contents)
         self.assertIn(AUTH_NOTE_FILENAME, contents)
         self.assertIn(URL_FILENAME, contents)
-        self.assertIn("effective_mcp_url = https://kanban.example/mcp", contents[CONNECTION_CARD_FILENAME])
-        self.assertIn("effective_local_api_url = http://127.0.0.1:41731", contents[CONNECTION_CARD_FILENAME])
+        self.assertIn(
+            "effective_mcp_url = https://kanban.example/mcp", contents[CONNECTION_CARD_FILENAME]
+        )
+        self.assertIn(
+            "effective_local_api_url = http://127.0.0.1:41731", contents[CONNECTION_CARD_FILENAME]
+        )
 
         payload = json.loads(contents[CONNECTOR_JSON_FILENAME])
         self.assertEqual(payload["name"], "AutoStop CRM / This Board Only (kanban.example)")
@@ -53,7 +56,15 @@ class DesktopConnectorFilesTests(unittest.TestCase):
                 desktop_path=Path(temp_dir),
             )
 
-            self.assertEqual(set(written.keys()), {CONNECTION_CARD_FILENAME, CONNECTOR_JSON_FILENAME, AUTH_NOTE_FILENAME, URL_FILENAME})
+            self.assertEqual(
+                set(written.keys()),
+                {
+                    CONNECTION_CARD_FILENAME,
+                    CONNECTOR_JSON_FILENAME,
+                    AUTH_NOTE_FILENAME,
+                    URL_FILENAME,
+                },
+            )
             url_path = written[URL_FILENAME]
             self.assertEqual(url_path.read_text(encoding="utf-8"), "https://kanban.example/mcp")
             self.assertFalse(url_path.read_bytes().startswith(b"\xef\xbb\xbf"))
@@ -61,7 +72,9 @@ class DesktopConnectorFilesTests(unittest.TestCase):
     def test_pending_connector_files_keep_public_url_blank_until_ready(self) -> None:
         contents = build_pending_connector_file_contents()
         self.assertIn("effective_mcp_url = ", contents[CONNECTION_CARD_FILENAME])
-        self.assertIn("effective_local_api_url = http://127.0.0.1:41731", contents[CONNECTION_CARD_FILENAME])
+        self.assertIn(
+            "effective_local_api_url = http://127.0.0.1:41731", contents[CONNECTION_CARD_FILENAME]
+        )
         self.assertIn('"connector_url": ""', contents[CONNECTOR_JSON_FILENAME])
         self.assertIn("No authentication", contents[AUTH_NOTE_FILENAME])
         self.assertEqual(contents[URL_FILENAME], WAITING_MESSAGE)
@@ -92,7 +105,9 @@ class DesktopConnectorFilesTests(unittest.TestCase):
         )
 
         self.assertIn("connector_auth_mode = bearer", contents[CONNECTION_CARD_FILENAME])
-        self.assertIn("effective_local_api_url = http://127.0.0.1:49999", contents[CONNECTION_CARD_FILENAME])
+        self.assertIn(
+            "effective_local_api_url = http://127.0.0.1:49999", contents[CONNECTION_CARD_FILENAME]
+        )
         self.assertIn("Bearer token", contents[AUTH_NOTE_FILENAME])
         self.assertIn('"auth_mode": "bearer"', contents[CONNECTOR_JSON_FILENAME])
 

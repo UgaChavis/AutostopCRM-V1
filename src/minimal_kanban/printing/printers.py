@@ -9,7 +9,11 @@ class PrinterBackendError(RuntimeError):
 
 
 def _should_use_qt_printer_backend() -> bool:
-    if str(os.environ.get("MINIMAL_KANBAN_ENABLE_QT_PRINTING", "")).strip().lower() not in {"1", "true", "yes"}:
+    if str(os.environ.get("MINIMAL_KANBAN_ENABLE_QT_PRINTING", "")).strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+    }:
         return False
     return threading.current_thread() is threading.main_thread()
 
@@ -38,7 +42,9 @@ def list_printers(*, default_name: str = "") -> list[dict[str, object]]:
         return []
     preferred_default = str(default_name or "").strip()
     system_default = QPrinterInfo.defaultPrinter()
-    system_default_name = system_default.printerName().strip() if not system_default.isNull() else ""
+    system_default_name = (
+        system_default.printerName().strip() if not system_default.isNull() else ""
+    )
     printers: list[dict[str, object]] = []
     for printer_info in QPrinterInfo.availablePrinters():
         name = printer_info.printerName().strip()
@@ -48,7 +54,10 @@ def list_printers(*, default_name: str = "") -> list[dict[str, object]]:
             {
                 "name": name,
                 "label": name,
-                "is_default": bool(name == preferred_default or (not preferred_default and name == system_default_name)),
+                "is_default": bool(
+                    name == preferred_default
+                    or (not preferred_default and name == system_default_name)
+                ),
                 "is_available": True,
             }
         )
@@ -80,7 +89,11 @@ def print_html(
         raise PrinterBackendError("Не выбран принтер для печати.")
 
     printer_info = next(
-        (item for item in QPrinterInfo.availablePrinters() if item.printerName().strip() == requested_name),
+        (
+            item
+            for item in QPrinterInfo.availablePrinters()
+            if item.printerName().strip() == requested_name
+        ),
         None,
     )
     if printer_info is None:
@@ -100,7 +113,9 @@ def print_html(
         if str(orientation or "").strip().lower() == "landscape"
         else QPageLayout.Orientation.Portrait
     )
-    printer.setPageLayout(QPageLayout(selected_size, selected_orientation, QMarginsF(10, 10, 10, 10)))
+    printer.setPageLayout(
+        QPageLayout(selected_size, selected_orientation, QMarginsF(10, 10, 10, 10))
+    )
     document = QTextDocument()
     document.setDocumentMargin(0)
     document.setHtml(str(html or ""))

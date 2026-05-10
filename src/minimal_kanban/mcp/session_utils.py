@@ -33,7 +33,9 @@ async def managed_streamable_http_client(
     behind and surfaces as `ResourceWarning` during repeated MCP probes/tests.
     """
 
-    read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+    read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](
+        0
+    )
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
     client_provided = http_client is not None

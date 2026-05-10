@@ -184,3 +184,9 @@ release.staging/
 data/
 .tmp-*/
 telegram-ai.env
+
+# Local agent and QA artifacts
+.playwright-cli/
+.superpowers/
+output/
+docs/concepts/

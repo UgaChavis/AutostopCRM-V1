@@ -150,8 +150,12 @@ class PatchResult:
         return {
             "card_patch": dict(self.card_patch),
             "repair_order_patch": dict(self.repair_order_patch),
-            "repair_order_works": [dict(item) for item in self.repair_order_works if isinstance(item, dict)],
-            "repair_order_materials": [dict(item) for item in self.repair_order_materials if isinstance(item, dict)],
+            "repair_order_works": [
+                dict(item) for item in self.repair_order_works if isinstance(item, dict)
+            ],
+            "repair_order_materials": [
+                dict(item) for item in self.repair_order_materials if isinstance(item, dict)
+            ],
             "append_only_notes": list(self.append_only_notes),
             "warnings": list(self.warnings),
             "human_review_needed": bool(self.human_review_needed),
@@ -203,7 +207,9 @@ class OrchestrationTrace:
             "context_snapshot_id": self.context_snapshot_id,
             "evidence": self.evidence.to_dict(),
             "plan": self.plan.to_dict(),
-            "scenario_feedback": [dict(item) for item in self.scenario_feedback if isinstance(item, dict)],
+            "scenario_feedback": [
+                dict(item) for item in self.scenario_feedback if isinstance(item, dict)
+            ],
             "tool_results": [item.to_dict() for item in self.tool_results],
             "patch": self.patch.to_dict(),
             "verify": self.verify.to_dict(),

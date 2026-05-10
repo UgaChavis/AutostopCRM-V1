@@ -4,7 +4,6 @@ import base64
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
-
 PNG_1X1_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY+ASkfsPAAGkATy8Tqj3AAAAAElFTkSuQmCC"
 )
@@ -17,7 +16,7 @@ GIF_1X1_BYTES = base64.b64decode(
 
 
 def minimal_text_bytes() -> bytes:
-    return "Привет, вложение AutoStop CRM.\n".encode("utf-8")
+    return "Привет, вложение AutoStop CRM.\n".encode()
 
 
 def minimal_pdf_bytes() -> bytes:

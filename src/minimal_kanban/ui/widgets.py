@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import QPoint, QMimeData, Qt, Signal
+from PySide6.QtCore import QMimeData, QPoint, Qt, Signal
 from PySide6.QtGui import QColor, QDrag, QFont, QFontMetrics, QTextLayout, QTextOption
 from PySide6.QtWidgets import (
     QApplication,
@@ -16,8 +16,12 @@ from PySide6.QtWidgets import (
 )
 
 from ..models import parse_datetime
-from ..texts import CARD_NO_DESCRIPTION, CARD_STATUS_TOOLTIP_TEMPLATE, STATUS_LABELS_RU, TOOLTIP_DRAG_CARD
-
+from ..texts import (
+    CARD_NO_DESCRIPTION,
+    CARD_STATUS_TOOLTIP_TEMPLATE,
+    STATUS_LABELS_RU,
+    TOOLTIP_DRAG_CARD,
+)
 
 INDICATOR_STYLE = {
     "green": "#53bf7a",
@@ -153,8 +157,12 @@ class CardWidget(QFrame):
         footer_layout.setContentsMargins(0, 0, 0, 0)
         footer_layout.setSpacing(10)
         footer_layout.addWidget(self.deadline_label, 1)
-        footer_layout.addWidget(self.timer_label, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        footer_layout.addWidget(self.indicator_badge, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        footer_layout.addWidget(
+            self.timer_label, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        footer_layout.addWidget(
+            self.indicator_badge, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 14)
@@ -178,7 +186,9 @@ class CardWidget(QFrame):
         self.setProperty("status", card["status"])
         self.setProperty("deadlineBucket", int(card.get("deadline_progress_bucket", 0)))
         self.setProperty("deadlineStep", int(card.get("deadline_progress_step_percent", 0)))
-        self.setProperty("deadlineHeatColor", card.get("deadline_heat_color", INDICATOR_STYLE[card["indicator"]]))
+        self.setProperty(
+            "deadlineHeatColor", card.get("deadline_heat_color", INDICATOR_STYLE[card["indicator"]])
+        )
         self.style().unpolish(self)
         self.style().polish(self)
 
@@ -220,7 +230,9 @@ class CardWidget(QFrame):
         title_width = self.title_label.width() or max(200, self.width() - 42)
         description_width = self.description_label.width() or max(200, self.width() - 36)
         self.title_label.setText(
-            elide_multiline_text(self._title_text, self.title_label.font(), title_width, max_lines=TITLE_MAX_LINES)
+            elide_multiline_text(
+                self._title_text, self.title_label.font(), title_width, max_lines=TITLE_MAX_LINES
+            )
         )
         self.description_label.setText(
             elide_multiline_text(
@@ -244,8 +256,33 @@ class CardWidget(QFrame):
     def mouseMoveEvent(self, event) -> None:
         if not (event.buttons() & Qt.MouseButton.LeftButton):
             return
-        drag_distance = getattr(QApplication, "".join(["s", "t", "a", "r", "t", "D", "r", "a", "g", "D", "i", "s", "t", "a", "n", "c", "e"]))()
-        if (event.position().toPoint() - self._drag_origin_position).manhattanLength() < drag_distance:
+        drag_distance = getattr(
+            QApplication,
+            "".join(
+                [
+                    "s",
+                    "t",
+                    "a",
+                    "r",
+                    "t",
+                    "D",
+                    "r",
+                    "a",
+                    "g",
+                    "D",
+                    "i",
+                    "s",
+                    "t",
+                    "a",
+                    "n",
+                    "c",
+                    "e",
+                ]
+            ),
+        )()
+        if (
+            event.position().toPoint() - self._drag_origin_position
+        ).manhattanLength() < drag_distance:
             return
         drag = QDrag(self)
         mime_data = QMimeData()

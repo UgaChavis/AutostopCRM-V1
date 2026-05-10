@@ -44,7 +44,9 @@ def get_agent_enabled() -> bool:
 
 
 def get_agent_name() -> str:
-    return (os.environ.get("MINIMAL_KANBAN_AGENT_NAME") or "AUTOSTOP SERVER AGENT").strip() or "AUTOSTOP SERVER AGENT"
+    return (
+        os.environ.get("MINIMAL_KANBAN_AGENT_NAME") or "AUTOSTOP SERVER AGENT"
+    ).strip() or "AUTOSTOP SERVER AGENT"
 
 
 def get_agent_data_dir() -> Path:
@@ -97,11 +99,15 @@ def get_agent_openai_model() -> str:
 
 
 def get_agent_openai_base_url() -> str:
-    return (os.environ.get("OPENAI_BASE_URL") or DEFAULT_OPENAI_BASE_URL).strip().rstrip("/") or DEFAULT_OPENAI_BASE_URL
+    return (os.environ.get("OPENAI_BASE_URL") or DEFAULT_OPENAI_BASE_URL).strip().rstrip(
+        "/"
+    ) or DEFAULT_OPENAI_BASE_URL
 
 
 def get_agent_request_timeout_seconds() -> float:
-    return _env_float("MINIMAL_KANBAN_AGENT_REQUEST_TIMEOUT_SECONDS", DEFAULT_REQUEST_TIMEOUT_SECONDS, minimum=1.0)
+    return _env_float(
+        "MINIMAL_KANBAN_AGENT_REQUEST_TIMEOUT_SECONDS", DEFAULT_REQUEST_TIMEOUT_SECONDS, minimum=1.0
+    )
 
 
 def get_agent_poll_interval_seconds() -> float:
@@ -118,9 +124,13 @@ def get_agent_max_tool_result_chars() -> int:
 
 def get_agent_board_api_url() -> str | None:
     value = (
-        os.environ.get("MINIMAL_KANBAN_AGENT_BOARD_API_URL")
-        or os.environ.get("AUTOSTOP_AGENT_BOARD_API_URL")
-        or get_board_api_url()
-        or ""
-    ).strip().rstrip("/")
+        (
+            os.environ.get("MINIMAL_KANBAN_AGENT_BOARD_API_URL")
+            or os.environ.get("AUTOSTOP_AGENT_BOARD_API_URL")
+            or get_board_api_url()
+            or ""
+        )
+        .strip()
+        .rstrip("/")
+    )
     return value or None

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import logging
 import os
 import sys
 import tempfile
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,9 +19,9 @@ if str(SRC) not in sys.path:
 
 from PySide6.QtWidgets import QApplication, QPushButton
 
+from minimal_kanban.services.card_service import CardService
 from minimal_kanban.settings_service import SettingsService
 from minimal_kanban.settings_store import SettingsStore
-from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
 from minimal_kanban.texts import (
     API_LABEL_PREFIX,
@@ -76,15 +76,21 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(self.window.mcp_value_label.text(), "")
 
     def test_board_updates_after_creating_card(self) -> None:
-        self.service.create_card({"title": "Карточка из теста", "deadline": {"days": 0, "hours": 2}})
+        self.service.create_card(
+            {"title": "Карточка из теста", "deadline": {"days": 0, "hours": 2}}
+        )
         self.window.refresh_board(force=True)
         self.assertEqual(self.window.columns["inbox"].count_label.text(), "1")
         self.assertEqual(self.window.cards_total_value_label.text(), "1")
-        self.assertEqual(self.window.columns_total_value_label.text(), str(len(self.window.columns)))
+        self.assertEqual(
+            self.window.columns_total_value_label.text(), str(len(self.window.columns))
+        )
 
     def test_card_renders_readable_preview_and_has_no_old_buttons(self) -> None:
-        base = datetime(2026, 3, 23, 12, 0, 0, tzinfo=timezone.utc)
-        long_title = "Очень длинный заголовок карточки для проверки новой читаемой двухстрочной шапки"
+        base = datetime(2026, 3, 23, 12, 0, 0, tzinfo=UTC)
+        long_title = (
+            "Очень длинный заголовок карточки для проверки новой читаемой двухстрочной шапки"
+        )
         long_description = "\n".join(
             [
                 "Первая строка описания карточки.",
@@ -100,9 +106,13 @@ class MainWindowSmokeTests(unittest.TestCase):
                 "Одиннадцатая строка описания карточки.",
             ]
         )
-        with patch("minimal_kanban.services.card_service.utc_now", return_value=base), patch(
-            "minimal_kanban.services.card_service.utc_now_iso", return_value=base.isoformat()
-        ), patch("minimal_kanban.models.utc_now", return_value=base):
+        with (
+            patch("minimal_kanban.services.card_service.utc_now", return_value=base),
+            patch(
+                "minimal_kanban.services.card_service.utc_now_iso", return_value=base.isoformat()
+            ),
+            patch("minimal_kanban.models.utc_now", return_value=base),
+        ):
             self.service.create_card(
                 {
                     "title": long_title,
@@ -118,8 +128,12 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertTrue(widget.title_label.wordWrap())
         self.assertNotEqual(widget.title_label.text(), long_title)
         self.assertGreaterEqual(widget.minimumHeight(), 200)
-        self.assertGreaterEqual(widget.description_label.maximumHeight(), description_line_height * 8)
-        self.assertGreaterEqual(widget.description_label.minimumHeight(), description_line_height * 5)
+        self.assertGreaterEqual(
+            widget.description_label.maximumHeight(), description_line_height * 8
+        )
+        self.assertGreaterEqual(
+            widget.description_label.minimumHeight(), description_line_height * 5
+        )
         self.assertIn("0д 00:00:", widget.timer_label.text())
         self.assertTrue(widget.deadline_label.text().startswith("до "))
         self.assertEqual(len(widget.findChildren(QPushButton)), 0)
@@ -138,10 +152,14 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(widget.property("status"), "expired")
 
     def test_card_heat_properties_follow_deadline_buckets(self) -> None:
-        base = datetime(2026, 3, 23, 12, 0, 0, tzinfo=timezone.utc)
-        with patch("minimal_kanban.services.card_service.utc_now", return_value=base), patch(
-            "minimal_kanban.services.card_service.utc_now_iso", return_value=base.isoformat()
-        ), patch("minimal_kanban.models.utc_now", return_value=base):
+        base = datetime(2026, 3, 23, 12, 0, 0, tzinfo=UTC)
+        with (
+            patch("minimal_kanban.services.card_service.utc_now", return_value=base),
+            patch(
+                "minimal_kanban.services.card_service.utc_now_iso", return_value=base.isoformat()
+            ),
+            patch("minimal_kanban.models.utc_now", return_value=base),
+        ):
             self.service.create_card({"title": "Цветовой шаг", "deadline": {"seconds": 5}})
             self.window.refresh_board(force=True)
 
@@ -180,7 +198,6 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(self.window.columns[column["id"]].title_label.text(), "Блокеры")
         self.assertEqual(self.window.columns[column["id"]].count_label.text(), "1")
 
-
     def test_access_link_updates_when_public_board_url_is_saved(self) -> None:
         settings = self.settings_service.load()
         saved = self.settings_service.save(
@@ -199,7 +216,9 @@ class MainWindowSmokeTests(unittest.TestCase):
 
         self.window._on_settings_saved(saved)
 
-        self.assertEqual(self.window.access_value_label.text(), "https://board.example?access_token=board-secret")
+        self.assertEqual(
+            self.window.access_value_label.text(), "https://board.example?access_token=board-secret"
+        )
         self.assertTrue(self.window.access_open_button.isEnabled())
         self.assertTrue(self.window.access_copy_button.isEnabled())
         self.assertEqual(self.window.access_state_value_label.text(), "ГОТОВО")

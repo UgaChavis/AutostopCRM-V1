@@ -20,9 +20,9 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox
 
 from minimal_kanban.integration_runtime import McpRuntimeState
+from minimal_kanban.services.card_service import CardService
 from minimal_kanban.settings_service import ConnectionCheckResult, SettingsService
 from minimal_kanban.settings_store import SettingsStore
-from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
 from minimal_kanban.tunnel_runtime import TunnelRuntimeState
 from minimal_kanban.ui.main_window import MainWindow
@@ -31,7 +31,9 @@ from minimal_kanban.ui.settings_window import SettingsWindow
 
 class FakeMcpController:
     def __init__(self) -> None:
-        self.state = McpRuntimeState(running=False, runtime_url="", message="MCP сервер не запущен.", error="")
+        self.state = McpRuntimeState(
+            running=False, runtime_url="", message="MCP сервер не запущен.", error=""
+        )
 
     def start(self, settings) -> McpRuntimeState:
         self.state = McpRuntimeState(
@@ -43,7 +45,9 @@ class FakeMcpController:
         return self.state
 
     def stop(self) -> McpRuntimeState:
-        self.state = McpRuntimeState(running=False, runtime_url="", message="MCP сервер остановлен.", error="")
+        self.state = McpRuntimeState(
+            running=False, runtime_url="", message="MCP сервер остановлен.", error=""
+        )
         return self.state
 
 
@@ -163,7 +167,9 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         dialog.local_api_host_input.setText("127.0.0.1")
         dialog.local_api_port_input.setValue(43020)
         dialog.local_api_base_url_input.setText("https://board.example/api")
-        dialog.local_api_auth_mode_input.setCurrentIndex(dialog.local_api_auth_mode_input.findData("bearer"))
+        dialog.local_api_auth_mode_input.setCurrentIndex(
+            dialog.local_api_auth_mode_input.findData("bearer")
+        )
         dialog.auth_mode_input.setCurrentIndex(dialog.auth_mode_input.findData("bearer"))
         dialog.access_token_input.set_value("agent-ui")
         dialog.openai_api_key_input.set_value("sk-ui")
@@ -197,7 +203,9 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         self.assertEqual(loaded.mcp.derived_public_mcp_url, "https://public.example/bridge")
         self.assertEqual(loaded.mcp.effective_mcp_url, "https://agent.example/tools/mcp")
 
-        reloaded_service = SettingsService(SettingsStore(settings_file=self.settings_file, logger=self.logger), self.logger)
+        reloaded_service = SettingsService(
+            SettingsStore(settings_file=self.settings_file, logger=self.logger), self.logger
+        )
         reopened = SettingsWindow(
             reloaded_service,
             "http://127.0.0.1:41731",
@@ -211,7 +219,9 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         self.assertEqual(reopened.mcp_local_url_input.text(), "http://127.0.0.1:41850/bridge")
         self.assertEqual(reopened.mcp_effective_url_input.text(), "https://agent.example/tools/mcp")
         self.assertEqual(reopened.provider_input.text(), "openai-compatible")
-        self.assertEqual(reopened.openai_api_key_input.input.echoMode(), QLineEdit.EchoMode.Password)
+        self.assertEqual(
+            reopened.openai_api_key_input.input.echoMode(), QLineEdit.EchoMode.Password
+        )
         reopened.close()
         dialog.close()
 

@@ -346,7 +346,9 @@ class VehicleProfile:
         self.customer_phones = normalize_vehicle_phones(
             [self.customer_phone, *list(self.customer_phones or [])]
         )
-        self.customer_phone = self.customer_phones[0] if self.customer_phones else self.customer_phone
+        self.customer_phone = (
+            self.customer_phones[0] if self.customer_phones else self.customer_phone
+        )
 
     def is_empty(self) -> bool:
         return not any(

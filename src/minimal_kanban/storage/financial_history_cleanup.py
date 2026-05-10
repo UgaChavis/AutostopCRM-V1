@@ -3,7 +3,6 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-
 FINANCIAL_EVENT_ACTIONS = {
     "cash_transaction_created",
     "cash_transaction_deleted",

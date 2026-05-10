@@ -59,9 +59,13 @@ class FaultResearchScenarioExecutor:
                         evidence_ref="symptom_query",
                     )
                 ],
-                warnings=["fault research deferred: external budget exceeded"] if runtime._is_budget_exceeded_payload(payload) else ["fault research returned partial result"],
+                warnings=["fault research deferred: external budget exceeded"]
+                if runtime._is_budget_exceeded_payload(payload)
+                else ["fault research returned partial result"],
                 needs_followup=True,
-                followup_reason="fault_research_budget_deferred" if runtime._is_budget_exceeded_payload(payload) else "fault_research_partial",
+                followup_reason="fault_research_budget_deferred"
+                if runtime._is_budget_exceeded_payload(payload)
+                else "fault_research_partial",
             )
         has_useful_result = runtime._search_payload_has_useful_result(orchestration_payload)
         if isinstance(facts.get("evidence_model"), dict) and has_useful_result:
@@ -81,7 +85,9 @@ class FaultResearchScenarioExecutor:
                     evidence_ref="symptom_query",
                 )
             ],
-            warnings=["fault research returned no reliable symptom result"] if not has_useful_result else [],
+            warnings=["fault research returned no reliable symptom result"]
+            if not has_useful_result
+            else [],
             needs_followup=not has_useful_result,
             followup_reason="fault_research_insufficient" if not has_useful_result else "",
         )

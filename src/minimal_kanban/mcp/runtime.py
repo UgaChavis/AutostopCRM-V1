@@ -14,7 +14,6 @@ from mcp.server.fastmcp import FastMCP
 
 from ..logging_setup import configure_mcp_startup_logger
 
-
 _READY_HTTP_STATUSES = {200, 204, 307, 308, 400, 401, 403, 405, 406}
 
 
@@ -74,7 +73,9 @@ class McpServerRuntime:
             log_config=None,
         )
         self._uvicorn_server = uvicorn.Server(config)
-        self._thread = threading.Thread(target=self._run_server, name="minimal-kanban-mcp", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run_server, name="minimal-kanban-mcp", daemon=True
+        )
         self._thread.start()
 
         try:
@@ -132,7 +133,9 @@ class McpServerRuntime:
                     RuntimeError("Поток MCP runtime завершился до открытия порта."),
                 )
             if self._is_port_open():
-                self._log(logging.INFO, "mcp.start.port_bound host=%s port=%s", self.host, self.port)
+                self._log(
+                    logging.INFO, "mcp.start.port_bound host=%s port=%s", self.host, self.port
+                )
                 return
             time.sleep(0.1)
         raise McpRuntimeStartupError(
@@ -227,7 +230,11 @@ class McpServerRuntime:
             target.setLevel(logging.INFO if logger_name != "uvicorn.access" else logging.WARNING)
             target.propagate = False
 
-        self._log(logging.DEBUG, "mcp.start.logging_config mode=shared_app_handlers handlers=%s", len(handlers))
+        self._log(
+            logging.DEBUG,
+            "mcp.start.logging_config mode=shared_app_handlers handlers=%s",
+            len(handlers),
+        )
         return "shared_app_handlers"
 
     def _collect_effective_handlers(self) -> list[logging.Handler]:

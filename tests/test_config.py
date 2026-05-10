@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -18,8 +17,8 @@ from minimal_kanban.config import (
     DEFAULT_MCP_HOST,
     DEFAULT_MCP_PORT,
     get_api_base_url,
-    get_api_host,
     get_api_bearer_token,
+    get_api_host,
     get_api_port,
     get_api_port_fallback_limit,
     get_board_api_url,
@@ -84,7 +83,9 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(get_mcp_path(), "/custom-mcp")
             self.assertEqual(get_mcp_bearer_token(), "mcp-secret")
             self.assertEqual(get_mcp_public_base_url(), "https://example.test/mcp-app")
-            self.assertEqual(get_mcp_public_endpoint_url(), "https://example.test/mcp-app/custom-mcp")
+            self.assertEqual(
+                get_mcp_public_endpoint_url(), "https://example.test/mcp-app/custom-mcp"
+            )
             self.assertEqual(get_api_base_url(), "https://board.test/api")
             self.assertEqual(get_board_api_url(), "https://board.test/api")
             self.assertEqual(get_api_bearer_token(), "api-secret")

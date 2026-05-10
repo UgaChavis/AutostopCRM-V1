@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
+import threading
 from logging import Logger
 from pathlib import Path
-import threading
 
 from .config import get_app_data_dir, get_settings_file
 from .settings_models import IntegrationSettings
@@ -63,7 +63,9 @@ class SettingsStore:
             self._write_settings(defaults)
             return defaults.to_dict()
         if not isinstance(payload, dict):
-            self._log_warning("Файл настроек содержит некорректный формат, используются значения по умолчанию.")
+            self._log_warning(
+                "Файл настроек содержит некорректный формат, используются значения по умолчанию."
+            )
             defaults = IntegrationSettings.defaults()
             self._write_settings(defaults)
             return defaults.to_dict()

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import datetime, timezone
 import json
 import sys
 import urllib.error
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -14,7 +14,6 @@ from urllib.parse import urlsplit
 import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -55,13 +54,17 @@ def _fallback_http_url(url: str) -> str:
     return f"http://{parts.netloc}{path}"
 
 
-def _resolve_local_api_url(settings: IntegrationSettings, override: str | None, token: str | None) -> str:
+def _resolve_local_api_url(
+    settings: IntegrationSettings, override: str | None, token: str | None
+) -> str:
     if override:
         return _clean_url(override)
     discovered = discover_board_api(bearer_token=token or None, timeout_seconds=1.5)
     if discovered:
         return _clean_url(discovered)
-    return _clean_url(settings.local_api.effective_local_api_url or settings.local_api.runtime_local_api_url)
+    return _clean_url(
+        settings.local_api.effective_local_api_url or settings.local_api.runtime_local_api_url
+    )
 
 
 def _resolve_local_api_token(settings: IntegrationSettings, override: str | None) -> str:
@@ -159,7 +162,9 @@ def _can_reach_api(base_url: str, *, bearer_token: str | None = None, timeout: f
     if not _clean_url(base_url):
         return False
     try:
-        status, payload = _api_request(base_url, "/api/health", bearer_token=bearer_token, timeout=timeout)
+        status, payload = _api_request(
+            base_url, "/api/health", bearer_token=bearer_token, timeout=timeout
+        )
     except Exception:
         return False
     return bool(status == 200 and _envelope_ok(payload))
@@ -257,10 +262,16 @@ def check_api_surface(base_url: str, *, bearer_token: str | None = None) -> dict
 
     try:
         health_status, health = _api_request(base_url, "/api/health", bearer_token=bearer_token)
-        context_status, board_context = _api_request(base_url, "/api/get_board_context", bearer_token=bearer_token)
-        snapshot_status, board_snapshot = _api_request(base_url, "/api/get_board_snapshot", bearer_token=bearer_token)
+        context_status, board_context = _api_request(
+            base_url, "/api/get_board_context", bearer_token=bearer_token
+        )
+        snapshot_status, board_snapshot = _api_request(
+            base_url, "/api/get_board_snapshot", bearer_token=bearer_token
+        )
         wall_status, wall = _api_request(base_url, "/api/get_gpt_wall", bearer_token=bearer_token)
-        repair_status, repair_orders = _api_request(base_url, "/api/list_repair_orders", bearer_token=bearer_token)
+        repair_status, repair_orders = _api_request(
+            base_url, "/api/list_repair_orders", bearer_token=bearer_token
+        )
     except Exception as exc:  # pragma: no cover
         result["error"] = str(exc)
         return result
@@ -285,7 +296,9 @@ def check_api_surface(base_url: str, *, bearer_token: str | None = None) -> dict
         "snapshot_cards": len(snapshot_payload.get("cards") or []),
         "snapshot_columns": len(snapshot_payload.get("columns") or []),
         "repair_orders_total": len(repair_payload.get("repair_orders") or []),
-        "wall_cards_total": wall_payload.get("meta", {}).get("active_cards", 0) if isinstance(wall_payload.get("meta"), dict) else 0,
+        "wall_cards_total": wall_payload.get("meta", {}).get("active_cards", 0)
+        if isinstance(wall_payload.get("meta"), dict)
+        else 0,
     }
     result["ok"] = all(
         [
@@ -342,7 +355,9 @@ def check_operator_auth(
             result["error"] = "operator_login_failed"
             return result
 
-        session_token = (((login_payload or {}).get("data") or {}).get("session") or {}).get("token", "")
+        session_token = (((login_payload or {}).get("data") or {}).get("session") or {}).get(
+            "token", ""
+        )
         if not session_token:
             result["error"] = "operator_session_missing"
             return result
@@ -367,7 +382,9 @@ def check_operator_auth(
             return result
         security_payload = security_payload or {}
         result["is_admin"] = bool(user_payload.get("is_admin"))
-        result["using_default_admin_credentials"] = bool(security_payload.get("using_default_admin_credentials"))
+        result["using_default_admin_credentials"] = bool(
+            security_payload.get("using_default_admin_credentials")
+        )
         result["warning"] = str(security_payload.get("warning") or "")
 
         if expect_admin and not result["is_admin"]:
@@ -410,7 +427,7 @@ def check_public_write_protection(site_url: str) -> dict[str, Any]:
         result["error"] = "site_url_not_configured"
         return result
 
-    marker = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    marker = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     candidate_urls = [_clean_url(site_url)]
     fallback_http = _fallback_http_url(site_url)
     if fallback_http:
@@ -444,7 +461,9 @@ def check_public_write_protection(site_url: str) -> dict[str, Any]:
 
     result["probe_url"] = probe_base_url
     result["status_code"] = create_status
-    error_payload = ((create_payload or {}).get("error") or {}) if isinstance(create_payload, dict) else {}
+    error_payload = (
+        ((create_payload or {}).get("error") or {}) if isinstance(create_payload, dict) else {}
+    )
     result["error_code"] = str(error_payload.get("code") or "")
     result["error_message"] = str(error_payload.get("message") or "")
 
@@ -503,7 +522,11 @@ async def check_mcp(mcp_url: str, *, bearer_token: str | None = None) -> dict[st
         try:
             timeout = httpx.Timeout(45.0, connect=10.0, read=45.0, write=45.0, pool=45.0)
             async with httpx.AsyncClient(headers=headers, timeout=timeout) as http_client:
-                async with streamable_http_client(mcp_url, http_client=http_client) as (read, write, _):
+                async with streamable_http_client(mcp_url, http_client=http_client) as (
+                    read,
+                    write,
+                    _,
+                ):
                     async with ClientSession(read, write) as session:
                         await session.initialize()
                         tools = await session.list_tools()
@@ -512,7 +535,9 @@ async def check_mcp(mcp_url: str, *, bearer_token: str | None = None) -> dict[st
                         result["has_ping_connector"] = "ping_connector" in tool_names
                         result["has_bootstrap_context"] = "bootstrap_context" in tool_names
                         result["has_get_runtime_status"] = "get_runtime_status" in tool_names
-                        result["has_get_connector_identity"] = "get_connector_identity" in tool_names
+                        result["has_get_connector_identity"] = (
+                            "get_connector_identity" in tool_names
+                        )
                         result["has_review_board"] = "review_board" in tool_names
 
                         if result["has_ping_connector"]:
@@ -719,10 +744,22 @@ def _print_mcp(report: dict[str, Any]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Read-only live diagnostics for AutoStop CRM site, API and MCP.")
-    parser.add_argument("--json", action="store_true", help="Print machine-readable JSON instead of human text.")
-    parser.add_argument("--strict", action="store_true", help="Return a non-zero exit code when a checked surface fails.")
-    parser.add_argument("--site-url", default="", help="Explicit public CRM URL, for example https://crm.autostopcrm.ru.")
+    parser = argparse.ArgumentParser(
+        description="Read-only live diagnostics for AutoStop CRM site, API and MCP."
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="Print machine-readable JSON instead of human text."
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Return a non-zero exit code when a checked surface fails.",
+    )
+    parser.add_argument(
+        "--site-url",
+        default="",
+        help="Explicit public CRM URL, for example https://crm.autostopcrm.ru.",
+    )
     parser.add_argument(
         "--skip-public-site",
         action="store_true",
@@ -733,14 +770,32 @@ def main() -> int:
         action="store_true",
         help="Skip the anonymous public write-protection probe.",
     )
-    parser.add_argument("--expect-https", action="store_true", help="Require the site URL and final public URL to use https.")
-    parser.add_argument("--local-api-url", default="", help="Explicit local API base URL, for example http://127.0.0.1:41731.")
+    parser.add_argument(
+        "--expect-https",
+        action="store_true",
+        help="Require the site URL and final public URL to use https.",
+    )
+    parser.add_argument(
+        "--local-api-url",
+        default="",
+        help="Explicit local API base URL, for example http://127.0.0.1:41731.",
+    )
     parser.add_argument("--local-api-token", default=None, help="Optional local API bearer token.")
-    parser.add_argument("--mcp-url", default="", help="Explicit MCP URL, for example http://127.0.0.1:41831/mcp.")
+    parser.add_argument(
+        "--mcp-url", default="", help="Explicit MCP URL, for example http://127.0.0.1:41831/mcp."
+    )
     parser.add_argument("--mcp-token", default=None, help="Optional MCP bearer token.")
-    parser.add_argument("--operator-username", default="", help="Optional operator username for auth verification.")
-    parser.add_argument("--operator-password", default="", help="Optional operator password for auth verification.")
-    parser.add_argument("--expect-admin", action="store_true", help="Require the operator credentials to resolve to an admin session.")
+    parser.add_argument(
+        "--operator-username", default="", help="Optional operator username for auth verification."
+    )
+    parser.add_argument(
+        "--operator-password", default="", help="Optional operator password for auth verification."
+    )
+    parser.add_argument(
+        "--expect-admin",
+        action="store_true",
+        help="Require the operator credentials to resolve to an admin session.",
+    )
     args = parser.parse_args()
 
     settings = load_settings()
@@ -803,7 +858,11 @@ def main() -> int:
         ("site_surface", site_surface.get("checked"), site_surface.get("ok")),
         ("api_surface", api_surface.get("checked"), api_surface.get("ok")),
         ("operator_auth", operator_auth.get("checked"), operator_auth.get("ok")),
-        ("public_write_protection", public_write_protection.get("checked"), public_write_protection.get("ok")),
+        (
+            "public_write_protection",
+            public_write_protection.get("checked"),
+            public_write_protection.get("ok"),
+        ),
         ("mcp_surface", mcp_surface.get("checked"), mcp_surface.get("ok")),
     ]
     failed = [name for name, checked, ok in checked_sections if checked and not ok]

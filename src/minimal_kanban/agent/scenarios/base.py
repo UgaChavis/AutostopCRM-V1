@@ -33,5 +33,4 @@ class ScenarioExecutionResult:
 class ScenarioExecutor(Protocol):
     scenario_id: str
 
-    def execute(self, context: ScenarioContext) -> ScenarioExecutionResult:
-        ...
+    def execute(self, context: ScenarioContext) -> ScenarioExecutionResult: ...
