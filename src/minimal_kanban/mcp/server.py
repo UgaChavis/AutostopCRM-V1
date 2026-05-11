@@ -168,23 +168,56 @@ class RepairOrderPaymentPayload(BaseModel):
 
 
 class RepairOrderPatchPayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "client": "Иван Иванов",
+                    "comment": "Согласовать дальнейшую диагностику",
+                    "note": "Комментарий мастера",
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "2000"}],
+                },
+                {
+                    "clientInformation": "Информация для клиента",
+                    "master_comment": "Внутренняя заметка мастера",
+                    "advancePayment": "500",
+                },
+            ]
+        },
+    )
+
     number: str | None = Field(default=None, max_length=40)
     date: str | None = Field(default=None, max_length=32)
     status: Literal["open", "ready", "closed"] | None = None
     opened_at: str | None = Field(default=None, max_length=32)
+    openedAt: str | None = Field(default=None, max_length=32)
     closed_at: str | None = Field(default=None, max_length=32)
+    closedAt: str | None = Field(default=None, max_length=32)
     client: str | None = Field(default=None, max_length=160)
     phone: str | None = Field(default=None, max_length=160)
     vehicle: str | None = Field(default=None, max_length=160)
     license_plate: str | None = Field(default=None, max_length=160)
+    licensePlate: str | None = Field(default=None, max_length=160)
     vin: str | None = Field(default=None, max_length=160)
     mileage: str | None = Field(default=None, max_length=160)
+    odometer: str | None = Field(default=None, max_length=160)
     payment_method: Literal["cash", "cashless", "card"] | None = None
+    paymentMethod: Literal["cash", "cashless", "card"] | None = None
     prepayment: str | None = Field(default=None, max_length=40)
+    advance_payment: str | None = Field(default=None, max_length=40)
+    advancePayment: str | None = Field(default=None, max_length=40)
     payments: list[RepairOrderPaymentPayload] | None = None
+    payment_history: list[RepairOrderPaymentPayload] | None = None
     reason: str | None = Field(default=None, max_length=4000)
+    comment: str | None = Field(default=None, max_length=4000)
     client_information: str | None = Field(default=None, max_length=4000)
+    clientInformation: str | None = Field(default=None, max_length=4000)
     note: str | None = Field(default=None, max_length=4000)
+    master_comment: str | None = Field(default=None, max_length=4000)
+    masterComment: str | None = Field(default=None, max_length=4000)
+    internal_comment: str | None = Field(default=None, max_length=4000)
+    internalComment: str | None = Field(default=None, max_length=4000)
     tags: list[TagPayload] | None = None
     works: list[RepairOrderRowPayload] | None = None
     materials: list[RepairOrderRowPayload] | None = None

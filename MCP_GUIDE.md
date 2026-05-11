@@ -100,6 +100,25 @@ If `AutostopManager` is mounted next to CRM or `AUTOSTOP_MANAGER_PATH` points to
 
 CRM remains the source of truth for cards, clients, vehicles, repair orders, files, payments and cashboxes. Manager memory is only for durable manager facts, decisions and knowledge navigation.
 
+## Obsidian Knowledge Vault
+
+For manager-agent work, the AutoStop Obsidian vault is the human-readable
+knowledge layer for CRM/MCP/connector procedures:
+
+- cloud vault: `C:\Users\User\Мой диск\Obsidian CRM\AutostopCRM`
+- desktop mirror: `C:\Users\User\Desktop\Obsidian CRM\AutostopCRM`
+- open first: `Home.md`, then `80_Codex\Codex interaction.md`
+
+Use it for playbooks, source routing, Bases, and operator-readable notes. Do
+not store full CRM exports, raw Gmail threads, credentials, bearer tokens,
+cashbox ledgers, client databases, or copied licensed manuals there.
+
+Manager CRM summaries may be written to Obsidian only as safe snapshots:
+board load, cashbox balances/totals, repair-order counts, client-quality
+signals, and shared-file metadata. Raw client rows, phone lists, VIN/license
+tables, full cash journals, and full repair-order text remain live CRM data
+unless the owner approves that exact cloud export.
+
 ## Рекомендуемый Порядок
 
 Начинайте с коротких read-команд:

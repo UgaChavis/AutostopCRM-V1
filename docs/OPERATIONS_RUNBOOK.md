@@ -30,6 +30,20 @@ ssh root@crm.autostopcrm.ru "cd /opt/autostopcrm && git status --short --branch 
 
 Если SSH identity/host отличается на машине, используйте local access notes вне репозитория. Credentials не коммитить.
 
+Manager knowledge:
+
+- For CRM/MCP/connector operating context, use AutostopManager and the
+  AutoStop Obsidian vault before broad repo reads.
+- Prefer cloud vault `C:\Users\User\Мой диск\Obsidian CRM\AutostopCRM`; use
+  `Home.md` and `80_Codex\Codex interaction.md` as entrypoints.
+- Do not put live CRM snapshots, client databases, raw Gmail threads, cashbox
+  ledgers, credentials, or bearer tokens into Obsidian.
+- Safe Obsidian snapshots are allowed for manager orientation: board load,
+  cashbox totals, repair-order counts, client-quality signals, and shared-file
+  metadata. Full client rows, phone lists, VIN/license tables, raw cash
+  journals, and full repair-order text remain in CRM unless the owner approves
+  that exact export.
+
 ## Local Checks
 
 Common:

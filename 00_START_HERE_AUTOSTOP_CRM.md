@@ -11,6 +11,8 @@
 - production repo: `/opt/autostopcrm`
 - CRM: `https://crm.autostopcrm.ru`
 - MCP: `https://crm.autostopcrm.ru/mcp`
+- manager knowledge vault: `C:\Users\User\Мой диск\Obsidian CRM\AutostopCRM`
+  with local mirror `C:\Users\User\Desktop\Obsidian CRM\AutostopCRM`
 - перед релизной работой сверяйте local / GitHub / production через `docs/OPERATIONS_RUNBOOK.md`
 
 ## Что это за продукт
@@ -36,6 +38,17 @@ AutoStop CRM - рабочая CRM автосервиса:
 3. `README.md`
 4. `docs/OPERATIONS_RUNBOOK.md`
 5. `MCP_GUIDE.md` или `API_GUIDE.md` только если задача про интеграции
+
+Для AI/manager/connector задач используйте AutostopManager и Obsidian как
+рабочий слой знаний: начните с
+`C:\Users\User\Мой диск\Obsidian CRM\AutostopCRM\Home.md`, если cloud vault
+доступен, иначе с desktop mirror.
+
+Для менеджерской аналитики Obsidian хранит только безопасные summaries:
+загрузку доски, cashbox overview, repair-order counts, client-quality signals
+и metadata shared files. Полные клиентские базы, телефоны, VIN/госномера,
+кассовые журналы и полный текст заказ-нарядов остаются в live CRM, если
+владелец отдельно не подтвердил конкретный cloud-export.
 
 Дополнительные документы открывайте только по задаче:
 
@@ -77,6 +90,8 @@ Telegram owner
 - Старый card-indicator/enrichment путь оставлен только для совместимости.
 - Команда владельца `Приберись` - это процедура над существующими CRM tools, а не отдельный backend-tool.
 - Порядок уборки: прочитать live-контекст, patch-only обновить подтверждённые поля, отдельно обновить `board_summary`, перечитать и проверить результат.
+- Для нетривиальной AI-работы с CRM/MCP сначала сверяйте рабочие инструкции в
+  Obsidian vault и AutostopManager; live CRM всё равно читается через MCP/API.
 - Не двигайте и не архивируйте карточки во время уборки без отдельной явной команды.
 - `description` хранит полные сведения; `board_summary` - короткое превью доски на 4-5 строк.
 - В `board_summary` не переносить телефон, VIN, полное имя клиента, длинные жалобы или сырые диагностические дампы.

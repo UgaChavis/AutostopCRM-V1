@@ -9828,12 +9828,36 @@ class CardService:
             "works",
             "materials",
         }
+        common_aliases = {
+            "openedAt": "opened_at",
+            "closedAt": "closed_at",
+            "licensePlate": "license_plate",
+            "odometer": "mileage",
+            "paymentMethod": "payment_method",
+            "advance_payment": "prepayment",
+            "advancePayment": "prepayment",
+            "payment_history": "payments",
+            "client_information": "comment",
+            "clientInformation": "comment",
+            "master_comment": "note",
+            "masterComment": "note",
+            "internal_comment": "note",
+            "internalComment": "note",
+        }
         patch = {key: value[key] for key in value if key in allowed_fields}
         if not patch:
+            received_fields = sorted(str(key) for key in value)
             self._fail(
                 "validation_error",
                 "Для обновления заказ-наряда нужно передать хотя бы одно поле.",
-                details={"fields": sorted(allowed_fields)},
+                details={
+                    "fields": sorted(allowed_fields),
+                    "received_fields": received_fields,
+                    "ignored_fields": [
+                        field for field in received_fields if field not in allowed_fields
+                    ],
+                    "common_aliases": common_aliases,
+                },
             )
         if "works" in patch:
             patch["works"] = self._validated_repair_order_rows(
@@ -9898,6 +9922,9 @@ class CardService:
             "closedAt": "closed_at",
             "licensePlate": "license_plate",
             "odometer": "mileage",
+            "paymentMethod": "payment_method",
+            "advance_payment": "prepayment",
+            "advancePayment": "prepayment",
             "client_information": "comment",
             "clientInformation": "comment",
             "payment_history": "payments",

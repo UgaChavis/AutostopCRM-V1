@@ -5442,6 +5442,53 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(materials["repair_order"]["materials_total"], "700")
         self.assertEqual(materials["repair_order"]["grand_total"], "2700")
 
+    def test_repair_order_patch_validation_reports_ignored_fields(self) -> None:
+        created = self.service.create_card(
+            {"vehicle": "KIA RIO", "title": "Ремонт", "deadline": {"hours": 2}}
+        )
+
+        with self.assertRaises(ServiceError) as raised:
+            self.service.update_repair_order(
+                {
+                    "card_id": created["card"]["id"],
+                    "repair_order": {"comment_text": "Нужно согласовать"},
+                }
+            )
+
+        self.assertEqual(raised.exception.code, "validation_error")
+        self.assertIn("comment_text", raised.exception.details["received_fields"])
+        self.assertIn("comment_text", raised.exception.details["ignored_fields"])
+        self.assertIn("comment", raised.exception.details["fields"])
+        self.assertEqual(
+            raised.exception.details["common_aliases"]["client_information"],
+            "comment",
+        )
+
+    def test_repair_order_patch_normalizes_common_aliases(self) -> None:
+        created = self.service.create_card(
+            {"vehicle": "KIA RIO", "title": "Ремонт", "deadline": {"hours": 2}}
+        )
+
+        patched = self.service.update_repair_order(
+            {
+                "card_id": created["card"]["id"],
+                "repair_order": {
+                    "paymentMethod": "cashless",
+                    "advancePayment": "500",
+                    "licensePlate": "А123АА124",
+                    "odometer": "120000",
+                    "masterComment": "Комментарий мастера",
+                },
+            }
+        )
+
+        order = patched["repair_order"]
+        self.assertEqual(order["payment_method"], "cashless")
+        self.assertEqual(order["prepayment"], "500")
+        self.assertEqual(order["license_plate"], "а123аа124")
+        self.assertEqual(order["mileage"], "120000")
+        self.assertEqual(order["note"], "Комментарий мастера")
+
     def test_search_cards_matches_repair_order_fields(self) -> None:
         created = self.service.create_card(
             {

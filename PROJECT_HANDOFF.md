@@ -30,6 +30,8 @@ Legacy names are expected:
 - production repo: `/opt/autostopcrm`
 - CRM: `https://crm.autostopcrm.ru`
 - MCP: `https://crm.autostopcrm.ru/mcp`
+- manager knowledge vault: `C:\Users\User\Мой диск\Obsidian CRM\AutostopCRM`
+  with local desktop mirror `C:\Users\User\Desktop\Obsidian CRM\AutostopCRM`
 
 Не доверяйте pinned commit notes в документации. Перед release work проверяйте local, `origin/autostopcrm-v1` и production по command output.
 
@@ -124,6 +126,13 @@ Areas that still need care:
 
 - New AI product work should go through Telegram AI and MCP/local API paths.
 - The old card indicator/enrichment path is compatibility behavior.
+- For manager-agent CRM/MCP/connector work, use AutostopManager plus the
+  AutoStop Obsidian vault as the human-readable knowledge layer. Prefer
+  `C:\Users\User\Мой диск\Obsidian CRM\AutostopCRM\Home.md` when available.
+- Obsidian may hold safe manager snapshots and quality signals only. Raw
+  client databases, phone rows, VIN/license tables, cashbox ledgers, and full
+  repair-order text remain in live CRM unless the owner explicitly approves the
+  exact cloud export.
 - Agent cleanup follows `read -> evidence -> patch -> write -> verify`.
 - Не move/archive cards и не меняйте payments, works, materials, files, clients или repair orders без явной команды owner.
 - Keep full card details in `description`.

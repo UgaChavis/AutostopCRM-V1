@@ -12,6 +12,14 @@ https://crm.autostopcrm.ru/mcp
 
 Если endpoint работает с bearer auth, сервер публикует embedded OAuth/DCR metadata, и ChatGPT проходит linking flow. Для Responses API и ручных MCP-клиентов bearer token можно передавать напрямую.
 
+Для manager-agent работы с этим connector используйте AutoStop Obsidian vault
+как рабочую базу знаний: `C:\Users\User\Мой диск\Obsidian CRM\AutostopCRM`
+(`Home.md`, затем `80_Codex\Codex interaction.md`). CRM остаётся источником
+истины для live board state. В Obsidian можно хранить безопасные manager
+snapshots и quality signals, но не raw client базы, phone rows, VIN/license
+tables, cashbox ledgers или полный текст заказ-нарядов без отдельного
+подтверждения владельца.
+
 ## Что должно быть включено
 
 В настройках интеграции CRM:

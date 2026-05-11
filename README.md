@@ -109,6 +109,24 @@ MCP по умолчанию: `http://127.0.0.1:41831/mcp`.
 
 Пользовательский файл подключения должен оставаться под именем `CHATGPT_CONNECTOR_SETUP.md`: его копируют release/runtime-пути и проверяют тесты.
 
+### Manager knowledge and Obsidian
+
+Для owner-facing AI/manager работы используйте AutostopManager и AutoStop
+Obsidian vault как слой знаний поверх CRM:
+
+- cloud vault: `C:\Users\User\Мой диск\Obsidian CRM\AutostopCRM`
+- local mirror: `C:\Users\User\Desktop\Obsidian CRM\AutostopCRM`
+- open first: `Home.md`, затем `80_Codex\Codex interaction.md`
+
+CRM остаётся источником истины для live cards, clients, vehicles, repair
+orders, files, payments и cashboxes. Obsidian хранит только рабочие заметки,
+playbook-и, маршруты и безопасные выводы. Для менеджерской аналитики Obsidian
+может хранить только агрегированные snapshots: загрузку доски, cashbox
+overview, repair-order counts, client-quality signals и metadata общих файлов.
+Полные клиентские базы, телефоны, VIN/госномера, кассовые журналы и полный
+текст заказ-нарядов остаются в CRM, если владелец отдельно не подтвердил
+конкретный cloud-export.
+
 ### Telegram AI
 
 Основной AI-контур - `autostopcrm-telegram-ai`.

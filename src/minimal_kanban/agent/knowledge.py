@@ -41,6 +41,16 @@ _DOC_CONTEXT_KEYWORDS = (
     "api",
     "handoff",
     "knowledge",
+    "obsidian",
+    "vault",
+    "база",
+    "знаний",
+    "клиенты",
+    "кассы",
+    "заказ-наряды",
+    "cashbox",
+    "clients",
+    "repair-orders",
     "remodel",
     "reference",
 )
@@ -80,7 +90,18 @@ CURATED_DOCUMENTS: tuple[CuratedDocumentDefinition, ...] = (
         relative_path="MCP_GUIDE.md",
         description="MCP runtime, tool groups, auth and connector rules.",
         use_case="MCP, connector, settings and tool-selection guidance.",
-        keywords=("mcp", "connector", "settings", "config", "runtime", "tool", "auth"),
+        keywords=(
+            "mcp",
+            "connector",
+            "settings",
+            "config",
+            "runtime",
+            "tool",
+            "auth",
+            "clients",
+            "cashboxes",
+            "repair-orders",
+        ),
     ),
     CuratedDocumentDefinition(
         document_id="api_guide",
@@ -89,6 +110,31 @@ CURATED_DOCUMENTS: tuple[CuratedDocumentDefinition, ...] = (
         description="Локальный API и основные точки интеграции.",
         use_case="API surface and request/response usage.",
         keywords=("api", "route", "server", "request", "response", "tool"),
+    ),
+    CuratedDocumentDefinition(
+        document_id="codex_project_map",
+        title="CODEX_PROJECT_MAP",
+        relative_path="CODEX_PROJECT_MAP.md",
+        description=(
+            "Codex repo orientation, canonical docs, MCP surface rules, "
+            "Obsidian knowledge-vault route, and manager data boundary."
+        ),
+        use_case=(
+            "Codex/manager orientation, Obsidian knowledge route, CRM manager data boundary, "
+            "and canonical project-map lookup."
+        ),
+        keywords=(
+            "codex",
+            "manager",
+            "obsidian",
+            "vault",
+            "knowledge",
+            "workflow",
+            "clients",
+            "cashboxes",
+            "repair-orders",
+            "privacy",
+        ),
     ),
 )
 

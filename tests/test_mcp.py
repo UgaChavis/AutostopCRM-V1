@@ -31,7 +31,11 @@ if str(SRC) not in sys.path:
 from minimal_kanban.api.server import ApiServer
 from minimal_kanban.mcp.client import BoardApiClient, BoardApiTransportError
 from minimal_kanban.mcp.runtime import McpServerRuntime
-from minimal_kanban.mcp.server import _normalize_tool_path_alias, create_mcp_server
+from minimal_kanban.mcp.server import (
+    RepairOrderPatchPayload,
+    _normalize_tool_path_alias,
+    create_mcp_server,
+)
 from minimal_kanban.mcp.session_utils import managed_streamable_http_client
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
@@ -110,6 +114,56 @@ EXPECTED_MCP_TOOLS = {
     "delete_client_vehicle",
     "unlink_card_from_client",
 }
+
+
+class McpRepairOrderPatchPayloadTests(unittest.TestCase):
+    def test_repair_order_patch_payload_keeps_api_fields_and_common_aliases(self) -> None:
+        payload = RepairOrderPatchPayload.model_validate(
+            {
+                "comment": "Комментарий для клиента",
+                "clientInformation": "История для клиента",
+                "master_comment": "Комментарий мастера",
+                "internalComment": "Внутренняя заметка",
+                "advancePayment": "500",
+                "payment_history": [{"amount": "500", "payment_method": "cash"}],
+                "licensePlate": "А123АА124",
+                "odometer": "120000",
+            }
+        )
+
+        self.assertEqual(
+            payload.model_dump(exclude_none=True),
+            {
+                "licensePlate": "А123АА124",
+                "odometer": "120000",
+                "advancePayment": "500",
+                "payment_history": [{"amount": "500", "payment_method": "cash"}],
+                "comment": "Комментарий для клиента",
+                "clientInformation": "История для клиента",
+                "master_comment": "Комментарий мастера",
+                "internalComment": "Внутренняя заметка",
+            },
+        )
+
+    def test_repair_order_patch_schema_exposes_natural_manager_fields(self) -> None:
+        properties = RepairOrderPatchPayload.model_json_schema()["properties"]
+
+        for field_name in (
+            "comment",
+            "client_information",
+            "clientInformation",
+            "note",
+            "master_comment",
+            "masterComment",
+            "internal_comment",
+            "internalComment",
+            "advance_payment",
+            "advancePayment",
+            "payment_history",
+            "licensePlate",
+            "odometer",
+        ):
+            self.assertIn(field_name, properties)
 
 
 def reserve_port() -> int:
