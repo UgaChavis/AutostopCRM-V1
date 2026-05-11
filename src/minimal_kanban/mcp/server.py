@@ -2459,10 +2459,14 @@ def create_mcp_server(
     )
     def update_repair_order(
         card_id: str,
-        repair_order: dict[str, Any],
+        repair_order: RepairOrderPatchPayload,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
-        repair_order_payload = RepairOrderPatchPayload.model_validate(repair_order)
+        repair_order_payload = (
+            repair_order
+            if isinstance(repair_order, RepairOrderPatchPayload)
+            else RepairOrderPatchPayload.model_validate(repair_order)
+        )
         return _relay_board_call(
             "update_repair_order",
             lambda: board_api.update_repair_order(

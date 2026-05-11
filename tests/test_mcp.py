@@ -302,6 +302,23 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(
                     "default event_limit is 100", tool_map["get_board_events"].description
                 )
+                update_schema = tool_map["update_repair_order"].inputSchema
+                repair_order_schema = update_schema["properties"]["repair_order"]
+                if "$ref" in repair_order_schema:
+                    definition_name = repair_order_schema["$ref"].rsplit("/", 1)[-1]
+                    repair_order_schema = update_schema["$defs"][definition_name]
+                repair_order_properties = repair_order_schema["properties"]
+                for field_name in (
+                    "comment",
+                    "clientInformation",
+                    "master_comment",
+                    "internalComment",
+                    "advancePayment",
+                    "paymentMethod",
+                    "licensePlate",
+                    "odometer",
+                ):
+                    self.assertIn(field_name, repair_order_properties)
                 self.assertNotIn("autofill_vehicle_data", tool_map)
                 self.assertNotIn("autofill_repair_order", tool_map)
 
