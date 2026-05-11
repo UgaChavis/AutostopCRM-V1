@@ -52,6 +52,20 @@ class DeployScriptTests(unittest.TestCase):
 
         self.assertIn(".autostop-deploy.lock", gitignore)
 
+    def test_dockerfile_installs_qt_webengine_pdf_dependencies(self) -> None:
+        dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+        for package in (
+            "libnspr4",
+            "libnss3",
+            "libxcomposite1",
+            "libxdamage1",
+            "libxtst6",
+            "libxkbfile1",
+        ):
+            with self.subTest(package=package):
+                self.assertIn(package, dockerfile)
+
 
 if __name__ == "__main__":
     unittest.main()

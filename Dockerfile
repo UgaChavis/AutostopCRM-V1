@@ -14,7 +14,13 @@ RUN apt-get update && \
         libfontconfig1 \
         libgl1 \
         libglib2.0-0 \
-        libxkbcommon0 && \
+        libnspr4 \
+        libnss3 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxkbcommon0 \
+        libxkbfile1 \
+        libxtst6 && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
