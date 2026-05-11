@@ -2326,11 +2326,16 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".cashbox-cancel-last-button[disabled] {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-text {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-view {", BOARD_WEB_APP_HTML)
-        self.assertIn(".cashbox-journal-current {", BOARD_WEB_APP_HTML)
-        self.assertIn(".cashbox-journal-metric {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-journal-toolbar {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-journal-filter {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-journal-reset {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-journal-balance-strip {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-journal-day-divider {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-journal-operation-row {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-journal-operation-row__amount {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-opening {", BOARD_WEB_APP_HTML)
-        self.assertIn(".cashbox-journal-entry {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-stats-section {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-journal-stats-table {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-download-button {", BOARD_WEB_APP_HTML)
         self.assertIn(".card-journal-text {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-delete-button {", BOARD_WEB_APP_HTML)
@@ -2361,11 +2366,36 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function renderCashJournalCurrentBalances(data)", BOARD_WEB_APP_HTML)
         self.assertIn("function renderCashJournalStats(data)", BOARD_WEB_APP_HTML)
         self.assertIn("function renderCashJournalOpening(day)", BOARD_WEB_APP_HTML)
+        self.assertIn("function cashJournalDefaultFilters()", BOARD_WEB_APP_HTML)
+        self.assertIn("function cashJournalEntryNoteText(item)", BOARD_WEB_APP_HTML)
+        self.assertIn("поступление|списание|приход|расход", BOARD_WEB_APP_HTML)
+        self.assertIn("function cashJournalFiltersAreActive(", BOARD_WEB_APP_HTML)
+        self.assertIn("function cashJournalOperationCountText(", BOARD_WEB_APP_HTML)
+        self.assertIn("function cashJournalFilteredEntries(data)", BOARD_WEB_APP_HTML)
+        self.assertIn("function cashJournalRebuildDays(data, entries)", BOARD_WEB_APP_HTML)
+        self.assertIn("function cashJournalLedgerParts(data)", BOARD_WEB_APP_HTML)
+        self.assertIn("function refreshCashJournalLedgerBody()", BOARD_WEB_APP_HTML)
+        self.assertIn("totalRowCount", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderCashJournalFilters(data)", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleCashJournalFilterInput(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleCashJournalResetClick(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function cashJournalDisplayRows(entries)", BOARD_WEB_APP_HTML)
         self.assertIn("function toggleCashJournalStats()", BOARD_WEB_APP_HTML)
         self.assertIn("opening_balances", BOARD_WEB_APP_HTML)
         self.assertIn(
             "cashboxJournalStatsButton.addEventListener('click', toggleCashJournalStats);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cashboxJournalText.addEventListener('input', handleCashJournalFilterInput);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cashboxJournalText.addEventListener('change', handleCashJournalFilterInput);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cashboxJournalText.addEventListener('click', handleCashJournalResetClick);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
@@ -2467,11 +2497,18 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('data-close="cashboxes"', BOARD_WEB_APP_HTML)
         self.assertIn('data-close="cashbox-journal"', BOARD_WEB_APP_HTML)
         self.assertIn('data-close="cashbox-transfer"', BOARD_WEB_APP_HTML)
-        self.assertNotIn('id="cashboxPeriodFilters"', BOARD_WEB_APP_HTML)
-        self.assertNotIn('id="cashboxDirectionFilters"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-cash-journal-filter="query"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-cash-journal-filter="cashbox"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-cash-journal-filter="type"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-cash-journal-filter="period"', BOARD_WEB_APP_HTML)
+        self.assertIn("data-cash-journal-reset", BOARD_WEB_APP_HTML)
+        self.assertIn('aria-label="Сбросить фильтры"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-cash-journal-region="toolbar"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-cash-journal-region="body"', BOARD_WEB_APP_HTML)
+        self.assertIn("Остатки на начало дня", BOARD_WEB_APP_HTML)
+        self.assertIn("Журнал / Сводка", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function cashJournalMetricHtml(label, value", BOARD_WEB_APP_HTML)
         self.assertNotIn('id="cashboxNameInput"', BOARD_WEB_APP_HTML)
-        self.assertNotIn("cashboxPeriodFilter", BOARD_WEB_APP_HTML)
-        self.assertNotIn("cashboxDirectionFilter", BOARD_WEB_APP_HTML)
         self.assertNotIn("ОТКУДА", BOARD_WEB_APP_HTML)
         self.assertNotIn("КУДА ПЕРЕВЕСТИ", BOARD_WEB_APP_HTML)
         self.assertNotIn("Баланс:", BOARD_WEB_APP_HTML)
