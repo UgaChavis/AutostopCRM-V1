@@ -210,15 +210,16 @@ PRINT_BASE_STYLES = """
   .doc-section { margin-bottom: 12px; break-inside: avoid; }
   .doc-section--warranty { break-inside: auto; }
   .doc-section--warranty .doc-terms {
-    font-size: 8.2px;
-    line-height: 1.22;
-    padding: 6px 9px;
+    font-size: 8px;
+    line-height: 1.18;
+    padding: 5px 8px;
   }
   .doc-section--warranty .doc-terms__lead {
-    font-size: 8px;
+    font-size: 7.8px;
+    margin-bottom: 3px;
   }
   .doc-section--warranty .doc-terms__list {
-    gap: 1.5px;
+    gap: 1px;
   }
   .doc-section__title { margin: 0 0 6px; font-size: 13px; font-weight: 700; }
   .doc-note { border: 1px solid var(--paper-line); border-radius: 9px; padding: 9px 11px; min-height: 54px; white-space: normal; line-height: 1.5; background: #fcfcfc; }
@@ -315,7 +316,7 @@ PRINT_BASE_STYLES = """
   }
   .doc-signature-caption { color: var(--paper-soft); font-size: 9px; margin-top: 4px; }
   .doc-hint { color: var(--paper-soft); font-size: 11px; }
-  .doc-page-break { display: block; height: 0; clear: both; page-break-before: always; page-break-after: always; }
+  .doc-page-break { display: block; height: 0; clear: both; page-break-before: always; page-break-after: auto; break-before: page; break-after: auto; }
   @page { size: A4; margin: 9mm; }
   @media print {
     html,
@@ -335,6 +336,8 @@ PRINT_BASE_STYLES = """
       margin: 0;
       border: 0;
       box-shadow: none;
+      page-break-after: auto;
+      break-after: auto;
     }
   }
 """.strip()
@@ -450,10 +453,6 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     {{#totals.has_prepayment}}<tr><td>Предоплата</td><td>{{totals.prepayment_display}}</td></tr>{{/totals.has_prepayment}}
     <tr class="doc-totals-table__grand"><td>{{totals.due_label}}</td><td>{{totals.due_display}}</td></tr>
   </table>
-  <section class="doc-section doc-section--warranty doc-section--warranty-summary">
-    <h2 class="doc-section__title">Ключевые условия</h2>
-    <div class="doc-terms doc-terms--compact">{{{repair_order.terms_summary_html}}}</div>
-  </section>
 </div>
 <!-- AUTOSTOPCRM_PAGE_BREAK -->
 <div class="document-page">

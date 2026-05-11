@@ -672,6 +672,12 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("box-shadow: none;", PRINT_BASE_STYLES)
         self.assertIn("print-color-adjust: exact;", PRINT_BASE_STYLES)
 
+    def test_print_styles_do_not_create_blank_pages_between_document_sections(self) -> None:
+        self.assertIn("page-break-before: always;", PRINT_BASE_STYLES)
+        self.assertIn("page-break-after: auto;", PRINT_BASE_STYLES)
+        self.assertIn("break-before: page;", PRINT_BASE_STYLES)
+        self.assertIn("break-after: auto;", PRINT_BASE_STYLES)
+
     def test_pdf_renderer_prefers_webengine_html_printing(self) -> None:
         with (
             patch("minimal_kanban.printing.pdf._should_use_qt_renderer", return_value=True),
