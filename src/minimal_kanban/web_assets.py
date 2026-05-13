@@ -11239,6 +11239,8 @@ BOARD_WEB_APP_HTML = "".join(
         candidates.push({ kind, query });
       };
       add('client', [profile.customer_name, profile.customer_phone]);
+      add('client-name', profile.customer_name);
+      add('client-phone', profile.customer_phone);
       add('client-fallback', clientNameFallbackQuery(profile.customer_name));
       add('vehicle', [
         profile.display_name,

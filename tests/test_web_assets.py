@@ -1245,6 +1245,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("window.clearTimeout(state.clientSuggestTimer);", BOARD_WEB_APP_HTML)
         self.assertIn("state.clientSuggestTimer = null;", BOARD_WEB_APP_HTML)
         self.assertIn("function clientSuggestionQueryCandidates(profile)", BOARD_WEB_APP_HTML)
+        self.assertIn("add('client-name', profile.customer_name);", BOARD_WEB_APP_HTML)
+        self.assertIn("add('client-phone', profile.customer_phone);", BOARD_WEB_APP_HTML)
         self.assertIn("profile.display_name,", BOARD_WEB_APP_HTML)
         self.assertIn("function mergeClientSuggestionResults(groups)", BOARD_WEB_APP_HTML)
         self.assertIn(
