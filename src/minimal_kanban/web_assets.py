@@ -7614,6 +7614,7 @@ BOARD_WEB_APP_HTML = "".join(
     const ARCHIVE_PREVIEW_LIMIT = 30;
     const CLIENTS_INITIAL_LIMIT = 35;
     const CLIENTS_SEARCH_LIMIT = 50;
+    const CARD_CLIENT_SUGGESTION_LIMIT = 6;
     const BOARD_SEARCH_LIMIT = 8;
     const BOARD_SEARCH_DEBOUNCE_MS = 90;
     const CASH_JOURNAL_FILTER_DEBOUNCE_MS = 80;
@@ -11182,6 +11183,124 @@ BOARD_WEB_APP_HTML = "".join(
       return cardId ? ('card:' + cardId) : '';
     }
 
+    function clientSuggestionVehicleMergeKey(vehicle) {
+      const stableKey = clientSuggestionVehicleKey(vehicle);
+      if (stableKey) return stableKey;
+      return [
+        vehicle?.vehicle,
+        vehicle?.brand,
+        vehicle?.model,
+        vehicle?.year,
+        vehicle?.license_plate,
+        vehicle?.registration_plate,
+        vehicle?.vin,
+        vehicle?.body_number,
+        vehicle?.chassis_number,
+      ].map((value) => normalizeClientSearchText(value)).filter(Boolean).join('|');
+    }
+
+    function compactClientSuggestionQuery(parts) {
+      const values = (Array.isArray(parts) ? parts : [parts])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+      const query = values.join(' ').replace(/\\s+/g, ' ').trim();
+      const digits = query.replace(/\\D+/g, '');
+      return query.length >= 3 || digits.length >= 3 ? query : '';
+    }
+
+    function clientNameFallbackQuery(value) {
+      const parts = String(value || '').replace(/\\s+/g, ' ').trim().split(/\\s+/).filter((part) => part.length >= 3);
+      return parts.length > 1 ? parts[0] : '';
+    }
+
+    function clientSuggestionProfileSignature(profile) {
+      return JSON.stringify([
+        profile.customer_name,
+        profile.customer_phone,
+        profile.display_name,
+        profile.make_display,
+        profile.model_display,
+        profile.production_year,
+        profile.vin,
+        profile.registration_plate,
+        profile.body_number,
+        profile.chassis_number,
+      ].map((value) => String(value || '').trim()));
+    }
+
+    function clientSuggestionQueryCandidates(profile) {
+      const candidates = [];
+      const seen = new Set();
+      const add = (kind, parts) => {
+        const query = compactClientSuggestionQuery(parts);
+        const key = normalizeClientSearchText(query) + '|' + query.replace(/\\D+/g, '');
+        if (!query || seen.has(key)) return;
+        seen.add(key);
+        candidates.push({ kind, query });
+      };
+      add('client', [profile.customer_name, profile.customer_phone]);
+      add('client-fallback', clientNameFallbackQuery(profile.customer_name));
+      add('vehicle', [
+        profile.display_name,
+        profile.make_display,
+        profile.model_display,
+        profile.production_year,
+        profile.vin,
+        profile.registration_plate,
+        profile.body_number,
+        profile.chassis_number,
+      ]);
+      return candidates;
+    }
+
+    function mergeClientSuggestionPayload(current, next) {
+      if (!current) return next;
+      if (!next) return current;
+      const merged = { ...current, ...next };
+      const vehicles = [];
+      const seen = new Set();
+      const addVehicles = (items) => {
+        (Array.isArray(items) ? items : []).forEach((vehicle) => {
+          const key = clientSuggestionVehicleMergeKey(vehicle);
+          if (key && seen.has(key)) return;
+          if (key) seen.add(key);
+          vehicles.push(vehicle);
+        });
+      };
+      addVehicles(current.vehicles_preview);
+      addVehicles(next.vehicles_preview);
+      if (vehicles.length) merged.vehicles_preview = vehicles;
+      if (current.stats || next.stats) {
+        merged.stats = { ...(current.stats || {}), ...(next.stats || {}) };
+        const totals = [current.stats?.vehicles_total, next.stats?.vehicles_total]
+          .map((value) => Number(value))
+          .filter((value) => Number.isFinite(value));
+        if (totals.length) merged.stats.vehicles_total = Math.max(...totals);
+      }
+      return merged;
+    }
+
+    function mergeClientSuggestionResults(groups) {
+      const clients = [];
+      const indexes = new Map();
+      (Array.isArray(groups) ? groups : []).forEach((group) => {
+        (Array.isArray(group) ? group : []).forEach((client) => {
+          const clientId = String(client?.id || '').trim();
+          const key = clientId || (normalizeClientSearchText(clientDisplayName(client)) + '|' + compactPhoneLine(client));
+          if (!key) return;
+          if (indexes.has(key)) {
+            const index = indexes.get(key);
+            clients[index] = mergeClientSuggestionPayload(clients[index], client);
+            return;
+          }
+          if (clients.length >= CARD_CLIENT_SUGGESTION_LIMIT) return;
+          indexes.set(key, clients.length);
+          clients.push(client);
+        });
+      });
+      return clients;
+    }
+
     function clientSuggestionVehicleHtml(client, vehicle) {
       const vehicleId = String(vehicle?.id || '').trim();
       const vehicleKey = clientSuggestionVehicleKey(vehicle);
@@ -11325,32 +11444,26 @@ BOARD_WEB_APP_HTML = "".join(
 
     async function refreshClientSuggestionsForCard() {
       const profile = readVehicleProfileForm();
-      const query = [
-        profile.customer_name,
-        profile.customer_phone,
-        profile.vin,
-        profile.registration_plate,
-        profile.body_number,
-      ].filter(Boolean).join(' ');
-      const trimmedQuery = query.trim();
-      const queryDigits = trimmedQuery.replace(/\\D+/g, '');
-      if (trimmedQuery.length < 3 && queryDigits.length < 3) {
+      const queryCandidates = clientSuggestionQueryCandidates(profile);
+      if (!queryCandidates.length) {
         hideClientSuggestions();
         return;
       }
-      state.clientSuggestionQuery = trimmedQuery;
+      const profileSignature = clientSuggestionProfileSignature(profile);
+      const displayQuery = queryCandidates[0]?.query || '';
+      state.clientSuggestionQuery = displayQuery;
       try {
-        const data = await api('/api/search_clients?query=' + encodeURIComponent(trimmedQuery) + '&limit=6');
+        const suggestionGroups = await Promise.all(queryCandidates.map(async (candidate) => {
+          try {
+            const data = await api('/api/search_clients?query=' + encodeURIComponent(candidate.query) + '&limit=' + CARD_CLIENT_SUGGESTION_LIMIT);
+            return data?.clients || [];
+          } catch (_) {
+            return [];
+          }
+        }));
         const currentProfile = readVehicleProfileForm();
-        const currentQuery = [
-          currentProfile.customer_name,
-          currentProfile.customer_phone,
-          currentProfile.vin,
-          currentProfile.registration_plate,
-          currentProfile.body_number,
-        ].filter(Boolean).join(' ').trim();
-        if (currentQuery !== trimmedQuery) return;
-        const clients = data?.clients || [];
+        if (clientSuggestionProfileSignature(currentProfile) !== profileSignature) return;
+        const clients = mergeClientSuggestionResults(suggestionGroups);
         state.clientSuggestionFocusIndex = clients.length ? 0 : -1;
         const loadedProfiles = state.clientSuggestionProfiles || {};
         state.clientSuggestionProfiles = clients.reduce((profiles, client) => {
@@ -11358,7 +11471,7 @@ BOARD_WEB_APP_HTML = "".join(
           if (clientId && loadedProfiles[clientId]) profiles[clientId] = loadedProfiles[clientId];
           return profiles;
         }, {});
-        renderClientSuggestions(clients, { query: trimmedQuery, showEmpty: true });
+        renderClientSuggestions(clients, { query: displayQuery, showEmpty: true });
       } catch (_) {
         hideClientSuggestions();
       }
@@ -22031,11 +22144,14 @@ function renderCompactArchiveRows(cards) {
         await loadClientSuggestionVehicles(loadClientVehiclesTarget.dataset.loadClientVehicles);
         return;
       }
-      const selectClientSuggestionTarget = target.closest('[data-select-client-suggestion]');
+      const selectClientSuggestionTarget = target.closest('[data-client-suggestion], [data-select-client-suggestion]');
       if (selectClientSuggestionTarget instanceof HTMLElement) {
         event.preventDefault();
         event.stopPropagation();
-        await chooseClientSuggestion(selectClientSuggestionTarget.dataset.selectClientSuggestion);
+        await chooseClientSuggestion(
+          selectClientSuggestionTarget.dataset.clientSuggestion
+            || selectClientSuggestionTarget.dataset.selectClientSuggestion,
+        );
         return;
       }
       const createClientSuggestionTarget = target.closest('[data-client-suggest-create]');

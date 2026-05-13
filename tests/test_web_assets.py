@@ -1153,6 +1153,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("clientDebtValue", BOARD_WEB_APP_HTML)
         self.assertIn("const CLIENTS_INITIAL_LIMIT = 35;", BOARD_WEB_APP_HTML)
         self.assertIn("const CLIENTS_SEARCH_LIMIT = 50;", BOARD_WEB_APP_HTML)
+        self.assertIn("const CARD_CLIENT_SUGGESTION_LIMIT = 6;", BOARD_WEB_APP_HTML)
         self.assertIn("clientsRequestSeq", BOARD_WEB_APP_HTML)
         self.assertIn("clientsMetaState", BOARD_WEB_APP_HTML)
         self.assertIn("ПОИСК ПО ВСЕМ КЛИЕНТАМ", BOARD_WEB_APP_HTML)
@@ -1243,7 +1244,17 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("window.clearTimeout(state.clientSuggestTimer);", BOARD_WEB_APP_HTML)
         self.assertIn("state.clientSuggestTimer = null;", BOARD_WEB_APP_HTML)
-        self.assertIn("if (trimmedQuery.length < 3 && queryDigits.length < 3)", BOARD_WEB_APP_HTML)
+        self.assertIn("function clientSuggestionQueryCandidates(profile)", BOARD_WEB_APP_HTML)
+        self.assertIn("profile.display_name,", BOARD_WEB_APP_HTML)
+        self.assertIn("function mergeClientSuggestionResults(groups)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const suggestionGroups = await Promise.all(queryCandidates.map(async (candidate) => {",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "target.closest('[data-client-suggestion], [data-select-client-suggestion]')",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("window.setTimeout(refreshClientSuggestionsForCard, 450)", BOARD_WEB_APP_HTML)
         self.assertIn("function clientSuggestionVehicleKey(vehicle)", BOARD_WEB_APP_HTML)
         self.assertIn("return cardId ? ('card:' + cardId) : '';", BOARD_WEB_APP_HTML)
