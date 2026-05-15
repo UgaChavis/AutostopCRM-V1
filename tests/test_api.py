@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import gzip
+import io
 import json
 import logging
 import socket
+import struct
 import sys
 import tempfile
 import http.client
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -548,6 +552,22 @@ class ApiServerTests(unittest.TestCase):
                 self.assertTrue(body.startswith(expected_prefix))
             finally:
                 connection.close()
+
+    def test_board_client_disconnect_is_handled_without_server_error(self) -> None:
+        parsed = urlsplit(self.base_url)
+        server = self.server._server
+        self.assertIsNotNone(server)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            reset_on_close = struct.pack("ii", 1, 0)
+            for _ in range(8):
+                with socket.create_connection((parsed.hostname, parsed.port), timeout=5) as sock:
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, reset_on_close)
+                    sock.sendall(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+            time.sleep(0.5)
+        self.assertNotIn("Exception occurred during processing", stderr.getvalue())
+        self.assertNotIn("BrokenPipeError", stderr.getvalue())
+        self.assertNotIn("ConnectionResetError", stderr.getvalue())
 
     def test_review_board_route_returns_summary(self) -> None:
         status, created = self.request(

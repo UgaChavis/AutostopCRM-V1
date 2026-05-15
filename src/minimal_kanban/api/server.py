@@ -4,6 +4,7 @@ import gzip
 import json
 import logging
 import re
+import sys
 import threading
 import unicodedata
 import uuid
@@ -145,6 +146,7 @@ class ApiServer:
         for candidate_port in range(self._start_port, self._start_port + self._fallback_limit):
             try:
                 server = ReusableThreadingHTTPServer((self.host, candidate_port), handler)
+                server.api_logger = self._logger
                 self._server = server
                 self.port = candidate_port
                 break
@@ -505,30 +507,26 @@ class ApiServer:
                 route = parsed.path
                 query = self._query_payload(parsed.query)
                 if route in {"/", "/index.html"}:
-                    self._serve_board()
+                    self._serve_board(request_id)
                     return
                 if route == "/favicon.ico":
                     body = _static_asset_bytes("favicon.ico")
-                    self.send_response(HTTPStatus.OK)
-                    self._send_headers(
-                        "image/x-icon",
-                        len(body),
+                    self._send_bytes_response(
+                        body,
+                        content_type="image/x-icon",
+                        request_id=request_id,
+                        route=route,
                         cache_control="public, max-age=86400, immutable",
-                    )
-                    self._write_body(
-                        body, route=route, request_id=request_id, status_code=HTTPStatus.OK
                     )
                     return
                 if route == "/favicon.png":
                     body = _static_asset_bytes("favicon.png")
-                    self.send_response(HTTPStatus.OK)
-                    self._send_headers(
-                        "image/png",
-                        len(body),
+                    self._send_bytes_response(
+                        body,
+                        content_type="image/png",
+                        request_id=request_id,
+                        route=route,
                         cache_control="public, max-age=86400, immutable",
-                    )
-                    self._write_body(
-                        body, route=route, request_id=request_id, status_code=HTTPStatus.OK
                     )
                     return
                 if route == "/api/health":
@@ -543,9 +541,12 @@ class ApiServer:
                         error=None,
                         request_id=request_id,
                     )
-                    self.send_response(HTTPStatus.OK)
-                    self._send_headers("application/json", len(body))
-                    self.wfile.write(body)
+                    self._send_bytes_response(
+                        body,
+                        content_type="application/json",
+                        request_id=request_id,
+                        route=route,
+                    )
                     return
                 if route == "/api/attachment":
                     if not self._authenticate(request_id, query):
@@ -674,11 +675,14 @@ class ApiServer:
                         payload[key] = value
                 return payload
 
-            def _serve_board(self) -> None:
+            def _serve_board(self, request_id: str) -> None:
                 body = BOARD_WEB_APP_HTML.encode("utf-8")
-                self.send_response(HTTPStatus.OK)
-                self._send_headers("text/html; charset=utf-8", len(body))
-                self.wfile.write(body)
+                self._send_bytes_response(
+                    body,
+                    content_type="text/html; charset=utf-8",
+                    request_id=request_id,
+                    route=urlsplit(self.path).path or "/",
+                )
 
             def _serve_attachment(self, request_id: str, payload: dict) -> None:
                 try:
@@ -687,19 +691,19 @@ class ApiServer:
                         str(payload.get("attachment_id", "")),
                     )
                     body = path.read_bytes()
-                    self.send_response(HTTPStatus.OK)
-                    self.send_header(
-                        "Content-Type", attachment.mime_type or "application/octet-stream"
+                    self._send_bytes_response(
+                        body,
+                        content_type=attachment.mime_type or "application/octet-stream",
+                        request_id=request_id,
+                        route=urlsplit(self.path).path,
+                        extra_headers={
+                            "Content-Disposition": _content_disposition_header(
+                                attachment.file_name,
+                                disposition="attachment",
+                            ),
+                            "X-Content-Type-Options": "nosniff",
+                        },
                     )
-                    self.send_header("Content-Length", str(len(body)))
-                    self.send_header(
-                        "Content-Disposition",
-                        _content_disposition_header(attachment.file_name, disposition="attachment"),
-                    )
-                    self.send_header("Cache-Control", "no-store")
-                    self.send_header("X-Content-Type-Options", "nosniff")
-                    self.end_headers()
-                    self.wfile.write(body)
                 except ServiceError as exc:
                     self._send_error_response(
                         request_id, exc.status_code, exc.code, exc.message, exc.details
@@ -723,23 +727,19 @@ class ApiServer:
                         if str(payload.get("disposition", "")).strip().lower() == "inline"
                         else "attachment"
                     )
-                    self.send_response(HTTPStatus.OK)
-                    self.send_header(
-                        "Content-Type",
-                        str(file_meta.get("mime_type") or "application/octet-stream"),
+                    self._send_bytes_response(
+                        body,
+                        content_type=str(file_meta.get("mime_type") or "application/octet-stream"),
+                        request_id=request_id,
+                        route=urlsplit(self.path).path,
+                        extra_headers={
+                            "Content-Disposition": _content_disposition_header(
+                                str(file_meta.get("original_name") or "shared-file"),
+                                disposition=disposition,
+                            ),
+                            "X-Content-Type-Options": "nosniff",
+                        },
                     )
-                    self.send_header("Content-Length", str(len(body)))
-                    self.send_header(
-                        "Content-Disposition",
-                        _content_disposition_header(
-                            str(file_meta.get("original_name") or "shared-file"),
-                            disposition=disposition,
-                        ),
-                    )
-                    self.send_header("Cache-Control", "no-store")
-                    self.send_header("X-Content-Type-Options", "nosniff")
-                    self.end_headers()
-                    self.wfile.write(body)
                 except ServiceError as exc:
                     self._send_error_response(
                         request_id, exc.status_code, exc.code, exc.message, exc.details
@@ -758,17 +758,19 @@ class ApiServer:
                         str(payload.get("card_id", ""))
                     )
                     body = path.read_bytes()
-                    self.send_response(HTTPStatus.OK)
-                    self.send_header("Content-Type", "text/plain; charset=utf-8")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.send_header(
-                        "Content-Disposition",
-                        _content_disposition_header(file_name, disposition="inline"),
+                    self._send_bytes_response(
+                        body,
+                        content_type="text/plain; charset=utf-8",
+                        request_id=request_id,
+                        route=urlsplit(self.path).path,
+                        extra_headers={
+                            "Content-Disposition": _content_disposition_header(
+                                file_name,
+                                disposition="inline",
+                            ),
+                            "X-Content-Type-Options": "nosniff",
+                        },
                     )
-                    self.send_header("Cache-Control", "no-store")
-                    self.send_header("X-Content-Type-Options", "nosniff")
-                    self.end_headers()
-                    self.wfile.write(body)
                 except ServiceError as exc:
                     self._send_error_response(
                         request_id, exc.status_code, exc.code, exc.message, exc.details
@@ -907,6 +909,40 @@ class ApiServer:
                         self.path,
                         request_id,
                         status_code,
+                    )
+
+            def _send_bytes_response(
+                self,
+                body: bytes,
+                *,
+                content_type: str,
+                request_id: str,
+                route: str,
+                status_code: int = HTTPStatus.OK,
+                cache_control: str = "no-store",
+                extra_headers: dict[str, str] | None = None,
+            ) -> None:
+                try:
+                    self.send_response(status_code)
+                    self._send_headers(
+                        content_type,
+                        len(body),
+                        cache_control=cache_control,
+                        extra_headers=extra_headers,
+                    )
+                    self._write_body(
+                        body,
+                        route=route,
+                        request_id=request_id,
+                        status_code=status_code,
+                    )
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError) as exc:
+                    logger.warning(
+                        "api_client_disconnected route=%s request_id=%s status=%s error=%s",
+                        route,
+                        request_id,
+                        status_code,
+                        exc,
                     )
 
             def _not_found(self, request_id: str) -> None:
@@ -1063,3 +1099,16 @@ class ReusableThreadingHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
     daemon_threads = False
     block_on_close = True
+    api_logger: Logger | None = None
+
+    def handle_error(self, request, client_address) -> None:
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+            if self.api_logger is not None:
+                self.api_logger.debug(
+                    "api_client_disconnected_before_response client=%s error=%s",
+                    client_address,
+                    exc,
+                )
+            return
+        super().handle_error(request, client_address)
