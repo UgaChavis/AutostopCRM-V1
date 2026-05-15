@@ -44,6 +44,7 @@ from minimal_kanban.models import AuditEvent, utc_now
 from minimal_kanban.operator_auth import OperatorAuthService, _password_hash
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
+from minimal_kanban.web_assets import BOARD_WEB_APP_HTML
 
 
 def reserve_port() -> int:
@@ -568,6 +569,15 @@ class ApiServerTests(unittest.TestCase):
         self.assertNotIn("Exception occurred during processing", stderr.getvalue())
         self.assertNotIn("BrokenPipeError", stderr.getvalue())
         self.assertNotIn("ConnectionResetError", stderr.getvalue())
+
+    def test_board_html_uses_cached_gzip_when_client_accepts_it(self) -> None:
+        status, headers, body = self.raw_request("/", headers={"Accept-Encoding": "gzip"})
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get("Content-Encoding"), "gzip")
+        self.assertEqual(headers.get("Vary"), "Accept-Encoding")
+        decoded = gzip.decompress(body).decode("utf-8")
+        self.assertEqual(decoded, BOARD_WEB_APP_HTML)
+        self.assertLess(len(body), len(decoded.encode("utf-8")) // 4)
 
     def test_review_board_route_returns_summary(self) -> None:
         status, created = self.request(

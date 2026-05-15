@@ -98,6 +98,16 @@ def _static_asset_bytes(file_name: str) -> bytes:
     return (STATIC_DIR / file_name).read_bytes()
 
 
+@cache
+def _board_html_bytes() -> bytes:
+    return BOARD_WEB_APP_HTML.encode("utf-8")
+
+
+@cache
+def _board_html_gzip_bytes() -> bytes:
+    return gzip.compress(_board_html_bytes())
+
+
 class ApiServer:
     def __init__(
         self,
@@ -462,7 +472,7 @@ class ApiServer:
                 parsed = urlsplit(self.path)
                 route = parsed.path
                 if route in {"/", "/index.html"}:
-                    body = BOARD_WEB_APP_HTML.encode("utf-8")
+                    body = _board_html_bytes()
                     self.send_response(HTTPStatus.OK)
                     self._send_headers("text/html; charset=utf-8", len(body))
                     return
@@ -676,12 +686,17 @@ class ApiServer:
                 return payload
 
             def _serve_board(self, request_id: str) -> None:
-                body = BOARD_WEB_APP_HTML.encode("utf-8")
+                gzip_ok = "gzip" in str(self.headers.get("Accept-Encoding", "")).lower()
+                body = _board_html_gzip_bytes() if gzip_ok else _board_html_bytes()
+                extra_headers = {"Vary": "Accept-Encoding"}
+                if gzip_ok:
+                    extra_headers["Content-Encoding"] = "gzip"
                 self._send_bytes_response(
                     body,
                     content_type="text/html; charset=utf-8",
                     request_id=request_id,
                     route=urlsplit(self.path).path or "/",
+                    extra_headers=extra_headers,
                 )
 
             def _serve_attachment(self, request_id: str, payload: dict) -> None:
