@@ -1373,6 +1373,9 @@ class CardService:
             returned_transactions = recent_transactions[:limit]
             cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
             cashboxes_by_id = {cashbox.id: cashbox for cashbox in cashboxes}
+            repair_order_transaction_context = self._repair_order_transaction_context(
+                bundle["cards"]
+            )
             journal = self._build_cash_journal(
                 returned_transactions,
                 cashboxes_by_id,
@@ -1382,6 +1385,7 @@ class CardService:
                 period_start=period_start,
                 all_transactions=bundle["cash_transactions"],
                 cashboxes=cashboxes,
+                repair_order_transaction_context=repair_order_transaction_context,
             )
             return {
                 "entries": journal["entries"],
@@ -6495,6 +6499,11 @@ class CardService:
         )
         if repair_order_context:
             serialized.update(repair_order_context)
+            if self._is_default_repair_order_cash_transaction_note(transaction.note):
+                serialized["stored_note"] = transaction.note
+                serialized["note"] = self._repair_order_cash_transaction_note(
+                    repair_order_context.get("repair_order_number")
+                )
         return serialized
 
     def _repair_order_transaction_context(self, cards: list[Card]) -> dict[str, dict[str, object]]:
@@ -6517,6 +6526,14 @@ class CardService:
                     "repair_order_payment_id": payment.id,
                 }
         return contexts
+
+    def _repair_order_cash_transaction_note(self, repair_order_number: object) -> str:
+        number = normalize_text(repair_order_number, default="", limit=40)
+        return f"Заказ-наряд №{number}" if number else "Заказ-наряд"
+
+    def _is_default_repair_order_cash_transaction_note(self, note: str | None) -> bool:
+        normalized = normalize_text(note, default="", limit=240).casefold()
+        return bool(re.fullmatch(r"заказ-наряд\s*№\s*\S+", normalized))
 
     def _cash_transaction_sortable_datetime(self, value: str | None) -> datetime:
         parsed = parse_datetime(value)
@@ -6645,12 +6662,16 @@ class CardService:
         period_start: datetime,
         all_transactions: list[CashTransaction] | None = None,
         cashboxes: list[CashBox] | None = None,
+        repair_order_transaction_context: dict[str, dict[str, object]] | None = None,
     ) -> dict[str, object]:
         entries: list[dict[str, object]] = []
         for item in transactions:
             created_at = parse_datetime(item.created_at)
             cashbox = cashboxes_by_id.get(item.cashbox_id)
-            base = self._serialize_cash_transaction(item)
+            base = self._serialize_cash_transaction(
+                item,
+                repair_order_context=(repair_order_transaction_context or {}).get(item.id),
+            )
             direction_sign = 1 if item.direction == "income" else -1
             signed_amount_minor = int(item.amount_minor) * direction_sign
             if created_at is not None:
@@ -6683,8 +6704,10 @@ class CardService:
                     ),
                     "amount_display": self._cash_journal_money_text(item.amount_minor),
                     "actor_label": normalize_actor_name(item.actor_name),
-                    "source_label": self._cash_transaction_source_label(item),
-                    "note": normalize_text(item.note, default="Без комментария", limit=240),
+                    "source_label": str(
+                        base.get("source_label") or self._cash_transaction_source_label(item)
+                    ),
+                    "note": normalize_text(base.get("note"), default="Без комментария", limit=240),
                 }
             )
             entries.append(base)
@@ -10379,10 +10402,10 @@ class CardService:
             key=lambda item: (str(item.created_at or ""), str(item.id or "")),
         )
         changed = False
-        for index, card in enumerate(ordered_cards, start=1):
-            expected = str(index)
-            if card.repair_order.number == expected:
+        for card in ordered_cards:
+            if normalize_text(card.repair_order.number, default="", limit=40):
                 continue
+            expected = self._next_repair_order_number(cards, exclude_card_id=card.id)
             card.repair_order = RepairOrder.from_dict(
                 {
                     **card.repair_order.to_storage_dict(),

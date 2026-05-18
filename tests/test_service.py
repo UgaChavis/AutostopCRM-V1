@@ -4901,7 +4901,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(marked["card"]["repair_order"]["status"], "closed")
         self.assertEqual(moved_back["card"]["repair_order"]["status"], "closed")
 
-    def test_repair_order_numbers_follow_card_open_time_not_update_order(self) -> None:
+    def test_repair_order_numbers_remain_stable_after_assignment(self) -> None:
         first = self.service.create_card(
             {"vehicle": "KIA RIO", "title": "First card", "deadline": {"hours": 2}}
         )
@@ -4945,8 +4945,67 @@ class CardServiceTests(unittest.TestCase):
         listed = self.service.list_repair_orders({"status": "all"})
         by_card_id = {item["card_id"]: item for item in listed["repair_orders"]}
 
-        self.assertEqual(by_card_id[first["card"]["id"]]["number"], "1")
-        self.assertEqual(by_card_id[second["card"]["id"]]["number"], "2")
+        self.assertEqual(by_card_id[second["card"]["id"]]["number"], "1")
+        self.assertEqual(by_card_id[first["card"]["id"]]["number"], "2")
+
+    def test_cashbox_repair_order_payment_displays_current_linked_order_number(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Карта Мария", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        card = self.service.create_card(
+            {
+                "vehicle": "Skoda Rapid 2020",
+                "title": "Оплата с измененным номером",
+                "deadline": {"hours": 2},
+            }
+        )["card"]
+
+        created_order = self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "number": "257",
+                    "works": [{"name": "Работа", "quantity": "1", "price": "4000"}],
+                    "payments": [
+                        {
+                            "amount": "4000",
+                            "paid_at": "18.05.2026 12:39",
+                            "payment_method": "card",
+                            "cashbox_id": cashbox["id"],
+                            "actor_name": "KATYA",
+                        }
+                    ],
+                },
+            }
+        )["card"]["repair_order"]
+        payment = created_order["payments"][0]
+
+        updated_order = self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    **created_order,
+                    "number": "259",
+                    "payments": [payment],
+                },
+            }
+        )["card"]["repair_order"]
+        self.assertEqual(updated_order["number"], "259")
+        self.assertEqual(
+            updated_order["payments"][0]["cash_transaction_id"],
+            payment["cash_transaction_id"],
+        )
+
+        details = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(details["transactions"][0]["repair_order_number"], "259")
+        self.assertEqual(details["transactions"][0]["note"], "Заказ-наряд №259")
+        self.assertEqual(details["transactions"][0]["stored_note"], "Заказ-наряд №257")
+
+        journal = self.service.get_cash_journal({"months": 3, "limit": 100})
+        self.assertEqual(journal["entries"][0]["repair_order_number"], "259")
+        self.assertEqual(journal["entries"][0]["note"], "Заказ-наряд №259")
 
     def test_list_repair_orders_supports_query_sort_and_tags(self) -> None:
         first = self.service.create_card(
