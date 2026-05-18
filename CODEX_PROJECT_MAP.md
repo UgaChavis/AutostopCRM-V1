@@ -26,6 +26,7 @@
 - `src/minimal_kanban/mcp/client.py`
 - `src/minimal_kanban/telegram_ai/`
 - `src/minimal_kanban/web_assets.py`
+- `src/minimal_kanban/web_app_assets/`
 - `scripts/`
 - `tests/`
 - `deploy.sh`
@@ -58,6 +59,8 @@ exists; fall back to the desktop mirror only if needed.
 - `python scripts\audit_localization.py`
 - `.\scripts\run_checks.ps1`
 - `python -m unittest discover -s tests -v`
+- `python scripts\check_web_assets_js.py`
+- `python scripts\browser_smoke.py` for browser UI/modal flow changes
 - live smoke commands from `docs/OPERATIONS_RUNBOOK.md`
 
 ## Deployment Notes

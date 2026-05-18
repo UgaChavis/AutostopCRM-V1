@@ -7765,6 +7765,7 @@ BOARD_WEB_APP_HTML = "".join(
       repairOrdersItems: [],
       repairOrdersMetaState: null,
       repairOrderParentLayer: '',
+      modalStack: [],
       boardSearch: {
         query: '',
         results: [],
@@ -10408,8 +10409,8 @@ BOARD_WEB_APP_HTML = "".join(
       setOperatorSessionToken('');
       applyBoardScalePreference({ fallbackValue: 1, syncInput: true, persistFallback: false });
       updateOperatorButton();
-      els.operatorProfileModal.classList.remove('is-open');
-      els.operatorAdminModal.classList.remove('is-open');
+      popModal('operator-profile', { skipFocus: true });
+      popModal('operator-admin', { skipFocus: true });
       if (!preserveStatus) setStatus('Нужен вход оператора.', true);
       if (openLogin) openOperatorLoginModal();
     }
@@ -10454,7 +10455,7 @@ BOARD_WEB_APP_HTML = "".join(
       renderOperatorActivity(data?.recent_actions || []);
       els.operatorAdminButton.classList.toggle('hidden', !data?.user?.is_admin);
       closeOperatorLoginModal();
-      if (openModal) els.operatorProfileModal.classList.add('is-open');
+      if (openModal) pushModal('operator-profile', els.operatorProfileModal);
     }
 
     async function loadOperatorProfile(openModal = false) {
@@ -10546,8 +10547,161 @@ BOARD_WEB_APP_HTML = "".join(
       }, { revokeDelay: 60_000 });
     }
 
+    const MODAL_KEY_BY_ID = {
+      cardModal: 'card',
+      archiveModal: 'archive',
+      repairOrdersModal: 'repair-orders',
+      clientsModal: 'clients',
+      sharedFilesModal: 'shared-files',
+      cashboxesModal: 'cashboxes',
+      cashboxJournalModal: 'cashbox-journal',
+      cashboxTransferModal: 'cashbox-transfer',
+      employeesModal: 'employees',
+      employeeSalaryModal: 'employeeSalary',
+      employeeSalaryReportModal: 'employee-salary-report',
+      agentModal: 'agent',
+      agentTasksModal: 'agent-tasks',
+      gptWallModal: 'wall',
+      boardSettingsModal: 'settings',
+      stickyModal: 'sticky',
+      repairOrderModal: 'repair-order',
+      repairOrderPaymentsModal: 'repair-order-payments',
+      operatorProfileModal: 'operator-profile',
+      operatorAdminModal: 'operator-admin',
+    };
+
+    function modalKeyForElement(modalEl) {
+      const elementId = String(modalEl?.id || '').trim();
+      return MODAL_KEY_BY_ID[elementId] || '';
+    }
+
+    function modalElementForKey(key) {
+      const normalizedKey = String(key || '').trim();
+      const byKey = {
+        card: els.cardModal,
+        archive: els.archiveModal,
+        'repair-orders': els.repairOrdersModal,
+        clients: els.clientsModal,
+        'shared-files': els.sharedFilesModal,
+        cashboxes: els.cashboxesModal,
+        'cashbox-journal': els.cashboxJournalModal,
+        'cashbox-transfer': els.cashboxTransferModal,
+        employees: els.employeesModal,
+        employeeSalary: els.employeeSalaryModal,
+        'employee-salary-report': els.employeeSalaryReportModal,
+        agent: els.agentModal,
+        'agent-tasks': els.agentTasksModal,
+        wall: els.gptWallModal,
+        settings: els.boardSettingsModal,
+        sticky: els.stickyModal,
+        'repair-order': els.repairOrderModal,
+        'repair-order-payments': els.repairOrderPaymentsModal,
+        'operator-profile': els.operatorProfileModal,
+        'operator-admin': els.operatorAdminModal,
+      };
+      return byKey[normalizedKey] || null;
+    }
+
+    function modalOpenerSelector() {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement)) return '';
+      const id = String(active.id || '').trim();
+      return id ? ('#' + CSS.escape(id)) : '';
+    }
+
+    function restoreModalFocus(entry) {
+      const selector = String(entry?.openerSelector || '').trim();
+      if (!selector) return;
+      const target = document.querySelector(selector);
+      if (target instanceof HTMLElement && document.contains(target)) {
+        window.setTimeout(() => target.focus({ preventScroll: true }), 0);
+      }
+    }
+
+    function pushModal(key, modalEl, options = {}) {
+      const normalizedKey = String(key || modalKeyForElement(modalEl) || '').trim();
+      if (!normalizedKey || !modalEl) return;
+      const existing = Array.isArray(state.modalStack) ? state.modalStack : [];
+      const parentKey = String(options.parentKey || existing[existing.length - 1]?.key || '').trim();
+      const openerSelector = String(options.openerSelector || modalOpenerSelector()).trim();
+      state.modalStack = existing.filter((entry) => entry?.key !== normalizedKey);
+      state.modalStack.push({
+        key: normalizedKey,
+        elementId: String(modalEl.id || '').trim(),
+        parentKey,
+        openerSelector,
+        restore: options.restore || null,
+      });
+      modalEl.classList.add('is-open');
+    }
+
+    function popModal(key, options = {}) {
+      const normalizedKey = String(key || '').trim();
+      if (!normalizedKey) return;
+      const stack = Array.isArray(state.modalStack) ? state.modalStack : [];
+      const index = stack.findIndex((entry) => entry?.key === normalizedKey);
+      const entry = index >= 0 ? stack[index] : null;
+      if (index >= 0) {
+        state.modalStack = stack.filter((_, itemIndex) => itemIndex !== index);
+      }
+      const modalEl = modalElementForKey(normalizedKey);
+      if (!options.keepOpen) modalEl?.classList.remove('is-open');
+      if (!options.skipFocus) restoreModalFocus(entry);
+    }
+
+    function closeModalAndChildren(closeKey) {
+      const normalizedKey = String(closeKey || '').trim();
+      if (!normalizedKey) return false;
+      const closingKeys = new Set([normalizedKey]);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        (Array.isArray(state.modalStack) ? state.modalStack : []).forEach((entry) => {
+          const key = String(entry?.key || '').trim();
+          const parentKey = String(entry?.parentKey || '').trim();
+          if (key && parentKey && closingKeys.has(parentKey) && !closingKeys.has(key)) {
+            closingKeys.add(key);
+            changed = true;
+          }
+        });
+      }
+      state.modalStack = (Array.isArray(state.modalStack) ? state.modalStack : []).filter((entry) => {
+        const key = String(entry?.key || '').trim();
+        if (!closingKeys.has(key)) return true;
+        modalElementForKey(key)?.classList.remove('is-open');
+        return false;
+      });
+      modalElementForKey(normalizedKey)?.classList.remove('is-open');
+      return true;
+    }
+
+    function isModalOpen(key) {
+      const normalizedKey = String(key || '').trim();
+      return Boolean(
+        (Array.isArray(state.modalStack) ? state.modalStack : []).some((entry) => entry?.key === normalizedKey)
+        || modalElementForKey(normalizedKey)?.classList.contains('is-open')
+      );
+    }
+
+    function closeTopModal() {
+      const stack = (Array.isArray(state.modalStack) ? state.modalStack : [])
+        .filter((entry) => modalElementForKey(entry?.key)?.classList.contains('is-open'));
+      const top = stack[stack.length - 1] || null;
+      if (!top?.key) return false;
+      closeNamedModal(top.key);
+      return true;
+    }
+
+    function handleModalStackKeydown(event) {
+      if (event.key !== 'Escape') return;
+      if (event.defaultPrevented) return;
+      if (!closeTopModal()) return;
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
     function maybeOpenModal(modalEl, openModal) {
-      if (openModal && modalEl) modalEl.classList.add('is-open');
+      if (openModal && modalEl) pushModal(modalKeyForElement(modalEl), modalEl);
     }
 
     async function openArchiveModal() {
@@ -10555,41 +10709,60 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function closeNamedModal(closeKey) {
+      const normalizedKey = String(closeKey || '').trim();
       const closeActions = {
         card: () => closeCardModal(),
         archive: () => {
-          els.archiveModal.classList.remove('is-open');
+          popModal('archive');
           state.archiveCards = [];
           state.archiveLoaded = false;
         },
-        'repair-orders': () => els.repairOrdersModal.classList.remove('is-open'),
-        clients: () => els.clientsModal.classList.remove('is-open'),
+        'repair-orders': () => popModal('repair-orders'),
+        clients: () => {
+          closeRepairOrderModal();
+          popModal('clients');
+        },
         'shared-files': () => {
           hideSharedFilesContextMenu();
-          els.sharedFilesModal.classList.remove('is-open');
+          popModal('shared-files');
         },
-        cashboxes: () => els.cashboxesModal.classList.remove('is-open'),
-        'cashbox-journal': () => els.cashboxJournalModal.classList.remove('is-open'),
-        'cashbox-transfer': () => els.cashboxTransferModal.classList.remove('is-open'),
+        cashboxes: () => {
+          closeCashboxTransferModal();
+          closeCashJournalModal();
+          popModal('cashboxes');
+        },
+        'cashbox-journal': () => closeCashJournalModal(),
+        'cashbox-transfer': () => closeCashboxTransferModal(),
         employees: () => {
-          if (!confirmDiscardEmployeeChanges()) return;
+          if (!confirmDiscardEmployeeChanges()) return false;
+          closeRepairOrderModal();
           closeEmployeeSalaryModal();
-          els.employeesModal?.classList.remove('is-open');
+          closeEmployeeSalaryReportModal();
+          popModal('employees');
+          return true;
         },
         employeeSalary: () => closeEmployeeSalaryModal(),
         'employee-salary-report': () => closeEmployeeSalaryReportModal(),
-        agent: () => closeAgentModal(),
+        agent: () => {
+          closeAgentTasksModal();
+          closeAgentModal();
+        },
         'agent-tasks': () => closeAgentTasksModal(),
-        wall: () => els.gptWallModal.classList.remove('is-open'),
-        settings: () => els.boardSettingsModal.classList.remove('is-open'),
+        wall: () => popModal('wall'),
+        settings: () => popModal('settings'),
         sticky: () => closeStickyModal(),
-        'repair-order': () => closeRepairOrderModal(),
+        'repair-order': () => {
+          closeRepairOrderPaymentsModal();
+          closeRepairOrderModal();
+        },
         'repair-order-payments': () => closeRepairOrderPaymentsModal(),
-        'operator-profile': () => els.operatorProfileModal.classList.remove('is-open'),
-        'operator-admin': () => els.operatorAdminModal.classList.remove('is-open'),
+        'operator-profile': () => popModal('operator-profile'),
+        'operator-admin': () => popModal('operator-admin'),
       };
-      const closeAction = closeActions[String(closeKey || '')];
-      if (typeof closeAction === 'function') closeAction();
+      const closeAction = closeActions[normalizedKey];
+      const result = typeof closeAction === 'function' ? closeAction() : null;
+      if (result === false) return;
+      closeModalAndChildren(normalizedKey);
     }
 
     async function loadModalData(path, { method = 'GET', body = null, openModal = false, modalEl = null, onSuccess, onError } = {}) {
@@ -12185,7 +12358,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function closeEmployeeSalaryModal() {
-      if (els.employeeSalaryModal) els.employeeSalaryModal.classList.remove('is-open');
+      popModal('employeeSalary');
       state.activeEmployeeSalaryId = '';
       state.employeeSalarySheet = null;
       closeEmployeeSalaryDialog();
@@ -12294,7 +12467,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function closeEmployeeSalaryReportModal() {
-      if (els.employeeSalaryReportModal) els.employeeSalaryReportModal.classList.remove('is-open');
+      popModal('employee-salary-report');
       state.activeEmployeeSalaryReportId = '';
       state.employeeSalaryReport = null;
       renderEmployeeSalaryReportModal();
@@ -12466,7 +12639,7 @@ BOARD_WEB_APP_HTML = "".join(
       renderEmployeesWorkspace();
       refreshRepairOrderEmployeeSelects();
       if (openModal) {
-        els.employeesModal.classList.add('is-open');
+        pushModal('employees', els.employeesModal);
         els.employeesModal.scrollTop = 0;
         const dialog = els.employeesModal.querySelector('.dialog');
         if (dialog instanceof HTMLElement) {
@@ -12724,10 +12897,11 @@ BOARD_WEB_APP_HTML = "".join(
       if (!cardId) return;
       if (!confirmDiscardEmployeeChanges()) return;
       try {
-        els.employeesModal.classList.remove('is-open');
-        await openCardById(cardId);
-        if (String(row.dataset.openRepairOrder || '') === '1') {
-          await openRepairOrderModal();
+        const shouldOpenRepairOrder = String(row.dataset.openRepairOrder || '') === '1';
+        if (shouldOpenRepairOrder) {
+          await openRepairOrderCard(cardId, { parentLayer: 'employees' });
+        } else {
+          await openCardWorkspace(cardId, { openCardModalEl: true });
         }
       } catch (error) {
         setStatus(error.message, true);
@@ -13852,12 +14026,12 @@ BOARD_WEB_APP_HTML = "".join(
       ensureAgentTasksUi();
       bindAgentTasksUiEvents();
       hydrateAgentTasksUiRefs();
-      els.agentTasksModal?.classList.add('is-open');
+      pushModal('agent-tasks', els.agentTasksModal, { parentKey: 'agent' });
       refreshAgentTasksModalState();
     }
 
     function closeAgentTasksModal() {
-      els.agentTasksModal?.classList.remove('is-open');
+      popModal('agent-tasks');
       if (state.agentTasksRefreshTimer) {
         window.clearTimeout(state.agentTasksRefreshTimer);
         state.agentTasksRefreshTimer = null;
@@ -14336,7 +14510,7 @@ BOARD_WEB_APP_HTML = "".join(
       renderAgentRuns([]);
       if (els.agentRunsDetails) els.agentRunsDetails.open = false;
       if (els.agentDetails) els.agentDetails.open = false;
-      els.agentModal.classList.add('is-open');
+      pushModal('agent', els.agentModal);
       if (state.agentAutofillCountdownTimer) window.clearInterval(state.agentAutofillCountdownTimer);
       state.agentAutofillCountdownTimer = window.setInterval(() => {
         renderAgentAutofillControls(state.agentStatusPayload || { agent: { enabled: false } });
@@ -14352,7 +14526,8 @@ BOARD_WEB_APP_HTML = "".join(
       if (!(els.agentModal instanceof HTMLElement)) {
         hydrateAgentUiRefs();
       }
-      els.agentModal?.classList.remove('is-open');
+      closeAgentTasksModal();
+      popModal('agent');
       state.agentAutofillPromptOpen = false;
       if (!isAnyAgentSurfaceOpen() && state.agentRefreshTimer) {
         window.clearTimeout(state.agentRefreshTimer);
@@ -16876,12 +17051,12 @@ BOARD_WEB_APP_HTML = "".join(
         setStatus(error.message, true);
       }
       renderRepairOrderPayments();
-      els.repairOrderPaymentsModal.classList.add('is-open');
+      pushModal('repair-order-payments', els.repairOrderPaymentsModal, { parentKey: 'repair-order' });
       window.setTimeout(() => els.repairOrderPaymentAmount?.focus(), 0);
     }
 
     function closeRepairOrderPaymentsModal() {
-      els.repairOrderPaymentsModal?.classList.remove('is-open');
+      popModal('repair-order-payments');
       if (els.repairOrderPaymentAmount) els.repairOrderPaymentAmount.value = '';
       if (els.repairOrderPaymentNote) els.repairOrderPaymentNote.value = '';
     }
@@ -17048,7 +17223,7 @@ BOARD_WEB_APP_HTML = "".join(
       if (!state.repairOrderParentLayer && els.cardModal.classList.contains('is-open')) {
         state.repairOrderParentLayer = 'card';
       }
-      els.repairOrderModal.classList.add('is-open');
+      pushModal('repair-order', els.repairOrderModal, { parentKey: state.repairOrderParentLayer || '' });
       applyRepairOrderToForm(order);
 
       const employeesRequest = loadEmployeesReference();
@@ -17084,8 +17259,8 @@ BOARD_WEB_APP_HTML = "".join(
 
     function closeRepairOrderModal() {
       const parentLayer = String(state.repairOrderParentLayer || '').trim();
-      els.repairOrderModal.classList.remove('is-open');
       closeRepairOrderPaymentsModal();
+      popModal('repair-order');
       state.repairOrderParentLayer = '';
       if (parentLayer === 'repair-orders') {
         resetCardModalState();
@@ -18233,11 +18408,11 @@ function renderCompactArchiveRows(cards) {
         state.cardHydrationSeq = hydrationSeq;
         state.cardHydratingId = normalizedCardId;
         if (openCardModalEl && cachedFullCard) {
-          if (closeModalEl) closeModalEl.classList.remove('is-open');
+          if (closeModalEl) popModal(modalKeyForElement(closeModalEl));
           openCardModal(cachedFullCard, { cardIsFull: true });
           openedFromCache = true;
         } else if (openCardModalEl && cachedCard) {
-          if (closeModalEl) closeModalEl.classList.remove('is-open');
+          if (closeModalEl) popModal(modalKeyForElement(closeModalEl));
           openCardModal(cachedCard, { descriptionLoading: true, cardIsFull: false });
           openedFromCache = true;
         }
@@ -18257,7 +18432,7 @@ function renderCompactArchiveRows(cards) {
           throw error;
         }
         if (openCardModalEl) {
-          if (!openedFromCache && closeModalEl) closeModalEl.classList.remove('is-open');
+          if (!openedFromCache && closeModalEl) popModal(modalKeyForElement(closeModalEl));
           const shouldHydrateOpenModal = !openedFromCache
             || (
               els.cardModal?.classList.contains('is-open')
@@ -18280,7 +18455,7 @@ function renderCompactArchiveRows(cards) {
       });
     }
 
-    async function openRepairOrderCard(cardId) {
+    async function openRepairOrderCard(cardId, { parentLayer = 'repair-orders' } = {}) {
       try {
         const normalizedCardId = String(cardId || '').trim();
         if (!normalizedCardId) return;
@@ -18296,7 +18471,7 @@ function renderCompactArchiveRows(cards) {
         state.activeCard = updatedCard;
         state.editingId = updatedCard?.id || normalizedCardId;
         state.pendingCardClientId = updatedCard?.client_id || '';
-        state.repairOrderParentLayer = 'repair-orders';
+        state.repairOrderParentLayer = String(parentLayer || 'repair-orders').trim();
         await openRepairOrderModal({ preloadedRepairOrderData: data });
       } catch (error) {
         setStatus(error.message, true);
@@ -18442,6 +18617,15 @@ function renderCompactArchiveRows(cards) {
       if (syncTotals) syncRepairOrderTotals();
     }
 
+    function repairOrderParentLayerFromTrigger(trigger) {
+      if (!(trigger instanceof Element)) return 'repair-orders';
+      if (trigger.closest('#employeesModal')) return 'employees';
+      if (trigger.closest('#clientsModal')) return 'clients';
+      if (trigger.closest('#cardModal')) return 'card';
+      if (trigger.closest('#repairOrdersModal')) return 'repair-orders';
+      return 'repair-orders';
+    }
+
     async function handleRepairOrdersListKeydown(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
@@ -18449,7 +18633,7 @@ function renderCompactArchiveRows(cards) {
       if (!row) return;
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
-      await openRepairOrderCard(row.dataset.openRepairOrderCard);
+      await openRepairOrderCard(row.dataset.openRepairOrderCard, { parentLayer: 'repair-orders' });
     }
 
     function renderGptWall(data) {
@@ -18461,11 +18645,11 @@ function renderCompactArchiveRows(cards) {
       try {
         const data = await api('/api/get_gpt_wall', { method: 'POST', body: { include_archived: true, event_limit: 100 } });
         renderGptWall(data);
-        if (openModal) els.gptWallModal.classList.add('is-open');
+        if (openModal) pushModal('wall', els.gptWallModal);
       } catch (error) {
         els.gptWallMeta.textContent = 'ОШИБКА ЗАГРУЗКИ СЛОЯ GPT.';
         els.gptWallText.textContent = error.message;
-        if (openModal) els.gptWallModal.classList.add('is-open');
+        if (openModal) pushModal('wall', els.gptWallModal);
         setStatus(error.message, true);
       }
     }
@@ -18818,13 +19002,14 @@ function renderCompactArchiveRows(cards) {
       applyCardModalState(card, { descriptionLoading, cardIsFull, preserveLazyPanels: preserveTab });
       if (!preserveTab) setTab('overview');
       else loadActiveCardTab(state.currentTab);
-      els.cardModal.classList.add('is-open');
+      pushModal('card', els.cardModal);
       requestAnimationFrame(() => syncCardDescriptionHeight());
     }
 
     function closeCardModal() {
       closeRepairOrderModal();
-      els.cardModal.classList.remove('is-open');
+      clearFilePreview({ sync: false });
+      popModal('card');
       resetCardModalState();
       stopCardCleanupPolling();
     }
@@ -19181,24 +19366,30 @@ function renderCompactArchiveRows(cards) {
     }
 
     function hasOpenWorkspaceModal() {
-      return [
-        els.cardModal,
-        els.archiveModal,
-        els.repairOrdersModal,
-        els.cashboxesModal,
-        els.cashboxJournalModal,
-        els.employeesModal,
-        els.agentModal,
-        els.agentTasksModal,
-        els.employeeSalaryReportModal,
-        els.gptWallModal,
-        els.boardSettingsModal,
-        els.stickyModal,
-        els.repairOrderModal,
-        els.repairOrderPaymentsModal,
-        els.operatorProfileModal,
-        els.operatorAdminModal,
-      ].some((modal) => modal?.classList.contains('is-open'));
+      const workspaceKeys = [
+        'card',
+        'archive',
+        'repair-orders',
+        'clients',
+        'shared-files',
+        'cashboxes',
+        'cashbox-journal',
+        'cashbox-transfer',
+        'employees',
+        'employeeSalary',
+        'employee-salary-report',
+        'agent',
+        'agent-tasks',
+        'wall',
+        'settings',
+        'sticky',
+        'repair-order',
+        'repair-order-payments',
+        'operator-profile',
+        'operator-admin',
+      ];
+      return state.modalStack.some((entry) => workspaceKeys.includes(entry?.key))
+        || workspaceKeys.some((key) => modalElementForKey(key)?.classList.contains('is-open'));
     }
 
     function snapshotPollIntervalMs() {
@@ -19567,7 +19758,7 @@ function renderCompactArchiveRows(cards) {
     function openBoardSettings() {
       applyBoardScale(state.boardScale || 1, { syncInput: true });
       syncBoardControlSettingsForm();
-      els.boardSettingsModal.classList.add('is-open');
+      pushModal('settings', els.boardSettingsModal);
     }
 
     function currentBoardControlSettings() {
@@ -20722,6 +20913,22 @@ function renderCompactArchiveRows(cards) {
       }
     }
 
+    function closeCashJournalModal() {
+      popModal('cashbox-journal');
+    }
+
+    function closeCashboxTransferModal() {
+      popModal('cashbox-transfer');
+      state.cashboxTransferDraft = {
+        sourceId: '',
+        targetId: '',
+        amount: '',
+        note: '',
+      };
+      if (els.cashboxTransferAmountInput) els.cashboxTransferAmountInput.value = '';
+      if (els.cashboxTransferNoteInput) els.cashboxTransferNoteInput.value = '';
+    }
+
     async function downloadCashJournal() {
       try {
         const data = await loadCashJournalData();
@@ -20907,7 +21114,7 @@ function renderCompactArchiveRows(cards) {
         });
         if (els.cashboxTransferAmountInput) els.cashboxTransferAmountInput.value = '';
         if (els.cashboxTransferNoteInput) els.cashboxTransferNoteInput.value = '';
-        els.cashboxTransferModal.classList.remove('is-open');
+        closeCashboxTransferModal();
         await loadCashboxes(true);
         setStatus('ПЕРЕМЕЩЕНИЕ СОХРАНЕНО.', false);
       } catch (error) {
@@ -21117,12 +21324,12 @@ function renderCompactArchiveRows(cards) {
       const parts = secondsToParts(existing?.deadline_total_seconds || 4 * 3600);
       els.stickyDays.value = parts.days ?? 0;
       els.stickyHours.value = parts.hours ?? 4;
-      els.stickyModal.classList.add('is-open');
+      pushModal('sticky', els.stickyModal);
       setTimeout(() => els.stickyText.focus(), 0);
     }
 
     function closeStickyModal() {
-      els.stickyModal.classList.remove('is-open');
+      popModal('sticky');
       state.stickyDraft = null;
     }
 
@@ -22236,7 +22443,12 @@ function renderCompactArchiveRows(cards) {
         : (rawTarget instanceof Node ? rawTarget.parentElement : null);
       if (!(target instanceof Element)) return;
       const closeTrigger = target.closest('[data-close]');
-      if (closeTrigger instanceof HTMLElement) closeNamedModal(closeTrigger.dataset.close);
+      if (closeTrigger instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeNamedModal(closeTrigger.dataset.close);
+        return;
+      }
       const tabTrigger = target.closest('[data-tab]');
       if (tabTrigger instanceof HTMLElement) setTab(tabTrigger.dataset.tab);
       const linkClientTarget = target.closest('[data-link-client]');
@@ -22313,7 +22525,9 @@ function renderCompactArchiveRows(cards) {
       }
       const openRepairOrderCardTarget = target.closest('[data-open-repair-order-card]');
       if (openRepairOrderCardTarget) {
-        await openRepairOrderCard(openRepairOrderCardTarget.dataset.openRepairOrderCard);
+        await openRepairOrderCard(openRepairOrderCardTarget.dataset.openRepairOrderCard, {
+          parentLayer: repairOrderParentLayerFromTrigger(openRepairOrderCardTarget),
+        });
         return;
       }
       const addRepairOrderRowButton = target.closest('[data-add-repair-order-row]');
@@ -22447,6 +22661,7 @@ function renderCompactArchiveRows(cards) {
     });
     els.boardSearchResults.addEventListener('click', handleBoardSearchResultsClick);
     document.addEventListener('click', handleBoardSearchDocumentClick);
+    document.addEventListener('keydown', handleModalStackKeydown);
     els.cashboxCreateButton.addEventListener('click', createCashbox);
     els.cashboxJournalButton.addEventListener('click', openCashJournalModal);
     if (els.cashboxFinanceAuditButton) {

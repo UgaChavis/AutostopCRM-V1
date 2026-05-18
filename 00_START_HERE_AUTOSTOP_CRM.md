@@ -82,6 +82,7 @@ Telegram owner
 - `src/minimal_kanban/services/card_service.py`
 - `src/minimal_kanban/mcp/server.py`
 - `src/minimal_kanban/web_assets.py`
+- `src/minimal_kanban/web_app_assets/assembler.py`
 - `src/minimal_kanban/telegram_ai/`
 
 ## AI-правила для агентов
@@ -114,6 +115,17 @@ python scripts\audit_localization.py
 ```
 
 После изменений кода или UI используйте команды из `docs/OPERATIONS_RUNBOOK.md`.
+
+Для browser UI и модальных цепочек отдельно проверяйте:
+
+```powershell
+python scripts\check_web_assets_js.py
+python scripts\browser_smoke.py
+```
+
+Рабочее правило UI: вложенные окна закрываются как лестница. Закрытие дочернего
+окна возвращает к родителю и сохраняет контекст сотрудника, клиента, списка
+заказ-нарядов, кассы или карточки; `Escape` закрывает только верхний слой.
 
 ## Политика документации
 

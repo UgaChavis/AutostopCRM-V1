@@ -49,6 +49,7 @@ Telegram owner
 - `src/minimal_kanban/mcp/server.py` - MCP tools.
 - `src/minimal_kanban/telegram_ai/` - Telegram AI.
 - `src/minimal_kanban/web_assets.py` - browser UI.
+- `src/minimal_kanban/web_app_assets/assembler.py` - browser UI assembly and modal workflow logic.
 - `deploy.sh`, `docker-compose.yml`, `Dockerfile` - production deploy.
 
 ## Локальная разработка
@@ -84,6 +85,17 @@ MCP отдельно:
 ```powershell
 python scripts\check_web_assets_js.py
 ```
+
+При изменении browser UI, модальных цепочек, карточек, клиентов, касс,
+сотрудников, файлов или заказ-нарядов:
+
+```powershell
+python scripts\browser_smoke.py
+```
+
+Browser smoke поднимает временный local runtime с synthetic данными и проверяет
+board/card roundtrip, кассы, журнал, клиентов, сотрудников, файлы, заказ-наряды
+и закрытие вложенных модальных окон по одной ступени назад.
 
 При изменении русских UI/docs-текстов:
 

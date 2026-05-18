@@ -99,6 +99,7 @@ Telegram AI:
 UI and printing:
 
 - `src/minimal_kanban/web_assets.py`
+- `src/minimal_kanban/web_app_assets/assembler.py`
 - `src/minimal_kanban/ui/main_window.py`
 - `src/minimal_kanban/ui/settings_window.py`
 - `src/minimal_kanban/printing/service.py`
@@ -111,6 +112,7 @@ Stable enough for iterative production work:
 - local API and operator auth;
 - MCP transport and current tool registry;
 - clients, client vehicles, repair orders, cashboxes and files;
+- browser UI modal ladder for card, repair-order, client, employee, cashbox and file workflows;
 - Telegram AI foundation with audit, conversation memory, text/voice/photo intake and explicit internet-search route;
 - generated browser JavaScript validation.
 
@@ -119,7 +121,8 @@ Areas that still need care:
 - production credential rotation;
 - production/local/GitHub drift checks before deploy;
 - Telegram AI composed workflows that mix CRM context, internet search and writeback;
-- large `web_assets.py` changes should remain measured and well-tested;
+- large `web_assets.py` / `web_app_assets` changes should remain measured and well-tested;
+- modal navigation must preserve parent context when a child window closes, especially employees, clients, repair orders, cashboxes and card payments;
 - docs should stay short and canonical.
 
 ## AI And Cleanup Rules
@@ -158,6 +161,8 @@ For code/UI changes:
 .\scripts\doctor.ps1
 .\scripts\run_checks.ps1
 .\.venv\Scripts\python.exe -m unittest discover -s .\tests -v
+python scripts\check_web_assets_js.py
+python scripts\browser_smoke.py
 ```
 
 For deployment and live smoke, use `docs/OPERATIONS_RUNBOOK.md`.

@@ -719,6 +719,59 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertNotIn("function updateEmployeesListMeta()", BOARD_WEB_APP_HTML)
 
+    def test_employee_detail_repair_order_keeps_employee_modal_parent(self) -> None:
+        detail_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "async function handleEmployeesDetailClick(event)"
+            ) : BOARD_WEB_APP_HTML.index("function boardAgentContext()")
+        ]
+
+        self.assertIn("const shouldOpenRepairOrder", detail_fragment)
+        self.assertNotIn("els.employeesModal.classList.remove('is-open');", detail_fragment)
+        self.assertNotIn("await openCardById(cardId);", detail_fragment)
+        self.assertIn(
+            "await openRepairOrderCard(cardId, { parentLayer: 'employees' });",
+            detail_fragment,
+        )
+        self.assertIn(
+            "await openCardWorkspace(cardId, { openCardModalEl: true });",
+            detail_fragment,
+        )
+
+    def test_modal_ladder_stack_and_parent_close_cascade_are_wired(self) -> None:
+        self.assertIn("modalStack: []", BOARD_WEB_APP_HTML)
+        self.assertIn("function modalKeyForElement(modalEl)", BOARD_WEB_APP_HTML)
+        self.assertIn("function pushModal(key, modalEl, options = {})", BOARD_WEB_APP_HTML)
+        self.assertIn("function popModal(key, options = {})", BOARD_WEB_APP_HTML)
+        self.assertIn("function closeModalAndChildren(closeKey)", BOARD_WEB_APP_HTML)
+        self.assertIn("function closeTopModal()", BOARD_WEB_APP_HTML)
+        self.assertIn("function isModalOpen(key)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "document.addEventListener('keydown', handleModalStackKeydown);", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("if (event.key !== 'Escape') return;", BOARD_WEB_APP_HTML)
+
+        close_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "function closeNamedModal(closeKey)"
+            ) : BOARD_WEB_APP_HTML.index("async function loadModalData(")
+        ]
+        self.assertIn("closeModalAndChildren(normalizedKey);", close_fragment)
+        self.assertIn("closeEmployeeSalaryReportModal();", close_fragment)
+        self.assertIn("closeAgentTasksModal();", close_fragment)
+        self.assertIn("closeRepairOrderPaymentsModal();", close_fragment)
+        self.assertIn("closeCashboxTransferModal();", close_fragment)
+        self.assertIn("closeCashJournalModal();", close_fragment)
+
+        workspace_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index("function hasOpenWorkspaceModal()") : BOARD_WEB_APP_HTML.index(
+                "function snapshotPollIntervalMs()"
+            )
+        ]
+        self.assertIn("state.modalStack.some(", workspace_fragment)
+        for key in ("clients", "shared-files", "cashbox-transfer", "employeeSalary"):
+            self.assertIn(f"'{key}'", workspace_fragment)
+
     def test_card_description_textarea_allows_extended_text(self) -> None:
         self.assertIn(
             'id="cardDescriptionEditor" class="description-editor" contenteditable="true"',
@@ -1703,7 +1756,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("[data-open-repair-order-modal]", BOARD_WEB_APP_HTML)
         self.assertIn("openRepairOrderModal();", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/get_repair_order'", BOARD_WEB_APP_HTML)
-        self.assertIn("els.repairOrderModal.classList.add('is-open');", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "pushModal('repair-order', els.repairOrderModal, { parentKey: state.repairOrderParentLayer || '' });",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "function renderRepairOrderRows(section, rows, { syncTotals = true } = {})",
             BOARD_WEB_APP_HTML,
@@ -1718,7 +1774,9 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertLess(
-            BOARD_WEB_APP_HTML.index("els.repairOrderModal.classList.add('is-open');"),
+            BOARD_WEB_APP_HTML.index(
+                "pushModal('repair-order', els.repairOrderModal, { parentKey: state.repairOrderParentLayer || '' });"
+            ),
             BOARD_WEB_APP_HTML.index("const employeesRequest = loadEmployeesReference();"),
         )
         self.assertNotIn('id="repairOrderEntryNote"', BOARD_WEB_APP_HTML)
@@ -2071,7 +2129,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function openRepairOrdersModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function handleRepairOrdersListKeydown(event)", BOARD_WEB_APP_HTML)
         self.assertIn("loadRepairOrders = async function(openModal = false)", BOARD_WEB_APP_HTML)
-        self.assertIn("function openRepairOrderCard(cardId)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "async function openRepairOrderCard(cardId, { parentLayer = 'repair-orders' } = {})",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("repairOrderParentLayer: ''", BOARD_WEB_APP_HTML)
         self.assertIn("state.repairOrderParentLayer = 'card';", BOARD_WEB_APP_HTML)
         self.assertIn("if (parentLayer === 'repair-orders') {", BOARD_WEB_APP_HTML)
@@ -2106,12 +2167,19 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("data-open-repair-order-card", BOARD_WEB_APP_HTML)
         repair_order_card_fragment = BOARD_WEB_APP_HTML[
             BOARD_WEB_APP_HTML.index(
-                "async function openRepairOrderCard(cardId)"
+                "async function openRepairOrderCard(cardId, { parentLayer = 'repair-orders' } = {})"
             ) : BOARD_WEB_APP_HTML.index("function updateRepairOrdersTabs()")
         ]
         self.assertIn("'/api/get_repair_order'", repair_order_card_fragment)
         self.assertIn("preloadedRepairOrderData", repair_order_card_fragment)
         self.assertNotIn("openCardWorkspace", repair_order_card_fragment)
+        self.assertNotIn(
+            "state.repairOrderParentLayer = 'repair-orders';", repair_order_card_fragment
+        )
+        self.assertIn(
+            "state.repairOrderParentLayer = String(parentLayer || 'repair-orders').trim();",
+            repair_order_card_fragment,
+        )
         self.assertIn(".dialog--repair-orders {", BOARD_WEB_APP_HTML)
         self.assertIn("width: min(1940px, calc(100vw - 24px));", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -2753,9 +2821,10 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("const closeTrigger = target.closest('[data-close]');", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "if (closeTrigger instanceof HTMLElement) closeNamedModal(closeTrigger.dataset.close);",
+            "if (closeTrigger instanceof HTMLElement) {",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn("closeNamedModal(closeTrigger.dataset.close);", BOARD_WEB_APP_HTML)
         self.assertIn("function bindDirectCardModalCloseButtons()", BOARD_WEB_APP_HTML)
         self.assertIn('id="cardModalCloseButtonTop"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cardModalCloseButtonBottom"', BOARD_WEB_APP_HTML)
@@ -2778,9 +2847,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("event.stopPropagation();", BOARD_WEB_APP_HTML)
         self.assertIn("bindDirectCardModalCloseButtons();", BOARD_WEB_APP_HTML)
         self.assertIn("window.__closeCardModal = closeCardModal;", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "els.repairOrderPaymentsModal?.classList.remove('is-open');", BOARD_WEB_APP_HTML
-        )
+        self.assertIn("popModal('repair-order-payments');", BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.archiveButton.addEventListener('click', openArchiveModal);", BOARD_WEB_APP_HTML
         )

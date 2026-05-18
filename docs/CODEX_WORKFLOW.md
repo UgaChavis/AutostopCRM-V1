@@ -22,6 +22,10 @@
 - full `unittest discover`
 - `scripts\audit_localization.py`
 - `scripts\check_web_assets_js.py`
+- `scripts\browser_smoke.py` for browser UI/modal flow changes
+
+`scripts\browser_smoke.py` is a local temp-runtime check. It must not be pointed
+at production data or production credentials.
 
 ## Production Rules
 

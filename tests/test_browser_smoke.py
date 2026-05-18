@@ -26,9 +26,27 @@ class BrowserSmokeScriptTests(unittest.TestCase):
 
         self.assertIn("desktop_board_card_roundtrip", module.SMOKE_SCENARIOS)
         self.assertIn("mobile_board_load", module.SMOKE_SCENARIOS)
+        self.assertIn("employees_repair_order_returns_to_employee", module.SMOKE_SCENARIOS)
+        self.assertIn("clients_repair_order_returns_to_client", module.SMOKE_SCENARIOS)
+        self.assertIn("repair_orders_list_returns_to_list", module.SMOKE_SCENARIOS)
+        self.assertIn("cashboxes_journal_transfer_returns_to_cashbox", module.SMOKE_SCENARIOS)
+        self.assertIn("escape_closes_top_modal_only", module.SMOKE_SCENARIOS)
         self.assertNotIn("crm.autostopcrm.ru", script)
         self.assertTrue(callable(module.start_temp_runtime))
         self.assertTrue(callable(module.run_temp_smoke))
+
+    def test_temp_runtime_seeds_modal_ladder_data(self) -> None:
+        module = load_browser_smoke_module()
+        script = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("employee_id", module.TempRuntime.__dataclass_fields__)
+        self.assertIn("payroll_card_id", module.TempRuntime.__dataclass_fields__)
+        self.assertIn("client_card_id", module.TempRuntime.__dataclass_fields__)
+        self.assertIn("deadline", script)
+        self.assertIn("service.save_employee", script)
+        self.assertIn("service.set_repair_order_status", script)
+        self.assertIn("employees_repair_order_returns_to_employee", script)
+        self.assertIn("clients_repair_order_returns_to_client", script)
 
     def test_summarize_browser_events_reports_console_page_and_network_failures(self) -> None:
         module = load_browser_smoke_module()

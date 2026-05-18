@@ -66,6 +66,7 @@ python scripts\audit_localization.py
 .\.venv\Scripts\python.exe -m unittest discover -s .\tests -v
 python scripts\audit_localization.py
 python scripts\check_web_assets_js.py
+python scripts\browser_smoke.py
 ```
 
 Для production parity перед релизом:
@@ -88,6 +89,17 @@ Browser assets:
 ```powershell
 python scripts\check_web_assets_js.py
 ```
+
+Browser UI smoke:
+
+```powershell
+python scripts\browser_smoke.py
+```
+
+`browser_smoke.py` поднимает временный local API с temp `JsonStore`, тестовым
+оператором и synthetic данными. Он не использует production URL, credentials или
+live CRM data. Запускайте его после изменений browser UI, модальных окон,
+карточек, касс, клиентов, сотрудников, файлов или заказ-нарядов.
 
 ### Performance Smoke
 
@@ -200,6 +212,11 @@ Manual UI smoke after UI changes:
 - card journal is readable;
 - Files grid upload/paste/drag/download/delete works;
 - clients, repair orders, cashboxes and employees modals open;
+- employees -> salary/accrual row -> repair order -> close returns to the same employee;
+- clients -> linked repair order -> close returns to the same client profile;
+- repair orders list -> repair order -> close returns to the list/filter context;
+- cashboxes -> journal/transfer -> close returns to cashboxes;
+- card -> repair order -> payments -> close/Escape steps back one modal at a time;
 - public anonymous writes remain blocked.
 
 ## Telegram AI Worker
