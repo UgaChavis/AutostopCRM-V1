@@ -66,6 +66,30 @@ class DeployScriptTests(unittest.TestCase):
             with self.subTest(package=package):
                 self.assertIn(package, dockerfile)
 
+    def test_github_actions_quality_workflow_runs_release_gates(self) -> None:
+        workflow = (PROJECT_ROOT / ".github" / "workflows" / "quality.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("ruff format --check .", workflow)
+        self.assertIn("ruff check .", workflow)
+        self.assertIn("python -m unittest discover -s tests -v", workflow)
+        self.assertIn("python scripts/audit_localization.py", workflow)
+        self.assertIn("python scripts/check_web_assets_js.py", workflow)
+        self.assertIn("python scripts/perf_probe.py", workflow)
+        self.assertIn("python scripts/finance_audit_report.py", workflow)
+
+    def test_runbook_and_codex_workflow_document_quality_gates(self) -> None:
+        runbook = (PROJECT_ROOT / "docs" / "OPERATIONS_RUNBOOK.md").read_text(encoding="utf-8")
+        workflow = (PROJECT_ROOT / "docs" / "CODEX_WORKFLOW.md").read_text(encoding="utf-8")
+
+        self.assertIn("Release Checklist", runbook)
+        self.assertIn("Finance Audit-First", runbook)
+        self.assertIn("Performance Smoke", runbook)
+        self.assertIn("scripts\\finance_audit_report.py", runbook)
+        self.assertIn("scripts\\perf_probe.py", runbook)
+        self.assertIn("docs/OPERATIONS_RUNBOOK.md", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

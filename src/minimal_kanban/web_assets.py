@@ -7243,8 +7243,8 @@ BOARD_WEB_APP_HTML = "".join(
         <div class="dialog__head">
           <div class="dialog__title">ЖУРНАЛ ДВИЖЕНИЯ ДЕНЕГ</div>
           <div class="cashbox-journal-actions">
-            <button class="btn btn--ghost cashbox-journal-stats-button" id="cashboxJournalStatsButton" type="button">Журнал / Сводка</button>
-            <button class="btn btn--ghost" id="cashboxJournalAuditButton" type="button">Финансовая сверка</button>
+            <button class="btn btn--ghost cashbox-journal-stats-button" id="cashboxJournalStatsButton" type="button" aria-controls="cashboxJournalText">Журнал / Сводка</button>
+            <button class="btn btn--ghost" id="cashboxJournalAuditButton" type="button" aria-controls="cashboxJournalText">Финансовая сверка</button>
             <button class="btn" data-close="cashbox-journal">ЗАКРЫТЬ</button>
           </div>
         </div>
@@ -20753,6 +20753,12 @@ function renderCompactArchiveRows(cards) {
       refreshCashJournalView();
     }
 
+    function handleCashJournalModeKeydown(event) {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      event.currentTarget?.click?.();
+    }
+
     async function loadFinanceAuditData() {
       return api('/api/finance_audit');
     }
@@ -20878,8 +20884,7 @@ function renderCompactArchiveRows(cards) {
         setStatus('КАССА УДАЛЕНА.', false);
       } catch (error) {
         const message = String(error?.message || '').trim();
-        if (message) window.alert(message);
-        setStatus(error.message, true);
+        setStatus(message || 'НЕ УДАЛОСЬ УДАЛИТЬ КАССУ.', true);
       } finally {
         els.cashboxDeleteButton.disabled = false;
       }
@@ -21194,9 +21199,16 @@ function renderCompactArchiveRows(cards) {
         await refreshSnapshot(true);
       } catch (error) {
         const message = String(error?.message || '').trim();
-        if (message.includes('открыт заказ-наряд')) window.alert(message);
-        setStatus(error.message, true);
+        setStatus(archiveBlockedMessage(message), true);
       }
+    }
+
+    function archiveBlockedMessage(message) {
+      const text = String(message || '').trim();
+      if (text.includes('открыт заказ-наряд')) {
+        return text + ' Закройте заказ-наряд или измените статус перед архивированием.';
+      }
+      return text || 'НЕ УДАЛОСЬ АРХИВИРОВАТЬ КАРТОЧКУ.';
     }
 
     async function restoreActiveCard() {
@@ -22554,9 +22566,11 @@ function renderCompactArchiveRows(cards) {
     }
     if (els.cashboxJournalStatsButton) {
       els.cashboxJournalStatsButton.addEventListener('click', toggleCashJournalStats);
+      els.cashboxJournalStatsButton.addEventListener('keydown', handleCashJournalModeKeydown);
     }
     if (els.cashboxJournalAuditButton) {
       els.cashboxJournalAuditButton.addEventListener('click', openFinanceAuditModal);
+      els.cashboxJournalAuditButton.addEventListener('keydown', handleCashJournalModeKeydown);
     }
     els.cashboxJournalText.addEventListener('input', handleCashJournalFilterInput);
     els.cashboxJournalText.addEventListener('change', handleCashJournalFilterInput);

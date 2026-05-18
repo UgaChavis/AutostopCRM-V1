@@ -887,9 +887,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function openNewCardInColumn(columnId)", BOARD_WEB_APP_HTML)
         self.assertIn("function openDefaultNewCard()", BOARD_WEB_APP_HTML)
         self.assertIn("async function archiveActiveCard()", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "if (message.includes('открыт заказ-наряд')) window.alert(message);", BOARD_WEB_APP_HTML
-        )
+        self.assertIn("setStatus(archiveBlockedMessage(message), true);", BOARD_WEB_APP_HTML)
+        self.assertNotIn("window.alert(", BOARD_WEB_APP_HTML)
         self.assertIn("async function restoreActiveCard()", BOARD_WEB_APP_HTML)
         self.assertIn("async function handleCardWorkspaceClick(target)", BOARD_WEB_APP_HTML)
         self.assertIn("applyCardModalState(card, { descriptionLoading", BOARD_WEB_APP_HTML)
@@ -1870,7 +1869,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function addRepairOrderPayment()", BOARD_WEB_APP_HTML)
         self.assertIn("сохранено в кассу", BOARD_WEB_APP_HTML)
         self.assertIn("legacy без движения", BOARD_WEB_APP_HTML)
-        self.assertIn("const persisted = await persistRepairOrderRecord({ silent: true });", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const persisted = await persistRepairOrderRecord({ silent: true });",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn('data-repair-order-cell="catalog_number"', BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-total--subtotal {", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-total--cashless-due {", BOARD_WEB_APP_HTML)
@@ -2403,8 +2405,14 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function renderCashJournalFilters(data)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleCashJournalFilterInput(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleCashJournalResetClick(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleCashJournalModeKeydown(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function cashJournalDisplayRows(entries)", BOARD_WEB_APP_HTML)
         self.assertIn("function toggleCashJournalStats()", BOARD_WEB_APP_HTML)
+        self.assertIn('aria-controls="cashboxJournalText"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "cashboxJournalStatsButton.addEventListener('keydown', handleCashJournalModeKeydown);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("opening_balances", BOARD_WEB_APP_HTML)
         self.assertIn(
             "cashboxJournalStatsButton.addEventListener('click', toggleCashJournalStats);",

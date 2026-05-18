@@ -6966,7 +6966,9 @@ class CardService:
             "message": message,
             "card_id": card.id if card is not None else "",
             "repair_order_number": order.number if order is not None else "",
-            "repair_order_vehicle": (order.vehicle or card.vehicle) if order is not None and card else "",
+            "repair_order_vehicle": (order.vehicle or card.vehicle)
+            if order is not None and card
+            else "",
             "repair_order_payment_id": payment.id if payment is not None else "",
             "cash_transaction_id": transaction.id if transaction is not None else "",
             "cashbox_id": transaction.cashbox_id if transaction is not None else "",
@@ -6980,6 +6982,7 @@ class CardService:
         cards = bundle["cards"]
         transactions = bundle["cash_transactions"]
         transactions_by_id = {transaction.id: transaction for transaction in transactions}
+        cashboxes_by_id = {cashbox.id: cashbox for cashbox in bundle["cashboxes"]}
         payment_links = self._finance_payment_links(cards)
         issues: list[dict[str, object]] = []
 
@@ -6988,9 +6991,7 @@ class CardService:
             if order.is_empty():
                 continue
             for payment in order.payments:
-                transaction_id = normalize_text(
-                    payment.cash_transaction_id, default="", limit=128
-                )
+                transaction_id = normalize_text(payment.cash_transaction_id, default="", limit=128)
                 if not transaction_id:
                     issues.append(
                         self._finance_audit_issue(
@@ -7052,7 +7053,9 @@ class CardService:
                         )
                     )
 
-            if order.status == REPAIR_ORDER_STATUS_CLOSED and order.due_total_value() > Decimal("0"):
+            if order.status == REPAIR_ORDER_STATUS_CLOSED and order.due_total_value() > Decimal(
+                "0"
+            ):
                 issues.append(
                     self._finance_audit_issue(
                         code="closed_underpaid",
@@ -7089,6 +7092,16 @@ class CardService:
 
         for transaction in transactions:
             kind = normalize_text(transaction.transaction_kind, default="", limit=32)
+            if transaction.cashbox_id not in cashboxes_by_id:
+                issues.append(
+                    self._finance_audit_issue(
+                        code="cash_transaction_missing_cashbox",
+                        severity="error",
+                        message="Кассовое движение ссылается на отсутствующую кассу.",
+                        transaction=transaction,
+                        data={"cashbox_id": transaction.cashbox_id},
+                    )
+                )
             has_default_order_note = self._is_default_repair_order_cash_transaction_note(
                 transaction.note
             )
@@ -10714,8 +10727,7 @@ class CardService:
 
     def _repair_order_has_print_event(self, card: Card, events: list[AuditEvent]) -> bool:
         return any(
-            event.card_id == card.id and event.action == "repair_order_printed"
-            for event in events
+            event.card_id == card.id and event.action == "repair_order_printed" for event in events
         )
 
     def _repair_order_number_locked(

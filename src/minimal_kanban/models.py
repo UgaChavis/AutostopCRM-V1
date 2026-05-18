@@ -1038,7 +1038,9 @@ class CashTransaction:
             employee_id=normalize_text(payload.get("employee_id"), default="", limit=64),
             employee_name=normalize_text(payload.get("employee_name"), default="", limit=80),
             transaction_kind=normalize_text(payload.get("transaction_kind"), default="", limit=32),
-            transfer_group_id=normalize_text(payload.get("transfer_group_id"), default="", limit=128),
+            transfer_group_id=normalize_text(
+                payload.get("transfer_group_id"), default="", limit=128
+            ),
             related_transaction_id=normalize_text(
                 payload.get("related_transaction_id"), default="", limit=128
             ),

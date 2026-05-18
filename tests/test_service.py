@@ -5082,9 +5082,7 @@ class CardServiceTests(unittest.TestCase):
             payment["cash_transaction_id"],
         )
 
-        details = self.service.get_cashbox(
-            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
-        )
+        details = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
         self.assertEqual(details["transactions"][0]["repair_order_number"], "259")
         self.assertEqual(details["transactions"][0]["note"], "Заказ-наряд №259")
         self.assertEqual(details["transactions"][0]["stored_note"], "Заказ-наряд №257")
@@ -5163,7 +5161,42 @@ class CardServiceTests(unittest.TestCase):
         )["transactions"][0]
         self.assertEqual(after_apply["transaction_kind"], "repair_order_payment")
         self.assertEqual(after_apply["note"], "Заказ-наряд №214")
-        self.assertNotIn("stale_default_repair_order_note", {issue["code"] for issue in applied["issues"]})
+        self.assertNotIn(
+            "stale_default_repair_order_note", {issue["code"] for issue in applied["issues"]}
+        )
+
+    def test_finance_audit_reports_cash_transactions_without_cashbox(self) -> None:
+        cashbox = CashBox(
+            id="cashbox-existing",
+            name="Наличный",
+            order=0,
+            created_at="2026-05-18T08:00:00+00:00",
+            updated_at="2026-05-18T08:00:00+00:00",
+        )
+        orphan_transaction = CashTransaction(
+            id="tx-orphan",
+            cashbox_id="cashbox-missing",
+            direction="income",
+            amount_minor=250000,
+            note="Оплата без кассы",
+            created_at="2026-05-18T09:00:00+00:00",
+            actor_name="ADMIN",
+            source="api",
+        )
+        bundle = self.store.read_bundle()
+        audit = self.service._build_finance_audit(
+            {**bundle, "cashboxes": [cashbox], "cash_transactions": [orphan_transaction]}
+        )
+        issues = {issue["code"]: issue for issue in audit["issues"]}
+
+        self.assertIn("cash_transaction_missing_cashbox", issues)
+        self.assertEqual(
+            issues["cash_transaction_missing_cashbox"]["cash_transaction_id"], "tx-orphan"
+        )
+        self.assertEqual(
+            issues["cash_transaction_missing_cashbox"]["cashbox_id"], "cashbox-missing"
+        )
+        self.assertFalse(issues["cash_transaction_missing_cashbox"]["safe_fix_available"])
 
     def test_list_repair_orders_supports_query_sort_and_tags(self) -> None:
         first = self.service.create_card(

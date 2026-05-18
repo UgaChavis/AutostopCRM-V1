@@ -1,0 +1,76 @@
+name: AutoStop CRM quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - autostopcrm-v1
+      - "codex/**"
+  workflow_dispatch:
+    inputs:
+      live_probes:
+        description: "Run read-only production probes"
+        required: false
+        default: "false"
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-dev.txt
+
+      - name: Ruff format
+        run: ruff format --check .
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Localization audit
+        run: python scripts/audit_localization.py
+
+      - name: Generated JavaScript syntax
+        run: python scripts/check_web_assets_js.py
+
+      - name: Compile release probe scripts
+        run: python -m py_compile scripts/perf_probe.py scripts/finance_audit_report.py
+
+      - name: Optional read-only live probes
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_probes == 'true' }}
+        run: |
+          python scripts/perf_probe.py \
+            --base-url https://crm.autostopcrm.ru \
+            --iterations 3 \
+            --max-snapshot-gzip-ms 800 \
+            --max-snapshot-gzip-bytes 80000 \
+            --max-revision-ms 500 \
+            --max-get-card-ms 500 | tee perf-probe.json
+          python scripts/finance_audit_report.py \
+            --base-url https://crm.autostopcrm.ru \
+            --format json | tee finance-audit.json
+
+      - name: Upload live probe artifacts
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.live_probes == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-probes
+          path: |
+            perf-probe.json
+            finance-audit.json
+          if-no-files-found: ignore

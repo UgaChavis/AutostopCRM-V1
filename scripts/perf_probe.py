@@ -127,6 +127,33 @@ def summarize(results: list[ProbeResult]) -> dict[str, Any]:
     }
 
 
+def evaluate_thresholds(
+    rows: list[dict[str, Any]], thresholds: dict[str, float]
+) -> list[dict[str, object]]:
+    rows_by_label = {str(row.get("label") or ""): row for row in rows}
+    violations: list[dict[str, object]] = []
+    for threshold_key, max_value in thresholds.items():
+        if max_value <= 0:
+            continue
+        label, _, metric = threshold_key.rpartition(".")
+        row = rows_by_label.get(label)
+        if row is None:
+            continue
+        actual = row.get(metric)
+        if not isinstance(actual, int | float):
+            continue
+        if float(actual) > max_value:
+            violations.append(
+                {
+                    "label": label,
+                    "metric": metric,
+                    "actual": actual,
+                    "max": float(max_value),
+                }
+            )
+    return violations
+
+
 def first_card_id(snapshot_payload: dict[str, Any], fallback: str = "") -> str:
     cards = snapshot_payload.get("data", {}).get("cards", [])
     if isinstance(cards, list) and cards:
@@ -141,6 +168,12 @@ def main() -> int:
     parser.add_argument("--base-url", default="https://crm.autostopcrm.ru")
     parser.add_argument("--iterations", type=int, default=3)
     parser.add_argument("--card-id", default="")
+    parser.add_argument("--max-snapshot-identity-ms", type=float, default=0.0)
+    parser.add_argument("--max-snapshot-identity-bytes", type=float, default=0.0)
+    parser.add_argument("--max-snapshot-gzip-ms", type=float, default=0.0)
+    parser.add_argument("--max-snapshot-gzip-bytes", type=float, default=0.0)
+    parser.add_argument("--max-revision-ms", type=float, default=0.0)
+    parser.add_argument("--max-get-card-ms", type=float, default=0.0)
     args = parser.parse_args()
 
     rows: list[dict[str, Any]] = []
@@ -181,14 +214,24 @@ def main() -> int:
         )
         rows.append(summarize(results))
 
-    print(
-        json.dumps(
-            {"base_url": args.base_url, "iterations": args.iterations, "rows": rows},
-            ensure_ascii=False,
-            indent=2,
-        )
-    )
-    return 0
+    thresholds = {
+        "snapshot.identity.avg_ms": args.max_snapshot_identity_ms,
+        "snapshot.identity.bytes": args.max_snapshot_identity_bytes,
+        "snapshot.gzip.avg_ms": args.max_snapshot_gzip_ms,
+        "snapshot.gzip.bytes": args.max_snapshot_gzip_bytes,
+        "revision.avg_ms": args.max_revision_ms,
+        "get_card.avg_ms": args.max_get_card_ms,
+    }
+    violations = evaluate_thresholds(rows, thresholds)
+    output = {
+        "base_url": args.base_url,
+        "iterations": args.iterations,
+        "rows": rows,
+        "threshold_status": "failed" if violations else "passed",
+        "violations": violations,
+    }
+    print(json.dumps(output, ensure_ascii=False, indent=2))
+    return 1 if violations else 0
 
 
 if __name__ == "__main__":

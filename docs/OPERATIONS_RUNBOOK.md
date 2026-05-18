@@ -54,6 +54,29 @@ Common:
 python scripts\audit_localization.py
 ```
 
+### Release Checklist
+
+Перед merge/deploy ветки с кодовыми изменениями:
+
+```powershell
+.\scripts\doctor.ps1
+.\scripts\run_checks.ps1
+.\.venv\Scripts\python.exe -m ruff format --check .
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m unittest discover -s .\tests -v
+python scripts\audit_localization.py
+python scripts\check_web_assets_js.py
+```
+
+Для production parity перед релизом:
+
+```powershell
+git status --short --branch
+git rev-parse --short HEAD
+git rev-parse --short origin/autostopcrm-v1
+ssh -i $HOME\.ssh\codex_autostopcrm root@crm.autostopcrm.ru "cd /opt/autostopcrm && git status --short --branch && git rev-parse --short HEAD && git rev-parse --short origin/autostopcrm-v1 && docker compose ps"
+```
+
 Full regression when shared behavior changed:
 
 ```powershell
@@ -65,6 +88,26 @@ Browser assets:
 ```powershell
 python scripts\check_web_assets_js.py
 ```
+
+### Performance Smoke
+
+Read-only latency/payload probe:
+
+```powershell
+python scripts\perf_probe.py --base-url https://crm.autostopcrm.ru --iterations 5 --max-snapshot-gzip-ms 800 --max-snapshot-gzip-bytes 80000 --max-revision-ms 500 --max-get-card-ms 500
+```
+
+Пороговые значения нужны как guardrail, а не как SLA. Если production сеть нестабильна, приложите JSON output к задаче и повторите probe перед выводами.
+
+### Finance Audit-First
+
+Финансовая проверка сначала read-only:
+
+```powershell
+python scripts\finance_audit_report.py --base-url https://crm.autostopcrm.ru --format text --issue-limit 50
+```
+
+Любые `finance_audit/apply_safe_fixes` или live write-actions выполняются только после owner review отчёта, dry-run результата и отдельного подтверждения. Не редактируйте cashbox JSON/state вручную.
 
 Local connector smoke:
 
