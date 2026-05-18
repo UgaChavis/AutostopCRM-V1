@@ -5435,6 +5435,63 @@ BOARD_WEB_APP_HTML = "".join(
       white-space: nowrap;
       text-align: right;
     }
+    .cashbox-journal-link-flags,
+    .finance-audit-issue__meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      min-width: 0;
+    }
+    .cashbox-journal-link-flag,
+    .finance-audit-issue__code {
+      display: inline-flex;
+      align-items: center;
+      min-height: 18px;
+      padding: 1px 6px;
+      border: 1px solid rgba(232, 180, 132, 0.36);
+      background: rgba(232, 180, 132, 0.08);
+      color: #edc7a4;
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+    .finance-audit-view {
+      display: grid;
+      gap: 12px;
+    }
+    .finance-audit-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .finance-audit-issues {
+      display: grid;
+      gap: 7px;
+    }
+    .finance-audit-issue {
+      display: grid;
+      gap: 5px;
+      padding: 9px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.025);
+    }
+    .finance-audit-issue[data-severity="error"] {
+      border-color: rgba(230, 128, 116, 0.34);
+    }
+    .finance-audit-issue[data-severity="warning"] {
+      border-color: rgba(232, 180, 132, 0.34);
+    }
+    .finance-audit-issue__title {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-weight: 700;
+      min-width: 0;
+    }
+    .finance-audit-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
     .cashbox-journal-loading,
     .cashbox-journal-empty {
       color: var(--muted);
@@ -7134,6 +7191,7 @@ BOARD_WEB_APP_HTML = "".join(
           <div class="cashboxes-list" id="cashboxesList"></div>
           <div class="cashboxes-pane__foot">
             <button class="btn btn--ghost" id="cashboxJournalButton">ЖУРНАЛ</button>
+            <button class="btn btn--ghost" id="cashboxFinanceAuditButton">СВЕРКА</button>
             <button class="btn btn--ghost cashbox-journal-download-button" id="cashboxJournalDownloadButton" title="СКАЧАТЬ ЖУРНАЛ" aria-label="СКАЧАТЬ ЖУРНАЛ">
               <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
                 <path d="M8 2v7"></path>
@@ -7186,6 +7244,7 @@ BOARD_WEB_APP_HTML = "".join(
           <div class="dialog__title">ЖУРНАЛ ДВИЖЕНИЯ ДЕНЕГ</div>
           <div class="cashbox-journal-actions">
             <button class="btn btn--ghost cashbox-journal-stats-button" id="cashboxJournalStatsButton" type="button">Журнал / Сводка</button>
+            <button class="btn btn--ghost" id="cashboxJournalAuditButton" type="button">Финансовая сверка</button>
             <button class="btn" data-close="cashbox-journal">ЗАКРЫТЬ</button>
           </div>
         </div>
@@ -8316,7 +8375,9 @@ BOARD_WEB_APP_HTML = "".join(
       cashboxesList: document.getElementById('cashboxesList'),
       cashboxCreateButton: document.getElementById('cashboxCreateButton'),
       cashboxJournalButton: document.getElementById('cashboxJournalButton'),
+      cashboxFinanceAuditButton: document.getElementById('cashboxFinanceAuditButton'),
       cashboxJournalStatsButton: document.getElementById('cashboxJournalStatsButton'),
+      cashboxJournalAuditButton: document.getElementById('cashboxJournalAuditButton'),
       cashboxJournalDownloadButton: document.getElementById('cashboxJournalDownloadButton'),
       cashboxDeleteButton: document.getElementById('cashboxDeleteButton'),
       cashboxCancelLastButton: document.getElementById('cashboxCancelLastButton'),
@@ -16825,11 +16886,16 @@ BOARD_WEB_APP_HTML = "".join(
           const method = repairOrderPaymentMethodLabel(item?.payment_method || 'cash');
           const actorName = String(item?.actor_name || '').trim() || 'Оператор не указан';
           const cashboxName = String(item?.cashbox_name || '').trim() || 'Касса не указана';
+          const cashTransactionId = String(item?.cash_transaction_id || '').trim();
+          const paymentStatus = item?._saving
+            ? 'черновик'
+            : (item?._error ? 'ошибка записи' : (cashTransactionId ? 'сохранено в кассу' : 'legacy без движения'));
+          const serviceHint = cashTransactionId ? (' | CT ' + cashTransactionId.slice(0, 8)) : '';
           return '<div class="repair-order-payment-row">'
             + '<div class="repair-order-payment-row__badge">' + escapeHtml(method) + '</div>'
             + '<div class="repair-order-payment-row__body">'
               + '<div class="repair-order-payment-row__line">' + escapeHtml(note) + '</div>'
-              + '<div class="repair-order-payment-row__subline">' + escapeHtml('Когда: ' + paidAt + ' | Кем: ' + actorName + ' | Касса: ' + cashboxName) + '</div>'
+              + '<div class="repair-order-payment-row__subline">' + escapeHtml('Когда: ' + paidAt + ' | Кем: ' + actorName + ' | Касса: ' + cashboxName + ' | ' + paymentStatus + serviceHint) + '</div>'
             + '</div>'
             + '<div class="repair-order-payment-row__amount">' + escapeHtml(repairOrderFormatMoney(item?.amount || 0)) + '</div>'
             + '<button class="btn btn--ghost repair-order-payment-row__remove" type="button" data-remove-repair-order-payment="' + escapeHtml(item.id) + '" aria-label="Удалить оплату">&times;</button>'
@@ -16863,7 +16929,7 @@ BOARD_WEB_APP_HTML = "".join(
       renderRepairOrderPayments();
     }
 
-    function addRepairOrderPayment() {
+    async function addRepairOrderPayment() {
       const amount = String(els.repairOrderPaymentAmount?.value || '').trim();
       const parsedAmount = repairOrderParseNumber(amount);
       const cashboxId = String(els.repairOrderPaymentCashbox?.value || '').trim();
@@ -16892,12 +16958,28 @@ BOARD_WEB_APP_HTML = "".join(
         },
         'payment-' + Date.now()
       );
+      payment._saving = true;
       state.repairOrderPayments = (state.repairOrderPayments || []).concat([payment]);
       syncRepairOrderPaymentMethodFromPayments();
-      if (els.repairOrderPaymentAmount) els.repairOrderPaymentAmount.value = '';
-      if (els.repairOrderPaymentNote) els.repairOrderPaymentNote.value = '';
       renderRepairOrderPayments();
-      els.repairOrderPaymentAmount?.focus();
+      try {
+        const persisted = await persistRepairOrderRecord({ silent: true });
+        if (!persisted) {
+          state.repairOrderPayments = (state.repairOrderPayments || []).filter((item) => item.id !== payment.id);
+          renderRepairOrderPayments();
+          return;
+        }
+        applyRepairOrderToForm(persisted.repairOrder);
+        if (els.repairOrderPaymentAmount) els.repairOrderPaymentAmount.value = '';
+        if (els.repairOrderPaymentNote) els.repairOrderPaymentNote.value = '';
+        setStatus('Оплата сохранена в заказ-наряде и кассе.', false);
+      } catch (error) {
+        state.repairOrderPayments = (state.repairOrderPayments || []).filter((item) => item.id !== payment.id);
+        renderRepairOrderPayments();
+        setStatus(String(error?.message || 'Не удалось записать оплату в кассу.'), true);
+      } finally {
+        els.repairOrderPaymentAmount?.focus();
+      }
     }
 
     function handleRepairOrderPaymentsListClick(event) {
@@ -19705,6 +19787,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     function cashboxTransactionIsTransfer(item) {
+      if (item?.transfer_group_id || item?.related_transaction_id) return true;
       const note = String(item?.note || '').trim().toLowerCase();
       return note.startsWith('перемещение в ') || note.startsWith('перемещение из ');
     }
@@ -19849,11 +19932,16 @@ function renderCompactArchiveRows(cards) {
         const note = String(item?.note || '').trim() || 'Без комментария';
         const actor = String(item?.actor_name || '').trim() || '—';
         const sourceLabel = cashboxTransactionSourceLabel(item);
-        const contextLabel = 'Источник: ' + sourceLabel;
+        const linkParts = [];
+        if (item?.repair_order_number) linkParts.push('ЗН №' + String(item.repair_order_number));
+        if (item?.repair_order_vehicle) linkParts.push(String(item.repair_order_vehicle));
+        const flags = cashJournalLinkFlags(item);
+        const contextLabel = 'Источник: ' + sourceLabel + (linkParts.length ? ' · ' + linkParts.join(' · ') : '');
+        const contextHtml = escapeHtml(contextLabel) + (flags.length ? '<div class="cashbox-journal-link-flags">' + flags.map((flag) => '<span class="cashbox-journal-link-flag">' + escapeHtml(flag) + '</span>').join('') + '</div>' : '');
         const absoluteAmount = cashboxFormatMinorAmount(item?.amount_minor || 0).replace(/^-/, '');
         return '<div class="cashbox-transaction">'
           + '<div class="cashbox-transaction__badge" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(direction === 'expense' ? 'списание' : 'поступление') + '</div>'
-          + '<div class="cashbox-transaction__body"><div class="cashbox-transaction__summary"><div class="cashbox-transaction__note">' + escapeHtml(note) + '</div><div class="cashbox-transaction__context">' + escapeHtml(contextLabel) + '</div></div><div class="cashbox-transaction__meta">' + escapeHtml(formatDate(item?.created_at)) + ' | ' + escapeHtml(actor) + '</div></div>'
+          + '<div class="cashbox-transaction__body"><div class="cashbox-transaction__summary"><div class="cashbox-transaction__note">' + escapeHtml(note) + '</div><div class="cashbox-transaction__context">' + contextHtml + '</div></div><div class="cashbox-transaction__meta">' + escapeHtml(item?.business_datetime_display || formatDate(item?.created_at)) + ' | ' + escapeHtml(actor) + '</div></div>'
           + '<div class="cashbox-transaction__amount" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(direction === 'expense' ? '-' : '+') + escapeHtml(absoluteAmount) + '</div>'
           + '</div>';
       }).join('') : '<div class="cashboxes-empty">ПО ФИЛЬТРУ НИЧЕГО НЕ НАЙДЕНО.</div>';
@@ -19881,7 +19969,7 @@ function renderCompactArchiveRows(cards) {
       const stats = activeCashboxStatistics();
       const canDelete = Number(stats.transactions_total || 0) === 0;
       const latestTransaction = activeCashboxLatestTransaction();
-      const canCancelLast = !!latestTransaction && !cashboxTransactionIsTransfer(latestTransaction);
+      const canCancelLast = !!latestTransaction;
       els.cashboxDetailTitle.textContent = cashbox.name || 'КАССА';
       els.cashboxDetailMeta.textContent = '';
       els.cashboxDeleteButton.disabled = !canDelete;
@@ -19889,7 +19977,7 @@ function renderCompactArchiveRows(cards) {
         cancelButton.disabled = !canCancelLast;
         cancelButton.title = !latestTransaction
           ? 'НЕТ ДВИЖЕНИЙ ДЛЯ ОТМЕНЫ.'
-          : (cashboxTransactionIsTransfer(latestTransaction) ? 'ПОСЛЕДНЕЕ ДВИЖЕНИЕ — ПЕРЕМЕЩЕНИЕ МЕЖДУ КАССАМИ.' : '');
+          : (cashboxTransactionIsTransfer(latestTransaction) ? 'ПЕРЕМЕЩЕНИЕ БУДЕТ ОТМЕНЕНО ТОЛЬКО ЦЕЛОЙ ПАРОЙ.' : '');
       }
       els.cashboxIncomeButton.disabled = false;
       els.cashboxTransferButton.disabled = (Array.isArray(state.cashboxes) ? state.cashboxes.length : 0) < 2;
@@ -20018,8 +20106,24 @@ function renderCompactArchiveRows(cards) {
       return source;
     }
 
+    function cashJournalLinkFlags(item) {
+      const status = String(item?.link_status || '').trim();
+      const flags = [];
+      if (status === 'linked_legacy') flags.push('legacy');
+      if (status === 'payment_without_order') flags.push('нет связи с оплатой');
+      if (status === 'legacy_without_payment') flags.push('legacy');
+      if (status === 'legacy_without_payment') flags.push('требуется сверка');
+      if (item?.stored_note && item.stored_note !== item.note) flags.push('исправлен display-note');
+      return flags;
+    }
+
     function cashJournalEntryNoteText(item) {
       const direction = item?.direction === 'expense' ? 'expense' : 'income';
+      if (item?.repair_order_number) {
+        const parts = ['ЗН №' + String(item.repair_order_number)];
+        if (item?.repair_order_vehicle) parts.push(String(item.repair_order_vehicle));
+        return parts.join(' · ');
+      }
       const note = String(item?.note || '').trim() || 'Без комментария';
       if (/^(?:поступление|списание|приход|расход)\\s*:/i.test(note)) return note;
       return (direction === 'expense' ? 'Списание: ' : 'Поступление: ') + note;
@@ -20034,12 +20138,15 @@ function renderCompactArchiveRows(cards) {
     function cashJournalFindTransferPair(item, entries, usedIds) {
       const itemId = String(item?.id || '');
       if (item?.source_label !== 'перемещение' || usedIds.has(itemId)) return null;
+      const relatedId = String(item?.related_transaction_id || '');
+      const transferGroupId = String(item?.transfer_group_id || '');
       for (const candidate of entries) {
         const candidateId = String(candidate?.id || '');
         if (!candidateId || candidateId === itemId || usedIds.has(candidateId)) continue;
         if (candidate?.source_label !== 'перемещение') continue;
-        if (candidate?.time !== item?.time) continue;
-        if (String(candidate?.amount_minor || 0) !== String(item?.amount_minor || 0)) continue;
+        const sameRelated = relatedId && candidateId === relatedId;
+        const sameGroup = transferGroupId && String(candidate?.transfer_group_id || '') === transferGroupId;
+        if (!sameRelated && !sameGroup) continue;
         if (candidate?.direction === item?.direction) continue;
         const source = item?.direction === 'expense' ? item : candidate;
         const target = item?.direction === 'income' ? item : candidate;
@@ -20084,7 +20191,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     function cashJournalEntryDateKey(item) {
-      const date = String(item?.date || '').trim();
+      const date = String(item?.business_date || item?.date || '').trim();
       if (date) return date.slice(0, 10);
       return String(item?.created_at || '').slice(0, 10);
     }
@@ -20134,6 +20241,11 @@ function renderCompactArchiveRows(cards) {
         item?.amount_display,
         item?.note,
         item?.source_label,
+        item?.link_status,
+        item?.repair_order_number,
+        item?.repair_order_vehicle,
+        item?.repair_order_card_id,
+        item?.repair_order_payment_id,
         item?.actor_label,
         item?.actor_name,
         item?.short_id,
@@ -20281,6 +20393,7 @@ function renderCompactArchiveRows(cards) {
       const source = cashJournalVisibleSource(item?.source_label);
       const actor = String(item?.actor_label || item?.actor_name || '').trim();
       const actorText = actor && actor !== 'СИСТЕМА' ? actor : '';
+      const flags = cashJournalLinkFlags(item);
       return '<div class="cashbox-journal-operation-row" data-direction="' + escapeHtml(direction) + '">'
         + '<div class="cashbox-journal-operation-row__time">' + escapeHtml(item?.time_short || '--:--') + '</div>'
         + '<div class="cashbox-journal-operation-row__amount" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(amount) + '</div>'
@@ -20288,6 +20401,7 @@ function renderCompactArchiveRows(cards) {
         + '<div class="cashbox-journal-operation-row__body">'
         + '<div class="cashbox-journal-operation-row__note">' + escapeHtml(note) + '</div>'
         + (source ? '<div class="cashbox-journal-operation-row__source">' + escapeHtml(source) + '</div>' : '')
+        + (flags.length ? '<div class="cashbox-journal-link-flags">' + flags.map((flag) => '<span class="cashbox-journal-link-flag">' + escapeHtml(flag) + '</span>').join('') + '</div>' : '')
         + '</div>'
         + '<div class="cashbox-journal-operation-row__actor">' + escapeHtml(actorText) + '</div>'
         + '</div>';
@@ -20460,6 +20574,58 @@ function renderCompactArchiveRows(cards) {
         + '</div>';
     }
 
+    function financeAuditSeverityLabel(value) {
+      const severity = String(value || '').trim();
+      if (severity === 'error') return 'ошибка';
+      if (severity === 'warning') return 'внимание';
+      return 'инфо';
+    }
+
+    function financeAuditIssueTitle(issue) {
+      const parts = [];
+      if (issue?.repair_order_number) parts.push('ЗН №' + String(issue.repair_order_number));
+      if (issue?.repair_order_vehicle) parts.push(String(issue.repair_order_vehicle));
+      if (issue?.cash_transaction_id) parts.push('CT ' + String(issue.cash_transaction_id).slice(0, 8));
+      return parts.length ? parts.join(' · ') : String(issue?.code || 'Проблема');
+    }
+
+    function renderFinanceAuditIssue(issue) {
+      const severity = String(issue?.severity || 'info');
+      const safeFix = issue?.safe_fix_available ? '<span class="finance-audit-issue__code">safe-fix</span>' : '';
+      const meta = [
+        issue?.cashbox_id ? ('касса ' + String(issue.cashbox_id).slice(0, 8)) : '',
+        issue?.repair_order_payment_id ? ('оплата ' + String(issue.repair_order_payment_id)) : '',
+      ].filter(Boolean);
+      return '<div class="finance-audit-issue" data-severity="' + escapeHtml(severity) + '">'
+        + '<div class="finance-audit-issue__title"><span>' + escapeHtml(financeAuditIssueTitle(issue)) + '</span><span>' + escapeHtml(financeAuditSeverityLabel(severity)) + '</span></div>'
+        + '<div>' + escapeHtml(issue?.message || '') + '</div>'
+        + '<div class="finance-audit-issue__meta"><span class="finance-audit-issue__code">' + escapeHtml(issue?.code || '') + '</span>' + safeFix + meta.map((item) => '<span class="finance-audit-issue__code">' + escapeHtml(item) + '</span>').join('') + '</div>'
+        + '</div>';
+    }
+
+    function renderFinanceAudit(data) {
+      const summary = data?.summary || {};
+      const issues = Array.isArray(data?.issues) ? data.issues : [];
+      const safeFixCount = Number(summary?.safe_fix_count || 0);
+      const issuesHtml = issues.length
+        ? issues.map(renderFinanceAuditIssue).join('')
+        : '<div class="cashbox-journal-empty">Финансовая сверка не нашла проблем.</div>';
+      return '<div class="finance-audit-view">'
+        + '<div class="cashbox-journal-toolbar">'
+          + '<div><div class="cashbox-journal-toolbar__title">Финансовая сверка</div>'
+          + '<div class="cashbox-journal-toolbar__meta">' + escapeHtml('timezone ' + String(summary?.business_timezone || 'Asia/Krasnoyarsk')) + '</div></div>'
+          + '<div class="finance-audit-actions"><button class="btn btn--ghost" type="button" data-finance-audit-refresh>Обновить</button><button class="btn" type="button" data-finance-audit-apply' + (safeFixCount ? '' : ' disabled') + '>Применить safe-fix</button></div>'
+        + '</div>'
+        + '<div class="finance-audit-summary">'
+          + cashJournalStatHtml('Проблемы', String(summary?.issues_total || issues.length))
+          + cashJournalStatHtml('Safe-fix', String(safeFixCount))
+          + cashJournalStatHtml('Оплаты', String(summary?.payments_total || 0))
+          + cashJournalStatHtml('Движения', String(summary?.cash_transactions_total || 0))
+        + '</div>'
+        + '<div class="finance-audit-issues">' + issuesHtml + '</div>'
+        + '</div>';
+    }
+
     function cashJournalLedgerParts(data) {
       const totalRowCount = cashJournalDisplayRows(cashJournalFlatEntries(data)).length;
       const filteredEntries = cashJournalFilteredEntries(data);
@@ -20490,6 +20656,7 @@ function renderCompactArchiveRows(cards) {
     }
 
     function renderCashJournal(data) {
+      if (state.cashboxJournalView === 'audit') return renderFinanceAudit(state.financeAuditData || {});
       return state.cashboxJournalView === 'stats'
         ? renderCashJournalStats(data)
         : renderCashJournalLedger(data);
@@ -20573,12 +20740,72 @@ function renderCompactArchiveRows(cards) {
       els.cashboxJournalStatsButton.textContent = 'Журнал / Сводка';
       els.cashboxJournalStatsButton.setAttribute('aria-pressed', statsOpen ? 'true' : 'false');
       els.cashboxJournalStatsButton.dataset.view = statsOpen ? 'stats' : 'journal';
+      if (els.cashboxJournalAuditButton) {
+        const auditOpen = state.cashboxJournalView === 'audit';
+        els.cashboxJournalAuditButton.setAttribute('aria-pressed', auditOpen ? 'true' : 'false');
+        els.cashboxJournalAuditButton.dataset.view = auditOpen ? 'audit' : 'journal';
+      }
     }
 
     function toggleCashJournalStats() {
       state.cashboxJournalView = state.cashboxJournalView === 'stats' ? 'journal' : 'stats';
       syncCashJournalStatsButton();
       refreshCashJournalView();
+    }
+
+    async function loadFinanceAuditData() {
+      return api('/api/finance_audit');
+    }
+
+    async function openFinanceAuditModal() {
+      state.cashboxJournalView = 'audit';
+      syncCashJournalStatsButton();
+      els.cashboxJournalText.innerHTML = '<div class="cashbox-journal-loading">ЗАГРУЗКА СВЕРКИ...</div>';
+      maybeOpenModal(els.cashboxJournalModal, true);
+      try {
+        const data = await loadFinanceAuditData();
+        state.financeAuditData = data;
+        els.cashboxJournalText.innerHTML = renderFinanceAudit(data);
+      } catch (error) {
+        els.cashboxJournalText.innerHTML = '<div class="cashbox-journal-empty">' + escapeHtml(String(error?.message || 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ СВЕРКУ.')) + '</div>';
+        setStatus(String(error?.message || 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ СВЕРКУ.'), true);
+      }
+    }
+
+    async function applyFinanceAuditSafeFixes() {
+      const count = Number(state.financeAuditData?.summary?.safe_fix_count || 0);
+      if (!count) {
+        setStatus('НЕТ БЕЗОПАСНЫХ ПРАВОК ДЛЯ ПРИМЕНЕНИЯ.', false);
+        return;
+      }
+      if (!window.confirm('Применить безопасные технические правки финансовой сверки? Суммы, кассы и даты не изменятся.')) return;
+      try {
+        els.cashboxJournalText.innerHTML = '<div class="cashbox-journal-loading">ПРИМЕНЯЮ SAFE-FIX...</div>';
+        const data = await api('/api/finance_audit/apply_safe_fixes', {
+          method: 'POST',
+          body: { dry_run: false, actor_name: state.actor, source: 'ui' },
+        });
+        state.financeAuditData = data;
+        els.cashboxJournalText.innerHTML = renderFinanceAudit(data);
+        setStatus('БЕЗОПАСНЫЕ ПРАВКИ ПРИМЕНЕНЫ: ' + String(data?.meta?.applied || 0) + '.', false);
+      } catch (error) {
+        setStatus(String(error?.message || 'НЕ УДАЛОСЬ ПРИМЕНИТЬ SAFE-FIX.'), true);
+        await openFinanceAuditModal();
+      }
+    }
+
+    function handleFinanceAuditClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.closest('[data-finance-audit-refresh]')) {
+        event.preventDefault();
+        openFinanceAuditModal();
+        return;
+      }
+      if (target.closest('[data-finance-audit-apply]')) {
+        event.preventDefault();
+        applyFinanceAuditSafeFixes();
+      }
     }
 
     async function openCashJournalModal() {
@@ -20856,13 +21083,10 @@ function renderCompactArchiveRows(cards) {
         setStatus('НЕТ ДВИЖЕНИЯ ДЛЯ ОТМЕНЫ.', true);
         return;
       }
-      if (cashboxTransactionIsTransfer(latestTransaction)) {
-        setStatus('ПОСЛЕДНЕЕ ДВИЖЕНИЕ — ПЕРЕМЕЩЕНИЕ МЕЖДУ КАССАМИ.', true);
-        return;
-      }
       const amount = cashboxFormatMinorAmount(latestTransaction.amount_minor || 0).replace(/^-/, '');
       const note = String(latestTransaction.note || '').trim() || 'Без комментария';
-      if (!window.confirm('Отменить последнее движение по кассе "' + String(cashbox.name || '').trim() + '"?\\n' + note + '\\n' + amount)) {
+      const transferNotice = cashboxTransactionIsTransfer(latestTransaction) ? '\\nПеремещение будет отменено целиком в обеих кассах.' : '';
+      if (!window.confirm('Отменить последнее движение по кассе "' + String(cashbox.name || '').trim() + '"?\\n' + note + '\\n' + amount + transferNotice)) {
         return;
       }
       try {
@@ -22278,7 +22502,9 @@ function renderCompactArchiveRows(cards) {
     remountElement('employeesButton');
     remountElement('cashboxCreateButton');
     remountElement('cashboxJournalButton');
+    remountElement('cashboxFinanceAuditButton');
     remountElement('cashboxJournalStatsButton');
+    remountElement('cashboxJournalAuditButton');
     remountElement('cashboxJournalDownloadButton');
     remountElement('cashboxDeleteButton');
     remountElement('cashboxCancelLastButton');
@@ -22323,12 +22549,19 @@ function renderCompactArchiveRows(cards) {
     document.addEventListener('click', handleBoardSearchDocumentClick);
     els.cashboxCreateButton.addEventListener('click', createCashbox);
     els.cashboxJournalButton.addEventListener('click', openCashJournalModal);
+    if (els.cashboxFinanceAuditButton) {
+      els.cashboxFinanceAuditButton.addEventListener('click', openFinanceAuditModal);
+    }
     if (els.cashboxJournalStatsButton) {
       els.cashboxJournalStatsButton.addEventListener('click', toggleCashJournalStats);
+    }
+    if (els.cashboxJournalAuditButton) {
+      els.cashboxJournalAuditButton.addEventListener('click', openFinanceAuditModal);
     }
     els.cashboxJournalText.addEventListener('input', handleCashJournalFilterInput);
     els.cashboxJournalText.addEventListener('change', handleCashJournalFilterInput);
     els.cashboxJournalText.addEventListener('click', handleCashJournalResetClick);
+    els.cashboxJournalText.addEventListener('click', handleFinanceAuditClick);
     els.cashboxJournalDownloadButton.addEventListener('click', downloadCashJournal);
     els.cashboxDeleteButton.addEventListener('click', deleteActiveCashbox);
     els.sharedFilesUploadButton.addEventListener('click', () => els.sharedFilesInput.click());

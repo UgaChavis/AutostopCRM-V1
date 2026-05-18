@@ -1867,7 +1867,10 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("const due = summary.base_remaining;", BOARD_WEB_APP_HTML)
         self.assertIn("function openRepairOrderPaymentsModal()", BOARD_WEB_APP_HTML)
-        self.assertIn("function addRepairOrderPayment()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function addRepairOrderPayment()", BOARD_WEB_APP_HTML)
+        self.assertIn("сохранено в кассу", BOARD_WEB_APP_HTML)
+        self.assertIn("legacy без движения", BOARD_WEB_APP_HTML)
+        self.assertIn("const persisted = await persistRepairOrderRecord({ silent: true });", BOARD_WEB_APP_HTML)
         self.assertIn('data-repair-order-cell="catalog_number"', BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-total--subtotal {", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-total--cashless-due {", BOARD_WEB_APP_HTML)
@@ -2318,7 +2321,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="cashboxesList"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxCreateButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxJournalButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="cashboxFinanceAuditButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxJournalStatsButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="cashboxJournalAuditButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxJournalDownloadButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxDeleteButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxCancelLastButton"', BOARD_WEB_APP_HTML)
@@ -2349,6 +2354,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".cashbox-journal-opening {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-stats-section {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-stats-table {", BOARD_WEB_APP_HTML)
+        self.assertIn(".finance-audit-view {", BOARD_WEB_APP_HTML)
+        self.assertIn(".finance-audit-issue {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-download-button {", BOARD_WEB_APP_HTML)
         self.assertIn(".card-journal-text {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-delete-button {", BOARD_WEB_APP_HTML)
@@ -2378,9 +2385,13 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function renderCashJournal(data)", BOARD_WEB_APP_HTML)
         self.assertIn("function renderCashJournalCurrentBalances(data)", BOARD_WEB_APP_HTML)
         self.assertIn("function renderCashJournalStats(data)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderFinanceAudit(data)", BOARD_WEB_APP_HTML)
+        self.assertIn("async function openFinanceAuditModal()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function applyFinanceAuditSafeFixes()", BOARD_WEB_APP_HTML)
         self.assertIn("function renderCashJournalOpening(day)", BOARD_WEB_APP_HTML)
         self.assertIn("function cashJournalDefaultFilters()", BOARD_WEB_APP_HTML)
         self.assertIn("function cashJournalEntryNoteText(item)", BOARD_WEB_APP_HTML)
+        self.assertIn("function cashJournalLinkFlags(item)", BOARD_WEB_APP_HTML)
         self.assertIn("поступление|списание|приход|расход", BOARD_WEB_APP_HTML)
         self.assertIn("function cashJournalFiltersAreActive(", BOARD_WEB_APP_HTML)
         self.assertIn("function cashJournalOperationCountText(", BOARD_WEB_APP_HTML)
@@ -2473,6 +2484,18 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn(
             "els.cashboxJournalButton.addEventListener('click', openCashJournalModal);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cashboxFinanceAuditButton.addEventListener('click', openFinanceAuditModal);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cashboxJournalAuditButton.addEventListener('click', openFinanceAuditModal);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cashboxJournalText.addEventListener('click', handleFinanceAuditClick);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(

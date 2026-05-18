@@ -1111,6 +1111,11 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(transferred["data"]["source_transaction"]["direction"], "expense")
         self.assertEqual(transferred["data"]["target_transaction"]["direction"], "income")
+        self.assertEqual(
+            transferred["data"]["source_transaction"]["related_transaction_id"],
+            transferred["data"]["target_transaction"]["id"],
+        )
+        self.assertTrue(transferred["data"]["source_transaction"]["transfer_group_id"])
 
         status, details = self.request(
             f"/api/get_cashbox?cashbox_id={cashbox['id']}&transaction_limit=10",
@@ -1120,6 +1125,10 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(details["data"]["cashbox"]["statistics"]["transactions_total"], 2)
         self.assertEqual(details["data"]["cashbox"]["statistics"]["balance_minor"], 200000)
         self.assertIn("Перемещение в Касса 2", details["data"]["transactions"][0]["note"])
+        self.assertIn("business_date", details["data"]["transactions"][0])
+        self.assertIn("business_time", details["data"]["transactions"][0])
+        self.assertIn("business_datetime_display", details["data"]["transactions"][0])
+        self.assertIn("link_status", details["data"]["transactions"][0])
 
         status, destination_details = self.request(
             f"/api/get_cashbox?cashbox_id={destination_cashbox['id']}&transaction_limit=10",
@@ -1166,6 +1175,15 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("months", journal["data"])
         self.assertIn("totals", journal["data"])
         self.assertGreaterEqual(journal["data"]["meta"]["returned"], 1)
+        self.assertIn("business_date", journal["data"]["entries"][0])
+        self.assertIn("related_transaction_id", journal["data"]["entries"][0])
+
+        status, audit = self.request("/api/finance_audit", method="GET")
+        self.assertEqual(status, 200)
+        self.assertTrue(audit["ok"])
+        self.assertEqual(audit["data"]["meta"]["schema_version"], "finance_audit.v1")
+        self.assertIn("issues", audit["data"])
+        self.assertIn("counts_by_code", audit["data"]["summary"])
 
     def test_cancel_last_cash_transaction_route_removes_latest_manual_movement(self) -> None:
         status, created = self.request(

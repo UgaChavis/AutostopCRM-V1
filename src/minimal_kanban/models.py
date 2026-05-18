@@ -979,6 +979,8 @@ class CashTransaction:
     employee_id: str = ""
     employee_name: str = ""
     transaction_kind: str = ""
+    transfer_group_id: str = ""
+    related_transaction_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -995,6 +997,8 @@ class CashTransaction:
             "employee_id": self.employee_id,
             "employee_name": self.employee_name,
             "transaction_kind": self.transaction_kind,
+            "transfer_group_id": self.transfer_group_id,
+            "related_transaction_id": self.related_transaction_id,
         }
 
     def to_storage_dict(self) -> dict[str, Any]:
@@ -1010,6 +1014,8 @@ class CashTransaction:
             "employee_id": self.employee_id,
             "employee_name": self.employee_name,
             "transaction_kind": self.transaction_kind,
+            "transfer_group_id": self.transfer_group_id,
+            "related_transaction_id": self.related_transaction_id,
         }
 
     @classmethod
@@ -1032,6 +1038,10 @@ class CashTransaction:
             employee_id=normalize_text(payload.get("employee_id"), default="", limit=64),
             employee_name=normalize_text(payload.get("employee_name"), default="", limit=80),
             transaction_kind=normalize_text(payload.get("transaction_kind"), default="", limit=32),
+            transfer_group_id=normalize_text(payload.get("transfer_group_id"), default="", limit=128),
+            related_transaction_id=normalize_text(
+                payload.get("related_transaction_id"), default="", limit=128
+            ),
         )
 
 

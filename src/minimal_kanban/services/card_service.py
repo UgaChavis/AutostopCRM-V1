@@ -1356,16 +1356,16 @@ class CardService:
             months = self._validated_limit(payload.get("months"), default=3, maximum=12)
             limit = self._validated_limit(payload.get("limit"), default=5000, maximum=10000)
             bundle = self._store.read_bundle()
-            period_start = utc_now() - timedelta(days=30 * months)
+            period_start = datetime.now(tz=business_timezone()) - timedelta(days=30 * months)
             recent_transactions: list[CashTransaction] = []
             for item in bundle["cash_transactions"]:
-                created_at = parse_datetime(item.created_at)
+                created_at = self._cash_transaction_business_datetime(item.created_at)
                 if created_at is None or created_at < period_start:
                     continue
                 recent_transactions.append(item)
             recent_transactions.sort(
                 key=lambda item: (
-                    self._cash_transaction_sortable_datetime(item.created_at),
+                    self._cash_transaction_business_sortable_datetime(item.created_at),
                     item.id,
                 ),
                 reverse=True,
@@ -1396,6 +1396,133 @@ class CardService:
                 "markdown": journal["markdown"],
                 "text": journal["markdown"],
                 "meta": journal["meta"],
+            }
+
+    def get_finance_audit(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            _ = payload or {}
+            bundle = self._store.read_bundle()
+            return self._build_finance_audit(bundle)
+
+    def apply_finance_audit_safe_fixes(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            dry_run = self._validated_optional_bool(payload, "dry_run", default=True)
+            requested_issue_ids = payload.get("issue_ids")
+            selected_issue_ids: set[str] | None = None
+            if requested_issue_ids is not None:
+                if not isinstance(requested_issue_ids, list):
+                    self._fail(
+                        "validation_error",
+                        "Поле issue_ids должно быть массивом.",
+                        details={"field": "issue_ids"},
+                    )
+                selected_issue_ids = {
+                    normalize_text(item, default="", limit=240)
+                    for item in requested_issue_ids
+                    if normalize_text(item, default="", limit=240)
+                }
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            bundle = self._store.read_bundle()
+            audit = self._build_finance_audit(bundle)
+            safe_issues = [
+                issue
+                for issue in audit["issues"]
+                if issue.get("safe_fix_available")
+                and (selected_issue_ids is None or str(issue.get("id") or "") in selected_issue_ids)
+            ]
+            planned_fixes = [issue["safe_fix"] for issue in safe_issues if issue.get("safe_fix")]
+            if dry_run:
+                return {
+                    "issues": audit["issues"],
+                    "summary": audit["summary"],
+                    "safe_fixes": planned_fixes,
+                    "meta": {
+                        "dry_run": True,
+                        "changed": False,
+                        "planned": len(planned_fixes),
+                    },
+                }
+
+            transactions_by_id = {
+                transaction.id: transaction for transaction in bundle["cash_transactions"]
+            }
+            payment_links = self._finance_payment_links(bundle["cards"])
+            applied: list[dict[str, object]] = []
+            for fix in planned_fixes:
+                if not isinstance(fix, dict):
+                    continue
+                transaction_id = normalize_text(
+                    fix.get("cash_transaction_id"), default="", limit=128
+                )
+                transaction = transactions_by_id.get(transaction_id)
+                if transaction is None or transaction_id not in payment_links:
+                    continue
+                kind = normalize_text(fix.get("kind"), default="", limit=64)
+                if kind == "set_transaction_kind":
+                    value = normalize_text(fix.get("value"), default="", limit=32)
+                    if value != "repair_order_payment":
+                        continue
+                    if transaction.transaction_kind == value:
+                        continue
+                    before = transaction.transaction_kind
+                    transaction.transaction_kind = value
+                    applied.append(
+                        {
+                            "kind": kind,
+                            "cash_transaction_id": transaction.id,
+                            "before": before,
+                            "after": value,
+                        }
+                    )
+                elif kind == "refresh_default_note":
+                    value = normalize_text(fix.get("value"), default="", limit=240)
+                    if not value or not self._is_default_repair_order_cash_transaction_note(
+                        transaction.note
+                    ):
+                        continue
+                    if transaction.note == value:
+                        continue
+                    before = transaction.note
+                    transaction.note = value
+                    applied.append(
+                        {
+                            "kind": kind,
+                            "cash_transaction_id": transaction.id,
+                            "before": before,
+                            "after": value,
+                        }
+                    )
+            if applied:
+                self._append_event(
+                    bundle["events"],
+                    actor_name=actor_name,
+                    source=source,
+                    action="finance_audit_safe_fix_applied",
+                    message=f"{actor_name} применил безопасные правки финансовой сверки",
+                    card_id=None,
+                    details={"applied": applied, "count": len(applied)},
+                )
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=bundle["cards"],
+                    cashboxes=bundle["cashboxes"],
+                    cash_transactions=bundle["cash_transactions"],
+                    events=bundle["events"],
+                )
+            next_audit = self._build_finance_audit(bundle)
+            return {
+                "issues": next_audit["issues"],
+                "summary": next_audit["summary"],
+                "safe_fixes": planned_fixes,
+                "applied": applied,
+                "meta": {
+                    "dry_run": False,
+                    "changed": bool(applied),
+                    "planned": len(planned_fixes),
+                    "applied": len(applied),
+                },
             }
 
     def create_cashbox(self, payload: dict | None = None) -> dict:
@@ -1530,7 +1657,8 @@ class CardService:
             if base_note:
                 transfer_out_note = f"{transfer_out_note}: {base_note}"
                 transfer_in_note = f"{transfer_in_note}: {base_note}"
-            transfer_created_at = utc_now_iso()
+            transfer_created_at = utc_now().astimezone(business_timezone()).isoformat()
+            transfer_group_id = str(uuid.uuid4())
             source_transaction = self._append_cash_transaction(
                 transactions=transactions,
                 cashbox=source_cashbox,
@@ -1540,6 +1668,7 @@ class CardService:
                 actor_name=actor_name,
                 source=source,
                 created_at=transfer_created_at,
+                transfer_group_id=transfer_group_id,
             )
             target_transaction = self._append_cash_transaction(
                 transactions=transactions,
@@ -1550,7 +1679,10 @@ class CardService:
                 actor_name=actor_name,
                 source=source,
                 created_at=transfer_created_at,
+                transfer_group_id=transfer_group_id,
             )
+            source_transaction.related_transaction_id = target_transaction.id
+            target_transaction.related_transaction_id = source_transaction.id
             self._append_event(
                 events,
                 actor_name=actor_name,
@@ -1568,6 +1700,7 @@ class CardService:
                     "note": base_note,
                     "source_transaction_id": source_transaction.id,
                     "target_transaction_id": target_transaction.id,
+                    "transfer_group_id": transfer_group_id,
                 },
             )
             self._save_bundle(
@@ -1644,19 +1777,28 @@ class CardService:
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
+            note = self._validated_cash_transaction_note(payload.get("note"))
+            transaction_kind = normalize_text(payload.get("transaction_kind"), default="", limit=32)
+            if (
+                self._is_default_repair_order_cash_transaction_note(note)
+                and transaction_kind != "repair_order_payment"
+            ):
+                self._fail(
+                    "manual_repair_order_cash_note_blocked",
+                    "Поступления вида «Заказ-наряд №...» нужно создавать через оплату заказ-наряда.",
+                    details={"field": "note"},
+                )
             transaction = self._append_cash_transaction(
                 transactions=transactions,
                 cashbox=cashbox,
                 direction=normalize_cash_direction(payload.get("direction"), default="income"),
                 amount_minor=self._validated_cash_amount_minor(payload),
-                note=self._validated_cash_transaction_note(payload.get("note")),
+                note=note,
                 actor_name=actor_name,
                 source=source,
                 employee_id=normalize_text(payload.get("employee_id"), default="", limit=64),
                 employee_name=normalize_text(payload.get("employee_name"), default="", limit=80),
-                transaction_kind=normalize_text(
-                    payload.get("transaction_kind"), default="", limit=32
-                ),
+                transaction_kind=transaction_kind,
             )
             self._append_event(
                 events,
@@ -1813,10 +1955,12 @@ class CardService:
                     },
                 )
             if self._is_cashbox_transfer_transaction(latest_transaction):
-                self._fail(
-                    "validation_error",
-                    "Последнее движение — перемещение между кассами. Автоотмена перемещений не поддерживается.",
-                    details={"transaction_id": latest_transaction.id, "cashbox_id": cashbox.id},
+                return self._cancel_cashbox_transfer_pair(
+                    bundle=bundle,
+                    cashbox=cashbox,
+                    latest_transaction=latest_transaction,
+                    actor_name=actor_name,
+                    source=source,
                 )
 
             linked_card, linked_payment = self._find_repair_order_payment_by_cash_transaction(
@@ -1895,6 +2039,98 @@ class CardService:
                 "meta": response_meta,
             }
 
+    def _cancel_cashbox_transfer_pair(
+        self,
+        *,
+        bundle: dict[str, Any],
+        cashbox: CashBox,
+        latest_transaction: CashTransaction,
+        actor_name: str,
+        source: str,
+    ) -> dict:
+        transactions = bundle["cash_transactions"]
+        cashboxes = bundle["cashboxes"]
+        events = bundle["events"]
+        related_transaction = self._find_cash_transaction(
+            transactions, latest_transaction.related_transaction_id
+        )
+        if (
+            related_transaction is None
+            or not latest_transaction.transfer_group_id
+            or latest_transaction.transfer_group_id != related_transaction.transfer_group_id
+        ):
+            self._fail(
+                "cashbox_transfer_pair_required",
+                "Перемещение можно отменить только целиком. Для legacy-перемещения без связки нужна ручная сверка.",
+                status_code=409,
+                details={
+                    "transaction_id": latest_transaction.id,
+                    "cashbox_id": cashbox.id,
+                    "related_transaction_id": latest_transaction.related_transaction_id,
+                },
+            )
+        related_cashbox = self._find_cashbox(cashboxes, related_transaction.cashbox_id)
+        related_latest = next(
+            iter(self._cashbox_transactions(transactions, related_cashbox.id)),
+            None,
+        )
+        if related_latest is None or related_latest.id != related_transaction.id:
+            self._fail(
+                "cashbox_transfer_pair_not_latest",
+                "Нельзя отменить перемещение: связанное движение уже не последнее в своей кассе.",
+                status_code=409,
+                details={
+                    "transaction_id": latest_transaction.id,
+                    "related_transaction_id": related_transaction.id,
+                    "related_cashbox_id": related_cashbox.id,
+                },
+            )
+        removed_ids = {latest_transaction.id, related_transaction.id}
+        transactions[:] = [item for item in transactions if item.id not in removed_ids]
+        self._append_event(
+            events,
+            actor_name=actor_name,
+            source=source,
+            action="cashbox_transfer_cancelled",
+            message=f"{actor_name} отменил перемещение между кассами",
+            card_id=None,
+            details={
+                "transfer_group_id": latest_transaction.transfer_group_id,
+                "source_transaction_id": latest_transaction.id
+                if latest_transaction.direction == "expense"
+                else related_transaction.id,
+                "target_transaction_id": latest_transaction.id
+                if latest_transaction.direction == "income"
+                else related_transaction.id,
+                "amount_minor": latest_transaction.amount_minor,
+                "amount_display": format_money_minor(latest_transaction.amount_minor),
+            },
+        )
+        self._refresh_cashbox_updated_at(cashbox, transactions)
+        self._refresh_cashbox_updated_at(related_cashbox, transactions)
+        self._save_bundle(
+            bundle,
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            cashboxes=cashboxes,
+            cash_transactions=transactions,
+            events=events,
+        )
+        return {
+            "cashbox": self._serialize_cashbox(cashbox, transactions),
+            "related_cashbox": self._serialize_cashbox(related_cashbox, transactions),
+            "cancelled_transaction": self._serialize_cash_transaction(latest_transaction),
+            "related_cancelled_transaction": self._serialize_cash_transaction(related_transaction),
+            "meta": {
+                "cancelled": True,
+                "cancelled_pair": True,
+                "transaction_id": latest_transaction.id,
+                "related_transaction_id": related_transaction.id,
+                "transfer_group_id": latest_transaction.transfer_group_id,
+                "cashbox_id": cashbox.id,
+            },
+        }
+
     def _append_cash_transaction(
         self,
         *,
@@ -1909,6 +2145,8 @@ class CardService:
         employee_id: str = "",
         employee_name: str = "",
         transaction_kind: str = "",
+        transfer_group_id: str = "",
+        related_transaction_id: str = "",
     ) -> CashTransaction:
         parsed_created_at = parse_datetime(created_at) if created_at else None
         transaction = CashTransaction(
@@ -1923,6 +2161,8 @@ class CardService:
             employee_id=normalize_text(employee_id, default="", limit=64),
             employee_name=normalize_text(employee_name, default="", limit=80),
             transaction_kind=normalize_text(transaction_kind, default="", limit=32),
+            transfer_group_id=normalize_text(transfer_group_id, default="", limit=128),
+            related_transaction_id=normalize_text(related_transaction_id, default="", limit=128),
         )
         transactions.append(transaction)
         transactions.sort(
@@ -2934,6 +3174,85 @@ class CardService:
                 ),
                 "meta": {
                     "changed": changed or numbering_changed,
+                },
+            }
+
+    def correct_repair_order_number(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            events = bundle["events"]
+            columns = bundle["columns"]
+            card = self._find_card(cards, payload.get("card_id"))
+            if not self._card_has_repair_order(card):
+                self._fail(
+                    "repair_order_missing",
+                    "В карточке нет заказ-наряда для исправления номера.",
+                    status_code=404,
+                    details={"card_id": card.id},
+                )
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            next_number = normalize_text(
+                payload.get("number") or payload.get("repair_order_number"),
+                default="",
+                limit=40,
+            )
+            reason = normalize_text(payload.get("reason"), default="", limit=500)
+            if not next_number:
+                self._fail(
+                    "validation_error",
+                    "Нужно передать новый номер заказ-наряда.",
+                    details={"field": "number"},
+                )
+            if not reason:
+                self._fail(
+                    "validation_error",
+                    "Для исправления номера заказ-наряда нужно указать причину.",
+                    details={"field": "reason"},
+                )
+            self._ensure_repair_order_number_unique(
+                cards,
+                next_number,
+                exclude_card_id=card.id,
+            )
+            previous_number = card.repair_order.number
+            changed = previous_number != next_number
+            if changed:
+                card.repair_order.number = next_number
+                self._touch_card(card, actor_name)
+                self._refresh_card_ai_fingerprint_if_agent_changed(card, actor_name, source)
+                self._ensure_repair_order_text_file(card, force=True)
+                self._append_event(
+                    events,
+                    actor_name=actor_name,
+                    source=source,
+                    action="repair_order_number_corrected",
+                    message=f"{actor_name} исправил номер заказ-наряда",
+                    card_id=card.id,
+                    details={
+                        "before": previous_number,
+                        "after": next_number,
+                        "reason": reason,
+                    },
+                )
+                self._save_bundle(
+                    bundle,
+                    columns=columns,
+                    cards=cards,
+                    cashboxes=bundle["cashboxes"],
+                    cash_transactions=bundle["cash_transactions"],
+                    events=events,
+                )
+            return {
+                "repair_order": card.repair_order.to_dict(),
+                "card": self._serialize_card(
+                    card, events, column_labels=self._column_labels(columns)
+                ),
+                "meta": {
+                    "changed": changed,
+                    "previous_number": previous_number,
+                    "number": card.repair_order.number,
                 },
             }
 
@@ -4070,6 +4389,8 @@ class CardService:
             payload = payload or {}
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
+            events = bundle["events"]
+            actor_name, source = self._audit_identity(payload, default_source="ui")
             preview_card = self._print_module_card(card, payload)
             linked_client = self._print_module_client(bundle, preview_card)
             try:
@@ -4088,6 +4409,26 @@ class CardService:
                     if isinstance(payload.get("print_settings"), dict)
                     else {},
                     printer_name=str(payload.get("printer_name", "") or ""),
+                )
+                self._append_event(
+                    events,
+                    actor_name=actor_name,
+                    source=source,
+                    action="repair_order_printed",
+                    message=f"{actor_name} отправил заказ-наряд на печать",
+                    card_id=card.id,
+                    details={
+                        "number": card.repair_order.number,
+                        "selected_document_ids": result.get("selected_document_ids", []),
+                    },
+                )
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=bundle["cards"],
+                    cashboxes=bundle["cashboxes"],
+                    cash_transactions=bundle["cash_transactions"],
+                    events=events,
                 )
                 return {
                     **result,
@@ -6488,12 +6829,21 @@ class CardService:
         repair_order_context: dict[str, object] | None = None,
     ) -> dict[str, object]:
         serialized = transaction.to_dict()
+        serialized.update(self._cash_transaction_business_time_payload(transaction))
         source_label = (
             "заказ-наряд"
             if repair_order_context
             else self._cash_transaction_source_label(transaction)
         )
         serialized["source_label"] = source_label
+        serialized["link_status"] = self._cash_transaction_link_status(
+            transaction,
+            repair_order_context=repair_order_context,
+        )
+        serialized.setdefault("repair_order_number", "")
+        serialized.setdefault("repair_order_card_id", "")
+        serialized.setdefault("repair_order_payment_id", "")
+        serialized.setdefault("repair_order_vehicle", "")
         serialized["direction_label"] = (
             "Поступление" if transaction.direction == "income" else "Списание"
         )
@@ -6505,6 +6855,53 @@ class CardService:
                     repair_order_context.get("repair_order_number")
                 )
         return serialized
+
+    def _cash_transaction_business_datetime(self, value: str | None) -> datetime | None:
+        parsed = parse_datetime(value)
+        if parsed is None:
+            return None
+        return parsed.astimezone(business_timezone())
+
+    def _cash_transaction_business_time_payload(
+        self, transaction: CashTransaction
+    ) -> dict[str, str]:
+        business_datetime = self._cash_transaction_business_datetime(transaction.created_at)
+        parsed = parse_datetime(transaction.created_at)
+        utc_datetime = parsed.astimezone(UTC) if parsed is not None else None
+        if business_datetime is None:
+            return {
+                "business_datetime": "",
+                "business_date": "",
+                "business_time": "",
+                "business_datetime_display": "",
+                "created_at_utc": utc_datetime.isoformat() if utc_datetime is not None else "",
+                "created_at_original": transaction.created_at,
+            }
+        return {
+            "business_datetime": business_datetime.isoformat(),
+            "business_date": business_datetime.date().isoformat(),
+            "business_time": business_datetime.strftime("%H:%M:%S"),
+            "business_datetime_display": business_datetime.strftime("%d.%m.%Y %H:%M"),
+            "created_at_utc": utc_datetime.isoformat() if utc_datetime is not None else "",
+            "created_at_original": transaction.created_at,
+        }
+
+    def _cash_transaction_link_status(
+        self,
+        transaction: CashTransaction,
+        *,
+        repair_order_context: dict[str, object] | None = None,
+    ) -> str:
+        kind = normalize_text(transaction.transaction_kind, default="", limit=32).casefold()
+        if repair_order_context:
+            return "linked" if kind == "repair_order_payment" else "linked_legacy"
+        if kind == "repair_order_payment":
+            return "payment_without_order"
+        if self._is_default_repair_order_cash_transaction_note(transaction.note):
+            return "legacy_without_payment"
+        if transaction.transfer_group_id or transaction.related_transaction_id:
+            return "linked_transfer"
+        return "manual"
 
     def _repair_order_transaction_context(self, cards: list[Card]) -> dict[str, dict[str, object]]:
         contexts: dict[str, dict[str, object]] = {}
@@ -6527,6 +6924,250 @@ class CardService:
                 }
         return contexts
 
+    def _finance_payment_links(
+        self, cards: list[Card]
+    ) -> dict[str, tuple[Card, RepairOrderPayment]]:
+        links: dict[str, tuple[Card, RepairOrderPayment]] = {}
+        for card in cards:
+            for payment in card.repair_order.payments:
+                transaction_id = normalize_text(
+                    payment.cash_transaction_id,
+                    default="",
+                    limit=128,
+                )
+                if transaction_id:
+                    links[transaction_id] = (card, payment)
+        return links
+
+    def _finance_audit_issue(
+        self,
+        *,
+        code: str,
+        severity: str,
+        message: str,
+        card: Card | None = None,
+        payment: RepairOrderPayment | None = None,
+        transaction: CashTransaction | None = None,
+        safe_fix: dict[str, object] | None = None,
+        data: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        parts = [
+            code,
+            card.id if card is not None else "",
+            payment.id if payment is not None else "",
+            transaction.id if transaction is not None else "",
+        ]
+        issue_id = ":".join(part for part in parts if part)
+        order = card.repair_order if card is not None else None
+        return {
+            "id": issue_id,
+            "code": code,
+            "severity": severity,
+            "message": message,
+            "card_id": card.id if card is not None else "",
+            "repair_order_number": order.number if order is not None else "",
+            "repair_order_vehicle": (order.vehicle or card.vehicle) if order is not None and card else "",
+            "repair_order_payment_id": payment.id if payment is not None else "",
+            "cash_transaction_id": transaction.id if transaction is not None else "",
+            "cashbox_id": transaction.cashbox_id if transaction is not None else "",
+            "amount_minor": transaction.amount_minor if transaction is not None else 0,
+            "safe_fix_available": safe_fix is not None,
+            "safe_fix": safe_fix or {},
+            "data": data or {},
+        }
+
+    def _build_finance_audit(self, bundle: dict[str, Any]) -> dict:
+        cards = bundle["cards"]
+        transactions = bundle["cash_transactions"]
+        transactions_by_id = {transaction.id: transaction for transaction in transactions}
+        payment_links = self._finance_payment_links(cards)
+        issues: list[dict[str, object]] = []
+
+        for card in cards:
+            order = card.repair_order
+            if order.is_empty():
+                continue
+            for payment in order.payments:
+                transaction_id = normalize_text(
+                    payment.cash_transaction_id, default="", limit=128
+                )
+                if not transaction_id:
+                    issues.append(
+                        self._finance_audit_issue(
+                            code="payment_without_cash_transaction_id",
+                            severity="warning",
+                            message="Оплата заказ-наряда не связана с движением кассы.",
+                            card=card,
+                            payment=payment,
+                        )
+                    )
+                    continue
+                transaction = transactions_by_id.get(transaction_id)
+                if transaction is None:
+                    issues.append(
+                        self._finance_audit_issue(
+                            code="payment_missing_cash_transaction",
+                            severity="error",
+                            message="Оплата заказ-наряда ссылается на отсутствующее движение кассы.",
+                            card=card,
+                            payment=payment,
+                        )
+                    )
+                    continue
+                if transaction.transaction_kind != "repair_order_payment":
+                    issues.append(
+                        self._finance_audit_issue(
+                            code="linked_payment_transaction_missing_kind",
+                            severity="warning",
+                            message="Связанное движение оплаты заказ-наряда не помечено как repair_order_payment.",
+                            card=card,
+                            payment=payment,
+                            transaction=transaction,
+                            safe_fix={
+                                "kind": "set_transaction_kind",
+                                "cash_transaction_id": transaction.id,
+                                "value": "repair_order_payment",
+                            },
+                        )
+                    )
+                expected_note = self._repair_order_cash_transaction_note(order.number)
+                if (
+                    self._is_default_repair_order_cash_transaction_note(transaction.note)
+                    and transaction.note != expected_note
+                ):
+                    issues.append(
+                        self._finance_audit_issue(
+                            code="stale_default_repair_order_note",
+                            severity="warning",
+                            message="Default-note движения кассы не совпадает с текущим номером связанного заказ-наряда.",
+                            card=card,
+                            payment=payment,
+                            transaction=transaction,
+                            safe_fix={
+                                "kind": "refresh_default_note",
+                                "cash_transaction_id": transaction.id,
+                                "value": expected_note,
+                            },
+                            data={"stored_note": transaction.note, "expected_note": expected_note},
+                        )
+                    )
+
+            if order.status == REPAIR_ORDER_STATUS_CLOSED and order.due_total_value() > Decimal("0"):
+                issues.append(
+                    self._finance_audit_issue(
+                        code="closed_underpaid",
+                        severity="error",
+                        message="Закрытый заказ-наряд имеет недоплату.",
+                        card=card,
+                        data={
+                            "due_total": order.due_total_amount(),
+                            "paid_total": order.prepayment_amount(),
+                            "grand_total": order.grand_total_amount(),
+                        },
+                    )
+                )
+            if order.prepayment_value() > Decimal("0") and order.subtotal_value() == Decimal("0"):
+                issues.append(
+                    self._finance_audit_issue(
+                        code="paid_zero_total",
+                        severity="warning",
+                        message="В заказ-наряде есть оплаты, но нет суммы работ или материалов.",
+                        card=card,
+                        data={"paid_total": order.prepayment_amount()},
+                    )
+                )
+            if order.status == REPAIR_ORDER_STATUS_OPEN and order.prepayment_value() > Decimal("0"):
+                issues.append(
+                    self._finance_audit_issue(
+                        code="open_with_payments",
+                        severity="info",
+                        message="Открытый заказ-наряд уже имеет оплаты.",
+                        card=card,
+                        data={"paid_total": order.prepayment_amount()},
+                    )
+                )
+
+        for transaction in transactions:
+            kind = normalize_text(transaction.transaction_kind, default="", limit=32)
+            has_default_order_note = self._is_default_repair_order_cash_transaction_note(
+                transaction.note
+            )
+            linked = payment_links.get(transaction.id)
+            if kind == "repair_order_payment" and linked is None:
+                issues.append(
+                    self._finance_audit_issue(
+                        code="repair_payment_transaction_without_payment",
+                        severity="error",
+                        message="Кассовое движение помечено оплатой заказ-наряда, но связанная оплата не найдена.",
+                        transaction=transaction,
+                    )
+                )
+            if has_default_order_note and kind != "repair_order_payment":
+                card = linked[0] if linked is not None else None
+                payment = linked[1] if linked is not None else None
+                safe_fix = None
+                if linked is not None:
+                    safe_fix = {
+                        "kind": "set_transaction_kind",
+                        "cash_transaction_id": transaction.id,
+                        "value": "repair_order_payment",
+                    }
+                issues.append(
+                    self._finance_audit_issue(
+                        code="legacy_order_note_without_kind",
+                        severity="warning",
+                        message="Движение с note вида «Заказ-наряд №...» не имеет transaction_kind.",
+                        card=card,
+                        payment=payment,
+                        transaction=transaction,
+                        safe_fix=safe_fix,
+                    )
+                )
+            raw_created_at = normalize_text(transaction.created_at, default="", limit=80)
+            parsed_created_at = parse_datetime(raw_created_at)
+            if parsed_created_at is None or re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?",
+                raw_created_at,
+            ):
+                issues.append(
+                    self._finance_audit_issue(
+                        code="suspicious_timezone_display",
+                        severity="info",
+                        message="У движения кассы нет явной timezone или дата не распознана.",
+                        transaction=transaction,
+                        data={"created_at": raw_created_at},
+                    )
+                )
+
+        issues.sort(
+            key=lambda item: (
+                {"error": 0, "warning": 1, "info": 2}.get(str(item.get("severity")), 3),
+                str(item.get("code") or ""),
+                str(item.get("id") or ""),
+            )
+        )
+        counts_by_code: dict[str, int] = {}
+        for issue in issues:
+            code = str(issue.get("code") or "")
+            counts_by_code[code] = counts_by_code.get(code, 0) + 1
+        safe_fix_count = sum(1 for issue in issues if issue.get("safe_fix_available"))
+        return {
+            "issues": issues,
+            "summary": {
+                "issues_total": len(issues),
+                "safe_fix_count": safe_fix_count,
+                "counts_by_code": counts_by_code,
+                "payments_total": sum(len(card.repair_order.payments) for card in cards),
+                "cash_transactions_total": len(transactions),
+                "business_timezone": str(business_timezone()),
+            },
+            "meta": {
+                "schema_version": "finance_audit.v1",
+                "generated_at": utc_now_iso(),
+                "read_only": True,
+            },
+        }
+
     def _repair_order_cash_transaction_note(self, repair_order_number: object) -> str:
         number = normalize_text(repair_order_number, default="", limit=40)
         return f"Заказ-наряд №{number}" if number else "Заказ-наряд"
@@ -6540,6 +7181,12 @@ class CardService:
         if parsed is not None:
             return parsed.astimezone(UTC)
         return datetime.min.replace(tzinfo=UTC)
+
+    def _cash_transaction_business_sortable_datetime(self, value: str | None) -> datetime:
+        parsed = self._cash_transaction_business_datetime(value)
+        if parsed is not None:
+            return parsed
+        return datetime.min.replace(tzinfo=business_timezone())
 
     def _find_cash_transaction(
         self,
@@ -6566,7 +7213,7 @@ class CardService:
         matched = [item for item in transactions if item.cashbox_id == cashbox_id]
         matched.sort(
             key=lambda item: (
-                self._cash_transaction_sortable_datetime(item.created_at),
+                self._cash_transaction_business_sortable_datetime(item.created_at),
                 item.id,
             ),
             reverse=True,
@@ -6602,6 +7249,8 @@ class CardService:
         transaction_kind = self._cash_transaction_kind_label(transaction.transaction_kind)
         if transaction_kind:
             return transaction_kind
+        if transaction.transfer_group_id or transaction.related_transaction_id:
+            return "перемещение"
         note = normalize_text(transaction.note, default="", limit=240)
         if note.casefold().startswith("перемещение"):
             return "перемещение"
@@ -6666,7 +7315,7 @@ class CardService:
     ) -> dict[str, object]:
         entries: list[dict[str, object]] = []
         for item in transactions:
-            created_at = parse_datetime(item.created_at)
+            created_at = self._cash_transaction_business_datetime(item.created_at)
             cashbox = cashboxes_by_id.get(item.cashbox_id)
             base = self._serialize_cash_transaction(
                 item,
@@ -6691,9 +7340,11 @@ class CardService:
                 {
                     "schema_version": "cash_journal.entry.v2",
                     "cashbox_name": cashbox.name if cashbox else "Неизвестная касса",
-                    "date": date_label,
-                    "time": time_label,
-                    "time_short": short_time_label,
+                    "date": str(base.get("business_date") or date_label),
+                    "time": str(base.get("business_time") or time_label),
+                    "time_short": str(base.get("business_time") or time_label)[:5]
+                    if str(base.get("business_time") or time_label)
+                    else short_time_label,
                     "month_key": month_key,
                     "week_key": week_key,
                     "direction_label": "Поступление" if item.direction == "income" else "Списание",
@@ -6890,7 +7541,7 @@ class CardService:
         ]
 
     def _cash_journal_transaction_date_key(self, transaction: CashTransaction) -> str:
-        created_at = parse_datetime(transaction.created_at)
+        created_at = self._cash_transaction_business_datetime(transaction.created_at)
         if created_at is None:
             return "unknown"
         return created_at.date().isoformat()
@@ -7047,15 +7698,20 @@ class CardService:
     ) -> tuple[dict[str, object], dict[str, object]] | None:
         if item.get("source_label") != "перемещение":
             return None
+        related_id = str(item.get("related_transaction_id") or "")
+        transfer_group_id = str(item.get("transfer_group_id") or "")
         for candidate in entries:
             candidate_id = str(candidate.get("id") or "")
             if candidate_id in used_ids or candidate_id == str(item.get("id") or ""):
                 continue
             if candidate.get("source_label") != "перемещение":
                 continue
-            if candidate.get("time") != item.get("time"):
-                continue
-            if candidate.get("amount_minor") != item.get("amount_minor"):
+            same_related = related_id and candidate_id == related_id
+            same_group = (
+                transfer_group_id
+                and str(candidate.get("transfer_group_id") or "") == transfer_group_id
+            )
+            if not same_related and not same_group:
                 continue
             if candidate.get("direction") == item.get("direction"):
                 continue
@@ -8597,6 +9253,13 @@ class CardService:
             card=card,
             exclude_card_id=card.id,
         )
+        self._ensure_repair_order_number_update_allowed(
+            card,
+            cards,
+            previous_order,
+            order,
+            events,
+        )
         if cashboxes is not None and cash_transactions is not None:
             order = self._sync_repair_order_payment_transactions(
                 card,
@@ -10003,6 +10666,103 @@ class CardService:
                 continue
             current_max = max(current_max, int(raw_number))
         return str(current_max + 1)
+
+    def _repair_order_number_key(self, value: object) -> str:
+        return normalize_text(value, default="", limit=40).casefold()
+
+    def _repair_order_number_owner(
+        self,
+        cards: list[Card],
+        number: object,
+        *,
+        exclude_card_id: str | None = None,
+    ) -> Card | None:
+        requested = self._repair_order_number_key(number)
+        if not requested:
+            return None
+        for item in cards:
+            if exclude_card_id is not None and item.id == exclude_card_id:
+                continue
+            if self._repair_order_number_key(item.repair_order.number) == requested:
+                return item
+        return None
+
+    def _ensure_repair_order_number_unique(
+        self,
+        cards: list[Card],
+        number: object,
+        *,
+        exclude_card_id: str | None = None,
+    ) -> None:
+        owner = self._repair_order_number_owner(
+            cards,
+            number,
+            exclude_card_id=exclude_card_id,
+        )
+        if owner is None:
+            return
+        self._fail(
+            "repair_order_number_duplicate",
+            f"Заказ-наряд №{normalize_text(number, default='', limit=40)} уже существует.",
+            status_code=409,
+            details={
+                "field": "number",
+                "card_id": owner.id,
+                "repair_order_number": owner.repair_order.number,
+            },
+        )
+
+    def _repair_order_has_print_event(self, card: Card, events: list[AuditEvent]) -> bool:
+        return any(
+            event.card_id == card.id and event.action == "repair_order_printed"
+            for event in events
+        )
+
+    def _repair_order_number_locked(
+        self,
+        card: Card,
+        previous_order: RepairOrder,
+        events: list[AuditEvent],
+    ) -> bool:
+        return (
+            bool(previous_order.payments)
+            or previous_order.status == REPAIR_ORDER_STATUS_CLOSED
+            or card.archived
+            or self._repair_order_has_print_event(card, events)
+        )
+
+    def _ensure_repair_order_number_update_allowed(
+        self,
+        card: Card,
+        cards: list[Card],
+        previous_order: RepairOrder,
+        next_order: RepairOrder,
+        events: list[AuditEvent],
+    ) -> None:
+        next_number = normalize_text(next_order.number, default="", limit=40)
+        if next_number:
+            self._ensure_repair_order_number_unique(
+                cards,
+                next_number,
+                exclude_card_id=card.id,
+            )
+        previous_number = normalize_text(previous_order.number, default="", limit=40)
+        if self._repair_order_number_key(previous_number) == self._repair_order_number_key(
+            next_number
+        ):
+            return
+        if previous_number and self._repair_order_number_locked(card, previous_order, events):
+            self._fail(
+                "repair_order_number_locked",
+                "Номер заказ-наряда уже зафиксирован оплатой, закрытием, архивом или печатью. Используйте админ-действие исправления номера с причиной.",
+                status_code=409,
+                details={
+                    "field": "number",
+                    "card_id": card.id,
+                    "previous_number": previous_number,
+                    "next_number": next_number,
+                },
+            )
 
     def _repair_order_now(self) -> str:
         return datetime.now().astimezone().strftime("%d.%m.%Y %H:%M")
