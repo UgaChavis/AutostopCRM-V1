@@ -28,6 +28,7 @@ from ..settings_models import derive_allowed_hosts, derive_allowed_origins
 from .auth import build_auth_settings
 from .client import BoardApiClient, BoardApiTransportError
 from .oauth_provider import EmbeddedOAuthAuthorizationServerProvider
+from .tool_registry import MCP_TOOL_GROUPS, PUBLIC_MCP_TOOL_NAMES
 
 
 def _try_register_autostop_manager_tools(server: FastMCP, logger: Logger) -> None:
@@ -546,6 +547,11 @@ def create_mcp_server(
         transport_security.allowed_origins,
     )
     _try_register_autostop_manager_tools(server, logger)
+    logger.info(
+        "mcp.tool_registry groups=%s public_tools=%s",
+        ",".join(sorted(MCP_TOOL_GROUPS)),
+        len(PUBLIC_MCP_TOOL_NAMES),
+    )
 
     def _relay(tool_name: str, response: dict) -> JsonEnvelope:
         logger.info(

@@ -598,7 +598,7 @@ class AgentControlService:
             self._storage.write_memory_text(
                 "CRM URL: https://crm.autostopcrm.ru\n"
                 "MCP URL: https://crm.autostopcrm.ru/mcp\n"
-                "Default admin: admin/admin\n"
+                "Admin smoke credentials: use AUTOSTOP_SMOKE_OPERATOR_USERNAME/AUTOSTOP_SMOKE_OPERATOR_PASSWORD from the runtime environment.\n"
                 "Use cashbox names exactly as they exist.\n"
                 "If payment goes to cashbox 'Безналичный', the repair order adds 15% taxes and fees from that payment amount.\n"
                 "Cashboxes 'Наличный' and 'Карта Мария' do not add taxes and fees.\n"

@@ -98,6 +98,52 @@ class PerfProbeTests(unittest.TestCase):
         self.assertEqual(payload["threshold_status"], "failed")
         self.assertEqual(payload["violations"][0]["label"], "snapshot.gzip")
 
+    def test_main_can_probe_temporary_local_server(self) -> None:
+        module = load_perf_probe_module()
+
+        class FakeLocalServer:
+            base_url = "http://127.0.0.1:42751"
+
+            def __init__(self) -> None:
+                self.stopped = False
+
+            def stop(self) -> None:
+                self.stopped = True
+
+        fake_server = FakeLocalServer()
+        seen_base_urls: list[str] = []
+
+        def fake_measure(
+            base_url, label, path, *, iterations, method="GET", payload=None, gzip_ok=False
+        ):
+            _ = (path, iterations, method, payload, gzip_ok)
+            seen_base_urls.append(base_url)
+            if label == "snapshot.identity":
+                return {"data": {"cards": [{"id": "card-1"}]}}, [
+                    module.ProbeResult(label, 200, 10.0, 1000, "", "")
+                ]
+            return {}, [module.ProbeResult(label, 200, 10.0, 1000, "", "")]
+
+        stdout = io.StringIO()
+        with (
+            patch.object(module, "start_local_temp_server", return_value=fake_server),
+            patch.object(module, "measure", side_effect=fake_measure),
+            patch.object(
+                sys,
+                "argv",
+                ["perf_probe.py", "--local-temp-server", "--iterations", "1"],
+            ),
+            redirect_stdout(stdout),
+        ):
+            exit_code = module.main()
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(fake_server.stopped)
+        self.assertTrue(payload["local_temp_server"])
+        self.assertEqual(payload["base_url"], fake_server.base_url)
+        self.assertEqual(set(seen_base_urls), {fake_server.base_url})
+
 
 if __name__ == "__main__":
     unittest.main()

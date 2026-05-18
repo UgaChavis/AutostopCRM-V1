@@ -37,6 +37,7 @@ from minimal_kanban.mcp.server import (
     create_mcp_server,
 )
 from minimal_kanban.mcp.session_utils import managed_streamable_http_client
+from minimal_kanban.mcp.tool_registry import MCP_TOOL_GROUPS, PUBLIC_MCP_TOOL_NAMES
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
 
@@ -117,6 +118,24 @@ EXPECTED_MCP_TOOLS = {
 
 
 class McpRepairOrderPatchPayloadTests(unittest.TestCase):
+    def test_mcp_tool_group_registry_matches_public_snapshot(self) -> None:
+        grouped_names = [tool_name for group in MCP_TOOL_GROUPS.values() for tool_name in group]
+
+        self.assertEqual(len(grouped_names), len(set(grouped_names)))
+        self.assertEqual(PUBLIC_MCP_TOOL_NAMES, EXPECTED_MCP_TOOLS)
+        self.assertEqual(len(PUBLIC_MCP_TOOL_NAMES), 71)
+        self.assertEqual(
+            set(MCP_TOOL_GROUPS),
+            {
+                "diagnostics_bootstrap",
+                "board_cards",
+                "clients",
+                "repair_orders",
+                "cashboxes",
+                "files",
+            },
+        )
+
     def test_repair_order_patch_payload_keeps_api_fields_and_common_aliases(self) -> None:
         payload = RepairOrderPatchPayload.model_validate(
             {

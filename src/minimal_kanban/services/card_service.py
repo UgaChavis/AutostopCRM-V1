@@ -89,6 +89,7 @@ from ..vehicle_profile import (
     normalize_license_plate,
 )
 from .column_service import ColumnService
+from .finance_read_core import FinanceReadCore
 from .ready_column import READY_CARD_TAG_COLOR, READY_CARD_TAG_LABEL, ensure_ready_column
 from .snapshot_service import SnapshotService
 from .vehicle_profile_service import VehicleProfileService
@@ -498,6 +499,7 @@ class CardService:
         self._repair_orders_dir.mkdir(parents=True, exist_ok=True)
         self._vehicle_profiles = VehicleProfileService()
         self._print_module = PrintModuleService(self._store.base_dir)
+        self._finance_read_core = FinanceReadCore(self)
         self._column_service = ColumnService(
             store,
             logger,
@@ -1302,107 +1304,16 @@ class CardService:
         return self._snapshot_service.get_board_events(payload)
 
     def list_cashboxes(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            limit = self._validated_limit(payload.get("limit"), default=200, maximum=1000)
-            bundle = self._store.read_bundle()
-            cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
-            transactions = bundle["cash_transactions"]
-            serialized_cashboxes = [
-                self._serialize_cashbox(cashbox, transactions) for cashbox in cashboxes[:limit]
-            ]
-            return {
-                "cashboxes": serialized_cashboxes,
-                "meta": {
-                    "total": len(cashboxes),
-                    "transactions_total": len(transactions),
-                    "limit": limit,
-                    "returned": len(serialized_cashboxes),
-                    "has_more": len(cashboxes) > len(serialized_cashboxes),
-                },
-            }
+        return self._finance_read_core.list_cashboxes(payload)
 
     def get_cashbox(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            transaction_limit = self._validated_limit(
-                payload.get("transaction_limit"), default=300, maximum=5000
-            )
-            bundle = self._store.read_bundle()
-            cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
-            cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
-            transactions = self._cashbox_transactions(bundle["cash_transactions"], cashbox.id)
-            repair_order_transaction_context = self._repair_order_transaction_context(
-                bundle["cards"]
-            )
-            return {
-                "cashbox": self._serialize_cashbox(cashbox, bundle["cash_transactions"]),
-                "transactions": [
-                    self._serialize_cash_transaction(
-                        item,
-                        repair_order_context=repair_order_transaction_context.get(item.id),
-                    )
-                    for item in transactions[:transaction_limit]
-                ],
-                "meta": {
-                    "transactions_total": len(transactions),
-                    "transaction_limit": transaction_limit,
-                },
-            }
+        return self._finance_read_core.get_cashbox(payload)
 
     def get_cash_journal(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            months = self._validated_limit(payload.get("months"), default=3, maximum=12)
-            limit = self._validated_limit(payload.get("limit"), default=5000, maximum=10000)
-            bundle = self._store.read_bundle()
-            period_start = datetime.now(tz=business_timezone()) - timedelta(days=30 * months)
-            recent_transactions: list[CashTransaction] = []
-            for item in bundle["cash_transactions"]:
-                created_at = self._cash_transaction_business_datetime(item.created_at)
-                if created_at is None or created_at < period_start:
-                    continue
-                recent_transactions.append(item)
-            recent_transactions.sort(
-                key=lambda item: (
-                    self._cash_transaction_business_sortable_datetime(item.created_at),
-                    item.id,
-                ),
-                reverse=True,
-            )
-            returned_transactions = recent_transactions[:limit]
-            cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
-            cashboxes_by_id = {cashbox.id: cashbox for cashbox in cashboxes}
-            repair_order_transaction_context = self._repair_order_transaction_context(
-                bundle["cards"]
-            )
-            journal = self._build_cash_journal(
-                returned_transactions,
-                cashboxes_by_id,
-                months=months,
-                limit=limit,
-                total=len(recent_transactions),
-                period_start=period_start,
-                all_transactions=bundle["cash_transactions"],
-                cashboxes=cashboxes,
-                repair_order_transaction_context=repair_order_transaction_context,
-            )
-            return {
-                "entries": journal["entries"],
-                "days": journal["days"],
-                "weeks": journal["weeks"],
-                "months": journal["months"],
-                "totals": journal["totals"],
-                "markdown": journal["markdown"],
-                "text": journal["markdown"],
-                "meta": journal["meta"],
-            }
+        return self._finance_read_core.get_cash_journal(payload)
 
     def get_finance_audit(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            _ = payload or {}
-            bundle = self._store.read_bundle()
-            return self._build_finance_audit(bundle)
+        return self._finance_read_core.get_finance_audit(payload)
 
     def apply_finance_audit_safe_fixes(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -6984,7 +6895,23 @@ class CardService:
         transactions_by_id = {transaction.id: transaction for transaction in transactions}
         cashboxes_by_id = {cashbox.id: cashbox for cashbox in bundle["cashboxes"]}
         payment_links = self._finance_payment_links(cards)
+        payment_refs_by_transaction_id: dict[str, list[tuple[Card, RepairOrderPayment]]] = {}
+        for payment_card in cards:
+            for payment in payment_card.repair_order.payments:
+                transaction_id = normalize_text(
+                    payment.cash_transaction_id,
+                    default="",
+                    limit=128,
+                )
+                if transaction_id:
+                    payment_refs_by_transaction_id.setdefault(transaction_id, []).append(
+                        (payment_card, payment)
+                    )
+        employee_ids = {
+            employee["id"] for employee in self._employees_from_settings(bundle.get("settings", {}))
+        }
         issues: list[dict[str, object]] = []
+        checked_transfer_keys: set[str] = set()
 
         for card in cards:
             order = card.repair_order
@@ -7015,6 +6942,28 @@ class CardService:
                         )
                     )
                     continue
+                duplicate_payment_refs = payment_refs_by_transaction_id.get(transaction_id, [])
+                if len(duplicate_payment_refs) > 1:
+                    issues.append(
+                        self._finance_audit_issue(
+                            code="duplicate_repair_order_payment_cash_link",
+                            severity="error",
+                            message="Несколько оплат заказ-нарядов ссылаются на одно движение кассы.",
+                            card=card,
+                            payment=payment,
+                            transaction=transaction,
+                            data={
+                                "linked_payments": [
+                                    {
+                                        "card_id": linked_card.id,
+                                        "repair_order_number": linked_card.repair_order.number,
+                                        "repair_order_payment_id": linked_payment.id,
+                                    }
+                                    for linked_card, linked_payment in duplicate_payment_refs
+                                ],
+                            },
+                        )
+                    )
                 if transaction.transaction_kind != "repair_order_payment":
                     issues.append(
                         self._finance_audit_issue(
@@ -7092,6 +7041,7 @@ class CardService:
 
         for transaction in transactions:
             kind = normalize_text(transaction.transaction_kind, default="", limit=32)
+            kind_casefold = kind.casefold()
             if transaction.cashbox_id not in cashboxes_by_id:
                 issues.append(
                     self._finance_audit_issue(
@@ -7102,6 +7052,101 @@ class CardService:
                         data={"cashbox_id": transaction.cashbox_id},
                     )
                 )
+            if kind_casefold in {"salary_payout", "salary_advance"}:
+                employee_id = normalize_text(transaction.employee_id, default="", limit=64)
+                if not employee_id or employee_id not in employee_ids:
+                    issues.append(
+                        self._finance_audit_issue(
+                            code="salary_transaction_missing_employee",
+                            severity="error",
+                            message="Зарплатное движение кассы ссылается на отсутствующего сотрудника.",
+                            transaction=transaction,
+                            data={
+                                "employee_id": employee_id,
+                                "employee_name": transaction.employee_name,
+                                "transaction_kind": kind,
+                            },
+                        )
+                    )
+            if transaction.transfer_group_id or transaction.related_transaction_id:
+                transfer_key = transaction.transfer_group_id or "|".join(
+                    sorted(
+                        [
+                            transaction.id,
+                            normalize_text(
+                                transaction.related_transaction_id,
+                                default="",
+                                limit=128,
+                            ),
+                        ]
+                    )
+                )
+                if transfer_key not in checked_transfer_keys:
+                    checked_transfer_keys.add(transfer_key)
+                    related_transaction = (
+                        transactions_by_id.get(transaction.related_transaction_id)
+                        if transaction.related_transaction_id
+                        else None
+                    )
+                    if related_transaction is None and transaction.transfer_group_id:
+                        group_peers = [
+                            candidate
+                            for candidate in transactions
+                            if candidate.id != transaction.id
+                            and candidate.transfer_group_id == transaction.transfer_group_id
+                        ]
+                        related_transaction = group_peers[0] if len(group_peers) == 1 else None
+                    if related_transaction is None:
+                        issues.append(
+                            self._finance_audit_issue(
+                                code="transfer_pair_missing",
+                                severity="error",
+                                message="Внутреннее перемещение кассы не имеет найденной парной операции.",
+                                transaction=transaction,
+                                data={
+                                    "transfer_group_id": transaction.transfer_group_id,
+                                    "related_transaction_id": transaction.related_transaction_id,
+                                },
+                            )
+                        )
+                    else:
+                        mismatch_reasons: list[str] = []
+                        if related_transaction.direction == transaction.direction:
+                            mismatch_reasons.append("same_direction")
+                        if related_transaction.amount_minor != transaction.amount_minor:
+                            mismatch_reasons.append("amount")
+                        if (
+                            transaction.transfer_group_id
+                            and related_transaction.transfer_group_id
+                            and related_transaction.transfer_group_id
+                            != transaction.transfer_group_id
+                        ):
+                            mismatch_reasons.append("transfer_group")
+                        if (
+                            related_transaction.related_transaction_id
+                            and related_transaction.related_transaction_id != transaction.id
+                        ):
+                            mismatch_reasons.append("related_transaction")
+                        if mismatch_reasons:
+                            issues.append(
+                                self._finance_audit_issue(
+                                    code=(
+                                        "transfer_pair_amount_mismatch"
+                                        if "amount" in mismatch_reasons
+                                        else "transfer_pair_mismatch"
+                                    ),
+                                    severity="error",
+                                    message="Парные операции внутреннего перемещения кассы не совпадают.",
+                                    transaction=transaction,
+                                    data={
+                                        "peer_cash_transaction_id": related_transaction.id,
+                                        "transfer_group_id": transaction.transfer_group_id,
+                                        "mismatch_reasons": mismatch_reasons,
+                                        "amount_minor": transaction.amount_minor,
+                                        "peer_amount_minor": related_transaction.amount_minor,
+                                    },
+                                )
+                            )
             has_default_order_note = self._is_default_repair_order_cash_transaction_note(
                 transaction.note
             )

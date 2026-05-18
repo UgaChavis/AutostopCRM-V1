@@ -70,6 +70,7 @@ class DeployScriptTests(unittest.TestCase):
         workflow = (PROJECT_ROOT / ".github" / "workflows" / "quality.yml").read_text(
             encoding="utf-8"
         )
+        requirements_dev = (PROJECT_ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
 
         self.assertIn("ruff format --check .", workflow)
         self.assertIn("ruff check .", workflow)
@@ -77,7 +78,13 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("python scripts/audit_localization.py", workflow)
         self.assertIn("python scripts/check_web_assets_js.py", workflow)
         self.assertIn("python scripts/perf_probe.py", workflow)
+        self.assertIn("--local-temp-server", workflow)
+        self.assertIn("perf-probe-local.json", workflow)
         self.assertIn("python scripts/finance_audit_report.py", workflow)
+        self.assertIn("browser_smoke", workflow)
+        self.assertIn("python -m playwright install chromium", workflow)
+        self.assertIn("python scripts/browser_smoke.py", workflow)
+        self.assertIn("playwright", requirements_dev)
 
     def test_runbook_and_codex_workflow_document_quality_gates(self) -> None:
         runbook = (PROJECT_ROOT / "docs" / "OPERATIONS_RUNBOOK.md").read_text(encoding="utf-8")
@@ -88,6 +95,9 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("Performance Smoke", runbook)
         self.assertIn("scripts\\finance_audit_report.py", runbook)
         self.assertIn("scripts\\perf_probe.py", runbook)
+        self.assertIn("AUTOSTOP_SMOKE_OPERATOR_USERNAME", runbook)
+        self.assertIn("AUTOSTOP_SMOKE_OPERATOR_PASSWORD", runbook)
+        self.assertNotIn("--operator-username admin --operator-password admin", runbook)
         self.assertIn("docs/OPERATIONS_RUNBOOK.md", workflow)
 
 

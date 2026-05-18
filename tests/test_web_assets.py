@@ -44,6 +44,11 @@ class _EmployeesLayoutParser(HTMLParser):
 
 
 class WebAssetsTests(unittest.TestCase):
+    def test_web_assets_facade_exports_assembled_html(self) -> None:
+        from minimal_kanban.web_app_assets.assembler import BOARD_WEB_APP_HTML as assembled_html
+
+        self.assertEqual(BOARD_WEB_APP_HTML, assembled_html)
+
     def test_board_brand_uses_autostop_name(self) -> None:
         self.assertIn("<title>AutoStop</title>", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -418,7 +423,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn(".archive-row--compact {", BOARD_WEB_APP_HTML)
         self.assertIn(".archive-row__summary {", BOARD_WEB_APP_HTML)
-        self.assertIn("renderArchive = function() {", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderArchive() {", BOARD_WEB_APP_HTML)
         self.assertIn("compactDescription.length > 180", BOARD_WEB_APP_HTML)
         self.assertIn("archive-row archive-row--compact", BOARD_WEB_APP_HTML)
         self.assertIn("await restoreCard(target.dataset.restoreCard);", BOARD_WEB_APP_HTML)
@@ -1362,8 +1367,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("@media (prefers-reduced-motion: reduce) {", BOARD_WEB_APP_HTML)
 
     def test_unread_cards_expose_corner_badge_and_hover_seen_flow(self) -> None:
-        self.assertEqual(BOARD_WEB_APP_HTML.count("function cardHtml(card)"), 1)
-        self.assertEqual(BOARD_WEB_APP_HTML.count("function renderCardHtml(card)"), 1)
+        self.assertEqual(BOARD_WEB_APP_HTML.count("function cardUnreadBadgeHtml(card)"), 1)
+        self.assertEqual(BOARD_WEB_APP_HTML.count("function renderBoardCardHtml(card)"), 1)
         self.assertIn(".card__unread-badge {", BOARD_WEB_APP_HTML)
         self.assertIn(
             "data-unread=\"' + (card.is_unread ? 'true' : 'false') + '\"", BOARD_WEB_APP_HTML
@@ -1595,6 +1600,13 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("'X-Operator-Session'", BOARD_WEB_APP_HTML)
         self.assertIn('id="operatorProfileModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="operatorAdminModal"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="operatorSecurityWarning"', BOARD_WEB_APP_HTML)
+        self.assertIn(".operator-security-warning {", BOARD_WEB_APP_HTML)
+        self.assertIn("const securityWarning = data?.security?.warning || '';", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.operatorSecurityWarning.classList.toggle('hidden', !securityWarning);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn('id="identityPassword"', BOARD_WEB_APP_HTML)
         self.assertIn('id="adminUserLogin"', BOARD_WEB_APP_HTML)
         self.assertIn('id="adminUserPassword"', BOARD_WEB_APP_HTML)
@@ -1885,7 +1897,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function removeRepairOrderTag(label)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleRepairOrderTagInputKeydown(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function saveRepairOrderDraft()", BOARD_WEB_APP_HTML)
-        self.assertIn("function printRepairOrderDraft()", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "printRepairOrderDraft = function() { return openRepairOrderPrintWorkspace(); };",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("async function ensureRepairOrderCard()", BOARD_WEB_APP_HTML)
         self.assertIn("async function requireRepairOrderCardId()", BOARD_WEB_APP_HTML)
         self.assertIn("const data = await persistCardPayload(payload);", BOARD_WEB_APP_HTML)
@@ -2708,6 +2723,17 @@ class WebAssetsTests(unittest.TestCase):
         )
 
     def test_web_assets_do_not_keep_duplicate_active_function_names(self) -> None:
+        named_functions = re.findall(
+            r"(?:^|\n)\s*(?:function\s+([A-Za-z_$][\w$]*)\s*\(|([A-Za-z_$][\w$]*)\s*=\s*function\s*\()",
+            BOARD_WEB_APP_HTML,
+        )
+        counts: dict[str, int] = {}
+        for declaration_name, assignment_name in named_functions:
+            name = declaration_name or assignment_name
+            counts[name] = counts.get(name, 0) + 1
+        duplicates = {name: count for name, count in sorted(counts.items()) if count > 1}
+        self.assertEqual(duplicates, {})
+
         self.assertEqual(BOARD_WEB_APP_HTML.count("function buildVehicleAutofillRawText()"), 1)
         self.assertEqual(BOARD_WEB_APP_HTML.count("function refreshVehiclePanel()"), 1)
         self.assertEqual(BOARD_WEB_APP_HTML.count("async function saveCard()"), 1)

@@ -3,12 +3,18 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import logging
 import statistics
+import tempfile
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
 
 
 @dataclass(frozen=True)
@@ -19,6 +25,58 @@ class ProbeResult:
     bytes_received: int
     content_encoding: str
     server_timing: str
+
+
+@dataclass
+class LocalTempServer:
+    base_url: str
+    server: Any
+    temp_dir: tempfile.TemporaryDirectory[str]
+
+    def stop(self) -> None:
+        self.server.stop()
+        self.temp_dir.cleanup()
+
+
+def start_local_temp_server() -> LocalTempServer:
+    import sys
+
+    if str(SRC) not in sys.path:
+        sys.path.insert(0, str(SRC))
+
+    from minimal_kanban.api.server import ApiServer
+    from minimal_kanban.services.card_service import CardService
+    from minimal_kanban.storage.json_store import JsonStore
+
+    temp_dir = tempfile.TemporaryDirectory()
+    logger = logging.getLogger("perf_probe.local_temp_server")
+    logger.addHandler(logging.NullHandler())
+    store = JsonStore(state_file=Path(temp_dir.name) / "state.json", logger=logger)
+    service = CardService(
+        store,
+        logger,
+        attachments_dir=Path(temp_dir.name) / "attachments",
+        repair_orders_dir=Path(temp_dir.name) / "repair-orders",
+    )
+    service.create_card(
+        {
+            "vehicle": "Smoke Vehicle",
+            "title": "Performance probe card",
+            "description": "Temporary local card for perf_probe.",
+            "deadline": {"hours": 2},
+            "actor_name": "PERF",
+        }
+    )
+    server = ApiServer(
+        service,
+        logger,
+        host="127.0.0.1",
+        start_port=42751,
+        fallback_limit=20,
+        bearer_token="",
+    )
+    server.start()
+    return LocalTempServer(base_url=server.base_url, server=server, temp_dir=temp_dir)
 
 
 def _url(base_url: str, path: str) -> str:
@@ -166,6 +224,11 @@ def main() -> int:
         description="Read-only AutoStop CRM latency and payload probe."
     )
     parser.add_argument("--base-url", default="https://crm.autostopcrm.ru")
+    parser.add_argument(
+        "--local-temp-server",
+        action="store_true",
+        help="Start a temporary local API server with synthetic data and probe it.",
+    )
     parser.add_argument("--iterations", type=int, default=3)
     parser.add_argument("--card-id", default="")
     parser.add_argument("--max-snapshot-identity-ms", type=float, default=0.0)
@@ -176,43 +239,49 @@ def main() -> int:
     parser.add_argument("--max-get-card-ms", type=float, default=0.0)
     args = parser.parse_args()
 
-    rows: list[dict[str, Any]] = []
-    snapshot_payload, results = measure(
-        args.base_url,
-        "snapshot.identity",
-        "/api/get_board_snapshot?compact=1&include_archive=0",
-        iterations=args.iterations,
-    )
-    rows.append(summarize(results))
-
-    _, results = measure(
-        args.base_url,
-        "snapshot.gzip",
-        "/api/get_board_snapshot?compact=1&include_archive=0",
-        iterations=args.iterations,
-        gzip_ok=True,
-    )
-    rows.append(summarize(results))
-
-    _, results = measure(
-        args.base_url,
-        "revision",
-        "/api/get_board_revision?compact=1&include_archive=0",
-        iterations=args.iterations,
-    )
-    rows.append(summarize(results))
-
-    card_id = args.card_id or first_card_id(snapshot_payload or {})
-    if card_id:
-        _, results = measure(
-            args.base_url,
-            "get_card",
-            "/api/get_card",
+    local_server = start_local_temp_server() if args.local_temp_server else None
+    base_url = local_server.base_url if local_server is not None else args.base_url
+    try:
+        rows: list[dict[str, Any]] = []
+        snapshot_payload, results = measure(
+            base_url,
+            "snapshot.identity",
+            "/api/get_board_snapshot?compact=1&include_archive=0",
             iterations=args.iterations,
-            method="POST",
-            payload={"card_id": card_id},
         )
         rows.append(summarize(results))
+
+        _, results = measure(
+            base_url,
+            "snapshot.gzip",
+            "/api/get_board_snapshot?compact=1&include_archive=0",
+            iterations=args.iterations,
+            gzip_ok=True,
+        )
+        rows.append(summarize(results))
+
+        _, results = measure(
+            base_url,
+            "revision",
+            "/api/get_board_revision?compact=1&include_archive=0",
+            iterations=args.iterations,
+        )
+        rows.append(summarize(results))
+
+        card_id = args.card_id or first_card_id(snapshot_payload or {})
+        if card_id:
+            _, results = measure(
+                base_url,
+                "get_card",
+                "/api/get_card",
+                iterations=args.iterations,
+                method="POST",
+                payload={"card_id": card_id},
+            )
+            rows.append(summarize(results))
+    finally:
+        if local_server is not None:
+            local_server.stop()
 
     thresholds = {
         "snapshot.identity.avg_ms": args.max_snapshot_identity_ms,
@@ -224,7 +293,8 @@ def main() -> int:
     }
     violations = evaluate_thresholds(rows, thresholds)
     output = {
-        "base_url": args.base_url,
+        "base_url": base_url,
+        "local_temp_server": bool(args.local_temp_server),
         "iterations": args.iterations,
         "rows": rows,
         "threshold_status": "failed" if violations else "passed",

@@ -12,6 +12,10 @@ on:
         description: "Run read-only production probes"
         required: false
         default: "false"
+      browser_smoke:
+        description: "Run optional temp-data browser smoke"
+        required: false
+        default: "false"
 
 jobs:
   quality:
@@ -49,7 +53,25 @@ jobs:
         run: python scripts/check_web_assets_js.py
 
       - name: Compile release probe scripts
-        run: python -m py_compile scripts/perf_probe.py scripts/finance_audit_report.py
+        run: python -m py_compile scripts/perf_probe.py scripts/finance_audit_report.py scripts/browser_smoke.py
+
+      - name: Local temp performance probe
+        run: |
+          python scripts/perf_probe.py \
+            --local-temp-server \
+            --iterations 1 \
+            --max-snapshot-gzip-ms 1200 \
+            --max-snapshot-gzip-bytes 120000 \
+            --max-revision-ms 800 \
+            --max-get-card-ms 800 | tee perf-probe-local.json
+
+      - name: Optional browser smoke dependencies
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser_smoke == 'true' }}
+        run: python -m playwright install chromium
+
+      - name: Optional browser smoke
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser_smoke == 'true' }}
+        run: python scripts/browser_smoke.py | tee browser-smoke.json
 
       - name: Optional read-only live probes
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_probes == 'true' }}
@@ -66,11 +88,13 @@ jobs:
             --format json | tee finance-audit.json
 
       - name: Upload live probe artifacts
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.live_probes == 'true' }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && (inputs.live_probes == 'true' || inputs.browser_smoke == 'true') }}
         uses: actions/upload-artifact@v4
         with:
-          name: live-probes
+          name: optional-probes
           path: |
             perf-probe.json
+            perf-probe-local.json
             finance-audit.json
+            browser-smoke.json
           if-no-files-found: ignore

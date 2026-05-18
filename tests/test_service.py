@@ -41,6 +41,7 @@ from minimal_kanban.models import (
 from minimal_kanban.agent.config import get_agent_name
 from minimal_kanban.repair_order import RepairOrder
 from minimal_kanban.services.card_service import CardService, ServiceError
+from minimal_kanban.services.finance_read_core import FinanceReadCore
 from minimal_kanban.storage.financial_history_cleanup import sanitize_financial_history_state
 from minimal_kanban.storage.json_store import JsonStore
 from minimal_kanban.vehicle_profile import VehicleProfile
@@ -2484,6 +2485,40 @@ class CardServiceTests(unittest.TestCase):
         self.assertNotIn("`", journal["markdown"])
         self.assertEqual(journal["totals"]["transfer_income_minor"], 300000)
         self.assertEqual(journal["totals"]["transfer_expense_minor"], 300000)
+
+    def test_finance_read_core_preserves_cashbox_and_audit_facades(self) -> None:
+        self.assertIsInstance(self.service._finance_read_core, FinanceReadCore)
+        cashbox = self.service.create_cashbox({"name": "Основная касса"})["cashbox"]
+        self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "income",
+                "amount": "1200",
+                "note": "Тестовая операция",
+            }
+        )
+
+        self.assertEqual(
+            self.service.list_cashboxes({"limit": 20}),
+            self.service._finance_read_core.list_cashboxes({"limit": 20}),
+        )
+        self.assertEqual(
+            self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 5}),
+            self.service._finance_read_core.get_cashbox(
+                {"cashbox_id": cashbox["id"], "transaction_limit": 5}
+            ),
+        )
+        facade_journal = self.service.get_cash_journal({"months": 3, "limit": 100})
+        core_journal = self.service._finance_read_core.get_cash_journal({"months": 3, "limit": 100})
+        facade_journal["meta"]["period_start"] = ""
+        core_journal["meta"]["period_start"] = ""
+        self.assertEqual(facade_journal, core_journal)
+
+        facade_audit = self.service.get_finance_audit()
+        core_audit = self.service._finance_read_core.get_finance_audit()
+        facade_audit["meta"]["generated_at"] = ""
+        core_audit["meta"]["generated_at"] = ""
+        self.assertEqual(facade_audit, core_audit)
 
     def test_move_card_can_reorder_within_same_column(self) -> None:
         first = self.service.create_card(
@@ -5197,6 +5232,121 @@ class CardServiceTests(unittest.TestCase):
             issues["cash_transaction_missing_cashbox"]["cashbox_id"], "cashbox-missing"
         )
         self.assertFalse(issues["cash_transaction_missing_cashbox"]["safe_fix_available"])
+
+    def test_finance_audit_reports_read_only_cross_link_issues(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        card = self.service.create_card(
+            {"vehicle": "Skoda Rapid", "title": "Сверка", "deadline": {"hours": 2}}
+        )["card"]
+        order = self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "number": "214",
+                    "works": [{"name": "Работа", "quantity": "1", "price": "4000"}],
+                    "payments": [
+                        {
+                            "amount": "4000",
+                            "paid_at": "18.05.2026 12:39",
+                            "payment_method": "cash",
+                            "cashbox_id": cashbox["id"],
+                            "actor_name": "ADMIN",
+                        }
+                    ],
+                },
+            }
+        )["card"]["repair_order"]
+        transaction_id = order["payments"][0]["cash_transaction_id"]
+        duplicate_card = self.service.create_card(
+            {"vehicle": "Audi A6", "title": "Дубль оплаты", "deadline": {"hours": 2}}
+        )["card"]
+        bundle = self.store.read_bundle()
+        card_to_duplicate = next(
+            item for item in bundle["cards"] if item.id == duplicate_card["id"]
+        )
+        card_to_duplicate.repair_order = RepairOrder.from_dict(
+            {
+                "number": "215",
+                "works": [{"name": "Работа", "quantity": "1", "price": "4000"}],
+                "payments": [
+                    {
+                        "id": "payment-duplicate",
+                        "amount": "4000",
+                        "paid_at": "18.05.2026 13:00",
+                        "payment_method": "cash",
+                        "cashbox_id": cashbox["id"],
+                        "cashbox_name": "Наличный",
+                        "cash_transaction_id": transaction_id,
+                    }
+                ],
+            }
+        )
+        bundle["cash_transactions"].extend(
+            [
+                CashTransaction(
+                    id="tx-transfer-out",
+                    cashbox_id=cashbox["id"],
+                    direction="expense",
+                    amount_minor=300000,
+                    note="Перемещение",
+                    created_at="2026-05-18T09:00:00+07:00",
+                    actor_name="ADMIN",
+                    source="api",
+                    transfer_group_id="transfer-broken",
+                    related_transaction_id="tx-transfer-in",
+                ),
+                CashTransaction(
+                    id="tx-transfer-in",
+                    cashbox_id=cashbox["id"],
+                    direction="income",
+                    amount_minor=250000,
+                    note="Перемещение",
+                    created_at="2026-05-18T09:00:00+07:00",
+                    actor_name="ADMIN",
+                    source="api",
+                    transfer_group_id="transfer-broken",
+                    related_transaction_id="tx-transfer-out",
+                ),
+                CashTransaction(
+                    id="tx-salary-missing-employee",
+                    cashbox_id=cashbox["id"],
+                    direction="expense",
+                    amount_minor=100000,
+                    note="Зарплата",
+                    created_at="2026-05-18T10:00:00+07:00",
+                    actor_name="ADMIN",
+                    source="api",
+                    employee_id="employee-missing",
+                    transaction_kind="salary_payout",
+                ),
+            ]
+        )
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        audit = self.service.get_finance_audit()
+        codes = {issue["code"] for issue in audit["issues"]}
+
+        self.assertIn("duplicate_repair_order_payment_cash_link", codes)
+        self.assertIn("transfer_pair_amount_mismatch", codes)
+        self.assertIn("salary_transaction_missing_employee", codes)
+        for issue in audit["issues"]:
+            if issue["code"] in {
+                "duplicate_repair_order_payment_cash_link",
+                "transfer_pair_amount_mismatch",
+                "salary_transaction_missing_employee",
+            }:
+                self.assertFalse(issue["safe_fix_available"])
 
     def test_list_repair_orders_supports_query_sort_and_tags(self) -> None:
         first = self.service.create_card(
