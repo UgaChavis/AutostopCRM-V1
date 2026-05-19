@@ -10,6 +10,7 @@ import re
 import socket
 import sys
 import tempfile
+import types
 import unittest
 import urllib.error
 from contextlib import asynccontextmanager, suppress
@@ -409,6 +410,10 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     identity.structuredContent["data"]["identity"]["board_scope"],
                     "single_local_board_instance",
                 )
+                self.assertIn("request_id", identity.structuredContent["meta"])
+                self.assertIn("timestamp", identity.structuredContent["meta"])
+                self.assertIn("latency_ms", identity.structuredContent["meta"])
+                self.assertEqual(identity.structuredContent["meta"]["response_mode"], "identity")
 
                 board_context = await session.call_tool("get_board_context", {})
                 self.assertFalse(board_context.isError)
@@ -1695,6 +1700,58 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertFalse(deleted.isError)
                 self.assertTrue(deleted.structuredContent["data"]["meta"]["deleted"])
+
+    def test_optional_manager_tools_get_safe_annotations_after_registration(self) -> None:
+        manager_package = types.ModuleType("autostop_manager")
+        manager_tools = types.ModuleType("autostop_manager.mcp_tools")
+
+        def register_manager_memory_tools(server):
+            @server.tool(name="recall")
+            def recall() -> dict[str, bool]:
+                return {"ok": True}
+
+            @server.tool(name="system_audit")
+            def system_audit() -> dict[str, bool]:
+                return {"ok": True}
+
+            @server.tool(name="remember")
+            def remember(content: str) -> dict[str, bool]:
+                return {"ok": bool(content)}
+
+            @server.tool(name="curate_memory")
+            def curate_memory(apply: bool = False) -> dict[str, bool]:
+                return {"ok": True, "applied": apply}
+
+        manager_tools.register_manager_memory_tools = register_manager_memory_tools
+        with patch.dict(
+            sys.modules,
+            {
+                "autostop_manager": manager_package,
+                "autostop_manager.mcp_tools": manager_tools,
+            },
+        ):
+            board_api = BoardApiClient(
+                self.api_server.base_url, bearer_token="api-secret", logger=self.logger
+            )
+            mcp_server = create_mcp_server(
+                board_api,
+                self.logger,
+                host="127.0.0.1",
+                port=reserve_port(),
+                path="/manager-tools",
+                bearer_token=None,
+                oauth_state_file=self.oauth_state_file,
+            )
+
+        tools = {tool.name: tool for tool in mcp_server._tool_manager.list_tools()}
+        self.assertTrue(tools["recall"].annotations.readOnlyHint)
+        self.assertFalse(tools["recall"].annotations.destructiveHint)
+        self.assertTrue(tools["system_audit"].annotations.readOnlyHint)
+        self.assertFalse(tools["system_audit"].annotations.destructiveHint)
+        self.assertFalse(tools["remember"].annotations.readOnlyHint)
+        self.assertFalse(tools["remember"].annotations.destructiveHint)
+        self.assertFalse(tools["curate_memory"].annotations.readOnlyHint)
+        self.assertFalse(tools["curate_memory"].annotations.destructiveHint)
 
     async def test_mcp_move_card_supports_before_card_id_reordering(self) -> None:
         async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:

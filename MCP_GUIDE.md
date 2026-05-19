@@ -197,6 +197,12 @@ Cashboxes:
 - `delete_cashbox`
 - `create_cash_transaction`
 
+`get_cash_journal` exposes the structured cash journal for operators and agents.
+The browser UI is journal-first: no visible finance-audit/reconciliation
+entrypoint, compact rows, batch rendering, and transfer pairs shown as one
+logical `from -> to` operation. Finance audit remains API/CLI diagnostics and
+requires the audit-first runbook before any live safe-fix.
+
 Shared files and attachments:
 
 - `list_shared_files`
@@ -289,7 +295,7 @@ python -m unittest tests.test_mcp tests.test_mcp_main tests.test_connection_card
 Local smoke:
 
 ```powershell
-python scripts\check_live_connector.py --strict --skip-public-site --skip-public-write-protection --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username admin --operator-password admin --expect-admin
+python scripts\check_live_connector.py --strict --skip-public-site --skip-public-write-protection --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username $env:AUTOSTOP_SMOKE_OPERATOR_USERNAME --operator-password $env:AUTOSTOP_SMOKE_OPERATOR_PASSWORD --expect-admin
 ```
 
 Production checks live in `docs/OPERATIONS_RUNBOOK.md`.

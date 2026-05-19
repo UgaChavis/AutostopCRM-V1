@@ -30,6 +30,48 @@ from .client import BoardApiClient, BoardApiTransportError
 from .oauth_provider import EmbeddedOAuthAuthorizationServerProvider
 from .tool_registry import MCP_TOOL_GROUPS, PUBLIC_MCP_TOOL_NAMES
 
+_AUTOSTOP_MANAGER_READ_ONLY_TOOLS = frozenset(
+    {
+        "agent_brief",
+        "audit_knowledge_annotations",
+        "audit_knowledge_base",
+        "audit_memory",
+        "audit_skill_registry",
+        "cleanup_audit",
+        "crm_health_plan",
+        "list_manager_runs",
+        "lookup_original_parts",
+        "memory_context_for",
+        "memory_gaps",
+        "memory_map",
+        "memory_topics",
+        "prepare_manager_context",
+        "probe_knowledge_base",
+        "recall",
+        "recall_lessons",
+        "recommend_automotive_sources",
+        "recommend_fluid_maintenance_sources",
+        "recommend_service_management_actions",
+        "search_knowledge_base",
+        "system_audit",
+        "today_context",
+    }
+)
+
+_AUTOSTOP_MANAGER_WRITE_TOOLS = frozenset(
+    {
+        "add_manager_task",
+        "curate_memory",
+        "finish_manager_run",
+        "learn_from_feedback",
+        "manager_journal",
+        "record_manager_run_event",
+        "remember",
+        "start_manager_run",
+        "sync_knowledge_base",
+    }
+)
+
 
 def _try_register_autostop_manager_tools(server: FastMCP, logger: Logger) -> None:
     configured_path = os.environ.get("AUTOSTOP_MANAGER_PATH", "").strip()
@@ -428,6 +470,39 @@ def _write_tool_annotations(
     )
 
 
+def _title_from_tool_name(tool_name: str) -> str:
+    return " ".join(part.capitalize() for part in str(tool_name).split("_") if part)
+
+
+def _annotate_autostop_manager_tools(server: FastMCP, logger: Logger) -> None:
+    tool_manager = getattr(server, "_tool_manager", None)
+    tools = getattr(tool_manager, "_tools", None)
+    if not isinstance(tools, dict):
+        return
+
+    updated = 0
+    for tool_name in _AUTOSTOP_MANAGER_READ_ONLY_TOOLS:
+        tool = tools.get(tool_name)
+        if tool is None:
+            continue
+        tool.annotations = _read_tool_annotations(
+            getattr(tool, "title", None) or _title_from_tool_name(tool_name)
+        )
+        updated += 1
+
+    for tool_name in _AUTOSTOP_MANAGER_WRITE_TOOLS:
+        tool = tools.get(tool_name)
+        if tool is None:
+            continue
+        tool.annotations = _write_tool_annotations(
+            getattr(tool, "title", None) or _title_from_tool_name(tool_name)
+        )
+        updated += 1
+
+    if updated:
+        logger.info("autostop_manager.memory_tools annotations updated: %s", updated)
+
+
 def create_mcp_server(
     board_api: BoardApiClient,
     logger: Logger,
@@ -547,6 +622,7 @@ def create_mcp_server(
         transport_security.allowed_origins,
     )
     _try_register_autostop_manager_tools(server, logger)
+    _annotate_autostop_manager_tools(server, logger)
     logger.info(
         "mcp.tool_registry groups=%s public_tools=%s",
         ",".join(sorted(MCP_TOOL_GROUPS)),
@@ -1028,12 +1104,17 @@ def create_mcp_server(
         structured_output=True,
     )
     def get_connector_identity() -> ConnectorIdentityEnvelope:
+        started_at = perf_counter()
         return _relay_identity_data(
             {
                 "identity": dict(connector_identity),
                 "text": _identity_text(),
             },
-            meta={"tool": "get_connector_identity"},
+            meta=_timed_meta(
+                "get_connector_identity",
+                started_at,
+                meta={"response_mode": "identity"},
+            ),
         )
 
     @server.tool(

@@ -1178,6 +1178,21 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("business_date", journal["data"]["entries"][0])
         self.assertIn("related_transaction_id", journal["data"]["entries"][0])
 
+        status, compact_journal = self.request(
+            "/api/get_cash_journal?months=3&limit=100&include_markdown=0&compact_groups=1",
+            method="GET",
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(compact_journal["ok"])
+        self.assertNotIn("markdown", compact_journal["data"])
+        self.assertNotIn("text", compact_journal["data"])
+        self.assertEqual(compact_journal["data"]["meta"]["format"], "json")
+        self.assertFalse(compact_journal["data"]["meta"]["include_markdown"])
+        self.assertTrue(compact_journal["data"]["meta"]["compact_groups"])
+        self.assertIn("days", compact_journal["data"])
+        self.assertIn("totals", compact_journal["data"])
+        self.assertNotIn("entries", compact_journal["data"]["days"][0])
+
         status, audit = self.request("/api/finance_audit", method="GET")
         self.assertEqual(status, 200)
         self.assertTrue(audit["ok"])

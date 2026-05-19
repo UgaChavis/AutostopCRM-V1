@@ -7370,6 +7370,8 @@ class CardService:
         all_transactions: list[CashTransaction] | None = None,
         cashboxes: list[CashBox] | None = None,
         repair_order_transaction_context: dict[str, dict[str, object]] | None = None,
+        include_markdown: bool = True,
+        compact_groups: bool = False,
     ) -> dict[str, object]:
         entries: list[dict[str, object]] = []
         for item in transactions:
@@ -7438,26 +7440,41 @@ class CardService:
             "total": total,
             "returned": len(transactions),
             "period_start": period_start.isoformat(),
-            "format": "markdown+json",
-            "text_alias": "markdown",
+            "format": "markdown+json" if include_markdown else "json",
+            "include_markdown": include_markdown,
+            "compact_groups": compact_groups,
         }
-        markdown = self._cash_journal_markdown(
-            entries=entries,
-            days=days,
-            weeks=weeks,
-            months=months_grouped,
-            totals=totals,
-            meta=meta,
-        )
-        return {
+        if include_markdown:
+            meta["text_alias"] = "markdown"
+        journal: dict[str, object] = {
             "entries": entries,
             "days": days,
             "weeks": weeks,
             "months": months_grouped,
             "totals": totals,
-            "markdown": markdown,
             "meta": meta,
         }
+        if include_markdown:
+            journal["markdown"] = self._cash_journal_markdown(
+                entries=entries,
+                days=days,
+                weeks=weeks,
+                months=months_grouped,
+                totals=totals,
+                meta=meta,
+            )
+        if compact_groups:
+            journal["days"] = self._compact_cash_journal_groups(days)
+            journal["weeks"] = self._compact_cash_journal_groups(weeks)
+            journal["months"] = self._compact_cash_journal_groups(months_grouped)
+        return journal
+
+    def _compact_cash_journal_groups(
+        self, groups: list[dict[str, object]]
+    ) -> list[dict[str, object]]:
+        return [
+            {key: value for key, value in group.items() if key != "entries"} for group in groups
+        ]
 
     def _cash_journal_totals(self, entries: list[dict[str, object]]) -> dict[str, object]:
         income_minor = sum(
@@ -7549,12 +7566,46 @@ class CardService:
             }
         )
         cashbox_labels.extend((cashbox_id, "Неизвестная касса") for cashbox_id in unknown_ids)
+        balances_by_date: dict[str, dict[str, int]] = {}
+        for transaction in all_transactions:
+            transaction_date_key = self._cash_journal_transaction_date_key(transaction)
+            if transaction_date_key == "unknown":
+                continue
+            direction_sign = 1 if transaction.direction == "income" else -1
+            cashbox_id = transaction.cashbox_id
+            if not cashbox_id:
+                continue
+            balances_by_date.setdefault(transaction_date_key, {}).setdefault(cashbox_id, 0)
+            balances_by_date[transaction_date_key][cashbox_id] += (
+                int(transaction.amount_minor) * direction_sign
+            )
+        day_keys = sorted(
+            {
+                str(day.get("date") or day.get("key") or "")
+                for day in days
+                if str(day.get("date") or day.get("key") or "") not in {"", "unknown"}
+            }
+        )
+        running_balances = {cashbox_id: 0 for cashbox_id, _ in cashbox_labels}
+        opening_balances_by_day: dict[str, dict[str, int]] = {}
+        transaction_dates = sorted(balances_by_date)
+        transaction_date_index = 0
+        for day_key in day_keys:
+            while (
+                transaction_date_index < len(transaction_dates)
+                and transaction_dates[transaction_date_index] < day_key
+            ):
+                date_deltas = balances_by_date[transaction_dates[transaction_date_index]]
+                for cashbox_id, delta_minor in date_deltas.items():
+                    running_balances.setdefault(cashbox_id, 0)
+                    running_balances[cashbox_id] += int(delta_minor)
+                transaction_date_index += 1
+            opening_balances_by_day[day_key] = dict(running_balances)
         for day in days:
             date_key = str(day.get("date") or day.get("key") or "")
-            opening_balances = self._cash_journal_opening_balances(
-                date_key,
-                all_transactions=all_transactions,
-                cashbox_labels=cashbox_labels,
+            opening_balances = self._cash_journal_balance_rows(
+                opening_balances_by_day.get(date_key, {}),
+                cashbox_labels,
             )
             opening_total_minor = sum(
                 int(item.get("balance_minor") or 0) for item in opening_balances
@@ -7583,6 +7634,13 @@ class CardService:
                 balances_by_id[transaction.cashbox_id] += (
                     int(transaction.amount_minor) * direction_sign
                 )
+        return self._cash_journal_balance_rows(balances_by_id, cashbox_labels)
+
+    def _cash_journal_balance_rows(
+        self,
+        balances_by_id: dict[str, int],
+        cashbox_labels: list[tuple[str, str]],
+    ) -> list[dict[str, object]]:
         return [
             {
                 "cashbox_id": cashbox_id,

@@ -114,13 +114,12 @@ def _classify_probe_url(url: str) -> str:
 
 
 def _emit_output(text: str) -> None:
-    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
-    data = text.encode(encoding, errors="backslashreplace")
+    data = text.encode("utf-8")
     if hasattr(sys.stdout, "buffer"):
         sys.stdout.buffer.write(data)
         sys.stdout.buffer.write(b"\n")
         return
-    sys.stdout.write(data.decode(encoding, errors="replace") + "\n")
+    sys.stdout.write(data.decode("utf-8") + "\n")
 
 
 def _api_request(

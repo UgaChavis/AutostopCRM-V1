@@ -11,7 +11,7 @@ AutoStop CRM is a production-oriented workshop CRM with:
 - kanban board, cards, columns, archive, deadlines, tags, attachments and stickies;
 - clients module with phones, requisites, saved vehicles and optional card links;
 - repair orders with works, materials, payments, status flow and PDF export;
-- cashboxes, cash journal, employees and payroll;
+- cashboxes with operation-first cash journal, employees and payroll;
 - shared Files workspace;
 - local HTTP API;
 - MCP endpoint for ChatGPT/OpenAI-compatible clients;
@@ -26,7 +26,7 @@ Legacy names are expected:
 ## Environments
 
 - branch: `autostopcrm-v1`
-- local workspace: `C:\Users\9860606\Desktop\AutostopCRM\autostopcrm`
+- local workspace for this checkout: `C:\Users\User\Desktop\AutostopCRM-V1`
 - production repo: `/opt/autostopcrm`
 - CRM: `https://crm.autostopcrm.ru`
 - MCP: `https://crm.autostopcrm.ru/mcp`
@@ -98,8 +98,8 @@ Telegram AI:
 
 UI and printing:
 
-- `src/minimal_kanban/web_assets.py`
-- `src/minimal_kanban/web_app_assets/assembler.py`
+- `src/minimal_kanban/web_assets.py` - public browser HTML facade/export
+- `src/minimal_kanban/web_app_assets/assembler.py` - browser UI assembly, modal stack and cash journal UI
 - `src/minimal_kanban/ui/main_window.py`
 - `src/minimal_kanban/ui/settings_window.py`
 - `src/minimal_kanban/printing/service.py`
@@ -113,6 +113,8 @@ Stable enough for iterative production work:
 - MCP transport and current tool registry;
 - clients, client vehicles, repair orders, cashboxes and files;
 - browser UI modal ladder for card, repair-order, client, employee, cashbox and file workflows;
+- real-data UX hardening: operator login privacy gate, improved clients/employees scanability, archive search and shared-files readability;
+- cashbox UI hardening: reconciliation removed from operator UI, compact journal as the main screen, batch rendering, collapsed balances and legacy transfer pairing;
 - Telegram AI foundation with audit, conversation memory, text/voice/photo intake and explicit internet-search route;
 - generated browser JavaScript validation.
 
@@ -123,6 +125,7 @@ Areas that still need care:
 - Telegram AI composed workflows that mix CRM context, internet search and writeback;
 - large `web_assets.py` / `web_app_assets` changes should remain measured and well-tested;
 - modal navigation must preserve parent context when a child window closes, especially employees, clients, repair orders, cashboxes and card payments;
+- cash journal UI must stay operation-first: no visible finance-audit entrypoint, no duplicated transfer labels, no noisy diagnostic chips in normal rows;
 - docs should stay short and canonical.
 
 ## AI And Cleanup Rules
@@ -166,6 +169,14 @@ python scripts\browser_smoke.py
 ```
 
 For deployment and live smoke, use `docs/OPERATIONS_RUNBOOK.md`.
+
+Local production-data sandbox for manual QA:
+
+- preferred folder: `C:\Users\User\Desktop\AutostopCRM-data-snapshots\prod-2026-05-19`;
+- run with `%APPDATA%` pointed at the dated snapshot and agent/tunnel disabled;
+- never commit, document, or screenshot raw phones, VIN/license plates, cashbox
+  rows, full repair-order text or client databases without masking and owner
+  approval.
 
 ## Documentation Rule
 

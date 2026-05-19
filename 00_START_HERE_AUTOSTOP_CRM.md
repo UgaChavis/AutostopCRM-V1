@@ -5,7 +5,7 @@
 
 ## Рабочая истина
 
-- локальная папка: `C:\Users\9860606\Desktop\AutostopCRM\autostopcrm`
+- локальная папка этой рабочей копии: `C:\Users\User\Desktop\AutostopCRM-V1`
 - ветка: `autostopcrm-v1`
 - GitHub remote: `origin`
 - production repo: `/opt/autostopcrm`
@@ -22,7 +22,7 @@ AutoStop CRM - рабочая CRM автосервиса:
 - kanban-доска, карточки, колонки, архив, дедлайны, теги, вложения и заметки;
 - клиенты, автомобили клиента, привязка карточек к клиенту и конкретной машине;
 - заказ-наряды, работы, материалы, оплаты, печатные PDF;
-- кассы, сотрудники, payroll;
+- кассы с операционным журналом, сотрудники и payroll;
 - общая файловая папка мастерской;
 - локальный HTTP API и MCP endpoint для внешних инструментов;
 - Telegram AI Board Manager как основной owner-facing AI-контур.
@@ -81,8 +81,8 @@ Telegram owner
 - `src/minimal_kanban/api/server.py`
 - `src/minimal_kanban/services/card_service.py`
 - `src/minimal_kanban/mcp/server.py`
-- `src/minimal_kanban/web_assets.py`
-- `src/minimal_kanban/web_app_assets/assembler.py`
+- `src/minimal_kanban/web_assets.py` - публичный HTML facade/export;
+- `src/minimal_kanban/web_app_assets/assembler.py` - browser UI assembly, modal stack, cash journal UI;
 - `src/minimal_kanban/telegram_ai/`
 
 ## AI-правила для агентов
@@ -123,9 +123,40 @@ python scripts\check_web_assets_js.py
 python scripts\browser_smoke.py
 ```
 
-Рабочее правило UI: вложенные окна закрываются как лестница. Закрытие дочернего
-окна возвращает к родителю и сохраняет контекст сотрудника, клиента, списка
-заказ-нарядов, кассы или карточки; `Escape` закрывает только верхний слой.
+`browser_smoke.py` поднимает временный local runtime с synthetic данными. Он
+проверяет privacy gate до входа оператора, board/card roundtrip, модальную
+лестницу, клиентов, сотрудников, заказ-наряды, файлы, архив и кассовый журнал.
+
+Рабочие правила UI:
+
+- вложенные окна закрываются как лестница: дочернее окно возвращает к родителю
+  и сохраняет контекст сотрудника, клиента, списка заказ-нарядов, кассы или
+  карточки;
+- `Escape` закрывает только верхний слой;
+- кассовый раздел показывает оператору журнал как основной экран; сверка
+  остаётся backend/CLI диагностикой и не возвращается в пользовательский UI;
+- журнал денег остаётся компактным: кассы свернуты по умолчанию, первые строки
+  рендерятся батчем, старые пары перемещений объединяются в одну операцию.
+
+## Local production-data sandbox
+
+Для ручной проверки на реалистичных данных используйте отдельную копию вне
+репозитория, не текущий `%APPDATA%`:
+
+```powershell
+$env:APPDATA = "C:\Users\User\Desktop\AutostopCRM-data-snapshots\prod-2026-05-19"
+$env:MINIMAL_KANBAN_API_HOST = "127.0.0.1"
+$env:MINIMAL_KANBAN_API_PORT = "42731"
+$env:MINIMAL_KANBAN_MCP_HOST = "127.0.0.1"
+$env:MINIMAL_KANBAN_MCP_PORT = "42831"
+$env:MINIMAL_KANBAN_AGENT_ENABLED = "0"
+$env:MINIMAL_KANBAN_SUPPRESS_ERROR_DIALOGS = "1"
+python main_mcp.py
+```
+
+Sandbox snapshot не является live-sync. Не коммитьте и не прикладывайте raw
+данные, телефоны, VIN/госномера, кассовые строки или полные заказ-наряды в
+отчёты без отдельного подтверждения владельца.
 
 ## Политика документации
 

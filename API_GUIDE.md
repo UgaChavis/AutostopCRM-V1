@@ -152,6 +152,12 @@ Write:
 - `POST /api/save_employee`, `/api/toggle_employee`, `/api/delete_employee`
 
 `get_cash_journal` возвращает structured entries/groups и Markdown-текст для human review.
+Browser UI использует structured `cash_journal.v2` как основной источник:
+операции рендерятся батчами, пары перемещений отображаются одной строкой, а
+legacy-пары без `transfer_group_id` сопоставляются на клиенте по дате, времени,
+сумме, оператору и направлению касс. `finance_audit.v1` остаётся внутренней
+read-only/diagnostic схемой и не имеет пользовательского entrypoint в кассовом
+UI.
 
 ## Файлы
 
@@ -226,8 +232,10 @@ Env variables override saved settings. Secrets redact in logs, but `settings.jso
 
 Local API/MCP smoke:
 
+Используйте smoke-учётку из окружения, а не default admin credentials:
+
 ```powershell
-python scripts\check_live_connector.py --strict --skip-public-site --skip-public-write-protection --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username admin --operator-password admin --expect-admin
+python scripts\check_live_connector.py --strict --skip-public-site --skip-public-write-protection --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username $env:AUTOSTOP_SMOKE_OPERATOR_USERNAME --operator-password $env:AUTOSTOP_SMOKE_OPERATOR_PASSWORD --expect-admin
 ```
 
 For route-level behavior, use `tests/test_api.py`, `tests/test_service.py`, `tests/test_mcp.py`, and focused tests around the touched module.

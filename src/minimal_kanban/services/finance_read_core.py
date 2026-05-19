@@ -69,6 +69,12 @@ class FinanceReadCore:
             payload = payload or {}
             months = service._validated_limit(payload.get("months"), default=3, maximum=12)
             limit = service._validated_limit(payload.get("limit"), default=5000, maximum=10000)
+            include_markdown = service._validated_optional_bool(
+                payload, "include_markdown", default=True
+            )
+            compact_groups = service._validated_optional_bool(
+                payload, "compact_groups", default=False
+            )
             bundle = service._store.read_bundle()
             period_start = datetime.now(tz=business_timezone()) - timedelta(days=30 * months)
             recent_transactions: list[CashTransaction] = []
@@ -100,17 +106,21 @@ class FinanceReadCore:
                 all_transactions=bundle["cash_transactions"],
                 cashboxes=cashboxes,
                 repair_order_transaction_context=repair_order_transaction_context,
+                include_markdown=include_markdown,
+                compact_groups=compact_groups,
             )
-            return {
+            result = {
                 "entries": journal["entries"],
                 "days": journal["days"],
                 "weeks": journal["weeks"],
                 "months": journal["months"],
                 "totals": journal["totals"],
-                "markdown": journal["markdown"],
-                "text": journal["markdown"],
                 "meta": journal["meta"],
             }
+            if include_markdown:
+                result["markdown"] = journal["markdown"]
+                result["text"] = journal["markdown"]
+            return result
 
     def get_finance_audit(self, payload: dict | None = None) -> dict:
         service = self._service

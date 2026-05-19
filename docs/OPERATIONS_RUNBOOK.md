@@ -15,6 +15,12 @@
 
 Local:
 
+Current Codex checkout on this machine:
+
+```text
+C:\Users\User\Desktop\AutostopCRM-V1
+```
+
 ```powershell
 git status --short --branch
 git rev-parse --short HEAD
@@ -98,10 +104,18 @@ python scripts\browser_smoke.py
 
 `browser_smoke.py` поднимает временный local API с temp `JsonStore`, тестовым
 оператором и synthetic данными. Он не использует production URL, credentials или
-live CRM data. Запускайте его после изменений browser UI, модальных окон,
-карточек, касс, клиентов, сотрудников, файлов или заказ-нарядов.
+live CRM data. Он проверяет operator login privacy gate, board/card roundtrip,
+кассы/журнал, клиентов, сотрудников, файлы, архив, заказ-наряды и modal ladder.
+Запускайте его после изменений browser UI, модальных окон, карточек, касс,
+клиентов, сотрудников, файлов или заказ-нарядов.
 
 ### Performance Smoke
+
+Local temp-server probe:
+
+```powershell
+python scripts\perf_probe.py --local-temp-server --iterations 1 --max-snapshot-gzip-ms 1200 --max-snapshot-gzip-bytes 120000 --max-revision-ms 800 --max-get-card-ms 800
+```
 
 Read-only latency/payload probe:
 
@@ -120,6 +134,31 @@ python scripts\finance_audit_report.py --base-url https://crm.autostopcrm.ru --f
 ```
 
 Любые `finance_audit/apply_safe_fixes` или live write-actions выполняются только после owner review отчёта, dry-run результата и отдельного подтверждения. Не редактируйте cashbox JSON/state вручную.
+
+Operator cashbox UI is journal-first. Buttons/entrypoints for reconciliation or
+`Финансовая сверка` must not be visible in the cashbox UI. Keep finance audit as
+internal API/CLI/MCP diagnostics.
+
+### Local Production-Data Sandbox
+
+Для ручного UI QA на реалистичных данных используйте dated sandbox вне repo и
+не заменяйте текущий `%APPDATA%`:
+
+```powershell
+$env:APPDATA = "C:\Users\User\Desktop\AutostopCRM-data-snapshots\prod-2026-05-19"
+$env:MINIMAL_KANBAN_API_HOST = "127.0.0.1"
+$env:MINIMAL_KANBAN_API_PORT = "42731"
+$env:MINIMAL_KANBAN_MCP_HOST = "127.0.0.1"
+$env:MINIMAL_KANBAN_MCP_PORT = "42831"
+$env:MINIMAL_KANBAN_AGENT_ENABLED = "0"
+$env:MINIMAL_KANBAN_SUPPRESS_ERROR_DIALOGS = "1"
+python main_mcp.py
+```
+
+Manual QA on sandbox data may inspect board, cards, clients, cashboxes,
+employees, repair orders and files. Do not create live operations, do not run
+Telegram AI/tunnel/sync, and do not commit or document raw phones, VIN/license
+plates, cashbox rows, full repair-order text or client databases.
 
 Local connector smoke:
 
@@ -216,6 +255,9 @@ Manual UI smoke after UI changes:
 - clients -> linked repair order -> close returns to the same client profile;
 - repair orders list -> repair order -> close returns to the list/filter context;
 - cashboxes -> journal/transfer -> close returns to cashboxes;
+- cashboxes -> journal shows compact operation rows, collapsed balances,
+  no reconciliation entrypoint, no visible `нет пары` diagnostic chips, and
+  transfer pairs as one `касса -> касса` row;
 - card -> repair order -> payments -> close/Escape steps back one modal at a time;
 - public anonymous writes remain blocked.
 

@@ -10,7 +10,7 @@ AutoStop CRM - рабочая CRM автосервиса на ветке `autost
 - клиентский справочник: физлица, ИП, ООО, организации, телефоны, реквизиты и автомобили;
 - связь карточки с клиентом и конкретным автомобилем клиента;
 - заказ-наряды, работы, материалы, статусы, оплаты и печатные PDF;
-- кассы, кассовый журнал, сотрудники и payroll;
+- кассы с компактным журналом движения денег, сотрудники и payroll;
 - общая файловая папка мастерской с API/UI/MCP-доступом;
 - локальный HTTP API для UI и интеграций;
 - MCP endpoint для ChatGPT, Responses API и совместимых клиентов;
@@ -48,8 +48,8 @@ Telegram owner
 - `src/minimal_kanban/storage/json_store.py` - JSON-хранилище.
 - `src/minimal_kanban/mcp/server.py` - MCP tools.
 - `src/minimal_kanban/telegram_ai/` - Telegram AI.
-- `src/minimal_kanban/web_assets.py` - browser UI.
-- `src/minimal_kanban/web_app_assets/assembler.py` - browser UI assembly and modal workflow logic.
+- `src/minimal_kanban/web_assets.py` - browser UI facade/export.
+- `src/minimal_kanban/web_app_assets/assembler.py` - browser UI assembly, modal stack and cash journal UI.
 - `deploy.sh`, `docker-compose.yml`, `Dockerfile` - production deploy.
 
 ## Локальная разработка
@@ -94,8 +94,9 @@ python scripts\browser_smoke.py
 ```
 
 Browser smoke поднимает временный local runtime с synthetic данными и проверяет
-board/card roundtrip, кассы, журнал, клиентов, сотрудников, файлы, заказ-наряды
-и закрытие вложенных модальных окон по одной ступени назад.
+privacy gate до входа оператора, board/card roundtrip, кассы и журнал, клиентов,
+сотрудников, файлы, архив, заказ-наряды и закрытие вложенных модальных окон по
+одной ступени назад.
 
 При изменении русских UI/docs-текстов:
 
@@ -120,6 +121,21 @@ MCP по умолчанию: `http://127.0.0.1:41831/mcp`.
 ### ChatGPT connector
 
 Пользовательский файл подключения должен оставаться под именем `CHATGPT_CONNECTOR_SETUP.md`: его копируют release/runtime-пути и проверяют тесты.
+
+### Кассы и журнал
+
+Операторский UI касс сейчас строится вокруг журнала движения денег. Сверка не
+показывается пользователю как отдельный раздел: `finance_audit` остаётся
+backend/API/CLI диагностикой для read-only отчётов и owner-approved safe-fixes.
+
+Журнал в UI:
+
+- показывает операции как основную таблицу;
+- держит остатки касс свернутыми по умолчанию;
+- рендерит длинные журналы батчами;
+- объединяет новые и legacy пары перемещений в одну строку `касса -> касса`;
+- не показывает диагностические метки вроде `нет пары` в обычной рабочей
+  строке.
 
 ### Manager knowledge and Obsidian
 
@@ -170,6 +186,12 @@ overview, repair-order counts, client-quality signals и metadata общих ф�
 - container data: `/root/.minimal-kanban`
 
 Не коммитьте runtime state, snapshots, SQLite/JSON data, attachments, secrets или credentials.
+
+Для ручного QA на realistic data используйте dated sandbox вне repo, например
+`C:\Users\User\Desktop\AutostopCRM-data-snapshots\prod-2026-05-19`, и запускайте
+CRM с переопределённым `%APPDATA%`. Такая копия не является live-sync и не
+должна попадать в Git, docs, Obsidian или отчёты без маскировки персональных и
+финансовых данных.
 
 ## Документация
 

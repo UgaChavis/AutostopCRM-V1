@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import logging
+import socket
 import sys
 import tempfile
 import time
@@ -22,17 +24,26 @@ if str(SRC) not in sys.path:
 from minimal_kanban.api.server import ApiServer
 from minimal_kanban.operator_auth import OperatorAuthService
 from minimal_kanban.services.card_service import CardService
+from minimal_kanban.services.shared_files_service import SharedFilesService
 from minimal_kanban.storage.json_store import JsonStore
 
 SMOKE_SCENARIOS = (
+    "login_gate_hides_board_until_operator_login",
     "desktop_board_card_roundtrip",
     "cashbox_journal_workspace",
+    "cashbox_journal_filters_and_no_audit",
+    "cashbox_journal_compact_cleanup",
+    "cashbox_journal_mode_and_period_navigation",
+    "cashbox_journal_first_render_budget",
     "repair_order_payments_modal",
     "clients_modal",
+    "clients_search_selects_realistic_row",
     "files_modal",
+    "shared_files_scanability_markup",
     "employees_repair_order_returns_to_employee",
     "clients_repair_order_returns_to_client",
     "repair_orders_list_returns_to_list",
+    "archive_search_filters_visible_rows",
     "cashboxes_journal_transfer_returns_to_cashbox",
     "escape_closes_top_modal_only",
     "mobile_board_load",
@@ -49,6 +60,7 @@ class TempRuntime:
     payroll_card_id: str
     client_id: str
     client_card_id: str
+    archived_card_id: str
 
     @property
     def base_url(self) -> str:
@@ -73,10 +85,24 @@ def _read_json(url: str, *, timeout: float = 8.0) -> dict[str, Any]:
         return json.loads(response.read().decode("utf-8"))
 
 
+def _port_has_listener(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.2)
+        return sock.connect_ex((host, port)) == 0
+
+
+def _first_free_port(start_port: int, *, host: str = "127.0.0.1", limit: int = 50) -> int:
+    for candidate in range(start_port, start_port + limit):
+        if not _port_has_listener(host, candidate):
+            return candidate
+    raise RuntimeError("Не удалось найти свободный локальный порт для browser smoke.")
+
+
 def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
     temp_dir = tempfile.TemporaryDirectory(prefix="autostop-browser-smoke-")
     base_dir = Path(temp_dir.name)
     logger = _logger()
+    start_port = _first_free_port(start_port)
     store = JsonStore(state_file=base_dir / "state.json", logger=logger)
     service = CardService(
         store,
@@ -96,6 +122,16 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
             "actor_name": "SMOKE",
         }
     )
+    for index in range(260):
+        service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "income" if index % 3 else "expense",
+                "amount": str(10 + index),
+                "note": f"Smoke journal batch {index:03d}",
+                "actor_name": "SMOKE",
+            }
+        )
     card = service.create_card(
         {
             "vehicle": "Toyota Smoke",
@@ -183,6 +219,32 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
             "actor_name": "SMOKE",
         }
     )
+    archived_card = service.create_card(
+        {
+            "vehicle": "Archive Filter Smoke",
+            "title": "Browser smoke archived search target",
+            "description": "Archive search regression row.",
+            "deadline": {"hours": 2},
+            "actor_name": "SMOKE",
+        }
+    )["card"]
+    service.archive_card({"card_id": archived_card["id"], "actor_name": "SMOKE"})
+    shared_files_service = SharedFilesService(
+        storage_dir=base_dir / "shared-files",
+        index_file=base_dir / "shared_files_index.json",
+        logger=logger,
+    )
+    shared_files_service.upload_shared_file(
+        {
+            "file_name": "Очень длинное имя файла для проверки читаемости smoke report.txt",
+            "content_base64": base64.b64encode(b"autostop smoke shared file").decode("ascii"),
+            "mime_type": "text/plain",
+            "x": 24,
+            "y": 24,
+            "actor_name": "SMOKE",
+            "source": "system",
+        }
+    )
     operator_service = OperatorAuthService(
         store,
         service,
@@ -197,6 +259,7 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
         start_port=start_port,
         fallback_limit=50,
         bearer_token="",
+        shared_files_service=shared_files_service,
     )
     api.start()
     return TempRuntime(
@@ -208,6 +271,7 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
         payroll_card_id=payroll_card["id"],
         client_id=client["id"],
         client_card_id=client_card["id"],
+        archived_card_id=archived_card["id"],
     )
 
 
@@ -261,8 +325,33 @@ async def _login(page: Any) -> None:
         await _wait_modal_closed(page, "#operatorProfileModal")
 
 
+async def _login_gate_hides_board(page: Any) -> bool:
+    await page.wait_for_selector("#identityModal.is-open")
+    return bool(
+        await page.evaluate(
+            """() => {
+              const body = document.body;
+              const shell = document.querySelector('.shell');
+              const modal = document.querySelector('#identityModal');
+              const shellStyle = shell ? getComputedStyle(shell) : null;
+              return Boolean(
+                body.classList.contains('operator-login-gate-open') &&
+                modal?.classList.contains('operator-login-gate') &&
+                shell?.getAttribute('aria-hidden') === 'true' &&
+                shell?.hasAttribute('inert') &&
+                shellStyle?.visibility === 'hidden'
+              );
+            }"""
+        )
+    )
+
+
 async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]:
-    scenarios = {name: False for name in SMOKE_SCENARIOS if name != "mobile_board_load"}
+    scenarios = {
+        name: False
+        for name in SMOKE_SCENARIOS
+        if name not in {"mobile_board_load", "login_gate_hides_board_until_operator_login"}
+    }
     await page.wait_for_selector("#board")
     await page.wait_for_selector(f'[data-card-id="{runtime.card_id}"]')
     await page.click(f'[data-card-id="{runtime.card_id}"]')
@@ -280,13 +369,117 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     await page.click("#cashboxesButton")
     await _wait_modal_open(page, "#cashboxesModal")
     await page.wait_for_selector("#cashboxJournalDownloadButton")
+    journal_open_started = time.perf_counter()
     await page.click("#cashboxJournalButton")
     await _wait_modal_open(page, "#cashboxJournalModal")
+    await page.wait_for_selector('[data-cash-journal-filter="query"]')
+    await page.wait_for_selector(".cashbox-journal-operation-head")
+    await page.wait_for_selector(".cashbox-journal-operation-row")
+    journal_first_rows_ms = (time.perf_counter() - journal_open_started) * 1000
+    scenarios["cashbox_journal_first_render_budget"] = journal_first_rows_ms <= 2000
+    scenarios["cashbox_journal_compact_cleanup"] = bool(
+        await page.evaluate(
+            """() => {
+              const toolbar = document.querySelector('.cashbox-journal-toolbar');
+              const balanceStrip = document.querySelector('.cashbox-journal-balance-strip');
+              const balanceToggle = document.querySelector('[data-cash-journal-toggle-balances]');
+              const reset = document.querySelector('[data-cash-journal-reset]');
+              const resetVisuallyHidden = reset?.hidden === true
+                && window.getComputedStyle(reset).display === 'none';
+              const firstNote = document.querySelector('.cashbox-journal-operation-row__note')?.textContent || '';
+              const firstType = document.querySelector('.cashbox-journal-operation-row__type')?.textContent || '';
+              const dayMeta = document.querySelector('[data-cash-journal-compact-day]')?.textContent || '';
+              const bodyTitle = document.querySelector('.cashbox-journal-toolbar__title');
+              const visibleNoPairTags = Array.from(document.querySelectorAll('.cashbox-journal-operation-tag'))
+                .filter((tag) => tag.textContent.trim() === 'нет пары');
+              const transferRowsWithoutDiagnosticChips = Array.from(
+                document.querySelectorAll('.cashbox-journal-operation-row--transfer')
+              ).every((row) => !row.querySelector('.cashbox-journal-operation-tag'));
+              return Boolean(
+                toolbar?.querySelector('.cashbox-journal-toolbar__status') &&
+                !bodyTitle &&
+                balanceStrip &&
+                !balanceStrip.classList.contains('is-expanded') &&
+                balanceToggle?.textContent.trim() === 'Кассы' &&
+                resetVisuallyHidden &&
+                !/^(Поступление|Списание)\\s*:/.test(firstNote.trim()) &&
+                /^(Приход|Расход|Перевод)$/.test(firstType.trim()) &&
+                /[+-]?\\d/.test(dayMeta) &&
+                dayMeta.includes('оп.') &&
+                visibleNoPairTags.length === 0 &&
+                transferRowsWithoutDiagnosticChips
+              );
+            }"""
+        )
+    )
+    await page.click("[data-cash-journal-toggle-balances]")
+    await page.wait_for_function(
+        """() => document.querySelector('.cashbox-journal-balance-strip')?.classList.contains('is-expanded')"""
+    )
+    await page.click("[data-cash-journal-toggle-balances]")
+    await page.wait_for_function(
+        """() => !document.querySelector('.cashbox-journal-balance-strip')?.classList.contains('is-expanded')"""
+    )
+    await page.click("#cashboxJournalStatsButton")
+    await page.wait_for_selector(".cashbox-journal-view--stats")
+    await page.wait_for_selector("[data-cash-journal-period-kind][data-cash-journal-period-key]")
+    await page.click("[data-cash-journal-period-kind][data-cash-journal-period-key]")
+    await page.wait_for_selector(".cashbox-journal-operation-head")
+    await page.wait_for_function(
+        """() => document.querySelector('#cashboxJournalLedgerButton')?.getAttribute('aria-pressed') === 'true'"""
+    )
+    await page.fill('[data-cash-journal-filter="query"]', "Smoke")
+    await page.wait_for_function(
+        """() => document.querySelectorAll('.cashbox-journal-operation-row').length >= 1"""
+    )
+    scenarios["cashbox_journal_filters_and_no_audit"] = bool(
+        await page.evaluate(
+            """() => {
+              const query = document.querySelector('[data-cash-journal-filter="query"]');
+              const rows = Array.from(document.querySelectorAll('.cashbox-journal-operation-row'));
+              const loadMore = document.querySelector('[data-cash-journal-load-more]');
+              return Boolean(
+                query?.value === 'Smoke' &&
+                document.querySelector('#cashboxJournalLedgerButton')?.getAttribute('aria-pressed') === 'true' &&
+                document.querySelector('#cashboxJournalStatsButton')?.getAttribute('aria-pressed') === 'false' &&
+                document.querySelector('.cashbox-journal-operation-head') &&
+                document.querySelector('[data-cash-journal-region="active-filters"]')?.textContent.includes('Период:') &&
+                document.querySelector('[data-cash-journal-reset]')?.textContent.trim() === 'Сбросить' &&
+                document.querySelector('[data-cash-journal-reset]')?.hidden === false &&
+                loadMore &&
+                !/из\\s+\\d+/.test(loadMore.textContent || '') &&
+                !document.querySelector('#cashboxFinanceAuditButton') &&
+                !document.querySelector('#cashboxJournalAuditButton') &&
+                !document.body.textContent.includes('Финансовая сверка') &&
+                rows.length >= 1 &&
+                rows.every((row) => row.getAttribute('aria-label')?.startsWith('Операция кассы '))
+              );
+            }"""
+        )
+    )
+    scenarios["cashbox_journal_mode_and_period_navigation"] = bool(
+        await page.evaluate(
+            """() => Boolean(
+              document.querySelector('#cashboxJournalLedgerButton')?.getAttribute('aria-pressed') === 'true' &&
+              document.querySelector('#cashboxJournalStatsButton')?.getAttribute('aria-pressed') === 'false' &&
+              document.querySelector('[data-cash-journal-clear-filter="period"]') &&
+              document.querySelector('.cashbox-journal-operation-head')
+            )"""
+        )
+    )
+    await page.click("[data-cash-journal-reset]")
+    await page.wait_for_function(
+        """() => document.querySelector('[data-cash-journal-filter="query"]')?.value === ''"""
+    )
     await page.click('[data-close="cashbox-journal"]')
     await _wait_modal_closed(page, "#cashboxJournalModal")
     scenarios["cashbox_journal_workspace"] = await _is_modal_open(page, "#cashboxesModal")
     await page.click("#cashboxTransferButton")
     await _wait_modal_open(page, "#cashboxTransferModal")
+    await page.fill("#cashboxTransferAmountInput", "100")
+    await page.wait_for_function(
+        """() => document.querySelector('#cashboxTransferPreview')?.textContent.includes('Откуда после')"""
+    )
     await page.click('[data-close="cashbox-transfer"]')
     await _wait_modal_closed(page, "#cashboxTransferModal")
     scenarios["cashboxes_journal_transfer_returns_to_cashbox"] = await _is_modal_open(
@@ -338,6 +531,17 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     await _wait_modal_open(page, "#clientsModal")
     await page.wait_for_selector("#clientNewButton")
     scenarios["clients_modal"] = True
+    await page.fill("#clientsSearchInput", "Smoke")
+    await page.wait_for_selector(f'[data-client-id="{runtime.client_id}"]')
+    scenarios["clients_search_selects_realistic_row"] = bool(
+        await page.evaluate(
+            """(clientId) => {
+              const row = document.querySelector('[data-client-id="' + clientId + '"]');
+              return Boolean(row?.getAttribute('aria-label')?.startsWith('Клиент '));
+            }""",
+            runtime.client_id,
+        )
+    )
     await page.click(f'[data-client-id="{runtime.client_id}"]')
     await page.wait_for_selector(f'[data-open-repair-order-card="{runtime.client_card_id}"]')
     await page.click(f'[data-open-repair-order-card="{runtime.client_card_id}"]')
@@ -363,10 +567,45 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     await page.click('[data-close="repair-orders"]')
     await _wait_modal_closed(page, "#repairOrdersModal")
 
+    await page.click("#archiveButton")
+    await _wait_modal_open(page, "#archiveModal")
+    await page.wait_for_selector("#archiveSearchInput")
+    await page.fill("#archiveSearchInput", "Archive Filter")
+    await page.wait_for_function(
+        """() => document.querySelectorAll('#archiveList .archive-row').length === 1"""
+    )
+    scenarios["archive_search_filters_visible_rows"] = bool(
+        await page.evaluate(
+            """(cardId) => {
+              const row = document.querySelector('#archiveList .archive-row');
+              const button = row?.querySelector('[data-restore-card]');
+              return Boolean(
+                button?.getAttribute('data-restore-card') === cardId &&
+                button?.getAttribute('aria-label')?.startsWith('Вернуть карточку ')
+              );
+            }""",
+            runtime.archived_card_id,
+        )
+    )
+    await page.click('[data-close="archive"]')
+    await _wait_modal_closed(page, "#archiveModal")
+
     await page.click("#sharedFilesButton")
     await _wait_modal_open(page, "#sharedFilesModal")
     await page.wait_for_selector("#sharedFilesDesktop")
     scenarios["files_modal"] = True
+    await page.wait_for_selector(".shared-file-icon")
+    scenarios["shared_files_scanability_markup"] = bool(
+        await page.evaluate(
+            """() => {
+              const icon = document.querySelector('.shared-file-icon');
+              return Boolean(
+                icon?.getAttribute('aria-label')?.startsWith('Файл ') &&
+                icon.querySelectorAll('.shared-file-icon__meta-chip').length >= 2
+              );
+            }"""
+        )
+    )
     await page.click('[data-close="shared-files"]')
     await _wait_modal_closed(page, "#sharedFilesModal")
     return scenarios
@@ -428,6 +667,9 @@ async def run_browser_smoke(runtime: TempRuntime, *, headless: bool = True) -> d
         try:
             started_at = time.perf_counter()
             await page.goto(runtime.base_url, wait_until="domcontentloaded")
+            scenarios[
+                "login_gate_hides_board_until_operator_login"
+            ] = await _login_gate_hides_board(page)
             await _login(page)
             await page.wait_for_selector("#board")
             first_render_ms = round((time.perf_counter() - started_at) * 1000, 1)

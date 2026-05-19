@@ -2395,6 +2395,49 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(journal["weeks"][0]["count"], 1)
         self.assertEqual(journal["months"][0]["count"], 1)
 
+    def test_cash_journal_can_omit_markdown_for_ui_payload(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "income",
+                "amount": "1000",
+                "note": "Оплата клиента",
+                "actor_name": "ADMIN",
+            }
+        )
+
+        journal = self.service.get_cash_journal(
+            {"months": 3, "limit": 100, "include_markdown": False}
+        )
+
+        self.assertNotIn("markdown", journal)
+        self.assertNotIn("text", journal)
+        self.assertEqual(journal["meta"]["schema_version"], "cash_journal.v2")
+        self.assertEqual(journal["meta"]["format"], "json")
+        self.assertFalse(journal["meta"]["include_markdown"])
+        self.assertEqual(journal["entries"][0]["cashbox_name"], "Наличный")
+        self.assertEqual(journal["days"][0]["count"], 1)
+        self.assertEqual(journal["totals"]["income_minor"], 100000)
+
+        compact = self.service.get_cash_journal(
+            {
+                "months": 3,
+                "limit": 100,
+                "include_markdown": False,
+                "compact_groups": True,
+            }
+        )
+        self.assertEqual(len(compact["entries"]), 1)
+        self.assertFalse(compact["meta"]["include_markdown"])
+        self.assertTrue(compact["meta"]["compact_groups"])
+        self.assertNotIn("entries", compact["days"][0])
+        self.assertNotIn("entries", compact["weeks"][0])
+        self.assertNotIn("entries", compact["months"][0])
+        self.assertEqual(compact["days"][0]["opening_total_minor"], 0)
+
     def test_cash_journal_includes_daily_opening_balances_by_cashbox(self) -> None:
         cashbox_created_at = "2026-04-01T00:00:00+00:00"
         cashbox = CashBox(

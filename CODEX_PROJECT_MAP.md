@@ -4,7 +4,7 @@
 
 - GitHub: `UgaChavis/AutostopCRM-V1`
 - Branch: `autostopcrm-v1`
-- Local workspace: `C:\Users\9860606\Desktop\AutostopCRM\autostopcrm`
+- Local workspace for this checkout: `C:\Users\User\Desktop\AutostopCRM-V1`
 - Server workspace: `/opt/autostopcrm`
 - Public endpoints: `https://crm.autostopcrm.ru` and `https://crm.autostopcrm.ru/mcp`
 
@@ -25,8 +25,8 @@
 - `src/minimal_kanban/mcp/server.py`
 - `src/minimal_kanban/mcp/client.py`
 - `src/minimal_kanban/telegram_ai/`
-- `src/minimal_kanban/web_assets.py`
-- `src/minimal_kanban/web_app_assets/`
+- `src/minimal_kanban/web_assets.py` - public browser HTML facade/export
+- `src/minimal_kanban/web_app_assets/` - assembled browser UI, modal stack and cash journal UI
 - `scripts/`
 - `tests/`
 - `deploy.sh`
@@ -39,6 +39,16 @@ UI -> local API -> CardService -> JsonStore
 MCP -> local API -> CardService
 Telegram AI -> CRM tool registry -> local API -> verify/audit
 ```
+
+## Current UI Rules
+
+- Modal flows use a stack: child windows close back to the parent context.
+- Operator login gate hides the board until a valid operator session exists.
+- Cashboxes are journal-first. Finance audit/reconciliation remains internal
+  backend/API/CLI diagnostics, not an operator UI section.
+- Cash journal rows should be compact: batch-rendered, no visible `нет пары`
+  diagnostic chips, and transfer pairs shown as one `from -> to` operation.
+- Local production-data QA uses dated snapshots outside the repo, not live sync.
 
 ## MCP Surface Rule
 
@@ -61,6 +71,7 @@ exists; fall back to the desktop mirror only if needed.
 - `python -m unittest discover -s tests -v`
 - `python scripts\check_web_assets_js.py`
 - `python scripts\browser_smoke.py` for browser UI/modal flow changes
+- `python scripts\perf_probe.py --local-temp-server ...` for local performance budgets
 - live smoke commands from `docs/OPERATIONS_RUNBOOK.md`
 
 ## Deployment Notes

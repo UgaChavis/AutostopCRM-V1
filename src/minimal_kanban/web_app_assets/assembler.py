@@ -1078,6 +1078,20 @@ BOARD_WEB_APP_HTML = "".join(
     #repairOrdersModal {
       background: rgba(7, 10, 8, 0.84);
     }
+    .operator-login-gate-open .shell,
+    .operator-login-gate-open .sticky-dock {
+      visibility: hidden;
+      opacity: 0;
+      pointer-events: none;
+      user-select: none;
+    }
+    #identityModal.operator-login-gate {
+      background: #070a08;
+      z-index: 80;
+    }
+    #identityModal.operator-login-gate .dialog {
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.54);
+    }
     .modal.is-open { display: flex; }
     .dialog {
       width: min(980px, 100%);
@@ -3682,6 +3696,20 @@ BOARD_WEB_APP_HTML = "".join(
       justify-items: end;
       gap: 8px;
     }
+    .archive-search {
+      margin: -2px 0 8px;
+    }
+    .archive-search input {
+      width: 100%;
+    }
+    .archive-search-meta {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
     .dialog--repair-orders {
       --repair-orders-columns:
         minmax(35px, 46px)
@@ -4787,6 +4815,12 @@ BOARD_WEB_APP_HTML = "".join(
         PRINTING_WEB_MODULE_STYLE,
         """
     #cashboxesModal .dialog { width: min(1060px, 100%); }
+    #cashboxJournalModal .dialog {
+      width: min(1040px, 100%);
+      max-height: calc(100dvh - 44px);
+      display: flex;
+      flex-direction: column;
+    }
     #cashboxTransferModal .dialog { width: min(820px, 100%); }
     .cashboxes-layout {
       display: grid;
@@ -4806,6 +4840,11 @@ BOARD_WEB_APP_HTML = "".join(
       align-items: center;
       justify-content: flex-start;
       gap: 8px;
+    }
+    .cashbox-journal-main-button {
+      min-width: 110px;
+      justify-content: center;
+      background: rgba(167, 178, 132, 0.08);
     }
     .cashboxes-actions {
       display: flex;
@@ -4991,6 +5030,14 @@ BOARD_WEB_APP_HTML = "".join(
       font-weight: 700;
       line-height: 1.2;
     }
+    .cashbox-transfer-source__balance,
+    .cashbox-transfer-target__balance,
+    .cashbox-transfer-preview__label {
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
     .cashbox-transfer-targets {
       display: grid;
       gap: 6px;
@@ -5021,6 +5068,9 @@ BOARD_WEB_APP_HTML = "".join(
       font-weight: 700;
       line-height: 1.2;
     }
+    .cashbox-transfer-target__balance {
+      margin-top: 3px;
+    }
     .cashbox-transfer-summary {
       display: grid;
       gap: 6px;
@@ -5036,6 +5086,35 @@ BOARD_WEB_APP_HTML = "".join(
     .cashbox-transfer-summary textarea {
       min-height: 74px;
       max-height: 112px;
+    }
+    .cashbox-transfer-preview {
+      display: grid;
+      gap: 5px;
+      padding: 8px;
+      border: 1px solid rgba(167, 178, 132, 0.18);
+      background: rgba(0,0,0,0.12);
+      color: var(--text-soft);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .cashbox-transfer-preview__rows {
+      display: grid;
+      gap: 3px;
+    }
+    .cashbox-transfer-preview__row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: baseline;
+    }
+    .cashbox-transfer-preview__amount {
+      color: var(--text);
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .cashbox-transfer-preview__amount[data-balance-sign="negative"] {
+      color: #f0b1a6;
     }
     .cashbox-transfer-foot {
       display: flex;
@@ -5064,6 +5143,10 @@ BOARD_WEB_APP_HTML = "".join(
     .cashbox-cancel-last-button[disabled] {
       opacity: 0.5;
       cursor: default;
+    }
+    .cashbox-cancel-last-button {
+      border-color: rgba(207, 91, 75, 0.34);
+      color: #ffd2c9;
     }
     .cashbox-detail__head {
       display: flex;
@@ -5145,13 +5228,15 @@ BOARD_WEB_APP_HTML = "".join(
       background: rgba(8, 12, 10, 0.68);
       padding: 10px 12px 12px;
       min-height: 420px;
-      max-height: min(68vh, 720px);
+      max-height: none;
+      flex: 1 1 auto;
       overflow: auto;
       font-size: 13px;
       line-height: 1.34;
       font-variant-numeric: tabular-nums;
     }
     .cashbox-journal-view {
+      --cash-journal-operation-grid: 52px minmax(112px, 154px) minmax(82px, 108px) minmax(0, 1fr) minmax(82px, 118px) minmax(78px, 96px);
       display: grid;
       gap: 9px;
     }
@@ -5161,19 +5246,65 @@ BOARD_WEB_APP_HTML = "".join(
       align-items: center;
       margin-left: auto;
     }
+    .cashbox-journal-mode-switch {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid rgba(167, 178, 132, 0.26);
+      background: rgba(0,0,0,0.14);
+      padding: 2px;
+      gap: 2px;
+    }
+    .cashbox-journal-mode-button {
+      min-height: 29px;
+      border: 0;
+      background: transparent;
+      color: var(--text-soft);
+      padding: 6px 10px;
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 10.5px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-mode-button:hover,
+    .cashbox-journal-mode-button:focus-visible {
+      color: var(--text);
+      background: rgba(167, 178, 132, 0.08);
+      outline: none;
+    }
+    .cashbox-journal-mode-button.is-active {
+      color: #f5f8e9;
+      background: rgba(167, 178, 132, 0.12);
+      box-shadow: inset 0 0 0 1px rgba(167, 178, 132, 0.22);
+    }
+    .cashbox-journal-sticky {
+      position: sticky;
+      top: -10px;
+      z-index: 2;
+      display: grid;
+      gap: 8px;
+      margin: -10px -12px 0;
+      padding: 10px 12px 9px;
+      background:
+        linear-gradient(180deg, rgba(8, 12, 10, 0.98), rgba(8, 12, 10, 0.94)),
+        var(--bg-panel);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
     .cashbox-journal-toolbar {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 3px 0 8px;
+      padding: 2px 0 6px;
       border-bottom: 1px solid rgba(255,255,255,0.07);
     }
-    .cashbox-journal-toolbar__title {
-      font-size: 15px;
+    .cashbox-journal-toolbar__status {
+      color: var(--text-soft);
+      font-size: 11px;
       font-weight: 700;
       letter-spacing: 0.04em;
-      line-height: 1.2;
+      text-transform: uppercase;
+      white-space: nowrap;
     }
     .cashbox-journal-toolbar__meta,
     .cashbox-journal-toolbar__total,
@@ -5200,7 +5331,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .cashbox-journal-filters {
       display: grid;
-      grid-template-columns: minmax(220px, 1fr) minmax(135px, auto) minmax(135px, auto) minmax(135px, auto) auto;
+      grid-template-columns: minmax(220px, 1fr) minmax(135px, auto) minmax(135px, auto) minmax(220px, auto) auto;
       gap: 7px;
       align-items: end;
     }
@@ -5224,22 +5355,87 @@ BOARD_WEB_APP_HTML = "".join(
       border-color: rgba(167, 178, 132, 0.78);
       box-shadow: 0 0 0 1px rgba(167, 178, 132, 0.12);
     }
+    .cashbox-journal-filter--period select {
+      display: none;
+    }
+    .cashbox-journal-period-segments {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 3px;
+      min-height: 31px;
+    }
+    .cashbox-journal-period-button,
+    .cashbox-journal-active-filter {
+      border: 1px solid rgba(167, 178, 132, 0.24);
+      background: rgba(0,0,0,0.12);
+      color: var(--text-soft);
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 9.5px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-period-button {
+      padding: 6px 5px;
+      white-space: nowrap;
+    }
+    .cashbox-journal-period-button:hover,
+    .cashbox-journal-period-button:focus-visible,
+    .cashbox-journal-active-filter:hover,
+    .cashbox-journal-active-filter:focus-visible {
+      border-color: rgba(167, 178, 132, 0.72);
+      color: var(--text);
+      outline: none;
+    }
+    .cashbox-journal-period-button.is-active {
+      border-color: rgba(167, 178, 132, 0.58);
+      background: rgba(167, 178, 132, 0.09);
+      color: #f5f8e9;
+    }
+    .cashbox-journal-active-filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      min-height: 0;
+    }
+    .cashbox-journal-active-filters:empty {
+      display: none;
+    }
+    .cashbox-journal-active-filter {
+      min-height: 24px;
+      padding: 3px 7px;
+      text-align: left;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .cashbox-journal-reset {
-      width: 31px;
+      min-width: 78px;
       min-height: 31px;
       align-self: end;
-      border: 1px solid rgba(167, 178, 132, 0.32);
-      background: rgba(0,0,0,0.18);
-      color: var(--text);
+      border: 1px solid rgba(167, 178, 132, 0.22);
+      background: rgba(0,0,0,0.12);
+      color: var(--text-soft);
       cursor: pointer;
-      font-size: 18px;
-      line-height: 1;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
     }
     .cashbox-journal-reset:hover,
     .cashbox-journal-reset:focus-visible {
       border-color: rgba(167, 178, 132, 0.78);
       color: #f5f8e9;
       outline: none;
+    }
+    .cashbox-journal-filter-reset {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .cashbox-journal-filter-reset[hidden] {
+      display: none !important;
     }
     .cashbox-journal-balance-strip {
       display: flex;
@@ -5248,6 +5444,21 @@ BOARD_WEB_APP_HTML = "".join(
       align-items: center;
       padding: 2px 0 7px;
       border-bottom: 1px solid rgba(255,255,255,0.055);
+    }
+    .cashbox-journal-balance-strip.is-expanded {
+      padding-bottom: 9px;
+    }
+    .cashbox-journal-balance-strip:not(.is-expanded) .cashbox-journal-balance-chip:not(.cashbox-journal-balance-chip--total),
+    .cashbox-journal-balance-strip:not(.is-expanded) .cashbox-journal-balance-strip__items {
+      display: none;
+    }
+    .cashbox-journal-balance-strip__main,
+    .cashbox-journal-balance-strip__items {
+      display: inline-flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      min-width: 0;
     }
     .cashbox-journal-balance-chip {
       display: inline-flex;
@@ -5264,9 +5475,30 @@ BOARD_WEB_APP_HTML = "".join(
     .cashbox-journal-balance-chip[data-balance-sign="negative"] strong {
       color: #f0b1a6;
     }
+    .cashbox-journal-balance-toggle {
+      min-height: 24px;
+      border: 1px solid rgba(167, 178, 132, 0.22);
+      background: rgba(0,0,0,0.1);
+      color: var(--text-soft);
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 9.5px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-balance-toggle:hover,
+    .cashbox-journal-balance-toggle:focus-visible {
+      border-color: rgba(167, 178, 132, 0.66);
+      color: var(--text);
+      outline: none;
+    }
+    .cashbox-journal-balance-toggle[data-balance-warning="true"] {
+      border-color: rgba(212, 175, 55, 0.46);
+      color: #e8dfaf;
+    }
     .cashbox-journal-summary {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
       gap: 6px;
     }
     .cashbox-journal-stats-section__head {
@@ -5285,7 +5517,7 @@ BOARD_WEB_APP_HTML = "".join(
     .cashbox-journal-stat {
       display: grid;
       gap: 4px;
-      padding: 8px 9px;
+      padding: 6px 0;
       min-width: 0;
     }
     .cashbox-journal-stat__label,
@@ -5330,6 +5562,25 @@ BOARD_WEB_APP_HTML = "".join(
       flex-wrap: wrap;
       justify-content: flex-end;
     }
+    .cashbox-journal-day-details {
+      margin: -2px 0 2px 52px;
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-day-details summary {
+      cursor: pointer;
+      list-style-position: inside;
+      padding: 2px 0 4px;
+    }
+    .cashbox-journal-day-details__grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 2px 0 4px 12px;
+      border-left: 2px solid rgba(167, 178, 132, 0.22);
+    }
     .cashbox-journal-opening {
       display: grid;
       gap: 6px;
@@ -5366,14 +5617,40 @@ BOARD_WEB_APP_HTML = "".join(
     .cashbox-journal-operation-row__note {
       min-width: 0;
       overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
     }
     .cashbox-journal-entries {
       display: grid;
       gap: 0;
     }
+    .cashbox-journal-operation-head {
+      position: sticky;
+      top: 104px;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: var(--cash-journal-operation-grid);
+      gap: 9px;
+      align-items: center;
+      padding: 7px 0 6px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      background: rgba(8, 12, 10, 0.96);
+      color: var(--muted);
+      font-size: 9.5px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-operation-head span {
+      min-width: 0;
+    }
+    .cashbox-journal-operation-head span:last-child {
+      text-align: right;
+    }
     .cashbox-journal-operation-row {
       display: grid;
-      grid-template-columns: 52px minmax(88px, 112px) minmax(112px, 154px) minmax(0, 1fr) minmax(70px, auto);
+      grid-template-columns: var(--cash-journal-operation-grid);
       gap: 9px;
       align-items: baseline;
       padding: 5px 0;
@@ -5389,13 +5666,43 @@ BOARD_WEB_APP_HTML = "".join(
       min-width: 0;
       overflow-wrap: anywhere;
     }
+    .cashbox-journal-operation-row__type {
+      color: rgba(231, 226, 193, 0.76);
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
     .cashbox-journal-operation-row__body {
       display: grid;
-      gap: 2px;
+      gap: 4px;
       min-width: 0;
     }
     .cashbox-journal-operation-row__amount {
       text-align: right;
+    }
+    .cashbox-journal-operation-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      min-width: 0;
+    }
+    .cashbox-journal-operation-tag {
+      display: inline-flex;
+      min-height: 17px;
+      align-items: center;
+      padding: 1px 5px;
+      border: 1px solid rgba(167, 178, 132, 0.18);
+      background: rgba(0,0,0,0.12);
+      color: rgba(231, 226, 193, 0.74);
+      font-size: 9.5px;
+      line-height: 1.1;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .cashbox-journal-operation-row__amount[data-direction="expense"],
     .cashbox-journal-balance__amount[data-balance-sign="negative"],
@@ -5416,7 +5723,34 @@ BOARD_WEB_APP_HTML = "".join(
       box-shadow: inset 2px 0 0 rgba(167, 178, 132, 0.42);
       padding-left: 7px;
     }
+    .cashbox-journal-load-more {
+      width: 100%;
+      margin-top: 8px;
+      border: 1px solid rgba(167, 178, 132, 0.32);
+      background: rgba(0,0,0,0.18);
+      color: var(--text);
+      min-height: 34px;
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-load-more:hover,
+    .cashbox-journal-load-more:focus-visible {
+      border-color: rgba(167, 178, 132, 0.72);
+      background: rgba(167, 178, 132, 0.08);
+      outline: none;
+    }
+    .cashbox-journal-status-line {
+      color: var(--muted);
+      padding: 6px 0 0;
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
     .cashbox-journal-stats-section {
+      --cash-journal-stats-grid: minmax(240px, 1fr) minmax(112px, 128px) minmax(112px, 128px) minmax(112px, 128px) minmax(178px, 210px);
       display: grid;
       gap: 7px;
       padding: 10px 0;
@@ -5426,14 +5760,44 @@ BOARD_WEB_APP_HTML = "".join(
       display: grid;
       gap: 0;
     }
-    .cashbox-journal-stats-row {
+    .cashbox-journal-stats-head {
       display: grid;
-      grid-template-columns: minmax(180px, 1fr) repeat(4, minmax(110px, auto));
+      grid-template-columns: var(--cash-journal-stats-grid);
       gap: 8px;
       align-items: center;
+      padding: 4px 0 6px;
+      border-bottom: 1px solid rgba(255,255,255,0.055);
+      color: var(--muted);
+      font-size: 9.5px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-stats-head span,
+    .cashbox-journal-stats-row > * {
+      min-width: 0;
+    }
+    .cashbox-journal-stats-head span:not(:first-child) {
+      text-align: right;
+    }
+    .cashbox-journal-stats-row {
+      display: grid;
+      grid-template-columns: var(--cash-journal-stats-grid);
+      gap: 8px;
+      align-items: center;
+      width: 100%;
       padding: 7px 0;
+      border: 0;
       border-top: 1px solid rgba(255,255,255,0.045);
       background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
+    }
+    .cashbox-journal-stats-row:hover,
+    .cashbox-journal-stats-row:focus-visible {
+      background: rgba(167, 178, 132, 0.055);
+      outline: none;
     }
     .cashbox-journal-stats-row__label {
       font-weight: 700;
@@ -5443,16 +5807,21 @@ BOARD_WEB_APP_HTML = "".join(
       font-weight: 700;
       white-space: nowrap;
       text-align: right;
+      font-variant-numeric: tabular-nums;
     }
-    .cashbox-journal-link-flags,
-    .finance-audit-issue__meta {
+    .cashbox-journal-stats-row__meta {
+      overflow: hidden;
+      text-align: right;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cashbox-journal-link-flags {
       display: flex;
       flex-wrap: wrap;
       gap: 5px;
       min-width: 0;
     }
-    .cashbox-journal-link-flag,
-    .finance-audit-issue__code {
+    .cashbox-journal-link-flag {
       display: inline-flex;
       align-items: center;
       min-height: 18px;
@@ -5463,48 +5832,23 @@ BOARD_WEB_APP_HTML = "".join(
       font-size: 10px;
       text-transform: uppercase;
     }
-    .finance-audit-view {
-      display: grid;
-      gap: 12px;
-    }
-    .finance-audit-summary {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 8px;
-    }
-    .finance-audit-issues {
-      display: grid;
-      gap: 7px;
-    }
-    .finance-audit-issue {
-      display: grid;
-      gap: 5px;
-      padding: 9px;
-      border: 1px solid rgba(255,255,255,0.08);
-      background: rgba(255,255,255,0.025);
-    }
-    .finance-audit-issue[data-severity="error"] {
-      border-color: rgba(230, 128, 116, 0.34);
-    }
-    .finance-audit-issue[data-severity="warning"] {
-      border-color: rgba(232, 180, 132, 0.34);
-    }
-    .finance-audit-issue__title {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      font-weight: 700;
-      min-width: 0;
-    }
-    .finance-audit-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-    }
     .cashbox-journal-loading,
     .cashbox-journal-empty {
       color: var(--muted);
       padding: 8px;
+    }
+    .cashbox-journal-loading {
+      display: grid;
+      gap: 5px;
+      line-height: 1.35;
+    }
+    .cashbox-journal-loading__title {
+      color: var(--text);
+      font-weight: 700;
+    }
+    .cashbox-journal-loading__hint {
+      color: var(--text-soft);
+      font-size: 11px;
     }
     @media (max-width: 720px) {
       .cashbox-journal-toolbar {
@@ -5517,11 +5861,19 @@ BOARD_WEB_APP_HTML = "".join(
       .cashbox-journal-summary {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+      .cashbox-journal-filter--period select {
+        display: block;
+      }
+      .cashbox-journal-period-segments,
+      .cashbox-journal-operation-head {
+        display: none;
+      }
       .cashbox-journal-operation-row {
         grid-template-columns: 42px minmax(74px, auto) minmax(0, 1fr);
         gap: 6px;
       }
       .cashbox-journal-operation-row__cashbox,
+      .cashbox-journal-operation-row__type,
       .cashbox-journal-operation-row__body,
       .cashbox-journal-operation-row__actor {
         grid-column: 3;
@@ -5537,8 +5889,12 @@ BOARD_WEB_APP_HTML = "".join(
       .cashbox-journal-stats-row {
         grid-template-columns: minmax(0, 1fr) auto;
       }
+      .cashbox-journal-stats-head {
+        display: none;
+      }
       .cashbox-journal-stats-row__meta {
         grid-column: 1 / -1;
+        text-align: left;
       }
     }
     .cashbox-journal-download-button {
@@ -5580,7 +5936,9 @@ BOARD_WEB_APP_HTML = "".join(
       display: grid;
       grid-template-columns: minmax(360px, 390px) minmax(0, 1fr);
       gap: 14px;
-      align-items: start;
+      align-items: stretch;
+      height: 100%;
+      overflow: hidden;
     }
     .dialog--employees {
       width: min(1240px, 100%);
@@ -5590,7 +5948,7 @@ BOARD_WEB_APP_HTML = "".join(
     .dialog--employees > .employees-layout,
     .dialog--employees > .dialog__body-scroll {
       min-height: 0;
-      align-items: start;
+      align-items: stretch;
       padding-right: 2px;
     }
     .dialog--employees .employees-card-head.dialog__floating-actions {
@@ -5608,16 +5966,19 @@ BOARD_WEB_APP_HTML = "".join(
       align-items: stretch;
       gap: 10px;
       min-height: 0;
-      align-self: start;
+      height: 100%;
+      align-self: stretch;
     }
     .employees-pane--list {
       position: sticky;
       top: 0;
-      align-self: start;
+      align-self: stretch;
+      min-height: 0;
     }
     .employees-pane--list .subpanel {
       display: flex;
       flex-direction: column;
+      flex: 0 0 auto;
       min-height: 0;
     }
     .employees-list-tools {
@@ -5658,7 +6019,8 @@ BOARD_WEB_APP_HTML = "".join(
       display: flex;
       flex-direction: column;
       gap: 6px;
-      max-height: min(68vh, 640px);
+      flex: 1 1 auto;
+      min-height: 0;
       overflow: auto;
       padding-right: 4px;
     }
@@ -5679,6 +6041,10 @@ BOARD_WEB_APP_HTML = "".join(
       color: var(--text);
       width: 100%;
       min-width: 0;
+    }
+    .employees-row__body:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
     }
     .employees-row.is-active {
       border-color: var(--accent);
@@ -5724,6 +6090,26 @@ BOARD_WEB_APP_HTML = "".join(
       font-size: 10.5px;
       opacity: 0.78;
       line-height: 1.3;
+    }
+    .employees-row__scanline {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .employees-row__scan-chip {
+      border: 1px solid rgba(164, 173, 138, 0.14);
+      color: rgba(231, 226, 193, 0.72);
+      background: rgba(12, 18, 14, 0.35);
+      padding: 2px 5px;
+      font-size: 9.5px;
+      line-height: 1.15;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .employees-row__summary {
       display: flex;
@@ -6271,6 +6657,30 @@ BOARD_WEB_APP_HTML = "".join(
       font-weight: 700;
       line-height: 1.25;
     }
+    .client-row__name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .client-row__chips {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .client-row__chip {
+      border: 1px solid rgba(160, 174, 135, 0.18);
+      background: rgba(12, 18, 14, 0.52);
+      color: var(--text-soft);
+      padding: 2px 5px;
+      font-size: 10px;
+      line-height: 1.2;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .client-type-badge {
       border: 1px solid var(--line);
       color: var(--muted);
@@ -6329,6 +6739,25 @@ BOARD_WEB_APP_HTML = "".join(
       font-weight: 700;
       line-height: 1.25;
       letter-spacing: 0.04em;
+    }
+    .clients-profile-empty {
+      border: 1px dashed rgba(160, 174, 135, 0.24);
+      background: rgba(16, 22, 18, 0.48);
+      color: var(--text-soft);
+      padding: 12px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .clients-profile-empty[hidden] {
+      display: none;
+    }
+    .clients-profile-pane.is-empty .clients-form-grid,
+    .clients-profile-pane.is-empty .clients-requisites,
+    .clients-profile-pane.is-empty .clients-profile-columns,
+    .clients-profile-pane.is-empty .clients-profile-actions {
+      display: none;
     }
     .client-debt-card {
       min-width: 180px;
@@ -6816,11 +7245,26 @@ BOARD_WEB_APP_HTML = "".join(
       line-height: 1.2;
       text-align: center;
       overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
     }
     .shared-file-icon__meta {
       color: var(--muted);
       font-size: 10px;
-      line-height: 1;
+      line-height: 1.15;
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 96px;
+    }
+    .shared-file-icon__meta-chip {
+      border: 1px solid rgba(160, 174, 135, 0.16);
+      background: rgba(12, 18, 14, 0.36);
+      color: var(--muted);
+      padding: 1px 4px;
     }
     @media (max-width: 980px) {
       .clients-layout,
@@ -7009,6 +7453,11 @@ BOARD_WEB_APP_HTML = "".join(
         <div class="dialog__title">АРХИВ / ПОСЛЕДНИЕ 30</div>
         <button class="btn" data-close="archive">ЗАКРЫТЬ</button>
       </div>
+      <div class="field field--compact archive-search">
+        <label for="archiveSearchInput">ПОИСК ПО ПОКАЗАННЫМ АРХИВНЫМ КАРТОЧКАМ</label>
+        <input id="archiveSearchInput" type="search" maxlength="160" placeholder="авто, клиент, описание, дата">
+        <div class="archive-search-meta" id="archiveSearchMeta">ПОКАЗАНЫ ПОСЛЕДНИЕ 30 АРХИВНЫХ КАРТОЧЕК</div>
+      </div>
       <div id="archiveList"></div>
     </div>
   </div>
@@ -7098,6 +7547,7 @@ BOARD_WEB_APP_HTML = "".join(
               </div>
             </div>
           </div>
+          <div class="clients-profile-empty" id="clientProfileEmptyState">ВЫБЕРИТЕ КЛИЕНТА СЛЕВА ИЛИ НАЙДИТЕ ЕГО ПО ТЕЛЕФОНУ, ФИО, ГОСНОМЕРУ ИЛИ АВТО.</div>
           <div class="clients-form-grid">
             <div class="field field--compact clients-field--type">
               <label for="clientTypeInput">ТИП</label>
@@ -7200,8 +7650,7 @@ BOARD_WEB_APP_HTML = "".join(
           </div>
           <div class="cashboxes-list" id="cashboxesList"></div>
           <div class="cashboxes-pane__foot">
-            <button class="btn btn--ghost" id="cashboxJournalButton">ЖУРНАЛ</button>
-            <button class="btn btn--ghost" id="cashboxFinanceAuditButton">СВЕРКА</button>
+            <button class="btn btn--accent cashbox-journal-main-button" id="cashboxJournalButton">ЖУРНАЛ</button>
             <button class="btn btn--ghost cashbox-journal-download-button" id="cashboxJournalDownloadButton" title="СКАЧАТЬ ЖУРНАЛ" aria-label="СКАЧАТЬ ЖУРНАЛ">
               <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
                 <path d="M8 2v7"></path>
@@ -7239,7 +7688,7 @@ BOARD_WEB_APP_HTML = "".join(
           <div class="cashbox-transactions-card">
             <div class="cashbox-transactions-head">
               <div class="panel-title">ДВИЖЕНИЯ</div>
-              <button class="btn btn--ghost cashbox-cancel-last-button" id="cashboxCancelLastButton">ОТМЕНИТЬ ПОСЛЕДНЕЕ</button>
+              <button class="btn btn--danger cashbox-cancel-last-button" id="cashboxCancelLastButton" title="Отменить последнее движение: выберите кассу">ОТМЕНИТЬ ПОСЛЕДНЕЕ</button>
             </div>
             <div class="cashbox-transactions" id="cashboxTransactions"></div>
           </div>
@@ -7249,12 +7698,14 @@ BOARD_WEB_APP_HTML = "".join(
   </div>
 
   <div class="modal" id="cashboxJournalModal">
-      <div class="dialog" style="width:min(980px,100%)">
+      <div class="dialog dialog--cashbox-journal">
         <div class="dialog__head">
           <div class="dialog__title">ЖУРНАЛ ДВИЖЕНИЯ ДЕНЕГ</div>
           <div class="cashbox-journal-actions">
-            <button class="btn btn--ghost cashbox-journal-stats-button" id="cashboxJournalStatsButton" type="button" aria-controls="cashboxJournalText">Журнал / Сводка</button>
-            <button class="btn btn--ghost" id="cashboxJournalAuditButton" type="button" aria-controls="cashboxJournalText">Финансовая сверка</button>
+            <div class="cashbox-journal-mode-switch" role="group" aria-label="Режим журнала движения денег">
+              <button class="cashbox-journal-mode-button" id="cashboxJournalLedgerButton" type="button" data-cash-journal-view="journal" aria-controls="cashboxJournalText" aria-pressed="true">Журнал</button>
+              <button class="cashbox-journal-mode-button" id="cashboxJournalStatsButton" type="button" data-cash-journal-view="stats" aria-controls="cashboxJournalText" aria-pressed="false">Сводка</button>
+            </div>
             <button class="btn" data-close="cashbox-journal">ЗАКРЫТЬ</button>
           </div>
         </div>
@@ -7272,6 +7723,7 @@ BOARD_WEB_APP_HTML = "".join(
         <div class="cashbox-transfer-pane">
             <div class="cashbox-transfer-source">
               <div class="cashbox-transfer-source__name" id="cashboxTransferSourceName">КАССА НЕ ВЫБРАНА</div>
+              <div class="cashbox-transfer-source__balance" id="cashboxTransferSourceBalance"></div>
             </div>
           <div class="cashbox-transfer-summary">
             <div class="field field--compact">
@@ -7282,6 +7734,7 @@ BOARD_WEB_APP_HTML = "".join(
               <label for="cashboxTransferNoteInput">КОММЕНТАРИЙ</label>
               <textarea id="cashboxTransferNoteInput" maxlength="240" placeholder="Коротко опишите перемещение."></textarea>
             </div>
+            <div class="cashbox-transfer-preview" id="cashboxTransferPreview"></div>
           </div>
         </div>
         <div class="cashbox-transfer-pane">
@@ -7687,6 +8140,7 @@ BOARD_WEB_APP_HTML = "".join(
     const BOARD_SEARCH_LIMIT = 8;
     const BOARD_SEARCH_DEBOUNCE_MS = 90;
     const CASH_JOURNAL_FILTER_DEBOUNCE_MS = 80;
+    const CASH_JOURNAL_RENDER_BATCH_SIZE = 250;
     const BOARD_SEARCH_CACHE_TTL_MS = 20000;
     const PERF_STORAGE_KEY = 'autostop-perf';
 
@@ -7721,6 +8175,7 @@ BOARD_WEB_APP_HTML = "".join(
       },
       snapshot: null,
       archiveCards: [],
+      archiveQuery: '',
       archiveLoaded: false,
       archiveLoading: null,
       lastSnapshotRevision: '',
@@ -7805,8 +8260,10 @@ BOARD_WEB_APP_HTML = "".join(
       activeCashbox: null,
       cashboxJournalData: null,
       cashboxJournalView: 'journal',
-      cashboxJournalFilters: { query: '', cashbox: '', type: 'all', period: 'all' },
+      cashboxJournalFilters: { query: '', cashbox: '', type: 'all', period: 'all', periodKind: '', periodKey: '', periodLabel: '' },
       cashboxJournalFilterTimer: null,
+      cashboxJournalVisibleRowLimit: CASH_JOURNAL_RENDER_BATCH_SIZE,
+      cashboxJournalBalancesExpanded: false,
       cashboxDragId: '',
       cashboxDropBeforeId: '',
       cashboxDragIgnoreClicksUntil: 0,
@@ -8289,12 +8746,16 @@ BOARD_WEB_APP_HTML = "".join(
       adminSaveUserButton: document.getElementById('adminSaveUserButton'),
       archiveModal: document.getElementById('archiveModal'),
       archiveList: document.getElementById('archiveList'),
+      archiveSearchInput: document.getElementById('archiveSearchInput'),
+      archiveSearchMeta: document.getElementById('archiveSearchMeta'),
       repairOrdersModal: document.getElementById('repairOrdersModal'),
       clientsModal: document.getElementById('clientsModal'),
       clientsMeta: document.getElementById('clientsMeta'),
       clientsSearchInput: document.getElementById('clientsSearchInput'),
       clientsList: document.getElementById('clientsList'),
       clientNewButton: document.getElementById('clientNewButton'),
+      clientProfilePane: document.querySelector('.clients-profile-pane'),
+      clientProfileEmptyState: document.getElementById('clientProfileEmptyState'),
       clientProfileTitle: document.getElementById('clientProfileTitle'),
       clientProfilePhone: document.getElementById('clientProfilePhone'),
       clientDebtCard: document.getElementById('clientDebtCard'),
@@ -8386,9 +8847,8 @@ BOARD_WEB_APP_HTML = "".join(
       cashboxesList: document.getElementById('cashboxesList'),
       cashboxCreateButton: document.getElementById('cashboxCreateButton'),
       cashboxJournalButton: document.getElementById('cashboxJournalButton'),
-      cashboxFinanceAuditButton: document.getElementById('cashboxFinanceAuditButton'),
+      cashboxJournalLedgerButton: document.getElementById('cashboxJournalLedgerButton'),
       cashboxJournalStatsButton: document.getElementById('cashboxJournalStatsButton'),
-      cashboxJournalAuditButton: document.getElementById('cashboxJournalAuditButton'),
       cashboxJournalDownloadButton: document.getElementById('cashboxJournalDownloadButton'),
       cashboxDeleteButton: document.getElementById('cashboxDeleteButton'),
       cashboxCancelLastButton: document.getElementById('cashboxCancelLastButton'),
@@ -8403,9 +8863,11 @@ BOARD_WEB_APP_HTML = "".join(
       cashboxTransactions: document.getElementById('cashboxTransactions'),
       cashboxJournalText: document.getElementById('cashboxJournalText'),
       cashboxTransferSourceName: document.getElementById('cashboxTransferSourceName'),
+      cashboxTransferSourceBalance: document.getElementById('cashboxTransferSourceBalance'),
       cashboxTransferTargets: document.getElementById('cashboxTransferTargets'),
       cashboxTransferAmountInput: document.getElementById('cashboxTransferAmountInput'),
       cashboxTransferNoteInput: document.getElementById('cashboxTransferNoteInput'),
+      cashboxTransferPreview: document.getElementById('cashboxTransferPreview'),
       cashboxTransferConfirmButton: document.getElementById('cashboxTransferConfirmButton'),
       repairOrdersOpenTab: document.getElementById('repairOrdersOpenTab'),
       repairOrdersReadyTab: document.getElementById('repairOrdersReadyTab'),
@@ -10323,15 +10785,35 @@ BOARD_WEB_APP_HTML = "".join(
       triggerBlobDownload(blob, extractDownloadName(response, 'attachment.bin'));
     }
 
+    function setOperatorLoginGateOpen(isOpen) {
+      const open = Boolean(isOpen);
+      document.body.classList.toggle('operator-login-gate-open', open);
+      els.identityModal?.classList.toggle('operator-login-gate', open);
+      const workspaceShell = document.querySelector('.shell');
+      const stickyDock = document.querySelector('.sticky-dock');
+      [workspaceShell, stickyDock].forEach((element) => {
+        if (!(element instanceof HTMLElement)) return;
+        if (open) {
+          element.setAttribute('aria-hidden', 'true');
+          element.setAttribute('inert', '');
+        } else {
+          element.removeAttribute('aria-hidden');
+          element.removeAttribute('inert');
+        }
+      });
+      if (els.identityModal) {
+        els.identityModal.setAttribute('role', 'dialog');
+        els.identityModal.setAttribute('aria-modal', open ? 'true' : 'false');
+      }
+    }
+
     function ensureActor() {
       if (state.actor) {
         els.operatorButton.textContent = 'ОПЕРАТОР: ' + state.actor;
-        els.identityModal.classList.remove('is-open');
+        closeOperatorLoginModal();
         return true;
       }
-      els.identityInput.value = '';
-      els.identityModal.classList.add('is-open');
-      els.identityInput.focus();
+      openOperatorLoginModal();
       return false;
     }
 
@@ -10381,12 +10863,14 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function closeOperatorLoginModal() {
+      setOperatorLoginGateOpen(false);
       els.identityModal.classList.remove('is-open');
     }
 
     function openOperatorLoginModal() {
       els.identityInput.value = '';
       if (els.identityPassword) els.identityPassword.value = '';
+      setOperatorLoginGateOpen(true);
       els.identityModal.classList.add('is-open');
       requestAnimationFrame(() => els.identityInput.focus());
     }
@@ -10867,12 +11351,59 @@ BOARD_WEB_APP_HTML = "".join(
       return parts.join(' · ') || 'нет данных';
     }
 
+    function clientRowAriaLabel(client) {
+      const stats = client?.stats || {};
+      const type = client?.type_label || client?.client_type || 'ФЛ';
+      const parts = [
+        clientDisplayName(client),
+        'тип ' + type,
+        compactPhoneLine(client, 'телефон не указан'),
+      ];
+      if (stats.repair_orders_total !== undefined) parts.push('заказ-нарядов ' + stats.repair_orders_total);
+      if (stats.vehicles_total !== undefined) parts.push('автомобилей ' + stats.vehicles_total);
+      if (stats.last_visit) parts.push('последний визит ' + formatDate(stats.last_visit));
+      return parts.filter(Boolean).join('. ');
+    }
+
+    function clientRowChipsHtml(client) {
+      const stats = client?.stats || {};
+      const chips = [
+        compactPhoneLine(client, ''),
+        stats.repair_orders_total !== undefined ? ('ЗН: ' + stats.repair_orders_total) : '',
+        stats.vehicles_total !== undefined ? ('АВТО: ' + stats.vehicles_total) : '',
+        stats.last_visit ? ('ПОСЛЕДНИЙ: ' + formatDate(stats.last_visit)) : '',
+      ].filter(Boolean);
+      return chips.length
+        ? '<div class="client-row__chips">' + chips.map((item) => '<span class="client-row__chip" title="' + escapeHtml(item) + '">' + escapeHtml(item) + '</span>').join('') + '</div>'
+        : '';
+    }
+
     function clientDebtAmountText(orders) {
       const total = (Array.isArray(orders) ? orders : []).reduce((sum, order) => {
         const due = repairOrderParseNumber(order?.due_total);
         return sum + (Number.isFinite(due) ? due : 0);
       }, 0);
       return repairOrderFormatRubles(Math.max(0, total));
+    }
+
+    function setClientProfileEmptyState(isEmpty) {
+      const empty = Boolean(isEmpty);
+      els.clientProfilePane?.classList.toggle('is-empty', empty);
+      if (els.clientProfileEmptyState) els.clientProfileEmptyState.hidden = !empty;
+    }
+
+    function renderClientProfileEmptyState() {
+      state.clientsActiveId = '';
+      state.clientsActiveProfile = null;
+      state.clientVehicleEditor = null;
+      setClientProfileEmptyState(true);
+      if (els.clientProfileTitle) els.clientProfileTitle.textContent = 'КЛИЕНТ НЕ ВЫБРАН';
+      if (els.clientProfilePhone) els.clientProfilePhone.textContent = 'ВЫБЕРИТЕ КЛИЕНТА ИЛИ УТОЧНИТЕ ПОИСК';
+      if (els.clientDebtValue) els.clientDebtValue.textContent = '0 ₽';
+      fillClientForm({ client_type: 'person', phones: [] });
+      renderClientVehiclesList([]);
+      if (els.clientOrdersList) els.clientOrdersList.innerHTML = '<div class="empty">ВЫБЕРИТЕ КЛИЕНТА, ЧТОБЫ УВИДЕТЬ ЗАКАЗ-НАРЯДЫ.</div>';
+      renderClientsList();
     }
 
     function renderClientsList() {
@@ -10903,9 +11434,12 @@ BOARD_WEB_APP_HTML = "".join(
       }
       els.clientsList.innerHTML = clients.map((client) => {
         const activeClass = client.id === state.clientsActiveId ? ' is-active' : '';
-        return '<button class="client-row' + activeClass + '" type="button" data-client-id="' + escapeHtml(client.id) + '">'
-          + '<div class="client-row__title"><span>' + escapeHtml(clientDisplayName(client)) + '</span><span class="client-type-badge">' + escapeHtml(client.type_label || client.client_type || 'ФЛ') + '</span></div>'
+        const displayName = clientDisplayName(client);
+        const rowLabel = clientRowAriaLabel(client);
+        return '<button class="client-row' + activeClass + '" type="button" data-client-id="' + escapeHtml(client.id) + '" aria-label="Клиент ' + escapeHtml(rowLabel) + '" title="' + escapeHtml(rowLabel) + '">'
+          + '<div class="client-row__title"><span class="client-row__name" title="' + escapeHtml(displayName) + '">' + escapeHtml(displayName) + '</span><span class="client-type-badge">' + escapeHtml(client.type_label || client.client_type || 'ФЛ') + '</span></div>'
           + '<div class="client-row__meta">' + escapeHtml(clientMetaLine(client)) + '</div>'
+          + clientRowChipsHtml(client)
           + '</button>';
       }).join('');
     }
@@ -10974,6 +11508,7 @@ BOARD_WEB_APP_HTML = "".join(
       state.clientsActiveId = '';
       state.clientsActiveProfile = null;
       state.clientVehicleEditor = null;
+      setClientProfileEmptyState(false);
       const blank = {
         client_type: 'person',
         last_name: '',
@@ -11085,6 +11620,7 @@ BOARD_WEB_APP_HTML = "".join(
     function renderClientProfile(data) {
       const client = data?.client || {};
       state.clientsActiveProfile = data || null;
+      setClientProfileEmptyState(false);
       if (els.clientProfileTitle) els.clientProfileTitle.textContent = clientDisplayName(client);
       if (els.clientProfilePhone) {
         els.clientProfilePhone.textContent = compactPhoneLine(client, 'ТЕЛЕФОН НЕ УКАЗАН');
@@ -11167,7 +11703,7 @@ BOARD_WEB_APP_HTML = "".join(
       });
       if (state.clientsRequestSeq !== requestSeq) return data;
       if (openModal && !state.clientsActiveId && !state.clientsActiveProfile) {
-        resetClientForm();
+        renderClientProfileEmptyState();
       }
       return data;
     }
@@ -11273,7 +11809,7 @@ BOARD_WEB_APP_HTML = "".join(
       if (!requireOperatorSession()) return;
       bindClientsUiEvents();
       await loadClients({ openModal: true });
-      if (!state.clients.length) resetClientForm();
+      if (!state.clients.length && !state.clientsActiveProfile) renderClientProfileEmptyState();
     }
 
     async function saveClientProfile() {
@@ -12018,6 +12554,15 @@ BOARD_WEB_APP_HTML = "".join(
       return JSON.stringify(employeeFormSnapshot()) !== JSON.stringify(baseline);
     }
 
+    function employeeRowAriaLabel(employee, summaryValue) {
+      return [
+        String(employee?.name || 'Без имени'),
+        String(employee?.position || 'без должности'),
+        'схема ' + employeeSalaryModeLabel(employee?.salary_mode || 'salary_plus_percent'),
+        'к выплате ' + String(summaryValue || '0'),
+      ].filter(Boolean).join('. ');
+    }
+
     function confirmDiscardEmployeeChanges() {
       if (!employeeFormHasUnsavedChanges()) return true;
       return window.confirm('Несохранённые изменения сотрудника будут потеряны. Продолжить?');
@@ -12141,10 +12686,13 @@ BOARD_WEB_APP_HTML = "".join(
         const summary = summaryMap.get(String(employee.id || ''));
         const summaryLabel = 'К ВЫПЛАТЕ';
         const summaryValue = String(employee.balance_total ?? summary?.balance_total ?? summary?.total_salary ?? '0');
+        const modeLabel = employeeSalaryModeLabel(employee.salary_mode || 'salary_plus_percent');
+        const rowLabel = employeeRowAriaLabel(employee, summaryValue);
         return '<div class="employees-row' + (isActive ? ' is-active' : '') + '">'
-          + '<button class="employees-row__body" type="button" data-employee-id="' + escapeHtml(employee.id) + '">'
+          + '<button class="employees-row__body" type="button" data-employee-id="' + escapeHtml(employee.id) + '" aria-label="Сотрудник ' + escapeHtml(rowLabel) + '" title="' + escapeHtml(rowLabel) + '">'
             + '<div class="employees-row__top"><div class="employees-row__title">' + escapeHtml(employee.name) + '</div></div>'
             + '<div class="employees-row__meta">' + escapeHtml(employee.position || 'Без должности') + '</div>'
+            + '<div class="employees-row__scanline"><span class="employees-row__scan-chip">' + escapeHtml(modeLabel) + '</span><span class="employees-row__scan-chip">' + escapeHtml(summaryLabel + ': ' + summaryValue) + '</span></div>'
             + '<div class="employees-row__summary"><span class="employees-row__summary-label">' + escapeHtml(summaryLabel) + '</span><strong>' + escapeHtml(summaryValue) + '</strong></div>'
           + '</button>'
           + '<div class="employees-row__actions">'
@@ -18274,12 +18822,42 @@ BOARD_WEB_APP_HTML = "".join(
       els.logList.textContent = text;
     }
 
-function renderCompactArchiveRows(cards) {
+    function archiveCardSearchText(card) {
+      return normalizeClientSearchText([
+        cardHeading(card),
+        card?.title,
+        card?.vehicle,
+        card?.client,
+        card?.customer,
+        card?.license_plate,
+        card?.column,
+        formatDate(card?.updated_at),
+        stripDescriptionFormatting(card?.description || ''),
+      ].filter(Boolean).join(' '));
+    }
+
+    function filteredArchiveCards() {
+      const cards = Array.isArray(state.archiveCards) ? state.archiveCards : [];
+      const query = normalizeClientSearchText(state.archiveQuery || '');
+      if (!query) return cards;
+      return cards.filter((card) => archiveCardSearchText(card).includes(query));
+    }
+
+    function renderArchiveSearchMeta(total, visible) {
+      if (!els.archiveSearchMeta) return;
+      const query = String(state.archiveQuery || '').trim();
+      els.archiveSearchMeta.textContent = query
+        ? ('НАЙДЕНО: ' + visible + ' ИЗ ' + total + ' ПО ПОКАЗАННЫМ ' + ARCHIVE_PREVIEW_LIMIT)
+        : ('ПОКАЗАНО: ' + visible + ' ИЗ ' + total + ' ПОСЛЕДНИХ АРХИВНЫХ КАРТОЧЕК');
+    }
+
+    function renderCompactArchiveRows(cards) {
       return cards.map((card) => {
         const heading = cardHeading(card);
         const compactDescription = stripDescriptionFormatting(card.description || 'Описание не указано').replace(/\\s+/g, ' ').trim();
         const summary = compactDescription.length > 180 ? compactDescription.slice(0, 177) + '...' : compactDescription;
-        return '<div class="archive-row archive-row--compact"><div class="archive-row__main"><div class="archive-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div><div class="archive-row__summary" title="' + escapeHtml(compactDescription || 'Описание не указано') + '">' + escapeHtml(summary || 'Описание не указано') + '</div></div><div class="archive-row__side"><div class="archive-row__meta">АРХИВ: ' + escapeHtml(formatDate(card.updated_at)) + '</div><button class="btn" data-restore-card="' + escapeHtml(card.id) + '">ВЕРНУТЬ</button></div></div>';
+        const restoreLabel = 'Вернуть карточку ' + heading;
+        return '<div class="archive-row archive-row--compact"><div class="archive-row__main"><div class="archive-row__title" title="' + escapeHtml(heading) + '">' + escapeHtml(heading) + '</div><div class="archive-row__summary" title="' + escapeHtml(compactDescription || 'Описание не указано') + '">' + escapeHtml(summary || 'Описание не указано') + '</div></div><div class="archive-row__side"><div class="archive-row__meta">АРХИВ: ' + escapeHtml(formatDate(card.updated_at)) + '</div><button class="btn" data-restore-card="' + escapeHtml(card.id) + '" aria-label="Вернуть карточку ' + escapeHtml(heading) + '" title="' + escapeHtml(restoreLabel) + '">ВЕРНУТЬ</button></div></div>';
       }).join('');
     }
 
@@ -18378,11 +18956,15 @@ function renderCompactArchiveRows(cards) {
     }
 
     function renderArchive() {
-      const cards = Array.isArray(state.archiveCards) ? state.archiveCards : [];
+      const totalCards = Array.isArray(state.archiveCards) ? state.archiveCards : [];
+      const cards = filteredArchiveCards();
+      renderArchiveSearchMeta(totalCards.length, cards.length);
       els.archiveList.innerHTML = cards.length
         ? renderCompactArchiveRows(cards)
         : state.archiveLoading
           ? '<div class="log-row__meta">ЗАГРУЗКА АРХИВА...</div>'
+        : String(state.archiveQuery || '').trim()
+          ? '<div class="log-row__meta">ПО ПОКАЗАННЫМ АРХИВНЫМ КАРТОЧКАМ НИЧЕГО НЕ НАЙДЕНО.</div>'
         : '<div class="log-row__meta">АРХИВ ПУСТ.</div>';
     }
 
@@ -19948,6 +20530,19 @@ function renderCompactArchiveRows(cards) {
       return true;
     }
 
+    function cashboxBalanceMinor(cashbox) {
+      return Number(cashbox?.statistics?.balance_minor || 0);
+    }
+
+    function cashboxBalanceDisplay(cashbox) {
+      const balanceMinor = cashboxBalanceMinor(cashbox);
+      return String(cashbox?.statistics?.balance_display || cashboxFormatMinorAmount(balanceMinor));
+    }
+
+    function cashboxBalanceSign(balanceMinor) {
+      return Number(balanceMinor || 0) < 0 ? 'negative' : 'positive';
+    }
+
     function cashboxDropBeforeIdFromRow(row, clientY) {
       const targetId = String(row?.dataset?.cashboxId || '').trim();
       if (!targetId || targetId === state.cashboxDragId) return '';
@@ -19982,9 +20577,9 @@ function renderCompactArchiveRows(cards) {
       els.cashboxesList.classList.toggle('is-drop-end', isDropEnd);
       els.cashboxesList.innerHTML = items.length ? items.map((item) => {
         const stats = item?.statistics || {};
-        const balanceMinor = Number(stats?.balance_minor || 0);
-        const balanceDisplay = String(stats?.balance_display || cashboxFormatMinorAmount(balanceMinor));
-        const balanceSign = String(stats?.balance_sign || (balanceMinor < 0 ? 'negative' : 'positive'));
+        const balanceMinor = cashboxBalanceMinor(item);
+        const balanceDisplay = cashboxBalanceDisplay(item);
+        const balanceSign = String(stats?.balance_sign || cashboxBalanceSign(balanceMinor));
         const activeClass = item.id === state.activeCashboxId ? ' is-active' : '';
         const draggingClass = item.id === state.cashboxDragId ? ' is-dragging' : '';
         const dropClass = item.id === state.cashboxDropBeforeId ? ' is-drop-target' : '';
@@ -20039,7 +20634,7 @@ function renderCompactArchiveRows(cards) {
         els.cashboxDeleteButton.disabled = true;
         if (cancelButton) {
           cancelButton.disabled = true;
-          cancelButton.title = 'НЕТ ДВИЖЕНИЙ ДЛЯ ОТМЕНЫ.';
+          cancelButton.title = 'Отменить последнее движение: выберите кассу.';
         }
         els.cashboxIncomeButton.disabled = true;
         els.cashboxTransferButton.disabled = true;
@@ -20058,9 +20653,14 @@ function renderCompactArchiveRows(cards) {
       els.cashboxDeleteButton.disabled = !canDelete;
       if (cancelButton) {
         cancelButton.disabled = !canCancelLast;
-        cancelButton.title = !latestTransaction
-          ? 'НЕТ ДВИЖЕНИЙ ДЛЯ ОТМЕНЫ.'
-          : (cashboxTransactionIsTransfer(latestTransaction) ? 'ПЕРЕМЕЩЕНИЕ БУДЕТ ОТМЕНЕНО ТОЛЬКО ЦЕЛОЙ ПАРОЙ.' : '');
+        if (!latestTransaction) {
+          cancelButton.title = 'Отменить последнее движение: движений пока нет.';
+        } else {
+          const amount = cashboxFormatMinorAmount(latestTransaction.amount_minor || 0).replace(/^-/, '');
+          const note = String(latestTransaction.note || '').trim() || 'Без комментария';
+          const transferNotice = cashboxTransactionIsTransfer(latestTransaction) ? ' Перемещение отменяется целой парой.' : '';
+          cancelButton.title = 'Отменить последнее движение: ' + note + ' · ' + amount + '.' + transferNotice;
+        }
       }
       els.cashboxIncomeButton.disabled = false;
       els.cashboxTransferButton.disabled = (Array.isArray(state.cashboxes) ? state.cashboxes.length : 0) < 2;
@@ -20131,9 +20731,12 @@ function renderCompactArchiveRows(cards) {
       loadCashboxes(true);
     }
 
-    async function loadCashJournalData() {
+    async function loadCashJournalData({ includeMarkdown = false } = {}) {
+      const journalPath = includeMarkdown
+        ? '/api/get_cash_journal?months=3&limit=5000&include_markdown=true'
+        : '/api/get_cash_journal?months=3&limit=5000&include_markdown=false&compact_groups=true';
       const [journalData, cashboxesData] = await Promise.all([
-        api('/api/get_cash_journal?months=3&limit=5000'),
+        api(journalPath),
         api('/api/list_cashboxes?limit=200'),
       ]);
       return {
@@ -20143,12 +20746,19 @@ function renderCompactArchiveRows(cards) {
     }
 
     async function loadCashJournalText() {
-      const data = await loadCashJournalData();
+      const data = await loadCashJournalData({ includeMarkdown: true });
       return String(data?.markdown || data?.text || 'ЗА ВЫБРАННЫЙ ПЕРИОД ДВИЖЕНИЙ НЕТ.');
     }
 
+    function renderCashJournalLoading() {
+      return '<div class="cashbox-journal-loading">'
+        + '<div class="cashbox-journal-loading__title">ЗАГРУЖАЮ ЖУРНАЛ...</div>'
+        + '<div class="cashbox-journal-loading__hint">На наполненной базе это может занять несколько секунд. Фильтры появятся после загрузки операций.</div>'
+        + '</div>';
+    }
+
     function cashJournalDefaultFilters() {
-      return { query: '', cashbox: '', type: 'all', period: 'all' };
+      return { query: '', cashbox: '', type: 'all', period: 'all', periodKind: '', periodKey: '', periodLabel: '' };
     }
 
     function cashJournalFilters() {
@@ -20156,11 +20766,16 @@ function renderCompactArchiveRows(cards) {
       const defaults = cashJournalDefaultFilters();
       const type = ['all', 'income', 'expense', 'transfer'].indexOf(current.type) >= 0 ? current.type : defaults.type;
       const period = ['all', '30', '7', 'today'].indexOf(current.period) >= 0 ? current.period : defaults.period;
+      const periodKind = ['day', 'week', 'month'].indexOf(current.periodKind) >= 0 ? String(current.periodKind) : '';
+      const periodKey = periodKind ? String(current.periodKey || '').trim() : '';
       return {
         query: String(current.query || ''),
         cashbox: String(current.cashbox || ''),
         type,
         period,
+        periodKind: periodKey ? periodKind : '',
+        periodKey,
+        periodLabel: periodKey ? String(current.periodLabel || current.periodKey || '') : '',
       };
     }
 
@@ -20176,6 +20791,10 @@ function renderCompactArchiveRows(cards) {
       return cashboxFormatMinorAmount(transferMinor);
     }
 
+    function cashJournalTransferSummaryText(transferMinor, count) {
+      return cashboxFormatMinorAmount(transferMinor) + ' · ' + String(Number(count || 0)) + ' оп.';
+    }
+
     function cashJournalSignedAmountDisplay(amountMinor) {
       const amount = Number(amountMinor || 0);
       return (amount > 0 ? '+' : '') + cashboxFormatMinorAmount(amount);
@@ -20189,15 +20808,36 @@ function renderCompactArchiveRows(cards) {
       return source;
     }
 
+    function cashJournalCleanOperationNote(note) {
+      const text = String(note || '').trim();
+      const cleaned = text.replace(/^(?:поступление|списание|приход|расход)\\s*:\\s*/i, '').trim();
+      return cleaned || 'Без комментария';
+    }
+
+    function cashJournalDisplayTypeLabel(direction) {
+      if (direction === 'transfer') return 'Перевод';
+      return direction === 'expense' ? 'Расход' : 'Приход';
+    }
+
     function cashJournalLinkFlags(item) {
       const status = String(item?.link_status || '').trim();
       const flags = [];
       if (status === 'linked_legacy') flags.push('legacy');
       if (status === 'payment_without_order') flags.push('нет связи с оплатой');
       if (status === 'legacy_without_payment') flags.push('legacy');
-      if (status === 'legacy_without_payment') flags.push('требуется сверка');
+      if (status === 'legacy_without_payment') flags.push('проверить связь');
       if (item?.stored_note && item.stored_note !== item.note) flags.push('исправлен display-note');
       return flags;
+    }
+
+    function cashJournalOperationTagsHtml(tags) {
+      const items = (Array.isArray(tags) ? tags : [])
+        .map((tag) => String(tag || '').trim())
+        .filter(Boolean);
+      if (!items.length) return '';
+      return '<div class="cashbox-journal-operation-tags">'
+        + items.map((tag) => '<span class="cashbox-journal-operation-tag">' + escapeHtml(tag) + '</span>').join('')
+        + '</div>';
     }
 
     function cashJournalEntryNoteText(item) {
@@ -20207,15 +20847,53 @@ function renderCompactArchiveRows(cards) {
         if (item?.repair_order_vehicle) parts.push(String(item.repair_order_vehicle));
         return parts.join(' · ');
       }
-      const note = String(item?.note || '').trim() || 'Без комментария';
-      if (/^(?:поступление|списание|приход|расход)\\s*:/i.test(note)) return note;
-      return (direction === 'expense' ? 'Списание: ' : 'Поступление: ') + note;
+      return cashJournalCleanOperationNote(item?.note || (direction === 'expense' ? 'Расход' : 'Приход'));
     }
 
     function cashJournalTransferNote(item) {
-      return String(item?.note || '')
-        .replace(/^перемещение\\s+(?:в|из)\\s+[^:]+:\\s*/i, '')
+      const raw = String(item?.note || '').trim();
+      return raw
+        .replace(/^перемещение\\s+(?:в|из)\\s+[^:]+(?::\\s*)?/i, '')
         .trim();
+    }
+
+    function cashJournalTextKey(value) {
+      return String(value || '').trim().toLowerCase().replace(/\\s+/g, ' ');
+    }
+
+    function cashJournalLegacyTransferPeerName(item) {
+      const note = String(item?.note || '').trim();
+      const direction = item?.direction === 'expense' ? 'expense' : 'income';
+      const pattern = direction === 'expense'
+        ? /^перемещение\\s+в\\s+(.+?)(?::|$)/i
+        : /^перемещение\\s+из\\s+(.+?)(?::|$)/i;
+      const match = note.match(pattern);
+      return match ? String(match[1] || '').trim() : '';
+    }
+
+    function cashJournalLegacyTransferActorKey(item) {
+      return cashJournalTextKey(item?.actor_label || item?.actor_name || '');
+    }
+
+    function cashJournalLegacyTransferPairMatches(item, candidate) {
+      if (item?.source_label !== 'перемещение' || candidate?.source_label !== 'перемещение') return false;
+      if (candidate?.direction === item?.direction) return false;
+      const sameDate = cashJournalEntryDateKey(candidate) === cashJournalEntryDateKey(item);
+      const sameTime = String(candidate?.time_short || '') === String(item?.time_short || '');
+      const sameAmount = Number(candidate?.amount_minor || 0) === Number(item?.amount_minor || 0);
+      if (!sameDate || !sameTime || !sameAmount || !Number(item?.amount_minor || 0)) return false;
+      const itemActor = cashJournalLegacyTransferActorKey(item);
+      const candidateActor = cashJournalLegacyTransferActorKey(candidate);
+      if (itemActor && candidateActor && itemActor !== candidateActor) return false;
+      const source = item?.direction === 'expense' ? item : candidate;
+      const target = item?.direction === 'income' ? item : candidate;
+      const sourceCashbox = cashJournalTextKey(source?.cashbox_name || '');
+      const targetCashbox = cashJournalTextKey(target?.cashbox_name || '');
+      const sourcePeer = cashJournalTextKey(cashJournalLegacyTransferPeerName(source));
+      const targetPeer = cashJournalTextKey(cashJournalLegacyTransferPeerName(target));
+      if (sourcePeer && sourcePeer !== targetCashbox) return false;
+      if (targetPeer && targetPeer !== sourceCashbox) return false;
+      return Boolean(sourcePeer || targetPeer);
     }
 
     function cashJournalFindTransferPair(item, entries, usedIds) {
@@ -20231,6 +20909,17 @@ function renderCompactArchiveRows(cards) {
         const sameGroup = transferGroupId && String(candidate?.transfer_group_id || '') === transferGroupId;
         if (!sameRelated && !sameGroup) continue;
         if (candidate?.direction === item?.direction) continue;
+        const source = item?.direction === 'expense' ? item : candidate;
+        const target = item?.direction === 'income' ? item : candidate;
+        return { source, target };
+      }
+      const legacyCandidates = entries.filter((candidate) => {
+        const candidateId = String(candidate?.id || '');
+        if (!candidateId || candidateId === itemId || usedIds.has(candidateId)) return false;
+        return cashJournalLegacyTransferPairMatches(item, candidate);
+      });
+      if (legacyCandidates.length === 1) {
+        const candidate = legacyCandidates[0];
         const source = item?.direction === 'expense' ? item : candidate;
         const target = item?.direction === 'income' ? item : candidate;
         return { source, target };
@@ -20315,6 +21004,15 @@ function renderCompactArchiveRows(cards) {
       return date >= start && date <= anchorDay;
     }
 
+    function cashJournalEntryMatchesExactPeriod(item, periodKind, periodKey) {
+      const key = String(periodKey || '').trim();
+      if (!key) return true;
+      if (periodKind === 'day') return cashJournalEntryDateKey(item) === key;
+      if (periodKind === 'week') return String(item?.week_key || '') === key;
+      if (periodKind === 'month') return String(item?.month_key || '') === key;
+      return true;
+    }
+
     function cashJournalSearchTextForItem(item) {
       return [
         item?.time_short,
@@ -20346,7 +21044,11 @@ function renderCompactArchiveRows(cards) {
       if (filters.cashbox && !items.some((item) => String(item?.cashbox_id || '') === filters.cashbox)) {
         return false;
       }
-      if (!items.some((item) => cashJournalEntryMatchesPeriod(item, filters.period, anchor))) {
+      if (filters.periodKind && filters.periodKey) {
+        if (!items.some((item) => cashJournalEntryMatchesExactPeriod(item, filters.periodKind, filters.periodKey))) {
+          return false;
+        }
+      } else if (!items.some((item) => cashJournalEntryMatchesPeriod(item, filters.period, anchor))) {
         return false;
       }
       const query = String(filters.query || '').trim().toLowerCase();
@@ -20449,6 +21151,23 @@ function renderCompactArchiveRows(cards) {
       return parts.map((part) => '<span>' + escapeHtml(part) + '</span>').join('');
     }
 
+    function cashJournalDayCompactSummaryHtml(day) {
+      const balanceMinor = Number(day?.balance_minor || 0);
+      const operationCount = Number(day?.count || cashJournalDisplayRows(day?.entries || []).length || 0);
+      const balanceText = String(day?.balance_display || cashJournalSignedAmountDisplay(balanceMinor));
+      const sign = balanceMinor < 0 ? 'negative' : 'positive';
+      return '<span data-balance-sign="' + escapeHtml(sign) + '">' + escapeHtml(balanceText) + ' · ' + escapeHtml(String(operationCount)) + ' оп.</span>';
+    }
+
+    function renderCashJournalDayDetails(day) {
+      const details = cashJournalDaySummaryHtml(day || {});
+      if (!details) return '';
+      return '<details class="cashbox-journal-day-details">'
+        + '<summary>Детали дня</summary>'
+        + '<div class="cashbox-journal-day-details__grid">' + details + '</div>'
+        + '</details>';
+    }
+
     function renderCashJournalOpening(day) {
       const balances = Array.isArray(day?.opening_balances) ? day.opening_balances : [];
       if (!balances.length) return '';
@@ -20471,22 +21190,26 @@ function renderCompactArchiveRows(cards) {
 
     function renderCashJournalEntry(item) {
       const direction = item?.direction === 'expense' ? 'expense' : 'income';
+      const source = cashJournalVisibleSource(item?.source_label);
+      const visualDirection = source === 'перемещение' ? 'transfer' : direction;
+      const typeLabel = cashJournalDisplayTypeLabel(visualDirection);
       const note = cashJournalEntryNoteText(item);
       const amount = String(item?.signed_amount_display || ((direction === 'expense' ? '-' : '+') + cashboxFormatMinorAmount(item?.amount_minor || 0).replace(/^-/, '')));
-      const source = cashJournalVisibleSource(item?.source_label);
       const actor = String(item?.actor_label || item?.actor_name || '').trim();
       const actorText = actor && actor !== 'СИСТЕМА' ? actor : '';
       const flags = cashJournalLinkFlags(item);
-      return '<div class="cashbox-journal-operation-row" data-direction="' + escapeHtml(direction) + '">'
+      const tags = source ? [source].concat(flags) : flags;
+      const rowLabel = [item?.time_short || '--:--', item?.cashbox_name || 'Касса', typeLabel, note, amount, actorText].filter(Boolean).join('. ');
+      return '<div class="cashbox-journal-operation-row" data-direction="' + escapeHtml(visualDirection) + '" role="listitem" aria-label="Операция кассы ' + escapeHtml(rowLabel) + '">'
         + '<div class="cashbox-journal-operation-row__time">' + escapeHtml(item?.time_short || '--:--') + '</div>'
-        + '<div class="cashbox-journal-operation-row__amount" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(amount) + '</div>'
         + '<div class="cashbox-journal-operation-row__cashbox">' + escapeHtml(item?.cashbox_name || 'Касса') + '</div>'
+        + '<div class="cashbox-journal-operation-row__type">' + escapeHtml(typeLabel) + '</div>'
         + '<div class="cashbox-journal-operation-row__body">'
-        + '<div class="cashbox-journal-operation-row__note">' + escapeHtml(note) + '</div>'
-        + (source ? '<div class="cashbox-journal-operation-row__source">' + escapeHtml(source) + '</div>' : '')
-        + (flags.length ? '<div class="cashbox-journal-link-flags">' + flags.map((flag) => '<span class="cashbox-journal-link-flag">' + escapeHtml(flag) + '</span>').join('') + '</div>' : '')
+        + '<div class="cashbox-journal-operation-row__note" title="' + escapeHtml(note) + '">' + escapeHtml(note) + '</div>'
+        + cashJournalOperationTagsHtml(tags)
         + '</div>'
         + '<div class="cashbox-journal-operation-row__actor">' + escapeHtml(actorText) + '</div>'
+        + '<div class="cashbox-journal-operation-row__amount" data-direction="' + escapeHtml(visualDirection) + '">' + escapeHtml(amount) + '</div>'
         + '</div>';
     }
 
@@ -20495,15 +21218,29 @@ function renderCompactArchiveRows(cards) {
       const note = cashJournalTransferNote(source) || cashJournalTransferNote(target);
       const actor = String(source?.actor_label || source?.actor_name || target?.actor_label || target?.actor_name || '').trim();
       const actorText = actor && actor !== 'СИСТЕМА' ? actor : '';
-      return '<div class="cashbox-journal-operation-row cashbox-journal-operation-row--transfer" data-direction="transfer">'
+      const cashboxPath = String(source?.cashbox_name || 'Касса') + ' → ' + String(target?.cashbox_name || 'Касса');
+      const rowLabel = [source?.time_short || target?.time_short || '--:--', cashboxPath, 'Перемещение', note, amount, actorText].filter(Boolean).join('. ');
+      return '<div class="cashbox-journal-operation-row cashbox-journal-operation-row--transfer" data-direction="transfer" role="listitem" aria-label="Операция кассы ' + escapeHtml(rowLabel) + '">'
         + '<div class="cashbox-journal-operation-row__time">' + escapeHtml(source?.time_short || target?.time_short || '--:--') + '</div>'
-        + '<div class="cashbox-journal-operation-row__amount" data-direction="transfer">' + escapeHtml(amount) + '</div>'
-        + '<div class="cashbox-journal-operation-row__cashbox">' + escapeHtml(String(source?.cashbox_name || 'Касса') + ' → ' + String(target?.cashbox_name || 'Касса')) + '</div>'
+        + '<div class="cashbox-journal-operation-row__cashbox">' + escapeHtml(cashboxPath) + '</div>'
+        + '<div class="cashbox-journal-operation-row__type">' + escapeHtml(cashJournalDisplayTypeLabel('transfer')) + '</div>'
         + '<div class="cashbox-journal-operation-row__body">'
-        + '<div class="cashbox-journal-operation-row__note">Перемещение</div>'
+        + '<div class="cashbox-journal-operation-row__note" title="' + escapeHtml(note || 'Перемещение') + '">Перемещение</div>'
         + (note ? '<div class="cashbox-journal-operation-row__source">' + escapeHtml(note) + '</div>' : '')
         + '</div>'
         + '<div class="cashbox-journal-operation-row__actor">' + escapeHtml(actorText) + '</div>'
+        + '<div class="cashbox-journal-operation-row__amount" data-direction="transfer">' + escapeHtml(amount) + '</div>'
+        + '</div>';
+    }
+
+    function cashJournalOperationHeaderHtml() {
+      return '<div class="cashbox-journal-operation-head" aria-hidden="true">'
+        + '<span>Время</span>'
+        + '<span>Касса</span>'
+        + '<span>Тип</span>'
+        + '<span>Операция</span>'
+        + '<span>Оператор</span>'
+        + '<span>Сумма</span>'
         + '</div>';
     }
 
@@ -20518,8 +21255,9 @@ function renderCompactArchiveRows(cards) {
       return '<section class="cashbox-journal-day">'
         + '<div class="cashbox-journal-day-divider">'
         + '<div class="cashbox-journal-day-divider__title">' + escapeHtml(day?.label || day?.date || 'День') + '</div>'
-        + '<div class="cashbox-journal-day-divider__meta">' + cashJournalDaySummaryHtml(day || {}) + '</div>'
+        + '<div class="cashbox-journal-day-divider__meta" data-cash-journal-compact-day="' + escapeHtml(day?.key || day?.date || '') + '">' + cashJournalDayCompactSummaryHtml(day || {}) + '</div>'
         + '</div>'
+        + renderCashJournalDayDetails(day || {})
         + renderCashJournalOpening(day || {})
         + '<div class="cashbox-journal-entries">'
         + (rows.length ? rows.map(renderCashJournalRow).join('') : '<div class="cashbox-journal-empty">Операций за день нет.</div>')
@@ -20538,6 +21276,8 @@ function renderCompactArchiveRows(cards) {
     function renderCashJournalCurrentBalances(data) {
       const cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
       if (!cashboxes.length) return '<div class="cashbox-journal-empty">Текущие остатки касс не загружены.</div>';
+      const hasNegative = cashboxes.some((cashbox) => Number(cashbox?.statistics?.balance_minor || 0) < 0);
+      const expanded = Boolean(state.cashboxJournalBalancesExpanded);
       const rows = cashboxes.map((cashbox) => {
         const balanceMinor = Number(cashbox?.statistics?.balance_minor || 0);
         const sign = String(cashbox?.statistics?.balance_sign || (balanceMinor < 0 ? 'negative' : 'positive'));
@@ -20549,9 +21289,12 @@ function renderCompactArchiveRows(cards) {
       }).join('');
       const totalMinor = cashJournalCurrentTotalMinor(data);
       const totalSign = totalMinor < 0 ? 'negative' : 'positive';
-      return '<div class="cashbox-journal-balance-strip">'
-        + rows
-        + '<div class="cashbox-journal-balance-chip" data-balance-sign="' + escapeHtml(totalSign) + '"><span>Итого</span><strong>' + escapeHtml(cashboxFormatMinorAmount(totalMinor)) + '</strong></div>'
+      return '<div class="cashbox-journal-balance-strip' + (expanded ? ' is-expanded' : '') + '">'
+        + '<div class="cashbox-journal-balance-strip__main">'
+        + '<div class="cashbox-journal-balance-chip cashbox-journal-balance-chip--total" data-balance-sign="' + escapeHtml(totalSign) + '"><span>Итого</span><strong>' + escapeHtml(cashboxFormatMinorAmount(totalMinor)) + '</strong></div>'
+        + '<button class="cashbox-journal-balance-toggle" type="button" data-cash-journal-toggle-balances aria-expanded="' + (expanded ? 'true' : 'false') + '" data-balance-warning="' + (hasNegative ? 'true' : 'false') + '">' + (expanded ? 'Скрыть кассы' : 'Кассы') + '</button>'
+        + '</div>'
+        + '<div class="cashbox-journal-balance-strip__items">' + rows + '</div>'
         + '</div>';
     }
 
@@ -20560,13 +21303,43 @@ function renderCompactArchiveRows(cards) {
       return '<option value="' + escapeHtml(value) + '"' + selected + '>' + escapeHtml(label) + '</option>';
     }
 
+    function cashJournalPeriodButton(value, label, filters) {
+      const isActive = !filters.periodKind && String(filters.period || 'all') === String(value);
+      return '<button class="cashbox-journal-period-button' + (isActive ? ' is-active' : '') + '" type="button" data-cash-journal-period="' + escapeHtml(value) + '" aria-pressed="' + (isActive ? 'true' : 'false') + '">'
+        + escapeHtml(label)
+        + '</button>';
+    }
+
+    function cashJournalActiveFiltersHtml(data) {
+      const filters = cashJournalFilters();
+      const chips = [];
+      const query = String(filters.query || '').trim();
+      const cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
+      const cashbox = cashboxes.find((item) => String(item?.id || '') === filters.cashbox);
+      const typeLabels = { income: 'Поступления', expense: 'Списания', transfer: 'Перемещения' };
+      const periodLabels = { today: 'Сегодня', '7': '7 дней', '30': '30 дней', all: '3 мес.' };
+      if (query) chips.push({ key: 'query', label: 'Поиск: ' + query });
+      if (filters.cashbox) chips.push({ key: 'cashbox', label: 'Касса: ' + String(cashbox?.name || 'касса') });
+      if (filters.type !== 'all') chips.push({ key: 'type', label: 'Тип: ' + String(typeLabels[filters.type] || filters.type) });
+      if (filters.periodKind && filters.periodKey) {
+        chips.push({ key: 'period', label: 'Период: ' + String(filters.periodLabel || filters.periodKey) });
+      } else if (filters.period !== 'all') {
+        chips.push({ key: 'period', label: 'Период: ' + String(periodLabels[filters.period] || filters.period) });
+      }
+      return '<div class="cashbox-journal-active-filters" data-cash-journal-region="active-filters">'
+        + chips.map((chip) => '<button class="cashbox-journal-active-filter" type="button" data-cash-journal-clear-filter="' + escapeHtml(chip.key) + '" title="Снять фильтр: ' + escapeHtml(chip.label) + '">' + escapeHtml(chip.label) + ' ×</button>').join('')
+        + '</div>';
+    }
+
     function renderCashJournalFilters(data) {
       const filters = cashJournalFilters();
       const cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
       const cashboxOptions = [cashJournalSelectOption('', 'Все кассы', filters.cashbox)]
         .concat(cashboxes.map((cashbox) => cashJournalSelectOption(cashbox?.id || '', cashbox?.name || 'Касса', filters.cashbox)))
         .join('');
-      return '<div class="cashbox-journal-filters">'
+      const resetHidden = cashJournalFiltersAreActive(filters) ? '' : ' hidden';
+      const resetButton = '<button class="cashbox-journal-reset cashbox-journal-filter-reset" type="button" data-cash-journal-reset title="Сбросить фильтры" aria-label="Сбросить фильтры"' + resetHidden + '>Сбросить</button>';
+      return '<div class="cashbox-journal-filters" data-cash-journal-region="filters">'
         + '<label class="cashbox-journal-filter"><span>Поиск</span><input type="search" data-cash-journal-filter="query" value="' + escapeHtml(filters.query) + '" placeholder="ЗН, сумма, комментарий"></label>'
         + '<label class="cashbox-journal-filter"><span>Касса</span><select data-cash-journal-filter="cashbox">' + cashboxOptions + '</select></label>'
         + '<label class="cashbox-journal-filter"><span>Тип</span><select data-cash-journal-filter="type">'
@@ -20575,13 +21348,20 @@ function renderCompactArchiveRows(cards) {
         + cashJournalSelectOption('expense', 'Списания', filters.type)
         + cashJournalSelectOption('transfer', 'Перемещения', filters.type)
         + '</select></label>'
-        + '<label class="cashbox-journal-filter"><span>Период</span><select data-cash-journal-filter="period">'
+        + '<label class="cashbox-journal-filter cashbox-journal-filter--period"><span>Период</span>'
+        + '<div class="cashbox-journal-period-segments" role="group" aria-label="Быстрый период журнала">'
+        + cashJournalPeriodButton('today', 'Сегодня', filters)
+        + cashJournalPeriodButton('7', '7 дней', filters)
+        + cashJournalPeriodButton('30', '30 дней', filters)
+        + cashJournalPeriodButton('all', '3 мес.', filters)
+        + '</div>'
+        + '<select data-cash-journal-filter="period">'
         + cashJournalSelectOption('all', 'Все 3 мес.', filters.period)
         + cashJournalSelectOption('30', '30 дней', filters.period)
         + cashJournalSelectOption('7', '7 дней', filters.period)
         + cashJournalSelectOption('today', 'Сегодня', filters.period)
         + '</select></label>'
-        + '<button class="cashbox-journal-reset" type="button" data-cash-journal-reset title="Сбросить фильтры" aria-label="Сбросить фильтры">×</button>'
+        + resetButton
         + '</div>';
     }
 
@@ -20591,43 +21371,65 @@ function renderCompactArchiveRows(cards) {
           || String(filters.cashbox || '').trim()
           || String(filters.type || 'all') !== 'all'
           || String(filters.period || 'all') !== 'all'
+          || (String(filters.periodKind || '').trim() && String(filters.periodKey || '').trim())
       );
     }
 
-    function cashJournalOperationCountText(visibleRowCount, totalRowCount) {
+    function cashJournalOperationCountText(renderedRowCount, visibleRowCount, totalRowCount) {
+      const rendered = Number(renderedRowCount || 0);
       const visible = Number(visibleRowCount || 0);
       const total = Number(totalRowCount || 0);
+      if (rendered < visible) {
+        return String(rendered) + ' из ' + String(visible) + ' операций';
+      }
       if (cashJournalFiltersAreActive()) {
         return String(visible) + ' из ' + String(total) + ' операций';
       }
       return String(total) + ' операций';
     }
 
-    function renderCashJournalToolbar(data, visibleRowCount, totalRowCount) {
+    function renderCashJournalToolbar(data, renderedRowCount, visibleRowCount, totalRowCount) {
       const meta = data?.meta || {};
-      const periodText = 'последние ' + String(meta?.months || 3) + ' мес.';
+      const periodText = String(meta?.months || 3) + ' мес.';
       return '<div class="cashbox-journal-toolbar">'
-        + '<div><div class="cashbox-journal-toolbar__title">Журнал движения денег</div>'
-        + '<div class="cashbox-journal-toolbar__meta">' + escapeHtml(periodText + ' · ' + cashJournalOperationCountText(visibleRowCount, totalRowCount)) + '</div></div>'
+        + '<div class="cashbox-journal-toolbar__status">' + escapeHtml(periodText + ' · ' + cashJournalOperationCountText(renderedRowCount, visibleRowCount, totalRowCount)) + '</div>'
         + '<div class="cashbox-journal-toolbar__total">Общий остаток<strong>' + escapeHtml(cashboxFormatMinorAmount(cashJournalCurrentTotalMinor(data))) + '</strong></div>'
         + '</div>';
     }
 
-    function cashJournalStatsRowHtml(item) {
+    function cashJournalStatsRowHtml(item, periodKind = '') {
       const balanceMinor = Number(item?.balance_minor || 0);
       const transferMinor = Math.max(Math.abs(Number(item?.transfer_income_minor || 0)), Math.abs(Number(item?.transfer_expense_minor || 0)));
-      return '<div class="cashbox-journal-stats-row">'
-        + '<div class="cashbox-journal-stats-row__label">' + escapeHtml(item?.label || item?.key || 'Период') + '</div>'
-        + '<div class="cashbox-journal-stats-row__value">' + escapeHtml(String(item?.external_income_display || cashboxFormatMinorAmount(item?.external_income_minor || 0))) + '</div>'
-        + '<div class="cashbox-journal-stats-row__value" data-balance-sign="negative">' + escapeHtml(String(item?.external_expense_display || cashboxFormatMinorAmount(item?.external_expense_minor || 0))) + '</div>'
-        + '<div class="cashbox-journal-stats-row__value" data-balance-sign="' + escapeHtml(balanceMinor < 0 ? 'negative' : 'positive') + '">' + escapeHtml(String(item?.balance_display || cashboxFormatMinorAmount(balanceMinor))) + '</div>'
-        + '<div class="cashbox-journal-stats-row__meta">' + escapeHtml('перемещения ' + cashboxFormatMinorAmount(transferMinor) + ' | ' + String(item?.count || 0) + ' оп.') + '</div>'
+      const labelText = String(item?.label || item?.key || 'Период');
+      const incomeText = String(item?.external_income_display || cashboxFormatMinorAmount(item?.external_income_minor || 0));
+      const expenseText = String(item?.external_expense_display || cashboxFormatMinorAmount(item?.external_expense_minor || 0));
+      const balanceText = String(item?.balance_display || cashboxFormatMinorAmount(balanceMinor));
+      const transferText = cashJournalTransferSummaryText(transferMinor, item?.count || 0);
+      const periodKey = String(item?.key || item?.date || item?.week_key || item?.month_key || '').trim();
+      const ariaText = labelText + ': приход ' + incomeText + ', расход ' + expenseText + ', итог ' + balanceText + ', перемещения ' + transferText;
+      return '<button class="cashbox-journal-stats-row" type="button" data-cash-journal-period-kind="' + escapeHtml(periodKind) + '" data-cash-journal-period-key="' + escapeHtml(periodKey) + '" data-cash-journal-period-label="' + escapeHtml(labelText) + '" aria-label="' + escapeHtml(ariaText) + '">'
+        + '<div class="cashbox-journal-stats-row__label">' + escapeHtml(labelText) + '</div>'
+        + '<div class="cashbox-journal-stats-row__value">' + escapeHtml(incomeText) + '</div>'
+        + '<div class="cashbox-journal-stats-row__value" data-balance-sign="negative">' + escapeHtml(expenseText) + '</div>'
+        + '<div class="cashbox-journal-stats-row__value" data-balance-sign="' + escapeHtml(balanceMinor < 0 ? 'negative' : 'positive') + '">' + escapeHtml(balanceText) + '</div>'
+        + '<div class="cashbox-journal-stats-row__meta" title="' + escapeHtml(transferText) + '">' + escapeHtml(transferText) + '</div>'
+        + '</button>';
+    }
+
+    function cashJournalStatsHeaderHtml() {
+      return '<div class="cashbox-journal-stats-head" aria-hidden="true">'
+        + '<span>Период</span>'
+        + '<span>Приход</span>'
+        + '<span>Расход</span>'
+        + '<span>Итог</span>'
+        + '<span>Перемещения</span>'
         + '</div>';
     }
 
-    function renderCashJournalStatsSection(title, items) {
-      const rows = Array.isArray(items) && items.length
-        ? items.map(cashJournalStatsRowHtml).join('')
+    function renderCashJournalStatsSection(title, items, periodKind) {
+      const hasRows = Array.isArray(items) && items.length;
+      const rows = hasRows
+        ? cashJournalStatsHeaderHtml() + items.map((item) => cashJournalStatsRowHtml(item, periodKind)).join('')
         : '<div class="cashbox-journal-empty">Данных пока нет.</div>';
       return '<section class="cashbox-journal-stats-section">'
         + '<div class="cashbox-journal-stats-section__head">' + escapeHtml(title) + '</div>'
@@ -20647,99 +21449,91 @@ function renderCompactArchiveRows(cards) {
         + cashJournalStatHtml('Поступления', String(totals?.external_income_display || cashboxFormatMinorAmount(totals?.external_income_minor || 0)))
         + cashJournalStatHtml('Списания', String(totals?.external_expense_display || cashboxFormatMinorAmount(totals?.external_expense_minor || 0)), 'negative')
         + cashJournalStatHtml('Итог периода', String(totals?.balance_display || cashboxFormatMinorAmount(balanceMinor)), balanceMinor < 0 ? 'negative' : 'positive')
-        + cashJournalStatHtml('Перемещения', cashboxFormatMinorAmount(transferMinor))
+        + cashJournalStatHtml('Перемещения', cashJournalTransferSummaryText(transferMinor, totals?.count || meta?.returned || 0))
         + '</div>';
       return '<div class="cashbox-journal-view cashbox-journal-view--stats">'
         + summaryHtml
-        + renderCashJournalStatsSection('По месяцам', data?.months || [])
-        + renderCashJournalStatsSection('По неделям', data?.weeks || [])
-        + renderCashJournalStatsSection('По дням', data?.days || [])
+        + renderCashJournalStatsSection('По месяцам', data?.months || [], 'month')
+        + renderCashJournalStatsSection('По неделям', data?.weeks || [], 'week')
+        + renderCashJournalStatsSection('По дням', data?.days || [], 'day')
         + '</div>';
     }
 
-    function financeAuditSeverityLabel(value) {
-      const severity = String(value || '').trim();
-      if (severity === 'error') return 'ошибка';
-      if (severity === 'warning') return 'внимание';
-      return 'инфо';
+    function cashJournalVisibleRowLimit() {
+      const limit = Number(state.cashboxJournalVisibleRowLimit || 0);
+      return Math.max(CASH_JOURNAL_RENDER_BATCH_SIZE, Number.isFinite(limit) ? limit : CASH_JOURNAL_RENDER_BATCH_SIZE);
     }
 
-    function financeAuditIssueTitle(issue) {
-      const parts = [];
-      if (issue?.repair_order_number) parts.push('ЗН №' + String(issue.repair_order_number));
-      if (issue?.repair_order_vehicle) parts.push(String(issue.repair_order_vehicle));
-      if (issue?.cash_transaction_id) parts.push('CT ' + String(issue.cash_transaction_id).slice(0, 8));
-      return parts.length ? parts.join(' · ') : String(issue?.code || 'Проблема');
+    function cashJournalRowsToEntries(rows) {
+      const entries = [];
+      const usedIds = new Set();
+      (Array.isArray(rows) ? rows : []).forEach((row) => {
+        cashJournalRowItems(row).forEach((item) => {
+          const id = String(item?.id || '');
+          if (id && usedIds.has(id)) return;
+          if (id) usedIds.add(id);
+          entries.push(item);
+        });
+      });
+      return entries;
     }
 
-    function renderFinanceAuditIssue(issue) {
-      const severity = String(issue?.severity || 'info');
-      const safeFix = issue?.safe_fix_available ? '<span class="finance-audit-issue__code">safe-fix</span>' : '';
-      const meta = [
-        issue?.cashbox_id ? ('касса ' + String(issue.cashbox_id).slice(0, 8)) : '',
-        issue?.repair_order_payment_id ? ('оплата ' + String(issue.repair_order_payment_id)) : '',
-      ].filter(Boolean);
-      return '<div class="finance-audit-issue" data-severity="' + escapeHtml(severity) + '">'
-        + '<div class="finance-audit-issue__title"><span>' + escapeHtml(financeAuditIssueTitle(issue)) + '</span><span>' + escapeHtml(financeAuditSeverityLabel(severity)) + '</span></div>'
-        + '<div>' + escapeHtml(issue?.message || '') + '</div>'
-        + '<div class="finance-audit-issue__meta"><span class="finance-audit-issue__code">' + escapeHtml(issue?.code || '') + '</span>' + safeFix + meta.map((item) => '<span class="finance-audit-issue__code">' + escapeHtml(item) + '</span>').join('') + '</div>'
-        + '</div>';
+    function renderCashJournalLoadMore(renderedRowCount, filteredRowCount) {
+      if (renderedRowCount >= filteredRowCount) return '';
+      return '<button class="cashbox-journal-load-more" type="button" data-cash-journal-load-more>'
+        + escapeHtml(cashJournalLoadMoreText(renderedRowCount, filteredRowCount))
+        + '</button>';
     }
 
-    function renderFinanceAudit(data) {
-      const summary = data?.summary || {};
-      const issues = Array.isArray(data?.issues) ? data.issues : [];
-      const safeFixCount = Number(summary?.safe_fix_count || 0);
-      const issuesHtml = issues.length
-        ? issues.map(renderFinanceAuditIssue).join('')
-        : '<div class="cashbox-journal-empty">Финансовая сверка не нашла проблем.</div>';
-      return '<div class="finance-audit-view">'
-        + '<div class="cashbox-journal-toolbar">'
-          + '<div><div class="cashbox-journal-toolbar__title">Финансовая сверка</div>'
-          + '<div class="cashbox-journal-toolbar__meta">' + escapeHtml('timezone ' + String(summary?.business_timezone || 'Asia/Krasnoyarsk')) + '</div></div>'
-          + '<div class="finance-audit-actions"><button class="btn btn--ghost" type="button" data-finance-audit-refresh>Обновить</button><button class="btn" type="button" data-finance-audit-apply' + (safeFixCount ? '' : ' disabled') + '>Применить safe-fix</button></div>'
-        + '</div>'
-        + '<div class="finance-audit-summary">'
-          + cashJournalStatHtml('Проблемы', String(summary?.issues_total || issues.length))
-          + cashJournalStatHtml('Safe-fix', String(safeFixCount))
-          + cashJournalStatHtml('Оплаты', String(summary?.payments_total || 0))
-          + cashJournalStatHtml('Движения', String(summary?.cash_transactions_total || 0))
-        + '</div>'
-        + '<div class="finance-audit-issues">' + issuesHtml + '</div>'
-        + '</div>';
+    function cashJournalLoadMoreText(renderedRowCount, filteredRowCount) {
+      const remaining = Math.max(0, Number(filteredRowCount || 0) - Number(renderedRowCount || 0));
+      return 'Показать еще ' + String(Math.min(CASH_JOURNAL_RENDER_BATCH_SIZE, remaining));
     }
 
     function cashJournalLedgerParts(data) {
       const totalRowCount = cashJournalDisplayRows(cashJournalFlatEntries(data)).length;
       const filteredEntries = cashJournalFilteredEntries(data);
-      const days = cashJournalRebuildDays(data, filteredEntries);
+      const filteredRows = cashJournalDisplayRows(filteredEntries);
+      const rowLimit = cashJournalVisibleRowLimit();
+      const renderedRows = filteredRows.slice(0, rowLimit);
+      const renderedEntries = cashJournalRowsToEntries(renderedRows);
+      const days = cashJournalRebuildDays(data, renderedEntries);
       const meta = data?.meta || {};
-      const visibleRowCount = cashJournalDisplayRows(filteredEntries).length;
+      const visibleRowCount = filteredRows.length;
+      const renderedRowCount = renderedRows.length;
       const limitNotice = Number(meta?.total || 0) > Number(meta?.returned || 0)
-        ? '<div class="cashbox-journal-empty">Показана часть операций. Для полной выгрузки увеличьте лимит журнала.</div>'
+        ? '<div class="cashbox-journal-status-line">Показана часть операций. Для полной выгрузки увеличьте лимит журнала.</div>'
         : '';
+      const renderNotice = renderedRowCount < visibleRowCount
+        ? '<div class="cashbox-journal-status-line">Показаны первые ' + escapeHtml(String(renderedRowCount)) + ' из ' + escapeHtml(String(visibleRowCount)) + ' операций. Фильтры и сводка считаются по загруженному журналу.</div>'
+        : '';
+      const headerHtml = renderedRowCount ? cashJournalOperationHeaderHtml() : '';
       const daysHtml = days.length
         ? days.map(renderCashJournalDay).join('')
         : '<div class="cashbox-journal-empty">По выбранным фильтрам движений нет.</div>';
+      const loadMoreHtml = renderCashJournalLoadMore(renderedRowCount, visibleRowCount);
       return {
         visibleRowCount,
+        renderedRowCount,
         totalRowCount,
-        bodyHtml: limitNotice + daysHtml,
+        bodyHtml: headerHtml + daysHtml + loadMoreHtml + renderNotice + limitNotice,
       };
     }
 
     function renderCashJournalLedger(data) {
       const parts = cashJournalLedgerParts(data);
       return '<div class="cashbox-journal-view">'
-        + '<div data-cash-journal-region="toolbar">' + renderCashJournalToolbar(data, parts.visibleRowCount, parts.totalRowCount) + '</div>'
+        + '<div class="cashbox-journal-sticky" data-cash-journal-region="chrome">'
+        + '<div data-cash-journal-region="toolbar">' + renderCashJournalToolbar(data, parts.renderedRowCount, parts.visibleRowCount, parts.totalRowCount) + '</div>'
         + renderCashJournalFilters(data)
+        + cashJournalActiveFiltersHtml(data)
         + renderCashJournalCurrentBalances(data)
+        + '</div>'
         + '<div data-cash-journal-region="body">' + parts.bodyHtml + '</div>'
         + '</div>';
     }
 
     function renderCashJournal(data) {
-      if (state.cashboxJournalView === 'audit') return renderFinanceAudit(state.financeAuditData || {});
       return state.cashboxJournalView === 'stats'
         ? renderCashJournalStats(data)
         : renderCashJournalLedger(data);
@@ -20757,9 +21551,24 @@ function renderCompactArchiveRows(cards) {
       }
     }
 
+    function syncCashJournalFilterControls() {
+      const filters = cashJournalFilters();
+      const periodSelect = els.cashboxJournalText.querySelector('[data-cash-journal-filter="period"]');
+      if (periodSelect instanceof HTMLSelectElement) periodSelect.value = filters.period;
+      const resetButton = els.cashboxJournalText.querySelector('[data-cash-journal-reset]');
+      if (resetButton instanceof HTMLElement) resetButton.hidden = !cashJournalFiltersAreActive(filters);
+      els.cashboxJournalText.querySelectorAll('[data-cash-journal-period]').forEach((button) => {
+        if (!(button instanceof HTMLElement)) return;
+        const active = !filters.periodKind && String(button.dataset.cashJournalPeriod || '') === filters.period;
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+    }
+
     function refreshCashJournalLedgerBody() {
       if (!state.cashboxJournalData || state.cashboxJournalView === 'stats') return false;
       const toolbarRegion = els.cashboxJournalText.querySelector('[data-cash-journal-region="toolbar"]');
+      const activeFiltersRegion = els.cashboxJournalText.querySelector('[data-cash-journal-region="active-filters"]');
       const bodyRegion = els.cashboxJournalText.querySelector('[data-cash-journal-region="body"]');
       if (!(toolbarRegion instanceof HTMLElement) || !(bodyRegion instanceof HTMLElement)) {
         return false;
@@ -20767,10 +21576,15 @@ function renderCompactArchiveRows(cards) {
       const parts = cashJournalLedgerParts(state.cashboxJournalData);
       toolbarRegion.innerHTML = renderCashJournalToolbar(
         state.cashboxJournalData,
+        parts.renderedRowCount,
         parts.visibleRowCount,
         parts.totalRowCount
       );
+      if (activeFiltersRegion instanceof HTMLElement) {
+        activeFiltersRegion.outerHTML = cashJournalActiveFiltersHtml(state.cashboxJournalData);
+      }
       bodyRegion.innerHTML = parts.bodyHtml;
+      syncCashJournalFilterControls();
       return true;
     }
 
@@ -20783,7 +21597,13 @@ function renderCompactArchiveRows(cards) {
       if (!name) return;
       const nextFilters = cashJournalFilters();
       nextFilters[name] = control.value;
+      if (name === 'period') {
+        nextFilters.periodKind = '';
+        nextFilters.periodKey = '';
+        nextFilters.periodLabel = '';
+      }
       state.cashboxJournalFilters = nextFilters;
+      state.cashboxJournalVisibleRowLimit = CASH_JOURNAL_RENDER_BATCH_SIZE;
       const refreshOptions = {
         focusFilter: name,
         selectionStart: typeof control.selectionStart === 'number' ? control.selectionStart : null,
@@ -20806,6 +21626,25 @@ function renderCompactArchiveRows(cards) {
     function handleCashJournalResetClick(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      const clearButton = target.closest('[data-cash-journal-clear-filter]');
+      if (clearButton instanceof HTMLElement) {
+        event.preventDefault();
+        const name = String(clearButton.dataset.cashJournalClearFilter || '');
+        const nextFilters = cashJournalFilters();
+        if (name === 'query') nextFilters.query = '';
+        if (name === 'cashbox') nextFilters.cashbox = '';
+        if (name === 'type') nextFilters.type = 'all';
+        if (name === 'period') {
+          nextFilters.period = 'all';
+          nextFilters.periodKind = '';
+          nextFilters.periodKey = '';
+          nextFilters.periodLabel = '';
+        }
+        state.cashboxJournalFilters = nextFilters;
+        state.cashboxJournalVisibleRowLimit = CASH_JOURNAL_RENDER_BATCH_SIZE;
+        refreshCashJournalView();
+        return;
+      }
       const button = target.closest('[data-cash-journal-reset]');
       if (!(button instanceof HTMLElement)) return;
       event.preventDefault();
@@ -20814,26 +21653,92 @@ function renderCompactArchiveRows(cards) {
         state.cashboxJournalFilterTimer = null;
       }
       state.cashboxJournalFilters = cashJournalDefaultFilters();
+      state.cashboxJournalVisibleRowLimit = CASH_JOURNAL_RENDER_BATCH_SIZE;
       refreshCashJournalView();
     }
 
-    function syncCashJournalStatsButton() {
-      if (!els.cashboxJournalStatsButton) return;
+    function handleCashJournalBalancesToggle(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const button = target.closest('[data-cash-journal-toggle-balances]');
+      if (!(button instanceof HTMLElement)) return;
+      event.preventDefault();
+      state.cashboxJournalBalancesExpanded = !state.cashboxJournalBalancesExpanded;
+      refreshCashJournalView();
+    }
+
+    function handleCashJournalPeriodClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const button = target.closest('[data-cash-journal-period]');
+      if (!(button instanceof HTMLElement)) return;
+      event.preventDefault();
+      const period = String(button.dataset.cashJournalPeriod || 'all');
+      const nextFilters = cashJournalFilters();
+      nextFilters.period = ['today', '7', '30', 'all'].indexOf(period) >= 0 ? period : 'all';
+      nextFilters.periodKind = '';
+      nextFilters.periodKey = '';
+      nextFilters.periodLabel = '';
+      state.cashboxJournalFilters = nextFilters;
+      state.cashboxJournalVisibleRowLimit = CASH_JOURNAL_RENDER_BATCH_SIZE;
+      if (!refreshCashJournalLedgerBody()) refreshCashJournalView();
+    }
+
+    function applyCashJournalStatsPeriodFilter(periodKind, periodKey, periodLabel) {
+      const nextFilters = cashJournalFilters();
+      nextFilters.period = 'all';
+      nextFilters.periodKind = String(periodKind || '');
+      nextFilters.periodKey = String(periodKey || '');
+      nextFilters.periodLabel = String(periodLabel || periodKey || '');
+      state.cashboxJournalFilters = nextFilters;
+      state.cashboxJournalVisibleRowLimit = CASH_JOURNAL_RENDER_BATCH_SIZE;
+      setCashJournalView('journal');
+    }
+
+    function handleCashJournalStatsPeriodClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const button = target.closest('[data-cash-journal-period-kind][data-cash-journal-period-key]');
+      if (!(button instanceof HTMLElement)) return;
+      const periodKind = String(button.dataset.cashJournalPeriodKind || '');
+      const periodKey = String(button.dataset.cashJournalPeriodKey || '');
+      if (!periodKind || !periodKey) return;
+      event.preventDefault();
+      applyCashJournalStatsPeriodFilter(periodKind, periodKey, String(button.dataset.cashJournalPeriodLabel || periodKey));
+    }
+
+    function handleCashJournalLoadMoreClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const button = target.closest('[data-cash-journal-load-more]');
+      if (!(button instanceof HTMLElement)) return;
+      event.preventDefault();
+      state.cashboxJournalVisibleRowLimit = cashJournalVisibleRowLimit() + CASH_JOURNAL_RENDER_BATCH_SIZE;
+      if (!refreshCashJournalLedgerBody()) refreshCashJournalView();
+    }
+
+    function syncCashJournalModeButtons() {
       const statsOpen = state.cashboxJournalView === 'stats';
-      els.cashboxJournalStatsButton.textContent = 'Журнал / Сводка';
-      els.cashboxJournalStatsButton.setAttribute('aria-pressed', statsOpen ? 'true' : 'false');
-      els.cashboxJournalStatsButton.dataset.view = statsOpen ? 'stats' : 'journal';
-      if (els.cashboxJournalAuditButton) {
-        const auditOpen = state.cashboxJournalView === 'audit';
-        els.cashboxJournalAuditButton.setAttribute('aria-pressed', auditOpen ? 'true' : 'false');
-        els.cashboxJournalAuditButton.dataset.view = auditOpen ? 'audit' : 'journal';
+      if (els.cashboxJournalLedgerButton) {
+        els.cashboxJournalLedgerButton.classList.toggle('is-active', !statsOpen);
+        els.cashboxJournalLedgerButton.setAttribute('aria-pressed', statsOpen ? 'false' : 'true');
+      }
+      if (els.cashboxJournalStatsButton) {
+        els.cashboxJournalStatsButton.classList.toggle('is-active', statsOpen);
+        els.cashboxJournalStatsButton.setAttribute('aria-pressed', statsOpen ? 'true' : 'false');
       }
     }
 
-    function toggleCashJournalStats() {
-      state.cashboxJournalView = state.cashboxJournalView === 'stats' ? 'journal' : 'stats';
-      syncCashJournalStatsButton();
+    function setCashJournalView(view) {
+      state.cashboxJournalView = view === 'stats' ? 'stats' : 'journal';
+      syncCashJournalModeButtons();
       refreshCashJournalView();
+    }
+
+    function handleCashJournalModeClick(event) {
+      const target = event.currentTarget;
+      if (!(target instanceof HTMLElement)) return;
+      setCashJournalView(String(target.dataset.cashJournalView || 'journal'));
     }
 
     function handleCashJournalModeKeydown(event) {
@@ -20842,66 +21747,12 @@ function renderCompactArchiveRows(cards) {
       event.currentTarget?.click?.();
     }
 
-    async function loadFinanceAuditData() {
-      return api('/api/finance_audit');
-    }
-
-    async function openFinanceAuditModal() {
-      state.cashboxJournalView = 'audit';
-      syncCashJournalStatsButton();
-      els.cashboxJournalText.innerHTML = '<div class="cashbox-journal-loading">ЗАГРУЗКА СВЕРКИ...</div>';
-      maybeOpenModal(els.cashboxJournalModal, true);
-      try {
-        const data = await loadFinanceAuditData();
-        state.financeAuditData = data;
-        els.cashboxJournalText.innerHTML = renderFinanceAudit(data);
-      } catch (error) {
-        els.cashboxJournalText.innerHTML = '<div class="cashbox-journal-empty">' + escapeHtml(String(error?.message || 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ СВЕРКУ.')) + '</div>';
-        setStatus(String(error?.message || 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ СВЕРКУ.'), true);
-      }
-    }
-
-    async function applyFinanceAuditSafeFixes() {
-      const count = Number(state.financeAuditData?.summary?.safe_fix_count || 0);
-      if (!count) {
-        setStatus('НЕТ БЕЗОПАСНЫХ ПРАВОК ДЛЯ ПРИМЕНЕНИЯ.', false);
-        return;
-      }
-      if (!window.confirm('Применить безопасные технические правки финансовой сверки? Суммы, кассы и даты не изменятся.')) return;
-      try {
-        els.cashboxJournalText.innerHTML = '<div class="cashbox-journal-loading">ПРИМЕНЯЮ SAFE-FIX...</div>';
-        const data = await api('/api/finance_audit/apply_safe_fixes', {
-          method: 'POST',
-          body: { dry_run: false, actor_name: state.actor, source: 'ui' },
-        });
-        state.financeAuditData = data;
-        els.cashboxJournalText.innerHTML = renderFinanceAudit(data);
-        setStatus('БЕЗОПАСНЫЕ ПРАВКИ ПРИМЕНЕНЫ: ' + String(data?.meta?.applied || 0) + '.', false);
-      } catch (error) {
-        setStatus(String(error?.message || 'НЕ УДАЛОСЬ ПРИМЕНИТЬ SAFE-FIX.'), true);
-        await openFinanceAuditModal();
-      }
-    }
-
-    function handleFinanceAuditClick(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      if (target.closest('[data-finance-audit-refresh]')) {
-        event.preventDefault();
-        openFinanceAuditModal();
-        return;
-      }
-      if (target.closest('[data-finance-audit-apply]')) {
-        event.preventDefault();
-        applyFinanceAuditSafeFixes();
-      }
-    }
-
     async function openCashJournalModal() {
-      state.cashboxJournalView = 'journal';
       state.cashboxJournalFilters = cashJournalDefaultFilters();
-      syncCashJournalStatsButton();
-      els.cashboxJournalText.innerHTML = '<div class="cashbox-journal-loading">ЗАГРУЗКА...</div>';
+      state.cashboxJournalVisibleRowLimit = CASH_JOURNAL_RENDER_BATCH_SIZE;
+      state.cashboxJournalBalancesExpanded = false;
+      syncCashJournalModeButtons();
+      els.cashboxJournalText.innerHTML = renderCashJournalLoading();
       maybeOpenModal(els.cashboxJournalModal, true);
       try {
         const data = await loadCashJournalData();
@@ -20931,7 +21782,7 @@ function renderCompactArchiveRows(cards) {
 
     async function downloadCashJournal() {
       try {
-        const data = await loadCashJournalData();
+        const data = await loadCashJournalData({ includeMarkdown: true });
         const text = String(data?.markdown || data?.text || 'ЗА ВЫБРАННЫЙ ПЕРИОД ДВИЖЕНИЙ НЕТ.');
         const blob = new Blob([text.trim() + '\\n'], { type: 'text/markdown;charset=utf-8' });
         const fileName = 'cash-journal-' + new Date().toISOString().slice(0, 10) + '.md';
@@ -21053,15 +21904,59 @@ function renderCompactArchiveRows(cards) {
       maybeOpenModal(els.cashboxTransferModal, true);
     }
 
+    function cashboxTransferAmountMinor() {
+      const parsed = repairOrderParseNumber(els.cashboxTransferAmountInput?.value || state.cashboxTransferDraft?.amount || '');
+      if (parsed === null || parsed <= 0) return null;
+      return Math.round(parsed * 100);
+    }
+
+    function renderCashboxTransferBalanceRow(label, amountMinor) {
+      const sign = cashboxBalanceSign(amountMinor);
+      return '<div class="cashbox-transfer-preview__row">'
+        + '<span>' + escapeHtml(label) + '</span>'
+        + '<strong class="cashbox-transfer-preview__amount" data-balance-sign="' + escapeHtml(sign) + '">' + escapeHtml(cashboxFormatMinorAmount(amountMinor)) + '</strong>'
+        + '</div>';
+    }
+
+    function renderCashboxTransferPreview(sourceCashbox, targetCashbox) {
+      if (!els.cashboxTransferPreview) return;
+      const amountMinor = cashboxTransferAmountMinor();
+      if (!sourceCashbox?.id || !targetCashbox?.id) {
+        els.cashboxTransferPreview.innerHTML = '<div class="cashbox-transfer-preview__label">Выберите кассу для перемещения.</div>';
+        return;
+      }
+      if (amountMinor === null) {
+        els.cashboxTransferPreview.innerHTML = '<div class="cashbox-transfer-preview__label">Введите сумму, чтобы увидеть баланс до и после.</div>';
+        return;
+      }
+      const sourceBefore = cashboxBalanceMinor(sourceCashbox);
+      const targetBefore = cashboxBalanceMinor(targetCashbox);
+      const sourceAfter = sourceBefore - amountMinor;
+      const targetAfter = targetBefore + amountMinor;
+      els.cashboxTransferPreview.innerHTML = '<div class="cashbox-transfer-preview__label">'
+        + escapeHtml(String(sourceCashbox.name || 'Касса') + ' → ' + String(targetCashbox.name || 'Касса'))
+        + '</div>'
+        + '<div class="cashbox-transfer-preview__rows">'
+        + renderCashboxTransferBalanceRow('Откуда сейчас', sourceBefore)
+        + renderCashboxTransferBalanceRow('Откуда после', sourceAfter)
+        + renderCashboxTransferBalanceRow('Куда сейчас', targetBefore)
+        + renderCashboxTransferBalanceRow('Куда после', targetAfter)
+        + '</div>';
+    }
+
     function renderCashboxTransferModal() {
       const sourceId = String(state.cashboxTransferDraft?.sourceId || state.activeCashbox?.cashbox?.id || '').trim();
       const sourceCashbox = (Array.isArray(state.cashboxes) ? state.cashboxes : []).find((item) => item.id === sourceId) || state.activeCashbox?.cashbox || null;
       const availableCashboxes = (Array.isArray(state.cashboxes) ? state.cashboxes : []).filter((item) => item.id !== sourceId);
       els.cashboxTransferSourceName.textContent = sourceCashbox?.name || 'КАССА НЕ ВЫБРАНА';
+      if (els.cashboxTransferSourceBalance) {
+        els.cashboxTransferSourceBalance.textContent = sourceCashbox ? ('Баланс: ' + cashboxBalanceDisplay(sourceCashbox)) : '';
+      }
       els.cashboxTransferTargets.innerHTML = availableCashboxes.length ? availableCashboxes.map((item) => {
         const activeClass = item.id === state.cashboxTransferDraft.targetId ? ' is-active' : '';
         return '<button class="cashbox-transfer-target' + activeClass + '" type="button" data-cashbox-transfer-target="' + escapeHtml(item.id) + '">'
           + '<div class="cashbox-transfer-target__name">' + escapeHtml(item.name || '—') + '</div>'
+          + '<div class="cashbox-transfer-target__balance">' + escapeHtml(cashboxBalanceDisplay(item)) + '</div>'
           + '</button>';
       }).join('') : '<div class="cashboxes-empty">НЕТ ДРУГИХ КАСС.</div>';
       const selectedTarget = availableCashboxes.find((item) => item.id === state.cashboxTransferDraft.targetId) || availableCashboxes[0] || null;
@@ -21069,9 +21964,10 @@ function renderCompactArchiveRows(cards) {
         state.cashboxTransferDraft.targetId = selectedTarget.id;
       }
       if (els.cashboxTransferConfirmButton) {
-        const hasAmount = String(els.cashboxTransferAmountInput?.value || state.cashboxTransferDraft.amount || '').trim().length > 0;
+        const hasAmount = cashboxTransferAmountMinor() !== null;
         els.cashboxTransferConfirmButton.disabled = !selectedTarget || !sourceCashbox || !hasAmount;
       }
+      renderCashboxTransferPreview(sourceCashbox, selectedTarget);
     }
 
     function setCashboxTransferTarget(cashboxId) {
@@ -21585,6 +22481,14 @@ function renderCompactArchiveRows(cards) {
       return withAccessToken(path);
     }
 
+    function sharedFileMetaParts(file) {
+      return [
+        sharedFileKindLabel(file),
+        formatBytes(file?.size_bytes || 0),
+        file?.updated_at ? formatDate(file.updated_at) : '',
+      ].filter(Boolean);
+    }
+
     function updateSharedFilesActions() {
       const hasActive = Boolean(activeSharedFile());
       [
@@ -21617,10 +22521,12 @@ function renderCompactArchiveRows(cards) {
           const y = Math.max(0, Number(file.y ?? 0) || 0);
           const activeClass = file.id === state.sharedFilesActiveId ? ' is-active' : '';
           const name = String(file.original_name || 'Файл');
-          return '<button class="shared-file-icon' + activeClass + '" type="button" data-shared-file-id="' + escapeHtml(file.id) + '" style="left:' + x + 'px; top:' + y + 'px" title="' + escapeHtml(name) + '">'
+          const metaParts = sharedFileMetaParts(file);
+          const metaText = metaParts.join(' · ');
+          return '<button class="shared-file-icon' + activeClass + '" type="button" data-shared-file-id="' + escapeHtml(file.id) + '" style="left:' + x + 'px; top:' + y + 'px" title="' + escapeHtml(name) + '" aria-label="Файл ' + escapeHtml(name + (metaText ? '. ' + metaText : '')) + '">'
             + '<span class="shared-file-icon__glyph">' + escapeHtml(sharedFileKindLabel(file)) + '</span>'
             + '<span class="shared-file-icon__name">' + escapeHtml(name) + '</span>'
-            + '<span class="shared-file-icon__meta">' + escapeHtml(formatBytes(file.size_bytes || 0)) + '</span>'
+            + '<span class="shared-file-icon__meta">' + metaParts.map((item) => '<span class="shared-file-icon__meta-chip">' + escapeHtml(item) + '</span>').join('') + '</span>'
             + '</button>';
         }).join('');
       }
@@ -22616,9 +23522,8 @@ function renderCompactArchiveRows(cards) {
     remountElement('employeesButton');
     remountElement('cashboxCreateButton');
     remountElement('cashboxJournalButton');
-    remountElement('cashboxFinanceAuditButton');
+    remountElement('cashboxJournalLedgerButton');
     remountElement('cashboxJournalStatsButton');
-    remountElement('cashboxJournalAuditButton');
     remountElement('cashboxJournalDownloadButton');
     remountElement('cashboxDeleteButton');
     remountElement('cashboxCancelLastButton');
@@ -22640,6 +23545,10 @@ function renderCompactArchiveRows(cards) {
 
     els.boardSettingsButton.addEventListener('click', openBoardSettings);
     els.archiveButton.addEventListener('click', openArchiveModal);
+    els.archiveSearchInput?.addEventListener('input', () => {
+      state.archiveQuery = String(els.archiveSearchInput?.value || '').trim();
+      renderArchive();
+    });
     els.repairOrdersButton.addEventListener('click', openRepairOrdersModal);
     els.sharedFilesButton.addEventListener('click', openSharedFilesModal);
     els.cardAgentButton.addEventListener('click', runFullCardEnrichment);
@@ -22664,21 +23573,21 @@ function renderCompactArchiveRows(cards) {
     document.addEventListener('keydown', handleModalStackKeydown);
     els.cashboxCreateButton.addEventListener('click', createCashbox);
     els.cashboxJournalButton.addEventListener('click', openCashJournalModal);
-    if (els.cashboxFinanceAuditButton) {
-      els.cashboxFinanceAuditButton.addEventListener('click', openFinanceAuditModal);
+    if (els.cashboxJournalLedgerButton) {
+      els.cashboxJournalLedgerButton.addEventListener('click', handleCashJournalModeClick);
+      els.cashboxJournalLedgerButton.addEventListener('keydown', handleCashJournalModeKeydown);
     }
     if (els.cashboxJournalStatsButton) {
-      els.cashboxJournalStatsButton.addEventListener('click', toggleCashJournalStats);
+      els.cashboxJournalStatsButton.addEventListener('click', handleCashJournalModeClick);
       els.cashboxJournalStatsButton.addEventListener('keydown', handleCashJournalModeKeydown);
-    }
-    if (els.cashboxJournalAuditButton) {
-      els.cashboxJournalAuditButton.addEventListener('click', openFinanceAuditModal);
-      els.cashboxJournalAuditButton.addEventListener('keydown', handleCashJournalModeKeydown);
     }
     els.cashboxJournalText.addEventListener('input', handleCashJournalFilterInput);
     els.cashboxJournalText.addEventListener('change', handleCashJournalFilterInput);
     els.cashboxJournalText.addEventListener('click', handleCashJournalResetClick);
-    els.cashboxJournalText.addEventListener('click', handleFinanceAuditClick);
+    els.cashboxJournalText.addEventListener('click', handleCashJournalBalancesToggle);
+    els.cashboxJournalText.addEventListener('click', handleCashJournalPeriodClick);
+    els.cashboxJournalText.addEventListener('click', handleCashJournalStatsPeriodClick);
+    els.cashboxJournalText.addEventListener('click', handleCashJournalLoadMoreClick);
     els.cashboxJournalDownloadButton.addEventListener('click', downloadCashJournal);
     els.cashboxDeleteButton.addEventListener('click', deleteActiveCashbox);
     els.sharedFilesUploadButton.addEventListener('click', () => els.sharedFilesInput.click());
