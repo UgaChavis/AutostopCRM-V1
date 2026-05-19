@@ -23,5 +23,9 @@ tests
 data
 scripts/*.example
 *.md
+!README.md
+!API_GUIDE.md
+!MCP_GUIDE.md
+!CHATGPT_CONNECTOR_SETUP.md
 *.png
 *.spec

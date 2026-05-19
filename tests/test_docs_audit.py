@@ -27,6 +27,16 @@ class DocsAuditTests(unittest.TestCase):
 
         self.assertEqual([], issues)
 
+    def test_docker_image_keeps_canonical_root_docs_for_server_audit(self) -> None:
+        dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        rules = {line.strip() for line in dockerignore if line.strip() and not line.startswith("#")}
+
+        self.assertIn("*.md", rules)
+        self.assertIn("!README.md", rules)
+        self.assertIn("!API_GUIDE.md", rules)
+        self.assertIn("!MCP_GUIDE.md", rules)
+        self.assertIn("!CHATGPT_CONNECTOR_SETUP.md", rules)
+
     def test_scan_forbidden_text_detects_stale_references(self) -> None:
         module = load_docs_audit_module()
 
