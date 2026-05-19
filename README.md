@@ -101,6 +101,7 @@ privacy gate до входа оператора, board/card roundtrip, касс�
 При изменении русских UI/docs-текстов:
 
 ```powershell
+python scripts\docs_audit.py --format text
 python scripts\audit_localization.py
 ```
 
@@ -188,7 +189,7 @@ overview, repair-order counts, client-quality signals и metadata общих ф�
 Не коммитьте runtime state, snapshots, SQLite/JSON data, attachments, secrets или credentials.
 
 Для ручного QA на realistic data используйте dated sandbox вне repo, например
-`C:\Users\User\Desktop\AutostopCRM-data-snapshots\prod-2026-05-19`, и запускайте
+`%USERPROFILE%\Desktop\AutostopCRM-data-snapshots\prod-2026-05-19`, и запускайте
 CRM с переопределённым `%APPDATA%`. Такая копия не является live-sync и не
 должна попадать в Git, docs, Obsidian или отчёты без маскировки персональных и
 финансовых данных.
@@ -197,8 +198,7 @@ CRM с переопределённым `%APPDATA%`. Такая копия не 
 
 Канонический минимум:
 
-- `00_START_HERE_AUTOSTOP_CRM.md` - быстрый вход.
-- `PROJECT_HANDOFF.md` - текущее состояние и правила работы.
+- `README.md` - быстрый вход и карта продукта.
 - `docs/OPERATIONS_RUNBOOK.md` - sync, deploy, verification.
 - `MCP_GUIDE.md` - MCP workflows и safety.
 - `API_GUIDE.md` - endpoint-группы и контракт API.
@@ -206,7 +206,6 @@ CRM с переопределённым `%APPDATA%`. Такая копия не 
 Открывать только по задаче:
 
 - `CHATGPT_CONNECTOR_SETUP.md` - ChatGPT/MCP подключение.
-- `docs/TELEGRAM_AI_BOARD_MANAGER.md` - техническая карта Telegram AI.
 - `AUTOSTOPCRM_FULL_INSTRUCTION.txt` - короткая server-side памятка, которую копирует `deploy.sh`.
 
 Политика: не плодить новые docs. Старые планы, исторические отчёты и agent scratch-файлы удаляются после переноса полезной части в один из документов выше.

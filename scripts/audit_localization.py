@@ -13,7 +13,7 @@ TARGETS = [
     ROOT / "README.md",
     ROOT / "API_GUIDE.md",
     ROOT / "MCP_GUIDE.md",
-    ROOT / "00_START_HERE_AUTOSTOP_CRM.md",
+    ROOT / "docs" / "OPERATIONS_RUNBOOK.md",
 ]
 
 FORBIDDEN_PHRASES = [

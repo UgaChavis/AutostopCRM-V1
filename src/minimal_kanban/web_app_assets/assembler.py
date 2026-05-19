@@ -2139,12 +2139,23 @@ BOARD_WEB_APP_HTML = "".join(
       padding: 4px 7px;
       font-size: 14.5px;
     }
-    .repair-order-field--number input[type="text"],
+    .repair-order-number-display,
     .repair-order-field--vin input[type="text"] {
       font-family: var(--mono);
       letter-spacing: 0.02em;
     }
-    .repair-order-field--number input[type="text"] {
+    .repair-order-number-display {
+      min-height: 29px;
+      padding: 4px 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(132, 142, 125, 0.35);
+      border-radius: 6px;
+      background: rgba(20, 26, 22, 0.62);
+      color: var(--text);
+      font-size: 14.5px;
+      font-weight: 800;
       text-align: center;
     }
     .repair-order-field--client input[type="text"],
@@ -7956,7 +7967,7 @@ BOARD_WEB_APP_HTML = "".join(
             <div class="repair-order-card__grid repair-order-card__grid--document">
               <div class="field field--compact repair-order-field repair-order-field--number">
                 <label for="repairOrderNumber">НОМЕР</label>
-                <input id="repairOrderNumber" data-repair-order-field="number" type="text" maxlength="32">
+                <div id="repairOrderNumber" class="repair-order-number-display" data-repair-order-field="number" role="status" aria-live="polite">-</div>
               </div>
               <div class="field field--compact repair-order-field repair-order-field--date">
                 <label for="repairOrderDate">ДАТА</label>
@@ -17696,7 +17707,8 @@ BOARD_WEB_APP_HTML = "".join(
 
     function applyRepairOrderToForm(order) {
       const normalized = repairOrderCardDraft(state.activeCard, order);
-      els.repairOrderNumber.value = normalized.number;
+      els.repairOrderNumber.textContent = normalized.number || '-';
+      els.repairOrderNumber.dataset.value = normalized.number;
       els.repairOrderDate.value = repairOrderFormDateDisplayValue(normalized.date || currentRepairOrderDateTime());
       els.repairOrderOpenedAt.value = repairOrderFormDateDisplayValue(normalized.opened_at || normalized.date || currentRepairOrderDateTime());
       els.repairOrderClosedAt.value = repairOrderFormDateDisplayValue(normalized.closed_at);
@@ -17732,7 +17744,6 @@ BOARD_WEB_APP_HTML = "".join(
       const paymentMethod = repairOrderPaymentMethodFromPayments(state.repairOrderPayments, 'cash');
       syncRepairOrderPaymentMethod(paymentMethod);
       return normalizeRepairOrder({
-        number: els.repairOrderNumber.value,
         date: repairOrderCanonicalDateValue(els.repairOrderDate.value),
         status: els.repairOrderStatus.dataset.status || 'open',
         opened_at: repairOrderCanonicalDateValue(els.repairOrderOpenedAt.value),

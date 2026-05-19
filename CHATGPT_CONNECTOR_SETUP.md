@@ -62,7 +62,10 @@ tables, cashbox ledgers или полный текст заказ-нарядов
 - `set_card_board_summary`
 - `move_card`
 
-Если рядом подключен `AutostopManager`, могут появиться `today_context`, `remember`, `lookup_original_parts` и другие manager-memory/source tools.
+Если рядом подключен `AutostopManager`, могут появиться manager-memory/source
+tools. Полный текущий список смотрите в live `tools/list`, connection card или
+`MCP_GUIDE.md`; типовые стартовые tools: `today_context`, `agent_brief`,
+`remember`, `lookup_original_parts`, `system_audit`.
 
 ## Правила для агента
 

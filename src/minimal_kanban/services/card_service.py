@@ -3091,81 +3091,16 @@ class CardService:
     def correct_repair_order_number(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
-            cards = bundle["cards"]
-            events = bundle["events"]
-            columns = bundle["columns"]
-            card = self._find_card(cards, payload.get("card_id"))
-            if not self._card_has_repair_order(card):
-                self._fail(
-                    "repair_order_missing",
-                    "В карточке нет заказ-наряда для исправления номера.",
-                    status_code=404,
-                    details={"card_id": card.id},
-                )
-            actor_name, source = self._audit_identity(payload, default_source="api")
-            next_number = normalize_text(
-                payload.get("number") or payload.get("repair_order_number"),
-                default="",
-                limit=40,
-            )
-            reason = normalize_text(payload.get("reason"), default="", limit=500)
-            if not next_number:
-                self._fail(
-                    "validation_error",
-                    "Нужно передать новый номер заказ-наряда.",
-                    details={"field": "number"},
-                )
-            if not reason:
-                self._fail(
-                    "validation_error",
-                    "Для исправления номера заказ-наряда нужно указать причину.",
-                    details={"field": "reason"},
-                )
-            self._ensure_repair_order_number_unique(
-                cards,
-                next_number,
-                exclude_card_id=card.id,
-            )
-            previous_number = card.repair_order.number
-            changed = previous_number != next_number
-            if changed:
-                card.repair_order.number = next_number
-                self._touch_card(card, actor_name)
-                self._refresh_card_ai_fingerprint_if_agent_changed(card, actor_name, source)
-                self._ensure_repair_order_text_file(card, force=True)
-                self._append_event(
-                    events,
-                    actor_name=actor_name,
-                    source=source,
-                    action="repair_order_number_corrected",
-                    message=f"{actor_name} исправил номер заказ-наряда",
-                    card_id=card.id,
-                    details={
-                        "before": previous_number,
-                        "after": next_number,
-                        "reason": reason,
-                    },
-                )
-                self._save_bundle(
-                    bundle,
-                    columns=columns,
-                    cards=cards,
-                    cashboxes=bundle["cashboxes"],
-                    cash_transactions=bundle["cash_transactions"],
-                    events=events,
-                )
-            return {
-                "repair_order": card.repair_order.to_dict(),
-                "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(columns)
-                ),
-                "meta": {
-                    "changed": changed,
-                    "previous_number": previous_number,
-                    "number": card.repair_order.number,
+            requested_card_id = normalize_text(payload.get("card_id"), default="", limit=128)
+            self._fail(
+                "repair_order_number_immutable",
+                "Номер заказ-наряда присваивается один раз и не изменяется через приложение.",
+                status_code=409,
+                details={
+                    "field": "number",
+                    "card_id": requested_card_id,
                 },
-            }
+            )
 
     def replace_repair_order_works(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -4632,10 +4567,15 @@ class CardService:
                 if tags_changed:
                     changed_fields.append("tags")
             if "repair_order" in payload:
+                repair_order_patch = self._validated_repair_order_patch(payload.get("repair_order"))
+                repair_order_payload = self._merged_repair_order_storage(
+                    card.repair_order.to_storage_dict(),
+                    repair_order_patch,
+                )
                 repair_order_changed = self._update_repair_order(
                     card,
                     cards,
-                    payload.get("repair_order"),
+                    repair_order_payload,
                     events,
                     actor_name,
                     source,
@@ -9363,6 +9303,7 @@ class CardService:
         settings: dict[str, Any] | None = None,
     ) -> bool:
         previous_order = RepairOrder.from_dict(card.repair_order.to_storage_dict())
+        value = self._repair_order_payload_with_immutable_number(card, value)
         order = self._prepared_repair_order(
             self._validated_repair_order(value),
             cards,
@@ -9374,7 +9315,6 @@ class CardService:
             cards,
             previous_order,
             order,
-            events,
         )
         if cashboxes is not None and cash_transactions is not None:
             order = self._sync_repair_order_payment_transactions(
@@ -9417,6 +9357,31 @@ class CardService:
             },
         )
         return True
+
+    def _repair_order_payload_with_immutable_number(self, card: Card, value: Any) -> Any:
+        previous_number = normalize_text(card.repair_order.number, default="", limit=40)
+        if not previous_number or not isinstance(value, dict):
+            return value
+        number_supplied = "number" in value
+        requested_number = normalize_text(value.get("number"), default="", limit=40)
+        if (
+            number_supplied
+            and requested_number
+            and self._repair_order_number_key(requested_number)
+            != self._repair_order_number_key(previous_number)
+        ):
+            self._fail(
+                "repair_order_number_immutable",
+                "Номер заказ-наряда уже присвоен и не может быть изменён.",
+                status_code=409,
+                details={
+                    "field": "number",
+                    "card_id": card.id,
+                    "previous_number": previous_number,
+                    "next_number": requested_number,
+                },
+            )
+        return {**value, "number": previous_number}
 
     def _repair_order_payment_financial_signature(
         self, payment: RepairOrderPayment
@@ -10828,31 +10793,12 @@ class CardService:
             },
         )
 
-    def _repair_order_has_print_event(self, card: Card, events: list[AuditEvent]) -> bool:
-        return any(
-            event.card_id == card.id and event.action == "repair_order_printed" for event in events
-        )
-
-    def _repair_order_number_locked(
-        self,
-        card: Card,
-        previous_order: RepairOrder,
-        events: list[AuditEvent],
-    ) -> bool:
-        return (
-            bool(previous_order.payments)
-            or previous_order.status == REPAIR_ORDER_STATUS_CLOSED
-            or card.archived
-            or self._repair_order_has_print_event(card, events)
-        )
-
     def _ensure_repair_order_number_update_allowed(
         self,
         card: Card,
         cards: list[Card],
         previous_order: RepairOrder,
         next_order: RepairOrder,
-        events: list[AuditEvent],
     ) -> None:
         next_number = normalize_text(next_order.number, default="", limit=40)
         if next_number:
@@ -10866,10 +10812,10 @@ class CardService:
             next_number
         ):
             return
-        if previous_number and self._repair_order_number_locked(card, previous_order, events):
+        if previous_number:
             self._fail(
-                "repair_order_number_locked",
-                "Номер заказ-наряда уже зафиксирован оплатой, закрытием, архивом или печатью. Используйте админ-действие исправления номера с причиной.",
+                "repair_order_number_immutable",
+                "Номер заказ-наряда уже присвоен и не может быть изменён.",
                 status_code=409,
                 details={
                     "field": "number",

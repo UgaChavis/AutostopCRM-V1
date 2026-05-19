@@ -86,13 +86,32 @@ If `AutostopManager` is mounted next to CRM or `AUTOSTOP_MANAGER_PATH` points to
 
 - `remember`
 - `recall`
+- `learn_from_feedback`
+- `recall_lessons`
+- `memory_map`
+- `memory_topics`
+- `memory_context_for`
+- `memory_gaps`
 - `add_manager_task`
 - `today_context`
+- `prepare_manager_context`
+- `agent_brief`
 - `manager_journal`
 - `sync_knowledge_base`
 - `probe_knowledge_base`
 - `search_knowledge_base`
 - `audit_knowledge_base`
+- `audit_knowledge_annotations`
+- `audit_skill_registry`
+- `cleanup_audit`
+- `system_audit`
+- `crm_health_plan`
+- `audit_memory`
+- `curate_memory`
+- `start_manager_run`
+- `record_manager_run_event`
+- `finish_manager_run`
+- `list_manager_runs`
 - `lookup_original_parts`
 - `recommend_automotive_sources`
 - `recommend_fluid_maintenance_sources`
@@ -228,6 +247,10 @@ Sticky notes and settings:
 - Не move/archive/delete карточки, файлы, клиентов, оплаты, работы или материалы без явной команды владельца.
 - Для клиента сначала search/suggest, потом create/link.
 - Для документов используйте CRM PDF export, а не отдельный PDF-генератор агента.
+- Номер заказ-наряда immutable: после первого присвоения не передавайте новый
+  `number` и не пытайтесь исправлять его обычными tools. Исторические ошибки
+  сначала проверяются read-only audit/dry-run, затем исправляются только
+  отдельной maintenance-процедурой вне рабочего MCP flow.
 
 ## Board Summary
 

@@ -18,7 +18,7 @@ Local:
 Current Codex checkout on this machine:
 
 ```text
-C:\Users\User\Desktop\AutostopCRM-V1
+C:\Users\9860606\Desktop\AutostopCRM\autostopcrm
 ```
 
 ```powershell
@@ -57,6 +57,7 @@ Common:
 ```powershell
 .\scripts\doctor.ps1
 .\scripts\run_checks.ps1
+python scripts\docs_audit.py --format text
 python scripts\audit_localization.py
 ```
 
@@ -70,6 +71,7 @@ python scripts\audit_localization.py
 .\.venv\Scripts\python.exe -m ruff format --check .
 .\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m unittest discover -s .\tests -v
+python scripts\docs_audit.py --format text
 python scripts\audit_localization.py
 python scripts\check_web_assets_js.py
 python scripts\browser_smoke.py
@@ -139,13 +141,26 @@ Operator cashbox UI is journal-first. Buttons/entrypoints for reconciliation or
 `Финансовая сверка` must not be visible in the cashbox UI. Keep finance audit as
 internal API/CLI/MCP diagnostics.
 
+### Repair Order Number Audit
+
+Номер заказ-наряда immutable после первого присвоения. Проверка исторических
+расхождений только read-only/dry-run:
+
+```powershell
+python scripts\repair_order_number_audit.py --format text --issue-limit 50
+```
+
+Не исправляйте номера штатными UI/API/MCP путями. Любой repair-order number fix
+требует backup state, dry-run отчёт, owner approval, отдельный maintenance pass
+и повторную сверку finance audit.
+
 ### Local Production-Data Sandbox
 
 Для ручного UI QA на реалистичных данных используйте dated sandbox вне repo и
 не заменяйте текущий `%APPDATA%`:
 
 ```powershell
-$env:APPDATA = "C:\Users\User\Desktop\AutostopCRM-data-snapshots\prod-2026-05-19"
+$env:APPDATA = "$env:USERPROFILE\Desktop\AutostopCRM-data-snapshots\prod-2026-05-19"
 $env:MINIMAL_KANBAN_API_HOST = "127.0.0.1"
 $env:MINIMAL_KANBAN_API_PORT = "42731"
 $env:MINIMAL_KANBAN_MCP_HOST = "127.0.0.1"
@@ -324,11 +339,12 @@ When the owner says `Приберись`, treat it as an agent procedure:
 
 Canonical active docs:
 
-- `00_START_HERE_AUTOSTOP_CRM.md`
-- `PROJECT_HANDOFF.md`
 - `README.md`
 - this runbook
 - `MCP_GUIDE.md`
 - `API_GUIDE.md`
 
-Workflow docs остаются только пока их реально используют active code, deploy, release или operator flows. Не добавляйте frozen reports, commit lists и one-off plans в active docs.
+Workflow docs остаются только пока их реально используют active code, deploy,
+release или operator flows. `CHATGPT_CONNECTOR_SETUP.md` и
+`AUTOSTOPCRM_FULL_INSTRUCTION.txt` сохраняются из-за release/runtime путей.
+Не добавляйте frozen reports, commit lists и one-off plans в active docs.

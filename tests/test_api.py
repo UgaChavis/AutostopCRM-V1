@@ -2430,6 +2430,42 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("Итого по заказ-наряду: 14000", text_payload["data"]["text"])
         self.assertIn("К доплате: 14000", text_payload["data"]["text"])
 
+    def test_repair_order_number_correction_route_is_immutable(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {
+                "vehicle": "Toyota Mark II",
+                "title": "Immutable number API",
+                "deadline": {"hours": 1},
+            },
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        status, order = self.request("/api/get_repair_order", {"card_id": card_id})
+        self.assertEqual(status, 200)
+        self.assertEqual(order["data"]["repair_order"]["number"], "1")
+
+        status, logged_in = self.request(
+            "/api/login_operator",
+            {"username": "admin", "password": "admin"},
+        )
+        self.assertEqual(status, 200)
+        headers = {"X-Operator-Session": logged_in["data"]["session"]["token"]}
+
+        status, blocked = self.request(
+            "/api/correct_repair_order_number",
+            {"card_id": card_id, "number": "99"},
+            headers=headers,
+        )
+        self.assertEqual(status, 409)
+        self.assertFalse(blocked["ok"])
+        self.assertEqual(blocked["error"]["code"], "repair_order_number_immutable")
+
+        status, reread = self.request("/api/get_repair_order", {"card_id": card_id})
+        self.assertEqual(status, 200)
+        self.assertEqual(reread["data"]["repair_order"]["number"], "1")
+
     def test_repair_order_print_module_routes_preview_export_and_template_crud(self) -> None:
         status, created = self.request(
             "/api/create_card",

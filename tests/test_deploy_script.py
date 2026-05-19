@@ -86,9 +86,9 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("python scripts/browser_smoke.py", workflow)
         self.assertIn("playwright", requirements_dev)
 
-    def test_runbook_and_codex_workflow_document_quality_gates(self) -> None:
+    def test_runbook_and_readme_document_quality_gates(self) -> None:
         runbook = (PROJECT_ROOT / "docs" / "OPERATIONS_RUNBOOK.md").read_text(encoding="utf-8")
-        workflow = (PROJECT_ROOT / "docs" / "CODEX_WORKFLOW.md").read_text(encoding="utf-8")
+        readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
 
         self.assertIn("Release Checklist", runbook)
         self.assertIn("Finance Audit-First", runbook)
@@ -98,7 +98,7 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("AUTOSTOP_SMOKE_OPERATOR_USERNAME", runbook)
         self.assertIn("AUTOSTOP_SMOKE_OPERATOR_PASSWORD", runbook)
         self.assertNotIn("--operator-username admin --operator-password admin", runbook)
-        self.assertIn("docs/OPERATIONS_RUNBOOK.md", workflow)
+        self.assertIn("docs/OPERATIONS_RUNBOOK.md", readme)
 
 
 if __name__ == "__main__":

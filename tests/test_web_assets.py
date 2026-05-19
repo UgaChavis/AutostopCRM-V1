@@ -1800,6 +1800,15 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("openRepairOrderModal();", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/get_repair_order'", BOARD_WEB_APP_HTML)
         self.assertIn(
+            'id="repairOrderNumber" class="repair-order-number-display"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertNotIn('<input id="repairOrderNumber"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.repairOrderNumber.textContent = normalized.number || '-';", BOARD_WEB_APP_HTML
+        )
+        self.assertNotIn("number: els.repairOrderNumber.value", BOARD_WEB_APP_HTML)
+        self.assertIn(
             "pushModal('repair-order', els.repairOrderModal, { parentKey: state.repairOrderParentLayer || '' });",
             BOARD_WEB_APP_HTML,
         )

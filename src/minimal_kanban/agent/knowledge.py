@@ -77,12 +77,12 @@ _INTERNET_CONTEXT_KEYWORDS = (
 
 CURATED_DOCUMENTS: tuple[CuratedDocumentDefinition, ...] = (
     CuratedDocumentDefinition(
-        document_id="project_handoff",
-        title="PROJECT_HANDOFF",
-        relative_path="PROJECT_HANDOFF.md",
-        description="Текущее состояние проекта, ограничения и handoff notes.",
-        use_case="Operational handoff and current working rules.",
-        keywords=("handoff", "state", "runtime", "status", "workflow", "project"),
+        document_id="readme",
+        title="README",
+        relative_path="README.md",
+        description="Карта продукта, ключевые entrypoints, локальная разработка и active documentation policy.",
+        use_case="Quick project orientation, product surface and current documentation map.",
+        keywords=("readme", "project", "runtime", "workflow", "docs", "entrypoint"),
     ),
     CuratedDocumentDefinition(
         document_id="mcp_guide",
@@ -112,28 +112,20 @@ CURATED_DOCUMENTS: tuple[CuratedDocumentDefinition, ...] = (
         keywords=("api", "route", "server", "request", "response", "tool"),
     ),
     CuratedDocumentDefinition(
-        document_id="codex_project_map",
-        title="CODEX_PROJECT_MAP",
-        relative_path="CODEX_PROJECT_MAP.md",
-        description=(
-            "Codex repo orientation, canonical docs, MCP surface rules, "
-            "Obsidian knowledge-vault route, and manager data boundary."
-        ),
-        use_case=(
-            "Codex/manager orientation, Obsidian knowledge route, CRM manager data boundary, "
-            "and canonical project-map lookup."
-        ),
+        document_id="operations_runbook",
+        title="OPERATIONS_RUNBOOK",
+        relative_path="docs/OPERATIONS_RUNBOOK.md",
+        description="Local checks, release gates, deploy flow, production cautions and documentation policy.",
+        use_case="Verification, deploy, production safety and docs cleanup guidance.",
         keywords=(
             "codex",
-            "manager",
-            "obsidian",
-            "vault",
-            "knowledge",
+            "runbook",
             "workflow",
-            "clients",
-            "cashboxes",
-            "repair-orders",
-            "privacy",
+            "checks",
+            "deploy",
+            "production",
+            "docs",
+            "verification",
         ),
     ),
 )

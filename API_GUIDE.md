@@ -133,6 +133,14 @@ Write / generate:
 
 Для агентов основной путь PDF - `export_repair_order_print_pdf` или MCP `download_repair_order_print_pdf`, без отдельного PDF-генератора.
 
+Номер заказ-наряда присваивается один раз при первом создании/открытии
+заказ-наряда и дальше не меняется через UI/API/MCP. Обычные update routes
+игнорируют пустой или отсутствующий `number` у уже созданного заказ-наряда и
+отклоняют попытку заменить номер ошибкой `repair_order_number_immutable`.
+Исторические расхождения проверяются только read-only dry-run отчётом
+`scripts/repair_order_number_audit.py`; исправления выполняются отдельной
+maintenance-процедурой после backup и подтверждения владельца.
+
 ## Кассы, сотрудники, payroll
 
 Read:

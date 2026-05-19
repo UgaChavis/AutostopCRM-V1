@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
 from minimal_kanban.connection_card import (
     GPT_CONNECTOR_REQUIRED_TOOL_NAMES,
     MCP_TOOL_NAMES,
+    OPTIONAL_MANAGER_MCP_TOOL_NAMES,
     build_board_share_url,
     build_chatgpt_connect_payload,
     build_chatgpt_connector_payload,
@@ -151,6 +152,10 @@ class ConnectionCardTests(unittest.TestCase):
         )
         self.assertIn("bulk_move_cards instead of many sequential move_card calls", text)
         self.assertIn("rename_column changes only the label and keeps the same column id", text)
+        self.assertIn("[OPTIONAL AUTOSTOPMANAGER TOOLS]", text)
+        self.assertIn("- agent_brief", text)
+        self.assertIn("- system_audit", text)
+        self.assertIn("- list_manager_runs", text)
 
     def test_board_share_url_and_connection_card_expose_public_board_link(self) -> None:
         settings = IntegrationSettings.from_dict(
@@ -272,6 +277,10 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertIn("replace_repair_order_works", MCP_TOOL_NAMES)
         self.assertIn("replace_repair_order_materials", MCP_TOOL_NAMES)
         self.assertTrue(set(GPT_CONNECTOR_REQUIRED_TOOL_NAMES).issubset(set(MCP_TOOL_NAMES)))
+        self.assertEqual(len(OPTIONAL_MANAGER_MCP_TOOL_NAMES), 32)
+        self.assertIn("agent_brief", OPTIONAL_MANAGER_MCP_TOOL_NAMES)
+        self.assertIn("system_audit", OPTIONAL_MANAGER_MCP_TOOL_NAMES)
+        self.assertIn("list_manager_runs", OPTIONAL_MANAGER_MCP_TOOL_NAMES)
 
         responses_payload = build_responses_api_payload(settings)
         responses_data = json.loads(responses_payload)

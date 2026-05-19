@@ -5074,12 +5074,108 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(by_card_id[second["card"]["id"]]["number"], "1")
         self.assertEqual(by_card_id[first["card"]["id"]]["number"], "2")
 
+    def test_partial_update_card_keeps_assigned_repair_order_number(self) -> None:
+        first = self.service.create_card(
+            {"vehicle": "KIA RIO", "title": "First card", "deadline": {"hours": 2}}
+        )
+        second = self.service.create_card(
+            {"vehicle": "LADA VESTA", "title": "Second card", "deadline": {"hours": 2}}
+        )
+        first_id = first["card"]["id"]
+        second_id = second["card"]["id"]
+        self.service.get_repair_order({"card_id": first_id})
+        self.service.get_repair_order({"card_id": second_id})
+        self.service.update_repair_order(
+            {
+                "card_id": first_id,
+                "repair_order": {
+                    "works": [{"name": "Первичная диагностика", "quantity": "1", "price": "900"}]
+                },
+            }
+        )
+
+        updated = self.service.update_card(
+            {
+                "card_id": first_id,
+                "repair_order": {
+                    "client": "Иван",
+                },
+            }
+        )
+
+        listed = self.service.list_repair_orders({"status": "all"})
+        by_card_id = {item["card_id"]: item for item in listed["repair_orders"]}
+        self.assertEqual(updated["card"]["repair_order"]["number"], "1")
+        self.assertEqual(
+            updated["card"]["repair_order"]["works"][0]["name"], "Первичная диагностика"
+        )
+        self.assertEqual(by_card_id[first_id]["number"], "1")
+        self.assertEqual(by_card_id[second_id]["number"], "2")
+
+    def test_repair_order_number_is_immutable_after_assignment(self) -> None:
+        created = self.service.create_card(
+            {"vehicle": "KIA RIO", "title": "Immutable number", "deadline": {"hours": 2}}
+        )
+        card_id = created["card"]["id"]
+        self.service.get_repair_order({"card_id": card_id})
+
+        patched = self.service.update_repair_order(
+            {"card_id": card_id, "repair_order": {"client": "Иван"}}
+        )["repair_order"]
+        self.assertEqual(patched["number"], "1")
+
+        empty_number = self.service.update_repair_order(
+            {"card_id": card_id, "repair_order": {"number": "", "phone": "+7 900 123-45-67"}}
+        )["repair_order"]
+        self.assertEqual(empty_number["number"], "1")
+        self.assertEqual(empty_number["phone"], "+7 900 123-45-67")
+
+        with self.assertRaises(ServiceError) as immutable:
+            self.service.update_repair_order({"card_id": card_id, "repair_order": {"number": "99"}})
+        self.assertEqual(immutable.exception.code, "repair_order_number_immutable")
+
+        reread = self.service.get_repair_order({"card_id": card_id})["repair_order"]
+        self.assertEqual(reread["number"], "1")
+
+    def test_legacy_repair_order_without_number_gets_one_number_once(self) -> None:
+        created = self.service.create_card(
+            {"vehicle": "Legacy", "title": "No number", "deadline": {"hours": 2}}
+        )
+        card_id = created["card"]["id"]
+        bundle = self.store.read_bundle()
+        card = next(item for item in bundle["cards"] if item.id == card_id)
+        card.repair_order = RepairOrder(client="Legacy client")
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        listed = self.service.list_repair_orders({"status": "all"})
+        self.assertEqual(listed["repair_orders"][0]["number"], "1")
+
+        updated = self.service.update_repair_order(
+            {"card_id": card_id, "repair_order": {"comment": "Дополнено без смены номера"}}
+        )
+        reread = self.service.get_repair_order({"card_id": card_id})
+
+        self.assertEqual(updated["repair_order"]["number"], "1")
+        self.assertEqual(reread["repair_order"]["number"], "1")
+
     def test_repair_order_number_duplicates_are_rejected(self) -> None:
         first = self.service.create_card(
             {"vehicle": "KIA RIO", "title": "First card", "deadline": {"hours": 2}}
         )
         second = self.service.create_card(
             {"vehicle": "LADA VESTA", "title": "Second card", "deadline": {"hours": 2}}
+        )
+        third = self.service.create_card(
+            {"vehicle": "VW Polo", "title": "Third card", "deadline": {"hours": 2}}
         )
         first_order = self.service.update_card(
             {"card_id": first["card"]["id"], "repair_order": {"client": "Иван"}}
@@ -5088,7 +5184,7 @@ class CardServiceTests(unittest.TestCase):
             {"card_id": second["card"]["id"], "repair_order": {"client": "Пётр"}}
         )["card"]["repair_order"]
 
-        with self.assertRaises(ServiceError) as duplicate:
+        with self.assertRaises(ServiceError) as immutable:
             self.service.update_card(
                 {
                     "card_id": second["card"]["id"],
@@ -5098,10 +5194,22 @@ class CardServiceTests(unittest.TestCase):
                     },
                 }
             )
+        self.assertEqual(immutable.exception.code, "repair_order_number_immutable")
+
+        with self.assertRaises(ServiceError) as duplicate:
+            self.service.update_card(
+                {
+                    "card_id": third["card"]["id"],
+                    "repair_order": {
+                        "number": first_order["number"],
+                        "client": "Мария",
+                    },
+                }
+            )
 
         self.assertEqual(duplicate.exception.code, "repair_order_number_duplicate")
 
-    def test_cashbox_repair_order_payment_displays_current_linked_order_number(self) -> None:
+    def test_repair_order_number_correction_route_is_blocked(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Карта Мария", "actor_name": "ADMIN"})[
             "cashbox"
         ]
@@ -5133,7 +5241,7 @@ class CardServiceTests(unittest.TestCase):
         )["card"]["repair_order"]
         payment = created_order["payments"][0]
 
-        with self.assertRaises(ServiceError) as locked:
+        with self.assertRaises(ServiceError) as immutable:
             self.service.update_card(
                 {
                     "card_id": card["id"],
@@ -5144,30 +5252,28 @@ class CardServiceTests(unittest.TestCase):
                     },
                 }
             )
-        self.assertEqual(locked.exception.code, "repair_order_number_locked")
+        self.assertEqual(immutable.exception.code, "repair_order_number_immutable")
 
-        updated_order = self.service.correct_repair_order_number(
-            {
-                "card_id": card["id"],
-                "number": "259",
-                "reason": "Исправление номера после сверки",
-                "actor_name": "ADMIN",
-            }
-        )["repair_order"]
-        self.assertEqual(updated_order["number"], "259")
-        self.assertEqual(
-            updated_order["payments"][0]["cash_transaction_id"],
-            payment["cash_transaction_id"],
-        )
+        with self.assertRaises(ServiceError) as correction:
+            self.service.correct_repair_order_number(
+                {
+                    "card_id": card["id"],
+                    "number": "259",
+                    "reason": "Исправление номера после сверки",
+                    "actor_name": "ADMIN",
+                }
+            )
+        self.assertEqual(correction.exception.code, "repair_order_number_immutable")
 
         details = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
-        self.assertEqual(details["transactions"][0]["repair_order_number"], "259")
-        self.assertEqual(details["transactions"][0]["note"], "Заказ-наряд №259")
+        self.assertEqual(payment["cash_transaction_id"], details["transactions"][0]["id"])
+        self.assertEqual(details["transactions"][0]["repair_order_number"], "257")
+        self.assertEqual(details["transactions"][0]["note"], "Заказ-наряд №257")
         self.assertEqual(details["transactions"][0]["stored_note"], "Заказ-наряд №257")
 
         journal = self.service.get_cash_journal({"months": 3, "limit": 100})
-        self.assertEqual(journal["entries"][0]["repair_order_number"], "259")
-        self.assertEqual(journal["entries"][0]["note"], "Заказ-наряд №259")
+        self.assertEqual(journal["entries"][0]["repair_order_number"], "257")
+        self.assertEqual(journal["entries"][0]["note"], "Заказ-наряд №257")
         self.assertEqual(journal["entries"][0]["business_date"], "2026-05-18")
         self.assertEqual(journal["entries"][0]["business_time"], "12:39:00")
 
