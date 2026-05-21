@@ -202,9 +202,7 @@ class JsonStore:
                     if isinstance(settings, dict)
                     else deepcopy(DEFAULT_STATE["settings"]),
                 }
-                self._write_state(state)
-                self._invalidate_read_cache()
-                return {
+                bundle = {
                     "columns": normalized_columns,
                     "cards": normalized_cards,
                     "clients": normalized_clients,
@@ -214,6 +212,10 @@ class JsonStore:
                     "events": normalized_events,
                     "settings": state["settings"],
                 }
+                self._write_state(state)
+                self._read_cache_signature = self._state_signature()
+                self._read_cache_bundle = bundle
+                return bundle
 
     def read_cards(self) -> list[Card]:
         return self.read_bundle()["cards"]
@@ -329,7 +331,7 @@ class JsonStore:
             return deepcopy(DEFAULT_STATE)
 
     def _write_state(self, state: dict) -> None:
-        payload = json.dumps(state, ensure_ascii=False, indent=2)
+        payload = json.dumps(state, ensure_ascii=False, separators=(",", ":"))
         temp_file = self._state_file.with_suffix(".tmp")
         temp_file.write_text(payload, encoding="utf-8")
         temp_file.replace(self._state_file)

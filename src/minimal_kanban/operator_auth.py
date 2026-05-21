@@ -260,8 +260,27 @@ class OperatorAuthService:
         if not card_id:
             self._fail("validation_error", "Нужно передать card_id.", details={"field": "card_id"})
         actor_name = session["username"]
-        self._card_service.mark_card_seen({"card_id": card_id, "actor_name": actor_name})
-        result = self._card_service.get_card({"card_id": card_id, "actor_name": actor_name})
+        mark_seen = self._validated_optional_bool(payload, "mark_seen", default=True)
+        return_card = self._validated_optional_bool(payload, "return_card", default=True)
+        marked_seen = False
+        if mark_seen:
+            seen_result = self._card_service.mark_card_seen(
+                {"card_id": card_id, "actor_name": actor_name}
+            )
+            marked_seen = bool((seen_result.get("meta") or {}).get("changed"))
+        result = (
+            self._card_service.get_card({"card_id": card_id, "actor_name": actor_name})
+            if return_card
+            else {
+                "card_id": card_id,
+                "opened": True,
+                "meta": {
+                    "return_card": False,
+                    "mark_seen": mark_seen,
+                    "marked_seen": marked_seen,
+                },
+            }
+        )
         self._record_user_action(
             session["username"],
             action="card_opened",
@@ -571,6 +590,24 @@ class OperatorAuthService:
                 "validation_error", "Некорректная роль пользователя.", details={"field": "role"}
             )
         return role
+
+    def _validated_optional_bool(self, payload: dict, field: str, *, default: bool) -> bool:
+        if field not in payload:
+            return default
+        value = payload.get(field)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"true", "1", "yes", "y"}:
+                return True
+            if lowered in {"false", "0", "no", "n"}:
+                return False
+        self._fail(
+            "validation_error",
+            f"Поле {field} должно иметь тип boolean.",
+            details={"field": field},
+        )
 
     def _sort_action_entries(
         self, entries: list[dict[str, Any]], *, reverse: bool = False

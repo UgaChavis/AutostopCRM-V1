@@ -1661,7 +1661,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(supplier_details["cashbox"]["statistics"]["balance_minor"], -1000000)
         self.assertEqual(cash_details["cashbox"]["statistics"]["balance_minor"], 0)
 
-    def test_employee_salary_report_excludes_entries_older_than_two_months(self) -> None:
+    def test_employee_salary_report_builds_monthly_accrual_register(self) -> None:
         employee = self.service.save_employee(
             {
                 "name": "Марина Бухгалтер",
@@ -1669,6 +1669,15 @@ class CardServiceTests(unittest.TestCase):
                 "salary_mode": "salary_plus_percent",
                 "base_salary": "25000",
                 "work_percent": "15",
+            }
+        )["employee"]
+        other_employee = self.service.save_employee(
+            {
+                "name": "Другой Мастер",
+                "position": "Мастер",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "10",
             }
         )["employee"]
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
@@ -1767,9 +1776,10 @@ class CardServiceTests(unittest.TestCase):
                         "number": "302",
                         "status": "open",
                         "vehicle": "Honda Civic",
+                        "license_plate": "А123ВС124",
                         "payments": [
                             {
-                                "amount": "12000",
+                                "amount": "22000",
                                 "paid_at": "15.04.2026 10:00",
                                 "payment_method": "cash",
                             }
@@ -1780,7 +1790,24 @@ class CardServiceTests(unittest.TestCase):
                                 "quantity": "1",
                                 "price": "12000",
                                 "executor_id": employee["id"],
-                            }
+                            },
+                            {
+                                "name": "Дополнительная диагностика",
+                                "quantity": "2",
+                                "price": "1000",
+                                "executor_id": employee["id"],
+                            },
+                            {
+                                "name": "Итоговая строка",
+                                "total": "3000",
+                                "executor_id": employee["id"],
+                            },
+                            {
+                                "name": "Чужая работа",
+                                "quantity": "1",
+                                "price": "5000",
+                                "executor_id": other_employee["id"],
+                            },
                         ],
                     },
                 }
@@ -1797,23 +1824,128 @@ class CardServiceTests(unittest.TestCase):
                 }
             )
 
-        report = self.service.get_employee_salary_report({"employee_id": employee["id"]})
+        open_card = self.service.create_card(
+            {
+                "vehicle": "Open Car",
+                "title": "Открытый наряд",
+                "deadline": {"hours": 2},
+            }
+        )["card"]
+        self.service.update_card(
+            {
+                "card_id": open_card["id"],
+                "repair_order": {
+                    "number": "303",
+                    "status": "open",
+                    "vehicle": "Open Car",
+                    "license_plate": "О111ОО124",
+                    "works": [
+                        {
+                            "name": "Открытая работа",
+                            "quantity": "1",
+                            "price": "5000",
+                            "executor_id": employee["id"],
+                        }
+                    ],
+                },
+            }
+        )
+
+        ready_card = self.service.create_card(
+            {
+                "vehicle": "Ready Car",
+                "title": "Готовый наряд",
+                "deadline": {"hours": 2},
+            }
+        )["card"]
+        self.service.update_card(
+            {
+                "card_id": ready_card["id"],
+                "repair_order": {
+                    "number": "304",
+                    "status": "ready",
+                    "vehicle": "Ready Car",
+                    "license_plate": "Р222РР124",
+                    "works": [
+                        {
+                            "name": "Готовая работа",
+                            "quantity": "1",
+                            "price": "5000",
+                            "executor_id": employee["id"],
+                        }
+                    ],
+                },
+            }
+        )
+
+        report_month = recent_time.astimezone().strftime("%Y-%m")
+        report = self.service.get_employee_salary_report(
+            {"employee_id": employee["id"], "month": report_month}
+        )
+        report_text = report["text"]
+
         self.assertEqual(report["employee_id"], employee["id"])
-        self.assertEqual(report["meta"]["months"], 2)
-        self.assertEqual(report["meta"]["accrued_total"], "1800")
-        self.assertEqual(report["meta"]["payout_total"], "0")
-        self.assertEqual(report["meta"]["advance_total"], "500")
-        self.assertEqual(report["meta"]["balance_total"], "1300")
-        self.assertEqual(report["meta"]["schema_version"], "employee_salary_report.v2")
-        self.assertIn("# 💼 Отчёт по зарплате", report["markdown"])
-        self.assertIn("Период: последние 2 мес.", report["markdown"])
-        self.assertIn("Свежая работа", report["markdown"])
-        self.assertIn("СВЕЖИЙ АВАНС", report["markdown"])
-        self.assertNotIn("Старый заказ", report["markdown"])
-        self.assertNotIn("СТАРАЯ ВЫПЛАТА", report["markdown"])
-        self.assertGreaterEqual(len(report["days"]), 1)
-        self.assertGreaterEqual(len(report["weeks"]), 1)
-        self.assertGreaterEqual(len(report["months"]), 1)
+        self.assertEqual(report["period"]["month"], report_month)
+        self.assertEqual(report["meta"]["schema_version"], "employee_salary_report.v3")
+        self.assertEqual(report["totals"]["repair_order_count"], 1)
+        self.assertEqual(report["totals"]["work_count"], 3)
+        self.assertEqual(report["totals"]["work_total"], "17000")
+        self.assertEqual(report["totals"]["accrued_total"], "2550")
+        self.assertIn("ОТЧЕТ ПО НАЧИСЛЕНИЯМ", report_text)
+        self.assertIn("Сотрудник: Марина Бухгалтер", report_text)
+        self.assertIn("ЗН 302 | Honda Civic | госномер: а123вс124", report_text)
+        self.assertIn("Свежая работа", report_text)
+        self.assertIn("Дополнительная диагностика", report_text)
+        self.assertIn("Итоговая строка", report_text)
+        self.assertIn("Стоимость: 12 000,00 ₽", report_text)
+        self.assertIn("Начислено: 1 800,00 ₽", report_text)
+        self.assertIn("Стоимость: 3 000,00 ₽", report_text)
+        self.assertIn("Начислено: 450,00 ₽", report_text)
+        self.assertNotIn("Цена: 0,00 ₽", report_text)
+        self.assertNotIn("Чужая работа", report_text)
+        self.assertNotIn("Открытая работа", report_text)
+        self.assertNotIn("Готовая работа", report_text)
+        self.assertNotIn("СВЕЖИЙ АВАНС", report_text)
+        self.assertNotIn("Старый заказ", report_text)
+        self.assertNotIn("СТАРАЯ ВЫПЛАТА", report_text)
+        self.assertNotIn("Выплачено", report_text)
+        self.assertNotIn("Авансы", report_text)
+        self.assertEqual(len(report["days"]), 1)
+        order = report["days"][0]["repair_orders"][0]
+        self.assertEqual(order["repair_order_number"], "302")
+        self.assertEqual(order["license_plate"], "а123вс124")
+        self.assertEqual(order["work_count"], 3)
+        self.assertEqual(len(order["works"]), 3)
+        self.assertEqual(order["works"][0]["total_display"], "12 000,00 ₽")
+        self.assertEqual(order["works"][0]["accrued_display"], "1 800,00 ₽")
+        self.assertEqual(order["works"][2]["price"], "")
+        self.assertEqual(order["works"][2]["price_display"], "")
+        self.assertEqual(order["works"][2]["total_display"], "3 000,00 ₽")
+
+    def test_employee_salary_report_empty_month_returns_text_message(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Пустой Месяц",
+                "position": "Мастер",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "10",
+            }
+        )["employee"]
+
+        report = self.service.get_employee_salary_report(
+            {"employee_id": employee["id"], "month": "2026-01"}
+        )
+
+        self.assertEqual(report["meta"]["schema_version"], "employee_salary_report.v3")
+        self.assertEqual(report["period"]["month"], "2026-01")
+        self.assertEqual(report["totals"]["repair_order_count"], 0)
+        self.assertEqual(report["totals"]["work_count"], 0)
+        self.assertEqual(report["days"], [])
+        self.assertIn(
+            "За выбранный период начислений по закрытым заказ-нарядам нет.",
+            report["text"],
+        )
 
     def test_financial_history_cleanup_clears_balances_and_preserves_new_flows(self) -> None:
         employee = self.service.save_employee(
@@ -3736,6 +3868,57 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("display_line", log["entries"][0])
         self.assertIn("detail_lines", log["entries"][0])
         self.assertIn("journal_blocks", log["entries"][0])
+
+        compact_log = self.service.get_card_log({"card_id": card_id, "compact": True, "limit": 2})
+
+        self.assertEqual(compact_log["meta"]["schema_version"], "card_journal.v2")
+        self.assertTrue(compact_log["meta"]["compact"])
+        self.assertEqual(compact_log["meta"]["format"], "json_compact")
+        self.assertEqual(compact_log["meta"]["limit"], 2)
+        self.assertEqual(compact_log["meta"]["events_returned"], 2)
+        self.assertEqual(len(compact_log["entries"]), 2)
+        self.assertEqual(compact_log["timeline"], compact_log["entries"])
+        self.assertIn("days", compact_log)
+        self.assertIn("totals", compact_log)
+        self.assertNotIn("events", compact_log)
+        self.assertNotIn("markdown", compact_log)
+        self.assertNotIn("text", compact_log)
+
+    def test_get_card_log_compact_defaults_to_50_and_truncates_heavy_values(self) -> None:
+        original_description = "Исходная строка. " * 120
+        updated_description = "Обновленная длинная строка журнала. " * 120
+        created = self.service.create_card(
+            {
+                "title": "КОМПАКТНЫЙ ЖУРНАЛ",
+                "description": original_description,
+                "deadline": {"hours": 2},
+                "actor_name": "МАСТЕР",
+                "source": "api",
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "description": updated_description,
+                "actor_name": "МАСТЕР",
+                "source": "api",
+            }
+        )
+
+        compact_log = self.service.get_card_log({"card_id": card_id, "compact": True})
+        entry = compact_log["entries"][0]
+        block = entry["journal_blocks"][0]
+
+        self.assertEqual(compact_log["meta"]["limit"], 50)
+        self.assertTrue(compact_log["meta"]["compact"])
+        self.assertLessEqual(len(block["text"]), 1200)
+        self.assertTrue(block["is_truncated"])
+        self.assertNotIn("published_text", entry)
+        self.assertNotIn("published_blocks", entry)
+        self.assertNotIn("details_text", entry)
+        self.assertNotIn("entries", compact_log["days"][0])
+        self.assertNotIn("events", compact_log)
 
     def test_get_card_log_exposes_full_before_after_changes(self) -> None:
         created = self.service.create_card(

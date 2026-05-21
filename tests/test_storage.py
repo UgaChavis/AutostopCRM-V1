@@ -17,7 +17,7 @@ from minimal_kanban.models import AuditEvent  # noqa: E402
 from minimal_kanban.storage.financial_history_cleanup import (  # noqa: E402
     sanitize_financial_history_state,
 )
-from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
+from minimal_kanban.storage.json_store import DEFAULT_STATE, JsonStore  # noqa: E402
 
 
 class JsonStoreTests(unittest.TestCase):
@@ -52,7 +52,7 @@ class JsonStoreTests(unittest.TestCase):
         self.assertIs(first, second)
         self.assertEqual(read_state.call_count, 1)
 
-    def test_read_bundle_cache_is_invalidated_after_write_bundle(self) -> None:
+    def test_read_bundle_cache_reuses_written_bundle_after_write_bundle(self) -> None:
         store = JsonStore(state_file=self.state_file, logger=self.logger)
         bundle = store.read_bundle()
 
@@ -80,8 +80,28 @@ class JsonStoreTests(unittest.TestCase):
         with patch.object(store, "_read_state", wraps=store._read_state) as read_state:
             refreshed = store.read_bundle()
 
-        self.assertEqual(read_state.call_count, 1)
+        self.assertEqual(read_state.call_count, 0)
         self.assertEqual(refreshed["events"][-1].message, "cache invalidated")
+
+    def test_write_state_uses_compact_json_while_remaining_readable(self) -> None:
+        store = JsonStore(state_file=self.state_file, logger=self.logger)
+        bundle = store.read_bundle()
+
+        store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        raw_state = self.state_file.read_text(encoding="utf-8")
+        self.assertNotIn("\n  ", raw_state)
+        self.assertEqual(json.loads(raw_state)["schema_version"], DEFAULT_STATE["schema_version"])
+        self.assertEqual(store.read_bundle()["cards"], bundle["cards"])
 
     def test_read_bundle_cache_detects_external_file_changes(self) -> None:
         store = JsonStore(state_file=self.state_file, logger=self.logger)

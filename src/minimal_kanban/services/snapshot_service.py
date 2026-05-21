@@ -29,6 +29,8 @@ REVIEW_BOARD_PRIORITY_LIMIT_DEFAULT = 5
 REVIEW_BOARD_EVENT_LIMIT_DEFAULT = 10
 GPT_WALL_MARKDOWN_LINE_LIMIT = 3000
 GPT_WALL_AGENT_EVENT_LIMIT = 20
+CARD_JOURNAL_COMPACT_DEFAULT_LIMIT = 50
+CARD_JOURNAL_COMPACT_TEXT_LIMIT = 1200
 
 CARD_JOURNAL_ACTION_LABELS = {
     "card_created": "Создана карточка",
@@ -1233,10 +1235,13 @@ class SnapshotService:
     def get_card_log(self, payload: dict) -> dict:
         with self._lock:
             payload = payload or {}
+            compact = self._validated_optional_bool(payload, "compact", default=False)
             limit_raw = payload.get("limit")
             limit = (
                 self._validated_limit(limit_raw, default=100, maximum=1000)
                 if limit_raw is not None
+                else CARD_JOURNAL_COMPACT_DEFAULT_LIMIT
+                if compact
                 else None
             )
             bundle = self._store.read_bundle()
@@ -1247,9 +1252,15 @@ class SnapshotService:
                 for event in (card_events[:limit] if limit is not None else card_events)
             ]
             entries = self._card_log_entries(events, card=card)
+            if compact:
+                entries = self._compact_card_log_entries(entries)
             days = self._card_log_group_entries(entries, key="day_key", kind="day")
             weeks = self._card_log_group_entries(entries, key="week_key", kind="week")
             months = self._card_log_group_entries(entries, key="month_key", kind="month")
+            if compact:
+                days = self._compact_card_log_groups(days)
+                weeks = self._compact_card_log_groups(weeks)
+                months = self._compact_card_log_groups(months)
             totals = self._card_log_totals(entries)
             newest_timestamp = entries[0]["timestamp"] if entries else ""
             oldest_timestamp = entries[-1]["timestamp"] if entries else ""
@@ -1266,10 +1277,23 @@ class SnapshotService:
                 "last_timestamp": oldest_timestamp,
                 "newest_timestamp": newest_timestamp,
                 "oldest_timestamp": oldest_timestamp,
-                "format": "markdown+json",
-                "text_alias": "markdown",
+                "format": "json_compact" if compact else "markdown+json",
+                "text_alias": "" if compact else "markdown",
                 "event_order": "newest_first",
+                "compact": compact,
             }
+            if compact:
+                return {
+                    "entries": entries,
+                    "timeline": entries,
+                    "days": days,
+                    "weeks": weeks,
+                    "months": months,
+                    "totals": totals,
+                    "meta": {
+                        **meta,
+                    },
+                }
             markdown = self._card_log_markdown(
                 card=card,
                 entries=entries,
@@ -1293,6 +1317,132 @@ class SnapshotService:
                     **meta,
                 },
             }
+
+    def _compact_card_log_text(
+        self, value: Any, *, limit: int = CARD_JOURNAL_COMPACT_TEXT_LIMIT
+    ) -> tuple[str, bool]:
+        text = self._card_log_full_value_text(value).replace("\r", "").strip()
+        if len(text) <= limit:
+            return text, False
+        kept = max(0, limit - 3)
+        return text[:kept].rstrip() + "...", True
+
+    def _compact_card_log_block(self, block: dict[str, Any]) -> dict[str, Any]:
+        compact = {
+            key: value
+            for key, value in block.items()
+            if key
+            in {
+                "schema_version",
+                "kind",
+                "field",
+                "label",
+                "title",
+                "is_full_value",
+                "is_empty",
+                "change_kind",
+            }
+        }
+        text, truncated = self._compact_card_log_text(block.get("text"))
+        compact["text"] = text
+        if truncated:
+            compact["is_truncated"] = True
+        return compact
+
+    def _compact_card_log_change(self, change: dict[str, Any]) -> dict[str, Any]:
+        before_text, before_truncated = self._compact_card_log_text(
+            change.get("before_summary") or change.get("before"), limit=240
+        )
+        after_text, after_truncated = self._compact_card_log_text(
+            change.get("after_summary") or change.get("after"), limit=240
+        )
+        compact = {
+            key: value
+            for key, value in change.items()
+            if key
+            in {
+                "schema_version",
+                "field",
+                "label",
+                "kind",
+                "human_kind",
+            }
+        }
+        compact.update(
+            {
+                "before": before_text,
+                "after": after_text,
+                "before_human": before_text,
+                "after_human": after_text,
+                "before_summary": before_text,
+                "after_summary": after_text,
+            }
+        )
+        if before_truncated or after_truncated:
+            compact["is_truncated"] = True
+        return compact
+
+    def _compact_card_log_groups(self, groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {key: value for key, value in group.items() if key != "entries"} for group in groups
+        ]
+
+    def _compact_card_log_entries(self, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        compact_entries: list[dict[str, Any]] = []
+        for entry in entries:
+            journal_blocks = [
+                self._compact_card_log_block(block)
+                for block in entry.get("journal_blocks", [])
+                if isinstance(block, dict)
+            ]
+            detail_lines = self._card_log_blocks_to_detail_lines(journal_blocks)
+            compact_entry = {
+                key: value
+                for key, value in entry.items()
+                if key
+                in {
+                    "schema_version",
+                    "id",
+                    "timestamp",
+                    "business_timestamp",
+                    "date",
+                    "time",
+                    "time_short",
+                    "day_key",
+                    "week_key",
+                    "month_key",
+                    "actor_name",
+                    "display_actor_name",
+                    "source",
+                    "source_label",
+                    "action",
+                    "action_label",
+                    "icon",
+                    "message",
+                    "human_message",
+                    "card_id",
+                    "card_short_id",
+                    "card_heading",
+                    "change_count",
+                    "has_deletion",
+                    "display_line",
+                    "summary",
+                }
+            }
+            compact_entry.update(
+                {
+                    "journal_blocks": journal_blocks,
+                    "changes": [
+                        self._compact_card_log_change(change)
+                        for change in entry.get("changes", [])
+                        if isinstance(change, dict)
+                    ],
+                }
+            )
+            if detail_lines and not journal_blocks:
+                compact_entry["detail_lines"] = detail_lines
+            compact_entries.append(compact_entry)
+        return compact_entries
 
     def _card_log_value_text(self, value: Any) -> str:
         if value is None or value == "":

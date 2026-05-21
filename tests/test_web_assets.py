@@ -409,6 +409,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("perfStart('api:' + String(path || '').split('?')[0])", BOARD_WEB_APP_HTML)
         self.assertIn("perfMeasureAsync('refreshSnapshot'", BOARD_WEB_APP_HTML)
         self.assertIn("perfMeasureAsync('openCardWorkspace'", BOARD_WEB_APP_HTML)
+        self.assertIn("perfMeasureAsync('loadModalData:'", BOARD_WEB_APP_HTML)
+        self.assertIn("perfMeasureAsync('moveCard'", BOARD_WEB_APP_HTML)
         self.assertIn("perfStart('hydrateCard')", BOARD_WEB_APP_HTML)
         self.assertIn("perfStart('renderBoard')", BOARD_WEB_APP_HTML)
         self.assertIn("perfStart('renderFiles')", BOARD_WEB_APP_HTML)
@@ -704,15 +706,23 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="employeeSalarySummary"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryReportModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryReportTitle"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="employeeSalaryReportSummary"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="employeeSalaryReportSections"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeSalaryReportText"', BOARD_WEB_APP_HTML)
+        self.assertIn("employee-salary-report__text", BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryReportDownloadButton"', BOARD_WEB_APP_HTML)
+        self.assertIn("ОТЧЁТ ПО НАЧИСЛЕНИЯМ", BOARD_WEB_APP_HTML)
         self.assertIn("ЗАГРУЗКА...", BOARD_WEB_APP_HTML)
         self.assertIn("СКАЧАТЬ .MD", BOARD_WEB_APP_HTML)
+        self.assertIn("function currentEmployeeSalaryReportMonth()", BOARD_WEB_APP_HTML)
         self.assertIn("function openEmployeeSalaryReport(", BOARD_WEB_APP_HTML)
         self.assertIn("function loadEmployeeSalaryReport(", BOARD_WEB_APP_HTML)
+        self.assertIn("&month=' + encodeURIComponent(month)", BOARD_WEB_APP_HTML)
+        self.assertIn("els.employeeSalaryReportText.textContent", BOARD_WEB_APP_HTML)
         self.assertIn("function renderEmployeeSalaryReportModal()", BOARD_WEB_APP_HTML)
         self.assertIn("function downloadEmployeeSalaryReport()", BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="employeeSalaryReportSummary"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="employeeSalaryReportSections"', BOARD_WEB_APP_HTML)
+        self.assertNotIn("function employeeSalaryReportSummaryItems(", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function employeeSalaryReportGroupHtml(", BOARD_WEB_APP_HTML)
         self.assertIn("bindEmployeesUiEvents();", BOARD_WEB_APP_HTML)
         self.assertIn('id="employeesCreateButton"', BOARD_WEB_APP_HTML)
         self.assertIn(">ДОБАВИТЬ<", BOARD_WEB_APP_HTML)
@@ -970,12 +980,18 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("fullCard = cachedFullCard || await fetchFullCard", BOARD_WEB_APP_HTML)
         self.assertIn("function setCardDescriptionLoading(isLoading", BOARD_WEB_APP_HTML)
         self.assertIn("recordCardOpenSideEffects(normalizedCardId);", BOARD_WEB_APP_HTML)
-        self.assertIn("async function recordCardOpenSideEffects(cardId)", BOARD_WEB_APP_HTML)
-        self.assertIn("await api('/api/open_card'", BOARD_WEB_APP_HTML)
+        self.assertIn("function recordCardOpenSideEffects(cardId)", BOARD_WEB_APP_HTML)
+        self.assertIn("CARD_OPEN_SIDE_EFFECT_DELAY_MS = 700", BOARD_WEB_APP_HTML)
+        self.assertIn("api('/api/open_card'", BOARD_WEB_APP_HTML)
+        self.assertIn("return_card: false", BOARD_WEB_APP_HTML)
+        self.assertIn("mark_seen: false", BOARD_WEB_APP_HTML)
         self.assertIn("function loadActiveCardTab(tabName)", BOARD_WEB_APP_HTML)
         self.assertIn("if (tabName === 'files') {", BOARD_WEB_APP_HTML)
         self.assertIn("if (tabName !== 'journal') return;", BOARD_WEB_APP_HTML)
         self.assertIn("renderActiveCardFiles();", BOARD_WEB_APP_HTML)
+        self.assertIn("function cardJournalRequestUrl(cardId", BOARD_WEB_APP_HTML)
+        self.assertIn("&compact=1&limit=' + safeLimit", BOARD_WEB_APP_HTML)
+        self.assertIn("data-card-journal-load-more", BOARD_WEB_APP_HTML)
         self.assertNotIn("if (card?.id) loadLogs(card.id);", BOARD_WEB_APP_HTML)
         self.assertIn(
             "if (els.cardModal?.classList.contains('is-open')) {\n        requestAnimationFrame(() => syncCardDescriptionHeight());\n      }",
@@ -996,7 +1012,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("resetCardModalState();", BOARD_WEB_APP_HTML)
         self.assertIn("const data = await persistCardPayload(payload);", BOARD_WEB_APP_HTML)
         self.assertIn("if (data?.card) applySavedCardLocalPatch(data.card);", BOARD_WEB_APP_HTML)
-        self.assertIn(
+        self.assertNotIn(
             "scheduleBackgroundSnapshotRefresh({ showSuccess: false, delay: 900 });",
             BOARD_WEB_APP_HTML,
         )
@@ -1505,7 +1521,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn('title="Обновлено"', BOARD_WEB_APP_HTML)
         self.assertIn(
-            "if (currentCard && !currentCard.is_unread && !currentCard.has_unseen_update) return;",
+            "if (!force && currentCard && !currentCard.is_unread && !currentCard.has_unseen_update) return;",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
@@ -1523,7 +1539,7 @@ class WebAssetsTests(unittest.TestCase):
             "const delayMs = currentCard.has_unseen_update && !currentCard.is_unread ? CARD_UPDATED_HOVER_DELAY_MS : CARD_UNREAD_HOVER_DELAY_MS;",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("markCardSeenOptimistically(cardId);", BOARD_WEB_APP_HTML)
+        self.assertIn("markCardSeenOptimistically(normalizedCardId);", BOARD_WEB_APP_HTML)
         self.assertIn("cardElement.dataset.updatedUnseen = 'false';", BOARD_WEB_APP_HTML)
         self.assertIn(
             "cardElement.querySelectorAll('.card__unread-badge, .card__updated-badge').forEach((badge) => badge.remove());",

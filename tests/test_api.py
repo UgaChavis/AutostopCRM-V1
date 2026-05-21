@@ -740,6 +740,27 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(profile["data"]["stats"]["cards_opened"], 1)
 
+        with patch.object(
+            self.service, "mark_card_seen", wraps=self.service.mark_card_seen
+        ) as mark_seen:
+            status, lightweight_opened = self.request(
+                "/api/open_card",
+                {"card_id": card_id, "return_card": False, "mark_seen": False},
+                headers=headers,
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(lightweight_opened["data"]["card_id"], card_id)
+        self.assertTrue(lightweight_opened["data"]["opened"])
+        self.assertFalse(lightweight_opened["data"]["meta"]["return_card"])
+        self.assertFalse(lightweight_opened["data"]["meta"]["mark_seen"])
+        self.assertNotIn("card", lightweight_opened["data"])
+        self.assertEqual(mark_seen.call_count, 0)
+
+        status, profile = self.request("/api/get_operator_profile", method="GET", headers=headers)
+        self.assertEqual(status, 200)
+        self.assertEqual(profile["data"]["stats"]["cards_opened"], 2)
+
     def test_open_card_requires_operator_session(self) -> None:
         status, created = self.request(
             "/api/create_card",
@@ -1292,6 +1313,7 @@ class ApiServerTests(unittest.TestCase):
                     "number": "201",
                     "status": "open",
                     "vehicle": "Toyota Camry",
+                    "license_plate": "Т201ТС124",
                     "works": [
                         {
                             "name": "Замена генератора",
@@ -1314,6 +1336,7 @@ class ApiServerTests(unittest.TestCase):
                     "number": "201",
                     "status": "open",
                     "vehicle": "Toyota Camry",
+                    "license_plate": "Т201ТС124",
                     "payments": [
                         {
                             "amount": "8000",
@@ -1392,21 +1415,31 @@ class ApiServerTests(unittest.TestCase):
             any(row["kind"] == "salary_advance" for row in ledger_after["data"]["journal_rows"])
         )
 
+        closed_at = closed["data"]["repair_order"]["closed_at"]
+        report_month = f"{closed_at[6:10]}-{closed_at[3:5]}"
         status, report = self.request(
-            f"/api/get_employee_salary_report?employee_id={employee['id']}&months=2",
+            f"/api/get_employee_salary_report?employee_id={employee['id']}&month={report_month}",
             method="GET",
         )
         self.assertEqual(status, 200)
-        self.assertEqual(report["data"]["meta"]["months"], 2)
-        self.assertEqual(report["data"]["meta"]["schema_version"], "employee_salary_report.v2")
-        self.assertIn("# 💼 Отчёт по зарплате", report["data"]["markdown"])
-        self.assertIn("Период: последние 2 мес.", report["data"]["markdown"])
-        self.assertIn("employee-salary-report-", report["data"]["file_name"])
+        self.assertEqual(report["data"]["period"]["month"], report_month)
+        self.assertEqual(report["data"]["meta"]["schema_version"], "employee_salary_report.v3")
+        self.assertEqual(report["data"]["totals"]["repair_order_count"], 1)
+        self.assertEqual(report["data"]["totals"]["work_count"], 1)
+        self.assertEqual(report["data"]["totals"]["work_total"], "8000")
+        self.assertEqual(report["data"]["totals"]["accrued_total"], "2000")
+        self.assertIn("ОТЧЕТ ПО НАЧИСЛЕНИЯМ", report["data"]["text"])
+        self.assertIn("ЗН 201 | Toyota Camry | госномер: т201тс124", report["data"]["text"])
+        self.assertIn("Замена генератора", report["data"]["text"])
+        self.assertNotIn("Выплата", report["data"]["text"])
+        self.assertNotIn("Аванс", report["data"]["text"])
+        self.assertIn("employee-accrual-report-", report["data"]["file_name"])
         self.assertTrue(report["data"]["file_name"].endswith(".md"))
+        self.assertIn("period", report["data"])
         self.assertIn("days", report["data"])
-        self.assertIn("weeks", report["data"])
-        self.assertIn("months", report["data"])
         self.assertIn("totals", report["data"])
+        self.assertNotIn("weeks", report["data"])
+        self.assertNotIn("months", report["data"])
 
         status, cashbox_details = self.request(
             f"/api/get_cashbox?cashbox_id={cashbox['id']}&transaction_limit=10", method="GET"
@@ -3422,6 +3455,20 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("journal_blocks", log["data"]["entries"][0])
         self.assertEqual(log["data"]["text"], log["data"]["markdown"])
         self.assertTrue(log["data"]["text"].startswith("# 🧾 Журнал карточки"))
+
+        status, compact_log = self.request(
+            f"/api/get_card_log?card_id={card_id}&compact=1&limit=1", method="GET"
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(compact_log["data"]["meta"]["compact"])
+        self.assertEqual(compact_log["data"]["meta"]["format"], "json_compact")
+        self.assertEqual(compact_log["data"]["meta"]["limit"], 1)
+        self.assertEqual(compact_log["data"]["meta"]["events_returned"], 1)
+        self.assertIn("entries", compact_log["data"])
+        self.assertIn("days", compact_log["data"])
+        self.assertNotIn("events", compact_log["data"])
+        self.assertNotIn("markdown", compact_log["data"])
+        self.assertNotIn("text", compact_log["data"])
 
         status, archived = self.request("/api/archive_card", {"card_id": card_id})
         self.assertEqual(status, 200)

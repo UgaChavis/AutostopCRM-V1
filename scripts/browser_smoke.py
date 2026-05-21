@@ -356,6 +356,13 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     await page.wait_for_selector(f'[data-card-id="{runtime.card_id}"]')
     await page.click(f'[data-card-id="{runtime.card_id}"]')
     await _wait_modal_open(page, "#cardModal")
+    await page.wait_for_function(
+        """() => {
+          const editor = document.querySelector('#cardDescriptionEditor');
+          const saveButton = document.querySelector('#saveCardButton');
+          return !editor?.classList.contains('is-loading') && !saveButton?.disabled;
+        }"""
+    )
     await page.fill("#cardTitle", "Browser smoke saved")
     await page.click("#saveCardButton")
     await _wait_modal_closed(page, "#cardModal")

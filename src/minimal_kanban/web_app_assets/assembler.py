@@ -4213,6 +4213,11 @@ BOARD_WEB_APP_HTML = "".join(
       margin: 0 0 12px;
       font-size: 11px;
     }
+    .card-journal-more {
+      display: flex;
+      justify-content: center;
+      padding: 12px 0 0;
+    }
     .card-journal-day {
       margin: 13px 0 0;
     }
@@ -6495,7 +6500,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .employee-salary-report {
       display: grid;
-      gap: 10px;
+      gap: 8px;
       min-height: 0;
     }
     .employee-salary-report__meta {
@@ -6504,69 +6509,18 @@ BOARD_WEB_APP_HTML = "".join(
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
-    .employee-salary-report__summary {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 8px;
-    }
-    .employee-salary-report__sections {
-      display: grid;
-      gap: 10px;
-      min-height: 0;
+    .employee-salary-report__text {
+      margin: 0;
       max-height: min(68vh, 720px);
       overflow: auto;
-      padding-right: 2px;
-    }
-    .employee-salary-report-section {
-      border: 1px solid rgba(164, 173, 138, 0.14);
+      padding: 14px 16px;
+      border: 1px solid rgba(164, 173, 138, 0.18);
       background: rgba(8, 12, 10, 0.68);
-      padding: 10px 12px;
-      display: grid;
-      gap: 8px;
-    }
-    .employee-salary-report-section__head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    .employee-salary-report-section__title {
-      color: var(--text);
-      font-family: var(--mono);
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .employee-salary-report-section__meta {
-      color: rgba(231, 226, 193, 0.68);
-      font-size: 11px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-    .employee-salary-report-entry-list {
-      display: grid;
-      gap: 6px;
-    }
-    .employee-salary-report-entry {
-      border: 1px solid rgba(116, 126, 106, 0.16);
-      background: rgba(0, 0, 0, 0.12);
-      padding: 8px 10px;
-      display: grid;
-      gap: 4px;
-    }
-    .employee-salary-report-entry__line {
       color: var(--text);
       font-family: var(--mono);
       font-size: 13px;
-      line-height: 1.4;
+      line-height: 1.48;
       font-variant-numeric: tabular-nums;
-    }
-    .employee-salary-report-entry__detail {
-      color: rgba(231, 226, 193, 0.74);
-      font-size: 12px;
-      line-height: 1.35;
       white-space: pre-wrap;
       word-break: break-word;
     }
@@ -6577,9 +6531,6 @@ BOARD_WEB_APP_HTML = "".join(
       .employees-pane--list {
         position: static;
       }
-      .employee-salary-report__summary {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
     }
     @media (max-width: 760px) {
       .employees-summary-strip {
@@ -6589,8 +6540,9 @@ BOARD_WEB_APP_HTML = "".join(
         width: 100%;
         justify-content: space-between;
       }
-      .employee-salary-report__summary {
-        grid-template-columns: 1fr;
+      .employee-salary-report__text {
+        max-height: min(66vh, 680px);
+        padding: 12px;
       }
     }
     .dialog--clients {
@@ -8154,6 +8106,10 @@ BOARD_WEB_APP_HTML = "".join(
     const CASH_JOURNAL_RENDER_BATCH_SIZE = 250;
     const BOARD_SEARCH_CACHE_TTL_MS = 20000;
     const PERF_STORAGE_KEY = 'autostop-perf';
+    const CARD_JOURNAL_INITIAL_LIMIT = 50;
+    const CARD_JOURNAL_LIMIT_STEP = 50;
+    const CARD_JOURNAL_MAX_LIMIT = 1000;
+    const CARD_OPEN_SIDE_EFFECT_DELAY_MS = 700;
 
     const state = {
       actor: '',
@@ -8203,7 +8159,10 @@ BOARD_WEB_APP_HTML = "".join(
       fullCardCache: new Map(),
       cardFetchInFlight: new Map(),
       cardJournalLoadedFor: '',
+      cardJournalLimit: CARD_JOURNAL_INITIAL_LIMIT,
       cardFilesRenderedFor: '',
+      cardOpenSideEffectTimer: null,
+      cardOpenSideEffectCardId: '',
       currentTab: 'overview',
       vehicleProfileDraft: null,
       vehicleProfileBaseline: null,
@@ -8220,6 +8179,7 @@ BOARD_WEB_APP_HTML = "".join(
       boardDropBeforeColumnId: '',
       unreadHoverTimers: new Map(),
       unreadSeenInFlight: new Set(),
+      unreadSeenDeferredTimers: new Map(),
       repairOrdersFilter: 'open',
       repairOrdersQuery: '',
       repairOrdersRemoteQuery: '',
@@ -8686,7 +8646,7 @@ BOARD_WEB_APP_HTML = "".join(
           + '<div class="modal" id="employeeSalaryReportModal">'
             + '<div class="dialog dialog--salary-report">'
               + '<div class="dialog__head">'
-                + '<div class="dialog__title">ОТЧЁТ ПО ЗАРПЛАТЕ / <span id="employeeSalaryReportTitle">СОТРУДНИК</span></div>'
+                + '<div class="dialog__title">ОТЧЁТ ПО НАЧИСЛЕНИЯМ / <span id="employeeSalaryReportTitle">СОТРУДНИК</span></div>'
                 + '<div style="display:flex; gap:8px; flex-wrap:wrap;">'
                   + '<button class="btn btn--ghost" id="employeeSalaryReportDownloadButton" type="button">СКАЧАТЬ .MD</button>'
                   + '<button class="btn" data-close="employee-salary-report">ЗАКРЫТЬ</button>'
@@ -8694,8 +8654,7 @@ BOARD_WEB_APP_HTML = "".join(
               + '</div>'
               + '<div class="employee-salary-report" id="employeeSalaryReportRoot">'
                 + '<div class="employee-salary-report__meta" id="employeeSalaryReportMeta">ЗАГРУЗКА...</div>'
-                + '<div class="employee-salary-report__summary" id="employeeSalaryReportSummary"></div>'
-                + '<div class="employee-salary-report__sections" id="employeeSalaryReportSections"></div>'
+                + '<pre class="employee-salary-report__text" id="employeeSalaryReportText">ЗАГРУЗКА...</pre>'
               + '</div>'
             + '</div>'
           + '</div>'
@@ -8852,8 +8811,7 @@ BOARD_WEB_APP_HTML = "".join(
       employeeSalaryActionCancelButton: document.getElementById('employeeSalaryActionCancelButton'),
       employeeSalaryReportTitle: document.getElementById('employeeSalaryReportTitle'),
       employeeSalaryReportMeta: document.getElementById('employeeSalaryReportMeta'),
-      employeeSalaryReportSummary: document.getElementById('employeeSalaryReportSummary'),
-      employeeSalaryReportSections: document.getElementById('employeeSalaryReportSections'),
+      employeeSalaryReportText: document.getElementById('employeeSalaryReportText'),
       employeeSalaryReportDownloadButton: document.getElementById('employeeSalaryReportDownloadButton'),
       cashboxesList: document.getElementById('cashboxesList'),
       cashboxCreateButton: document.getElementById('cashboxCreateButton'),
@@ -9357,8 +9315,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeeSalaryActionCancelButton = document.getElementById('employeeSalaryActionCancelButton');
       els.employeeSalaryReportTitle = document.getElementById('employeeSalaryReportTitle');
       els.employeeSalaryReportMeta = document.getElementById('employeeSalaryReportMeta');
-      els.employeeSalaryReportSummary = document.getElementById('employeeSalaryReportSummary');
-      els.employeeSalaryReportSections = document.getElementById('employeeSalaryReportSections');
+      els.employeeSalaryReportText = document.getElementById('employeeSalaryReportText');
       els.employeeSalaryReportDownloadButton = document.getElementById('employeeSalaryReportDownloadButton');
     }
 
@@ -11261,19 +11218,21 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     async function loadModalData(path, { method = 'GET', body = null, openModal = false, modalEl = null, onSuccess, onError } = {}) {
-      try {
-        const request = { method };
-        if (body !== null) request.body = body;
-        const data = await api(path, request);
-        if (typeof onSuccess === 'function') onSuccess(data);
-        maybeOpenModal(modalEl, openModal);
-        return data;
-      } catch (error) {
-        if (typeof onError === 'function') onError(error);
-        maybeOpenModal(modalEl, openModal);
-        setStatus(error.message, true);
-        return null;
-      }
+      return perfMeasureAsync('loadModalData:' + String(path || '').split('?')[0], async () => {
+        try {
+          const request = { method };
+          if (body !== null) request.body = body;
+          const data = await api(path, request);
+          if (typeof onSuccess === 'function') onSuccess(data);
+          maybeOpenModal(modalEl, openModal);
+          return data;
+        } catch (error) {
+          if (typeof onError === 'function') onError(error);
+          maybeOpenModal(modalEl, openModal);
+          setStatus(error.message, true);
+          return null;
+        }
+      });
     }
 
     function clientDisplayName(client) {
@@ -12708,7 +12667,7 @@ BOARD_WEB_APP_HTML = "".join(
           + '</button>'
           + '<div class="employees-row__actions">'
             + '<button class="btn btn--ghost employees-row__salary" type="button" data-employee-salary="' + escapeHtml(employee.id) + '">ЗАРПЛАТА</button>'
-            + '<button class="btn btn--ghost employees-row__report" type="button" data-employee-report="' + escapeHtml(employee.id) + '" title="ОТКРЫТЬ ОТЧЕТ ПО ЗАРПЛАТЕ ЗА ПОСЛЕДНИЕ 2 МЕСЯЦА">ОТЧЕТ</button>'
+            + '<button class="btn btn--ghost employees-row__report" type="button" data-employee-report="' + escapeHtml(employee.id) + '" title="ОТКРЫТЬ ОТЧЕТ ПО НАЧИСЛЕНИЯМ ЗА ВЫБРАННЫЙ МЕСЯЦ">ОТЧЕТ</button>'
           + '</div>'
           + '</div>';
       }).join('');
@@ -12927,48 +12886,9 @@ BOARD_WEB_APP_HTML = "".join(
       return (Array.isArray(state.employees) ? state.employees : []).find((item) => item.id === state.activeEmployeeSalaryReportId) || null;
     }
 
-    function employeeSalaryReportSummaryItems(report) {
-      return [
-        { label: 'НАЧИСЛЕНО', value: report?.totals?.accrued_display || report?.meta?.accrued_total || '0' },
-        { label: 'ВЫПЛАЧЕНО', value: report?.totals?.payout_display || report?.meta?.payout_total || '0' },
-        { label: 'АВАНС', value: report?.totals?.advance_display || report?.meta?.advance_total || '0' },
-        { label: 'БАЛАНС', value: report?.totals?.balance_display || report?.meta?.balance_total || '0', accent: true },
-      ];
-    }
-
-    function employeeSalaryReportGroupHtml(group, kind) {
-      if (!group) return '';
-      const titleLabel = {
-        month: 'МЕСЯЦ',
-        week: 'НЕДЕЛЯ',
-        day: 'ДЕНЬ',
-      }[kind] || 'ПЕРИОД';
-      const entries = Array.isArray(group.entries) ? group.entries : [];
-      return ''
-        + '<section class="employee-salary-report-section">'
-          + '<div class="employee-salary-report-section__head">'
-            + '<div class="employee-salary-report-section__title">' + escapeHtml(group.label || 'ПЕРИОД') + '</div>'
-            + '<div class="employee-salary-report-section__meta">' + escapeHtml(titleLabel) + ' · ' + escapeHtml(String(group.count || 0)) + ' записей</div>'
-          + '</div>'
-          + '<div class="employees-kpi employees-kpi--accent" style="display:grid; gap:4px; padding:10px 12px;">'
-            + '<div class="employees-kpi__label">НАЧИСЛЕНО / ВЫПЛАЧЕНО / АВАНС / БАЛАНС</div>'
-            + '<div class="employees-kpi__value" style="font-size:16px; line-height:1.15;">'
-              + escapeHtml(String(group.accrued_display || '0'))
-              + ' / ' + escapeHtml(String(group.payout_display || '0'))
-              + ' / ' + escapeHtml(String(group.advance_display || '0'))
-              + ' / ' + escapeHtml(String(group.balance_display || '0'))
-            + '</div>'
-          + '</div>'
-          + '<div class="employee-salary-report-entry-list">'
-            + entries.map((item) => {
-              const detail = String(item?.detail || '').trim();
-              return '<div class="employee-salary-report-entry">'
-                + '<div class="employee-salary-report-entry__line">' + escapeHtml(item?.line || '') + '</div>'
-                + (detail ? '<div class="employee-salary-report-entry__detail">' + escapeHtml(detail) + '</div>' : '')
-              + '</div>';
-            }).join('')
-          + '</div>'
-        + '</section>';
+    function currentEmployeeSalaryReportMonth() {
+      const value = String(els.employeesMonthInput?.value || state.payrollMonth || currentPayrollMonthValue()).trim();
+      return /^\\d{4}-\\d{2}$/.test(value) ? value : currentPayrollMonthValue();
     }
 
     function renderEmployeeSalaryReportModal() {
@@ -12982,43 +12902,26 @@ BOARD_WEB_APP_HTML = "".join(
         if (!report) {
           els.employeeSalaryReportMeta.textContent = 'ЗАГРУЗКА ОТЧЁТА...';
         } else {
-          const months = report?.meta?.months || 2;
-          els.employeeSalaryReportMeta.textContent = 'ПЕРИОД ' + months + ' МЕС. · ЗАПИСЕЙ ' + String(report?.meta?.entry_total || report?.totals?.count || 0);
+          const periodLabel = String(report?.period?.label || report?.meta?.month || currentEmployeeSalaryReportMonth()).trim();
+          const orderCount = Number(report?.totals?.repair_order_count || 0);
+          const workCount = Number(report?.totals?.work_count || 0);
+          els.employeeSalaryReportMeta.textContent = 'ПЕРИОД: ' + periodLabel + ' · ЗН: ' + String(orderCount) + ' · РАБОТ: ' + String(workCount);
         }
       }
-      if (els.employeeSalaryReportSummary) {
-        const summaryItems = employeeSalaryReportSummaryItems(report);
-        els.employeeSalaryReportSummary.innerHTML = summaryItems.map((item) => {
-          const accentClass = item.accent ? ' employees-kpi--accent' : '';
-          return '<div class="employees-kpi' + accentClass + '"><div class="employees-kpi__label">' + escapeHtml(item.label) + '</div><div class="employees-kpi__value">' + escapeHtml(item.value) + '</div></div>';
-        }).join('');
-      }
-      if (els.employeeSalaryReportSections) {
-        if (!report) {
-          els.employeeSalaryReportSections.innerHTML = '<div class="employee-salary-report-section"><div class="employee-salary-report-entry__line">ЗАГРУЗКА...</div></div>';
-        } else if (!Array.isArray(report.entries) || !report.entries.length) {
-          els.employeeSalaryReportSections.innerHTML = '<div class="employee-salary-report-section"><div class="employee-salary-report-entry__line">ЗА ВЫБРАННЫЙ ПЕРИОД ДВИЖЕНИЙ НЕТ.</div></div>';
-        } else {
-          const sections = [];
-          const months = Array.isArray(report.months) ? report.months : [];
-          const weeks = Array.isArray(report.weeks) ? report.weeks : [];
-          const days = Array.isArray(report.days) ? report.days : [];
-          if (months.length) sections.push('<div class="employee-salary-report-section"><div class="employee-salary-report-section__head"><div class="employee-salary-report-section__title">📅 По месяцам</div><div class="employee-salary-report-section__meta">СВОДКА ПО ПЕРИОДАМ</div></div><div class="employee-salary-report-entry-list">' + months.map((group) => employeeSalaryReportGroupHtml(group, 'month')).join('') + '</div></div>');
-          if (weeks.length) sections.push('<div class="employee-salary-report-section"><div class="employee-salary-report-section__head"><div class="employee-salary-report-section__title">🗓️ По неделям</div><div class="employee-salary-report-section__meta">СВОДКА ПО НЕДЕЛЯМ</div></div><div class="employee-salary-report-entry-list">' + weeks.map((group) => employeeSalaryReportGroupHtml(group, 'week')).join('') + '</div></div>');
-          if (days.length) sections.push('<div class="employee-salary-report-section"><div class="employee-salary-report-section__head"><div class="employee-salary-report-section__title">🧾 По дням</div><div class="employee-salary-report-section__meta">ПОСЛЕДНИЕ СОБЫТИЯ</div></div><div class="employee-salary-report-entry-list">' + days.map((group) => employeeSalaryReportGroupHtml(group, 'day')).join('') + '</div></div>');
-          els.employeeSalaryReportSections.innerHTML = sections.filter(Boolean).join('');
-        }
+      if (els.employeeSalaryReportText) {
+        els.employeeSalaryReportText.textContent = report ? String(report.text || report.markdown || 'ОТЧЁТ ПУСТ.') : 'ЗАГРУЗКА...';
       }
     }
 
     async function loadEmployeeSalaryReport(employeeId, { openModal = false } = {}) {
       const requestedId = String(employeeId || '').trim();
       if (!requestedId) return null;
+      const month = currentEmployeeSalaryReportMonth();
       state.activeEmployeeSalaryReportId = requestedId;
       state.employeeSalaryReport = null;
       renderEmployeeSalaryReportModal();
       maybeOpenModal(els.employeeSalaryReportModal, openModal);
-      const data = await api('/api/get_employee_salary_report?employee_id=' + encodeURIComponent(requestedId));
+      const data = await api('/api/get_employee_salary_report?employee_id=' + encodeURIComponent(requestedId) + '&month=' + encodeURIComponent(month));
       if (String(state.activeEmployeeSalaryReportId || '').trim() !== requestedId) return data;
       state.employeeSalaryReport = data || null;
       renderEmployeeSalaryReportModal();
@@ -13041,7 +12944,7 @@ BOARD_WEB_APP_HTML = "".join(
           setStatus('ОТЧЕТ ПУСТ.', true);
           return;
         }
-        const fileName = String(report.file_name || 'employee-salary-report.md').replace(/\\.txt$/i, '.md');
+        const fileName = String(report.file_name || 'employee-accrual-report.md').replace(/\\.txt$/i, '.md');
         const blob = new Blob([markdown + '\\n'], { type: 'text/markdown;charset=utf-8' });
         triggerBlobDownload(blob, fileName);
         setStatus('ОТЧЁТ СКАЧАН.', false);
@@ -18057,6 +17960,7 @@ BOARD_WEB_APP_HTML = "".join(
       state.cardCreateColumnId = currentCard?.id ? '' : String(currentCard?.column || state.snapshot?.columns?.[0]?.id || 'inbox').trim();
       if (!preserveLazyPanels || previousCardId !== nextCardId) {
         state.cardJournalLoadedFor = '';
+        state.cardJournalLimit = CARD_JOURNAL_INITIAL_LIMIT;
         state.cardFilesRenderedFor = '';
       }
       state.vehicleAutofillResult = null;
@@ -18118,7 +18022,9 @@ BOARD_WEB_APP_HTML = "".join(
       state.cardDescriptionLoading = false;
       state.cardHydratingId = '';
       state.cardJournalLoadedFor = '';
+      state.cardJournalLimit = CARD_JOURNAL_INITIAL_LIMIT;
       state.cardFilesRenderedFor = '';
+      clearCardOpenSideEffectTimer();
       state.vehicleProfileDraft = null;
       state.vehicleProfileBaseline = null;
       state.vehicleAutofillResult = null;
@@ -18800,14 +18706,17 @@ BOARD_WEB_APP_HTML = "".join(
       const meta = data.meta || {};
       const totals = data.totals || {};
       const entries = cardJournalEntriesFromPayload(data);
-      const days = Array.isArray(data.days) && data.days.length ? data.days : buildCardJournalDays(entries);
+      const payloadDays = Array.isArray(data.days) ? data.days : [];
+      const days = payloadDays.some((day) => Array.isArray(day?.entries) && day.entries.length) ? payloadDays : buildCardJournalDays(entries);
       const returned = Number(totals.count ?? meta.events_returned ?? entries.length ?? 0);
       const total = Number(meta.events_total ?? returned);
+      const currentLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(0, Number(meta.limit || state.cardJournalLimit || returned || CARD_JOURNAL_INITIAL_LIMIT)));
+      const nextLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, total || CARD_JOURNAL_MAX_LIMIT, currentLimit + CARD_JOURNAL_LIMIT_STEP);
       const totalLabel = cardJournalCountText(total, 'событие', 'события', 'событий');
       const returnedLabel = returned === total ? totalLabel : 'показано ' + returned + ' из ' + totalLabel;
       let html = '<div class="card-journal-header"><div><div class="card-journal-header__title">Журнал карточки</div><div class="card-journal-header__subtitle">' + escapeHtml(meta.card_heading || 'Карточка') + '</div></div><div class="card-journal-header__meta">' + escapeHtml(returnedLabel + ' · новые сверху') + '</div></div>';
       if (meta.has_more) {
-        html += '<div class="card-journal-note">Показана только часть журнала. Для полной истории увеличьте лимит выгрузки.</div>';
+        html += '<div class="card-journal-note">Показаны последние события. Остальная история загрузится по запросу.</div>';
       }
       if (!entries.length && !days.length) {
         return html + '<div class="card-journal-empty">Журнал пуст.</div>';
@@ -18818,6 +18727,9 @@ BOARD_WEB_APP_HTML = "".join(
         html += dayEntries.map(renderCardJournalEntry).join('');
         html += '</div></section>';
       });
+      if (meta.has_more && nextLimit > currentLimit) {
+        html += '<div class="card-journal-more"><button class="btn btn--ghost" type="button" data-card-journal-load-more="' + nextLimit + '">ПОКАЗАТЬ ЕЩЁ</button></div>';
+      }
       return html;
     }
 
@@ -18979,13 +18891,37 @@ BOARD_WEB_APP_HTML = "".join(
         : '<div class="log-row__meta">АРХИВ ПУСТ.</div>';
     }
 
-    async function recordCardOpenSideEffects(cardId) {
+    function clearCardOpenSideEffectTimer() {
+      if (state.cardOpenSideEffectTimer) {
+        window.clearTimeout(state.cardOpenSideEffectTimer);
+        state.cardOpenSideEffectTimer = null;
+      }
+      state.cardOpenSideEffectCardId = '';
+    }
+
+    function recordCardOpenSideEffects(cardId) {
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
-      try {
-        await api('/api/open_card', { method: 'POST', body: { card_id: normalizedCardId } });
-      } catch (_) {
+      clearCardOpenSideEffectTimer();
+      const currentCard = snapshotCardById(normalizedCardId) || (state.activeCard?.id === normalizedCardId ? state.activeCard : null);
+      const shouldMarkSeen = Boolean(currentCard?.is_unread || currentCard?.has_unseen_update);
+      if (shouldMarkSeen) {
+        markCardSeenOptimistically(normalizedCardId);
+        window.setTimeout(() => markCardSeen(normalizedCardId, { force: true }), CARD_OPEN_SIDE_EFFECT_DELAY_MS);
       }
+      state.cardOpenSideEffectCardId = normalizedCardId;
+      state.cardOpenSideEffectTimer = window.setTimeout(() => {
+        state.cardOpenSideEffectTimer = null;
+        if (state.cardOpenSideEffectCardId !== normalizedCardId) return;
+        api('/api/open_card', {
+          method: 'POST',
+          body: {
+            card_id: normalizedCardId,
+            return_card: false,
+            mark_seen: false,
+          },
+        }).catch(() => {});
+      }, CARD_OPEN_SIDE_EFFECT_DELAY_MS);
     }
 
     async function openCardWorkspace(cardId, { closeModalEl = null, openCardModalEl = true, openRepairOrder = false, repairOrderParentLayer = '' } = {}) {
@@ -19918,22 +19854,39 @@ BOARD_WEB_APP_HTML = "".join(
       return hadMarker;
     }
 
-    async function markCardSeen(cardId) {
-      if (!cardId) return;
-      const currentCard = snapshotCardById(cardId) || state.activeCard;
-      if (currentCard && !currentCard.is_unread && !currentCard.has_unseen_update) return;
-      markCardSeenOptimistically(cardId);
-      if (state.unreadSeenInFlight.has(cardId)) return;
-      state.unreadSeenInFlight.add(cardId);
+    function deferCardSeen(cardId, { force = false } = {}) {
+      const normalizedCardId = String(cardId || '').trim();
+      if (!normalizedCardId) return;
+      const existingTimer = state.unreadSeenDeferredTimers.get(normalizedCardId);
+      if (existingTimer) window.clearTimeout(existingTimer);
+      const timerId = window.setTimeout(() => {
+        state.unreadSeenDeferredTimers.delete(normalizedCardId);
+        markCardSeen(normalizedCardId, { force });
+      }, 500);
+      state.unreadSeenDeferredTimers.set(normalizedCardId, timerId);
+    }
+
+    async function markCardSeen(cardId, { force = false } = {}) {
+      const normalizedCardId = String(cardId || '').trim();
+      if (!normalizedCardId) return;
+      if (state.cardSaveInFlight) {
+        deferCardSeen(normalizedCardId, { force });
+        return;
+      }
+      const currentCard = snapshotCardById(normalizedCardId) || (state.activeCard?.id === normalizedCardId ? state.activeCard : null);
+      if (!force && currentCard && !currentCard.is_unread && !currentCard.has_unseen_update) return;
+      if (!force) markCardSeenOptimistically(normalizedCardId);
+      if (state.unreadSeenInFlight.has(normalizedCardId)) return;
+      state.unreadSeenInFlight.add(normalizedCardId);
       try {
         const data = await api('/api/mark_card_seen', {
           method: 'POST',
-          body: { card_id: cardId, actor_name: state.actor, source: 'ui' },
+          body: { card_id: normalizedCardId, actor_name: state.actor, source: 'ui' },
         });
         if (data?.card) replaceSnapshotCard(data.card);
       } catch (_) {
       } finally {
-        state.unreadSeenInFlight.delete(cardId);
+        state.unreadSeenInFlight.delete(normalizedCardId);
       }
     }
 
@@ -20009,6 +19962,23 @@ BOARD_WEB_APP_HTML = "".join(
       if (!document.hidden) refreshSnapshotRevision();
     }
 
+    function cardJournalLoadKey(cardId, limit = state.cardJournalLimit) {
+      return String(cardId || '').trim() + ':' + Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(limit || CARD_JOURNAL_INITIAL_LIMIT)));
+    }
+
+    function cardJournalRequestUrl(cardId, limit = state.cardJournalLimit) {
+      const safeLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(limit || CARD_JOURNAL_INITIAL_LIMIT)));
+      return '/api/get_card_log?card_id=' + encodeURIComponent(cardId) + '&compact=1&limit=' + safeLimit;
+    }
+
+    function handleCardJournalLoadMore(trigger) {
+      const nextLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(trigger?.dataset?.cardJournalLoadMore || 0)));
+      if (!nextLimit || nextLimit <= state.cardJournalLimit) return;
+      state.cardJournalLimit = nextLimit;
+      state.cardJournalLoadedFor = '';
+      loadActiveCardTab('journal');
+    }
+
     function loadActiveCardTab(tabName) {
       const cardId = String(state.activeCard?.id || '').trim();
       if (tabName === 'files') {
@@ -20020,20 +19990,22 @@ BOARD_WEB_APP_HTML = "".join(
         renderLogs([]);
         return;
       }
-      if (state.cardJournalLoadedFor === cardId) return;
-      state.cardJournalLoadedFor = cardId;
+      const loadKey = cardJournalLoadKey(cardId);
+      if (state.cardJournalLoadedFor === loadKey) return;
+      state.cardJournalLoadedFor = loadKey;
       els.logList.className = 'card-journal-text';
       els.logList.textContent = 'Загрузка журнала...';
-      loadLogs(cardId);
+      loadLogs(cardId, state.cardJournalLimit);
     }
 
-    async function loadLogs(cardId) {
+    async function loadLogs(cardId, limit = state.cardJournalLimit) {
       const perfToken = perfStart('loadLogs');
+      const loadKey = cardJournalLoadKey(cardId, limit);
       try {
-        const data = await api('/api/get_card_log?card_id=' + encodeURIComponent(cardId));
+        const data = await api(cardJournalRequestUrl(cardId, limit));
         renderLogs(data);
       } catch (error) {
-        if (state.cardJournalLoadedFor === cardId) state.cardJournalLoadedFor = '';
+        if (state.cardJournalLoadedFor === loadKey) state.cardJournalLoadedFor = '';
         renderLogs({
           events: [{
             message: error.message,
@@ -20049,7 +20021,7 @@ BOARD_WEB_APP_HTML = "".join(
           },
         });
       } finally {
-        perfEnd(perfToken, { card_id: cardId || '' });
+        perfEnd(perfToken, { card_id: cardId || '', limit: limit || CARD_JOURNAL_INITIAL_LIMIT });
       }
     }
 
@@ -20155,31 +20127,33 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     async function moveCard(cardId, columnId, beforeCardId = '') {
-      try {
-        const data = await api('/api/move_card', {
-          method: 'POST',
-          body: {
-            card_id: cardId,
-            column: columnId,
-            before_card_id: beforeCardId || undefined,
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        const patched = applyBoardColumnCardsPatch(data?.affected_cards || [], data?.affected_column_ids || []);
-        if (!patched && data?.card) {
-          replaceSnapshotCard(data.card);
+      return perfMeasureAsync('moveCard', async () => {
+        try {
+          const data = await api('/api/move_card', {
+            method: 'POST',
+            body: {
+              card_id: cardId,
+              column: columnId,
+              before_card_id: beforeCardId || undefined,
+              actor_name: state.actor,
+              source: 'ui',
+            },
+          });
+          const patched = applyBoardColumnCardsPatch(data?.affected_cards || [], data?.affected_column_ids || []);
+          if (!patched && data?.card) {
+            replaceSnapshotCard(data.card);
+          }
+          if (!patched && !data?.card) {
+            await refreshSnapshot(true);
+          } else {
+            setStatus('ДОСКА ОБНОВЛЕНА · ' + new Date().toLocaleTimeString('ru-RU'), false);
+          }
+        } catch (error) {
+          setStatus(error.message, true);
+        } finally {
+          finishCardDrag();
         }
-        if (!patched && !data?.card) {
-          await refreshSnapshot(true);
-        } else {
-          setStatus('ДОСКА ОБНОВЛЕНА · ' + new Date().toLocaleTimeString('ru-RU'), false);
-        }
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        finishCardDrag();
-      }
+      });
     }
 
     async function moveColumn(columnId, beforeColumnId = '') {
@@ -23368,6 +23342,13 @@ BOARD_WEB_APP_HTML = "".join(
       }
       const tabTrigger = target.closest('[data-tab]');
       if (tabTrigger instanceof HTMLElement) setTab(tabTrigger.dataset.tab);
+      const cardJournalLoadMoreTrigger = target.closest('[data-card-journal-load-more]');
+      if (cardJournalLoadMoreTrigger instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        handleCardJournalLoadMore(cardJournalLoadMoreTrigger);
+        return;
+      }
       const linkClientTarget = target.closest('[data-link-client]');
       if (linkClientTarget instanceof HTMLElement) {
         event.preventDefault();
@@ -23798,7 +23779,6 @@ BOARD_WEB_APP_HTML = "".join(
           if (data?.card) applySavedCardLocalPatch(data.card);
           closeCardModal();
           setStatus('КАРТОЧКА СОХРАНЕНА.', false);
-          scheduleBackgroundSnapshotRefresh({ showSuccess: false, delay: 900 });
         } catch (error) {
           setStatus(error.message, true);
         } finally {
