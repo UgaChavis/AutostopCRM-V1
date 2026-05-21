@@ -40,6 +40,7 @@ _AUTOSTOP_MANAGER_READ_ONLY_TOOLS = frozenset(
         "audit_skill_registry",
         "cleanup_audit",
         "crm_health_plan",
+        "estimate_repair_work_cost",
         "list_manager_runs",
         "lookup_original_parts",
         "memory_context_for",

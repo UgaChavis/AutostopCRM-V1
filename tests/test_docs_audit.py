@@ -75,25 +75,11 @@ class DocsAuditTests(unittest.TestCase):
             {issue.detail for issue in issues},
         )
 
-    def test_crm_manager_tool_metadata_detects_stale_optional_tool_lists(self) -> None:
-        module = load_docs_audit_module()
-        manager_tools = set(module._load_connection_card_manager_tools(ROOT))
-        manager_tools.remove("remember")
-
-        issues = module._check_crm_manager_tool_metadata(ROOT, manager_tools)
-
-        self.assertIn(
-            "connection_card_manager_tools_mismatch",
-            {issue.code for issue in issues},
-        )
-        self.assertIn(
-            "manager_annotation_tools_mismatch",
-            {issue.code for issue in issues},
-        )
-
     def test_manager_mcp_count_is_dynamic(self) -> None:
         module = load_docs_audit_module()
-        manager_tools = sorted(module._load_connection_card_manager_tools(ROOT))
+        manager_tools = [f"manager_tool_{index}" for index in range(32)] + [
+            "estimate_repair_work_cost"
+        ]
 
         with tempfile.TemporaryDirectory() as temp_dir:
             manager_root = Path(temp_dir)

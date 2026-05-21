@@ -112,6 +112,7 @@ If `AutostopManager` is mounted next to CRM or `AUTOSTOP_MANAGER_PATH` points to
 - `record_manager_run_event`
 - `finish_manager_run`
 - `list_manager_runs`
+- `estimate_repair_work_cost`
 - `lookup_original_parts`
 - `recommend_automotive_sources`
 - `recommend_fluid_maintenance_sources`

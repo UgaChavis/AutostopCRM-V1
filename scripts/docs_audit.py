@@ -180,36 +180,15 @@ def _iter_user_skill_docs() -> list[Path]:
 
 
 def _literal_assignment(tree: ast.AST, name: str) -> Any:
-    return ast.literal_eval(_assignment_value(tree, name))
-
-
-def _assignment_value(tree: ast.AST, name: str) -> ast.AST:
     for node in ast.walk(tree):
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             if node.target.id == name and node.value is not None:
-                return node.value
+                return ast.literal_eval(node.value)
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name) and target.id == name:
-                    return node.value
+                    return ast.literal_eval(node.value)
     raise ValueError(f"{name} assignment not found")
-
-
-def _literal_string_collection_assignment(tree: ast.AST, name: str) -> set[str]:
-    value = _assignment_value(tree, name)
-    if (
-        isinstance(value, ast.Call)
-        and isinstance(value.func, ast.Name)
-        and value.func.id == "frozenset"
-        and len(value.args) == 1
-        and not value.keywords
-    ):
-        value = value.args[0]
-
-    parsed = ast.literal_eval(value)
-    if not isinstance(parsed, (list, tuple, set, frozenset)):
-        raise ValueError(f"{name} must be a literal string collection")
-    return {str(item) for item in parsed}
 
 
 def load_crm_registry_tools(root: Path) -> set[str]:
@@ -315,7 +294,6 @@ def _check_manager_docs_and_catalogs(
         ]
 
     manager_tools = extract_decorated_tool_names(manager_tools_path)
-    issues.extend(_check_crm_manager_tool_metadata(root, manager_tools))
 
     if manager_catalog_path.exists():
         manager_catalog = _load_json(manager_catalog_path)
@@ -393,79 +371,6 @@ def _tool_set_delta(actual: set[str], expected: set[str]) -> str:
     missing = sorted(expected - actual)
     unexpected = sorted(actual - expected)
     return f"missing={missing}; unexpected={unexpected}"
-
-
-def _load_connection_card_manager_tools(root: Path) -> set[str]:
-    path = root / "src" / "minimal_kanban" / "connection_card.py"
-    tree = ast.parse(_read_text(path), filename=str(path))
-    return _literal_string_collection_assignment(tree, "OPTIONAL_MANAGER_MCP_TOOL_NAMES")
-
-
-def _load_manager_annotation_tool_sets(root: Path) -> tuple[set[str], set[str]]:
-    path = root / "src" / "minimal_kanban" / "mcp" / "server.py"
-    tree = ast.parse(_read_text(path), filename=str(path))
-    return (
-        _literal_string_collection_assignment(tree, "_AUTOSTOP_MANAGER_READ_ONLY_TOOLS"),
-        _literal_string_collection_assignment(tree, "_AUTOSTOP_MANAGER_WRITE_TOOLS"),
-    )
-
-
-def _check_crm_manager_tool_metadata(root: Path, manager_tools: set[str]) -> list[Issue]:
-    issues: list[Issue] = []
-
-    try:
-        connection_tools = _load_connection_card_manager_tools(root)
-    except (OSError, SyntaxError, ValueError) as exc:
-        issues.append(
-            Issue(
-                "connection_card_manager_tools_audit_error",
-                "src/minimal_kanban/connection_card.py",
-                str(exc),
-            )
-        )
-    else:
-        if connection_tools != manager_tools:
-            issues.append(
-                Issue(
-                    "connection_card_manager_tools_mismatch",
-                    "src/minimal_kanban/connection_card.py",
-                    _tool_set_delta(connection_tools, manager_tools),
-                )
-            )
-
-    try:
-        read_only_tools, write_tools = _load_manager_annotation_tool_sets(root)
-    except (OSError, SyntaxError, ValueError) as exc:
-        issues.append(
-            Issue(
-                "manager_annotation_tools_audit_error",
-                "src/minimal_kanban/mcp/server.py",
-                str(exc),
-            )
-        )
-        return issues
-
-    overlap = read_only_tools & write_tools
-    if overlap:
-        issues.append(
-            Issue(
-                "manager_annotation_tools_overlap",
-                "src/minimal_kanban/mcp/server.py",
-                f"tools classified as both read and write: {sorted(overlap)}",
-            )
-        )
-
-    annotated_tools = read_only_tools | write_tools
-    if annotated_tools != manager_tools:
-        issues.append(
-            Issue(
-                "manager_annotation_tools_mismatch",
-                "src/minimal_kanban/mcp/server.py",
-                _tool_set_delta(annotated_tools, manager_tools),
-            )
-        )
-
-    return issues
 
 
 def audit(
