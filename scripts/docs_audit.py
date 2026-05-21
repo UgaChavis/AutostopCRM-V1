@@ -83,6 +83,21 @@ FORBIDDEN_TEXT_PATTERNS = (
     ),
 )
 
+API_GUIDE_REQUIRED_ROUTE_TEXT = (
+    (
+        "/api/finance_audit",
+        "read-only finance audit API route is not documented",
+    ),
+    (
+        "/api/finance_audit/apply_safe_fixes",
+        "finance audit maintenance route is not documented",
+    ),
+    (
+        "/api/correct_repair_order_number",
+        "repair-order number maintenance route is not documented",
+    ),
+)
+
 
 @dataclass(frozen=True)
 class Issue:
@@ -107,6 +122,32 @@ def scan_forbidden_text(path: Path, text: str, *, root: Path = ROOT) -> list[Iss
     for code, pattern, detail in FORBIDDEN_TEXT_PATTERNS:
         if pattern.search(text):
             issues.append(Issue(code, _display_path(path, root), detail))
+    return issues
+
+
+def _contains_route_text(text: str, route: str) -> bool:
+    return re.search(
+        rf"(?<![A-Za-z0-9_/\-]){re.escape(route)}(?![A-Za-z0-9_/\-])",
+        text,
+    ) is not None
+
+
+def _check_api_guide_required_routes(root: Path) -> list[Issue]:
+    path = root / "API_GUIDE.md"
+    if not path.exists():
+        return []
+
+    text = _read_text(path)
+    issues: list[Issue] = []
+    for route, detail in API_GUIDE_REQUIRED_ROUTE_TEXT:
+        if not _contains_route_text(text, route):
+            issues.append(
+                Issue(
+                    "api_guide_missing_route",
+                    _display_path(path, root),
+                    f"{detail}: {route}",
+                )
+            )
     return issues
 
 
@@ -346,6 +387,8 @@ def audit(
         path = root / relative_path
         if path.exists():
             issues.extend(scan_forbidden_text(path, _read_text(path), root=root))
+
+    issues.extend(_check_api_guide_required_routes(root))
 
     for retired_path in _iter_retired_candidates(root):
         issues.append(

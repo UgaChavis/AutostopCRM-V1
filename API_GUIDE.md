@@ -129,6 +129,10 @@ Write / generate:
 - `POST /api/save_print_template`, `/api/duplicate_print_template`, `/api/delete_print_template`
 - `POST /api/set_default_print_template`, `/api/save_print_module_settings`
 
+Maintenance-only:
+
+- `POST /api/correct_repair_order_number`
+
 Поддерживаемые документы: `repair_order`, `vehicle_acceptance_act`, `invoice`, `invoice_factura`, `inspection_sheet`, `completion_act`, `parts_sale`.
 
 Для агентов основной путь PDF - `export_repair_order_print_pdf` или MCP `download_repair_order_print_pdf`, без отдельного PDF-генератора.
@@ -139,7 +143,9 @@ Write / generate:
 отклоняют попытку заменить номер ошибкой `repair_order_number_immutable`.
 Исторические расхождения проверяются только read-only dry-run отчётом
 `scripts/repair_order_number_audit.py`; исправления выполняются отдельной
-maintenance-процедурой после backup и подтверждения владельца.
+maintenance-процедурой после backup и подтверждения владельца. Maintenance route
+`correct_repair_order_number` не является обычным UI/API/MCP путём и должен
+использоваться только в этой процедуре.
 
 ## Кассы, сотрудники, payroll
 
@@ -148,6 +154,7 @@ Read:
 - `GET|POST /api/list_cashboxes`
 - `GET|POST /api/get_cashbox`
 - `GET|POST /api/get_cash_journal`
+- `GET|POST /api/finance_audit`
 - `GET|POST /api/list_employees`
 - `GET|POST /api/get_payroll_report`
 - `GET|POST /api/get_employee_salary_ledger`
@@ -159,13 +166,18 @@ Write:
 - `POST /api/create_cash_transaction`, `/api/create_employee_salary_transaction`, `/api/cancel_last_cash_transaction`
 - `POST /api/save_employee`, `/api/toggle_employee`, `/api/delete_employee`
 
+Maintenance-only:
+
+- `POST /api/finance_audit/apply_safe_fixes`
+
 `get_cash_journal` возвращает structured entries/groups и Markdown-текст для human review.
 Browser UI использует structured `cash_journal.v2` как основной источник:
 операции рендерятся батчами, пары перемещений отображаются одной строкой, а
 legacy-пары без `transfer_group_id` сопоставляются на клиенте по дате, времени,
 сумме, оператору и направлению касс. `finance_audit.v1` остаётся внутренней
 read-only/diagnostic схемой и не имеет пользовательского entrypoint в кассовом
-UI.
+UI. `finance_audit/apply_safe_fixes` запускается только после owner review,
+dry-run результата и отдельного подтверждения.
 
 `get_employee_salary_report` возвращает `employee_salary_report.v3`: технический
 реестр начислений выбранного сотрудника за месяц `month=YYYY-MM`. В отчёт

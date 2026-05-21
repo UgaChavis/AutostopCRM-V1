@@ -53,6 +53,28 @@ class DocsAuditTests(unittest.TestCase):
             {issue.code for issue in issues},
         )
 
+    def test_api_guide_mentions_safety_critical_internal_routes(self) -> None:
+        module = load_docs_audit_module()
+
+        self.assertEqual([], module._check_api_guide_required_routes(ROOT))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            (temp_root / "API_GUIDE.md").write_text(
+                "Only /api/finance_audit/apply_safe_fixes is mentioned.\n",
+                encoding="utf-8",
+            )
+
+            issues = module._check_api_guide_required_routes(temp_root)
+
+        self.assertEqual(
+            {
+                "read-only finance audit API route is not documented: /api/finance_audit",
+                "repair-order number maintenance route is not documented: /api/correct_repair_order_number",
+            },
+            {issue.detail for issue in issues},
+        )
+
     def test_manager_mcp_count_is_dynamic(self) -> None:
         module = load_docs_audit_module()
         manager_tools = [f"manager_tool_{index}" for index in range(32)] + [
