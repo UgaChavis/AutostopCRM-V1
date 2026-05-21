@@ -143,7 +143,7 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertIn("call get_runtime_status", text)
         self.assertIn("Use MCP tool names directly, not resource URLs", text)
         self.assertIn("call get_card_context first for the focused read", text)
-        self.assertIn("get_board_content(include_archived=true)", text)
+        self.assertIn("get_board_content(view_mode=agent)", text)
         self.assertIn("get_board_events(event_limit=100)", text)
         self.assertIn("get_board_snapshot(compact=true)", text)
         self.assertIn(
@@ -277,10 +277,11 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertIn("replace_repair_order_works", MCP_TOOL_NAMES)
         self.assertIn("replace_repair_order_materials", MCP_TOOL_NAMES)
         self.assertTrue(set(GPT_CONNECTOR_REQUIRED_TOOL_NAMES).issubset(set(MCP_TOOL_NAMES)))
-        self.assertEqual(len(OPTIONAL_MANAGER_MCP_TOOL_NAMES), 32)
+        self.assertEqual(len(OPTIONAL_MANAGER_MCP_TOOL_NAMES), 33)
         self.assertIn("agent_brief", OPTIONAL_MANAGER_MCP_TOOL_NAMES)
         self.assertIn("system_audit", OPTIONAL_MANAGER_MCP_TOOL_NAMES)
         self.assertIn("list_manager_runs", OPTIONAL_MANAGER_MCP_TOOL_NAMES)
+        self.assertIn("estimate_repair_work_cost", OPTIONAL_MANAGER_MCP_TOOL_NAMES)
 
         responses_payload = build_responses_api_payload(settings)
         responses_data = json.loads(responses_payload)

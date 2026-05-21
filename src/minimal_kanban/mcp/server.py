@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from collections.abc import Callable
@@ -39,6 +40,7 @@ _AUTOSTOP_MANAGER_READ_ONLY_TOOLS = frozenset(
         "audit_skill_registry",
         "cleanup_audit",
         "crm_health_plan",
+        "estimate_repair_work_cost",
         "list_manager_runs",
         "lookup_original_parts",
         "memory_context_for",
@@ -630,6 +632,7 @@ def create_mcp_server(
     )
 
     def _relay(tool_name: str, response: dict) -> JsonEnvelope:
+        response = _attach_response_meta(tool_name, response)
         logger.info(
             "mcp_tool tool=%s ok=%s connector=%s resource_url=%s",
             tool_name,
@@ -639,6 +642,28 @@ def create_mcp_server(
         )
         return JsonEnvelope.model_validate(response)
 
+    def _payload_bytes_estimate(response: dict[str, Any]) -> int:
+        try:
+            return len(
+                json.dumps(
+                    response,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    default=str,
+                ).encode("utf-8")
+            )
+        except (TypeError, ValueError):
+            return 0
+
+    def _attach_response_meta(tool_name: str, response: dict) -> dict:
+        payload = dict(response)
+        meta = dict(payload.get("meta") or {})
+        meta.setdefault("tool", tool_name)
+        meta.setdefault("response_mode", "default")
+        payload["meta"] = meta
+        meta.setdefault("payload_bytes_estimate", _payload_bytes_estimate(payload))
+        return payload
+
     def _timed_meta(
         tool_name: str,
         started_at: float,
@@ -646,10 +671,12 @@ def create_mcp_server(
         meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload = dict(meta or {})
+        elapsed_ms = round(max(perf_counter() - started_at, 0.0) * 1000, 3)
         payload.setdefault("tool", tool_name)
         payload.setdefault("request_id", uuid4().hex)
         payload.setdefault("timestamp", datetime.now(UTC).isoformat())
-        payload.setdefault("latency_ms", round(max(perf_counter() - started_at, 0.0) * 1000, 3))
+        payload.setdefault("latency_ms", elapsed_ms)
+        payload.setdefault("duration_ms", elapsed_ms)
         payload.setdefault("schema_version", CONNECTOR_SCHEMA_VERSION)
         payload.setdefault("connector_version", CONNECTOR_VERSION)
         payload.setdefault("canonical_tool_path", _canonical_tool_path(tool_name))
@@ -705,6 +732,7 @@ def create_mcp_server(
         }
         if meta is not None:
             response["meta"] = meta
+        response = _attach_response_meta("get_connector_identity", response)
         logger.info(
             "mcp_tool tool=%s ok=%s connector=%s resource_url=%s",
             "get_connector_identity",
@@ -741,7 +769,21 @@ def create_mcp_server(
             )
         if transform is not None:
             response = transform(response)
-        response["meta"] = _timed_meta(tool_name, started_at, meta=dict(response.get("meta") or {}))
+        response_meta = dict(response.get("meta") or {})
+        data_payload = response.get("data") if isinstance(response.get("data"), dict) else {}
+        data_meta = data_payload.get("meta") if isinstance(data_payload, dict) else {}
+        if isinstance(data_meta, dict):
+            for key in (
+                "response_mode",
+                "view_mode",
+                "compact",
+                "include_archived",
+                "event_limit",
+                "limit",
+            ):
+                if key in data_meta:
+                    response_meta.setdefault(key, data_meta[key])
+        response["meta"] = _timed_meta(tool_name, started_at, meta=response_meta)
         if applied_params:
             response["meta"].setdefault("applied_params", applied_params)
         return _relay(tool_name, response)
@@ -852,10 +894,17 @@ def create_mcp_server(
     def _safe_board_context() -> dict[str, Any]:
         return _safe_board_call(board_api.get_board_context, error_code="board_context_unreachable")
 
-    def _safe_gpt_wall(*, include_archived: bool, event_limit: int) -> dict[str, Any]:
+    def _safe_gpt_wall(
+        *,
+        include_archived: bool,
+        event_limit: int,
+        compact: bool,
+    ) -> dict[str, Any]:
         return _safe_board_call(
             lambda: board_api.get_gpt_wall(
-                include_archived=include_archived, event_limit=event_limit
+                include_archived=include_archived,
+                event_limit=event_limit,
+                compact=compact,
             ),
             error_code="gpt_wall_unreachable",
         )
@@ -1091,7 +1140,7 @@ def create_mcp_server(
                     f"- {event.get('timestamp') or '-'} | {event.get('actor_name') or '-'} | {event.get('card_short_id') or '-'} | {event.get('message') or '-'}"
                 )
         lines.append(
-            "next_step: call get_board_content for the full hidden machine wall card state in Markdown, get_board_events(event_limit=100) for the latest Markdown event journal, or get_gpt_wall for both sections"
+            "next_step: call review_board or get_cards(compact=true) for fast triage, get_board_content(view_mode=agent) for board context, get_board_events(event_limit=100) for the latest Markdown journal, or get_gpt_wall(view_mode=full) only when a heavy full wall export is needed"
         )
         return "\n".join(lines) + "\n"
 
@@ -1154,9 +1203,20 @@ def create_mcp_server(
         annotations=_read_tool_annotations("Bootstrap Context"),
         structured_output=True,
     )
-    def bootstrap_context(include_archived: bool = True, event_limit: int = 100) -> JsonEnvelope:
+    def bootstrap_context(
+        include_archived: bool = False,
+        event_limit: int = 50,
+        compact: bool = True,
+    ) -> JsonEnvelope:
         started_at = perf_counter()
-        wall_response = _safe_gpt_wall(include_archived=include_archived, event_limit=event_limit)
+        effective_event_limit = (
+            min(max(1, event_limit), GPT_WALL_AGENT_EVENT_LIMIT) if compact else event_limit
+        )
+        wall_response = _safe_gpt_wall(
+            include_archived=include_archived,
+            event_limit=effective_event_limit,
+            compact=compact,
+        )
         board_context_response = _safe_board_context()
         if not wall_response.get("ok"):
             error = dict(wall_response.get("error") or {})
@@ -1175,9 +1235,10 @@ def create_mcp_server(
                     meta={
                         "applied_params": {
                             "include_archived": include_archived,
-                            "event_limit": event_limit,
+                            "event_limit": effective_event_limit,
+                            "compact": compact,
                         },
-                        "response_mode": "summary_bootstrap",
+                        "response_mode": "compact_bootstrap" if compact else "summary_bootstrap",
                     },
                 ),
             )
@@ -1222,9 +1283,10 @@ def create_mcp_server(
                 "recommended_write_flow": [
                     "bootstrap_context",
                     "confirm board_name and scope_rule",
-                    "call get_board_content for the full Markdown state of all cards, including archived cards by default",
+                    "call review_board or get_cards(compact=true) for fast operational triage",
+                    "call get_board_content(view_mode=agent) for compact Markdown board state; pass view_mode=full only for heavy exports",
                     "call get_board_events(event_limit=100) for the newest-first Markdown journal of the latest board changes",
-                    "call get_gpt_wall to return both hidden machine wall sections in one response",
+                    "call get_gpt_wall(view_mode=full) only when both hidden machine wall sections are needed in a heavy full response",
                     "for mass column migrations prefer bulk_move_cards over many sequential move_card calls",
                     "perform write tools by card_id, sticky_id, and column id only",
                 ],
@@ -1236,9 +1298,10 @@ def create_mcp_server(
                 meta={
                     "applied_params": {
                         "include_archived": include_archived,
-                        "event_limit": event_limit,
+                        "event_limit": effective_event_limit,
+                        "compact": compact,
                     },
-                    "response_mode": "summary_bootstrap",
+                    "response_mode": "compact_bootstrap" if compact else "summary_bootstrap",
                 },
             ),
         )
@@ -1857,7 +1920,7 @@ def create_mcp_server(
         name="get_board_content",
         description=_scoped_description(
             "Return the hidden machine wall board-content section as Markdown for the current Minimal Kanban board: columns, card content, archived card content by default, sticky notes, compact vehicle profiles, and board context, without the event journal. "
-            "Use view_mode=agent for a lighter GPT-oriented read; that mode keeps cards compact and caps the recent wall slice. Use view_mode=full for a broader export-style dump."
+            "This can be a heavy read when include_archived=true or view_mode=full. Use view_mode=agent for a lighter GPT-oriented read; that mode keeps cards compact and caps the recent wall slice."
         ),
         annotations=_read_tool_annotations("Board Content"),
         structured_output=True,
@@ -1893,7 +1956,7 @@ def create_mcp_server(
         name="get_board_events",
         description=_scoped_description(
             "Return the hidden machine wall event-log section as Markdown for the current Minimal Kanban board: newest-first events, what happened, when, by whom, and which card it affected when available. "
-            "The default event_limit is 100. Use include_archived to keep the surrounding board-content read aligned with archive visibility; events remain a newest-first audit slice."
+            "The default event_limit is 100. Large limits are heavy; use a small event_limit for routine diagnostics. Use include_archived to keep the surrounding board-content read aligned with archive visibility; events remain a newest-first audit slice."
         ),
         annotations=_read_tool_annotations("Board Events"),
         structured_output=True,
@@ -1934,7 +1997,7 @@ def create_mcp_server(
         name="get_gpt_wall",
         description=_scoped_description(
             "Return the hidden machine wall aggregate for the current Minimal Kanban board as Markdown: full card text, structured board state, newest-first recent events, compact 1.1 vehicle profile summaries for each card, and separated board_content / event_log sections. "
-            "Use view_mode=agent for the normal GPT context flow; that mode keeps cards compact and the event slice short. Use view_mode=full for wide diagnostics or exports."
+            "This is the heaviest board context tool. Use view_mode=agent for the normal GPT context flow; that mode keeps cards compact and the event slice short. Use view_mode=full only for wide diagnostics or exports."
         ),
         annotations=_read_tool_annotations("GPT Wall"),
         structured_output=True,
@@ -1981,7 +2044,7 @@ def create_mcp_server(
     @server.tool(
         name="get_card_log",
         description=_scoped_description(
-            "Return the card_journal.v2 audit log of one card from the current Minimal Kanban board: machine-readable entries/timeline/days/weeks/months/totals with full raw changes[].before/after plus a human-readable Markdown timeline. Use limit to keep the journal slice compact for GPT."
+            "Return the card_journal.v2 audit log of one card from the current Minimal Kanban board. By default this keeps the legacy full format with raw changes and Markdown. Use compact=true and limit=50 for a fast GPT-safe journal slice without heavy raw/Markdown fields."
         ),
         annotations=_read_tool_annotations("Card Log"),
         structured_output=True,
@@ -1989,17 +2052,31 @@ def create_mcp_server(
     def get_card_log(
         card_id: str,
         limit: int | None = None,
+        compact: bool = False,
         view_mode: Literal["audit", "full"] = "audit",
     ) -> JsonEnvelope:
+        effective_limit = limit
+        if compact:
+            effective_limit = 50 if effective_limit is None else min(max(1, effective_limit), 1000)
         return _relay_board_call(
             "get_card_log",
-            lambda: board_api.get_card_log(card_id, limit=limit),
-            params={"card_id": card_id, "limit": limit, "view_mode": view_mode},
+            lambda: board_api.get_card_log(
+                card_id,
+                limit=effective_limit,
+                compact=compact,
+            ),
+            params={
+                "card_id": card_id,
+                "limit": effective_limit,
+                "compact": compact,
+                "view_mode": view_mode,
+            },
             transform=lambda response: _with_data_meta(
                 response,
                 response_mode="audit",
                 view_mode=view_mode,
-                text_encoding="utf-8",
+                compact=compact,
+                text_encoding=None if compact else "utf-8",
             ),
         )
 

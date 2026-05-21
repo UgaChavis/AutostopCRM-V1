@@ -305,6 +305,12 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
                 self.assertEqual(len(EXPECTED_MCP_TOOLS), 71)
                 tool_map = {tool.name: tool for tool in tools.tools}
+                legacy_descriptions = [
+                    tool.name
+                    for tool in tools.tools
+                    if "Minimal Kanban" in str(tool.description or "")
+                ]
+                self.assertEqual([], legacy_descriptions)
                 self.assertTrue(tool_map["ping_connector"].annotations.readOnlyHint)
                 self.assertFalse(tool_map["ping_connector"].annotations.destructiveHint)
                 self.assertFalse(tool_map["get_runtime_status"].annotations.openWorldHint)
@@ -351,6 +357,8 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("request_id", ping.structuredContent["meta"])
                 self.assertIn("timestamp", ping.structuredContent["meta"])
                 self.assertIn("latency_ms", ping.structuredContent["meta"])
+                self.assertIn("duration_ms", ping.structuredContent["meta"])
+                self.assertIn("payload_bytes_estimate", ping.structuredContent["meta"])
                 self.assertEqual(ping.structuredContent["meta"]["response_mode"], "ping")
                 self.assertEqual(
                     ping.structuredContent["meta"]["canonical_tool_path"],
@@ -393,12 +401,14 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertIn("request_id", bootstrap.structuredContent["meta"])
                 self.assertIn("latency_ms", bootstrap.structuredContent["meta"])
+                self.assertIn("duration_ms", bootstrap.structuredContent["meta"])
+                self.assertIn("payload_bytes_estimate", bootstrap.structuredContent["meta"])
                 self.assertEqual(
-                    bootstrap.structuredContent["meta"]["response_mode"], "summary_bootstrap"
+                    bootstrap.structuredContent["meta"]["response_mode"], "compact_bootstrap"
                 )
                 self.assertEqual(
                     bootstrap.structuredContent["meta"]["applied_params"],
-                    {"include_archived": True, "event_limit": 20},
+                    {"include_archived": True, "event_limit": 20, "compact": True},
                 )
 
                 identity = await session.call_tool("get_connector_identity", {})
@@ -413,6 +423,8 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("request_id", identity.structuredContent["meta"])
                 self.assertIn("timestamp", identity.structuredContent["meta"])
                 self.assertIn("latency_ms", identity.structuredContent["meta"])
+                self.assertIn("duration_ms", identity.structuredContent["meta"])
+                self.assertIn("payload_bytes_estimate", identity.structuredContent["meta"])
                 self.assertEqual(identity.structuredContent["meta"]["response_mode"], "identity")
 
                 board_context = await session.call_tool("get_board_context", {})
@@ -1326,6 +1338,25 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("action_label", log.structuredContent["data"]["entries"][0])
                 self.assertIn("source_label", log.structuredContent["data"]["entries"][0])
                 self.assertIn("changes", log.structuredContent["data"]["entries"][0])
+
+                compact_log = await session.call_tool(
+                    "get_card_log", {"card_id": card_id, "compact": True}
+                )
+                self.assertTrue(compact_log.structuredContent["ok"])
+                self.assertEqual(compact_log.structuredContent["data"]["meta"]["limit"], 50)
+                self.assertTrue(compact_log.structuredContent["data"]["meta"]["compact"])
+                self.assertEqual(
+                    compact_log.structuredContent["data"]["meta"]["response_mode"], "audit"
+                )
+                self.assertNotIn("markdown", compact_log.structuredContent["data"])
+                self.assertNotIn("text", compact_log.structuredContent["data"])
+                self.assertNotIn("events", compact_log.structuredContent["data"])
+                self.assertEqual(
+                    compact_log.structuredContent["meta"]["applied_params"]["compact"], True
+                )
+                self.assertEqual(
+                    compact_log.structuredContent["meta"]["applied_params"]["limit"], 50
+                )
 
                 overdue = await session.call_tool("list_overdue_cards", {})
                 self.assertTrue(overdue.structuredContent["ok"])
@@ -2330,6 +2361,17 @@ class BoardApiClientTests(unittest.TestCase):
                 "selected_template_ids": {"invoice": "tpl-invoice"},
                 "print_settings": {"stamp_enabled": True},
             },
+        )
+
+    def test_get_card_log_can_request_compact_payload(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.get_card_log("card-1", compact=True, limit=50)
+
+        request.assert_called_once_with(
+            "/api/get_card_log",
+            {"card_id": "card-1", "limit": 50, "compact": True},
         )
 
     def test_wall_helpers_call_expected_api_endpoints(self) -> None:

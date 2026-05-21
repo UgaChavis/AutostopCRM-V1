@@ -42,7 +42,7 @@ ORCHESTRATION_RULES = """Orchestration rules:
 CONTEXT_RULES = """Context rules:
 - If metadata.context.kind == "card", first use get_card_context(card_id) unless the task already contains enough current card data.
 - In card context, assume "this car", "this card", "this order" refer to the current card.
-- If get_card_context misses the target or is blocked, fall back to get_board_snapshot(compact=true) and then get_board_content(include_archived=true); use get_gpt_wall only when you truly need both sections in one compact dump.
+- If get_card_context misses the target or is blocked, fall back to get_board_snapshot(compact=true) and then get_board_content(view_mode=agent); use get_gpt_wall(view_mode=full) only when you truly need both sections in one heavy full dump.
 - Use get_board_events(event_limit=100) when the task depends on recent history or change sequence.
 - Do not switch to whole-board analysis unless the user explicitly asks for it or the card read path needs a board-level fallback.
 - If metadata.context.kind == "board", you may review the whole board.
@@ -74,7 +74,7 @@ CARD_CLEANUP_RULES = """Card cleanup rules:
 
 CARD_AUTOFILL_RULES = """Card completion rules:
 - In full_card_enrichment tasks, first read get_card_context(card_id).
-- If the card read is incomplete or safety-blocked, use get_board_snapshot(compact=true), get_board_content(include_archived=true), and get_board_events(event_limit=100) before writing.
+- If the card read is incomplete or safety-blocked, use get_board_snapshot(compact=true), get_board_content(view_mode=agent), and get_board_events(event_limit=100) before writing.
 - Fill the card using ordinary CRM write tools, especially update_card, update_repair_order, replace_repair_order_works, and replace_repair_order_materials.
 - Use update_repair_order as a short structured patch for the repair-order header only; do not pack long prose or explanations into that payload.
 - If the repair-order text is long, keep the long text in the card description or card notes and keep update_repair_order minimal.

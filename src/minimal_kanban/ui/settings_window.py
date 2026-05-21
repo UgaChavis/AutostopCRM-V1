@@ -539,7 +539,9 @@ class ChatGPTConnectDialog(QDialog):
         self.tools_input.setText("\n".join(MCP_TOOL_NAMES))
 
         if settings.mcp.mcp_auth_mode == "bearer":
-            self.step_token_label.setText("Шаг 5. Вставьте токен, если включён bearer auth.")
+            self.step_token_label.setText(
+                "Шаг 5. ChatGPT подключается через встроенный OAuth/DCR; legacy bearer token нужен только для Responses API или ручного MCP-клиента."
+            )
             self.mcp_token_label.show()
             self.mcp_token_input.show()
             self.mcp_token_input.set_value(resolve_mcp_bearer_token(settings))

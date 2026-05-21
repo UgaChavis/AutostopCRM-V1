@@ -242,7 +242,7 @@ class MainWindow(QMainWindow):
         )
         note.setStyleSheet("color: #c9c8bc; line-height: 1.5;")
         compact_hint = QLabel(
-            "Open the board, wait for the public HTTPS MCP URL, then copy it into ChatGPT with No authentication."
+            "Open the board, wait for the public HTTPS MCP URL, then connect ChatGPT using the auth mode shown in Integration settings."
         )
         compact_hint.setStyleSheet("color: #b8b7ab; line-height: 1.4;")
         summary_panel.hide()

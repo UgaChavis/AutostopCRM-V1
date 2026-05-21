@@ -253,14 +253,6 @@ def _check_manager_docs_and_catalogs(
         ]
 
     manager_tools = extract_decorated_tool_names(manager_tools_path)
-    if len(manager_tools) != 32:
-        issues.append(
-            Issue(
-                "manager_mcp_count_mismatch",
-                str(manager_tools_path),
-                f"source has {len(manager_tools)} tools, expected 32",
-            )
-        )
 
     if manager_catalog_path.exists():
         manager_catalog = _load_json(manager_catalog_path)

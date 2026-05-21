@@ -1401,7 +1401,7 @@ class AgentControlService:
             "Выполни полное заполнение карточки автосервиса.",
             "Работай только с этой карточкой и заполни все возможные поля самостоятельно.",
             "Сначала прочитай get_card_context(card_id).",
-            "Если get_card_context неполный или заблокирован, используй get_board_snapshot(compact=true), затем get_board_content(include_archived=true) и get_board_events(event_limit=100) как fallback по всей доске.",
+            "Если get_card_context неполный или заблокирован, используй get_board_snapshot(compact=true), затем get_board_content(view_mode=agent) и get_board_events(event_limit=100) как fallback по всей доске.",
             "Используй update_card для карточки и update_repair_order только как короткий структурный patch для шапки заказ-наряда.",
             "Если update_repair_order нужен, передавай только минимальные поля без длинной прозы и без лишних объяснений.",
             "Для строк заказ-наряда используй replace_repair_order_works и replace_repair_order_materials.",

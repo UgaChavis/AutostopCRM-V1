@@ -112,6 +112,7 @@ If `AutostopManager` is mounted next to CRM or `AUTOSTOP_MANAGER_PATH` points to
 - `record_manager_run_event`
 - `finish_manager_run`
 - `list_manager_runs`
+- `estimate_repair_work_cost`
 - `lookup_original_parts`
 - `recommend_automotive_sources`
 - `recommend_fluid_maintenance_sources`
@@ -144,7 +145,7 @@ unless the owner approves that exact cloud export.
 
 1. `ping_connector`
 2. `get_connector_identity`
-3. `bootstrap_context`
+3. `bootstrap_context` (compact by default)
 4. `get_runtime_status`, если неясны auth, tunnel или runtime
 5. focused search/read
 6. write только после определения target
@@ -157,7 +158,7 @@ unless the owner approves that exact cloud export.
 - `search_cards` перед широким чтением доски;
 - `suggest_clients_for_card` или `search_clients` перед `create_client`;
 - `get_card_context` перед card writes;
-- `get_card_log`, когда важны audit/recovery.
+- `get_card_log(compact=true, limit=50)`, когда важны быстрые audit/recovery.
 
 Тяжёлые reads используйте точечно:
 
@@ -165,6 +166,7 @@ unless the owner approves that exact cloud export.
 - `get_board_content`
 - `get_board_events` с большими limits
 - full `get_card`
+- full `get_card_log(compact=false)` with raw before/after values and Markdown
 - large attachment/base64 reads
 
 ## Tool Groups

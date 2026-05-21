@@ -39,7 +39,7 @@ tables, cashbox ledgers или полный текст заказ-нарядов
 5. URL: итоговый `.../mcp`.
 6. Если ChatGPT попросит linking, пройдите embedded OAuth flow.
 7. Первый вызов в новом чате: `ping_connector`.
-8. Второй вызов: `bootstrap_context`.
+8. Второй вызов: `bootstrap_context(compact=true)`.
 9. При сомнениях по tunnel/auth/runtime вызвать `get_runtime_status`.
 
 ## Проверочные tools
@@ -65,7 +65,7 @@ tables, cashbox ledgers или полный текст заказ-нарядов
 Если рядом подключен `AutostopManager`, могут появиться manager-memory/source
 tools. Полный текущий список смотрите в live `tools/list`, connection card или
 `MCP_GUIDE.md`; типовые стартовые tools: `today_context`, `agent_brief`,
-`remember`, `lookup_original_parts`, `system_audit`.
+`remember`, `estimate_repair_work_cost`, `lookup_original_parts`, `system_audit`.
 
 ## Правила для агента
 

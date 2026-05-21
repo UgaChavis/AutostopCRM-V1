@@ -556,10 +556,18 @@ class BoardApiClient:
             "/api/autofill_repair_order", payload, actor_name=actor_name
         )
 
-    def get_card_log(self, card_id: str, *, limit: int | None = None) -> dict:
+    def get_card_log(
+        self,
+        card_id: str,
+        *,
+        limit: int | None = None,
+        compact: bool | None = None,
+    ) -> dict:
         payload: dict[str, object] = {"card_id": card_id}
         if limit is not None:
             payload["limit"] = limit
+        if compact is not None:
+            payload["compact"] = compact
         return self._request("/api/get_card_log", payload)
 
     def get_repair_order(self, card_id: str) -> dict:

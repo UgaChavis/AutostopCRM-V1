@@ -125,6 +125,12 @@ Read-only latency/payload probe:
 python scripts\perf_probe.py --base-url https://crm.autostopcrm.ru --iterations 5 --max-snapshot-gzip-ms 800 --max-snapshot-gzip-bytes 80000 --max-revision-ms 500 --max-get-card-ms 500
 ```
 
+MCP read-only latency/payload probe:
+
+```powershell
+python scripts\perf_mcp.py --mcp-url https://crm.autostopcrm.ru/mcp --iterations 5
+```
+
 Пороговые значения нужны как guardrail, а не как SLA. Если production сеть нестабильна, приложите JSON output к задаче и повторите probe перед выводами.
 
 ### Finance Audit-First
