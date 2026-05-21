@@ -113,7 +113,6 @@ OPTIONAL_MANAGER_MCP_TOOL_NAMES = [
     "record_manager_run_event",
     "finish_manager_run",
     "list_manager_runs",
-    "estimate_repair_work_cost",
     "lookup_original_parts",
     "recommend_automotive_sources",
     "recommend_fluid_maintenance_sources",

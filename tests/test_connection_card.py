@@ -277,11 +277,11 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertIn("replace_repair_order_works", MCP_TOOL_NAMES)
         self.assertIn("replace_repair_order_materials", MCP_TOOL_NAMES)
         self.assertTrue(set(GPT_CONNECTOR_REQUIRED_TOOL_NAMES).issubset(set(MCP_TOOL_NAMES)))
-        self.assertEqual(len(OPTIONAL_MANAGER_MCP_TOOL_NAMES), 33)
+        self.assertEqual(len(OPTIONAL_MANAGER_MCP_TOOL_NAMES), 32)
         self.assertIn("agent_brief", OPTIONAL_MANAGER_MCP_TOOL_NAMES)
         self.assertIn("system_audit", OPTIONAL_MANAGER_MCP_TOOL_NAMES)
         self.assertIn("list_manager_runs", OPTIONAL_MANAGER_MCP_TOOL_NAMES)
-        self.assertIn("estimate_repair_work_cost", OPTIONAL_MANAGER_MCP_TOOL_NAMES)
+        self.assertNotIn("estimate_repair_work_cost", OPTIONAL_MANAGER_MCP_TOOL_NAMES)
 
         responses_payload = build_responses_api_payload(settings)
         responses_data = json.loads(responses_payload)
