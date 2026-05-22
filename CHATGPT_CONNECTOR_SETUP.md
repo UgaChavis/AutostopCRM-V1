@@ -1,8 +1,9 @@
 # Подключение AutoStop CRM к ChatGPT
 
-Файл должен оставаться под этим именем: его копируют release/runtime-пути и проверяют тесты.
+Файл должен оставаться под именем `CHATGPT_CONNECTOR_SETUP.md`: его используют
+release/runtime-пути и проверяют тесты.
 
-## Что подключается
+## Что Подключается
 
 ChatGPT подключается к публичному MCP endpoint текущей AutoStop CRM board:
 
@@ -10,43 +11,42 @@ ChatGPT подключается к публичному MCP endpoint текущ
 https://crm.autostopcrm.ru/mcp
 ```
 
-Если endpoint работает с bearer auth, сервер публикует embedded OAuth/DCR metadata, и ChatGPT проходит linking flow. Для Responses API и ручных MCP-клиентов bearer token можно передавать напрямую.
+Connector работает только с этой CRM board. Источник правды по tools - live
+`tools/list`, `src/minimal_kanban/mcp/server.py` и `MCP_GUIDE.md`.
 
-Для manager-agent работы с этим connector используйте AutoStop Obsidian vault
-как рабочую базу знаний: `C:\Users\User\Мой диск\Obsidian CRM\AutostopCRM`
-(`Home.md`, затем `80_Codex\Codex interaction.md`). CRM остаётся источником
-истины для live board state. В Obsidian можно хранить безопасные manager
-snapshots и quality signals, но не raw client базы, phone rows, VIN/license
-tables, cashbox ledgers или полный текст заказ-нарядов без отдельного
-подтверждения владельца.
+Если MCP endpoint работает с bearer auth, сервер может публиковать embedded
+OAuth/DCR metadata, и ChatGPT проходит linking flow. Responses API и ручные MCP
+клиенты могут передавать bearer auth напрямую.
 
-## Что должно быть включено
+## Что Должно Быть Включено
 
-В настройках интеграции CRM:
+В настройках CRM integration:
 
 - integration enabled;
 - local API enabled;
 - MCP enabled;
-- public HTTPS base URL, tunnel URL или full MCP URL override;
-- MCP auth mode и token, если нужен protected endpoint.
+- public HTTPS base URL или full MCP URL override;
+- MCP auth mode и token, если endpoint защищён.
 
-## ChatGPT connector flow
+Итоговый URL для ChatGPT должен начинаться с `https://` и заканчиваться на
+`/mcp`.
 
-1. Убедитесь, что итоговый MCP URL начинается с `https://`.
-2. В ChatGPT откройте Apps & Connectors и создайте новый MCP connector.
+## ChatGPT Flow
+
+1. Откройте ChatGPT Apps & Connectors.
+2. Создайте новый MCP connector.
 3. Name: `AutoStop CRM`.
-4. Description: `Автосервисная CRM с доской, клиентами, заказ-нарядами, кассами и файлами`.
-5. URL: итоговый `.../mcp`.
-6. Если ChatGPT попросит linking, пройдите embedded OAuth flow.
-7. Первый вызов в новом чате: `ping_connector`.
+4. Description:
+   `Автосервисная CRM с доской, клиентами, заказ-нарядами, кассами и файлами`.
+5. URL: `https://crm.autostopcrm.ru/mcp`.
+6. Если ChatGPT просит linking, пройти embedded OAuth flow.
+7. Первый вызов: `ping_connector`.
 8. Второй вызов: `bootstrap_context(compact=true)`.
-9. При сомнениях по tunnel/auth/runtime вызвать `get_runtime_status`.
+9. При сомнениях по tunnel/auth/runtime: `get_runtime_status`.
 
-## Проверочные tools
+## Smoke Tools
 
-Точный список tools проверяйте live через `tools/list`, connection card или `scripts/check_live_connector.py`.
-
-Для smoke обычно достаточно увидеть:
+Для базового smoke достаточно увидеть:
 
 - `ping_connector`
 - `bootstrap_context`
@@ -62,29 +62,54 @@ tables, cashbox ledgers или полный текст заказ-нарядов
 - `set_card_board_summary`
 - `move_card`
 
-Если рядом подключен `AutostopManager`, могут появиться manager-memory/source
-tools. Полный текущий список смотрите в live `tools/list`, connection card или
-`MCP_GUIDE.md`; типовые стартовые tools: `today_context`, `agent_brief`,
-`remember`, `estimate_repair_work_cost`, `lookup_original_parts`, `system_audit`.
+Если рядом подключен `AutostopManager`, могут появиться optional manager tools,
+например `estimate_repair_work_cost`, `lookup_original_parts`, `today_context`,
+`agent_brief`, `remember`, `system_audit`. Сравнивайте tool names, а не только
+общее количество.
 
-## Правила для агента
+## Agent Rules
 
 - Работать только с текущей AutoStop CRM board.
-- Перед write-action прочитать live context.
-- Для клиента сначала `suggest_clients_for_card` или `search_clients`, потом create/link.
-- Для уборки карточки обновлять подтверждённые поля через `update_card`, затем отдельно `set_card_board_summary`.
-- Не двигать и не архивировать карточки по команде `Приберись`, если владелец отдельно не попросил это действие.
-- Для VIN/profile enrichment писать только source-backed факты и не перетирать manual fields.
-- Для документов использовать CRM PDF tool, а не отдельный PDF-генератор.
+- Перед write-action читать live context.
+- После write-action читать target повторно и проверять результат.
+- Для клиента сначала `suggest_clients_for_card` или `search_clients`, потом
+  create/link.
+- Для уборки карточки обновлять подтверждённые поля через `update_card`, затем
+  отдельно `set_card_board_summary`.
+- Не двигать и не архивировать карточки по команде `Приберись`, если владелец
+  отдельно не попросил это действие.
+- Для VIN/profile enrichment писать только source-backed факты и не перетирать
+  manual fields.
+- Для документов использовать CRM PDF tool, а не отдельный PDF generator.
+- Finance safe-fixes and repair-order number corrections are maintenance-only.
 
 ## Responses API
 
-Используйте тот же `server_url`. Список allowed tools лучше брать из live `tools/list`, а не из статического JSON-примера.
+Use the same `server_url`. Do not rely on a static JSON tool list; fetch live
+tools or use connector discovery. In bearer mode, pass authorization in the MCP
+tool payload.
 
-Если MCP работает в bearer mode, передавайте `authorization` в MCP tool payload.
+## Manager Knowledge
 
-## Безопасность
+For manager-agent work, use the AutoStop Obsidian vault as a knowledge layer,
+not as CRM state storage:
 
-- Connector имеет доступ к одной текущей CRM board.
-- Bearer token не нужно вставлять в обычный ChatGPT connector, если embedded OAuth linking работает.
-- Для более строгого production auth следующим шагом нужен отдельный IdP/authorization layer.
+```text
+C:\Users\User\Мой диск\Obsidian CRM\AutostopCRM
+```
+
+Start with `Home.md`, then `80_Codex\Codex interaction.md`.
+
+CRM remains source of truth for live cards, clients, vehicles, repair orders,
+files, payments, and cashboxes. Do not move raw client databases, phone rows,
+VIN/license tables, cashbox ledgers, credentials, bearer tokens, or full
+repair-order text into Obsidian without explicit owner approval for that export.
+
+## Security
+
+- Connector scope is one current CRM board.
+- Do not paste bearer tokens into ordinary docs or chats.
+- Do not use stale tunnel URLs when `https://crm.autostopcrm.ru/mcp` is healthy.
+- Public anonymous writes must remain blocked.
+- For stricter production auth, add a dedicated identity provider/authorization
+  layer as a separate project.

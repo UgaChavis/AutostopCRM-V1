@@ -1,8 +1,9 @@
-# Руководство по MCP
+# AutoStop CRM MCP Guide
 
-MCP server даёт tool-based доступ к одной текущей AutoStop CRM board из ChatGPT, Responses API и совместимых MCP-клиентов.
+The MCP server gives ChatGPT, Responses API clients, and compatible MCP clients
+tool-based access to one current AutoStop CRM board.
 
-MCP не дублирует бизнес-логику UI. Он вызывает local HTTP API и работает через тот же `CardService`.
+MCP does not own business logic:
 
 ```text
 MCP tool call
@@ -12,50 +13,36 @@ MCP tool call
   -> JsonStore
 ```
 
-Источник правды по tools: `src/minimal_kanban/mcp/server.py` и live `tools/list`.
-Не фиксируйте количество tools в документации.
+Source of truth: `src/minimal_kanban/mcp/server.py`,
+`src/minimal_kanban/mcp/tool_registry.py`, and live `tools/list`.
 
-## Runtime Files
+## Runtime
 
-- `main_mcp.py`
-- `src/minimal_kanban/mcp/server.py`
-- `src/minimal_kanban/mcp/client.py`
-- `src/minimal_kanban/mcp/runtime.py`
-- `src/minimal_kanban/mcp/auth.py`
-- `src/minimal_kanban/mcp/oauth_provider.py`
-- `scripts/run_mcp_server.ps1`
+- Local default: `http://127.0.0.1:41831/mcp`
+- Production: `https://crm.autostopcrm.ru/mcp`
+- Entrypoints: `main_mcp.py`, `scripts/run_mcp_server.ps1`
+- Client adapter: `src/minimal_kanban/mcp/client.py`
+- Runtime/auth: `runtime.py`, `auth.py`, `oauth_provider.py`
 
-## URL И Запуск
-
-Локальный URL по умолчанию:
-
-```text
-http://127.0.0.1:41831/mcp
-```
-
-Запуск:
+Run locally:
 
 ```powershell
 .\scripts\run_mcp_server.ps1
 ```
 
-или:
+or:
 
 ```powershell
 python .\main_mcp.py
 ```
 
-## Backend Selection
+Backend selection:
 
-MCP server:
+1. Use `MINIMAL_KANBAN_BOARD_API_URL` when set.
+2. Reuse an already running local API when available.
+3. При необходимости поднимает скрытый backend.
 
-1. берёт `MINIMAL_KANBAN_BOARD_API_URL`, если переменная задана;
-2. иначе ищет уже работающий local API;
-3. иначе поднимает hidden backend сам.
-
-Так MCP работает и рядом с открытой CRM, и как отдельный headless runtime.
-
-## Environment
+## Environment And Auth
 
 MCP runtime:
 
@@ -64,6 +51,7 @@ MCP runtime:
 - `MINIMAL_KANBAN_MCP_PORT_FALLBACK_LIMIT`
 - `MINIMAL_KANBAN_MCP_PATH`
 - `MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL`
+- `MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL`
 - `MINIMAL_KANBAN_MCP_BEARER_TOKEN`
 
 Backend API:
@@ -71,114 +59,52 @@ Backend API:
 - `MINIMAL_KANBAN_BOARD_API_URL`
 - `MINIMAL_KANBAN_API_BEARER_TOKEN`
 
-Saved settings: `%APPDATA%\Minimal Kanban\settings.json`.
-Explicit env variables win.
+Saved settings live in `%APPDATA%\Minimal Kanban\settings.json`; explicit env
+variables win.
 
-## Auth
+Production can publish embedded OAuth/DCR metadata for ChatGPT linking when
+bearer mode is enabled. Manual MCP clients and Responses API integrations may
+pass bearer auth directly.
 
-Local/dev clients may use bearer token.
+## Optional AutostopManager Layer
 
-For ChatGPT connector, production path can publish embedded OAuth/DCR metadata when bearer mode is enabled. In that flow the user links through ChatGPT instead of pasting bearer tokens manually.
+When `AutostopManager` is mounted next to CRM or `AUTOSTOP_MANAGER_PATH` points
+to it, the same MCP endpoint can expose optional manager memory/source tools.
+For example, production may expose `estimate_repair_work_cost` while a local
+CRM-only workspace does not.
 
-## Optional AutostopManager
+Release checks must compare actual tool names and explain optional manager-layer
+differences. Do not treat a raw tool count mismatch as a CRM regression until
+the names are compared.
 
-If `AutostopManager` is mounted next to CRM or `AUTOSTOP_MANAGER_PATH` points to it, the same MCP endpoint may also expose manager memory/source tools:
+CRM remains the source of truth for cards, clients, vehicles, repair orders,
+files, payments, and cashboxes. Manager memory is only for durable manager
+facts, decisions, source routing, and knowledge navigation.
 
-- `remember`
-- `recall`
-- `learn_from_feedback`
-- `recall_lessons`
-- `memory_map`
-- `memory_topics`
-- `memory_context_for`
-- `memory_gaps`
-- `add_manager_task`
-- `today_context`
-- `prepare_manager_context`
-- `agent_brief`
-- `manager_journal`
-- `sync_knowledge_base`
-- `probe_knowledge_base`
-- `search_knowledge_base`
-- `audit_knowledge_base`
-- `audit_knowledge_annotations`
-- `audit_skill_registry`
-- `cleanup_audit`
-- `system_audit`
-- `crm_health_plan`
-- `audit_memory`
-- `curate_memory`
-- `start_manager_run`
-- `record_manager_run_event`
-- `finish_manager_run`
-- `list_manager_runs`
-- `estimate_repair_work_cost`
-- `lookup_original_parts`
-- `recommend_automotive_sources`
-- `recommend_fluid_maintenance_sources`
-- `recommend_service_management_actions`
+## Recommended Call Order
 
-These manager tools are optional and depend on a mounted `AutostopManager`
-runtime. For example, production can expose `estimate_repair_work_cost` while a
-local CRM-only workspace does not. Release checks should compare actual tool
-names and explain optional manager-layer differences instead of relying only on
-the total tool count.
-
-CRM remains the source of truth for cards, clients, vehicles, repair orders, files, payments and cashboxes. Manager memory is only for durable manager facts, decisions and knowledge navigation.
-
-## Obsidian Knowledge Vault
-
-For manager-agent work, the AutoStop Obsidian vault is the human-readable
-knowledge layer for CRM/MCP/connector procedures:
-
-- cloud vault: `C:\Users\User\Мой диск\Obsidian CRM\AutostopCRM`
-- desktop mirror: `C:\Users\User\Desktop\Obsidian CRM\AutostopCRM`
-- open first: `Home.md`, then `80_Codex\Codex interaction.md`
-
-Use it for playbooks, source routing, Bases, and operator-readable notes. Do
-not store full CRM exports, raw Gmail threads, credentials, bearer tokens,
-cashbox ledgers, client databases, or copied licensed manuals there.
-
-Manager CRM summaries may be written to Obsidian only as safe snapshots:
-board load, cashbox balances/totals, repair-order counts, client-quality
-signals, and shared-file metadata. Raw client rows, phone lists, VIN/license
-tables, full cash journals, and full repair-order text remain live CRM data
-unless the owner approves that exact cloud export.
-
-## Рекомендуемый Порядок
-
-Начинайте с коротких read-команд:
+Начинайте каждую новую connector-сессию с коротких read-вызовов:
 
 1. `ping_connector`
 2. `get_connector_identity`
-3. `bootstrap_context` (compact by default)
-4. `get_runtime_status`, если неясны auth, tunnel или runtime
-5. focused search/read
-6. write только после определения target
+3. `bootstrap_context(compact=true)`
+4. `get_runtime_status` when auth, tunnel, or runtime is unclear
+5. focused search/read tools
+6. write only after target is identified
 7. read-back verification
 
-Предпочитайте:
+Prefer:
 
-- `review_board` перед полным wall export;
-- `get_cards(compact=true)` или compact snapshot перед тяжёлыми board reads;
-- `search_cards` перед широким чтением доски;
-- `suggest_clients_for_card` или `search_clients` перед `create_client`;
-- `get_card_context` перед card writes;
-- `get_card_log(compact=true, limit=50)`, когда важны быстрые audit/recovery;
-- `get_card_log(include_full_details=true)` только для maintenance/debug, когда
-  нужны archived full `before/after`.
+- `review_board` before full wall export;
+- `get_cards(compact=true)` and compact snapshot before heavy board reads;
+- `search_cards` before broad board scans;
+- `suggest_clients_for_card` or `search_clients` before `create_client`;
+- `get_card_context` before card writes;
+- `get_card_log(compact=true, limit=50)` for fast audit reads;
+- `get_card_log(include_full_details=true)` only for maintenance/debug raw
+  `before/after` recovery from `audit-archive`.
 
-Тяжёлые reads используйте точечно:
-
-- `get_gpt_wall`
-- `get_board_content`
-- `get_board_events` с большими limits
-- full `get_card`
-- `get_card_log(include_full_details=true)` with archived raw before/after values
-  and Markdown
-- large attachment/base64 reads
-
-## Tool Groups
+## CRM Tool Groups
 
 Diagnostics:
 
@@ -199,7 +125,7 @@ Board and cards:
 - `archive_card`, `restore_card`
 - `set_card_board_summary`
 
-Clients:
+Clients and vehicles:
 
 - `list_clients`, `search_clients`, `get_client`, `get_client_stats`
 - `create_client`, `update_client`, `delete_client`
@@ -227,13 +153,8 @@ Cashboxes:
 - `delete_cashbox`
 - `create_cash_transaction`
 
-`get_cash_journal` exposes the structured cash journal for operators and agents.
 `get_cashbox` supports `transaction_limit` and `transaction_offset`; use small
-pages when a cashbox has many operations.
-The browser UI is journal-first: no visible finance-audit/reconciliation
-entrypoint, compact rows, batch rendering, and transfer pairs shown as one
-logical `from -> to` operation. Finance audit remains API/CLI diagnostics and
-requires the audit-first runbook before any live safe-fix.
+pages for cashboxes with many operations.
 
 Shared files and attachments:
 
@@ -252,74 +173,55 @@ Sticky notes and settings:
 - `create_sticky`, `update_sticky`, `move_sticky`, `delete_sticky`
 - `update_board_settings`
 
-## Правила Записи
-
-- Перед write-action прочитайте live context.
-- Пишите patch-only: меняйте только подтверждённые поля.
-- После write-action перечитайте target и проверьте результат.
-- Не move/archive/delete карточки, файлы, клиентов, оплаты, работы или материалы без явной команды владельца.
-- Для клиента сначала search/suggest, потом create/link.
-- Для документов используйте CRM PDF export, а не отдельный PDF-генератор агента.
-- Номер заказ-наряда immutable: после первого присвоения не передавайте новый
-  `number` и не пытайтесь исправлять его обычными tools. Исторические ошибки
-  сначала проверяются read-only audit/dry-run, затем исправляются только
-  отдельной maintenance-процедурой вне рабочего MCP flow.
-
-## Board Summary
-
-`set_card_board_summary(card_id, summary, actor_name=None)` обновляет короткое AI-managed preview на доске.
-
-Правила:
-
-- максимум 5 непустых строк;
-- максимум 560 символов;
-- без телефона, VIN, полного имени клиента, raw diagnostic dump или длинной жалобы;
-- не меняет `title` или `description`;
-- после обычных card edits обновите summary и проверьте `board_summary_stale=false`.
-
-Рекомендуемая форма:
-
-```text
-Что сейчас: ...
-Стадия: ...
-Следующее действие: ...
-Важно: ...
-```
-
-## Команда `Приберись`
-
-`Приберись`, `прибейсь`, `прибери доску`, `обслужи доску` - agent procedures, а не один MCP tool.
-
-Порядок:
-
-1. прочитать live card/board context;
-2. patch-only обновить подтверждённые поля;
-3. сохранить operator data, works, materials, prices, payments, files and historical notes;
-4. не move/archive cards без отдельной явной команды;
-5. refresh `board_summary` after card content/profile/tag changes;
-6. reread and verify.
-
-## VIN/Profile Enrichment
-
-If VIN/chassis/frame exists and aggregate profile fields are empty:
-
-- use local knowledge and `lookup_original_parts` first when available;
-- use internet search only when current source-backed confirmation is needed;
-- fill only confirmed `engine_model`, `gearbox_model`, `drivetrain` and source metadata;
-- preserve `manual_fields`;
-- put uncertainty into `oem_notes` or `tentative_fields`, not into confirmed fields.
-
-## Not MCP Runtime Tools
-
-These remain API/UI/compatibility paths:
+Not normal MCP runtime tools:
 
 - `autofill_vehicle_data`
 - `autofill_repair_order`
 - `cleanup_card_content`
 
-Не представляйте их как обычные ChatGPT connector tools.
+Those remain API/UI/compatibility paths.
 
-## Проверки
+## Write Rules
+
+- Read live context before every write.
+- Patch only confirmed fields.
+- Read back the target and verify the result.
+- Do not move, archive, delete, or change money/client/file/order data without
+  explicit owner intent.
+- For clients, search/suggest before create/link.
+- For documents, use CRM PDF export.
+- Repair-order numbers are immutable; corrections are maintenance-only.
+- Finance audit safe fixes are maintenance-only and require the runbook
+  audit-first flow.
+
+## Board Summary And Cleanup
+
+`set_card_board_summary(card_id, summary, actor_name=None)` writes the short
+board preview. It must stay under 5 non-empty lines and 560 characters and must
+not contain phone, VIN, full client name, raw diagnostic dump, or long complaint
+text.
+
+`Приберись` is an agent procedure:
+
+1. read live card/board context;
+2. patch confirmed fields only;
+3. preserve operator data, works, materials, prices, payments, files, and
+   historical notes;
+4. do not move/archive cards unless separately requested;
+5. refresh `board_summary`;
+6. reread and verify.
+
+## VIN/Profile Enrichment
+
+When VIN/chassis/frame exists and profile fields are empty:
+
+- preserve `manual_fields`;
+- fill only source-backed confirmed `engine_model`, `gearbox_model`,
+  `drivetrain`, and source metadata;
+- put uncertainty in `oem_notes` or `tentative_fields`;
+- use optional manager/source tools first when available.
+
+## Checks
 
 Local:
 
@@ -328,10 +230,10 @@ Local:
 python -m unittest tests.test_mcp tests.test_mcp_main tests.test_connection_card -v
 ```
 
-Local smoke:
+Connector smoke:
 
 ```powershell
 python scripts\check_live_connector.py --strict --skip-public-site --skip-public-write-protection --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username $env:AUTOSTOP_SMOKE_OPERATOR_USERNAME --operator-password $env:AUTOSTOP_SMOKE_OPERATOR_PASSWORD --expect-admin
 ```
 
-Production checks live in `docs/OPERATIONS_RUNBOOK.md`.
+Production deploy and public smoke live in `docs/OPERATIONS_RUNBOOK.md`.

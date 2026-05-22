@@ -50,6 +50,8 @@ SKIP_DIRS = {
     "node_modules",
 }
 
+SECRET_BUNDLE_DOC_SUFFIXES = {".md", ".txt"}
+
 FORBIDDEN_TEXT_PATTERNS = (
     (
         "missing_doc_reference",
@@ -75,6 +77,21 @@ FORBIDDEN_TEXT_PATTERNS = (
         "stale_ssh_identity",
         re.compile(r"\bcodex_autostopcrm\b"),
         "old SSH identity name; use autostopcrm_server_ed25519 from the local key bundle",
+    ),
+    (
+        "stale_deploy_env",
+        re.compile(r"\bAUTOSTOP_GIT_BRANCH\b"),
+        "old deploy env var; use AUTOSTOP_DEPLOY_BRANCH",
+    ),
+    (
+        "stale_smoke_credentials",
+        re.compile(r"--operator-username\s+admin\s+--operator-password\s+admin"),
+        "default admin smoke credentials are documented; use smoke env variables",
+    ),
+    (
+        "stale_public_http",
+        re.compile(r"--site-url\s+http://crm\.autostopcrm\.ru\b"),
+        "public CRM smoke must use https://crm.autostopcrm.ru with --expect-https",
     ),
     (
         "stale_mcp_count",
@@ -134,6 +151,10 @@ RUNBOOK_REQUIRED_TEXT = (
     (
         "IdentitiesOnly=yes",
         "production SSH command does not force the documented identity",
+    ),
+    (
+        "AUTOSTOP_DEPLOY_BRANCH",
+        "deploy branch env var is not documented",
     ),
 )
 
@@ -240,6 +261,16 @@ def _iter_user_skill_docs() -> list[Path]:
             continue
         docs.append(path)
     return sorted(docs)
+
+
+def _iter_secret_bundle_docs(secret_bundle: Path) -> list[Path]:
+    if not secret_bundle.exists():
+        return []
+    return sorted(
+        path
+        for path in secret_bundle.rglob("*")
+        if path.is_file() and path.suffix.lower() in SECRET_BUNDLE_DOC_SUFFIXES
+    )
 
 
 def _literal_assignment(tree: ast.AST, name: str) -> Any:
@@ -441,6 +472,7 @@ def audit(
     *,
     manager_root: Path | None = None,
     include_skills: bool = True,
+    secret_bundle: Path | None = None,
 ) -> list[Issue]:
     root = root.resolve()
     issues: list[Issue] = []
@@ -492,6 +524,20 @@ def audit(
         for path in _iter_user_skill_docs():
             issues.extend(scan_forbidden_text(path, _read_text(path), root=root))
 
+    if secret_bundle is not None:
+        secret_bundle = secret_bundle.resolve()
+        if not secret_bundle.exists():
+            issues.append(
+                Issue(
+                    "missing_secret_bundle",
+                    str(secret_bundle),
+                    "explicit secret/access bundle does not exist",
+                )
+            )
+        else:
+            for path in _iter_secret_bundle_docs(secret_bundle):
+                issues.extend(scan_forbidden_text(path, _read_text(path), root=secret_bundle))
+
     return issues
 
 
@@ -510,9 +556,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--format", choices=("text", "json"), default="text")
     parser.add_argument("--manager-root", type=Path, default=None)
+    parser.add_argument(
+        "--secret-bundle",
+        type=Path,
+        default=None,
+        help="Optional local secret/access docs bundle to scan for stale instructions without printing secrets.",
+    )
     args = parser.parse_args(argv)
 
-    issues = audit(ROOT, manager_root=args.manager_root)
+    issues = audit(ROOT, manager_root=args.manager_root, secret_bundle=args.secret_bundle)
     if args.format == "json":
         print(json.dumps([asdict(issue) for issue in issues], ensure_ascii=False, indent=2))
     else:

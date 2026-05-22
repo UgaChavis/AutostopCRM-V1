@@ -45,12 +45,22 @@ class DocsAuditTests(unittest.TestCase):
         issues = module.scan_forbidden_text(
             ROOT / "sample.md",
             "Use MASTER-PLAN.md from C:\\Users\\User\\Desktop\\AutostopCRM-V1 "
-            "and ssh -i ~/.ssh/codex_autostopcrm",
+            "and ssh -i ~/.ssh/codex_autostopcrm. "
+            "Run AUTOSTOP_GIT_BRANCH=autostopcrm-v1 ./deploy.sh, "
+            "--operator-username admin --operator-password admin, "
+            "and --site-url http://crm.autostopcrm.ru.",
             root=ROOT,
         )
 
         self.assertEqual(
-            {"missing_doc_reference", "stale_workspace_path", "stale_ssh_identity"},
+            {
+                "missing_doc_reference",
+                "stale_workspace_path",
+                "stale_ssh_identity",
+                "stale_deploy_env",
+                "stale_smoke_credentials",
+                "stale_public_http",
+            },
             {issue.code for issue in issues},
         )
 
@@ -84,9 +94,25 @@ class DocsAuditTests(unittest.TestCase):
                 "audit archive data directory is not documented: audit-archive",
                 "canonical production SSH identity is not documented: autostopcrm_server_ed25519",
                 "production SSH command does not force the documented identity: IdentitiesOnly=yes",
+                "deploy branch env var is not documented: AUTOSTOP_DEPLOY_BRANCH",
             },
             {issue.detail for issue in issues},
         )
+
+    def test_secret_bundle_scan_reports_stale_instructions_without_secret_values(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle = Path(temp_dir)
+            (bundle / "ACCESS.txt").write_text(
+                "ssh -i ~/.ssh/codex_autostopcrm root@crm.autostopcrm.ru\n"
+                "do not print actual token values\n",
+                encoding="utf-8",
+            )
+
+            issues = module.audit(ROOT, include_skills=False, secret_bundle=bundle)
+
+        self.assertIn("stale_ssh_identity", {issue.code for issue in issues})
 
     def test_manager_mcp_count_is_dynamic(self) -> None:
         module = load_docs_audit_module()

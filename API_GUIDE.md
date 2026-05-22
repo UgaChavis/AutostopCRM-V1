@@ -1,49 +1,52 @@
-# Руководство по API
+# AutoStop CRM API Guide
 
-Локальный HTTP API обслуживает UI, desktop shell, MCP adapter, Telegram AI worker и локальные интеграции.
+The local HTTP API serves the browser/desktop UI, MCP adapter, Telegram AI
+worker, smoke scripts, and local integrations.
 
-Источник правды по маршрутам: `src/minimal_kanban/api/server.py`.
+Source of truth: `src/minimal_kanban/api/server.py`. This guide groups the
+routes and documents safety-critical contracts; it is not a replacement for
+route-level tests.
 
-## База
+## Base Contract
 
-- адрес по умолчанию: `http://127.0.0.1:41731`
-- health-check: `GET /api/health`
-- формат JSON: request body -> response envelope
-- большинство JSON-маршрутов вызываются через `POST`
-- read-only маршруты, отмеченные ниже как `GET|POST`, также принимают query params через `GET`
-- прямые download routes возвращают файл, а не JSON envelope
+- Local default base URL: `http://127.0.0.1:41731`.
+- Production public base URL: `https://crm.autostopcrm.ru`.
+- Health check: `GET /api/health`.
+- Most JSON routes accept `POST`; read-only routes documented as `GET|POST`
+  also accept query parameters through `GET`.
+- Download routes return file bytes instead of the JSON envelope.
 
-Если задан `MINIMAL_KANBAN_API_BEARER_TOKEN`, все маршруты кроме `GET /api/health` требуют:
+If `MINIMAL_KANBAN_API_BEARER_TOKEN` is set, every route except
+`GET /api/health` requires:
 
 ```http
 Authorization: Bearer <token>
 ```
 
-## Envelope
-
-Успех:
+Success envelope:
 
 ```json
 {"ok": true, "data": {}, "error": null, "meta": {"request_id": "uuid"}}
 ```
 
-Ошибка:
+Error envelope:
 
 ```json
 {"ok": false, "data": null, "error": {"code": "validation_error", "message": "..."}, "meta": {"request_id": "uuid"}}
 ```
 
-Типовые `error.code`: `validation_error`, `not_found`, `unauthorized`, `archived_card`, `storage_limit_exceeded`, `internal_error`.
+Common error codes: `validation_error`, `not_found`, `unauthorized`,
+`forbidden`, `archived_card`, `storage_limit_exceeded`, `internal_error`.
 
-## Доска и карточки
+## Board, Cards, And Journal
 
 Read:
 
 - `GET|POST /api/list_columns`
 - `GET|POST /api/get_cards`
 - `GET|POST /api/get_card`
-- `POST /api/get_card_context`
 - `GET|POST /api/get_card_log`
+- `POST /api/get_card_context`
 - `GET|POST /api/get_board_revision`
 - `GET|POST /api/get_board_snapshot`
 - `GET|POST /api/get_board_context`
@@ -57,44 +60,46 @@ Read:
 
 Write:
 
-- `POST /api/create_column`, `/api/rename_column`, `/api/move_column`, `/api/delete_column`
-- `POST /api/create_card`, `/api/update_card`, `/api/set_card_deadline`, `/api/set_card_indicator`
-- `POST /api/move_card`, `/api/bulk_move_cards`, `/api/mark_card_ready`, `/api/mark_card_seen`
+- `POST /api/create_column`, `/api/rename_column`, `/api/move_column`,
+  `/api/delete_column`
+- `POST /api/create_card`, `/api/update_card`, `/api/set_card_deadline`,
+  `/api/set_card_indicator`, `/api/set_card_board_summary`
+- `POST /api/move_card`, `/api/bulk_move_cards`, `/api/mark_card_ready`,
+  `/api/mark_card_seen`
 - `POST /api/archive_card`, `/api/restore_card`
-- `POST /api/create_sticky`, `/api/update_sticky`, `/api/move_sticky`, `/api/delete_sticky`
+- `POST /api/create_sticky`, `/api/update_sticky`, `/api/move_sticky`,
+  `/api/delete_sticky`
 - `POST /api/update_board_settings`
 
-`review_board` и compact snapshot предпочтительнее широких exports. `get_board_content`, `get_board_events` и `get_gpt_wall` нужны для полного агентского контекста, когда точечных reads недостаточно.
+Use compact board reads for repeated UI/agent refreshes:
+`get_board_revision?compact=1&include_archive=0`,
+`get_board_snapshot?compact=1&include_archive=0`, or
+`get_cards(compact=true)`.
 
-`get_card_log` по умолчанию возвращает читаемый журнал и компактные details для
-тяжёлых событий. Для maintenance/debug чтения полного `before/after` передайте
-`include_full_details=true`: сервер подтянет archived details из
-`audit-archive`, если событие было вынесено из активного `state.json`.
+`get_card_log` returns compact event details by default. For maintenance/debug
+reads, pass `include_full_details=true`; the server hydrates archived
+`before/after` values from `audit-archive` when the active event details were
+compacted out of `state.json`.
 
 ## Board Summary
 
 `POST /api/set_card_board_summary`
 
-Payload:
+`summary` is the short AI-managed board preview, separate from full
+`description`.
 
-```json
-{
-  "card_id": "CARD_ID",
-  "summary": "Что сейчас: ...\nСтадия: ...\nСледующее действие: ..."
-}
-```
+Rules:
 
-Правила:
+- up to 5 non-empty lines;
+- up to 560 characters;
+- no phone, VIN, full client name, raw diagnostic dump, or long complaint text;
+- does not modify `title` or `description`;
+- writes `board_summary_changed`.
 
-- до 5 непустых строк;
-- до 560 символов;
-- без телефона, VIN, полного имени клиента, сырых диагностических дампов и длинных жалоб;
-- не меняет `title` или `description`;
-- пишет событие `board_summary_changed`.
+After normal changes to `title`, `description`, `tags`, or `vehicle_profile`,
+agents should refresh `board_summary` and verify `board_summary_stale=false`.
 
-После обычных изменений карточки агент должен отдельно обновить `board_summary` и проверить `board_summary_stale=false`.
-
-## Клиенты
+## Clients And Vehicles
 
 Read:
 
@@ -110,9 +115,12 @@ Write:
 - `POST /api/link_card_to_client`, `/api/unlink_card_from_client`
 - `POST /api/upsert_client_vehicle`, `/api/delete_client_vehicle`
 
-Перед созданием клиента используйте search/suggest. `client_id` связывает карточку с клиентом, `client_vehicle_id` - с конкретным сохранённым автомобилем. Деструктивные удаления и `overwrite_card_fields=true` требуют явного намерения владельца.
+Before creating a client, use search/suggest. `client_id` links a card to a
+client; `client_vehicle_id` links the card to a specific saved vehicle. Deleting
+clients/vehicles and overwriting card fields are destructive and require clear
+owner intent.
 
-## Заказ-наряды и печать
+## Repair Orders And Printing
 
 Read:
 
@@ -123,36 +131,33 @@ Read:
 - `POST /api/get_inspection_sheet_form`
 - `GET /api/repair_order_text?card_id=CARD_ID`
 
-Write / generate:
+Write/generate:
 
 - `POST /api/update_repair_order`, `/api/set_repair_order_status`
-- `POST /api/replace_repair_order_works`, `/api/replace_repair_order_materials`
-- `POST /api/save_inspection_sheet_form`, `/api/autofill_inspection_sheet_form`
+- `POST /api/replace_repair_order_works`,
+  `/api/replace_repair_order_materials`
+- `POST /api/save_inspection_sheet_form`,
+  `/api/autofill_inspection_sheet_form`
 - `POST /api/preview_repair_order_print_documents`
 - `POST /api/export_repair_order_print_pdf`
 - `POST /api/print_repair_order_documents`
-- `POST /api/save_print_template`, `/api/duplicate_print_template`, `/api/delete_print_template`
+- `POST /api/save_print_template`, `/api/duplicate_print_template`,
+  `/api/delete_print_template`
 - `POST /api/set_default_print_template`, `/api/save_print_module_settings`
 
 Maintenance-only:
 
 - `POST /api/correct_repair_order_number`
 
-Поддерживаемые документы: `repair_order`, `vehicle_acceptance_act`, `invoice`, `invoice_factura`, `inspection_sheet`, `completion_act`, `parts_sale`.
+Repair-order number is immutable after first assignment. Normal UI/API/MCP
+updates must not replace it. Historical fixes require the runbook maintenance
+flow: backup, read-only/dry-run audit, owner approval, and post-fix checks.
 
-Для агентов основной путь PDF - `export_repair_order_print_pdf` или MCP `download_repair_order_print_pdf`, без отдельного PDF-генератора.
+Supported print documents include repair order, vehicle acceptance act, invoice,
+invoice factura, inspection sheet, completion act, and parts sale. Agents should
+use CRM PDF export instead of building independent PDFs.
 
-Номер заказ-наряда присваивается один раз при первом создании/открытии
-заказ-наряда и дальше не меняется через UI/API/MCP. Обычные update routes
-игнорируют пустой или отсутствующий `number` у уже созданного заказ-наряда и
-отклоняют попытку заменить номер ошибкой `repair_order_number_immutable`.
-Исторические расхождения проверяются только read-only dry-run отчётом
-`scripts/repair_order_number_audit.py`; исправления выполняются отдельной
-maintenance-процедурой после backup и подтверждения владельца. Maintenance route
-`correct_repair_order_number` не является обычным UI/API/MCP путём и должен
-использоваться только в этой процедуре.
-
-## Кассы, сотрудники, payroll
+## Cashboxes, Finance, Employees, Payroll
 
 Read:
 
@@ -167,53 +172,62 @@ Read:
 
 Write:
 
-- `POST /api/create_cashbox`, `/api/reorder_cashboxes`, `/api/create_cashbox_transfer`, `/api/delete_cashbox`
-- `POST /api/create_cash_transaction`, `/api/create_employee_salary_transaction`, `/api/cancel_last_cash_transaction`
+- `POST /api/create_cashbox`, `/api/reorder_cashboxes`,
+  `/api/create_cashbox_transfer`, `/api/delete_cashbox`
+- `POST /api/create_cash_transaction`,
+  `/api/create_employee_salary_transaction`,
+  `/api/cancel_last_cash_transaction`
 - `POST /api/save_employee`, `/api/toggle_employee`, `/api/delete_employee`
 
 Maintenance-only:
 
 - `POST /api/finance_audit/apply_safe_fixes`
 
-`get_cash_journal` возвращает structured entries/groups и Markdown-текст для human review.
-Browser UI использует structured `cash_journal.v2` как основной источник:
-операции рендерятся батчами, пары перемещений отображаются одной строкой, а
-legacy-пары без `transfer_group_id` сопоставляются на клиенте по дате, времени,
-сумме, оператору и направлению касс. `finance_audit.v1` остаётся внутренней
-read-only/diagnostic схемой и не имеет пользовательского entrypoint в кассовом
-UI. `finance_audit/apply_safe_fixes` запускается только после owner review,
-dry-run результата и отдельного подтверждения.
+`get_cashbox` supports operation pagination:
 
-`get_cashbox` поддерживает пагинацию операций: `transaction_limit` задаёт размер
-страницы, `transaction_offset` - смещение. Если параметры не переданы, поведение
-остаётся совместимым: возвращается первая страница с legacy default limit.
+- `transaction_limit` - page size;
+- `transaction_offset` - offset;
+- response `meta.has_more` tells whether another page exists.
 
-`get_employee_salary_report` возвращает `employee_salary_report.v3`: технический
-реестр начислений выбранного сотрудника за месяц `month=YYYY-MM`. В отчёт
-попадают только работы сотрудника из закрытых заказ-нарядов: номер ЗН,
-автомобиль, госномер, стоимость работ и начисление. Авансы, выплаты, оклад и
-схема оплаты в этот отчёт не включаются.
+If pagination parameters are omitted, the route keeps compatible first-page
+behavior.
 
-## Файлы
+`get_cash_journal` returns structured `cash_journal.v2` data for UI and agents.
+The operator UI is journal-first: compact operation rows, transfer pairs shown
+as one logical `cashbox -> cashbox` row, and no visible finance-audit entrypoint.
+
+`finance_audit.v1` is internal read-only diagnostics. Apply safe fixes only
+through the audit-first runbook path.
+
+`get_employee_salary_report` returns `employee_salary_report.v3` for a selected
+employee and month `YYYY-MM`; it includes closed repair-order works and accrued
+amounts, not advances or salary scheme setup.
+
+## Files
 
 Card attachments:
 
 - `POST /api/add_card_attachment`, `/api/remove_card_attachment`
-- `POST /api/list_card_attachments`, `/api/get_card_attachment`, `/api/read_card_attachment`
+- `POST /api/list_card_attachments`, `/api/get_card_attachment`,
+  `/api/read_card_attachment`
 - `GET /api/attachment?card_id=CARD_ID&attachment_id=ATTACHMENT_ID`
 
 Shared files:
 
 - `GET|POST /api/list_shared_files`
 - `GET|POST /api/get_shared_file_info`
-- `POST /api/fetch_shared_file`, `/api/upload_shared_file`, `/api/rename_shared_file`
-- `POST /api/delete_shared_file`, `/api/copy_shared_file`, `/api/paste_shared_file`
-- `POST /api/paste_shared_files_from_clipboard`, `/api/update_shared_file_position`
+- `POST /api/fetch_shared_file`, `/api/upload_shared_file`,
+  `/api/rename_shared_file`
+- `POST /api/delete_shared_file`, `/api/copy_shared_file`,
+  `/api/paste_shared_file`
+- `POST /api/paste_shared_files_from_clipboard`,
+  `/api/update_shared_file_position`
 - `GET /api/shared_file?file_id=FILE_ID`
 
-Ограничение общей папки: 500 MB. Backend блокирует опасные executable/script расширения. Delete destructive.
+Shared file storage is capped at 500 MB. Dangerous executable/script extensions
+are blocked. Delete is destructive.
 
-## Операторы
+## Operators
 
 - `POST /api/login_operator`
 - `POST /api/logout_operator`
@@ -224,9 +238,11 @@ Shared files:
 - `GET|POST /api/get_operator_user_report`
 - `POST /api/open_card`
 
-Admin-only routes проверяются через `OperatorAuthService`.
+Admin-only routes go through `OperatorAuthService`. Smoke checks should use
+`AUTOSTOP_SMOKE_OPERATOR_USERNAME` and `AUTOSTOP_SMOKE_OPERATOR_PASSWORD`, not
+hard-coded default credentials.
 
-## Agent / compatibility
+## Agent And Compatibility Routes
 
 Read:
 
@@ -235,7 +251,7 @@ Read:
 - `GET|POST /api/agent_actions`
 - `GET|POST /api/agent_scheduled_tasks`
 
-Write:
+Write/compatibility:
 
 - `POST /api/agent_enqueue_task`
 - `POST /api/save_agent_scheduled_task`
@@ -248,29 +264,28 @@ Write:
 - `POST /api/autofill_vehicle_data`
 - `POST /api/autofill_repair_order`
 
-Эти пути оставлены для API/UI/compatibility. Новый owner-facing AI-контур - Telegram AI и MCP/local API tools.
+These routes remain for API/UI compatibility. The current owner-facing AI path
+is Telegram AI and MCP/local API tools.
 
-## Settings
+## Settings And Environment
 
-Settings live in `%APPDATA%\Minimal Kanban\settings.json`.
-
-Relevant modules:
+Saved settings live in `%APPDATA%\Minimal Kanban\settings.json`. Relevant code:
 
 - `src/minimal_kanban/settings_models.py`
 - `src/minimal_kanban/settings_store.py`
 - `src/minimal_kanban/settings_service.py`
 - `src/minimal_kanban/ui/settings_window.py`
 
-Env variables override saved settings. Secrets redact in logs, but `settings.json` is not system-encrypted.
+Explicit environment variables override saved settings. Secrets are redacted in
+logs, but `settings.json` is not system-encrypted.
 
 ## Verification
 
 Local API/MCP smoke:
 
-Используйте smoke-учётку из окружения, а не default admin credentials:
-
 ```powershell
 python scripts\check_live_connector.py --strict --skip-public-site --skip-public-write-protection --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username $env:AUTOSTOP_SMOKE_OPERATOR_USERNAME --operator-password $env:AUTOSTOP_SMOKE_OPERATOR_PASSWORD --expect-admin
 ```
 
-For route-level behavior, use `tests/test_api.py`, `tests/test_service.py`, `tests/test_mcp.py`, and focused tests around the touched module.
+Route-level behavior lives in `tests/test_api.py`, `tests/test_service.py`,
+`tests/test_mcp.py`, and focused tests around the touched module.

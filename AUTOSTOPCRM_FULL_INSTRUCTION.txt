@@ -4,19 +4,17 @@ Server operator note
 This file is copied by deploy.sh to the server desktop when possible.
 Keep it short. The canonical runbook is docs/OPERATIONS_RUNBOOK.md.
 
-1. Paths
+1. Current paths
 - repo: /opt/autostopcrm
 - branch: autostopcrm-v1
 - compose services: autostopcrm, autostopcrm-telegram-ai
-- data volume path in container: /root/.minimal-kanban
+- container data path: /root/.minimal-kanban
 - CRM: https://crm.autostopcrm.ru
 - MCP: https://crm.autostopcrm.ru/mcp
 
 2. Standard deploy
 cd /opt/autostopcrm
-git fetch origin autostopcrm-v1 --prune
-git reset --hard origin/autostopcrm-v1
-./deploy.sh
+AUTOSTOP_DEPLOY_BRANCH=autostopcrm-v1 AUTOSTOP_VERIFY_PUBLIC_HTTPS=1 ./deploy.sh
 docker compose ps
 
 3. Main live check
@@ -32,9 +30,10 @@ docker compose ps
 docker compose logs --tail=200 autostopcrm
 docker compose logs --tail=100 autostopcrm-telegram-ai
 curl -sS http://127.0.0.1:41731/api/health
-python scripts/state_size_report.py --json
+python scripts/state_size_report.py --benchmark-iterations 3 --json
+python scripts/compact_audit_events.py --dry-run --json
 
-5. HTTPS/nginx checks
+5. HTTPS and nginx checks
 nginx -t
 systemctl status nginx --no-pager
 curl -I https://crm.autostopcrm.ru/
@@ -49,7 +48,8 @@ If telegram-ai.env exists as an untracked server file, keep it.
 - production source of truth is GitHub branch autostopcrm-v1
 - do not edit JSON state manually
 - run compact_audit_events only with --dry-run first and --apply --backup after review
-- do not remove server-local env files
+- do not remove server-local .env or telegram-ai.env files
 - do not commit credentials
-- verify branch parity before and after deploy
+- verify local, GitHub, and server HEAD before and after deploy
+- public anonymous writes must stay blocked
 - cashbox reconciliation is internal diagnostics; operator UI uses the cash journal

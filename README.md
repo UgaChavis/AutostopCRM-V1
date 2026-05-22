@@ -1,60 +1,93 @@
 # AutoStop CRM
 
-AutoStop CRM - рабочая CRM автосервиса на ветке `autostopcrm-v1`.
+AutoStop CRM is the active CRM for the AutoStop workshop on branch
+`autostopcrm-v1`. The product includes a board, clients, vehicles, repair
+orders, cashboxes, employee payroll, shared files, MCP access, and Telegram AI
+owner workflows.
 
-В коде остаются исторические имена `minimal_kanban`, `%APPDATA%\Minimal Kanban` и `Start Kanban.exe`. Это совместимость, а не признак старого продукта.
+Historical technical names such as `minimal_kanban`,
+`%APPDATA%\Minimal Kanban`, and `Start Kanban.exe` are compatibility names, not
+a separate product line.
 
-## Возможности
+## Source Of Truth
 
-- доска с карточками, колонками, архивом, тегами, дедлайнами, вложениями и заметками;
-- клиентский справочник: физлица, ИП, ООО, организации, телефоны, реквизиты и автомобили;
-- связь карточки с клиентом и конкретным автомобилем клиента;
-- заказ-наряды, работы, материалы, статусы, оплаты и печатные PDF;
-- кассы с компактным журналом движения денег, сотрудники и payroll;
-- общая файловая папка мастерской с API/UI/MCP-доступом;
-- локальный HTTP API для UI и интеграций;
-- MCP endpoint для ChatGPT, Responses API и совместимых клиентов;
-- Telegram AI Board Manager для owner-controlled операций через текст, голос и фото.
+Use this order when checking project facts:
 
-## Архитектура
+1. Code and tests in this repository.
+2. Live server checkout `/opt/autostopcrm` on branch `autostopcrm-v1`.
+3. Canonical docs listed below.
+4. Local Codex skill/access notes.
+5. Secret/access bundle for credentials and non-public server access details.
+
+Do not treat `release/`, `build/`, `dist/`, `.venv/`, local screenshots, old
+plans, or copied secret-bundle docs as source of truth unless a current runbook
+step explicitly says so.
+
+## Product Map
+
+- Board: columns, cards, archive, tags, deadlines, attachments, notes, compact
+  snapshots, and audit log.
+- Clients: people, individual entrepreneurs, companies, phones, requisites,
+  vehicles, and card links.
+- Repair orders: immutable order numbers, works, materials, statuses, payments,
+  print templates, and PDF export.
+- Cashboxes: money movements, transfers, compact journal, internal finance
+  audit, employees, salary ledger, and payroll reports.
+- Files: card attachments and shared workshop file grid with API/UI/MCP access.
+- Integrations: local HTTP API, MCP endpoint, ChatGPT connector, Responses API
+  clients, and Telegram AI worker.
+
+## Runtime Architecture
 
 ```text
 Desktop/browser UI
   -> local HTTP API
-  -> CardService + domain services
+  -> CardService and domain services
   -> JsonStore
 
-MCP client / ChatGPT
+MCP client / ChatGPT / Responses API
   -> MCP server
   -> local HTTP API
   -> same CardService
 
 Telegram owner
   -> Telegram AI worker
-  -> OpenAI + explicit CRM tool registry
+  -> explicit CRM tool registry
   -> local HTTP API
-  -> verify + audit
+  -> read-back verification and audit
 ```
 
-Главное правило: UI, MCP и Telegram AI не дублируют бизнес-логику, а идут через общий backend.
+UI, MCP, Telegram AI, and compatibility routes must not duplicate business
+logic. They call the backend API and share the same storage.
 
-## Ключевые файлы
+## Code Map
 
 - `main.py` - desktop runtime.
-- `main_mcp.py` - отдельный MCP runtime.
+- `main_mcp.py` - API + MCP production/runtime entrypoint.
 - `main_telegram_ai.py` - Telegram AI worker.
-- `src/minimal_kanban/api/server.py` - HTTP API.
-- `src/minimal_kanban/services/card_service.py` - основной бизнес-сервис.
-- `src/minimal_kanban/storage/json_store.py` - JSON-хранилище.
-- `src/minimal_kanban/mcp/server.py` - MCP tools.
-- `src/minimal_kanban/telegram_ai/` - Telegram AI.
-- `src/minimal_kanban/web_assets.py` - browser UI facade/export.
-- `src/minimal_kanban/web_app_assets/assembler.py` - browser UI assembly, modal stack and cash journal UI.
-- `deploy.sh`, `docker-compose.yml`, `Dockerfile` - production deploy.
+- `src/minimal_kanban/api/server.py` - HTTP API routes.
+- `src/minimal_kanban/services/card_service.py` - main business service.
+- `src/minimal_kanban/storage/json_store.py` - JSON storage.
+- `src/minimal_kanban/mcp/server.py` - MCP tools and optional manager mount.
+- `src/minimal_kanban/web_app_assets/assembler.py` - browser UI assembly.
+- `deploy.sh`, `docker-compose.yml`, `Dockerfile` - production deployment.
 
-## Локальная разработка
+## Documentation Map
 
-Рекомендуемый путь:
+- `README.md` - current project map and contributor entrypoint.
+- `docs/OPERATIONS_RUNBOOK.md` - GitHub/server sync, SSH, deploy, smoke,
+  performance, finance, state maintenance, and production cautions.
+- `API_GUIDE.md` - HTTP API route families and safety-critical parameters.
+- `MCP_GUIDE.md` - MCP workflow, tool groups, optional manager layer, and
+  write rules.
+- `CHATGPT_CONNECTOR_SETUP.md` - ChatGPT connector setup and first-call smoke.
+- `AUTOSTOPCRM_FULL_INSTRUCTION.txt` - short server/operator note copied by
+  `deploy.sh`.
+
+`requirements.txt` and `requirements-dev.txt` are dependency manifests, not
+how-to docs.
+
+## Local Development
 
 ```powershell
 .\scripts\setup_dev.ps1 -InstallGitHooks
@@ -62,121 +95,52 @@ Telegram owner
 .\scripts\run_checks.ps1
 ```
 
-Запуск desktop-приложения:
+Run the desktop application:
 
 ```powershell
 .\scripts\run_dev.ps1
 ```
 
-MCP отдельно:
+Run MCP/API headless:
 
 ```powershell
 .\scripts\run_mcp_server.ps1
 ```
 
-Основной regression перед релизом:
+Core release gate:
 
 ```powershell
+.\.venv\Scripts\python.exe -m ruff format --check .
+.\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m unittest discover -s .\tests -v
-```
-
-При изменении `src/minimal_kanban/web_assets.py`:
-
-```powershell
+python scripts\docs_audit.py --format text
+python scripts\audit_localization.py
 python scripts\check_web_assets_js.py
-```
-
-При изменении browser UI, модальных цепочек, карточек, клиентов, касс,
-сотрудников, файлов или заказ-нарядов:
-
-```powershell
 python scripts\browser_smoke.py
 ```
 
-Browser smoke поднимает временный local runtime с synthetic данными и проверяет
-privacy gate до входа оператора, board/card roundtrip, кассы и журнал, клиентов,
-сотрудников, файлы, архив, заказ-наряды и закрытие вложенных модальных окон по
-одной ступени назад.
+Use [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md) for production
+deploy, smoke credentials, server parity, public checks, performance probes, and
+maintenance procedures.
 
-При изменении русских UI/docs-текстов:
+## API, MCP, And Connector
 
-```powershell
-python scripts\docs_audit.py --format text
-python scripts\audit_localization.py
-```
+- Local API default: `http://127.0.0.1:41731`.
+- Local MCP default: `http://127.0.0.1:41831/mcp`.
+- Production CRM: `https://crm.autostopcrm.ru`.
+- Production MCP: `https://crm.autostopcrm.ru/mcp`.
 
-## Интеграции
+Route and tool lists are dynamic. Use `src/minimal_kanban/api/server.py`,
+`src/minimal_kanban/mcp/server.py`, `tools/list`, and
+`scripts/check_live_connector.py` for final verification.
 
-### API
+`AutostopManager` can add optional manager tools to the same MCP endpoint. A
+production-only tool such as `estimate_repair_work_cost` is expected when the
+manager layer is mounted. Compare tool names, not only total counts.
 
-Локальный API по умолчанию: `http://127.0.0.1:41731`.
-Детальная карта endpoint-групп: `API_GUIDE.md`.
+## Data And State
 
-### MCP
-
-MCP по умолчанию: `http://127.0.0.1:41831/mcp`.
-Точный runtime-набор tools не фиксируется в документации: проверяйте live `tools/list`, `scripts/check_live_connector.py` и `src/minimal_kanban/mcp/server.py`.
-Manager tools зависят от доступности optional `AutostopManager`; например
-`estimate_repair_work_cost` может быть в production и отсутствовать локально.
-При release-сверке сравнивайте имена tools и отдельно отмечайте optional
-manager layer, а не только общий count.
-
-`autofill_vehicle_data`, `autofill_repair_order` и `cleanup_card_content` остаются API/UI/compatibility путями и не должны считаться обычными MCP tools.
-
-### ChatGPT connector
-
-Пользовательский файл подключения должен оставаться под именем `CHATGPT_CONNECTOR_SETUP.md`: его копируют release/runtime-пути и проверяют тесты.
-
-### Кассы и журнал
-
-Операторский UI касс сейчас строится вокруг журнала движения денег. Сверка не
-показывается пользователю как отдельный раздел: `finance_audit` остаётся
-backend/API/CLI диагностикой для read-only отчётов и owner-approved safe-fixes.
-
-Журнал в UI:
-
-- показывает операции как основную таблицу;
-- держит остатки касс свернутыми по умолчанию;
-- рендерит длинные журналы батчами;
-- объединяет новые и legacy пары перемещений в одну строку `касса -> касса`;
-- не показывает диагностические метки вроде `нет пары` в обычной рабочей
-  строке.
-
-### Manager knowledge and Obsidian
-
-Для owner-facing AI/manager работы используйте AutostopManager и AutoStop
-Obsidian vault как слой знаний поверх CRM:
-
-- cloud vault: `C:\Users\User\Мой диск\Obsidian CRM\AutostopCRM`
-- local mirror: `C:\Users\User\Desktop\Obsidian CRM\AutostopCRM`
-- open first: `Home.md`, затем `80_Codex\Codex interaction.md`
-
-CRM остаётся источником истины для live cards, clients, vehicles, repair
-orders, files, payments и cashboxes. Obsidian хранит только рабочие заметки,
-playbook-и, маршруты и безопасные выводы. Для менеджерской аналитики Obsidian
-может хранить только агрегированные snapshots: загрузку доски, cashbox
-overview, repair-order counts, client-quality signals и metadata общих файлов.
-Полные клиентские базы, телефоны, VIN/госномера, кассовые журналы и полный
-текст заказ-нарядов остаются в CRM, если владелец отдельно не подтвердил
-конкретный cloud-export.
-
-### Telegram AI
-
-Основной AI-контур - `autostopcrm-telegram-ai`.
-Он работает через long polling, не открывает публичный порт, пишет в CRM только через local API и проверяет write-actions read-back.
-
-## Важные AI-контракты
-
-- `Приберись` - агентская процедура над CRM tools, а не отдельная backend-команда.
-- Routine cleanup не двигает и не архивирует карточки без отдельного явного запроса.
-- `description` хранит подробности и восстановимость.
-- `board_summary` хранит короткое превью доски на 4-5 строк.
-- После изменения `title`, `description`, `tags` или `vehicle_profile` агент отдельно обновляет `board_summary`.
-- VIN/chassis/frame enrichment заполняет `engine_model`, `gearbox_model`, `drivetrain` только по подтверждённым источникам и не перетирает ручные поля.
-
-## Данные
-
-Локально:
+Local data:
 
 - `%APPDATA%\Minimal Kanban\state.json`
 - `%APPDATA%\Minimal Kanban\settings.json`
@@ -186,37 +150,47 @@ overview, repair-order counts, client-quality signals и metadata общих ф�
 - `%APPDATA%\Minimal Kanban\audit-archive`
 - `%APPDATA%\Minimal Kanban\logs\minimal-kanban.log`
 
-В Docker:
+Docker data:
 
-- host data: `./data`
-- container data: `/root/.minimal-kanban`
+- host path: `./data`
+- container path: `/root/.minimal-kanban`
 
-Не коммитьте runtime state, snapshots, SQLite/JSON data, attachments, secrets или credentials.
+Never commit runtime state, production snapshots, attachments, cashbox data,
+logs, tokens, `.env`, `telegram-ai.env`, or secret-bundle contents.
 
-`audit-archive` хранит полные `before/after` для тяжёлых audit events, которые
-в активном `state.json` остаются компактными. Перед обслуживанием размера state
-используйте read-only `scripts/state_size_report.py`, затем
-`scripts/compact_audit_events.py --dry-run`; live compaction выполняется только
-с backup.
+Heavy audit events keep compact details in active `state.json`; full
+`before/after` details live in append-only `audit-archive`. Always run
+`scripts/state_size_report.py` and `scripts/compact_audit_events.py --dry-run`
+before any live compaction. Apply compaction only with backup and owner review.
 
-Для ручного QA на realistic data используйте dated sandbox вне repo, например
-`%USERPROFILE%\Desktop\AutostopCRM-data-snapshots\prod-2026-05-19`, и запускайте
-CRM с переопределённым `%APPDATA%`. Такая копия не является live-sync и не
-должна попадать в Git, docs, Obsidian или отчёты без маскировки персональных и
-финансовых данных.
+## AI And Safety Contracts
 
-## Документация
+- `Приберись` is an agent procedure, not a backend command.
+- Cleanup does not move or archive cards without a separate explicit request.
+- `description` stores full recoverable text.
+- `board_summary` stores a short board preview and must be refreshed after
+  meaningful card/profile/tag changes.
+- VIN/profile enrichment must preserve manual fields and write only
+  source-backed confirmed facts.
+- Finance audit and repair-order number correction are maintenance flows, not
+  normal UI/MCP actions.
 
-Канонический минимум:
+## Documentation Hygiene
 
-- `README.md` - быстрый вход и карта продукта.
-- `docs/OPERATIONS_RUNBOOK.md` - sync, deploy, verification.
-- `MCP_GUIDE.md` - MCP workflows и safety.
-- `API_GUIDE.md` - endpoint-группы и контракт API.
+Run docs checks after changing routes, tools, deploy, auth, performance,
+maintenance, or user-facing instructions:
 
-Открывать только по задаче:
+```powershell
+python scripts\docs_audit.py --format text
+python scripts\audit_localization.py
+```
 
-- `CHATGPT_CONNECTOR_SETUP.md` - ChatGPT/MCP подключение.
-- `AUTOSTOPCRM_FULL_INSTRUCTION.txt` - короткая server-side памятка, которую копирует `deploy.sh`.
+For the local secret/access bundle, run the optional stale-instruction scan
+without printing secret values:
 
-Политика: не плодить новые docs. Старые планы, исторические отчёты и agent scratch-файлы удаляются после переноса полезной части в один из документов выше.
+```powershell
+python scripts\docs_audit.py --format text --secret-bundle "C:\Users\9860606\Desktop\КЛЮЧЕВАЯ ДОКУМЕНТАЦИЯ CRM VPN Сервер"
+```
+
+Keep active documentation small and role-based. Historical plans and one-off
+reports belong outside active docs or must be clearly marked as historical.
