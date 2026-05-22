@@ -1882,7 +1882,7 @@ def create_mcp_server(
     @server.tool(
         name="create_cash_transaction",
         description=_scoped_description(
-            "Create one cash transaction in a cashbox. Use direction income or expense and pass either amount_minor or amount."
+            "Create one cash transaction in a cashbox. Use direction income or expense and pass either amount_minor or amount. Expense requires note with at least 10 visible characters."
         ),
         annotations=_write_tool_annotations("Create Cash Transaction"),
         structured_output=True,

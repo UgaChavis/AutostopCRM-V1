@@ -5009,6 +5009,11 @@ BOARD_WEB_APP_HTML = "".join(
       min-height: 54px;
       padding: 6px 8px;
     }
+    .cashbox-composer__row .field--compact textarea.is-invalid {
+      border-color: rgba(207, 91, 75, 0.92);
+      background: rgba(207, 91, 75, 0.08);
+      box-shadow: 0 0 0 1px rgba(207, 91, 75, 0.28), 0 0 14px rgba(207, 91, 75, 0.24);
+    }
     .cashbox-composer textarea {
       min-height: 54px;
       max-height: 54px;
@@ -8110,6 +8115,7 @@ BOARD_WEB_APP_HTML = "".join(
     const CASH_JOURNAL_FILTER_DEBOUNCE_MS = 80;
     const CASH_JOURNAL_RENDER_BATCH_SIZE = 250;
     const CASHBOX_TRANSACTION_PAGE_SIZE = 100;
+    const CASHBOX_EXPENSE_NOTE_MIN_LENGTH = 10;
     const BOARD_SEARCH_CACHE_TTL_MS = 20000;
     const PERF_STORAGE_KEY = 'autostop-perf';
     const CARD_JOURNAL_INITIAL_LIMIT = 50;
@@ -22059,6 +22065,23 @@ BOARD_WEB_APP_HTML = "".join(
       setCashboxTransferTarget(button.getAttribute('data-cashbox-transfer-target'));
     }
 
+    function setCashboxNoteInvalid(isInvalid) {
+      if (!els.cashboxNoteInput) return;
+      els.cashboxNoteInput.classList.toggle('is-invalid', Boolean(isInvalid));
+      if (isInvalid) els.cashboxNoteInput.setAttribute('aria-invalid', 'true');
+      else els.cashboxNoteInput.removeAttribute('aria-invalid');
+    }
+
+    function cashboxExpenseNoteIsValid(note) {
+      return String(note || '').trim().length >= CASHBOX_EXPENSE_NOTE_MIN_LENGTH;
+    }
+
+    function handleCashboxNoteInput() {
+      if (cashboxExpenseNoteIsValid(els.cashboxNoteInput?.value || '')) {
+        setCashboxNoteInvalid(false);
+      }
+    }
+
     async function createCashboxTransaction(direction) {
       const cashbox = state.activeCashbox?.cashbox || null;
       if (!cashbox?.id) {
@@ -22070,6 +22093,15 @@ BOARD_WEB_APP_HTML = "".join(
         setStatus('УКАЖИТЕ СУММУ.', true);
         return;
       }
+      const normalizedDirection = direction === 'expense' ? 'expense' : 'income';
+      const note = String(els.cashboxNoteInput.value || '').trim();
+      if (normalizedDirection === 'expense' && !cashboxExpenseNoteIsValid(note)) {
+        setCashboxNoteInvalid(true);
+        els.cashboxNoteInput.focus();
+        setStatus('ДЛЯ СПИСАНИЯ УКАЖИТЕ КОММЕНТАРИЙ НЕ КОРОЧЕ 10 СИМВОЛОВ.', true);
+        return;
+      }
+      setCashboxNoteInvalid(false);
       try {
         els.cashboxIncomeButton.disabled = true;
         els.cashboxExpenseButton.disabled = true;
@@ -22077,9 +22109,9 @@ BOARD_WEB_APP_HTML = "".join(
           method: 'POST',
           body: {
             cashbox_id: cashbox.id,
-            direction: direction === 'expense' ? 'expense' : 'income',
+            direction: normalizedDirection,
             amount,
-            note: String(els.cashboxNoteInput.value || '').trim(),
+            note,
             actor_name: state.actor,
             source: 'ui',
           },
@@ -23664,6 +23696,7 @@ BOARD_WEB_APP_HTML = "".join(
     els.cashboxTransferConfirmButton.addEventListener('click', submitCashboxTransfer);
     els.cashboxTransferAmountInput.addEventListener('input', handleCashboxTransferAmountInput);
     els.cashboxTransferNoteInput.addEventListener('input', handleCashboxTransferNoteInput);
+    els.cashboxNoteInput.addEventListener('input', handleCashboxNoteInput);
     els.cashboxesList.addEventListener('click', handleCashboxesListClick);
     els.cashboxTransactions.addEventListener('click', handleCashboxTransactionsClick);
     els.cashboxesList.addEventListener('keydown', handleCashboxesListKeydown);

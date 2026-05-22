@@ -243,12 +243,12 @@ class AgentToolExecutor:
             ),
             AgentToolDefinition(
                 "create_cash_transaction",
-                "Create cashbox income or expense.",
+                "Create cashbox income or expense. Expense requires a note with at least 10 visible characters.",
                 {
                     "cashbox_id": "required string",
                     "direction": "required string",
                     "amount": "required number/string",
-                    "note": "optional string",
+                    "note": "required for expense, optional for income",
                 },
             ),
             AgentToolDefinition(

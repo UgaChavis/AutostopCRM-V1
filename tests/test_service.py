@@ -2250,7 +2250,7 @@ class CardServiceTests(unittest.TestCase):
                 "cashbox_id": cashbox["short_id"],
                 "direction": "expense",
                 "amount_minor": 5050,
-                "note": "Расходник",
+                "note": "Расходник цеха",
                 "actor_name": "ADMIN",
             }
         )
@@ -2265,7 +2265,7 @@ class CardServiceTests(unittest.TestCase):
         details = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
         self.assertEqual(details["cashbox"]["id"], cashbox["id"])
         self.assertEqual(len(details["transactions"]), 2)
-        self.assertEqual(details["transactions"][0]["note"], "Расходник")
+        self.assertEqual(details["transactions"][0]["note"], "Расходник цеха")
 
         with self.assertRaisesRegex(ValueError, "Нельзя удалить кассу, пока в ней есть движения"):
             self.service.delete_cashbox({"cashbox_id": cashbox["short_id"], "actor_name": "ADMIN"})
@@ -2279,6 +2279,49 @@ class CardServiceTests(unittest.TestCase):
         self.assertTrue(deleted["meta"]["deleted"])
         self.assertEqual(deleted["meta"]["removed_transactions"], 0)
         self.assertEqual(self.service.list_cashboxes()["meta"]["total"], 1)
+
+    def test_manual_cashbox_expense_requires_note_minimum(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+
+        allowed_income = self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "income",
+                "amount": "100",
+                "note": "",
+                "actor_name": "ADMIN",
+            }
+        )
+        self.assertEqual(allowed_income["transaction"]["direction"], "income")
+
+        for note in ("", "Расход"):
+            with self.subTest(note=note):
+                with self.assertRaises(ServiceError) as blocked:
+                    self.service.create_cash_transaction(
+                        {
+                            "cashbox_id": cashbox["id"],
+                            "direction": "expense",
+                            "amount": "100",
+                            "note": note,
+                            "actor_name": "ADMIN",
+                        }
+                    )
+                self.assertEqual(blocked.exception.code, "validation_error")
+                self.assertEqual(blocked.exception.details["field"], "note")
+                self.assertEqual(blocked.exception.details["min_length"], 10)
+
+        allowed_expense = self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "expense",
+                "amount": "100",
+                "note": "Покупка масла",
+                "actor_name": "ADMIN",
+            }
+        )
+        self.assertEqual(allowed_expense["transaction"]["note"], "Покупка масла")
 
     def test_cashbox_reorder_persists_custom_order(self) -> None:
         first = self.service.create_cashbox({"name": "Касса A", "actor_name": "ADMIN"})["cashbox"]
@@ -2413,7 +2456,7 @@ class CardServiceTests(unittest.TestCase):
                 "cashbox_id": cashbox["id"],
                 "direction": "expense",
                 "amount": "250",
-                "note": "Расход",
+                "note": "Расход по кассе",
                 "actor_name": "ADMIN",
             }
         )["transaction"]

@@ -2487,6 +2487,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="cashboxExpenseButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxTransactions"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxJournalText"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            ".cashbox-composer__row .field--compact textarea.is-invalid", BOARD_WEB_APP_HTML
+        )
         self.assertIn('title="Перетащите, чтобы изменить порядок касс"', BOARD_WEB_APP_HTML)
         self.assertIn(".cashboxes-layout {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashboxes-pane__foot {", BOARD_WEB_APP_HTML)
@@ -2691,6 +2694,17 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("async function createCashboxTransfer()", BOARD_WEB_APP_HTML)
         self.assertIn("async function createCashboxTransaction(direction)", BOARD_WEB_APP_HTML)
+        self.assertIn("const CASHBOX_EXPENSE_NOTE_MIN_LENGTH = 10;", BOARD_WEB_APP_HTML)
+        self.assertIn("function setCashboxNoteInvalid(isInvalid)", BOARD_WEB_APP_HTML)
+        self.assertIn("function cashboxExpenseNoteIsValid(note)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.cashboxNoteInput.setAttribute('aria-invalid', 'true');", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("els.cashboxNoteInput.focus();", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.cashboxNoteInput.addEventListener('input', handleCashboxNoteInput);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("async function cancelLastCashboxTransaction()", BOARD_WEB_APP_HTML)
         self.assertIn("async function loadCashboxes(openModal = false)", BOARD_WEB_APP_HTML)
         self.assertIn(

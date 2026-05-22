@@ -1254,7 +1254,7 @@ class ApiServerTests(unittest.TestCase):
                 "cashbox_id": cashbox["id"],
                 "direction": "expense",
                 "amount": "300",
-                "note": "Расход",
+                "note": "Расход по кассе",
                 "actor_name": "ADMIN",
             },
         )
@@ -1282,6 +1282,42 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(
             details["data"]["transactions"][0]["id"], first["data"]["transaction"]["id"]
         )
+
+    def test_create_cash_transaction_requires_note_for_expense(self) -> None:
+        status, created = self.request(
+            "/api/create_cashbox", {"name": "Касса API", "actor_name": "ADMIN"}
+        )
+        self.assertEqual(status, 200)
+        cashbox = created["data"]["cashbox"]
+
+        status, blocked = self.request(
+            "/api/create_cash_transaction",
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "expense",
+                "amount": "300",
+                "note": "Расход",
+                "actor_name": "ADMIN",
+            },
+        )
+        self.assertEqual(status, 400)
+        self.assertFalse(blocked["ok"])
+        self.assertEqual(blocked["error"]["code"], "validation_error")
+        self.assertEqual(blocked["error"]["details"]["field"], "note")
+        self.assertEqual(blocked["error"]["details"]["min_length"], 10)
+
+        status, allowed = self.request(
+            "/api/create_cash_transaction",
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "expense",
+                "amount": "300",
+                "note": "Расход по кассе",
+                "actor_name": "ADMIN",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(allowed["data"]["transaction"]["note"], "Расход по кассе")
 
     def test_employee_salary_ledger_and_cash_routes_work_together(self) -> None:
         status, employee_saved = self.request(

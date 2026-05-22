@@ -444,13 +444,13 @@ class CRMToolRegistry:
             ),
             CRMToolDefinition(
                 "create_cash_transaction",
-                "Create cashbox income or expense transaction.",
+                "Create cashbox income or expense transaction. Expense requires a note with at least 10 visible characters.",
                 {
                     "cashbox_id": "required string",
                     "direction": "required string income|expense",
                     "amount_minor": "optional int",
                     "amount": "optional string|number",
-                    "note": "optional string",
+                    "note": "required for expense, optional for income",
                 },
                 write=True,
             ),

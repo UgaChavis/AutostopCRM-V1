@@ -106,6 +106,7 @@ _CARD_AI_LEVELS = {"INFO", "RUN", "WAIT", "DONE", "WARN"}
 _CARD_AI_VIN_PATTERN = re.compile(r"\b[A-HJ-NPR-Z0-9]{17}\b")
 _CARD_AI_DTC_PATTERN = re.compile(r"\b[PBCU][0-9]{4}\b", re.IGNORECASE)
 _READY_CARD_TAG_NORMALIZED = normalize_tag_label(READY_CARD_TAG_LABEL)
+_CASH_EXPENSE_NOTE_MIN_CHARS = 10
 
 
 _SEARCH_SEPARATOR_PATTERN = re.compile(r"[\W_]+", re.UNICODE)
@@ -1703,7 +1704,14 @@ class CardService:
             actor_name, source = self._audit_identity(payload, default_source="api")
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
             note = self._validated_cash_transaction_note(payload.get("note"))
+            direction = normalize_cash_direction(payload.get("direction"), default="income")
             transaction_kind = normalize_text(payload.get("transaction_kind"), default="", limit=32)
+            if direction == "expense" and len(note) < _CASH_EXPENSE_NOTE_MIN_CHARS:
+                self._fail(
+                    "validation_error",
+                    "Для списания нужно указать комментарий не короче 10 символов.",
+                    details={"field": "note", "min_length": _CASH_EXPENSE_NOTE_MIN_CHARS},
+                )
             if (
                 self._is_default_repair_order_cash_transaction_note(note)
                 and transaction_kind != "repair_order_payment"
@@ -1716,7 +1724,7 @@ class CardService:
             transaction = self._append_cash_transaction(
                 transactions=transactions,
                 cashbox=cashbox,
-                direction=normalize_cash_direction(payload.get("direction"), default="income"),
+                direction=direction,
                 amount_minor=self._validated_cash_amount_minor(payload),
                 note=note,
                 actor_name=actor_name,

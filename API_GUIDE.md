@@ -183,6 +183,10 @@ Maintenance-only:
 
 - `POST /api/finance_audit/apply_safe_fixes`
 
+Manual `create_cash_transaction` expenses require `note` with at least 10
+visible characters. Income operations, transfers, salary payouts, and repair
+order payments keep their existing note behavior.
+
 `get_cashbox` supports operation pagination:
 
 - `transaction_limit` - page size;

@@ -153,6 +153,10 @@ Cashboxes:
 - `delete_cashbox`
 - `create_cash_transaction`
 
+Manual `create_cash_transaction` expenses require a `note` with at least 10
+visible characters. Income operations and non-manual finance flows are
+unchanged.
+
 `get_cashbox` supports `transaction_limit` and `transaction_offset`; use small
 pages for cashboxes with many operations.
 
