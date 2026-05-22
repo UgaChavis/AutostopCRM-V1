@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import time
 import uuid
 from datetime import timedelta
 from logging import Logger
@@ -110,22 +112,67 @@ class OperatorActivityService:
         }
 
     def get_activity_aggregates(self, payload: dict | None = None) -> dict:
-        rows = self.list_activity({**(payload or {}), "limit": MAX_ACTIVITY_PAGE_SIZE})[
-            "activities"
-        ]
-        by_user: dict[str, int] = {}
-        by_module: dict[str, int] = {}
-        by_action: dict[str, int] = {}
+        payload = payload or {}
+        rows = [row for row in self._read_current_rows() if self._row_matches(row, payload)]
+        by_user: dict[str, int] = self._aggregate_counts("by_user", payload)
+        by_module: dict[str, int] = self._aggregate_counts("by_module", payload)
+        by_action: dict[str, int] = self._aggregate_counts("by_action", payload)
+        by_source: dict[str, int] = self._aggregate_counts("by_source", payload)
         for row in rows:
             _increment(by_user, str(row.get("username") or ""))
             _increment(by_module, str(row.get("module") or ""))
             _increment(by_action, str(row.get("action") or ""))
+            _increment(by_source, str(row.get("source") or ""))
         return {
             "by_user": by_user,
             "by_module": by_module,
             "by_action": by_action,
-            "meta": {"source": "current", "total": len(rows)},
+            "by_source": by_source,
+            "meta": {"source": "current_and_aggregates", "total": sum(by_user.values())},
         }
+
+    def compact_activity(self, payload: dict | None = None) -> dict:
+        payload = payload or {}
+        apply = bool(payload.get("apply"))
+        dry_run = bool(payload.get("dry_run") or not apply)
+        backup = bool(payload.get("backup"))
+        retention_days = max(
+            1,
+            _non_negative_int(payload.get("retention_days"), default=DEFAULT_DETAIL_RETENTION_DAYS),
+        )
+        if apply and not backup:
+            self._fail("validation_error", "--apply требует backup.", details={"field": "backup"})
+
+        def build_result(*, rows: list[dict[str, Any]], write: bool) -> dict:
+            cutoff = utc_now() - timedelta(days=retention_days)
+            old_rows: list[dict[str, Any]] = []
+            recent_rows: list[dict[str, Any]] = []
+            for row in rows:
+                timestamp = parse_datetime(row.get("timestamp"))
+                if timestamp is not None and timestamp < cutoff:
+                    old_rows.append(row)
+                else:
+                    recent_rows.append(row)
+            backup_dir = ""
+            if write:
+                backup_dir = self._backup_activity_dir()
+                self._write_aggregates(old_rows)
+                self._rewrite_current_rows(recent_rows)
+                self._rewrite_details(recent_rows)
+            return {
+                "dry_run": not write,
+                "retention_days": retention_days,
+                "current_rows_total": len(rows),
+                "eligible_rows": len(old_rows),
+                "removed_rows": len(old_rows) if write else 0,
+                "remaining_rows": len(recent_rows) if write else len(rows),
+                "backup_dir": backup_dir,
+            }
+
+        if dry_run:
+            return build_result(rows=self._read_current_rows(), write=False)
+        with self._lock.acquire():
+            return build_result(rows=self._read_current_rows(), write=True)
 
     def export_activity(self, payload: dict | None = None) -> dict:
         payload = payload or {}
@@ -208,6 +255,161 @@ class OperatorActivityService:
         for path in sorted(self._current_dir.glob("*.jsonl")):
             rows.extend(self._read_jsonl(path))
         return rows
+
+    def _aggregate_counts(self, key: str, payload: dict[str, Any] | None = None) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        if not self._aggregates_dir.exists():
+            return counts
+        for path in sorted(self._aggregates_dir.glob("*.json")):
+            try:
+                aggregate = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                if self._logger is not None:
+                    self._logger.warning(
+                        "operator_activity_aggregate_read_failed path=%s error=%s", path, exc
+                    )
+                continue
+            for count_key, count in self._aggregate_counts_from_payload(
+                aggregate, key, payload or {}
+            ).items():
+                counts[count_key] = counts.get(count_key, 0) + count
+        return counts
+
+    def _aggregate_counts_from_payload(
+        self, aggregate: dict[str, Any], key: str, payload: dict[str, Any]
+    ) -> dict[str, int]:
+        buckets = _clean_count_mapping(aggregate.get("buckets"))
+        if buckets:
+            return self._aggregate_bucket_counts(buckets, key, payload)
+        username = _normalized_username(payload.get("username"))
+        if username and key == "by_user":
+            return {username: _clean_count_mapping(aggregate.get(key)).get(username, 0)}
+        if username:
+            nested_key = {
+                "by_module": "by_user_module",
+                "by_action": "by_user_action",
+                "by_source": "by_user_source",
+            }.get(key)
+            nested = aggregate.get(nested_key or "")
+            if isinstance(nested, dict):
+                return _clean_count_mapping(nested.get(username))
+        return _clean_count_mapping(aggregate.get(key))
+
+    def _aggregate_bucket_counts(
+        self, buckets: dict[str, int], key: str, payload: dict[str, Any]
+    ) -> dict[str, int]:
+        dimension_index = {"by_user": 0, "by_module": 1, "by_action": 2, "by_source": 3}.get(key)
+        if dimension_index is None:
+            return {}
+        filters = (
+            _normalized_username(payload.get("username")),
+            _normalized_slug(payload.get("module"), default="", limit=80),
+            _normalized_slug(payload.get("action"), default="", limit=80),
+            _normalized_slug(payload.get("source"), default="", limit=80),
+        )
+        counts: dict[str, int] = {}
+        for bucket, count in buckets.items():
+            parts = str(bucket).split("|", maxsplit=3)
+            if len(parts) != 4:
+                continue
+            if any(expected and parts[index] != expected for index, expected in enumerate(filters)):
+                continue
+            _increment_by(counts, parts[dimension_index], count)
+        return counts
+
+    def _write_aggregates(self, rows: list[dict[str, Any]]) -> None:
+        if not rows:
+            return
+        self._aggregates_dir.mkdir(parents=True, exist_ok=True)
+        by_month: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            by_month.setdefault(_month_from_timestamp(str(row.get("timestamp") or "")), []).append(
+                row
+            )
+        for month, month_rows in by_month.items():
+            path = self._aggregates_dir / f"{month}.json"
+            aggregate = self._read_aggregate_file(path, month)
+            for row in month_rows:
+                self._add_row_to_aggregate(aggregate, row)
+            path.write_text(
+                json.dumps(aggregate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+    def _read_aggregate_file(self, path: Path, month: str) -> dict[str, Any]:
+        if not path.exists():
+            return self._normalized_aggregate_payload({}, month)
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            if self._logger is not None:
+                self._logger.warning(
+                    "operator_activity_aggregate_read_failed path=%s error=%s", path, exc
+                )
+            raw = {}
+        return self._normalized_aggregate_payload(raw if isinstance(raw, dict) else {}, month)
+
+    def _normalized_aggregate_payload(self, payload: dict[str, Any], month: str) -> dict[str, Any]:
+        return {
+            "schema_version": OPERATOR_ACTIVITY_SCHEMA_VERSION,
+            "month": normalize_text(payload.get("month"), default=month, limit=16) or month,
+            "rows_total": _non_negative_int(payload.get("rows_total"), default=0),
+            "by_user": _clean_count_mapping(payload.get("by_user")),
+            "by_day": _clean_count_mapping(payload.get("by_day")),
+            "by_module": _clean_count_mapping(payload.get("by_module")),
+            "by_action": _clean_count_mapping(payload.get("by_action")),
+            "by_source": _clean_count_mapping(payload.get("by_source")),
+            "buckets": _clean_count_mapping(payload.get("buckets")),
+        }
+
+    def _add_row_to_aggregate(self, aggregate: dict[str, Any], row: dict[str, Any]) -> None:
+        aggregate["rows_total"] = _non_negative_int(aggregate.get("rows_total"), default=0) + 1
+        username = str(row.get("username") or "-")
+        module = str(row.get("module") or "-")
+        action = str(row.get("action") or "-")
+        source = str(row.get("source") or "-")
+        timestamp = str(row.get("timestamp") or "")
+        day = timestamp[:10] if len(timestamp) >= 10 else "unknown"
+        _increment(aggregate["by_user"], username)
+        _increment(aggregate["by_day"], day)
+        _increment(aggregate["by_module"], module)
+        _increment(aggregate["by_action"], action)
+        _increment(aggregate["by_source"], source)
+        _increment(aggregate["buckets"], "|".join((username, module, action, source)))
+
+    def _rewrite_current_rows(self, rows: list[dict[str, Any]]) -> None:
+        self._current_dir.mkdir(parents=True, exist_ok=True)
+        for path in self._current_dir.glob("*.jsonl"):
+            path.unlink(missing_ok=True)
+        for row in sorted(rows, key=lambda item: str(item.get("timestamp") or "")):
+            self._append_jsonl(self._current_file(str(row.get("timestamp") or "")), row)
+
+    def _rewrite_details(self, current_rows: list[dict[str, Any]]) -> None:
+        if not self._details_dir.exists():
+            return
+        current_ids = {str(row.get("id") or "") for row in current_rows}
+        retained_records: list[dict[str, Any]] = []
+        for path in sorted(self._details_dir.glob("*.jsonl")):
+            for record in self._read_jsonl(path):
+                if str(record.get("activity_id") or "") in current_ids:
+                    retained_records.append(record)
+            path.unlink(missing_ok=True)
+        for record in sorted(retained_records, key=lambda item: str(item.get("timestamp") or "")):
+            self._append_jsonl(self._details_file(str(record.get("timestamp") or "")), record)
+
+    def _backup_activity_dir(self) -> str:
+        if not self._activity_dir.exists():
+            return ""
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        backup_dir = self._activity_dir.parent / f"{self._activity_dir.name}.backup-{timestamp}"
+        if backup_dir.exists():
+            backup_dir = backup_dir.with_name(f"{backup_dir.name}-{uuid.uuid4().hex[:8]}")
+        shutil.copytree(
+            self._activity_dir,
+            backup_dir,
+            ignore=shutil.ignore_patterns(".operator-activity.lock"),
+        )
+        return str(backup_dir)
 
     def _row_matches(self, row: dict[str, Any], payload: dict[str, Any]) -> bool:
         username = _normalized_username(payload.get("username"))
@@ -363,3 +565,21 @@ def _non_negative_int(value: Any, *, default: int) -> int:
 def _increment(target: dict[str, int], key: str) -> None:
     normalized = key or "-"
     target[normalized] = target.get(normalized, 0) + 1
+
+
+def _increment_by(target: dict[str, int], key: str, count: int) -> None:
+    normalized = key or "-"
+    target[normalized] = target.get(normalized, 0) + max(0, count)
+
+
+def _clean_count_mapping(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    counts: dict[str, int] = {}
+    for raw_key, raw_count in value.items():
+        try:
+            count = int(raw_count)
+        except (TypeError, ValueError):
+            continue
+        counts[str(raw_key)] = max(0, count)
+    return counts

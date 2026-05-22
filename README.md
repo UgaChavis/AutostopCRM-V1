@@ -148,6 +148,7 @@ Local data:
 - `%APPDATA%\Minimal Kanban\repair-orders`
 - `%APPDATA%\Minimal Kanban\shared-files`
 - `%APPDATA%\Minimal Kanban\audit-archive`
+- `%APPDATA%\Minimal Kanban\operator-activity`
 - `%APPDATA%\Minimal Kanban\logs\minimal-kanban.log`
 
 Docker data:
@@ -162,6 +163,13 @@ Heavy audit events keep compact details in active `state.json`; full
 `before/after` details live in append-only `audit-archive`. Always run
 `scripts/state_size_report.py` and `scripts/compact_audit_events.py --dry-run`
 before any live compaction. Apply compaction only with backup and owner review.
+
+Operator activity lives outside `state.json` in `operator-activity/current`,
+`operator-activity/details`, and `operator-activity/aggregates`. The admin
+journal uses compact current rows for the dense table, keeps detailed rows for
+the recent retention window, and preserves older counters in aggregates. Use
+`scripts/operator_activity_maintenance.py --dry-run --json` before any cleanup;
+apply only with `--apply --backup`.
 
 ## AI And Safety Contracts
 

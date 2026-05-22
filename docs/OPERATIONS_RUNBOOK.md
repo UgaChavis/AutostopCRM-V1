@@ -127,6 +127,30 @@ backup policy. The maintenance script takes the state file lock, creates backup
 when requested, appends full details to `audit-archive`, and rewrites active
 state with compact details.
 
+## Operator Activity Journal
+
+Operator activity is stored outside `state.json` under the same runtime data
+directory:
+
+```text
+operator-activity/current
+operator-activity/details
+operator-activity/aggregates
+```
+
+The admin journal keeps recent compact rows and detail records for operational
+review. Older rows are eligible for R3 compaction after aggregates are written.
+Maintenance is read-only first:
+
+```powershell
+python scripts\operator_activity_maintenance.py --dry-run --json
+python scripts\operator_activity_maintenance.py --apply --backup
+```
+
+Run `--apply --backup` only after reviewing the dry-run report. Do not expose
+activity cleanup as a casual UI button and do not edit activity JSONL files
+manually.
+
 ## Finance Audit-First
 
 Finance audit is read-only first:

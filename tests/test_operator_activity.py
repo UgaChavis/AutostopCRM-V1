@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import tempfile
@@ -97,6 +98,73 @@ class OperatorActivityServiceTests(unittest.TestCase):
         self.assertIn("ЖУРНАЛ ДЕЙСТВИЙ ОПЕРАТОРОВ", exported["text"])
         self.assertIn("ADMIN | Заказ-наряд | Обновил работы", exported["text"])
         self.assertIn("ЗН 000124", exported["text"])
+
+    def test_compact_activity_dry_run_and_apply_updates_aggregates(self) -> None:
+        old = self.service.record_activity(
+            {
+                "timestamp": "2026-01-01T10:00:00+00:00",
+                "username": "admin",
+                "module": "card",
+                "action": "card_opened",
+                "action_label": "Открыл карточку",
+                "object_type": "card",
+                "object_id": "old-card",
+                "object_label": "Старая карточка",
+                "summary": "Старый просмотр",
+                "source": "ui",
+                "details": {"card_id": "old-card", "snapshot": "old"},
+            }
+        )["activity"]
+        recent = self.service.record_activity(
+            {
+                "timestamp": "2026-05-23T10:00:00+07:00",
+                "username": "mekh",
+                "module": "repair_order",
+                "action": "repair_order_updated",
+                "action_label": "Обновил работы",
+                "object_type": "repair_order",
+                "object_id": "recent-order",
+                "object_label": "Свежий ЗН",
+                "summary": "Свежая строка",
+                "source": "ui",
+                "details": {"repair_order_id": "recent-order", "snapshot": "recent"},
+            }
+        )["activity"]
+
+        dry_run = self.service.compact_activity({"dry_run": True, "retention_days": 90})
+        self.assertTrue(dry_run["dry_run"])
+        self.assertEqual(dry_run["eligible_rows"], 1)
+        self.assertEqual(dry_run["removed_rows"], 0)
+        self.assertEqual(self.service.list_activity({"limit": 10})["meta"]["total"], 2)
+
+        applied = self.service.compact_activity(
+            {"apply": True, "backup": True, "retention_days": 90}
+        )
+        self.assertFalse(applied["dry_run"])
+        self.assertEqual(applied["eligible_rows"], 1)
+        self.assertEqual(applied["removed_rows"], 1)
+        self.assertTrue(applied["backup_dir"])
+
+        listed = self.service.list_activity({"limit": 10})
+        self.assertEqual([row["id"] for row in listed["activities"]], [recent["id"]])
+        aggregates = self.service.get_activity_aggregates({})
+        self.assertEqual(aggregates["by_user"]["ADMIN"], 1)
+        self.assertEqual(aggregates["by_user"]["MEKH"], 1)
+        self.assertEqual(aggregates["by_action"]["card_opened"], 1)
+        self.assertEqual(aggregates["by_action"]["repair_order_updated"], 1)
+        admin_aggregates = self.service.get_activity_aggregates({"username": "admin"})
+        self.assertEqual(admin_aggregates["by_user"], {"ADMIN": 1})
+        self.assertEqual(admin_aggregates["by_action"], {"card_opened": 1})
+        self.assertNotIn("repair_order_updated", admin_aggregates["by_action"])
+        recent_details = self.service.get_activity_details({"activity_id": recent["id"]})
+        self.assertEqual(recent_details["details"]["snapshot"], "recent")
+        detail_records = []
+        for detail_file in (self.activity_dir / "details").glob("*.jsonl"):
+            for line in detail_file.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    detail_records.append(json.loads(line))
+        self.assertEqual([record["activity_id"] for record in detail_records], [recent["id"]])
+        self.assertNotEqual(old["id"], recent["id"])
 
 
 if __name__ == "__main__":

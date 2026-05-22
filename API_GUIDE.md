@@ -240,11 +240,23 @@ are blocked. Delete is destructive.
 - `POST /api/save_operator_user`
 - `POST /api/delete_operator_user`
 - `GET|POST /api/get_operator_user_report`
+- `GET|POST /api/list_operator_activity`
+- `GET|POST /api/get_operator_activity_details`
+- `GET|POST /api/get_operator_activity_aggregates`
+- `GET|POST /api/export_operator_activity`
 - `POST /api/open_card`
 
 Admin-only routes go through `OperatorAuthService`. Smoke checks should use
 `AUTOSTOP_SMOKE_OPERATOR_USERNAME` and `AUTOSTOP_SMOKE_OPERATOR_PASSWORD`, not
 hard-coded default credentials.
+
+The operator activity journal is the admin-facing dense table of user actions.
+Admins can read all users; a regular operator can read only their own activity.
+List/export routes support period, user, module, action, source, search,
+offset, and limit filters. Detailed rows are stored under
+`operator-activity/current` and `operator-activity/details`; maintenance moves
+old rows into `operator-activity/aggregates` through the runbook dry-run and
+backup flow.
 
 ## Agent And Compatibility Routes
 
