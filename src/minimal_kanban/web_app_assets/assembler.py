@@ -4409,6 +4409,83 @@ BOARD_WEB_APP_HTML = "".join(
       font-size: 12px;
       color: var(--muted);
     }
+    .operator-activity-panel {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+    .operator-activity-toolbar {
+      display: grid;
+      grid-template-columns: 118px 138px 138px 138px minmax(220px, 1fr) auto;
+      gap: 8px;
+      align-items: end;
+    }
+    .operator-activity-toolbar .field {
+      margin: 0;
+    }
+    .operator-activity-toolbar input,
+    .operator-activity-toolbar select {
+      min-height: 32px;
+    }
+    .operator-activity-scroll {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.12);
+    }
+    .operator-activity-table {
+      min-width: 1120px;
+      display: grid;
+      grid-template-columns: 118px 105px 104px 142px minmax(190px, 1.1fr) minmax(250px, 1.4fr) 100px 90px;
+    }
+    .operator-activity-cell {
+      min-height: 38px;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 8px 9px;
+      display: flex;
+      align-items: center;
+      color: var(--text);
+      font-size: 11px;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .operator-activity-cell--head {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: var(--bg-panel);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-size: 10px;
+      font-family: var(--mono);
+    }
+    .operator-activity-cell--sticky {
+      position: sticky;
+      left: 0;
+      z-index: 3;
+      background: var(--bg-panel-2);
+    }
+    .operator-activity-cell--head.operator-activity-cell--sticky {
+      z-index: 4;
+      background: var(--bg-panel);
+    }
+    .operator-activity-cell--money {
+      color: #f5df9b;
+      justify-content: flex-end;
+    }
+    .operator-activity-cell--danger {
+      color: #ffd1ca;
+    }
+    .operator-activity-cell--ok {
+      color: #bce3b7;
+    }
+    .operator-admin-secondary {
+      display: grid;
+      grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
     @media (max-width: 1180px) {
       .dialog--card {
         width: min(1180px, calc(100% - 24px));
@@ -4424,6 +4501,8 @@ BOARD_WEB_APP_HTML = "".join(
       .overview-main__meta { grid-template-columns: 1fr; }
       .operator-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .operator-admin-layout { grid-template-columns: 1fr; }
+      .operator-activity-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .operator-admin-secondary { grid-template-columns: 1fr; }
       .vehicle-group__grid { grid-template-columns: 1fr; }
       .vehicle-panel { max-width: none; width: 100%; margin-left: 0; }
       .vehicle-panel::before { display: none; }
@@ -7368,25 +7447,70 @@ BOARD_WEB_APP_HTML = "".join(
         <div class="dialog__title">АДМИН-ПАНЕЛЬ</div>
         <button class="btn" data-close="operator-admin">ЗАКРЫТЬ</button>
       </div>
-      <div class="operator-admin-layout">
+      <div class="operator-activity-panel">
         <div class="subpanel">
-          <div class="panel-title">ПОЛЬЗОВАТЕЛЬ</div>
-          <div class="field field--compact">
-            <label for="adminUserLogin">ЛОГИН</label>
-            <input id="adminUserLogin" type="text" maxlength="40" placeholder="OPERATOR">
+          <div class="panel-title">ЖУРНАЛ ДЕЙСТВИЙ</div>
+          <div class="operator-activity-toolbar" id="operatorActivityFilters">
+            <div class="field field--compact">
+              <label for="operatorActivityDays">ПЕРИОД</label>
+              <select id="operatorActivityDays">
+                <option value="15">15 дней</option>
+                <option value="30">30 дней</option>
+                <option value="90" selected>90 дней</option>
+              </select>
+            </div>
+            <div class="field field--compact">
+              <label for="operatorActivityUserFilter">ПОЛЬЗОВАТЕЛЬ</label>
+              <select id="operatorActivityUserFilter">
+                <option value="">ВСЕ</option>
+              </select>
+            </div>
+            <div class="field field--compact">
+              <label for="operatorActivityModuleFilter">МОДУЛЬ</label>
+              <select id="operatorActivityModuleFilter">
+                <option value="">ВСЕ</option>
+                <option value="auth">ВХОД</option>
+                <option value="card">КАРТОЧКИ</option>
+                <option value="repair_order">ЗАКАЗ-НАРЯДЫ</option>
+                <option value="cashbox">КАССА</option>
+                <option value="admin">АДМИН</option>
+              </select>
+            </div>
+            <div class="field field--compact">
+              <label for="operatorActivityActionFilter">ДЕЙСТВИЕ</label>
+              <input id="operatorActivityActionFilter" type="text" maxlength="80" placeholder="card_opened">
+            </div>
+            <div class="field field--compact">
+              <label for="operatorActivitySearchInput">ПОИСК</label>
+              <input id="operatorActivitySearchInput" type="search" maxlength="120" placeholder="Клиент, авто, номер ЗН, card_id, файл">
+            </div>
+            <button class="btn" id="operatorActivityExportButton" type="button">ЭКСПОРТ</button>
           </div>
-          <div class="field field--compact">
-            <label for="adminUserPassword">ПАРОЛЬ</label>
-            <input id="adminUserPassword" type="password" maxlength="120" placeholder="Минимум 4 символа">
+          <div class="operator-activity-scroll">
+            <div class="operator-activity-table" id="operatorActivityTable"></div>
           </div>
-          <div class="dialog__foot" style="padding:0; border:none; margin-top:10px;">
-            <div class="log-row__meta">Администратор создает пользователя или обновляет ему пароль.</div>
-            <button class="btn btn--accent" id="adminSaveUserButton">СОХРАНИТЬ ПОЛЬЗОВАТЕЛЯ</button>
-          </div>
+          <div class="log-row__meta" id="operatorActivityMeta">ЖУРНАЛ НЕ ЗАГРУЖЕН.</div>
         </div>
-        <div class="subpanel">
-          <div class="panel-title">ПОЛЬЗОВАТЕЛИ</div>
-          <div id="adminUsersList"></div>
+        <div class="operator-admin-secondary">
+          <div class="subpanel">
+            <div class="panel-title">ПОЛЬЗОВАТЕЛЬ</div>
+            <div class="field field--compact">
+              <label for="adminUserLogin">ЛОГИН</label>
+              <input id="adminUserLogin" type="text" maxlength="40" placeholder="OPERATOR">
+            </div>
+            <div class="field field--compact">
+              <label for="adminUserPassword">ПАРОЛЬ</label>
+              <input id="adminUserPassword" type="password" maxlength="120" placeholder="Минимум 4 символа">
+            </div>
+            <div class="dialog__foot" style="padding:0; border:none; margin-top:10px;">
+              <div class="log-row__meta">Администратор создает пользователя или обновляет ему пароль.</div>
+              <button class="btn btn--accent" id="adminSaveUserButton">СОХРАНИТЬ ПОЛЬЗОВАТЕЛЯ</button>
+            </div>
+          </div>
+          <div class="subpanel">
+            <div class="panel-title">ПОЛЬЗОВАТЕЛИ</div>
+            <div id="adminUsersList"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -8128,6 +8252,8 @@ BOARD_WEB_APP_HTML = "".join(
       operatorSessionToken: localStorage.getItem(OPERATOR_SESSION_STORAGE_KEY) || '',
       operatorProfile: null,
       operatorUsers: [],
+      operatorActivityRows: [],
+      operatorActivityMeta: null,
       apiToken: localStorage.getItem(API_TOKEN_STORAGE_KEY) || '',
       boardScale: 1,
       boardPan: {
@@ -8723,6 +8849,15 @@ BOARD_WEB_APP_HTML = "".join(
       operatorLogoutButton: document.getElementById('operatorLogoutButton'),
       operatorAdminModal: document.getElementById('operatorAdminModal'),
       adminUsersList: document.getElementById('adminUsersList'),
+      operatorActivityFilters: document.getElementById('operatorActivityFilters'),
+      operatorActivityDays: document.getElementById('operatorActivityDays'),
+      operatorActivityUserFilter: document.getElementById('operatorActivityUserFilter'),
+      operatorActivityModuleFilter: document.getElementById('operatorActivityModuleFilter'),
+      operatorActivityActionFilter: document.getElementById('operatorActivityActionFilter'),
+      operatorActivitySearchInput: document.getElementById('operatorActivitySearchInput'),
+      operatorActivityExportButton: document.getElementById('operatorActivityExportButton'),
+      operatorActivityTable: document.getElementById('operatorActivityTable'),
+      operatorActivityMeta: document.getElementById('operatorActivityMeta'),
       adminUserLogin: document.getElementById('adminUserLogin'),
       adminUserPassword: document.getElementById('adminUserPassword'),
       adminSaveUserButton: document.getElementById('adminSaveUserButton'),
@@ -10980,6 +11115,7 @@ BOARD_WEB_APP_HTML = "".join(
     function renderOperatorUsers(data) {
       const users = data?.users || [];
       state.operatorUsers = users;
+      renderOperatorActivityUserOptions();
       els.adminUsersList.innerHTML = users.length
         ? users.map((user) => {
             const stats = user.stats || {};
@@ -10994,6 +11130,129 @@ BOARD_WEB_APP_HTML = "".join(
             '</div>';
           }).join('')
         : '<div class="log-row__meta">ПОЛЬЗОВАТЕЛЕЙ ПОКА НЕТ.</div>';
+    }
+
+    function renderOperatorActivityUserOptions() {
+      if (!els.operatorActivityUserFilter) return;
+      const current = String(els.operatorActivityUserFilter.value || '');
+      const options = ['<option value="">ВСЕ</option>'].concat(
+        (state.operatorUsers || []).map((user) => {
+          const username = String(user?.username || '').trim();
+          if (!username) return '';
+          return '<option value="' + escapeHtml(username) + '">' + escapeHtml(username) + '</option>';
+        }).filter(Boolean)
+      );
+      els.operatorActivityUserFilter.innerHTML = options.join('');
+      if ([...els.operatorActivityUserFilter.options].some((option) => option.value === current)) {
+        els.operatorActivityUserFilter.value = current;
+      }
+    }
+
+    function operatorActivityModuleLabel(value) {
+      const labels = {
+        auth: 'Вход',
+        card: 'Карточки',
+        board: 'Доска',
+        client: 'Клиенты',
+        vehicle: 'Автомобили',
+        repair_order: 'Заказ-наряд',
+        cashbox: 'Касса',
+        employee: 'Сотрудники',
+        payroll: 'Зарплата',
+        file: 'Файлы',
+        admin: 'Админ',
+        agent: 'Агент',
+      };
+      return labels[String(value || '').trim()] || String(value || '-').trim() || '-';
+    }
+
+    function operatorActivityCell(value, extraClass = '') {
+      const classes = ['operator-activity-cell'].concat(extraClass ? [extraClass] : []);
+      return '<div class="' + classes.join(' ') + '">' + escapeHtml(value || '-') + '</div>';
+    }
+
+    function operatorActivityMoneyCell(value) {
+      const text = String(value || '').trim();
+      const tone = text.startsWith('-') ? ' operator-activity-cell--danger' : '';
+      return operatorActivityCell(text || '-', 'operator-activity-cell--money' + tone);
+    }
+
+    function renderOperatorActivityTable(data) {
+      const rows = data?.activities || [];
+      state.operatorActivityRows = rows;
+      state.operatorActivityMeta = data?.meta || null;
+      const header = [
+        operatorActivityCell('Время', 'operator-activity-cell--head operator-activity-cell--sticky'),
+        operatorActivityCell('Пользователь', 'operator-activity-cell--head'),
+        operatorActivityCell('Модуль', 'operator-activity-cell--head'),
+        operatorActivityCell('Действие', 'operator-activity-cell--head'),
+        operatorActivityCell('Объект', 'operator-activity-cell--head'),
+        operatorActivityCell('Суть изменения', 'operator-activity-cell--head'),
+        operatorActivityCell('Сумма', 'operator-activity-cell--head'),
+        operatorActivityCell('Источник', 'operator-activity-cell--head'),
+      ].join('');
+      const emptyRow = operatorActivityCell('СОБЫТИЙ ПО ФИЛЬТРАМ НЕТ.', 'operator-activity-cell--sticky')
+        + operatorActivityCell('', '')
+        + operatorActivityCell('', '')
+        + operatorActivityCell('', '')
+        + operatorActivityCell('', '')
+        + operatorActivityCell('', '')
+        + operatorActivityCell('', '')
+        + operatorActivityCell('', '');
+      const body = rows.map((row) => [
+        operatorActivityCell(formatDate(row.timestamp), 'operator-activity-cell--sticky'),
+        operatorActivityCell(row.username),
+        operatorActivityCell(operatorActivityModuleLabel(row.module)),
+        operatorActivityCell(row.action_label || row.action),
+        operatorActivityCell(row.object_label || row.object_id),
+        operatorActivityCell(row.summary, String(row.severity || '') === 'ok' ? 'operator-activity-cell--ok' : ''),
+        operatorActivityMoneyCell(row.amount),
+        operatorActivityCell(String(row.source || '').toUpperCase()),
+      ].join('')).join('');
+      els.operatorActivityTable.innerHTML = header + (body || emptyRow);
+      const meta = data?.meta || {};
+      els.operatorActivityMeta.textContent = 'СТРОК: ' + escapeHtml(meta.total ?? rows.length) + ' | ПОКАЗАНО: ' + escapeHtml(rows.length) + (meta.has_more ? ' | ЕСТЬ ЕЩЁ' : '');
+    }
+
+    function operatorActivityQueryString() {
+      const params = new URLSearchParams();
+      params.set('limit', '100');
+      const days = String(els.operatorActivityDays?.value || '90').trim();
+      if (days) params.set('days', days);
+      const username = String(els.operatorActivityUserFilter?.value || '').trim();
+      if (username) params.set('username', username);
+      const module = String(els.operatorActivityModuleFilter?.value || '').trim();
+      if (module) params.set('module', module);
+      const action = String(els.operatorActivityActionFilter?.value || '').trim();
+      if (action) params.set('action', action);
+      const query = String(els.operatorActivitySearchInput?.value || '').trim();
+      if (query) params.set('query', query);
+      return params.toString();
+    }
+
+    async function reloadOperatorActivity() {
+      return loadModalData('/api/list_operator_activity?' + operatorActivityQueryString(), {
+        modalEl: els.operatorAdminModal,
+        onSuccess: renderOperatorActivityTable,
+      });
+    }
+
+    async function exportOperatorActivity() {
+      try {
+        const data = await api('/api/export_operator_activity?' + operatorActivityQueryString());
+        const text = String(data?.text || '').trim();
+        if (!text) {
+          setStatus('ОТЧЁТ ПУСТ.', true);
+          return;
+        }
+        openTextBlobWindow(text, data?.file_name || 'operator-activity.txt');
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    function handleOperatorActivityFilterChange() {
+      reloadOperatorActivity().catch((error) => setStatus(error.message, true));
     }
 
     function openTextBlobWindow(text, fileName) {
@@ -15075,7 +15334,8 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     async function refreshOperatorAdminSurfaces({ openAdminModal = false, refreshProfile = false } = {}) {
-      const tasks = [reloadOperatorAdminUsers({ openModal: openAdminModal })];
+      if (openAdminModal) pushModal('operator-admin', els.operatorAdminModal);
+      const tasks = [reloadOperatorAdminUsers(), reloadOperatorActivity()];
       if (refreshProfile) tasks.push(loadOperatorProfile(false));
       await Promise.all(tasks);
     }
@@ -15107,7 +15367,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     async function openOperatorAdminModal() {
-      await reloadOperatorAdminUsers({ openModal: true });
+      await refreshOperatorAdminSurfaces({ openAdminModal: true });
     }
 
     async function saveOperatorUser() {
@@ -23583,6 +23843,7 @@ BOARD_WEB_APP_HTML = "".join(
     remountElement('operatorLogoutButton');
     remountElement('operatorAdminButton');
     remountElement('adminSaveUserButton');
+    remountElement('operatorActivityExportButton');
     remountElement('sharedFilesButton');
     remountElement('sharedFilesUploadButton');
     remountElement('sharedFilesOpenButton');
@@ -23616,6 +23877,12 @@ BOARD_WEB_APP_HTML = "".join(
     els.operatorAdminButton.addEventListener('click', openOperatorAdminModal);
     els.adminSaveUserButton.addEventListener('click', saveOperatorUser);
     els.adminUsersList.addEventListener('click', handleAdminUsersListClick);
+    els.operatorActivityDays?.addEventListener('change', handleOperatorActivityFilterChange);
+    els.operatorActivityUserFilter?.addEventListener('change', handleOperatorActivityFilterChange);
+    els.operatorActivityModuleFilter?.addEventListener('change', handleOperatorActivityFilterChange);
+    els.operatorActivityActionFilter?.addEventListener('input', handleOperatorActivityFilterChange);
+    els.operatorActivitySearchInput?.addEventListener('input', handleOperatorActivityFilterChange);
+    els.operatorActivityExportButton?.addEventListener('click', exportOperatorActivity);
 
     els.boardSettingsButton.addEventListener('click', openBoardSettings);
     els.archiveButton.addEventListener('click', openArchiveModal);

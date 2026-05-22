@@ -1765,6 +1765,19 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("СТАТИСТИКА: 15 ДНЕЙ", BOARD_WEB_APP_HTML)
         self.assertIn("bootstrapOperatorSession();", BOARD_WEB_APP_HTML)
 
+    def test_operator_admin_exposes_dense_activity_journal(self) -> None:
+        self.assertIn('id="operatorActivityFilters"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="operatorActivityTable"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="operatorActivityExportButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="operatorActivitySearchInput"', BOARD_WEB_APP_HTML)
+        self.assertIn(".operator-activity-scroll", BOARD_WEB_APP_HTML)
+        self.assertIn(".operator-activity-cell--sticky", BOARD_WEB_APP_HTML)
+        self.assertIn("grid-template-columns: 118px 105px 104px 142px", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/list_operator_activity", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/export_operator_activity", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderOperatorActivityTable(data)", BOARD_WEB_APP_HTML)
+        self.assertNotIn("operator-activity-card", BOARD_WEB_APP_HTML)
+
     def test_tag_editor_exposes_minimal_color_picker(self) -> None:
         self.assertIn('class="tag-color-picker" id="tagColorPicker"', BOARD_WEB_APP_HTML)
         self.assertIn(".tag-color-option {", BOARD_WEB_APP_HTML)
