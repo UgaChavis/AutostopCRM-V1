@@ -1145,6 +1145,16 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(details["data"]["cashbox"]["statistics"]["transactions_total"], 2)
         self.assertEqual(details["data"]["cashbox"]["statistics"]["balance_minor"], 200000)
+        self.assertEqual(details["data"]["meta"]["transaction_offset"], 0)
+        self.assertFalse(details["data"]["meta"]["has_more"])
+        status, paged_details = self.request(
+            f"/api/get_cashbox?cashbox_id={cashbox['id']}&transaction_limit=1&transaction_offset=1",
+            method="GET",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(paged_details["data"]["meta"]["transaction_offset"], 1)
+        self.assertEqual(paged_details["data"]["meta"]["transactions_returned"], 1)
+        self.assertFalse(paged_details["data"]["meta"]["has_more"])
         self.assertIn("Перемещение в Касса 2", details["data"]["transactions"][0]["note"])
         self.assertIn("business_date", details["data"]["transactions"][0])
         self.assertIn("business_time", details["data"]["transactions"][0])

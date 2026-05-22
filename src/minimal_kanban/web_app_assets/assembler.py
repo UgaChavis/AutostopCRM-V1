@@ -5191,6 +5191,11 @@ BOARD_WEB_APP_HTML = "".join(
       overflow: auto;
       padding-right: 3px;
     }
+    .cashbox-transactions__more {
+      min-height: 34px;
+      justify-content: center;
+      width: 100%;
+    }
     .cashbox-transaction {
       display: grid;
       grid-template-columns: auto minmax(0, 1fr) auto;
@@ -8104,6 +8109,7 @@ BOARD_WEB_APP_HTML = "".join(
     const BOARD_SEARCH_DEBOUNCE_MS = 90;
     const CASH_JOURNAL_FILTER_DEBOUNCE_MS = 80;
     const CASH_JOURNAL_RENDER_BATCH_SIZE = 250;
+    const CASHBOX_TRANSACTION_PAGE_SIZE = 100;
     const BOARD_SEARCH_CACHE_TTL_MS = 20000;
     const PERF_STORAGE_KEY = 'autostop-perf';
     const CARD_JOURNAL_INITIAL_LIMIT = 50;
@@ -20590,7 +20596,8 @@ BOARD_WEB_APP_HTML = "".join(
 
     function renderCashboxTransactions() {
       const transactions = filteredCashboxTransactions();
-      els.cashboxTransactions.innerHTML = transactions.length ? transactions.map((item) => {
+      const meta = state.activeCashbox?.meta || {};
+      const rowsHtml = transactions.length ? transactions.map((item) => {
         const direction = item?.direction === 'expense' ? 'expense' : 'income';
         const note = String(item?.note || '').trim() || 'Без комментария';
         const actor = String(item?.actor_name || '').trim() || '—';
@@ -20608,6 +20615,12 @@ BOARD_WEB_APP_HTML = "".join(
           + '<div class="cashbox-transaction__amount" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(direction === 'expense' ? '-' : '+') + escapeHtml(absoluteAmount) + '</div>'
           + '</div>';
       }).join('') : '<div class="cashboxes-empty">ПО ФИЛЬТРУ НИЧЕГО НЕ НАЙДЕНО.</div>';
+      const hasMore = Boolean(meta?.has_more);
+      const total = Number(meta?.transactions_total || transactions.length || 0);
+      const moreHtml = hasMore
+        ? '<button class="btn btn--ghost cashbox-transactions__more" type="button" data-cashbox-transactions-load-more="true">ПОКАЗАТЬ ЕЩЁ · ' + escapeHtml(String(transactions.length)) + '/' + escapeHtml(String(total)) + '</button>'
+        : '';
+      els.cashboxTransactions.innerHTML = rowsHtml + moreHtml;
     }
 
     function renderCashboxDetail() {
@@ -20655,15 +20668,21 @@ BOARD_WEB_APP_HTML = "".join(
       renderCashboxTransactions();
     }
 
-    async function loadCashboxDetail(cashboxId, { openModal = false } = {}) {
+    async function loadCashboxDetail(cashboxId, { openModal = false, offset = 0, append = false } = {}) {
       const normalizedId = String(cashboxId || '').trim();
       if (!normalizedId) return null;
       try {
-        const data = await api('/api/get_cashbox?cashbox_id=' + encodeURIComponent(normalizedId) + '&transaction_limit=500');
+        const transactionOffset = Math.max(0, Number(offset || 0));
+        const data = await api('/api/get_cashbox?cashbox_id=' + encodeURIComponent(normalizedId) + '&transaction_limit=' + CASHBOX_TRANSACTION_PAGE_SIZE + '&transaction_offset=' + transactionOffset);
+        const nextTransactions = Array.isArray(data?.transactions) ? data.transactions : [];
+        const canAppend = append && state.activeCashbox?.cashbox?.id === (data?.cashbox?.id || normalizedId);
+        const transactions = canAppend
+          ? filteredCashboxTransactions().concat(nextTransactions)
+          : nextTransactions;
         state.activeCashboxId = data?.cashbox?.id || normalizedId;
         state.activeCashbox = {
           cashbox: data?.cashbox || null,
-          transactions: Array.isArray(data?.transactions) ? data.transactions : [],
+          transactions,
           meta: data?.meta || {},
           statistics: data?.cashbox?.statistics || {},
         };
@@ -20680,6 +20699,16 @@ BOARD_WEB_APP_HTML = "".join(
         setStatus(error.message, true);
         return null;
       }
+    }
+
+    async function loadMoreCashboxTransactions() {
+      const cashboxId = String(state.activeCashbox?.cashbox?.id || state.activeCashboxId || '').trim();
+      if (!cashboxId) return;
+      await loadCashboxDetail(cashboxId, {
+        openModal: true,
+        offset: filteredCashboxTransactions().length,
+        append: true,
+      });
     }
 
     async function loadCashboxes(openModal = false) {
@@ -20713,7 +20742,14 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function openCashboxesModal() {
-      loadCashboxes(true);
+      maybeOpenModal(els.cashboxesModal, true);
+      if (!Array.isArray(state.cashboxes) || !state.cashboxes.length) {
+        els.cashboxesList.innerHTML = '<div class="cashboxes-empty">ЗАГРУЖАЮ КАССЫ...</div>';
+      }
+      if (!state.activeCashbox) {
+        renderCashboxDetail();
+      }
+      loadCashboxes(false);
     }
 
     async function loadCashJournalData({ includeMarkdown = false } = {}) {
@@ -22111,6 +22147,20 @@ BOARD_WEB_APP_HTML = "".join(
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
       await loadCashboxDetail(row.dataset.cashboxId, { openModal: true });
+    }
+
+    async function handleCashboxTransactionsClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const button = target.closest('[data-cashbox-transactions-load-more]');
+      if (!(button instanceof HTMLButtonElement)) return;
+      event.preventDefault();
+      button.disabled = true;
+      try {
+        await loadMoreCashboxTransactions();
+      } finally {
+        button.disabled = false;
+      }
     }
 
     function handleCashboxesListDragStart(event) {
@@ -23615,6 +23665,7 @@ BOARD_WEB_APP_HTML = "".join(
     els.cashboxTransferAmountInput.addEventListener('input', handleCashboxTransferAmountInput);
     els.cashboxTransferNoteInput.addEventListener('input', handleCashboxTransferNoteInput);
     els.cashboxesList.addEventListener('click', handleCashboxesListClick);
+    els.cashboxTransactions.addEventListener('click', handleCashboxTransactionsClick);
     els.cashboxesList.addEventListener('keydown', handleCashboxesListKeydown);
     els.cashboxesList.addEventListener('dragstart', handleCashboxesListDragStart);
     els.cashboxesList.addEventListener('dragover', handleCashboxesListDragOver);

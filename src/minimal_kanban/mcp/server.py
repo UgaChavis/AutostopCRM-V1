@@ -1838,10 +1838,16 @@ def create_mcp_server(
         annotations=_read_tool_annotations("Get Cashbox"),
         structured_output=True,
     )
-    def get_cashbox(cashbox_id: str, transaction_limit: int = 300) -> JsonEnvelope:
+    def get_cashbox(
+        cashbox_id: str, transaction_limit: int = 300, transaction_offset: int = 0
+    ) -> JsonEnvelope:
         return _relay_board_call(
             "get_cashbox",
-            lambda: board_api.get_cashbox(cashbox_id, transaction_limit=transaction_limit),
+            lambda: board_api.get_cashbox(
+                cashbox_id,
+                transaction_limit=transaction_limit,
+                transaction_offset=transaction_offset,
+            ),
             error_code="cashbox_unreachable",
         )
 
@@ -2053,6 +2059,7 @@ def create_mcp_server(
         card_id: str,
         limit: int | None = None,
         compact: bool = False,
+        include_full_details: bool = False,
         view_mode: Literal["audit", "full"] = "audit",
     ) -> JsonEnvelope:
         effective_limit = limit
@@ -2064,11 +2071,13 @@ def create_mcp_server(
                 card_id,
                 limit=effective_limit,
                 compact=compact,
+                include_full_details=include_full_details,
             ),
             params={
                 "card_id": card_id,
                 "limit": effective_limit,
                 "compact": compact,
+                "include_full_details": include_full_details,
                 "view_mode": view_mode,
             },
             transform=lambda response: _with_data_meta(

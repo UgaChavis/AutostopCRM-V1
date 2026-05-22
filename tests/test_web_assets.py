@@ -2694,9 +2694,24 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function cancelLastCashboxTransaction()", BOARD_WEB_APP_HTML)
         self.assertIn("async function loadCashboxes(openModal = false)", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "async function loadCashboxDetail(cashboxId, { openModal = false } = {})",
+            "async function loadCashboxDetail(cashboxId, { openModal = false, offset = 0, append = false } = {})",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn(
+            "const transactionOffset = Math.max(0, Number(offset || 0));", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "'&transaction_limit=' + CASHBOX_TRANSACTION_PAGE_SIZE + '&transaction_offset=' + transactionOffset",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "const canAppend = append && state.activeCashbox?.cashbox?.id === (data?.cashbox?.id || normalizedId);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("async function loadMoreCashboxTransactions()", BOARD_WEB_APP_HTML)
+        self.assertIn("offset: filteredCashboxTransactions().length,", BOARD_WEB_APP_HTML)
+        self.assertIn("append: true,", BOARD_WEB_APP_HTML)
+        self.assertIn("data-cashbox-transactions-load-more", BOARD_WEB_APP_HTML)
         self.assertIn("function activeCashboxLatestTransaction()", BOARD_WEB_APP_HTML)
         self.assertIn("function cashboxTransactionIsTransfer(item)", BOARD_WEB_APP_HTML)
         self.assertIn("function resetCashboxDragState()", BOARD_WEB_APP_HTML)
@@ -2767,6 +2782,10 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn(
             "els.cashboxTransferConfirmButton.addEventListener('click', submitCashboxTransfer);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cashboxTransactions.addEventListener('click', handleCashboxTransactionsClick);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(

@@ -41,10 +41,14 @@ class FinanceReadCore:
             transaction_limit = service._validated_limit(
                 payload.get("transaction_limit"), default=300, maximum=5000
             )
+            transaction_offset = _validated_offset(payload.get("transaction_offset"))
             bundle = service._store.read_bundle()
             cashboxes = service._ordered_cashboxes(bundle["cashboxes"])
             cashbox = service._find_cashbox(cashboxes, payload.get("cashbox_id"))
             transactions = service._cashbox_transactions(bundle["cash_transactions"], cashbox.id)
+            returned_transactions = transactions[
+                transaction_offset : transaction_offset + transaction_limit
+            ]
             repair_order_transaction_context = service._repair_order_transaction_context(
                 bundle["cards"]
             )
@@ -55,11 +59,14 @@ class FinanceReadCore:
                         item,
                         repair_order_context=repair_order_transaction_context.get(item.id),
                     )
-                    for item in transactions[:transaction_limit]
+                    for item in returned_transactions
                 ],
                 "meta": {
                     "transactions_total": len(transactions),
                     "transaction_limit": transaction_limit,
+                    "transaction_offset": transaction_offset,
+                    "transactions_returned": len(returned_transactions),
+                    "has_more": transaction_offset + len(returned_transactions) < len(transactions),
                 },
             }
 
@@ -128,3 +135,13 @@ class FinanceReadCore:
             _ = payload or {}
             bundle = service._store.read_bundle()
             return service._build_finance_audit(bundle)
+
+
+def _validated_offset(value: Any, *, default: int = 0, maximum: int = 1_000_000) -> int:
+    if value in (None, ""):
+        return default
+    try:
+        offset = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(0, min(maximum, offset))

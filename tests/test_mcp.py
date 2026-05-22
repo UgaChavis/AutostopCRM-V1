@@ -2367,11 +2367,16 @@ class BoardApiClientTests(unittest.TestCase):
         client = BoardApiClient("https://board.example/api", bearer_token="secret")
 
         with patch.object(client, "_request", return_value={"ok": True}) as request:
-            client.get_card_log("card-1", compact=True, limit=50)
+            client.get_card_log("card-1", compact=True, limit=50, include_full_details=True)
 
         request.assert_called_once_with(
             "/api/get_card_log",
-            {"card_id": "card-1", "limit": 50, "compact": True},
+            {
+                "card_id": "card-1",
+                "limit": 50,
+                "compact": True,
+                "include_full_details": True,
+            },
         )
 
     def test_wall_helpers_call_expected_api_endpoints(self) -> None:
@@ -2532,7 +2537,7 @@ class McpServerRuntimeTests(unittest.TestCase):
             client.list_cashboxes(limit=50)
             client.get_cash_journal()
             client.get_cash_journal(months=6, limit=250)
-            client.get_cashbox("CB-1", transaction_limit=25)
+            client.get_cashbox("CB-1", transaction_limit=25, transaction_offset=50)
             client.create_cashbox("Наличный", actor_name="ОПЕРАТОР")
             client.create_cash_transaction(
                 cashbox_id="CB-1",
@@ -2553,7 +2558,12 @@ class McpServerRuntimeTests(unittest.TestCase):
                     "/api/get_cash_journal", {"months": 6, "limit": 250}, method="POST"
                 ),
                 unittest.mock.call(
-                    "/api/get_cashbox", {"cashbox_id": "CB-1", "transaction_limit": 25}
+                    "/api/get_cashbox",
+                    {
+                        "cashbox_id": "CB-1",
+                        "transaction_limit": 25,
+                        "transaction_offset": 50,
+                    },
                 ),
                 unittest.mock.call(
                     "/api/create_cashbox",

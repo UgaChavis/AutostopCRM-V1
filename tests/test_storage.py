@@ -5,6 +5,7 @@ import logging
 import sys
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,12 +13,16 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from minimal_kanban.models import AuditEvent  # noqa: E402
+from minimal_kanban.storage.audit_archive import AuditArchiveStore  # noqa: E402
 from minimal_kanban.storage.financial_history_cleanup import (  # noqa: E402
     sanitize_financial_history_state,
 )
 from minimal_kanban.storage.json_store import DEFAULT_STATE, JsonStore  # noqa: E402
+from scripts.compact_audit_events import compact_state_file  # noqa: E402
 
 
 class JsonStoreTests(unittest.TestCase):
@@ -102,6 +107,94 @@ class JsonStoreTests(unittest.TestCase):
         self.assertNotIn("\n  ", raw_state)
         self.assertEqual(json.loads(raw_state)["schema_version"], DEFAULT_STATE["schema_version"])
         self.assertEqual(store.read_bundle()["cards"], bundle["cards"])
+
+    def test_v9_state_with_full_audit_details_reads_without_migration(self) -> None:
+        raw_state = deepcopy(DEFAULT_STATE)
+        raw_state["schema_version"] = 9
+        raw_state["events"] = [
+            {
+                "id": "legacy-description-event",
+                "timestamp": "2026-05-22T00:00:00+00:00",
+                "actor_name": "system",
+                "source": "system",
+                "action": "description_changed",
+                "message": "legacy full details",
+                "card_id": "card-1",
+                "details": {"before": "old", "after": "new"},
+            }
+        ]
+        self.state_file.write_text(json.dumps(raw_state, ensure_ascii=False), encoding="utf-8")
+        store = JsonStore(state_file=self.state_file, logger=self.logger)
+
+        bundle = store.read_bundle()
+        stored_state = json.loads(self.state_file.read_text(encoding="utf-8"))
+
+        self.assertEqual(bundle["events"][0].details, {"before": "old", "after": "new"})
+        self.assertEqual(stored_state["events"][0]["details"], {"before": "old", "after": "new"})
+
+    def test_compact_audit_events_dry_run_does_not_mutate_state(self) -> None:
+        raw_state = deepcopy(DEFAULT_STATE)
+        raw_state["events"] = [
+            {
+                "id": "event-1",
+                "timestamp": "2026-05-22T00:00:00+00:00",
+                "actor_name": "system",
+                "source": "system",
+                "action": "description_changed",
+                "message": "description changed",
+                "card_id": "card-1",
+                "details": {"before": "old" * 300, "after": "new" * 300},
+            }
+        ]
+        before_text = json.dumps(raw_state, ensure_ascii=False)
+        self.state_file.write_text(before_text, encoding="utf-8")
+
+        result = compact_state_file(self.state_file, apply=False)
+
+        self.assertTrue(result.dry_run)
+        self.assertEqual(result.events_compacted, 1)
+        self.assertEqual(self.state_file.read_text(encoding="utf-8"), before_text)
+        self.assertFalse((self.state_file.parent / "audit-archive").exists())
+
+    def test_compact_audit_events_apply_creates_backup_archive_and_keeps_event_count(self) -> None:
+        raw_state = deepcopy(DEFAULT_STATE)
+        raw_state["events"] = [
+            {
+                "id": "event-1",
+                "timestamp": "2026-05-22T00:00:00+00:00",
+                "actor_name": "system",
+                "source": "system",
+                "action": "repair_order_updated",
+                "message": "repair order changed",
+                "card_id": "card-1",
+                "details": {
+                    "before": {"number": "1", "reason": "old", "works": [{"name": "diag"}]},
+                    "after": {"number": "1", "reason": "new", "works": []},
+                    "number": "1",
+                    "status": "open",
+                },
+            }
+        ]
+        self.state_file.write_text(json.dumps(raw_state, ensure_ascii=False), encoding="utf-8")
+
+        result = compact_state_file(self.state_file, apply=True, backup=True)
+        compacted_state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        compacted_event = compacted_state["events"][0]
+        archive_store = AuditArchiveStore(self.state_file.parent / "audit-archive")
+        archived_details = archive_store.load_details(
+            compacted_event["details"]["full_details_ref"],
+            event_id="event-1",
+        )
+
+        self.assertFalse(result.dry_run)
+        self.assertEqual(result.events_total, 1)
+        self.assertEqual(result.events_compacted, 1)
+        self.assertTrue(Path(result.backup_file).exists())
+        self.assertEqual(len(compacted_state["events"]), 1)
+        self.assertTrue(compacted_event["details"]["full_details_archived"])
+        self.assertNotIn("before", compacted_event["details"])
+        self.assertNotIn("after", compacted_event["details"])
+        self.assertEqual(archived_details, raw_state["events"][0]["details"])
 
     def test_read_bundle_cache_detects_external_file_changes(self) -> None:
         store = JsonStore(state_file=self.state_file, logger=self.logger)

@@ -56,11 +56,7 @@ def payload_size(payload: Any) -> int:
 def summarize(samples: list[dict[str, Any]], scenario: str) -> dict[str, Any]:
     durations = [float(item.get("duration_ms") or 0.0) for item in samples]
     payload_sizes = [int(item.get("payload_bytes") or 0) for item in samples]
-    meta_entries = [
-        item.get("meta")
-        for item in samples
-        if isinstance(item.get("meta"), dict)
-    ]
+    meta_entries = [item.get("meta") for item in samples if isinstance(item.get("meta"), dict)]
     errors = [str(item.get("error")) for item in samples if item.get("error")]
     return {
         "scenario": scenario,
@@ -215,9 +211,7 @@ async def _discover_card_id(session: ClientSession, requested: str) -> str:
 async def _first_move_target(session: ClientSession, card_id: str) -> str:
     card_result = await session.call_tool("get_card", {"card_id": card_id})
     card_payload = card_result.structuredContent
-    current_column = str(
-        card_payload.get("data", {}).get("card", {}).get("column") or ""
-    )
+    current_column = str(card_payload.get("data", {}).get("card", {}).get("column") or "")
     columns_result = await session.call_tool("list_columns", {})
     columns_payload = columns_result.structuredContent
     columns = columns_payload.get("data", {}).get("columns", [])
@@ -326,7 +320,9 @@ async def run_mcp_perf(args: argparse.Namespace) -> dict[str, Any]:
 
                     if not card_id:
                         rows.append(skipped_row("mcp.get_card", "No card_id available."))
-                        rows.append(skipped_row("mcp.get_card_log_compact", "No card_id available."))
+                        rows.append(
+                            skipped_row("mcp.get_card_log_compact", "No card_id available.")
+                        )
                     if not writes_enabled:
                         rows.append(
                             skipped_row(

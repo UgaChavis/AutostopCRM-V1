@@ -64,6 +64,11 @@ class DocsAuditTests(unittest.TestCase):
                 "Only /api/finance_audit/apply_safe_fixes is mentioned.\n",
                 encoding="utf-8",
             )
+            (temp_root / "docs").mkdir()
+            (temp_root / "docs" / "OPERATIONS_RUNBOOK.md").write_text(
+                "No state maintenance docs.\n",
+                encoding="utf-8",
+            )
 
             issues = module._check_api_guide_required_routes(temp_root)
 
@@ -71,6 +76,11 @@ class DocsAuditTests(unittest.TestCase):
             {
                 "read-only finance audit API route is not documented: /api/finance_audit",
                 "repair-order number maintenance route is not documented: /api/correct_repair_order_number",
+                "card log archive hydration option is not documented: include_full_details",
+                "cashbox transaction pagination offset is not documented: transaction_offset",
+                "state size diagnostics script is not documented: state_size_report.py",
+                "audit compaction maintenance script is not documented: compact_audit_events.py",
+                "audit archive data directory is not documented: audit-archive",
             },
             {issue.detail for issue in issues},
         )
@@ -88,7 +98,11 @@ class DocsAuditTests(unittest.TestCase):
             source_dir.mkdir(parents=True)
             docs_dir.mkdir(parents=True)
 
-            tool_source = ["class DummyServer:", "    def tool(self, **kwargs): pass", "server = DummyServer()"]
+            tool_source = [
+                "class DummyServer:",
+                "    def tool(self, **kwargs): pass",
+                "server = DummyServer()",
+            ]
             for tool_name in manager_tools:
                 tool_source.extend(
                     [
@@ -121,8 +135,7 @@ class DocsAuditTests(unittest.TestCase):
                                 "tool_counts": {
                                     "crm_base_tools": 1,
                                     "optional_autostop_manager_tools": len(manager_tools),
-                                    "production_tools_with_manager_mounted": len(manager_tools)
-                                    + 1,
+                                    "production_tools_with_manager_mounted": len(manager_tools) + 1,
                                 },
                                 "live_tools_verified": ["crm_tool", *manager_tools],
                                 "tool_families": {

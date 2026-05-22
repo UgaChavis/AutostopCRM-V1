@@ -131,7 +131,36 @@ MCP read-only latency/payload probe:
 python scripts\perf_mcp.py --mcp-url https://crm.autostopcrm.ru/mcp --iterations 5
 ```
 
+When comparing local and production MCP tools, compare tool names. Optional
+manager tools from `AutostopManager`, such as `estimate_repair_work_cost`, can
+exist on production and be absent in a CRM-only local workspace.
+
 Пороговые значения нужны как guardrail, а не как SLA. Если production сеть нестабильна, приложите JSON output к задаче и повторите probe перед выводами.
+
+### Размер State И Архив Аудита
+
+State diagnostics are read-only first:
+
+```powershell
+python scripts\state_size_report.py --json
+python scripts\state_size_report.py --benchmark-iterations 1
+```
+
+Heavy audit events keep compact details in active `state.json`; full
+`before/after` snapshots live in append-only `audit-archive` under the same data
+directory. Do not edit either file manually.
+
+Historical audit compaction flow:
+
+```powershell
+python scripts\compact_audit_events.py --dry-run --json
+python scripts\compact_audit_events.py --apply --backup
+```
+
+Run `--dry-run` and review the report before any live compaction. `--apply`
+takes the state file lock, creates a backup when `--backup` is supplied, appends
+full details to `audit-archive`, and rewrites active `state.json` with compact
+event details.
 
 ### Finance Audit-First
 

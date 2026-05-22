@@ -116,6 +116,10 @@ python scripts\audit_localization.py
 
 MCP по умолчанию: `http://127.0.0.1:41831/mcp`.
 Точный runtime-набор tools не фиксируется в документации: проверяйте live `tools/list`, `scripts/check_live_connector.py` и `src/minimal_kanban/mcp/server.py`.
+Manager tools зависят от доступности optional `AutostopManager`; например
+`estimate_repair_work_cost` может быть в production и отсутствовать локально.
+При release-сверке сравнивайте имена tools и отдельно отмечайте optional
+manager layer, а не только общий count.
 
 `autofill_vehicle_data`, `autofill_repair_order` и `cleanup_card_content` остаются API/UI/compatibility путями и не должны считаться обычными MCP tools.
 
@@ -179,6 +183,7 @@ overview, repair-order counts, client-quality signals и metadata общих ф�
 - `%APPDATA%\Minimal Kanban\attachments`
 - `%APPDATA%\Minimal Kanban\repair-orders`
 - `%APPDATA%\Minimal Kanban\shared-files`
+- `%APPDATA%\Minimal Kanban\audit-archive`
 - `%APPDATA%\Minimal Kanban\logs\minimal-kanban.log`
 
 В Docker:
@@ -187,6 +192,12 @@ overview, repair-order counts, client-quality signals и metadata общих ф�
 - container data: `/root/.minimal-kanban`
 
 Не коммитьте runtime state, snapshots, SQLite/JSON data, attachments, secrets или credentials.
+
+`audit-archive` хранит полные `before/after` для тяжёлых audit events, которые
+в активном `state.json` остаются компактными. Перед обслуживанием размера state
+используйте read-only `scripts/state_size_report.py`, затем
+`scripts/compact_audit_events.py --dry-run`; live compaction выполняется только
+с backup.
 
 Для ручного QA на realistic data используйте dated sandbox вне repo, например
 `%USERPROFILE%\Desktop\AutostopCRM-data-snapshots\prod-2026-05-19`, и запускайте

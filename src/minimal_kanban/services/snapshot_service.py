@@ -258,6 +258,7 @@ class SnapshotService:
         find_card: Callable[[list[Card], str | None], Card],
         events_for_card: Callable[[list[AuditEvent], str], list[AuditEvent]],
         fail: Callable[..., None],
+        hydrate_event_details: Callable[[AuditEvent], AuditEvent] | None = None,
     ) -> None:
         self._store = store
         self._lock = lock
@@ -280,6 +281,7 @@ class SnapshotService:
         self._search_card_match = search_card_match
         self._find_card = find_card
         self._events_for_card = events_for_card
+        self._hydrate_event_details = hydrate_event_details
         self._fail = fail
 
     def _viewer_username(self, payload: dict | None) -> str | None:
@@ -1236,6 +1238,9 @@ class SnapshotService:
         with self._lock:
             payload = payload or {}
             compact = self._validated_optional_bool(payload, "compact", default=False)
+            include_full_details = self._validated_optional_bool(
+                payload, "include_full_details", default=False
+            )
             limit_raw = payload.get("limit")
             limit = (
                 self._validated_limit(limit_raw, default=100, maximum=1000)
@@ -1247,6 +1252,8 @@ class SnapshotService:
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             card_events = self._events_for_card(bundle["events"], card.id)
+            if include_full_details and self._hydrate_event_details is not None:
+                card_events = [self._hydrate_event_details(event) for event in card_events]
             events = [
                 event.to_dict()
                 for event in (card_events[:limit] if limit is not None else card_events)
@@ -1281,6 +1288,7 @@ class SnapshotService:
                 "text_alias": "" if compact else "markdown",
                 "event_order": "newest_first",
                 "compact": compact,
+                "include_full_details": include_full_details,
             }
             if compact:
                 return {
@@ -1805,7 +1813,14 @@ class SnapshotService:
         elif action == "title_changed":
             add("title", before=details.get("before"), after=details.get("after"))
         elif action == "description_changed":
-            add("description", before=details.get("before"), after=details.get("after"))
+            if "before" in details or "after" in details:
+                add("description", before=details.get("before"), after=details.get("after"))
+            else:
+                add(
+                    "description",
+                    before=details.get("before_preview"),
+                    after=details.get("after_preview") or details.get("description_preview"),
+                )
         elif action == "board_summary_changed":
             add("board_summary", before=details.get("before"), after=details.get("after"))
         elif action == "signal_changed":
@@ -1847,6 +1862,18 @@ class SnapshotService:
         elif action == "repair_order_updated":
             if "before" in details or "after" in details:
                 add("repair_order", before=details.get("before"), after=details.get("after"))
+            else:
+                summary_keys = (
+                    "number",
+                    "status",
+                    "works",
+                    "materials",
+                    "payments",
+                    "paid_total",
+                    "payment_status",
+                )
+                summary = {key: details.get(key) for key in summary_keys if key in details}
+                add("repair_order", after=summary)
         elif action == "cash_transaction_deleted":
             add("cash_transaction", before=details)
 

@@ -98,6 +98,32 @@ API_GUIDE_REQUIRED_ROUTE_TEXT = (
     ),
 )
 
+API_GUIDE_REQUIRED_TEXT = (
+    (
+        "include_full_details",
+        "card log archive hydration option is not documented",
+    ),
+    (
+        "transaction_offset",
+        "cashbox transaction pagination offset is not documented",
+    ),
+)
+
+RUNBOOK_REQUIRED_TEXT = (
+    (
+        "state_size_report.py",
+        "state size diagnostics script is not documented",
+    ),
+    (
+        "compact_audit_events.py",
+        "audit compaction maintenance script is not documented",
+    ),
+    (
+        "audit-archive",
+        "audit archive data directory is not documented",
+    ),
+)
+
 
 @dataclass(frozen=True)
 class Issue:
@@ -126,10 +152,13 @@ def scan_forbidden_text(path: Path, text: str, *, root: Path = ROOT) -> list[Iss
 
 
 def _contains_route_text(text: str, route: str) -> bool:
-    return re.search(
-        rf"(?<![A-Za-z0-9_/\-]){re.escape(route)}(?![A-Za-z0-9_/\-])",
-        text,
-    ) is not None
+    return (
+        re.search(
+            rf"(?<![A-Za-z0-9_/\-]){re.escape(route)}(?![A-Za-z0-9_/\-])",
+            text,
+        )
+        is not None
+    )
 
 
 def _check_api_guide_required_routes(root: Path) -> list[Issue]:
@@ -148,6 +177,27 @@ def _check_api_guide_required_routes(root: Path) -> list[Issue]:
                     f"{detail}: {route}",
                 )
             )
+    for required_text, detail in API_GUIDE_REQUIRED_TEXT:
+        if required_text not in text:
+            issues.append(
+                Issue(
+                    "api_guide_missing_contract",
+                    _display_path(path, root),
+                    f"{detail}: {required_text}",
+                )
+            )
+    runbook = root / "docs" / "OPERATIONS_RUNBOOK.md"
+    if runbook.exists():
+        runbook_text = _read_text(runbook)
+        for required_text, detail in RUNBOOK_REQUIRED_TEXT:
+            if required_text not in runbook_text:
+                issues.append(
+                    Issue(
+                        "runbook_missing_maintenance_contract",
+                        _display_path(runbook, root),
+                        f"{detail}: {required_text}",
+                    )
+                )
     return issues
 
 

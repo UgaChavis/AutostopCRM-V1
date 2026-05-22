@@ -451,10 +451,18 @@ class BoardApiClient:
             payload["limit"] = limit
         return self._request("/api/suggest_clients_for_card", payload)
 
-    def get_cashbox(self, cashbox_id: str, *, transaction_limit: int | None = None) -> dict:
+    def get_cashbox(
+        self,
+        cashbox_id: str,
+        *,
+        transaction_limit: int | None = None,
+        transaction_offset: int | None = None,
+    ) -> dict:
         payload: dict[str, object] = {"cashbox_id": cashbox_id}
         if transaction_limit is not None:
             payload["transaction_limit"] = transaction_limit
+        if transaction_offset is not None:
+            payload["transaction_offset"] = transaction_offset
         return self._request("/api/get_cashbox", payload)
 
     def create_cashbox(self, name: str, *, actor_name: str | None = None) -> dict:
@@ -562,12 +570,15 @@ class BoardApiClient:
         *,
         limit: int | None = None,
         compact: bool | None = None,
+        include_full_details: bool | None = None,
     ) -> dict:
         payload: dict[str, object] = {"card_id": card_id}
         if limit is not None:
             payload["limit"] = limit
         if compact is not None:
             payload["compact"] = compact
+        if include_full_details is not None:
+            payload["include_full_details"] = include_full_details
         return self._request("/api/get_card_log", payload)
 
     def get_repair_order(self, card_id: str) -> dict:

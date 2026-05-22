@@ -32,6 +32,7 @@ docker compose ps
 docker compose logs --tail=200 autostopcrm
 docker compose logs --tail=100 autostopcrm-telegram-ai
 curl -sS http://127.0.0.1:41731/api/health
+python scripts/state_size_report.py --json
 
 5. HTTPS/nginx checks
 nginx -t
@@ -47,6 +48,7 @@ If telegram-ai.env exists as an untracked server file, keep it.
 7. Safety
 - production source of truth is GitHub branch autostopcrm-v1
 - do not edit JSON state manually
+- run compact_audit_events only with --dry-run first and --apply --backup after review
 - do not remove server-local env files
 - do not commit credentials
 - verify branch parity before and after deploy

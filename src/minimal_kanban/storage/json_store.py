@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from copy import deepcopy
 from datetime import timedelta
 from logging import Logger
@@ -27,6 +28,8 @@ from ..models import (
 from ..services.ready_column import ensure_ready_column
 from ..texts import COLUMN_LABELS_RU
 from .file_lock import ProcessFileLock
+
+SLOW_STORAGE_OPERATION_MS = 250.0
 
 
 def default_columns() -> list[Column]:
@@ -77,6 +80,7 @@ class JsonStore:
         return self._state_file.parent
 
     def read_bundle(self) -> dict[str, Any]:
+        started_at = time.perf_counter()
         with self._lock:
             with self._process_lock.acquire():
                 signature = self._state_signature()
@@ -135,6 +139,7 @@ class JsonStore:
                 }
                 self._read_cache_signature = self._state_signature()
                 self._read_cache_bundle = bundle
+                self._log_slow_operation("read_bundle", started_at)
                 return bundle
 
     def write_bundle(
@@ -149,6 +154,7 @@ class JsonStore:
         events: list[AuditEvent],
         settings: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        started_at = time.perf_counter()
         with self._lock:
             with self._process_lock.acquire():
                 current_state: dict[str, Any] | None = None
@@ -215,6 +221,7 @@ class JsonStore:
                 self._write_state(state)
                 self._read_cache_signature = self._state_signature()
                 self._read_cache_bundle = bundle
+                self._log_slow_operation("write_bundle", started_at)
                 return bundle
 
     def read_cards(self) -> list[Card]:
@@ -346,6 +353,21 @@ class JsonStore:
     def _invalidate_read_cache(self) -> None:
         self._read_cache_signature = None
         self._read_cache_bundle = None
+
+    def _log_slow_operation(self, operation: str, started_at: float) -> None:
+        duration_ms = (time.perf_counter() - started_at) * 1000
+        if duration_ms < SLOW_STORAGE_OPERATION_MS or self._logger is None:
+            return
+        try:
+            state_size = self._state_file.stat().st_size
+        except OSError:
+            state_size = 0
+        self._logger.info(
+            "json_store_slow_operation operation=%s duration_ms=%.1f state_bytes=%s",
+            operation,
+            duration_ms,
+            state_size,
+        )
 
     def _normalize_columns(self, state: dict) -> tuple[list[Column], bool]:
         raw_columns = state.get("columns", [])

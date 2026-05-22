@@ -66,6 +66,11 @@ Write:
 
 `review_board` и compact snapshot предпочтительнее широких exports. `get_board_content`, `get_board_events` и `get_gpt_wall` нужны для полного агентского контекста, когда точечных reads недостаточно.
 
+`get_card_log` по умолчанию возвращает читаемый журнал и компактные details для
+тяжёлых событий. Для maintenance/debug чтения полного `before/after` передайте
+`include_full_details=true`: сервер подтянет archived details из
+`audit-archive`, если событие было вынесено из активного `state.json`.
+
 ## Board Summary
 
 `POST /api/set_card_board_summary`
@@ -178,6 +183,10 @@ legacy-пары без `transfer_group_id` сопоставляются на к�
 read-only/diagnostic схемой и не имеет пользовательского entrypoint в кассовом
 UI. `finance_audit/apply_safe_fixes` запускается только после owner review,
 dry-run результата и отдельного подтверждения.
+
+`get_cashbox` поддерживает пагинацию операций: `transaction_limit` задаёт размер
+страницы, `transaction_offset` - смещение. Если параметры не переданы, поведение
+остаётся совместимым: возвращается первая страница с legacy default limit.
 
 `get_employee_salary_report` возвращает `employee_salary_report.v3`: технический
 реестр начислений выбранного сотрудника за месяц `month=YYYY-MM`. В отчёт

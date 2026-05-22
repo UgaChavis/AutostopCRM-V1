@@ -34,6 +34,7 @@ FORBIDDEN_PHRASES = [
 ALLOWED_EXCERPTS = [
     "Start Kanban.exe",
     "Start%20Kanban.exe",
+    "AuditArchiveStore",
 ]
 
 

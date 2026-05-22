@@ -82,6 +82,13 @@ from ..repair_order import (
     repair_order_payment_method_from_payments,
     repair_order_payment_method_label,
 )
+from ..storage.audit_archive import (
+    AUDIT_ARCHIVE_DIR_NAME,
+    AuditArchiveStore,
+    compact_audit_event_details,
+    details_need_archive,
+    hydrate_audit_event_details,
+)
 from ..storage.json_store import JsonStore, default_columns
 from ..vehicle_profile import (
     VEHICLE_COMPACT_FIELDS,
@@ -497,6 +504,12 @@ class CardService:
         self._attachments_dir.mkdir(parents=True, exist_ok=True)
         self._repair_orders_dir = repair_orders_dir or (self._store.base_dir / "repair-orders")
         self._repair_orders_dir.mkdir(parents=True, exist_ok=True)
+        self._audit_archive = AuditArchiveStore(
+            self._store.base_dir / AUDIT_ARCHIVE_DIR_NAME,
+            logger,
+        )
+        self._runtime_cleanup_interval_seconds = 30.0
+        self._last_runtime_cleanup_at = 0.0
         self._vehicle_profiles = VehicleProfileService()
         self._print_module = PrintModuleService(self._store.base_dir)
         self._finance_read_core = FinanceReadCore(self)
@@ -535,6 +548,7 @@ class CardService:
             find_card=self._find_card,
             events_for_card=self._events_for_card,
             fail=self._fail,
+            hydrate_event_details=self._hydrate_event_details,
         )
 
     def attach_agent_control(self, agent_control: Any | None) -> None:
@@ -4807,7 +4821,13 @@ class CardService:
                 card_id=card.id,
                 details={"column": card.column},
             )
-            self._save_bundle(bundle, columns=bundle["columns"], cards=cards, events=events)
+            self._save_bundle(
+                bundle,
+                columns=bundle["columns"],
+                cards=cards,
+                events=events,
+                force_cleanup=True,
+            )
             self._logger.info("archive_card id=%s actor=%s source=%s", card.id, actor_name, source)
             return {
                 "card": self._serialize_card(
@@ -8381,6 +8401,7 @@ class CardService:
         cash_transactions: list[CashTransaction] | None = None,
         events: list[AuditEvent],
         settings: dict[str, Any] | None = None,
+        force_cleanup: bool = False,
     ) -> None:
         written_bundle = self._store.write_bundle(
             columns=columns,
@@ -8395,8 +8416,19 @@ class CardService:
             settings=bundle["settings"] if settings is None else settings,
         )
         written_cards = written_bundle["cards"]
-        self._cleanup_repair_orders_directory(written_cards)
-        self._cleanup_attachment_directories(written_cards)
+        self._cleanup_runtime_artifacts_if_due(written_cards, force=force_cleanup)
+
+    def _cleanup_runtime_artifacts_if_due(self, cards: list[Card], *, force: bool = False) -> None:
+        now = time.monotonic()
+        if (
+            not force
+            and self._last_runtime_cleanup_at
+            and now - self._last_runtime_cleanup_at < self._runtime_cleanup_interval_seconds
+        ):
+            return
+        self._last_runtime_cleanup_at = now
+        self._cleanup_repair_orders_directory(cards)
+        self._cleanup_attachment_directories(cards)
 
     def _parse_payroll_decimal(self, value, *, default: Decimal = Decimal("0")) -> Decimal:
         raw = normalize_text(value, default="", limit=40).replace(" ", "").replace(",", ".")
@@ -8931,17 +8963,61 @@ class CardService:
         card_id: str | None,
         details: dict | None = None,
     ) -> None:
+        event_id = str(uuid.uuid4())
+        timestamp = utc_now_iso()
+        event_details = dict(details or {})
+        if details_need_archive(action, event_details):
+            try:
+                archive_write = self._audit_archive.archive_details(
+                    event_id=event_id,
+                    action=action,
+                    card_id=card_id,
+                    timestamp=timestamp,
+                    details=event_details,
+                )
+                event_details = compact_audit_event_details(
+                    action=action,
+                    details=event_details,
+                    archive_ref=archive_write.ref,
+                )
+            except Exception as exc:  # pragma: no cover - preserves active audit on archive failure
+                self._logger.warning(
+                    "audit_archive_write_failed action=%s card_id=%s error=%s",
+                    action,
+                    card_id,
+                    exc,
+                )
         event = AuditEvent(
-            id=str(uuid.uuid4()),
-            timestamp=utc_now_iso(),
+            id=event_id,
+            timestamp=timestamp,
             actor_name=actor_name,
             source=source,  # type: ignore[arg-type]
             action=action,
             message=message,
-            details=details or {},
+            details=event_details,
             card_id=card_id,
         )
         events.append(event)
+
+    def _hydrate_event_details(self, event: AuditEvent) -> AuditEvent:
+        details = hydrate_audit_event_details(
+            action=event.action,
+            details=event.details,
+            archive_store=self._audit_archive,
+            event_id=event.id,
+        )
+        if details == event.details:
+            return event
+        return AuditEvent(
+            id=event.id,
+            timestamp=event.timestamp,
+            actor_name=event.actor_name,
+            source=event.source,
+            action=event.action,
+            message=event.message,
+            details=details,
+            card_id=event.card_id,
+        )
 
     def _find_card(self, cards: list[Card], card_id: str | None) -> Card:
         if not card_id:

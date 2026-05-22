@@ -118,6 +118,12 @@ If `AutostopManager` is mounted next to CRM or `AUTOSTOP_MANAGER_PATH` points to
 - `recommend_fluid_maintenance_sources`
 - `recommend_service_management_actions`
 
+These manager tools are optional and depend on a mounted `AutostopManager`
+runtime. For example, production can expose `estimate_repair_work_cost` while a
+local CRM-only workspace does not. Release checks should compare actual tool
+names and explain optional manager-layer differences instead of relying only on
+the total tool count.
+
 CRM remains the source of truth for cards, clients, vehicles, repair orders, files, payments and cashboxes. Manager memory is only for durable manager facts, decisions and knowledge navigation.
 
 ## Obsidian Knowledge Vault
@@ -158,7 +164,9 @@ unless the owner approves that exact cloud export.
 - `search_cards` перед широким чтением доски;
 - `suggest_clients_for_card` или `search_clients` перед `create_client`;
 - `get_card_context` перед card writes;
-- `get_card_log(compact=true, limit=50)`, когда важны быстрые audit/recovery.
+- `get_card_log(compact=true, limit=50)`, когда важны быстрые audit/recovery;
+- `get_card_log(include_full_details=true)` только для maintenance/debug, когда
+  нужны archived full `before/after`.
 
 Тяжёлые reads используйте точечно:
 
@@ -166,7 +174,8 @@ unless the owner approves that exact cloud export.
 - `get_board_content`
 - `get_board_events` с большими limits
 - full `get_card`
-- full `get_card_log(compact=false)` with raw before/after values and Markdown
+- `get_card_log(include_full_details=true)` with archived raw before/after values
+  and Markdown
 - large attachment/base64 reads
 
 ## Tool Groups
@@ -219,6 +228,8 @@ Cashboxes:
 - `create_cash_transaction`
 
 `get_cash_journal` exposes the structured cash journal for operators and agents.
+`get_cashbox` supports `transaction_limit` and `transaction_offset`; use small
+pages when a cashbox has many operations.
 The browser UI is journal-first: no visible finance-audit/reconciliation
 entrypoint, compact rows, batch rendering, and transfer pairs shown as one
 logical `from -> to` operation. Finance audit remains API/CLI diagnostics and

@@ -540,7 +540,7 @@ class ChatGPTConnectDialog(QDialog):
 
         if settings.mcp.mcp_auth_mode == "bearer":
             self.step_token_label.setText(
-                "Шаг 5. ChatGPT подключается через встроенный OAuth/DCR; legacy bearer token нужен только для Responses API или ручного MCP-клиента."
+                "Шаг 5. ChatGPT подключается через встроенный OAuth/DCR; legacy Bearer-токен нужен только для Responses API или ручного MCP-клиента."
             )
             self.mcp_token_label.show()
             self.mcp_token_input.show()

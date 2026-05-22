@@ -2489,6 +2489,44 @@ class CardServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Нельзя создать больше 6 касс"):
             self.service.create_cashbox({"name": "Касса 7", "actor_name": "ADMIN"})
 
+    def test_get_cashbox_paginates_transactions_with_stable_order(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        for index in range(5):
+            self.service.create_cash_transaction(
+                {
+                    "cashbox_id": cashbox["id"],
+                    "direction": "income",
+                    "amount": str(100 + index),
+                    "note": f"Операция {index}",
+                    "actor_name": "ADMIN",
+                }
+            )
+
+        first_page = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 2})
+        second_page = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 2, "transaction_offset": 2}
+        )
+        last_page = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 2, "transaction_offset": 4}
+        )
+
+        self.assertEqual(first_page["meta"]["transactions_total"], 5)
+        self.assertEqual(first_page["meta"]["transaction_offset"], 0)
+        self.assertEqual(first_page["meta"]["transactions_returned"], 2)
+        self.assertTrue(first_page["meta"]["has_more"])
+        self.assertEqual(second_page["meta"]["transaction_offset"], 2)
+        self.assertTrue(second_page["meta"]["has_more"])
+        self.assertEqual(last_page["meta"]["transaction_offset"], 4)
+        self.assertFalse(last_page["meta"]["has_more"])
+        self.assertEqual(len(last_page["transactions"]), 1)
+        self.assertTrue(
+            {item["id"] for item in first_page["transactions"]}.isdisjoint(
+                {item["id"] for item in second_page["transactions"]}
+            )
+        )
+
     def test_cash_journal_returns_structured_markdown_report(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"
@@ -3913,12 +3951,70 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(compact_log["meta"]["limit"], 50)
         self.assertTrue(compact_log["meta"]["compact"])
         self.assertLessEqual(len(block["text"]), 1200)
-        self.assertTrue(block["is_truncated"])
+        raw_state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        raw_event = next(
+            item for item in raw_state["events"] if item["action"] == "description_changed"
+        )
+        self.assertTrue(raw_event["details"]["full_details_archived"])
+        self.assertNotIn("before", raw_event["details"])
+        self.assertNotIn("after", raw_event["details"])
         self.assertNotIn("published_text", entry)
         self.assertNotIn("published_blocks", entry)
         self.assertNotIn("details_text", entry)
         self.assertNotIn("entries", compact_log["days"][0])
         self.assertNotIn("events", compact_log)
+
+    def test_heavy_description_event_archives_full_details_and_hydrates_on_request(
+        self,
+    ) -> None:
+        original_description = "Исходная строка. " * 80
+        updated_description = "Новая строка. " * 80
+        created = self.service.create_card(
+            {
+                "title": "АРХИВ АУДИТА",
+                "description": original_description,
+                "deadline": {"hours": 2},
+                "actor_name": "МАСТЕР",
+                "source": "api",
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "description": updated_description,
+                "actor_name": "МАСТЕР",
+                "source": "api",
+            }
+        )
+
+        raw_state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        event = next(
+            item for item in raw_state["events"] if item["action"] == "description_changed"
+        )
+        details = event["details"]
+
+        self.assertTrue(details["full_details_archived"])
+        self.assertNotIn("before", details)
+        self.assertNotIn("after", details)
+        archive_ref = details["full_details_ref"]
+        archive_file = self.state_file.parent / "audit-archive" / archive_ref.split("#", 1)[0]
+        self.assertTrue(archive_file.exists())
+
+        default_log = self.service.get_card_log({"card_id": card_id, "limit": 1})
+        default_entry = default_log["entries"][0]
+        self.assertTrue(default_entry["details"]["full_details_archived"])
+        self.assertNotIn("before", default_entry["details"])
+        self.assertNotIn("after", default_entry["details"])
+        self.assertIn("Новая строка", default_entry["journal_blocks"][0]["text"])
+
+        full_log = self.service.get_card_log(
+            {"card_id": card_id, "limit": 1, "include_full_details": True}
+        )
+        full_entry = full_log["entries"][0]
+        self.assertEqual(full_entry["details"]["before"], original_description.strip())
+        self.assertEqual(full_entry["details"]["after"], updated_description.strip())
+        self.assertEqual(full_log["meta"]["include_full_details"], True)
 
     def test_get_card_log_exposes_full_before_after_changes(self) -> None:
         created = self.service.create_card(
@@ -3951,7 +4047,9 @@ class CardServiceTests(unittest.TestCase):
             created_description["text"], "Первая строка\nВторая строка с важной информацией"
         )
 
-        log = self.service.get_card_log({"card_id": card_id, "limit": 1})
+        log = self.service.get_card_log(
+            {"card_id": card_id, "limit": 1, "include_full_details": True}
+        )
         entry = next(item for item in log["entries"] if item["action"] == "description_changed")
 
         self.assertEqual(entry["icon"], "📝")
@@ -4052,7 +4150,7 @@ class CardServiceTests(unittest.TestCase):
             }
         )
 
-        log = self.service.get_card_log({"card_id": card_id})
+        log = self.service.get_card_log({"card_id": card_id, "include_full_details": True})
         entry = next(item for item in log["entries"] if item["action"] == "repair_order_updated")
         repair_order_change = next(
             change for change in entry["changes"] if change["field"] == "repair_order"
@@ -4106,7 +4204,7 @@ class CardServiceTests(unittest.TestCase):
             }
         )
 
-        log = self.service.get_card_log({"card_id": card_id})
+        log = self.service.get_card_log({"card_id": card_id, "include_full_details": True})
         entry = next(item for item in log["entries"] if item["action"] == "vehicle_profile_updated")
         change = entry["changes"][0]
 
