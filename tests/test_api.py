@@ -41,6 +41,7 @@ from attachment_samples import (
 from minimal_kanban.api.server import ApiServer
 from minimal_kanban.api.server import _success_log_level
 from minimal_kanban.models import AuditEvent, utc_now
+from minimal_kanban.operator_activity import OperatorActivityService
 from minimal_kanban.operator_auth import OperatorAuthService, _password_hash
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
@@ -87,6 +88,10 @@ class ApiServerTests(unittest.TestCase):
             self.store,
             self.service,
             users_file=Path(self.temp_dir.name) / "users.json",
+            activity_service=OperatorActivityService(
+                activity_dir=Path(self.temp_dir.name) / "operator-activity",
+                logger=logger,
+            ),
             logger=logger,
         )
         self.port = reserve_port()
@@ -773,6 +778,83 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 401)
         self.assertEqual(blocked["error"]["code"], "unauthorized")
         self.assertEqual(blocked["error"]["details"]["auth_type"], "operator_session")
+
+    def test_operator_activity_route_scopes_non_admin_to_own_rows(self) -> None:
+        status, admin_login = self.request(
+            "/api/login_operator", {"username": "admin", "password": "admin"}
+        )
+        self.assertEqual(status, 200)
+        admin_headers = {"X-Operator-Session": admin_login["data"]["session"]["token"]}
+
+        status, _ = self.request(
+            "/api/save_operator_user",
+            {"username": "worker", "password": "1234"},
+            headers=admin_headers,
+        )
+        self.assertEqual(status, 200)
+
+        status, worker_login = self.request(
+            "/api/login_operator", {"username": "worker", "password": "1234"}
+        )
+        self.assertEqual(status, 200)
+        worker_headers = {"X-Operator-Session": worker_login["data"]["session"]["token"]}
+
+        status, admin_rows = self.request(
+            "/api/list_operator_activity?limit=50", method="GET", headers=admin_headers
+        )
+        self.assertEqual(status, 200)
+        admin_usernames = {row["username"] for row in admin_rows["data"]["activities"]}
+        self.assertIn("ADMIN", admin_usernames)
+        self.assertIn("WORKER", admin_usernames)
+
+        status, worker_rows = self.request(
+            "/api/list_operator_activity?limit=50", method="GET", headers=worker_headers
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(worker_rows["data"]["activities"])
+        self.assertEqual(
+            {row["username"] for row in worker_rows["data"]["activities"]},
+            {"WORKER"},
+        )
+
+        status, forbidden = self.request(
+            "/api/list_operator_activity?username=ADMIN", method="GET", headers=worker_headers
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(forbidden["error"]["code"], "forbidden")
+
+    def test_open_card_records_operator_activity_row(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"title": "Tracked activity open", "deadline": {"hours": 1}},
+        )
+        self.assertEqual(status, 200)
+        card = created["data"]["card"]
+
+        status, logged_in = self.request(
+            "/api/login_operator",
+            {"username": "admin", "password": "admin"},
+        )
+        self.assertEqual(status, 200)
+        headers = {"X-Operator-Session": logged_in["data"]["session"]["token"]}
+
+        status, opened = self.request(
+            "/api/open_card",
+            {"card_id": card["id"], "return_card": False, "mark_seen": False},
+            headers=headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(opened["data"]["opened"])
+
+        status, activity = self.request(
+            "/api/list_operator_activity?action=card_opened", method="GET", headers=headers
+        )
+        self.assertEqual(status, 200)
+        rows = activity["data"]["activities"]
+        self.assertEqual(rows[0]["username"], "ADMIN")
+        self.assertEqual(rows[0]["object_id"], card["id"])
+        self.assertEqual(rows[0]["object_label"], card["title"])
+        self.assertEqual(rows[0]["summary"], "Просмотр без изменения данных")
 
     def test_admin_user_report_uses_last_15_days_window(self) -> None:
         status, logged_in = self.request(

@@ -459,10 +459,22 @@ class ApiServer:
                     "/api/save_operator_user": operator_service.save_user,
                     "/api/delete_operator_user": operator_service.delete_user,
                     "/api/get_operator_user_report": operator_service.get_user_report,
+                    "/api/list_operator_activity": operator_service.list_activity,
+                    "/api/get_operator_activity_details": operator_service.get_activity_details,
+                    "/api/get_operator_activity_aggregates": operator_service.get_activity_aggregates,
+                    "/api/export_operator_activity": operator_service.export_activity,
                     "/api/open_card": operator_service.open_card,
                 }
             )
             operator_session_routes.update(admin_only_routes)
+            operator_session_routes.update(
+                {
+                    "/api/list_operator_activity",
+                    "/api/get_operator_activity_details",
+                    "/api/get_operator_activity_aggregates",
+                    "/api/export_operator_activity",
+                }
+            )
 
         class RequestHandler(BaseHTTPRequestHandler):
             ROUTES = routes
@@ -616,6 +628,10 @@ class ApiServer:
                     "/api/get_operator_profile",
                     "/api/list_operator_users",
                     "/api/get_operator_user_report",
+                    "/api/list_operator_activity",
+                    "/api/get_operator_activity_details",
+                    "/api/get_operator_activity_aggregates",
+                    "/api/export_operator_activity",
                     "/api/list_shared_files",
                     "/api/get_shared_file_info",
                 }

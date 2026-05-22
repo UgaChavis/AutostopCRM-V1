@@ -152,6 +152,7 @@ def run() -> int:
         from .config import get_api_bearer_token, get_api_host, get_api_port
         from .integration_runtime import McpRuntimeController
         from .logging_setup import close_logger, configure_logging
+        from .operator_activity import OperatorActivityService
         from .operator_auth import OperatorAuthService
         from .services.card_service import CardService
         from .settings_service import SettingsService
@@ -164,7 +165,10 @@ def run() -> int:
         logger = configure_logging()
         store = JsonStore(logger=logger)
         service = CardService(store, logger)
-        operator_service = OperatorAuthService(store, service, logger=logger)
+        operator_activity_service = OperatorActivityService(logger=logger)
+        operator_service = OperatorAuthService(
+            store, service, activity_service=operator_activity_service, logger=logger
+        )
         settings_store = SettingsStore(logger=logger)
         settings_service = SettingsService(settings_store, logger)
         settings = settings_service.load()

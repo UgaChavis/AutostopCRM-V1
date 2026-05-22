@@ -19,6 +19,7 @@ from ..config import (
     get_mcp_public_endpoint_url,
 )
 from ..logging_setup import close_logger, configure_logging
+from ..operator_activity import OperatorActivityService
 from ..operator_auth import OperatorAuthService
 from ..services.card_service import CardService
 from ..settings_service import SettingsService
@@ -118,7 +119,10 @@ def run() -> int:
             seeded_demo = service.ensure_demo_board()
             if seeded_demo:
                 logger.info("embedded_api_demo_seeded=true")
-            operator_service = OperatorAuthService(store, service, logger=logger)
+            operator_activity_service = OperatorActivityService(logger=logger)
+            operator_service = OperatorAuthService(
+                store, service, activity_service=operator_activity_service, logger=logger
+            )
             resolved_api_host = _runtime_bind_host(
                 get_api_host()
                 if os.environ.get("MINIMAL_KANBAN_API_HOST") is not None

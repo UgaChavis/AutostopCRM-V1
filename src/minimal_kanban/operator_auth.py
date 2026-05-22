@@ -18,6 +18,7 @@ from .config import (
     get_users_file,
 )
 from .models import normalize_actor_name, normalize_int, parse_datetime, utc_now, utc_now_iso
+from .operator_activity import OperatorActivityService
 from .services.card_service import CardService, ServiceError
 from .storage.file_lock import ProcessFileLock
 from .storage.json_store import JsonStore
@@ -81,10 +82,12 @@ class OperatorAuthService:
         card_service: CardService,
         *,
         users_file: Path | None = None,
+        activity_service: OperatorActivityService | None = None,
         logger: Logger | None = None,
     ) -> None:
         self._state_store = state_store
         self._card_service = card_service
+        self._activity_service = activity_service
         self._users_file = users_file or get_users_file()
         self._logger = logger
         self._lock = threading.RLock()
@@ -129,7 +132,19 @@ class OperatorAuthService:
             )
             self._write_state(state)
             snapshot = deepcopy(user)
-        return self._build_profile_payload(snapshot, token=token)
+        profile = self._build_profile_payload(snapshot, token=token)
+        self._record_activity_safe(
+            username=snapshot["username"],
+            module="auth",
+            action="login",
+            action_label="Вошел в систему",
+            object_type="operator",
+            object_id=snapshot["username"],
+            object_label=snapshot["username"],
+            summary="Вход оператора в CRM.",
+            source=str(payload.get("source") or "ui"),
+        )
+        return profile
 
     def logout(self, payload: dict | None = None) -> dict:
         session = self._required_session(payload)
@@ -141,6 +156,17 @@ class OperatorAuthService:
             ]
             if len(state["sessions"]) != before:
                 self._write_state(state)
+        self._record_activity_safe(
+            username=session["username"],
+            module="auth",
+            action="logout",
+            action_label="Вышел из системы",
+            object_type="operator",
+            object_id=session["username"],
+            object_label=session["username"],
+            summary="Выход оператора из CRM.",
+            source=str((payload or {}).get("source") or "ui"),
+        )
         return {"logged_out": True}
 
     def _can_upgrade_default_admin_password(
@@ -215,6 +241,17 @@ class OperatorAuthService:
                     existing[ACTION_HISTORY_KEY] = []
             self._write_state(state)
             snapshot = deepcopy(existing)
+        self._record_activity_safe(
+            username=self._required_admin_session(payload)["username"],
+            module="admin",
+            action="operator_user_saved",
+            action_label="Сохранил пользователя",
+            object_type="operator",
+            object_id=snapshot["username"],
+            object_label=snapshot["username"],
+            summary=("Создан пользователь." if created else "Обновлен пароль пользователя."),
+            source=str(payload.get("source") or "ui"),
+        )
         return {
             "user": self._serialize_user_summary(snapshot),
             "meta": {
@@ -251,6 +288,17 @@ class OperatorAuthService:
                 item for item in state["sessions"] if item.get("username") != username
             ]
             self._write_state(state)
+        self._record_activity_safe(
+            username=session["username"],
+            module="admin",
+            action="operator_user_deleted",
+            action_label="Удалил пользователя",
+            object_type="operator",
+            object_id=username,
+            object_label=username,
+            summary="Удалена учетная запись оператора.",
+            source=str(payload.get("source") or "ui"),
+        )
         return {"deleted": True, "username": username}
 
     def open_card(self, payload: dict | None = None) -> dict:
@@ -287,6 +335,62 @@ class OperatorAuthService:
             message="Открыл карточку.",
             card_id=card_id,
             counter_key=OPEN_COUNT_KEY,
+        )
+        self._record_activity_safe(
+            username=session["username"],
+            module="card",
+            action="card_opened",
+            action_label="Открыл карточку",
+            object_type="card",
+            object_id=card_id,
+            object_label=self._card_activity_label(card_id),
+            summary="Просмотр без изменения данных",
+            source=str(payload.get("source") or "ui"),
+            details={"card_id": card_id, "marked_seen": marked_seen},
+        )
+        return result
+
+    def list_activity(self, payload: dict | None = None) -> dict:
+        session = self._required_session(payload)
+        service = self._required_activity_service()
+        return service.list_activity(self._activity_payload_for_session(payload, session))
+
+    def get_activity_details(self, payload: dict | None = None) -> dict:
+        session = self._required_session(payload)
+        service = self._required_activity_service()
+        result = service.get_activity_details(payload)
+        if (
+            not session.get("is_admin")
+            and result["activity"].get("username") != session["username"]
+        ):
+            self._fail(
+                "forbidden",
+                "Нельзя просматривать действия другого пользователя.",
+                status_code=403,
+                details={"auth_type": "operator_session"},
+            )
+        return result
+
+    def get_activity_aggregates(self, payload: dict | None = None) -> dict:
+        session = self._required_session(payload)
+        service = self._required_activity_service()
+        return service.get_activity_aggregates(self._activity_payload_for_session(payload, session))
+
+    def export_activity(self, payload: dict | None = None) -> dict:
+        session = self._required_session(payload)
+        service = self._required_activity_service()
+        scoped_payload = self._activity_payload_for_session(payload, session)
+        result = service.export_activity(scoped_payload)
+        self._record_activity_safe(
+            username=session["username"],
+            module="admin" if session.get("is_admin") else "activity",
+            action="operator_activity_exported",
+            action_label="Экспортировал журнал",
+            object_type="operator_activity",
+            object_id=str(scoped_payload.get("username") or "all"),
+            object_label=str(scoped_payload.get("username") or "Все пользователи"),
+            summary="Экспорт журнала действий операторов.",
+            source=str((payload or {}).get("source") or "ui"),
         )
         return result
 
@@ -356,6 +460,88 @@ class OperatorAuthService:
             user[ACTION_HISTORY_KEY] = self._prune_action_history(history)
             user["updated_at"] = utc_now_iso()
             self._write_state(state)
+
+    def _record_activity_safe(
+        self,
+        *,
+        username: str,
+        module: str,
+        action: str,
+        action_label: str,
+        object_type: str = "",
+        object_id: str = "",
+        object_label: str = "",
+        summary: str = "",
+        amount: str = "",
+        source: str = "ui",
+        severity: str = "normal",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        if self._activity_service is None:
+            return
+        payload: dict[str, Any] = {
+            "username": username,
+            "module": module,
+            "action": action,
+            "action_label": action_label,
+            "object_type": object_type,
+            "object_id": object_id,
+            "object_label": object_label,
+            "summary": summary,
+            "amount": amount,
+            "source": source,
+            "severity": severity,
+        }
+        if details:
+            payload["details"] = details
+        try:
+            self._activity_service.record_activity(payload)
+        except Exception as exc:
+            if self._logger is not None:
+                self._logger.warning(
+                    "operator_activity_record_failed username=%s action=%s error=%s",
+                    username,
+                    action,
+                    exc,
+                )
+
+    def _required_activity_service(self) -> OperatorActivityService:
+        if self._activity_service is None:
+            self._fail("not_found", "Журнал действий операторов недоступен.", status_code=404)
+        return self._activity_service
+
+    def _activity_payload_for_session(self, payload: dict | None, session: dict) -> dict:
+        payload = dict(payload or {})
+        requested_username = _normalized_username(payload.get("username"))
+        if session.get("is_admin"):
+            if requested_username:
+                payload["username"] = requested_username
+            return payload
+        if requested_username and requested_username != session["username"]:
+            self._fail(
+                "forbidden",
+                "Нельзя просматривать действия другого пользователя.",
+                status_code=403,
+                details={"auth_type": "operator_session"},
+            )
+        payload["username"] = session["username"]
+        return payload
+
+    def _card_activity_label(self, card_id: str) -> str:
+        try:
+            bundle = self._state_store.read_bundle()
+            for card in bundle.get("cards", []):
+                if getattr(card, "id", "") != card_id:
+                    continue
+                title = str(getattr(card, "title", "") or "").strip()
+                vehicle = str(getattr(card, "vehicle", "") or "").strip()
+                return " / ".join(part for part in (vehicle, title) if part) or card_id
+        except Exception as exc:
+            if self._logger is not None:
+                self._logger.warning(
+                    "operator_activity_card_label_failed card_id=%s error=%s", card_id, exc
+                )
+        return card_id
 
     def _user_base_payload(self, user: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -474,22 +660,45 @@ class OperatorAuthService:
             "board_actions_total": 0,
         }
         action_entries: list[dict[str, Any]] = []
-        for item in self._prune_action_history(user.get(ACTION_HISTORY_KEY)):
-            timestamp = parse_datetime(item.get("timestamp"))
-            if timestamp is None or timestamp < window_start:
-                continue
-            action = str(item.get("action") or "").strip() or "operator_action"
-            if action == "card_opened":
-                stats["cards_opened"] += 1
-            action_entries.append(
-                {
-                    "timestamp": timestamp.isoformat(),
-                    "action": action,
-                    "message": str(item.get("message") or "Действие оператора.").strip()
-                    or "Действие оператора.",
-                    "card_id": str(item.get("card_id") or "").strip(),
-                }
-            )
+        activity_rows = self._recent_activity_rows(username)
+        if activity_rows:
+            for item in activity_rows:
+                timestamp = parse_datetime(item.get("timestamp"))
+                if timestamp is None or timestamp < window_start:
+                    continue
+                action = str(item.get("action") or "").strip() or "operator_action"
+                if action == "card_opened":
+                    stats["cards_opened"] += 1
+                action_entries.append(
+                    {
+                        "timestamp": timestamp.isoformat(),
+                        "action": action,
+                        "message": str(
+                            item.get("summary") or item.get("action_label") or "Действие оператора."
+                        ).strip()
+                        or "Действие оператора.",
+                        "card_id": str(item.get("object_id") or "").strip()
+                        if item.get("object_type") == "card"
+                        else "",
+                    }
+                )
+        else:
+            for item in self._prune_action_history(user.get(ACTION_HISTORY_KEY)):
+                timestamp = parse_datetime(item.get("timestamp"))
+                if timestamp is None or timestamp < window_start:
+                    continue
+                action = str(item.get("action") or "").strip() or "operator_action"
+                if action == "card_opened":
+                    stats["cards_opened"] += 1
+                action_entries.append(
+                    {
+                        "timestamp": timestamp.isoformat(),
+                        "action": action,
+                        "message": str(item.get("message") or "Действие оператора.").strip()
+                        or "Действие оператора.",
+                        "card_id": str(item.get("card_id") or "").strip(),
+                    }
+                )
         event_activity = event_activity_index.get(actor)
         if event_activity:
             event_stats = event_activity.get("stats") or {}
@@ -508,6 +717,24 @@ class OperatorAuthService:
         recent_actions = action_entries[:12]
         stats["activity_total"] = stats["board_actions_total"] + stats["cards_opened"]
         return {"stats": stats, "recent_actions": recent_actions, "all_actions": action_entries}
+
+    def _recent_activity_rows(self, username: str) -> list[dict[str, Any]]:
+        if self._activity_service is None:
+            return []
+        try:
+            result = self._activity_service.list_activity(
+                {"username": username, "days": STATS_WINDOW_DAYS, "limit": 400}
+            )
+            rows = result.get("activities")
+            return rows if isinstance(rows, list) else []
+        except Exception as exc:
+            if self._logger is not None:
+                self._logger.warning(
+                    "operator_activity_profile_stats_failed username=%s error=%s",
+                    username,
+                    exc,
+                )
+            return []
 
     def _build_event_activity_index(self, events: list[Any]) -> dict[str, dict[str, Any]]:
         window_start = utc_now() - timedelta(days=STATS_WINDOW_DAYS)
