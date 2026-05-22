@@ -20,6 +20,7 @@ DEFAULT_MCP_PATH = "/mcp"
 STATE_FILE_NAME = "state.json"
 SETTINGS_FILE_NAME = "settings.json"
 USERS_FILE_NAME = "users.json"
+OPERATOR_ACTIVITY_DIR_NAME = "operator-activity"
 LOG_FILE_NAME = "minimal-kanban.log"
 MCP_STARTUP_LOG_FILE_NAME = "mcp-startup.log"
 MCP_OAUTH_STATE_FILE_NAME = "mcp-oauth-state.json"
@@ -53,6 +54,10 @@ def get_settings_file() -> Path:
 
 def get_users_file() -> Path:
     return get_app_data_dir() / USERS_FILE_NAME
+
+
+def get_operator_activity_dir() -> Path:
+    return get_app_data_dir() / OPERATOR_ACTIVITY_DIR_NAME
 
 
 def get_log_file() -> Path:
