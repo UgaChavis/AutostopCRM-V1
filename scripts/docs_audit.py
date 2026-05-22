@@ -72,6 +72,11 @@ FORBIDDEN_TEXT_PATTERNS = (
         "old user-specific production-data sandbox path",
     ),
     (
+        "stale_ssh_identity",
+        re.compile(r"\bcodex_autostopcrm\b"),
+        "old SSH identity name; use autostopcrm_server_ed25519 from the local key bundle",
+    ),
+    (
         "stale_mcp_count",
         re.compile(r"optional_autostop_manager_tools[\"`\s:=\-]+19\b"),
         "old optional AutostopManager MCP tool count",
@@ -121,6 +126,14 @@ RUNBOOK_REQUIRED_TEXT = (
     (
         "audit-archive",
         "audit archive data directory is not documented",
+    ),
+    (
+        "autostopcrm_server_ed25519",
+        "canonical production SSH identity is not documented",
+    ),
+    (
+        "IdentitiesOnly=yes",
+        "production SSH command does not force the documented identity",
     ),
 )
 

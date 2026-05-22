@@ -31,10 +31,16 @@ git rev-parse --short origin/autostopcrm-v1
 Production:
 
 ```powershell
-ssh root@crm.autostopcrm.ru "cd /opt/autostopcrm && git status --short --branch && git rev-parse --short HEAD && git rev-parse --short origin/autostopcrm-v1"
+$env:AUTOSTOPCRM_SSH_KEY = "C:\Users\9860606\Desktop\КЛЮЧЕВАЯ ДОКУМЕНТАЦИЯ CRM VPN Сервер\.ssh\autostopcrm_server_ed25519"
+Test-Path -LiteralPath $env:AUTOSTOPCRM_SSH_KEY
+ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && git status --short --branch && git rev-parse --short HEAD && git rev-parse --short origin/autostopcrm-v1"
 ```
 
-Если SSH identity/host отличается на машине, используйте local access notes вне репозитория. Credentials не коммитить.
+Canonical SSH identity for this workstation is
+`autostopcrm_server_ed25519` inside the local key bundle above. If
+`Test-Path` returns `False`, inspect the same secret documentation bundle
+before trying default SSH identities or password auth. Credentials and key
+material must stay outside the repository.
 
 Manager knowledge:
 
@@ -83,7 +89,8 @@ python scripts\browser_smoke.py
 git status --short --branch
 git rev-parse --short HEAD
 git rev-parse --short origin/autostopcrm-v1
-ssh -i $HOME\.ssh\codex_autostopcrm root@crm.autostopcrm.ru "cd /opt/autostopcrm && git status --short --branch && git rev-parse --short HEAD && git rev-parse --short origin/autostopcrm-v1 && docker compose ps"
+$env:AUTOSTOPCRM_SSH_KEY = "C:\Users\9860606\Desktop\КЛЮЧЕВАЯ ДОКУМЕНТАЦИЯ CRM VPN Сервер\.ssh\autostopcrm_server_ed25519"
+ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && git status --short --branch && git rev-parse --short HEAD && git rev-parse --short origin/autostopcrm-v1 && docker compose ps"
 ```
 
 Full regression when shared behavior changed:

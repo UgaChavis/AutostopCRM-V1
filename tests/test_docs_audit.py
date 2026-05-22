@@ -44,12 +44,13 @@ class DocsAuditTests(unittest.TestCase):
 
         issues = module.scan_forbidden_text(
             ROOT / "sample.md",
-            "Use MASTER-PLAN.md from C:\\Users\\User\\Desktop\\AutostopCRM-V1",
+            "Use MASTER-PLAN.md from C:\\Users\\User\\Desktop\\AutostopCRM-V1 "
+            "and ssh -i ~/.ssh/codex_autostopcrm",
             root=ROOT,
         )
 
         self.assertEqual(
-            {"missing_doc_reference", "stale_workspace_path"},
+            {"missing_doc_reference", "stale_workspace_path", "stale_ssh_identity"},
             {issue.code for issue in issues},
         )
 
@@ -81,6 +82,8 @@ class DocsAuditTests(unittest.TestCase):
                 "state size diagnostics script is not documented: state_size_report.py",
                 "audit compaction maintenance script is not documented: compact_audit_events.py",
                 "audit archive data directory is not documented: audit-archive",
+                "canonical production SSH identity is not documented: autostopcrm_server_ed25519",
+                "production SSH command does not force the documented identity: IdentitiesOnly=yes",
             },
             {issue.detail for issue in issues},
         )
