@@ -11336,8 +11336,9 @@ BOARD_WEB_APP_HTML = "".join(
       const apply = () => {
         const scroll = els.operatorActivityTable?.parentElement;
         const hasOverflow = !!scroll && scroll.scrollWidth > scroll.clientWidth + 4;
+        const narrow = window.matchMedia('(max-width: 700px)').matches;
         scroll?.classList.toggle('is-overflowing', hasOverflow);
-        els.operatorActivityScrollHint.hidden = !hasOverflow;
+        els.operatorActivityScrollHint.hidden = !(hasOverflow && narrow);
       };
       apply();
       window.requestAnimationFrame(apply);
@@ -11356,6 +11357,20 @@ BOARD_WEB_APP_HTML = "".join(
     function operatorActivityDetailHtml(label, value) {
       const text = String(value ?? '').trim() || '-';
       return '<div class="operator-activity-detail"><strong>' + escapeHtml(label) + '</strong>' + escapeHtml(text) + '</div>';
+    }
+
+    function operatorActivityDetailLabel(key) {
+      const labels = {
+        card_id: 'card_id',
+        card_title: 'Карточка',
+        marked_seen: 'Отмечено',
+        repair_order_id: 'ЗН',
+        cashbox_id: 'Касса',
+        file_name: 'Файл',
+        client_id: 'Клиент',
+        employee_id: 'Сотрудник',
+      };
+      return labels[String(key || '').trim()] || String(key || '').trim() || '-';
     }
 
     function renderOperatorActivityDetailsPanel() {
@@ -11378,17 +11393,17 @@ BOARD_WEB_APP_HTML = "".join(
         return;
       }
       const detailText = detailsKeys.length
-        ? detailsKeys.map((key) => operatorActivityDetailHtml(key, typeof details[key] === 'object' ? JSON.stringify(details[key]) : details[key])).join('')
+        ? detailsKeys.map((key) => operatorActivityDetailHtml(operatorActivityDetailLabel(key), typeof details[key] === 'object' ? JSON.stringify(details[key]) : details[key])).join('')
         : '<div class="log-row__meta">Детали недоступны, строка сохранена.</div>';
       els.operatorActivityDetailsPanel.innerHTML =
         '<div class="operator-activity-details__head"><span>' + escapeHtml(activity.action_label || operatorActivityActionLabel(activity.action)) + '</span><span>' + escapeHtml(activity.username || '-') + '</span></div>' +
         '<div class="operator-activity-details__grid">' +
           operatorActivityDetailHtml('Время', formatDate(activity.timestamp)) +
           operatorActivityDetailHtml('Источник', String(activity.source || '').toUpperCase()) +
-          operatorActivityDetailHtml('Raw action', activity.action) +
-          operatorActivityDetailHtml('Activity ID', activity.id) +
-          operatorActivityDetailHtml('Object ID', activity.object_id) +
-          operatorActivityDetailHtml('Details ref', activity.details_ref) +
+          operatorActivityDetailHtml('Код', activity.action) +
+          operatorActivityDetailHtml('ID события', activity.id) +
+          operatorActivityDetailHtml('ID объекта', activity.object_id) +
+          operatorActivityDetailHtml('Архив деталей', activity.details_ref) +
         '</div>' +
         detailText;
     }
