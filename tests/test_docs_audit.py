@@ -64,6 +64,28 @@ class DocsAuditTests(unittest.TestCase):
             {issue.code for issue in issues},
         )
 
+    def test_superpowers_planning_docs_are_retired_artifacts(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            plan = temp_root / "docs" / "superpowers" / "plans" / "old-plan.md"
+            spec = temp_root / "docs" / "superpowers" / "specs" / "old-spec.md"
+            plan.parent.mkdir(parents=True)
+            spec.parent.mkdir(parents=True)
+            plan.write_text("checked-off implementation plan\n", encoding="utf-8")
+            spec.write_text("approved design copied from implementation\n", encoding="utf-8")
+
+            issues = module._iter_retired_candidates(temp_root)
+
+        self.assertEqual(
+            {
+                "docs/superpowers/plans/old-plan.md",
+                "docs/superpowers/specs/old-spec.md",
+            },
+            {path.relative_to(temp_root).as_posix() for path in issues},
+        )
+
     def test_api_guide_mentions_safety_critical_internal_routes(self) -> None:
         module = load_docs_audit_module()
 

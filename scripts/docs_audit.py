@@ -33,6 +33,8 @@ MANAGER_CANONICAL_DOCS = (
 RETIRED_DOC_GLOBS = (
     "AI_REMODEL_*",
     "GPT_AGENT_*",
+    "docs/superpowers/plans/*.md",
+    "docs/superpowers/specs/*.md",
     "mcp-tools-example.json",
     "openai-tools-example.json",
     "main_agent.py",
