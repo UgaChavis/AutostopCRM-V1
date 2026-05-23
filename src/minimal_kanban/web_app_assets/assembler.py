@@ -4414,6 +4414,25 @@ BOARD_WEB_APP_HTML = "".join(
       gap: 10px;
       min-width: 0;
     }
+    .operator-admin-tabs {
+      display: inline-flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin: 0 0 10px;
+    }
+    .operator-admin-tabs .btn {
+      min-height: 30px;
+      padding: 7px 10px;
+      font-size: 11px;
+    }
+    .operator-admin-tabs .btn.is-active {
+      border-color: var(--accent);
+      background: rgba(167, 178, 132, 0.14);
+      color: var(--text);
+    }
+    .operator-admin-tab-panel.hidden {
+      display: none;
+    }
     .operator-activity-toolbar {
       display: grid;
       grid-template-columns: 118px 138px 138px 138px minmax(220px, 1fr) auto;
@@ -4431,6 +4450,22 @@ BOARD_WEB_APP_HTML = "".join(
       overflow-x: auto;
       border: 1px solid var(--line);
       background: rgba(0, 0, 0, 0.12);
+      position: relative;
+    }
+    .operator-activity-scroll::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: 34px;
+      pointer-events: none;
+      background: linear-gradient(90deg, rgba(16, 18, 21, 0), rgba(16, 18, 21, 0.86));
+      opacity: 0;
+      transition: opacity 120ms ease;
+    }
+    .operator-activity-scroll.is-overflowing::after {
+      opacity: 1;
     }
     .operator-activity-table {
       min-width: 1120px;
@@ -4448,6 +4483,15 @@ BOARD_WEB_APP_HTML = "".join(
       font-size: 11px;
       line-height: 1.25;
       overflow-wrap: anywhere;
+    }
+    .operator-activity-cell--interactive {
+      cursor: pointer;
+    }
+    .operator-activity-cell--selected {
+      background: rgba(167, 178, 132, 0.12);
+    }
+    .operator-activity-cell--interactive:hover {
+      background: rgba(167, 178, 132, 0.08);
     }
     .operator-activity-cell--head {
       position: sticky;
@@ -4480,6 +4524,66 @@ BOARD_WEB_APP_HTML = "".join(
     .operator-activity-cell--ok {
       color: #bce3b7;
     }
+    .operator-activity-scroll-hint {
+      width: max-content;
+      max-width: 100%;
+      margin-top: 6px;
+      color: var(--text-soft);
+      font-family: var(--mono);
+      font-size: 9px;
+      line-height: 1.2;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      opacity: 0.82;
+    }
+    .operator-activity-scroll-hint::after {
+      content: "";
+      display: inline-block;
+      width: 34px;
+      height: 1px;
+      margin-left: 8px;
+      vertical-align: middle;
+      background: linear-gradient(90deg, rgba(167,178,132,0.22), rgba(167,178,132,0.82));
+    }
+    .operator-activity-details {
+      margin-top: 8px;
+      border: 1px solid rgba(167, 178, 132, 0.32);
+      background: rgba(0, 0, 0, 0.14);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+    .operator-activity-details__head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .operator-activity-details__grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px 12px;
+    }
+    .operator-activity-detail {
+      min-width: 0;
+      color: var(--text-soft);
+      font-size: 10.5px;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .operator-activity-detail strong {
+      display: block;
+      margin-bottom: 2px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 8.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
     .operator-admin-secondary {
       display: grid;
       grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
@@ -4502,6 +4606,7 @@ BOARD_WEB_APP_HTML = "".join(
       .operator-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .operator-admin-layout { grid-template-columns: 1fr; }
       .operator-activity-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .operator-activity-details__grid { grid-template-columns: 1fr; }
       .operator-admin-secondary { grid-template-columns: 1fr; }
       .vehicle-group__grid { grid-template-columns: 1fr; }
       .vehicle-panel { max-width: none; width: 100%; margin-left: 0; }
@@ -7447,8 +7552,12 @@ BOARD_WEB_APP_HTML = "".join(
         <div class="dialog__title">АДМИН-ПАНЕЛЬ</div>
         <button class="btn" data-close="operator-admin">ЗАКРЫТЬ</button>
       </div>
+      <div class="operator-admin-tabs" id="operatorAdminTabs">
+        <button class="btn is-active" type="button" data-operator-admin-tab="journal">ЖУРНАЛ</button>
+        <button class="btn btn--ghost" type="button" data-operator-admin-tab="users">ПОЛЬЗОВАТЕЛИ</button>
+      </div>
       <div class="operator-activity-panel">
-        <div class="subpanel">
+        <div class="subpanel operator-admin-tab-panel is-active" id="operatorAdminJournalPanel" data-operator-admin-panel="journal">
           <div class="panel-title">ЖУРНАЛ ДЕЙСТВИЙ</div>
           <div class="operator-activity-toolbar" id="operatorActivityFilters">
             <div class="field field--compact">
@@ -7478,20 +7587,29 @@ BOARD_WEB_APP_HTML = "".join(
             </div>
             <div class="field field--compact">
               <label for="operatorActivityActionFilter">ДЕЙСТВИЕ</label>
-              <input id="operatorActivityActionFilter" type="text" maxlength="80" placeholder="card_opened">
+              <select id="operatorActivityActionFilter">
+                <option value="">ВСЕ</option>
+                <option value="login">Вход</option>
+                <option value="card_opened">Открыл карточку</option>
+                <option value="operator_activity_exported">Экспорт</option>
+                <option value="cash_transaction_created">Касса</option>
+                <option value="repair_order_updated">Заказ-наряд</option>
+              </select>
             </div>
             <div class="field field--compact">
               <label for="operatorActivitySearchInput">ПОИСК</label>
-              <input id="operatorActivitySearchInput" type="search" maxlength="120" placeholder="Клиент, авто, номер ЗН, card_id, файл">
+              <input id="operatorActivitySearchInput" type="search" maxlength="120" placeholder="Авто, клиент, ЗН, файл">
             </div>
             <button class="btn" id="operatorActivityExportButton" type="button">ЭКСПОРТ</button>
           </div>
           <div class="operator-activity-scroll">
-            <div class="operator-activity-table" id="operatorActivityTable"></div>
+            <div class="operator-activity-table" id="operatorActivityTable" data-operator-activity-table></div>
           </div>
+          <div class="operator-activity-scroll-hint" id="operatorActivityScrollHint" hidden>Сдвиньте вправо</div>
           <div class="log-row__meta" id="operatorActivityMeta">ЖУРНАЛ НЕ ЗАГРУЖЕН.</div>
+          <div class="operator-activity-details hidden" id="operatorActivityDetailsPanel"></div>
         </div>
-        <div class="operator-admin-secondary">
+        <div class="operator-admin-secondary operator-admin-tab-panel hidden" id="operatorAdminUsersPanel" data-operator-admin-panel="users">
           <div class="subpanel">
             <div class="panel-title">ПОЛЬЗОВАТЕЛЬ</div>
             <div class="field field--compact">
@@ -7504,7 +7622,7 @@ BOARD_WEB_APP_HTML = "".join(
             </div>
             <div class="dialog__foot" style="padding:0; border:none; margin-top:10px;">
               <div class="log-row__meta">Администратор создает пользователя или обновляет ему пароль.</div>
-              <button class="btn btn--accent" id="adminSaveUserButton">СОХРАНИТЬ ПОЛЬЗОВАТЕЛЯ</button>
+              <button class="btn btn--accent" id="adminSaveUserButton">СОХРАНИТЬ</button>
             </div>
           </div>
           <div class="subpanel">
@@ -8252,8 +8370,13 @@ BOARD_WEB_APP_HTML = "".join(
       operatorSessionToken: localStorage.getItem(OPERATOR_SESSION_STORAGE_KEY) || '',
       operatorProfile: null,
       operatorUsers: [],
+      operatorAdminTab: 'journal',
       operatorActivityRows: [],
       operatorActivityMeta: null,
+      operatorActivitySelectedId: '',
+      operatorActivityDetails: null,
+      operatorActivityDetailsLoading: false,
+      operatorActivityDebounceTimer: null,
       apiToken: localStorage.getItem(API_TOKEN_STORAGE_KEY) || '',
       boardScale: 1,
       boardPan: {
@@ -8848,6 +8971,9 @@ BOARD_WEB_APP_HTML = "".join(
       operatorAdminButton: document.getElementById('operatorAdminButton'),
       operatorLogoutButton: document.getElementById('operatorLogoutButton'),
       operatorAdminModal: document.getElementById('operatorAdminModal'),
+      operatorAdminTabs: document.getElementById('operatorAdminTabs'),
+      operatorAdminJournalPanel: document.getElementById('operatorAdminJournalPanel'),
+      operatorAdminUsersPanel: document.getElementById('operatorAdminUsersPanel'),
       adminUsersList: document.getElementById('adminUsersList'),
       operatorActivityFilters: document.getElementById('operatorActivityFilters'),
       operatorActivityDays: document.getElementById('operatorActivityDays'),
@@ -8858,6 +8984,8 @@ BOARD_WEB_APP_HTML = "".join(
       operatorActivityExportButton: document.getElementById('operatorActivityExportButton'),
       operatorActivityTable: document.getElementById('operatorActivityTable'),
       operatorActivityMeta: document.getElementById('operatorActivityMeta'),
+      operatorActivityScrollHint: document.getElementById('operatorActivityScrollHint'),
+      operatorActivityDetailsPanel: document.getElementById('operatorActivityDetailsPanel'),
       adminUserLogin: document.getElementById('adminUserLogin'),
       adminUserPassword: document.getElementById('adminUserPassword'),
       adminSaveUserButton: document.getElementById('adminSaveUserButton'),
@@ -11166,28 +11294,150 @@ BOARD_WEB_APP_HTML = "".join(
       return labels[String(value || '').trim()] || String(value || '-').trim() || '-';
     }
 
-    function operatorActivityCell(value, extraClass = '') {
-      const classes = ['operator-activity-cell'].concat(extraClass ? [extraClass] : []);
-      return '<div class="' + classes.join(' ') + '">' + escapeHtml(value || '-') + '</div>';
+    function operatorActivityActionLabel(value) {
+      const labels = {
+        login: 'Вход',
+        logout: 'Выход',
+        card_opened: 'Открыл карточку',
+        operator_activity_exported: 'Экспорт',
+        cash_transaction_created: 'Касса',
+        repair_order_updated: 'Заказ-наряд',
+      };
+      return labels[String(value || '').trim()] || String(value || '-').trim() || '-';
     }
 
-    function operatorActivityMoneyCell(value) {
+    function operatorActivityCell(value, extraClass = '', attrs = {}) {
+      const classes = ['operator-activity-cell'].concat(extraClass ? [extraClass] : []);
+      const attrText = Object.entries(attrs || {})
+        .filter(([, attrValue]) => attrValue !== undefined && attrValue !== null && attrValue !== false)
+        .map(([attrName, attrValue]) => ' ' + attrName + '="' + escapeHtml(attrValue === true ? '' : attrValue) + '"')
+        .join('');
+      return '<div class="' + classes.join(' ') + '"' + attrText + '>' + escapeHtml(value || '-') + '</div>';
+    }
+
+    function operatorActivityMoneyCell(value, extraClass = '', attrs = {}) {
       const text = String(value || '').trim();
       const tone = text.startsWith('-') ? ' operator-activity-cell--danger' : '';
-      return operatorActivityCell(text || '-', 'operator-activity-cell--money' + tone);
+      return operatorActivityCell(text || '-', 'operator-activity-cell--money' + tone + extraClass, attrs);
+    }
+
+    function operatorActivityCellAttrs(row) {
+      const activityId = String(row?.id || '').trim();
+      if (!activityId) return {};
+      return {
+        'data-operator-activity-id': activityId,
+        role: 'button',
+        tabindex: '0',
+      };
+    }
+
+    function updateOperatorActivityScrollHint() {
+      if (!els.operatorActivityScrollHint) return;
+      const apply = () => {
+        const scroll = els.operatorActivityTable?.parentElement;
+        const hasOverflow = !!scroll && scroll.scrollWidth > scroll.clientWidth + 4;
+        scroll?.classList.toggle('is-overflowing', hasOverflow);
+        els.operatorActivityScrollHint.hidden = !hasOverflow;
+      };
+      apply();
+      window.requestAnimationFrame(apply);
+    }
+
+    function updateOperatorActivitySelection() {
+      if (!els.operatorActivityTable) return;
+      els.operatorActivityTable.querySelectorAll('[data-operator-activity-id]').forEach((cell) => {
+        cell.classList.toggle(
+          'operator-activity-cell--selected',
+          cell.dataset.operatorActivityId === state.operatorActivitySelectedId,
+        );
+      });
+    }
+
+    function operatorActivityDetailHtml(label, value) {
+      const text = String(value ?? '').trim() || '-';
+      return '<div class="operator-activity-detail"><strong>' + escapeHtml(label) + '</strong>' + escapeHtml(text) + '</div>';
+    }
+
+    function renderOperatorActivityDetailsPanel() {
+      if (!els.operatorActivityDetailsPanel) return;
+      const activityId = state.operatorActivitySelectedId;
+      if (!activityId) {
+        els.operatorActivityDetailsPanel.classList.add('hidden');
+        els.operatorActivityDetailsPanel.innerHTML = '';
+        return;
+      }
+      const row = (state.operatorActivityRows || []).find((item) => String(item?.id || '') === activityId) || {};
+      const payload = state.operatorActivityDetails || {};
+      const activity = payload.activity || row;
+      const details = payload.details || {};
+      const detailsKeys = Object.keys(details || {});
+      els.operatorActivityDetailsPanel.classList.remove('hidden');
+      if (state.operatorActivityDetailsLoading) {
+        els.operatorActivityDetailsPanel.innerHTML =
+          '<div class="operator-activity-details__head"><span>ДЕТАЛИ</span><span>ЗАГРУЗКА...</span></div>';
+        return;
+      }
+      const detailText = detailsKeys.length
+        ? detailsKeys.map((key) => operatorActivityDetailHtml(key, typeof details[key] === 'object' ? JSON.stringify(details[key]) : details[key])).join('')
+        : '<div class="log-row__meta">Детали недоступны, строка сохранена.</div>';
+      els.operatorActivityDetailsPanel.innerHTML =
+        '<div class="operator-activity-details__head"><span>' + escapeHtml(activity.action_label || operatorActivityActionLabel(activity.action)) + '</span><span>' + escapeHtml(activity.username || '-') + '</span></div>' +
+        '<div class="operator-activity-details__grid">' +
+          operatorActivityDetailHtml('Время', formatDate(activity.timestamp)) +
+          operatorActivityDetailHtml('Источник', String(activity.source || '').toUpperCase()) +
+          operatorActivityDetailHtml('Raw action', activity.action) +
+          operatorActivityDetailHtml('Activity ID', activity.id) +
+          operatorActivityDetailHtml('Object ID', activity.object_id) +
+          operatorActivityDetailHtml('Details ref', activity.details_ref) +
+        '</div>' +
+        detailText;
+    }
+
+    async function openOperatorActivityDetails(activityId) {
+      const normalizedId = String(activityId || '').trim();
+      if (!normalizedId) return;
+      state.operatorActivitySelectedId = normalizedId;
+      state.operatorActivityDetails = null;
+      state.operatorActivityDetailsLoading = true;
+      updateOperatorActivitySelection();
+      renderOperatorActivityDetailsPanel();
+      try {
+        const data = await api('/api/get_operator_activity_details?activity_id=' + encodeURIComponent(normalizedId));
+        if (state.operatorActivitySelectedId !== normalizedId) return;
+        state.operatorActivityDetails = data;
+      } catch (error) {
+        if (state.operatorActivitySelectedId === normalizedId) {
+          state.operatorActivityDetails = {
+            activity: (state.operatorActivityRows || []).find((item) => String(item?.id || '') === normalizedId) || {},
+            details: {},
+            error: error.message,
+          };
+          setStatus(error.message, true);
+        }
+      } finally {
+        if (state.operatorActivitySelectedId === normalizedId) {
+          state.operatorActivityDetailsLoading = false;
+          renderOperatorActivityDetailsPanel();
+        }
+      }
     }
 
     function renderOperatorActivityTable(data) {
       const rows = data?.activities || [];
       state.operatorActivityRows = rows;
       state.operatorActivityMeta = data?.meta || null;
+      if (state.operatorActivitySelectedId && !rows.some((row) => String(row?.id || '') === state.operatorActivitySelectedId)) {
+        state.operatorActivitySelectedId = '';
+        state.operatorActivityDetails = null;
+        state.operatorActivityDetailsLoading = false;
+      }
       const header = [
         operatorActivityCell('Время', 'operator-activity-cell--head operator-activity-cell--sticky'),
-        operatorActivityCell('Пользователь', 'operator-activity-cell--head'),
+        operatorActivityCell('Польз.', 'operator-activity-cell--head'),
         operatorActivityCell('Модуль', 'operator-activity-cell--head'),
         operatorActivityCell('Действие', 'operator-activity-cell--head'),
         operatorActivityCell('Объект', 'operator-activity-cell--head'),
-        operatorActivityCell('Суть изменения', 'operator-activity-cell--head'),
+        operatorActivityCell('Изменение', 'operator-activity-cell--head'),
         operatorActivityCell('Сумма', 'operator-activity-cell--head'),
         operatorActivityCell('Источник', 'operator-activity-cell--head'),
       ].join('');
@@ -11199,19 +11449,27 @@ BOARD_WEB_APP_HTML = "".join(
         + operatorActivityCell('', '')
         + operatorActivityCell('', '')
         + operatorActivityCell('', '');
-      const body = rows.map((row) => [
-        operatorActivityCell(formatDate(row.timestamp), 'operator-activity-cell--sticky'),
-        operatorActivityCell(row.username),
-        operatorActivityCell(operatorActivityModuleLabel(row.module)),
-        operatorActivityCell(row.action_label || row.action),
-        operatorActivityCell(row.object_label || row.object_id),
-        operatorActivityCell(row.summary, String(row.severity || '') === 'ok' ? 'operator-activity-cell--ok' : ''),
-        operatorActivityMoneyCell(row.amount),
-        operatorActivityCell(String(row.source || '').toUpperCase()),
-      ].join('')).join('');
+      const body = rows.map((row) => {
+        const attrs = operatorActivityCellAttrs(row);
+        const selected = String(row?.id || '') === state.operatorActivitySelectedId ? ' operator-activity-cell--selected' : '';
+        const interactive = attrs['data-operator-activity-id'] ? ' operator-activity-cell--interactive' + selected : '';
+        return [
+          operatorActivityCell(formatDate(row.timestamp), 'operator-activity-cell--sticky' + interactive, attrs),
+          operatorActivityCell(row.username, interactive, attrs),
+          operatorActivityCell(operatorActivityModuleLabel(row.module), interactive, attrs),
+          operatorActivityCell(row.action_label || operatorActivityActionLabel(row.action), interactive, attrs),
+          operatorActivityCell(row.object_label || '-', interactive, attrs),
+          operatorActivityCell(row.summary, (String(row.severity || '') === 'ok' ? 'operator-activity-cell--ok' : '') + interactive, attrs),
+          operatorActivityMoneyCell(row.amount, interactive, attrs),
+          operatorActivityCell(String(row.source || '').toUpperCase(), interactive, attrs),
+        ].join('');
+      }).join('');
       els.operatorActivityTable.innerHTML = header + (body || emptyRow);
       const meta = data?.meta || {};
-      els.operatorActivityMeta.textContent = 'СТРОК: ' + escapeHtml(meta.total ?? rows.length) + ' | ПОКАЗАНО: ' + escapeHtml(rows.length) + (meta.has_more ? ' | ЕСТЬ ЕЩЁ' : '');
+      const total = meta.total ?? rows.length;
+      els.operatorActivityMeta.textContent = escapeHtml(rows.length) + ' из ' + escapeHtml(total) + (meta.has_more ? ' | ещё есть' : '');
+      renderOperatorActivityDetailsPanel();
+      updateOperatorActivityScrollHint();
     }
 
     function operatorActivityQueryString() {
@@ -11252,7 +11510,46 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function handleOperatorActivityFilterChange() {
-      reloadOperatorActivity().catch((error) => setStatus(error.message, true));
+      if (state.operatorActivityDebounceTimer) window.clearTimeout(state.operatorActivityDebounceTimer);
+      state.operatorActivityDebounceTimer = window.setTimeout(() => {
+        state.operatorActivityDebounceTimer = null;
+        reloadOperatorActivity().catch((error) => setStatus(error.message, true));
+      }, 180);
+    }
+
+    function handleOperatorActivityTableClick(event) {
+      const target = event.target?.closest?.('[data-operator-activity-id]');
+      if (!(target instanceof HTMLElement)) return;
+      openOperatorActivityDetails(target.dataset.operatorActivityId);
+    }
+
+    function handleOperatorActivityTableKeydown(event) {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const target = event.target?.closest?.('[data-operator-activity-id]');
+      if (!(target instanceof HTMLElement)) return;
+      event.preventDefault();
+      openOperatorActivityDetails(target.dataset.operatorActivityId);
+    }
+
+    function setOperatorAdminTab(tabName) {
+      const normalized = tabName === 'users' ? 'users' : 'journal';
+      state.operatorAdminTab = normalized;
+      els.operatorAdminTabs?.querySelectorAll('[data-operator-admin-tab]').forEach((button) => {
+        const active = button.dataset.operatorAdminTab === normalized;
+        button.classList.toggle('is-active', active);
+        button.classList.toggle('btn--ghost', !active);
+      });
+      els.operatorAdminJournalPanel?.classList.toggle('hidden', normalized !== 'journal');
+      els.operatorAdminJournalPanel?.classList.toggle('is-active', normalized === 'journal');
+      els.operatorAdminUsersPanel?.classList.toggle('hidden', normalized !== 'users');
+      els.operatorAdminUsersPanel?.classList.toggle('is-active', normalized === 'users');
+      if (normalized === 'journal') updateOperatorActivityScrollHint();
+    }
+
+    function handleOperatorAdminTabsClick(event) {
+      const button = event.target?.closest?.('[data-operator-admin-tab]');
+      if (!(button instanceof HTMLElement)) return;
+      setOperatorAdminTab(button.dataset.operatorAdminTab);
     }
 
     function openTextBlobWindow(text, fileName) {
@@ -15333,8 +15630,11 @@ BOARD_WEB_APP_HTML = "".join(
       });
     }
 
-    async function refreshOperatorAdminSurfaces({ openAdminModal = false, refreshProfile = false } = {}) {
-      if (openAdminModal) pushModal('operator-admin', els.operatorAdminModal);
+    async function refreshOperatorAdminSurfaces({ openAdminModal = false, refreshProfile = false, tabName = 'journal' } = {}) {
+      if (openAdminModal) {
+        setOperatorAdminTab(tabName);
+        pushModal('operator-admin', els.operatorAdminModal);
+      }
       const tasks = [reloadOperatorAdminUsers(), reloadOperatorActivity()];
       if (refreshProfile) tasks.push(loadOperatorProfile(false));
       await Promise.all(tasks);
@@ -15367,6 +15667,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     async function openOperatorAdminModal() {
+      setOperatorAdminTab('journal');
       await refreshOperatorAdminSurfaces({ openAdminModal: true });
     }
 
@@ -15382,7 +15683,7 @@ BOARD_WEB_APP_HTML = "".join(
         els.adminUserLogin.value = '';
         els.adminUserPassword.value = '';
         setStatus((data?.meta?.created ? 'Пользователь создан.' : 'Пользователь обновлён.') + ' ' + (data?.user?.username || ''), false);
-        await refreshOperatorAdminSurfaces({ openAdminModal: true, refreshProfile: true });
+        await refreshOperatorAdminSurfaces({ openAdminModal: true, refreshProfile: true, tabName: 'users' });
       } catch (error) {
         setStatus(error.message, true);
       }
@@ -15392,7 +15693,7 @@ BOARD_WEB_APP_HTML = "".join(
       if (!window.confirm('Удалить пользователя ' + username + '?')) return;
       try {
         await api('/api/delete_operator_user', { method: 'POST', body: { username } });
-        await refreshOperatorAdminSurfaces({ openAdminModal: true });
+        await refreshOperatorAdminSurfaces({ openAdminModal: true, tabName: 'users' });
       } catch (error) {
         setStatus(error.message, true);
       }
@@ -23875,14 +24176,18 @@ BOARD_WEB_APP_HTML = "".join(
     els.operatorButton.addEventListener('click', openOperatorWorkspace);
     els.operatorLogoutButton.addEventListener('click', logoutOperator);
     els.operatorAdminButton.addEventListener('click', openOperatorAdminModal);
+    els.operatorAdminTabs?.addEventListener('click', handleOperatorAdminTabsClick);
     els.adminSaveUserButton.addEventListener('click', saveOperatorUser);
     els.adminUsersList.addEventListener('click', handleAdminUsersListClick);
     els.operatorActivityDays?.addEventListener('change', handleOperatorActivityFilterChange);
     els.operatorActivityUserFilter?.addEventListener('change', handleOperatorActivityFilterChange);
     els.operatorActivityModuleFilter?.addEventListener('change', handleOperatorActivityFilterChange);
-    els.operatorActivityActionFilter?.addEventListener('input', handleOperatorActivityFilterChange);
+    els.operatorActivityActionFilter?.addEventListener('change', handleOperatorActivityFilterChange);
     els.operatorActivitySearchInput?.addEventListener('input', handleOperatorActivityFilterChange);
     els.operatorActivityExportButton?.addEventListener('click', exportOperatorActivity);
+    els.operatorActivityTable?.addEventListener('click', handleOperatorActivityTableClick);
+    els.operatorActivityTable?.addEventListener('keydown', handleOperatorActivityTableKeydown);
+    window.addEventListener('resize', updateOperatorActivityScrollHint);
 
     els.boardSettingsButton.addEventListener('click', openBoardSettings);
     els.archiveButton.addEventListener('click', openArchiveModal);

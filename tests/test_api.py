@@ -823,6 +823,76 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertEqual(forbidden["error"]["code"], "forbidden")
 
+    def test_operator_activity_details_scope_and_missing_archive_are_safe(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"title": "Details scope card", "deadline": {"hours": 1}},
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        status, admin_login = self.request(
+            "/api/login_operator", {"username": "admin", "password": "admin"}
+        )
+        self.assertEqual(status, 200)
+        admin_headers = {"X-Operator-Session": admin_login["data"]["session"]["token"]}
+
+        status, _ = self.request(
+            "/api/save_operator_user",
+            {"username": "worker", "password": "1234"},
+            headers=admin_headers,
+        )
+        self.assertEqual(status, 200)
+        status, worker_login = self.request(
+            "/api/login_operator", {"username": "worker", "password": "1234"}
+        )
+        self.assertEqual(status, 200)
+        worker_headers = {"X-Operator-Session": worker_login["data"]["session"]["token"]}
+
+        status, opened = self.request(
+            "/api/open_card",
+            {"card_id": card_id, "return_card": False, "mark_seen": False},
+            headers=admin_headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(opened["data"]["opened"])
+
+        status, activity = self.request(
+            "/api/list_operator_activity?action=card_opened&username=ADMIN",
+            method="GET",
+            headers=admin_headers,
+        )
+        self.assertEqual(status, 200)
+        activity_id = activity["data"]["activities"][0]["id"]
+
+        status, forbidden = self.request(
+            f"/api/get_operator_activity_details?activity_id={activity_id}",
+            method="GET",
+            headers=worker_headers,
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(forbidden["error"]["code"], "forbidden")
+
+        status, details = self.request(
+            f"/api/get_operator_activity_details?activity_id={activity_id}",
+            method="GET",
+            headers=admin_headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(details["data"]["details"]["card_id"], card_id)
+
+        activity_dir = self.operator_service._activity_service.activity_dir
+        for detail_file in (activity_dir / "details").glob("*.jsonl"):
+            detail_file.unlink()
+
+        status, missing_details = self.request(
+            f"/api/get_operator_activity_details?activity_id={activity_id}",
+            method="GET",
+            headers=admin_headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(missing_details["data"]["details"], {})
+
     def test_open_card_records_operator_activity_row(self) -> None:
         status, created = self.request(
             "/api/create_card",
