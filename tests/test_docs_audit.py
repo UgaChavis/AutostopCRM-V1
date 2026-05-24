@@ -64,6 +64,19 @@ class DocsAuditTests(unittest.TestCase):
             {issue.code for issue in issues},
         )
 
+    def test_scan_crm_only_forbidden_text_detects_old_manager_vault_path(self) -> None:
+        module = load_docs_audit_module()
+
+        issues = module.scan_crm_only_forbidden_text(
+            ROOT / "sample.md",
+            "Use C:\\Users\\User\\Мой диск\\Obsidian CRM\\AutostopCRM "
+            "or C:\\Users\\User\\Desktop\\Obsidian CRM\\AutostopCRM for manager knowledge.",
+            root=ROOT,
+        )
+
+        self.assertEqual(["stale_workspace_path"], [issue.code for issue in issues])
+        self.assertIn("manager knowledge vault", issues[0].detail)
+
     def test_superpowers_planning_docs_are_retired_artifacts(self) -> None:
         module = load_docs_audit_module()
 

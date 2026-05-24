@@ -91,14 +91,10 @@ tool payload.
 
 ## Manager Knowledge
 
-For manager-agent work, use the AutoStop Obsidian vault as a knowledge layer,
-not as CRM state storage:
-
-```text
-C:\Users\User\Мой диск\Obsidian CRM\AutostopCRM
-```
-
-Start with `Home.md`, then `80_Codex\Codex interaction.md`.
+For manager-agent work, use the current AutoStop manager knowledge layer or
+local access notes when available, not CRM connector docs, to resolve private
+knowledge-base paths. Treat that knowledge layer as reference material, not as
+CRM state storage.
 
 CRM remains source of truth for live cards, clients, vehicles, repair orders,
 files, payments, and cashboxes. Do not move raw client databases, phone rows,

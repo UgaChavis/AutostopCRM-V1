@@ -107,6 +107,16 @@ FORBIDDEN_TEXT_PATTERNS = (
     ),
 )
 
+CRM_ONLY_FORBIDDEN_TEXT_PATTERNS = (
+    (
+        "stale_workspace_path",
+        re.compile(
+            r"C:[\\/]+Users[\\/]+User[\\/]+(?:Мой диск|Desktop)[\\/]+Obsidian CRM[\\/]+AutostopCRM"
+        ),
+        "old user-specific manager knowledge vault path in CRM docs",
+    ),
+)
+
 API_GUIDE_REQUIRED_ROUTE_TEXT = (
     (
         "/api/finance_audit",
@@ -182,6 +192,14 @@ def _read_text(path: Path) -> str:
 def scan_forbidden_text(path: Path, text: str, *, root: Path = ROOT) -> list[Issue]:
     issues: list[Issue] = []
     for code, pattern, detail in FORBIDDEN_TEXT_PATTERNS:
+        if pattern.search(text):
+            issues.append(Issue(code, _display_path(path, root), detail))
+    return issues
+
+
+def scan_crm_only_forbidden_text(path: Path, text: str, *, root: Path = ROOT) -> list[Issue]:
+    issues: list[Issue] = []
+    for code, pattern, detail in CRM_ONLY_FORBIDDEN_TEXT_PATTERNS:
         if pattern.search(text):
             issues.append(Issue(code, _display_path(path, root), detail))
     return issues
@@ -483,7 +501,9 @@ def audit(
     for relative_path in CRM_CANONICAL_DOCS:
         path = root / relative_path
         if path.exists():
-            issues.extend(scan_forbidden_text(path, _read_text(path), root=root))
+            text = _read_text(path)
+            issues.extend(scan_forbidden_text(path, text, root=root))
+            issues.extend(scan_crm_only_forbidden_text(path, text, root=root))
 
     issues.extend(_check_api_guide_required_routes(root))
 
