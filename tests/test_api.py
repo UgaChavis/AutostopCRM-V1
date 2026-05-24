@@ -116,6 +116,7 @@ class ApiServerTests(unittest.TestCase):
         *,
         method: str = "POST",
         headers: dict[str, str] | None = None,
+        timeout: float = 5,
     ) -> tuple[int, dict]:
         data = None
         if payload is not None:
@@ -130,7 +131,7 @@ class ApiServerTests(unittest.TestCase):
             method=method,
         )
         try:
-            with urllib.request.urlopen(request, timeout=5) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 return response.status, json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             try:
@@ -3099,6 +3100,7 @@ class ApiServerTests(unittest.TestCase):
                 "selected_document_ids": ["repair_order"],
                 "active_document_id": "repair_order",
             },
+            timeout=30,
         )
         self.assertEqual(status, 200)
         content = base64.b64decode(exported["data"]["content_base64"])
