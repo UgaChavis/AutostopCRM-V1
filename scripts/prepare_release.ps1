@@ -61,17 +61,20 @@ $guidePath = Join-Path $stagingRoot "HOW_TO_START.txt"
 $guideText = @"
 AutoStop CRM
 
-This build runs without installation.
+This release build runs without installation.
 
 How to start:
 1. Double-click $portableExeName.
 2. Wait for the desktop window to open.
-3. No terminal, npm, python, node, or manual commands are required.
+3. Log in as an operator when the browser workspace opens.
+4. Do not start Python, Node.js, npm, or Docker manually for this desktop build.
 
 Notes:
-- the local API starts automatically
-- data persists between restarts
-- closing the window shuts down internal services cleanly
+- the local API starts automatically;
+- MCP starts automatically when enabled in settings;
+- data persists between restarts;
+- closing the desktop window shuts down internal services cleanly;
+- current server/connector operations are documented in docs/OPERATIONS_RUNBOOK.md in the repository.
 "@
 Set-Content -LiteralPath $guidePath -Value $guideText -Encoding UTF8
 

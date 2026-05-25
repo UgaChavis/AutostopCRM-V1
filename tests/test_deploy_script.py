@@ -100,6 +100,16 @@ class DeployScriptTests(unittest.TestCase):
         self.assertNotIn("--operator-username admin --operator-password admin", runbook)
         self.assertIn("docs/OPERATIONS_RUNBOOK.md", readme)
 
+    def test_prepare_release_generates_current_start_guide(self) -> None:
+        script = (PROJECT_ROOT / "scripts" / "prepare_release.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("This release build runs without installation.", script)
+        self.assertIn("Log in as an operator when the browser workspace opens.", script)
+        self.assertIn("Do not start Python, Node.js, npm, or Docker manually", script)
+        self.assertIn("MCP starts automatically when enabled in settings", script)
+        self.assertIn("docs/OPERATIONS_RUNBOOK.md", script)
+        self.assertNotIn("No terminal, npm, python, node, or manual commands are required.", script)
+
 
 if __name__ == "__main__":
     unittest.main()
