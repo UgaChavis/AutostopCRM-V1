@@ -195,9 +195,17 @@ class VehicleProfilePayload(BaseModel):
 
 class RepairOrderRowPayload(BaseModel):
     name: str = Field(default="", max_length=240)
+    catalog_number: str = Field(default="", max_length=160)
+    catalogNumber: str = Field(default="", max_length=160)
     quantity: str = Field(default="", max_length=40)
+    cost_price: str = Field(default="", max_length=40)
+    costPrice: str = Field(default="", max_length=40)
     price: str = Field(default="", max_length=40)
     total: str = Field(default="", max_length=40)
+    executor_id: str = Field(default="", max_length=64)
+    executor_name: str = Field(default="", max_length=160)
+    material_executor_id_snapshot: str = Field(default="", max_length=64)
+    material_executor_name_snapshot: str = Field(default="", max_length=160)
 
 
 class RepairOrderPaymentPayload(BaseModel):

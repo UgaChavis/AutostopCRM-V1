@@ -8297,11 +8297,13 @@ BOARD_WEB_APP_HTML = "".join(
             <table class="repair-order-table">
               <thead>
                 <tr>
-                  <th style="width:38%;">Наименование</th>
-                  <th style="width:17%;">Кат. №</th>
-                  <th class="repair-order-table__numeric" style="width:10%;">Кол-во</th>
-                  <th class="repair-order-table__numeric" style="width:15%;">Цена</th>
-                  <th class="repair-order-table__numeric" style="width:16%;">Сумма</th>
+                  <th style="width:28%;">Наименование</th>
+                  <th style="width:13%;">Кат. №</th>
+                  <th class="repair-order-table__numeric" style="width:9%;">Кол-во</th>
+                  <th class="repair-order-table__numeric" style="width:12%;">Закупка</th>
+                  <th class="repair-order-table__numeric" style="width:12%;">Цена</th>
+                  <th class="repair-order-table__numeric" style="width:12%;">Сумма</th>
+                  <th style="width:10%;">Списал</th>
                   <th class="repair-order-table__action" style="width:4%;"></th>
                 </tr>
               </thead>
@@ -8839,7 +8841,8 @@ BOARD_WEB_APP_HTML = "".join(
                       + '<div class="field employees-field--span-6"><label for="employeePositionInput">ДОЛЖНОСТЬ</label><input id="employeePositionInput" type="text" maxlength="80"></div>'
                       + '<div class="field employees-field--span-6 employees-field--compact employees-field--mode"><label for="employeeSalaryModeInput">СХЕМА</label><select id="employeeSalaryModeInput"><option value="salary_plus_percent">ОКЛАД + %</option><option value="percent_only">% ОТ РАБОТ</option><option value="salary_only">ТОЛЬКО ОКЛАД</option></select></div>'
                       + '<div class="field employees-field--span-2 employees-field--compact employees-field--salary"><label for="employeeBaseSalaryInput">ОКЛАД</label><input id="employeeBaseSalaryInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
-                      + '<div class="field employees-field--span-2 employees-field--compact employees-field--percent"><label for="employeeWorkPercentInput">ПРОЦЕНТ</label><input id="employeeWorkPercentInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
+                      + '<div class="field employees-field--span-2 employees-field--compact employees-field--percent"><label for="employeeWorkPercentInput">ПРОЦЕНТ С РАБОТ</label><input id="employeeWorkPercentInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
+                      + '<div class="field employees-field--span-2 employees-field--compact employees-field--percent"><label for="employeeMaterialPercentInput">% С МАТЕРИАЛОВ</label><input id="employeeMaterialPercentInput" type="text" inputmode="decimal" maxlength="40" placeholder="10"></div>'
                     + '</div>'
                     + '<details class="employees-note-details" id="employeeNoteDetails"><summary>ЗАМЕТКА</summary><div class="field field--secondary"><input id="employeeNoteInput" type="text" maxlength="240"></div></details>'
                     + '<div class="employees-summary-strip" id="employeesSummaryStrip"></div>'
@@ -8853,7 +8856,7 @@ BOARD_WEB_APP_HTML = "".join(
                     + '<div class="employees-report-panel__meta" id="employeesReportMeta">Выберите сотрудника слева, чтобы открыть детализацию.</div>'
                   + '</div>'
                   + '<div class="employees-report-panel__meta" id="employeesDetailsMeta">Отчёт откроется после выбора сотрудника.</div>'
-                  + '<div class="employees-table-wrap employees-table-wrap--details"><table class="employees-table"><thead><tr><th>ДАТА</th><th>НАРЯД</th><th>АВТО</th><th>РАБОТЫ</th><th class="is-num">СУММА</th><th class="is-num">НАЧИСЛЕНО</th></tr></thead><tbody id="employeesDetailTable"></tbody></table></div>'
+                  + '<div class="employees-table-wrap employees-table-wrap--details"><table class="employees-table"><thead><tr><th>ДАТА</th><th>НАРЯД</th><th>АВТО</th><th>ТИП</th><th>ПОЗИЦИЯ</th><th class="is-num">ПРОДАЖА</th><th class="is-num">ЗАКУПКА</th><th class="is-num">ПРИБЫЛЬ</th><th class="is-num">НАЧИСЛЕНО</th></tr></thead><tbody id="employeesDetailTable"></tbody></table></div>'
                 + '</div>'
               + '</div>'
                     + '</div>'
@@ -9067,6 +9070,7 @@ BOARD_WEB_APP_HTML = "".join(
       employeeSalaryModeInput: document.getElementById('employeeSalaryModeInput'),
       employeeBaseSalaryInput: document.getElementById('employeeBaseSalaryInput'),
       employeeWorkPercentInput: document.getElementById('employeeWorkPercentInput'),
+      employeeMaterialPercentInput: document.getElementById('employeeMaterialPercentInput'),
       employeeNoteDetails: document.getElementById('employeeNoteDetails'),
       employeeNoteInput: document.getElementById('employeeNoteInput'),
       employeeActiveInput: document.getElementById('employeeActiveInput'),
@@ -9571,6 +9575,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeeSalaryModeInput = document.getElementById('employeeSalaryModeInput');
       els.employeeBaseSalaryInput = document.getElementById('employeeBaseSalaryInput');
       els.employeeWorkPercentInput = document.getElementById('employeeWorkPercentInput');
+      els.employeeMaterialPercentInput = document.getElementById('employeeMaterialPercentInput');
       els.employeeNoteDetails = document.getElementById('employeeNoteDetails');
       els.employeeNoteInput = document.getElementById('employeeNoteInput');
       els.employeeActiveInput = document.getElementById('employeeActiveInput');
@@ -13085,6 +13090,7 @@ BOARD_WEB_APP_HTML = "".join(
         salary_mode: normalizeEmployeeComparableText(employee?.salary_mode || 'salary_plus_percent'),
         base_salary: normalizeEmployeeComparableNumber(employee?.base_salary),
         work_percent: normalizeEmployeeComparableNumber(employee?.work_percent),
+        material_percent: normalizeEmployeeComparableNumber(employee?.material_percent ?? '10'),
         note: normalizeEmployeeComparableText(employee?.note),
         is_active: employee ? Boolean(employee.is_active) : true,
       };
@@ -13097,6 +13103,7 @@ BOARD_WEB_APP_HTML = "".join(
         salary_mode: normalizeEmployeeComparableText(els.employeeSalaryModeInput?.value || 'salary_plus_percent'),
         base_salary: normalizeEmployeeComparableNumber(els.employeeBaseSalaryInput?.value),
         work_percent: normalizeEmployeeComparableNumber(els.employeeWorkPercentInput?.value),
+        material_percent: normalizeEmployeeComparableNumber(els.employeeMaterialPercentInput?.value || '10'),
         note: normalizeEmployeeComparableText(els.employeeNoteInput?.value),
         is_active: Boolean(selectedEmployeeRecord()?.is_active ?? true),
       };
@@ -13155,6 +13162,7 @@ BOARD_WEB_APP_HTML = "".join(
         parts.push('НОВЫЙ СОТРУДНИК');
       }
       parts.push(employeeSalaryModeLabel(mode));
+      parts.push('МАТ. ' + normalizeEmployeeComparableNumber(els.employeeMaterialPercentInput?.value || selectedEmployee?.material_percent || '10') + '%');
       if (employeeFormHasUnsavedChanges()) parts.push('ИЗМЕНЕНО');
       els.employeesMeta.textContent = parts.join(' · ');
     }
@@ -13193,6 +13201,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeeSalaryModeInput.value = current?.salary_mode || 'salary_plus_percent';
       els.employeeBaseSalaryInput.value = current?.base_salary || '';
       els.employeeWorkPercentInput.value = current?.work_percent || '';
+      els.employeeMaterialPercentInput.value = current?.material_percent || '10';
       els.employeeNoteInput.value = current?.note || '';
       if (els.employeeNoteDetails) {
         els.employeeNoteDetails.open = Boolean(String(current?.note || '').trim());
@@ -13214,6 +13223,7 @@ BOARD_WEB_APP_HTML = "".join(
         salary_mode: els.employeeSalaryModeInput.value,
         base_salary: els.employeeBaseSalaryInput.value,
         work_percent: els.employeeWorkPercentInput.value,
+        material_percent: els.employeeMaterialPercentInput.value,
         note: els.employeeNoteInput.value,
         is_active: selectedEmployee ? Boolean(selectedEmployee.is_active) : true,
         actor_name: state.actor,
@@ -13266,9 +13276,13 @@ BOARD_WEB_APP_HTML = "".join(
       }
       const kpis = [
         { label: 'ОКЛАД', value: selectedSummary?.base_salary || selectedEmployee.base_salary || '0' },
-        { label: '%', value: selectedEmployee.work_percent || '0' },
+        { label: '% РАБОТ', value: selectedEmployee.work_percent || '0' },
+        { label: '% МАТ.', value: selectedEmployee.material_percent || '10' },
         { label: 'РАБОТ', value: selectedSummary?.works_count || '0' },
-        { label: 'ИТОГ', value: selectedSummary?.total_salary || '0', accent: true },
+        { label: 'МАТ.', value: selectedSummary?.materials_count || '0' },
+        { label: 'С РАБОТ', value: selectedSummary?.work_accrued_total || selectedSummary?.accrued_total || '0' },
+        { label: 'С МАТ.', value: selectedSummary?.materials_accrued_total || '0' },
+        { label: 'НАЧИСЛЕНО', value: selectedSummary?.total_salary || '0', accent: true },
       ];
       els.employeesSummaryStrip.innerHTML = kpis.map((item) => (
         '<div class="employees-kpi' + (item.accent ? ' employees-kpi--accent' : '') + '"><div class="employees-kpi__label">' + escapeHtml(item.label) + '</div><div class="employees-kpi__value">' + escapeHtml(item.value) + '</div></div>'
@@ -13291,20 +13305,29 @@ BOARD_WEB_APP_HTML = "".join(
           : 'Детализация появится после выбора сотрудника.';
       }
       if (!selectedId) {
-        els.employeesDetailTable.innerHTML = '<tr><td colspan="6">Выберите сотрудника слева, чтобы увидеть его наряды.</td></tr>';
+        els.employeesDetailTable.innerHTML = '<tr><td colspan="9">Выберите сотрудника слева, чтобы увидеть его наряды.</td></tr>';
         return;
       }
       if (!visibleRows.length) {
-        els.employeesDetailTable.innerHTML = '<tr><td colspan="6">Строк начисления нет.</td></tr>';
+        els.employeesDetailTable.innerHTML = '<tr><td colspan="9">Строк начисления нет.</td></tr>';
         return;
       }
       els.employeesDetailTable.innerHTML = visibleRows.map((row) => {
+        const rowType = String(row.row_type || '').trim();
+        const isMaterial = rowType === 'material';
+        const positionName = isMaterial ? (row.material_name || '-') : ((row.works_count || '0') + ' раб.');
+        const saleTotal = isMaterial ? (row.material_total || '0') : (row.work_total || '0');
+        const costTotal = isMaterial ? (row.material_cost_total || '0') : '-';
+        const profitTotal = isMaterial ? (row.material_profit || '0') : '-';
         return '<tr data-card-id="' + escapeHtml(row.card_id || '') + '" data-open-repair-order="' + (row.repair_order_number ? '1' : '') + '">' +
           '<td>' + escapeHtml(row.closed_at || '-') + '</td>' +
           '<td>' + escapeHtml(row.repair_order_number || '-') + '</td>' +
           '<td>' + escapeHtml(row.vehicle || '-') + '</td>' +
-          '<td>' + escapeHtml(row.works_count || '0') + '</td>' +
-          '<td class="is-num">' + escapeHtml(row.work_total || '0') + '</td>' +
+          '<td>' + escapeHtml(row.type_label || (isMaterial ? 'Материал' : 'Работа')) + '</td>' +
+          '<td>' + escapeHtml(positionName) + '</td>' +
+          '<td class="is-num">' + escapeHtml(saleTotal) + '</td>' +
+          '<td class="is-num">' + escapeHtml(costTotal) + '</td>' +
+          '<td class="is-num">' + escapeHtml(profitTotal) + '</td>' +
           '<td class="is-num">' + escapeHtml(row.salary_amount || '0') + '</td>' +
         '</tr>';
       }).join('');
@@ -13488,7 +13511,8 @@ BOARD_WEB_APP_HTML = "".join(
           const periodLabel = String(report?.period?.label || report?.meta?.month || currentEmployeeSalaryReportMonth()).trim();
           const orderCount = Number(report?.totals?.repair_order_count || 0);
           const workCount = Number(report?.totals?.work_count || 0);
-          els.employeeSalaryReportMeta.textContent = 'ПЕРИОД: ' + periodLabel + ' · ЗН: ' + String(orderCount) + ' · РАБОТ: ' + String(workCount);
+          const materialCount = Number(report?.totals?.material_count || 0);
+          els.employeeSalaryReportMeta.textContent = 'ПЕРИОД: ' + periodLabel + ' · ЗН: ' + String(orderCount) + ' · РАБОТ: ' + String(workCount) + ' · МАТ.: ' + String(materialCount);
         }
       }
       if (els.employeeSalaryReportText) {
@@ -17290,7 +17314,9 @@ BOARD_WEB_APP_HTML = "".join(
     function emptyRepairOrderRow() {
       return {
         name: '',
+        catalog_number: '',
         quantity: '',
+        cost_price: '',
         price: '',
         total: '',
         executor_id: '',
@@ -17300,6 +17326,14 @@ BOARD_WEB_APP_HTML = "".join(
         work_percent_snapshot: '',
         salary_amount: '',
         salary_accrued_at: '',
+        material_executor_id_snapshot: '',
+        material_executor_name_snapshot: '',
+        material_price_snapshot: '',
+        material_cost_price_snapshot: '',
+        material_percent_snapshot: '',
+        material_profit: '',
+        material_salary_amount: '',
+        material_salary_accrued_at: '',
       };
     }
 
@@ -17581,7 +17615,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function repairOrderRowHasAnyData(row) {
-      return ['name', 'catalog_number', 'quantity', 'price', 'total'].some((fieldName) => String(row?.[fieldName] ?? '').trim());
+      return ['name', 'catalog_number', 'quantity', 'cost_price', 'price', 'total'].some((fieldName) => String(row?.[fieldName] ?? '').trim());
     }
 
     function repairOrderResolvedRowTotalValue(row) {
@@ -17613,6 +17647,7 @@ BOARD_WEB_APP_HTML = "".join(
         name: String(source.name ?? '').trim(),
         catalog_number: String(source.catalog_number ?? source.part_number ?? source.catalogNumber ?? source.partNumber ?? '').trim(),
         quantity: String(source.quantity ?? '').trim(),
+        cost_price: String(source.cost_price ?? source.costPrice ?? source.purchase_price ?? source.cost ?? '').trim(),
         price: String(source.price ?? '').trim(),
         total: totalValue === null ? fallbackTotal : repairOrderNumberToRaw(totalValue),
         executor_id: String(source.executor_id ?? source.employee_id ?? '').trim(),
@@ -17622,6 +17657,14 @@ BOARD_WEB_APP_HTML = "".join(
         work_percent_snapshot: String(source.work_percent_snapshot ?? '').trim(),
         salary_amount: String(source.salary_amount ?? '').trim(),
         salary_accrued_at: String(source.salary_accrued_at ?? '').trim(),
+        material_executor_id_snapshot: String(source.material_executor_id_snapshot ?? '').trim(),
+        material_executor_name_snapshot: String(source.material_executor_name_snapshot ?? '').trim(),
+        material_price_snapshot: String(source.material_price_snapshot ?? '').trim(),
+        material_cost_price_snapshot: String(source.material_cost_price_snapshot ?? '').trim(),
+        material_percent_snapshot: String(source.material_percent_snapshot ?? '').trim(),
+        material_profit: String(source.material_profit ?? '').trim(),
+        material_salary_amount: String(source.material_salary_amount ?? '').trim(),
+        material_salary_accrued_at: String(source.material_salary_accrued_at ?? '').trim(),
       };
     }
 
@@ -17926,7 +17969,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function repairOrderRowInputHtml(fieldName, value, placeholder = '') {
-      const isNumeric = fieldName === 'quantity' || fieldName === 'price';
+      const isNumeric = fieldName === 'quantity' || fieldName === 'cost_price' || fieldName === 'price';
       return '<input class="repair-order-table__input' + (isNumeric ? ' repair-order-table__input--num' : '') + '" type="text"' + (isNumeric ? ' inputmode="decimal"' : '') + ' data-repair-order-cell="' + escapeHtml(fieldName) + '" value="' + escapeHtml(value) + '">';
     }
 
@@ -17958,13 +18001,21 @@ BOARD_WEB_APP_HTML = "".join(
       const executorCell = section === 'works'
         ? '<td><select class="repair-order-table__select" data-repair-order-cell="executor_id">' + repairOrderExecutorOptionsHtml(normalized.executor_id, normalized.executor_name) + '</select></td>'
         : '';
-      return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '">' +
+      const materialCostCell = section === 'materials'
+        ? '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('cost_price', normalized.cost_price, '0') + '</td>'
+        : '';
+      const materialExecutorCell = section === 'materials'
+        ? '<td><select class="repair-order-table__select" data-repair-order-cell="executor_id">' + repairOrderExecutorOptionsHtml(normalized.executor_id, normalized.executor_name) + '</select></td>'
+        : '';
+      return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '" data-repair-order-material-executor-id="' + escapeHtml(normalized.material_executor_id_snapshot) + '" data-repair-order-material-executor-name="' + escapeHtml(normalized.material_executor_name_snapshot) + '" data-repair-order-material-price="' + escapeHtml(normalized.material_price_snapshot) + '" data-repair-order-material-cost-price="' + escapeHtml(normalized.material_cost_price_snapshot) + '" data-repair-order-material-percent="' + escapeHtml(normalized.material_percent_snapshot) + '" data-repair-order-material-profit="' + escapeHtml(normalized.material_profit) + '" data-repair-order-material-salary-amount="' + escapeHtml(normalized.material_salary_amount) + '" data-repair-order-material-salary-accrued-at="' + escapeHtml(normalized.material_salary_accrued_at) + '">' +
         '<td>' + repairOrderRowInputHtml('name', normalized.name, 'Наименование') + '</td>' +
         catalogCell +
         executorCell +
         '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('quantity', normalized.quantity, '1') + '</td>' +
+        materialCostCell +
         '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('price', normalized.price, '0') + '</td>' +
         '<td class="repair-order-table__numeric"><div class="repair-order-cell-total" data-repair-order-row-total data-empty="' + (hasDisplayTotal ? 'false' : 'true') + '">' + escapeHtml(hasDisplayTotal ? repairOrderFormatRubles(totalValue ?? normalized.total) : '-') + '</div></td>' +
+        materialExecutorCell +
         '<td class="repair-order-table__action"><button class="btn btn--ghost repair-order-row-remove" type="button" data-remove-repair-order-row="' + escapeHtml(section) + '" data-row-index="' + escapeHtml(index) + '">&times;</button></td>' +
         '</tr>';
     }
@@ -17976,6 +18027,7 @@ BOARD_WEB_APP_HTML = "".join(
         name: row.querySelector('[data-repair-order-cell="name"]')?.value,
         catalog_number: row.querySelector('[data-repair-order-cell="catalog_number"]')?.value,
         quantity: row.querySelector('[data-repair-order-cell="quantity"]')?.value,
+        cost_price: row.querySelector('[data-repair-order-cell="cost_price"]')?.value,
         price: row.querySelector('[data-repair-order-cell="price"]')?.value,
         total: row.dataset.repairOrderTotalRaw || '',
         executor_id: executorSelect instanceof HTMLSelectElement ? executorSelect.value : '',
@@ -17985,6 +18037,14 @@ BOARD_WEB_APP_HTML = "".join(
         work_percent_snapshot: row.dataset.repairOrderWorkPercent || '',
         salary_amount: row.dataset.repairOrderSalaryAmount || '',
         salary_accrued_at: row.dataset.repairOrderSalaryAccruedAt || '',
+        material_executor_id_snapshot: row.dataset.repairOrderMaterialExecutorId || '',
+        material_executor_name_snapshot: row.dataset.repairOrderMaterialExecutorName || '',
+        material_price_snapshot: row.dataset.repairOrderMaterialPrice || '',
+        material_cost_price_snapshot: row.dataset.repairOrderMaterialCostPrice || '',
+        material_percent_snapshot: row.dataset.repairOrderMaterialPercent || '',
+        material_profit: row.dataset.repairOrderMaterialProfit || '',
+        material_salary_amount: row.dataset.repairOrderMaterialSalaryAmount || '',
+        material_salary_accrued_at: row.dataset.repairOrderMaterialSalaryAccruedAt || '',
       });
     }
 

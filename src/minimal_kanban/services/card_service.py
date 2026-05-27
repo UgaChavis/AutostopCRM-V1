@@ -265,6 +265,7 @@ Rules:
 """
 EMPLOYEES_SETTING_KEY = "employees"
 EMPLOYEES_MAX_COUNT = 15
+DEFAULT_MATERIAL_PERCENT = "10"
 PAYROLL_MODE_SALARY_ONLY = "salary_only"
 PAYROLL_MODE_PERCENT_ONLY = "percent_only"
 PAYROLL_MODE_SALARY_PLUS_PERCENT = "salary_plus_percent"
@@ -3540,6 +3541,43 @@ class CardService:
                         "source_label": "заказ-наряд",
                     }
                 )
+            for source_row in order.materials:
+                row = RepairOrderRow.from_dict(
+                    source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
+                )
+                if (
+                    self._material_salary_employee_id(row) != employee_id
+                    or not row.material_salary_accrued_at
+                ):
+                    continue
+                amount = self._parse_payroll_decimal(row.material_salary_amount)
+                if period_only_totals:
+                    if not is_recent:
+                        continue
+                    accrual_total += amount
+                else:
+                    accrual_total += amount
+                    if not is_recent:
+                        continue
+                journal_rows.append(
+                    {
+                        "kind": "material_accrual",
+                        "kind_label": "НАЧИСЛЕНИЕ МАТЕРИАЛ",
+                        "created_at": order.closed_at,
+                        "closed_at": order.closed_at,
+                        "repair_order_number": order.number,
+                        "card_id": card.id,
+                        "vehicle": order.vehicle or card.vehicle,
+                        "work_name": row.name,
+                        "amount_minor": int(
+                            (amount * Decimal("100")).to_integral_value(rounding=ROUND_HALF_UP)
+                        ),
+                        "amount_display": self._format_payroll_decimal(amount),
+                        "source_label": "материал",
+                        "material_profit": row.material_profit,
+                        "material_percent": row.material_percent_snapshot,
+                    }
+                )
 
         for transaction in cash_transactions:
             if transaction.employee_id != employee_id:
@@ -3674,16 +3712,55 @@ class CardService:
         repair_order_count: int,
         work_count: int,
         work_total: Decimal,
-        accrued_total: Decimal,
+        work_accrued_total: Decimal | None = None,
+        material_count: int = 0,
+        material_total: Decimal = Decimal("0"),
+        material_cost_total: Decimal = Decimal("0"),
+        material_profit_total: Decimal = Decimal("0"),
+        material_accrued_total: Decimal = Decimal("0"),
+        accrued_total: Decimal | None = None,
     ) -> dict[str, object]:
+        resolved_work_accrued_total = (
+            accrued_total
+            if work_accrued_total is None and accrued_total is not None
+            else work_accrued_total
+        )
+        if resolved_work_accrued_total is None:
+            resolved_work_accrued_total = Decimal("0")
+        resolved_accrued_total = (
+            accrued_total
+            if accrued_total is not None
+            else resolved_work_accrued_total + material_accrued_total
+        )
         work_money = self._employee_salary_report_money(work_total)
-        accrued_money = self._employee_salary_report_money(accrued_total)
+        work_accrued_money = self._employee_salary_report_money(resolved_work_accrued_total)
+        material_money = self._employee_salary_report_money(material_total)
+        material_cost_money = self._employee_salary_report_money(material_cost_total)
+        material_profit_money = self._employee_salary_report_money(material_profit_total)
+        material_accrued_money = self._employee_salary_report_money(material_accrued_total)
+        accrued_money = self._employee_salary_report_money(resolved_accrued_total)
         return {
             "repair_order_count": repair_order_count,
             "work_count": work_count,
             "work_total": work_money["raw"],
             "work_total_minor": work_money["minor"],
             "work_total_display": work_money["display"],
+            "work_accrued_total": work_accrued_money["raw"],
+            "work_accrued_total_minor": work_accrued_money["minor"],
+            "work_accrued_total_display": work_accrued_money["display"],
+            "material_count": material_count,
+            "material_total": material_money["raw"],
+            "material_total_minor": material_money["minor"],
+            "material_total_display": material_money["display"],
+            "material_cost_total": material_cost_money["raw"],
+            "material_cost_total_minor": material_cost_money["minor"],
+            "material_cost_total_display": material_cost_money["display"],
+            "material_profit_total": material_profit_money["raw"],
+            "material_profit_total_minor": material_profit_money["minor"],
+            "material_profit_total_display": material_profit_money["display"],
+            "material_accrued_total": material_accrued_money["raw"],
+            "material_accrued_total_minor": material_accrued_money["minor"],
+            "material_accrued_total_display": material_accrued_money["display"],
             "accrued_total": accrued_money["raw"],
             "accrued_total_minor": accrued_money["minor"],
             "accrued_total_display": accrued_money["display"],
@@ -3714,6 +3791,10 @@ class CardService:
                 f"Заказ-нарядов:        {totals['repair_order_count']}",
                 f"Работ:                {totals['work_count']}",
                 f"Стоимость работ:      {totals['work_total_display']}",
+                f"Материалы:            {totals['material_count']}",
+                f"Прибыль материалов:   {totals['material_profit_total_display']}",
+                f"Начислено с работ:    {totals['work_accrued_total_display']}",
+                f"Начислено с мат.:     {totals['material_accrued_total_display']}",
                 f"Начислено:            {totals['accrued_total_display']}",
             ]
         )
@@ -3728,6 +3809,8 @@ class CardService:
                 lines.append(
                     f"Работ: {order['work_count']} | "
                     + f"Стоимость работ: {order['work_total_display']} | "
+                    + f"Материалов: {order['material_count']} | "
+                    + f"Прибыль материалов: {order['material_profit_total_display']} | "
                     + f"Начислено: {order['accrued_total_display']}"
                 )
                 for work in order["works"]:
@@ -3739,13 +3822,27 @@ class CardService:
                         )
                     lines.append(f"    Стоимость: {work['total_display']}")
                     lines.append(f"    Начислено: {work['accrued_display']}")
+                for material in order["materials"]:
+                    lines.append(f"  - Материал: {material['name']}")
+                    if material["quantity"] or material["price"]:
+                        lines.append(
+                            f"    Кол-во: {material['quantity'] or '-'} | "
+                            + f"Цена: {material['price_display'] or '-'} | "
+                            + f"Закупка: {material['cost_price_display'] or '-'}"
+                        )
+                    lines.append(f"    Продажа: {material['total_display']}")
+                    lines.append(f"    Закупка всего: {material['cost_total_display']}")
+                    lines.append(f"    Прибыль: {material['profit_display']}")
+                    lines.append(f"    Начислено: {material['accrued_display']}")
                 lines.append("")
             day_totals = day["totals"]
             lines.append(
                 "Итого за день: "
                 + f"заказ-нарядов {day_totals['repair_order_count']}, "
                 + f"работ {day_totals['work_count']}, "
+                + f"материалов {day_totals['material_count']}, "
                 + f"стоимость {day_totals['work_total_display']}, "
+                + f"прибыль материалов {day_totals['material_profit_total_display']}, "
                 + f"начислено {day_totals['accrued_total_display']}"
             )
         return "\n".join(lines).strip()
@@ -3769,8 +3866,13 @@ class CardService:
             if closed_at is None:
                 continue
             works: list[dict[str, Any]] = []
+            materials: list[dict[str, Any]] = []
             work_total = Decimal("0")
-            accrued_total = Decimal("0")
+            work_accrued_total = Decimal("0")
+            material_total = Decimal("0")
+            material_cost_total = Decimal("0")
+            material_profit_total = Decimal("0")
+            material_accrued_total = Decimal("0")
             for source_row in order.works:
                 row = RepairOrderRow.from_dict(
                     source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
@@ -3799,8 +3901,64 @@ class CardService:
                     }
                 )
                 work_total += row_total
-                accrued_total += row_accrued
-            if not works:
+                work_accrued_total += row_accrued
+            for source_row in order.materials:
+                row = RepairOrderRow.from_dict(
+                    source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
+                )
+                if (
+                    self._material_salary_employee_id(row) != employee_id
+                    or not row.material_salary_accrued_at
+                ):
+                    continue
+                row_total = row.total_value()
+                row_cost_total = self._material_cost_total(row) or Decimal("0")
+                row_profit = self._parse_payroll_decimal(row.material_profit)
+                row_accrued = self._parse_payroll_decimal(row.material_salary_amount)
+                row_price_text = normalize_text(
+                    row.material_price_snapshot or row.price, default="", limit=40
+                )
+                row_cost_text = normalize_text(
+                    row.material_cost_price_snapshot or row.cost_price, default="", limit=40
+                )
+                row_price = self._parse_payroll_decimal(row_price_text)
+                row_cost = self._parse_payroll_decimal(row_cost_text)
+                total_money = self._employee_salary_report_money(row_total)
+                cost_total_money = self._employee_salary_report_money(row_cost_total)
+                profit_money = self._employee_salary_report_money(row_profit)
+                accrued_money = self._employee_salary_report_money(row_accrued)
+                price_money = self._employee_salary_report_money(row_price)
+                cost_money = self._employee_salary_report_money(row_cost)
+                materials.append(
+                    {
+                        "name": row.name or "Материал без названия",
+                        "quantity": row.quantity,
+                        "price": self._format_payroll_decimal(row_price) if row_price_text else "",
+                        "price_display": price_money["display"] if row_price_text else "",
+                        "cost_price": self._format_payroll_decimal(row_cost)
+                        if row_cost_text
+                        else "",
+                        "cost_price_display": cost_money["display"] if row_cost_text else "",
+                        "total": total_money["raw"],
+                        "total_minor": total_money["minor"],
+                        "total_display": total_money["display"],
+                        "cost_total": cost_total_money["raw"],
+                        "cost_total_minor": cost_total_money["minor"],
+                        "cost_total_display": cost_total_money["display"],
+                        "profit": profit_money["raw"],
+                        "profit_minor": profit_money["minor"],
+                        "profit_display": profit_money["display"],
+                        "material_percent": row.material_percent_snapshot,
+                        "accrued": accrued_money["raw"],
+                        "accrued_minor": accrued_money["minor"],
+                        "accrued_display": accrued_money["display"],
+                    }
+                )
+                material_total += row_total
+                material_cost_total += row_cost_total
+                material_profit_total += row_profit
+                material_accrued_total += row_accrued
+            if not works and not materials:
                 continue
 
             plate = (
@@ -3813,7 +3971,12 @@ class CardService:
                 repair_order_count=1,
                 work_count=len(works),
                 work_total=work_total,
-                accrued_total=accrued_total,
+                work_accrued_total=work_accrued_total,
+                material_count=len(materials),
+                material_total=material_total,
+                material_cost_total=material_cost_total,
+                material_profit_total=material_profit_total,
+                material_accrued_total=material_accrued_total,
             )
             order_payload = {
                 "card_id": card.id,
@@ -3826,10 +3989,27 @@ class CardService:
                 "work_total": order_totals["work_total"],
                 "work_total_minor": order_totals["work_total_minor"],
                 "work_total_display": order_totals["work_total_display"],
+                "work_accrued_total": order_totals["work_accrued_total"],
+                "work_accrued_total_minor": order_totals["work_accrued_total_minor"],
+                "work_accrued_total_display": order_totals["work_accrued_total_display"],
+                "material_count": len(materials),
+                "material_total": order_totals["material_total"],
+                "material_total_minor": order_totals["material_total_minor"],
+                "material_total_display": order_totals["material_total_display"],
+                "material_cost_total": order_totals["material_cost_total"],
+                "material_cost_total_minor": order_totals["material_cost_total_minor"],
+                "material_cost_total_display": order_totals["material_cost_total_display"],
+                "material_profit_total": order_totals["material_profit_total"],
+                "material_profit_total_minor": order_totals["material_profit_total_minor"],
+                "material_profit_total_display": order_totals["material_profit_total_display"],
+                "material_accrued_total": order_totals["material_accrued_total"],
+                "material_accrued_total_minor": order_totals["material_accrued_total_minor"],
+                "material_accrued_total_display": order_totals["material_accrued_total_display"],
                 "accrued_total": order_totals["accrued_total"],
                 "accrued_total_minor": order_totals["accrued_total_minor"],
                 "accrued_total_display": order_totals["accrued_total_display"],
                 "works": works,
+                "materials": materials,
             }
             day_key = closed_at.date().isoformat()
             day_payload = grouped_days.setdefault(
@@ -3839,18 +4019,31 @@ class CardService:
                     "label": closed_at.strftime("%d.%m.%Y"),
                     "repair_orders": [],
                     "_work_total": Decimal("0"),
-                    "_accrued_total": Decimal("0"),
+                    "_work_accrued_total": Decimal("0"),
+                    "_material_total": Decimal("0"),
+                    "_material_cost_total": Decimal("0"),
+                    "_material_profit_total": Decimal("0"),
+                    "_material_accrued_total": Decimal("0"),
                 },
             )
             day_payload["repair_orders"].append(order_payload)
             day_payload["_work_total"] += work_total
-            day_payload["_accrued_total"] += accrued_total
+            day_payload["_work_accrued_total"] += work_accrued_total
+            day_payload["_material_total"] += material_total
+            day_payload["_material_cost_total"] += material_cost_total
+            day_payload["_material_profit_total"] += material_profit_total
+            day_payload["_material_accrued_total"] += material_accrued_total
 
         days: list[dict[str, Any]] = []
         total_work_total = Decimal("0")
-        total_accrued_total = Decimal("0")
+        total_work_accrued_total = Decimal("0")
+        total_material_total = Decimal("0")
+        total_material_cost_total = Decimal("0")
+        total_material_profit_total = Decimal("0")
+        total_material_accrued_total = Decimal("0")
         total_repair_orders = 0
         total_works = 0
+        total_materials = 0
         for day_key in sorted(grouped_days.keys(), reverse=True):
             day = grouped_days[day_key]
             day["repair_orders"].sort(
@@ -3858,26 +4051,46 @@ class CardService:
                 reverse=True,
             )
             day_work_count = sum(int(item["work_count"]) for item in day["repair_orders"])
+            day_material_count = sum(int(item["material_count"]) for item in day["repair_orders"])
             day_order_count = len(day["repair_orders"])
             day_work_total = day.pop("_work_total")
-            day_accrued_total = day.pop("_accrued_total")
+            day_work_accrued_total = day.pop("_work_accrued_total")
+            day_material_total = day.pop("_material_total")
+            day_material_cost_total = day.pop("_material_cost_total")
+            day_material_profit_total = day.pop("_material_profit_total")
+            day_material_accrued_total = day.pop("_material_accrued_total")
             day["totals"] = self._employee_salary_report_totals_payload(
                 repair_order_count=day_order_count,
                 work_count=day_work_count,
                 work_total=day_work_total,
-                accrued_total=day_accrued_total,
+                work_accrued_total=day_work_accrued_total,
+                material_count=day_material_count,
+                material_total=day_material_total,
+                material_cost_total=day_material_cost_total,
+                material_profit_total=day_material_profit_total,
+                material_accrued_total=day_material_accrued_total,
             )
             days.append(day)
             total_repair_orders += day_order_count
             total_works += day_work_count
+            total_materials += day_material_count
             total_work_total += day_work_total
-            total_accrued_total += day_accrued_total
+            total_work_accrued_total += day_work_accrued_total
+            total_material_total += day_material_total
+            total_material_cost_total += day_material_cost_total
+            total_material_profit_total += day_material_profit_total
+            total_material_accrued_total += day_material_accrued_total
 
         totals = self._employee_salary_report_totals_payload(
             repair_order_count=total_repair_orders,
             work_count=total_works,
             work_total=total_work_total,
-            accrued_total=total_accrued_total,
+            work_accrued_total=total_work_accrued_total,
+            material_count=total_materials,
+            material_total=total_material_total,
+            material_cost_total=total_material_cost_total,
+            material_profit_total=total_material_profit_total,
+            material_accrued_total=total_material_accrued_total,
         )
         text = self._employee_salary_report_text(
             employee=employee,
@@ -8454,6 +8667,53 @@ class CardService:
             text = text.rstrip("0").rstrip(".")
         return text or "0"
 
+    def _repair_order_row_decimal_or_none(self, value: object) -> Decimal | None:
+        text = normalize_text(value, default="", limit=40)
+        if not text:
+            return None
+        try:
+            return Decimal(text.replace(" ", "").replace(",", "."))
+        except InvalidOperation:
+            return None
+
+    def _material_cost_total(self, row: RepairOrderRow) -> Decimal | None:
+        cost_source = row.material_cost_price_snapshot or row.cost_price
+        quantity = self._repair_order_row_decimal_or_none(row.quantity)
+        cost_price = self._repair_order_row_decimal_or_none(cost_source)
+        if quantity is None or cost_price is None:
+            return None
+        return quantity * cost_price
+
+    def _material_has_salary_snapshot(self, row: RepairOrderRow) -> bool:
+        return any(
+            [
+                row.material_executor_id_snapshot,
+                row.material_executor_name_snapshot,
+                row.material_price_snapshot,
+                row.material_cost_price_snapshot,
+                row.material_percent_snapshot,
+                row.material_profit,
+                row.material_salary_amount,
+                row.material_salary_accrued_at,
+            ]
+        )
+
+    def _clear_material_salary_snapshot(self, row: RepairOrderRow) -> None:
+        row.material_executor_id_snapshot = ""
+        row.material_executor_name_snapshot = ""
+        row.material_price_snapshot = ""
+        row.material_cost_price_snapshot = ""
+        row.material_percent_snapshot = ""
+        row.material_profit = ""
+        row.material_salary_amount = ""
+        row.material_salary_accrued_at = ""
+
+    def _material_salary_employee_id(self, row: RepairOrderRow) -> str:
+        return row.material_executor_id_snapshot or row.executor_id
+
+    def _material_salary_employee_name(self, row: RepairOrderRow) -> str:
+        return row.material_executor_name_snapshot or row.executor_name
+
     def _normalize_payroll_mode(self, value, *, default: str = PAYROLL_MODE_PERCENT_ONLY) -> str:
         normalized = normalize_text(value, default=default, limit=32).lower()
         if normalized not in PAYROLL_ALLOWED_MODES:
@@ -8498,6 +8758,14 @@ class CardService:
                 payload.get("work_percent", existing.get("work_percent", ""))
             )
         )
+        material_percent = self._format_payroll_decimal(
+            self._parse_payroll_decimal(
+                payload.get(
+                    "material_percent",
+                    existing.get("material_percent", DEFAULT_MATERIAL_PERCENT),
+                )
+            )
+        )
         note = normalize_text(payload.get("note"), default=existing.get("note", ""), limit=240)
         is_active = normalize_bool(
             payload.get("is_active"),
@@ -8519,6 +8787,7 @@ class CardService:
             "salary_mode": salary_mode,
             "base_salary": base_salary,
             "work_percent": work_percent,
+            "material_percent": material_percent,
             "is_active": is_active,
             "note": note,
             "created_at": created_at,
@@ -8555,7 +8824,8 @@ class CardService:
         self, order: RepairOrder, settings: dict[str, Any]
     ) -> RepairOrder:
         if order.status != REPAIR_ORDER_STATUS_CLOSED:
-            next_rows: list[dict[str, str]] = []
+            next_work_rows: list[dict[str, str]] = []
+            next_material_rows: list[dict[str, str]] = []
             changed = False
             for source_row in order.works:
                 row = RepairOrderRow.from_dict(
@@ -8576,12 +8846,26 @@ class CardService:
                 row.work_percent_snapshot = ""
                 row.salary_amount = ""
                 row.salary_accrued_at = ""
-                next_rows.append(row.to_dict())
+                next_work_rows.append(row.to_dict())
+            for source_row in order.materials:
+                row = RepairOrderRow.from_dict(
+                    source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
+                )
+                if self._material_has_salary_snapshot(row):
+                    changed = True
+                self._clear_material_salary_snapshot(row)
+                next_material_rows.append(row.to_dict())
             if not changed:
                 return order
-            return RepairOrder.from_dict({**order.to_storage_dict(), "works": next_rows})
+            return RepairOrder.from_dict(
+                {
+                    **order.to_storage_dict(),
+                    "works": next_work_rows,
+                    "materials": next_material_rows,
+                }
+            )
         employees_by_id = {item["id"]: item for item in self._employees_from_settings(settings)}
-        next_rows: list[dict[str, str]] = []
+        next_work_rows: list[dict[str, str]] = []
         accrued_at = order.closed_at or self._repair_order_now()
         for source_row in order.works:
             row = RepairOrderRow.from_dict(
@@ -8594,7 +8878,7 @@ class CardService:
                 row.work_percent_snapshot = ""
                 row.salary_amount = ""
                 row.salary_accrued_at = ""
-                next_rows.append(row.to_dict())
+                next_work_rows.append(row.to_dict())
                 continue
             row.executor_name = employee["name"]
             row.salary_mode_snapshot = employee["salary_mode"]
@@ -8612,8 +8896,48 @@ class CardService:
                 )
             row.salary_amount = self._format_payroll_decimal(salary_amount)
             row.salary_accrued_at = accrued_at
-            next_rows.append(row.to_dict())
-        return RepairOrder.from_dict({**order.to_storage_dict(), "works": next_rows})
+            next_work_rows.append(row.to_dict())
+        next_material_rows: list[dict[str, str]] = []
+        order_is_paid = order.is_paid()
+        for source_row in order.materials:
+            row = RepairOrderRow.from_dict(
+                source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
+            )
+            if not order_is_paid:
+                self._clear_material_salary_snapshot(row)
+                next_material_rows.append(row.to_dict())
+                continue
+            if row.material_salary_accrued_at:
+                row.material_executor_id_snapshot = (
+                    row.material_executor_id_snapshot or row.executor_id
+                )
+                row.material_executor_name_snapshot = (
+                    row.material_executor_name_snapshot or row.executor_name
+                )
+                next_material_rows.append(row.to_dict())
+                continue
+            employee = employees_by_id.get(row.executor_id)
+            cost_total = self._material_cost_total(row)
+            if employee is None or cost_total is None:
+                self._clear_material_salary_snapshot(row)
+                next_material_rows.append(row.to_dict())
+                continue
+            material_percent = self._parse_payroll_decimal(employee.get("material_percent", ""))
+            profit = max(row.total_value() - cost_total, Decimal("0"))
+            salary_amount = profit * material_percent / Decimal("100")
+            row.executor_name = employee["name"]
+            row.material_executor_id_snapshot = employee["id"]
+            row.material_executor_name_snapshot = employee["name"]
+            row.material_price_snapshot = row.price
+            row.material_cost_price_snapshot = row.cost_price
+            row.material_percent_snapshot = self._format_payroll_decimal(material_percent)
+            row.material_profit = self._format_payroll_decimal(profit)
+            row.material_salary_amount = self._format_payroll_decimal(salary_amount)
+            row.material_salary_accrued_at = accrued_at
+            next_material_rows.append(row.to_dict())
+        return RepairOrder.from_dict(
+            {**order.to_storage_dict(), "works": next_work_rows, "materials": next_material_rows}
+        )
 
     def _build_payroll_report(
         self,
@@ -8625,23 +8949,34 @@ class CardService:
     ) -> dict[str, list[dict[str, Any]]]:
         selected_employee_id = normalize_text(employee_id, default="", limit=64)
         month_key = month.replace("-", "")
+
+        def empty_summary(employee: dict[str, Any]) -> dict[str, Any]:
+            base_salary = self._parse_payroll_decimal(employee.get("base_salary", ""))
+            return {
+                "employee_id": employee["id"],
+                "employee_name": employee["name"],
+                "position": employee.get("position", ""),
+                "salary_mode": employee.get("salary_mode", ""),
+                "work_percent": employee.get("work_percent", ""),
+                "material_percent": employee.get("material_percent", DEFAULT_MATERIAL_PERCENT),
+                "base_salary": self._format_payroll_decimal(base_salary),
+                "works_count": 0,
+                "works_total": Decimal("0"),
+                "work_accrued_total": Decimal("0"),
+                "materials_count": 0,
+                "materials_total": Decimal("0"),
+                "materials_cost_total": Decimal("0"),
+                "materials_profit_total": Decimal("0"),
+                "materials_accrued_total": Decimal("0"),
+            }
+
         summaries: dict[str, dict[str, Any]] = {}
         for employee in employees:
             if selected_employee_id and employee["id"] != selected_employee_id:
                 continue
-            base_salary = self._parse_payroll_decimal(employee["base_salary"])
-            summaries[employee["id"]] = {
-                "employee_id": employee["id"],
-                "employee_name": employee["name"],
-                "position": employee["position"],
-                "salary_mode": employee["salary_mode"],
-                "work_percent": employee["work_percent"],
-                "base_salary": self._format_payroll_decimal(base_salary),
-                "works_count": 0,
-                "works_total": Decimal("0"),
-                "accrued_total": Decimal("0"),
-            }
+            summaries[employee["id"]] = empty_summary(employee)
         detail_rows_by_order: dict[tuple[str, str], dict[str, Any]] = {}
+        material_detail_rows: list[dict[str, Any]] = []
         for card in cards:
             order = card.repair_order
             if order.status != REPAIR_ORDER_STATUS_CLOSED:
@@ -8661,25 +8996,33 @@ class CardService:
                 if current_employee_id not in summaries:
                     summaries[current_employee_id] = {
                         "employee_id": current_employee_id,
-                        "employee_name": row.executor_name or "Сотрудник",
+                        "employee_name": self._material_salary_employee_name(row) or "Сотрудник",
                         "position": "",
                         "salary_mode": row.salary_mode_snapshot,
                         "work_percent": row.work_percent_snapshot,
+                        "material_percent": "",
                         "base_salary": "0",
                         "works_count": 0,
                         "works_total": Decimal("0"),
-                        "accrued_total": Decimal("0"),
+                        "work_accrued_total": Decimal("0"),
+                        "materials_count": 0,
+                        "materials_total": Decimal("0"),
+                        "materials_cost_total": Decimal("0"),
+                        "materials_profit_total": Decimal("0"),
+                        "materials_accrued_total": Decimal("0"),
                     }
                 summary = summaries[current_employee_id]
                 work_total = row.total_value()
                 accrued_total = self._parse_payroll_decimal(row.salary_amount)
                 summary["works_count"] += 1
                 summary["works_total"] += work_total
-                summary["accrued_total"] += accrued_total
+                summary["work_accrued_total"] += accrued_total
                 detail_key = (current_employee_id, card.id)
                 detail_row = detail_rows_by_order.setdefault(
                     detail_key,
                     {
+                        "row_type": "work",
+                        "type_label": "Работа",
                         "employee_id": current_employee_id,
                         "employee_name": summary["employee_name"],
                         "closed_at": order.closed_at,
@@ -8689,16 +9032,85 @@ class CardService:
                         "works_count": 0,
                         "work_total": Decimal("0"),
                         "salary_amount": Decimal("0"),
+                        "materials_count": 0,
+                        "material_name": "",
+                        "material_total": Decimal("0"),
+                        "material_cost_total": Decimal("0"),
+                        "material_profit": Decimal("0"),
+                        "material_percent": "",
                     },
                 )
                 detail_row["works_count"] += 1
                 detail_row["work_total"] += work_total
                 detail_row["salary_amount"] += accrued_total
+            for source_row in order.materials:
+                row = RepairOrderRow.from_dict(
+                    source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
+                )
+                current_employee_id = self._material_salary_employee_id(row)
+                if not current_employee_id or not row.material_salary_accrued_at:
+                    continue
+                if selected_employee_id and current_employee_id != selected_employee_id:
+                    continue
+                if current_employee_id not in summaries:
+                    summaries[current_employee_id] = {
+                        "employee_id": current_employee_id,
+                        "employee_name": row.executor_name or "Сотрудник",
+                        "position": "",
+                        "salary_mode": "",
+                        "work_percent": "",
+                        "material_percent": row.material_percent_snapshot,
+                        "base_salary": "0",
+                        "works_count": 0,
+                        "works_total": Decimal("0"),
+                        "work_accrued_total": Decimal("0"),
+                        "materials_count": 0,
+                        "materials_total": Decimal("0"),
+                        "materials_cost_total": Decimal("0"),
+                        "materials_profit_total": Decimal("0"),
+                        "materials_accrued_total": Decimal("0"),
+                    }
+                summary = summaries[current_employee_id]
+                material_total = row.total_value()
+                material_cost_total = self._material_cost_total(row) or Decimal("0")
+                material_profit = self._parse_payroll_decimal(row.material_profit)
+                accrued_total = self._parse_payroll_decimal(row.material_salary_amount)
+                summary["materials_count"] += 1
+                summary["materials_total"] += material_total
+                summary["materials_cost_total"] += material_cost_total
+                summary["materials_profit_total"] += material_profit
+                summary["materials_accrued_total"] += accrued_total
+                material_detail_rows.append(
+                    {
+                        "row_type": "material",
+                        "type_label": "Материал",
+                        "employee_id": current_employee_id,
+                        "employee_name": summary["employee_name"],
+                        "closed_at": order.closed_at,
+                        "repair_order_number": order.number,
+                        "card_id": card.id,
+                        "vehicle": order.vehicle or card.vehicle,
+                        "works_count": 0,
+                        "work_total": Decimal("0"),
+                        "materials_count": 1,
+                        "material_name": row.name,
+                        "material_total": material_total,
+                        "material_cost_total": material_cost_total,
+                        "material_profit": material_profit,
+                        "material_percent": row.material_percent_snapshot,
+                        "salary_amount": accrued_total,
+                    }
+                )
         summary_rows: list[dict[str, Any]] = []
         for item in summaries.values():
             base_salary = self._parse_payroll_decimal(item["base_salary"])
             works_total = item["works_total"]
-            accrued_total = item["accrued_total"]
+            work_accrued_total = item["work_accrued_total"]
+            materials_total = item["materials_total"]
+            materials_cost_total = item["materials_cost_total"]
+            materials_profit_total = item["materials_profit_total"]
+            materials_accrued_total = item["materials_accrued_total"]
+            accrued_total = work_accrued_total + materials_accrued_total
             total_salary = base_salary + accrued_total
             summary_rows.append(
                 {
@@ -8707,9 +9119,18 @@ class CardService:
                     "position": item["position"],
                     "salary_mode": item["salary_mode"],
                     "work_percent": item["work_percent"],
+                    "material_percent": item["material_percent"],
                     "base_salary": self._format_payroll_decimal(base_salary),
                     "works_count": item["works_count"],
                     "works_total": self._format_payroll_decimal(works_total),
+                    "work_accrued_total": self._format_payroll_decimal(work_accrued_total),
+                    "materials_count": item["materials_count"],
+                    "materials_total": self._format_payroll_decimal(materials_total),
+                    "materials_cost_total": self._format_payroll_decimal(materials_cost_total),
+                    "materials_profit_total": self._format_payroll_decimal(materials_profit_total),
+                    "materials_accrued_total": self._format_payroll_decimal(
+                        materials_accrued_total
+                    ),
                     "accrued_total": self._format_payroll_decimal(accrued_total),
                     "total_salary": self._format_payroll_decimal(total_salary),
                 }
@@ -8719,9 +9140,11 @@ class CardService:
             reverse=True,
         )
         detail_rows: list[dict[str, Any]] = []
-        for item in detail_rows_by_order.values():
+        for item in list(detail_rows_by_order.values()) + material_detail_rows:
             detail_rows.append(
                 {
+                    "row_type": item["row_type"],
+                    "type_label": item["type_label"],
                     "employee_id": item["employee_id"],
                     "employee_name": item["employee_name"],
                     "closed_at": item["closed_at"],
@@ -8730,6 +9153,14 @@ class CardService:
                     "vehicle": item["vehicle"],
                     "works_count": item["works_count"],
                     "work_total": self._format_payroll_decimal(item["work_total"]),
+                    "materials_count": item["materials_count"],
+                    "material_name": item["material_name"],
+                    "material_total": self._format_payroll_decimal(item["material_total"]),
+                    "material_cost_total": self._format_payroll_decimal(
+                        item["material_cost_total"]
+                    ),
+                    "material_profit": self._format_payroll_decimal(item["material_profit"]),
+                    "material_percent": item["material_percent"],
                     "salary_amount": self._format_payroll_decimal(item["salary_amount"]),
                 }
             )
@@ -8738,6 +9169,8 @@ class CardService:
                 self._repair_order_sortable_datetime(item["closed_at"]),
                 item["repair_order_number"],
                 item["vehicle"],
+                item["row_type"],
+                item.get("material_name") or "",
             ),
             reverse=True,
         )

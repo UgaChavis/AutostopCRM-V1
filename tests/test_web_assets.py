@@ -583,6 +583,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="employeesList"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeesCardMode"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryModeInput"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeMaterialPercentInput"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeNoteDetails"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeesSummaryStrip"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeesDetailTable"', BOARD_WEB_APP_HTML)
@@ -596,7 +597,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="employeeSalaryCashboxSelect"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryPayoutButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryAdvanceButton"', BOARD_WEB_APP_HTML)
-        self.assertIn("<th>РАБОТЫ</th>", BOARD_WEB_APP_HTML)
+        self.assertIn("<th>ТИП</th>", BOARD_WEB_APP_HTML)
+        self.assertIn("<th>ПОЗИЦИЯ</th>", BOARD_WEB_APP_HTML)
         self.assertNotIn('id="employeesSearchInput"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="employeesVisibilityFilters"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="employeesListMeta"', BOARD_WEB_APP_HTML)
@@ -615,6 +617,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function renderEmployeeSalaryModal()", BOARD_WEB_APP_HTML)
         self.assertIn("function handleEmployeeSalaryActionConfirm()", BOARD_WEB_APP_HTML)
         self.assertIn("await loadEmployeesReference();", BOARD_WEB_APP_HTML)
+        self.assertIn("<th>ТИП</th>", BOARD_WEB_APP_HTML)
         self.assertIn("employeesLoadedMonth: ''", BOARD_WEB_APP_HTML)
         self.assertIn("employeesReferencePromise: null", BOARD_WEB_APP_HTML)
         self.assertIn("state.employeesLoadedMonth = month;", BOARD_WEB_APP_HTML)
@@ -685,6 +688,10 @@ class WebAssetsTests(unittest.TestCase):
             'class="field employees-field--span-2 employees-field--compact employees-field--percent"',
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn("ПРОЦЕНТ С РАБОТ", BOARD_WEB_APP_HTML)
+        self.assertIn("% С МАТЕРИАЛОВ", BOARD_WEB_APP_HTML)
+        self.assertIn("material_percent: normalizeEmployeeComparableNumber", BOARD_WEB_APP_HTML)
+        self.assertIn("employeeMaterialPercentInput.value", BOARD_WEB_APP_HTML)
         self.assertIn(
             'class="field employees-field--span-6 employees-field--compact employees-field--mode"',
             BOARD_WEB_APP_HTML,
@@ -727,6 +734,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="employeesCreateButton"', BOARD_WEB_APP_HTML)
         self.assertIn(">ДОБАВИТЬ<", BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeDeleteButton"', BOARD_WEB_APP_HTML)
+        self.assertIn("<th", BOARD_WEB_APP_HTML)
+        self.assertIn(">Закупка<", BOARD_WEB_APP_HTML)
+        self.assertIn(">Списал<", BOARD_WEB_APP_HTML)
+        self.assertIn('data-repair-order-cell="cost_price"', BOARD_WEB_APP_HTML)
         self.assertNotIn(
             "els.employeeToggleButton?.addEventListener('click', toggleEmployee);",
             BOARD_WEB_APP_HTML,

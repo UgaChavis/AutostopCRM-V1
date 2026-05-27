@@ -1475,6 +1475,403 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(reopened_row["base_salary_snapshot"], "")
         self.assertEqual(reopened_row["work_percent_snapshot"], "")
 
+    def test_material_rows_persist_cost_and_executor_through_section_replace(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Сергей Снабженец",
+                "position": "Снабженец",
+                "material_percent": "12.5",
+            }
+        )["employee"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota RAV4",
+                "title": "Материалы с исполнителем",
+                "deadline": {"hours": 2},
+            }
+        )
+
+        replaced = self.service.replace_repair_order_materials(
+            {
+                "card_id": created["card"]["id"],
+                "rows": [
+                    {
+                        "name": "Фильтр салона",
+                        "catalog_number": "87139-06080",
+                        "quantity": "2",
+                        "cost_price": "700",
+                        "price": "1000",
+                        "executor_id": employee["id"],
+                    }
+                ],
+            }
+        )
+
+        row = replaced["repair_order"]["materials"][0]
+        self.assertEqual(row["catalog_number"], "87139-06080")
+        self.assertEqual(row["cost_price"], "700")
+        self.assertEqual(row["executor_id"], employee["id"])
+        self.assertEqual(row["executor_name"], "")
+        self.assertEqual(row["material_salary_amount"], "")
+
+    def test_closing_paid_repair_order_accrues_material_profit_salary(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Сергей Снабженец",
+                "position": "Снабженец",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "0",
+                "material_percent": "10",
+            }
+        )["employee"]
+        self.assertEqual(employee["material_percent"], "10")
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota RAV4",
+                "title": "Начисление с материалов",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "41",
+                    "status": "open",
+                    "client": "Клиент",
+                    "vehicle": "Toyota RAV4",
+                    "payments": [
+                        {
+                            "amount": "2000",
+                            "paid_at": "05.04.2026 10:00",
+                            "payment_method": "cash",
+                        }
+                    ],
+                    "materials": [
+                        {
+                            "name": "Фильтр салона",
+                            "catalog_number": "87139-06080",
+                            "quantity": "2",
+                            "cost_price": "700",
+                            "price": "1000",
+                            "executor_id": employee["id"],
+                        }
+                    ],
+                },
+            }
+        )
+
+        closed = self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+        material = closed["repair_order"]["materials"][0]
+        self.assertEqual(material["executor_name"], "Сергей Снабженец")
+        self.assertEqual(material["cost_price"], "700")
+        self.assertEqual(material["material_percent_snapshot"], "10")
+        self.assertEqual(material["material_profit"], "600")
+        self.assertEqual(material["material_salary_amount"], "60")
+        self.assertEqual(
+            material["material_salary_accrued_at"], closed["repair_order"]["closed_at"]
+        )
+
+        closed_month = dt.strptime(closed["repair_order"]["closed_at"], "%d.%m.%Y %H:%M").strftime(
+            "%Y-%m"
+        )
+        report = self.service.get_payroll_report({"month": closed_month})
+        summary = next(item for item in report["summary"] if item["employee_id"] == employee["id"])
+        self.assertEqual(summary["works_count"], 0)
+        self.assertEqual(summary["materials_count"], 1)
+        self.assertEqual(summary["materials_total"], "2000")
+        self.assertEqual(summary["materials_cost_total"], "1400")
+        self.assertEqual(summary["materials_profit_total"], "600")
+        self.assertEqual(summary["work_accrued_total"], "0")
+        self.assertEqual(summary["materials_accrued_total"], "60")
+        self.assertEqual(summary["accrued_total"], "60")
+        self.assertEqual(summary["total_salary"], "60")
+
+        detail_rows = [row for row in report["detail_rows"] if row["employee_id"] == employee["id"]]
+        self.assertEqual(len(detail_rows), 1)
+        self.assertEqual(detail_rows[0]["row_type"], "material")
+        self.assertEqual(detail_rows[0]["type_label"], "Материал")
+        self.assertEqual(detail_rows[0]["material_name"], "Фильтр салона")
+        self.assertEqual(detail_rows[0]["material_total"], "2000")
+        self.assertEqual(detail_rows[0]["material_cost_total"], "1400")
+        self.assertEqual(detail_rows[0]["material_profit"], "600")
+        self.assertEqual(detail_rows[0]["material_percent"], "10")
+        self.assertEqual(detail_rows[0]["salary_amount"], "60")
+
+        ledger = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        self.assertEqual(ledger["accrued_total"], "60")
+        self.assertEqual(ledger["balance_total"], "60")
+        self.assertEqual(ledger["journal_rows"][0]["kind"], "material_accrual")
+        self.assertEqual(ledger["journal_rows"][0]["work_name"], "Фильтр салона")
+
+        salary_report = self.service.get_employee_salary_report(
+            {"employee_id": employee["id"], "month": closed_month}
+        )
+        self.assertEqual(salary_report["totals"]["material_count"], 1)
+        self.assertEqual(salary_report["totals"]["material_profit_total"], "600")
+        self.assertEqual(salary_report["totals"]["accrued_total"], "60")
+        self.assertIn("Материалов: 1", salary_report["text"])
+        self.assertIn("Прибыль: 600,00 ₽", salary_report["text"])
+
+    def test_material_salary_ignores_missing_cost_and_negative_profit(self) -> None:
+        employee = self.service.save_employee({"name": "Иван Снабженец"})["employee"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Nissan X-Trail",
+                "title": "Материалы без прибыли",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "42",
+                    "status": "open",
+                    "vehicle": "Nissan X-Trail",
+                    "payments": [
+                        {
+                            "amount": "1500",
+                            "paid_at": "05.04.2026 10:00",
+                            "payment_method": "cash",
+                        }
+                    ],
+                    "materials": [
+                        {
+                            "name": "Без закупки",
+                            "quantity": "1",
+                            "price": "1000",
+                            "executor_id": employee["id"],
+                        },
+                        {
+                            "name": "Минусовая маржа",
+                            "quantity": "1",
+                            "cost_price": "700",
+                            "price": "500",
+                            "executor_id": employee["id"],
+                        },
+                    ],
+                },
+            }
+        )
+
+        closed = self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+        missing_cost, negative_profit = closed["repair_order"]["materials"]
+        self.assertEqual(missing_cost["material_percent_snapshot"], "")
+        self.assertEqual(missing_cost["material_profit"], "")
+        self.assertEqual(missing_cost["material_salary_amount"], "")
+        self.assertEqual(negative_profit["material_percent_snapshot"], "10")
+        self.assertEqual(negative_profit["material_profit"], "0")
+        self.assertEqual(negative_profit["material_salary_amount"], "0")
+
+    def test_material_salary_snapshot_is_frozen_after_employee_percent_change(self) -> None:
+        employee = self.service.save_employee({"name": "Олег Снабженец", "material_percent": "10"})[
+            "employee"
+        ]
+        created = self.service.create_card(
+            {
+                "vehicle": "Mazda CX-5",
+                "title": "Заморозка материалов",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "43",
+                    "status": "open",
+                    "vehicle": "Mazda CX-5",
+                    "payments": [
+                        {
+                            "amount": "1000",
+                            "paid_at": "05.04.2026 10:00",
+                            "payment_method": "cash",
+                        }
+                    ],
+                    "materials": [
+                        {
+                            "name": "Щётка стеклоочистителя",
+                            "quantity": "1",
+                            "cost_price": "700",
+                            "price": "1000",
+                            "executor_id": employee["id"],
+                        }
+                    ],
+                },
+            }
+        )
+
+        closed = self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+        self.assertEqual(closed["repair_order"]["materials"][0]["material_salary_amount"], "30")
+
+        self.service.save_employee(
+            {
+                "employee_id": employee["id"],
+                "name": "Олег Снабженец",
+                "material_percent": "50",
+            }
+        )
+        updated = self.service.update_repair_order(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    **closed["repair_order"],
+                    "note": "После изменения процента",
+                },
+            }
+        )
+
+        material = updated["repair_order"]["materials"][0]
+        self.assertEqual(material["material_percent_snapshot"], "10")
+        self.assertEqual(material["material_profit"], "300")
+        self.assertEqual(material["material_salary_amount"], "30")
+
+        reopened = self.service.set_repair_order_status({"card_id": card_id, "status": "open"})
+        reopened_material = reopened["repair_order"]["materials"][0]
+        self.assertEqual(reopened_material["material_percent_snapshot"], "")
+        self.assertEqual(reopened_material["material_profit"], "")
+        self.assertEqual(reopened_material["material_salary_amount"], "")
+
+    def test_material_salary_snapshot_keeps_original_executor_after_row_edit(self) -> None:
+        original_employee = self.service.save_employee(
+            {"name": "Оригинальный Снабженец", "material_percent": "10"}
+        )["employee"]
+        other_employee = self.service.save_employee(
+            {"name": "Другой Снабженец", "material_percent": "50"}
+        )["employee"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Hyundai Solaris",
+                "title": "Заморозка исполнителя материалов",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "44",
+                    "status": "open",
+                    "vehicle": "Hyundai Solaris",
+                    "payments": [
+                        {
+                            "amount": "1000",
+                            "paid_at": "05.04.2026 10:00",
+                            "payment_method": "cash",
+                        }
+                    ],
+                    "materials": [
+                        {
+                            "name": "Фара",
+                            "quantity": "1",
+                            "cost_price": "400",
+                            "price": "1000",
+                            "executor_id": original_employee["id"],
+                        }
+                    ],
+                },
+            }
+        )
+
+        closed = self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+        closed_month = dt.strptime(closed["repair_order"]["closed_at"], "%d.%m.%Y %H:%M").strftime(
+            "%Y-%m"
+        )
+        edited_material = {
+            **closed["repair_order"]["materials"][0],
+            "executor_id": other_employee["id"],
+            "executor_name": other_employee["name"],
+        }
+        updated = self.service.update_repair_order(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    **closed["repair_order"],
+                    "materials": [edited_material],
+                },
+            }
+        )
+
+        material = updated["repair_order"]["materials"][0]
+        self.assertEqual(material["material_executor_id_snapshot"], original_employee["id"])
+        self.assertEqual(material["material_executor_name_snapshot"], original_employee["name"])
+        self.assertEqual(material["material_salary_amount"], "60")
+
+        report = self.service.get_payroll_report({"month": closed_month})
+        original_summary = next(
+            item for item in report["summary"] if item["employee_id"] == original_employee["id"]
+        )
+        other_summary = next(
+            item for item in report["summary"] if item["employee_id"] == other_employee["id"]
+        )
+        self.assertEqual(original_summary["materials_count"], 1)
+        self.assertEqual(original_summary["materials_accrued_total"], "60")
+        self.assertEqual(other_summary["materials_count"], 0)
+        self.assertEqual(other_summary["materials_accrued_total"], "0")
+
+    def test_material_salary_snapshot_clears_when_closed_order_becomes_unpaid(self) -> None:
+        employee = self.service.save_employee({"name": "Снабженец Оплаты"})["employee"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Skoda Rapid",
+                "title": "Материалы без оплаты после закрытия",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "45",
+                    "status": "open",
+                    "vehicle": "Skoda Rapid",
+                    "payments": [
+                        {
+                            "amount": "1000",
+                            "paid_at": "05.04.2026 10:00",
+                            "payment_method": "cash",
+                        }
+                    ],
+                    "materials": [
+                        {
+                            "name": "Радиатор",
+                            "quantity": "1",
+                            "cost_price": "800",
+                            "price": "1000",
+                            "executor_id": employee["id"],
+                        }
+                    ],
+                },
+            }
+        )
+
+        closed = self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+        self.assertEqual(closed["repair_order"]["materials"][0]["material_salary_amount"], "20")
+
+        unpaid = self.service.update_repair_order(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    **closed["repair_order"],
+                    "payments": [],
+                    "prepayment": "0",
+                },
+            }
+        )
+
+        material = unpaid["repair_order"]["materials"][0]
+        self.assertEqual(material["material_percent_snapshot"], "")
+        self.assertEqual(material["material_profit"], "")
+        self.assertEqual(material["material_salary_amount"], "")
+        self.assertEqual(material["material_salary_accrued_at"], "")
+
     def test_employee_salary_ledger_combines_closed_orders_payouts_and_advances(self) -> None:
         employee = self.service.save_employee(
             {

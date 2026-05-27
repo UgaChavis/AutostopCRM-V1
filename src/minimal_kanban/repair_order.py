@@ -233,6 +233,7 @@ class RepairOrderRow:
     name: str = ""
     catalog_number: str = ""
     quantity: str = ""
+    cost_price: str = ""
     price: str = ""
     total: str = ""
     executor_id: str = ""
@@ -242,6 +243,14 @@ class RepairOrderRow:
     work_percent_snapshot: str = ""
     salary_amount: str = ""
     salary_accrued_at: str = ""
+    material_executor_id_snapshot: str = ""
+    material_executor_name_snapshot: str = ""
+    material_price_snapshot: str = ""
+    material_cost_price_snapshot: str = ""
+    material_percent_snapshot: str = ""
+    material_profit: str = ""
+    material_salary_amount: str = ""
+    material_salary_accrued_at: str = ""
 
     def __post_init__(self) -> None:
         self.name = _normalize_single_line(self.name, limit=REPAIR_ORDER_ROW_NAME_LIMIT)
@@ -249,6 +258,9 @@ class RepairOrderRow:
             self.catalog_number, limit=REPAIR_ORDER_FIELD_LIMIT
         )
         self.quantity = _normalize_single_line(self.quantity, limit=REPAIR_ORDER_ROW_VALUE_LIMIT)
+        self.cost_price = _normalize_single_line(
+            self.cost_price, limit=REPAIR_ORDER_ROW_VALUE_LIMIT
+        )
         self.price = _normalize_single_line(self.price, limit=REPAIR_ORDER_ROW_VALUE_LIMIT)
         normalized_total = _normalize_single_line(self.total, limit=REPAIR_ORDER_ROW_VALUE_LIMIT)
         computed_total = self.computed_total()
@@ -270,15 +282,42 @@ class RepairOrderRow:
         self.salary_accrued_at = _normalize_single_line(
             self.salary_accrued_at, limit=REPAIR_ORDER_DATE_LIMIT
         )
+        self.material_executor_id_snapshot = _normalize_single_line(
+            self.material_executor_id_snapshot, limit=64
+        )
+        self.material_executor_name_snapshot = _normalize_single_line(
+            self.material_executor_name_snapshot, limit=REPAIR_ORDER_FIELD_LIMIT
+        )
+        self.material_price_snapshot = _normalize_single_line(
+            self.material_price_snapshot, limit=REPAIR_ORDER_ROW_VALUE_LIMIT
+        )
+        self.material_cost_price_snapshot = _normalize_single_line(
+            self.material_cost_price_snapshot, limit=REPAIR_ORDER_ROW_VALUE_LIMIT
+        )
+        self.material_percent_snapshot = _normalize_single_line(
+            self.material_percent_snapshot, limit=REPAIR_ORDER_ROW_VALUE_LIMIT
+        )
+        self.material_profit = _normalize_single_line(
+            self.material_profit, limit=REPAIR_ORDER_ROW_VALUE_LIMIT
+        )
+        self.material_salary_amount = _normalize_single_line(
+            self.material_salary_amount, limit=REPAIR_ORDER_ROW_VALUE_LIMIT
+        )
+        self.material_salary_accrued_at = _normalize_single_line(
+            self.material_salary_accrued_at, limit=REPAIR_ORDER_DATE_LIMIT
+        )
 
     def is_empty(self) -> bool:
-        return not any([self.name, self.catalog_number, self.quantity, self.price, self.total])
+        return not any(
+            [self.name, self.catalog_number, self.quantity, self.cost_price, self.price, self.total]
+        )
 
     def to_dict(self) -> dict[str, str]:
         return {
             "name": self.name,
             "catalog_number": self.catalog_number,
             "quantity": self.quantity,
+            "cost_price": self.cost_price,
             "price": self.price,
             "total": self.total,
             "executor_id": self.executor_id,
@@ -288,6 +327,14 @@ class RepairOrderRow:
             "work_percent_snapshot": self.work_percent_snapshot,
             "salary_amount": self.salary_amount,
             "salary_accrued_at": self.salary_accrued_at,
+            "material_executor_id_snapshot": self.material_executor_id_snapshot,
+            "material_executor_name_snapshot": self.material_executor_name_snapshot,
+            "material_price_snapshot": self.material_price_snapshot,
+            "material_cost_price_snapshot": self.material_cost_price_snapshot,
+            "material_percent_snapshot": self.material_percent_snapshot,
+            "material_profit": self.material_profit,
+            "material_salary_amount": self.material_salary_amount,
+            "material_salary_accrued_at": self.material_salary_accrued_at,
         }
 
     def total_value(self) -> Decimal:
@@ -322,6 +369,10 @@ class RepairOrderRow:
                 ),
             ),
             quantity=payload.get("quantity", payload.get("qty", "")),
+            cost_price=payload.get(
+                "cost_price",
+                payload.get("costPrice", payload.get("purchase_price", payload.get("cost", ""))),
+            ),
             price=payload.get("price", ""),
             total=payload.get("total", payload.get("sum", "")),
             executor_id=payload.get("executor_id", payload.get("employee_id", "")),
@@ -331,6 +382,14 @@ class RepairOrderRow:
             work_percent_snapshot=payload.get("work_percent_snapshot", ""),
             salary_amount=payload.get("salary_amount", ""),
             salary_accrued_at=payload.get("salary_accrued_at", ""),
+            material_executor_id_snapshot=payload.get("material_executor_id_snapshot", ""),
+            material_executor_name_snapshot=payload.get("material_executor_name_snapshot", ""),
+            material_price_snapshot=payload.get("material_price_snapshot", ""),
+            material_cost_price_snapshot=payload.get("material_cost_price_snapshot", ""),
+            material_percent_snapshot=payload.get("material_percent_snapshot", ""),
+            material_profit=payload.get("material_profit", ""),
+            material_salary_amount=payload.get("material_salary_amount", ""),
+            material_salary_accrued_at=payload.get("material_salary_accrued_at", ""),
         )
 
 
