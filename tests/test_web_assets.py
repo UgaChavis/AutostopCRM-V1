@@ -753,6 +753,47 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("els.employeeSalaryReportText.textContent", BOARD_WEB_APP_HTML)
         self.assertIn("function renderEmployeeSalaryReportModal()", BOARD_WEB_APP_HTML)
         self.assertIn("function downloadEmployeeSalaryReport()", BOARD_WEB_APP_HTML)
+        self.assertIn("function loadEmployeeSalaryReconciliation(", BOARD_WEB_APP_HTML)
+        self.assertIn("function employeeSalaryReconciliationPrintUrl(", BOARD_WEB_APP_HTML)
+        self.assertIn("/employee_salary_reconciliation_print?", BOARD_WEB_APP_HTML)
+        self.assertIn('target="_blank"', BOARD_WEB_APP_HTML)
+        self.assertIn('rel="noopener"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function createEmployeeSalaryReconciliationPrintWindow(",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("function buildEmployeeSalaryReconciliationPrintHtml(", BOARD_WEB_APP_HTML)
+        self.assertIn("function openEmployeeSalaryReconciliationPrint(", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "'/api/get_employee_salary_reconciliation?employee_id='",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("Акт сверки зарплаты", BOARD_WEB_APP_HTML)
+        self.assertIn("Загрузка акта сверки зарплаты", BOARD_WEB_APP_HTML)
+        self.assertIn("@media print", BOARD_WEB_APP_HTML)
+        self.assertIn("window.print()", BOARD_WEB_APP_HTML)
+        self.assertIn("Бухгалтер", BOARD_WEB_APP_HTML)
+        self.assertIn("Сотрудник", BOARD_WEB_APP_HTML)
+        report_handler_start = BOARD_WEB_APP_HTML.index("async function openEmployeeSalaryReport")
+        report_handler_end = BOARD_WEB_APP_HTML.index(
+            "async function handleEmployeeSalaryActionConfirm", report_handler_start
+        )
+        report_handler = BOARD_WEB_APP_HTML[report_handler_start:report_handler_end]
+        self.assertIn("loadEmployeeSalaryReconciliation", report_handler)
+        self.assertLess(
+            report_handler.index("createEmployeeSalaryReconciliationPrintWindow"),
+            report_handler.index("loadEmployeeSalaryReconciliation"),
+        )
+        self.assertNotIn("get_employee_salary_report", report_handler)
+        list_handler_start = BOARD_WEB_APP_HTML.index("function handleEmployeesListClick")
+        list_handler_end = BOARD_WEB_APP_HTML.index(
+            "function handleEmployeesModalFormInput", list_handler_start
+        )
+        list_handler = BOARD_WEB_APP_HTML[list_handler_start:list_handler_end]
+        self.assertIn("reportButton instanceof HTMLAnchorElement", list_handler)
+        self.assertIn("window.open(reportButton.href", list_handler)
+        self.assertIn("window.location.href = reportButton.href", list_handler)
+        self.assertIn("ОТКРЫВАЮ АКТ СВЕРКИ ЗАРПЛАТЫ В ЭТОЙ ВКЛАДКЕ.", list_handler)
         self.assertNotIn('id="employeeSalaryReportSummary"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="employeeSalaryReportSections"', BOARD_WEB_APP_HTML)
         self.assertNotIn("function employeeSalaryReportSummaryItems(", BOARD_WEB_APP_HTML)

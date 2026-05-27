@@ -1648,6 +1648,134 @@ class ApiServerTests(unittest.TestCase):
             cashbox_details["data"]["cashbox"]["statistics"]["transactions_total"], 2
         )
 
+    def test_employee_salary_reconciliation_route_returns_print_payload(self) -> None:
+        status, employee_saved = self.request(
+            "/api/save_employee",
+            {
+                "name": "Иван Мастер",
+                "position": "Мастер",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "25",
+                "material_percent": "0",
+            },
+        )
+        self.assertEqual(status, 200)
+        employee = employee_saved["data"]["employee"]
+
+        status, cashbox_created = self.request(
+            "/api/create_cashbox", {"name": "Наличный", "actor_name": "ADMIN"}
+        )
+        self.assertEqual(status, 200)
+        cashbox = cashbox_created["data"]["cashbox"]
+
+        status, card_created = self.request(
+            "/api/create_card",
+            {"vehicle": "Toyota Camry", "title": "Акт сверки", "deadline": {"hours": 2}},
+        )
+        self.assertEqual(status, 200)
+        card_id = card_created["data"]["card"]["id"]
+
+        status, updated = self.request(
+            "/api/update_card",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "501",
+                    "status": "open",
+                    "vehicle": "Toyota Camry",
+                    "license_plate": "Т501ТС124",
+                    "payments": [
+                        {
+                            "amount": "8000",
+                            "paid_at": "16.04.2026 12:00",
+                            "payment_method": "cash",
+                        }
+                    ],
+                    "works": [
+                        {
+                            "name": "Замена генератора",
+                            "quantity": "1",
+                            "price": "8000",
+                            "executor_id": employee["id"],
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["data"]["card"]["repair_order"]["number"], "501")
+
+        status, closed = self.request(
+            "/api/set_repair_order_status", {"card_id": card_id, "status": "closed"}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(closed["data"]["repair_order"]["works"][0]["salary_amount"], "2000")
+
+        status, payout = self.request(
+            "/api/create_employee_salary_transaction",
+            {
+                "employee_id": employee["id"],
+                "transaction_kind": "salary_payout",
+                "amount": "500",
+                "cashbox_id": cashbox["id"],
+                "actor_name": "ADMIN",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payout["data"]["transaction"]["amount_minor"], 50000)
+
+        status, advance = self.request(
+            "/api/create_employee_salary_transaction",
+            {
+                "employee_id": employee["id"],
+                "transaction_kind": "salary_advance",
+                "amount": "250",
+                "cashbox_id": cashbox["id"],
+                "actor_name": "ADMIN",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(advance["data"]["transaction"]["amount_minor"], 25000)
+
+        status, report = self.request(
+            f"/api/get_employee_salary_reconciliation?employee_id={employee['id']}",
+            method="GET",
+        )
+
+        self.assertEqual(status, 200)
+        data = report["data"]
+        self.assertEqual(data["meta"]["schema_version"], "employee_salary_reconciliation.v1")
+        self.assertEqual(data["period"]["days"], 30)
+        self.assertEqual(data["employee"]["id"], employee["id"])
+        self.assertEqual(data["totals"]["accrued_total"], "2000")
+        self.assertEqual(data["totals"]["payout_total"], "500")
+        self.assertEqual(data["totals"]["advance_total"], "250")
+        self.assertEqual(data["totals"]["amount_due_total"], "1250")
+        self.assertTrue(any(row["kind"] == "work_accrual" for row in data["rows"]))
+        self.assertTrue(any(row["kind"] == "salary_payout" for row in data["rows"]))
+        self.assertTrue(any(row["kind"] == "salary_advance" for row in data["rows"]))
+        work_row = next(row for row in data["rows"] if row["kind"] == "work_accrual")
+        self.assertEqual(work_row["repair_order_number"], "501")
+        self.assertEqual(work_row["license_plate"], "т501тс124")
+        self.assertEqual(work_row["accrued"], "2000")
+
+        status, headers, body = self.raw_request(
+            f"/employee_salary_reconciliation_print?employee_id={employee['id']}"
+        )
+        self.assertEqual(status, 200)
+        self.assertIn("text/html", headers["Content-Type"])
+        html = body.decode("utf-8")
+        self.assertIn("Акт сверки зарплаты", html)
+        self.assertIn("Иван Мастер", html)
+        self.assertIn("Toyota Camry", html)
+        self.assertIn("т501тс124", html)
+        self.assertIn("Замена генератора", html)
+        self.assertIn("ПЕЧАТЬ", html)
+        self.assertIn("@media print", html)
+        self.assertIn("Бухгалтер", html)
+        self.assertIn("Сотрудник", html)
+
     def test_snapshot_compact_query_returns_board_friendly_cards(self) -> None:
         status, created = self.request(
             "/api/create_card",

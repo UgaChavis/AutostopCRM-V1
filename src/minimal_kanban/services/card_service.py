@@ -3720,6 +3720,293 @@ class CardService:
             )
             return ledger
 
+    def _employee_salary_reconciliation_amount_fields(
+        self,
+        *,
+        accrued: Decimal = Decimal("0"),
+        payment: Decimal = Decimal("0"),
+        show_accrued: bool = False,
+        show_payment: bool = False,
+    ) -> dict[str, object]:
+        accrued_money = self._employee_salary_report_money(accrued)
+        payment_money = self._employee_salary_report_money(payment)
+        return {
+            "accrued": accrued_money["raw"],
+            "accrued_minor": accrued_money["minor"],
+            "accrued_display": accrued_money["display"] if show_accrued else "",
+            "payment": payment_money["raw"],
+            "payment_minor": payment_money["minor"],
+            "payment_display": payment_money["display"] if show_payment else "",
+        }
+
+    def _employee_salary_reconciliation_datetime_payload(self, moment: datetime) -> dict[str, str]:
+        business_moment = moment.astimezone(business_timezone())
+        return {
+            "date": business_moment.strftime("%d.%m.%Y %H:%M"),
+            "date_iso": business_moment.isoformat(),
+        }
+
+    def _build_employee_salary_reconciliation(
+        self,
+        cards: list[Card],
+        cashboxes: list[CashBox],
+        cash_transactions: list[CashTransaction],
+        employee: dict[str, Any],
+        *,
+        period_start: datetime,
+        period_end: datetime,
+    ) -> dict[str, Any]:
+        employee_id = employee["id"]
+        cashboxes_by_id = {cashbox.id: cashbox for cashbox in cashboxes}
+        rows: list[dict[str, Any]] = []
+        accrued_total = Decimal("0")
+        payout_total = Decimal("0")
+        advance_total = Decimal("0")
+
+        def money_base(label: str, value: Decimal) -> str:
+            return f"{label} {self._employee_salary_report_money(value)['display']}"
+
+        def add_row(sort_at: datetime, payload: dict[str, Any]) -> None:
+            date_payload = self._employee_salary_reconciliation_datetime_payload(sort_at)
+            rows.append({**payload, **date_payload, "_sort_at": sort_at.astimezone(UTC)})
+
+        for accrual in self._employee_weekly_base_salary_accruals(
+            employee,
+            period_start=period_start,
+            period_end=period_end + timedelta(seconds=1),
+            as_of=period_end,
+        ):
+            accrued_at = accrual["accrued_at"]
+            if accrued_at.astimezone(UTC) < period_start or accrued_at.astimezone(UTC) > period_end:
+                continue
+            amount = accrual["amount"]
+            accrued_total += amount
+            add_row(
+                accrued_at,
+                {
+                    "kind": "base_salary_accrual",
+                    "kind_label": "ОКЛАД",
+                    "repair_order_number": "",
+                    "card_id": "",
+                    "vehicle": "",
+                    "license_plate": "",
+                    "item": "Недельный оклад",
+                    "calculation_base": money_base("Оклад", amount),
+                    "scheme": "Недельный оклад",
+                    "note": "пятница 20:00",
+                    **self._employee_salary_reconciliation_amount_fields(
+                        accrued=amount, show_accrued=True
+                    ),
+                },
+            )
+
+        for card in cards:
+            order = card.repair_order
+            if order.status != REPAIR_ORDER_STATUS_CLOSED:
+                continue
+            closed_at = self._parse_repair_order_datetime(order.closed_at)
+            if closed_at is None:
+                continue
+            closed_at_utc = closed_at.astimezone(UTC)
+            if closed_at_utc < period_start or closed_at_utc > period_end:
+                continue
+            vehicle = order.vehicle or card.vehicle_display() or "-"
+            license_plate = (
+                normalize_license_plate(order.license_plate, limit=40)
+                or normalize_license_plate(card.vehicle_profile.registration_plate, limit=40)
+                or ""
+            )
+            repair_order_number = order.number or "-"
+            for source_row in order.works:
+                row = RepairOrderRow.from_dict(
+                    source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
+                )
+                if row.executor_id != employee_id:
+                    continue
+                row_total = row.total_value()
+                amount = self._parse_payroll_decimal(row.salary_amount)
+                accrued_total += amount
+                percent = normalize_text(row.work_percent_snapshot, default="", limit=40)
+                scheme = f"Работы {percent}%" if percent else "Работы"
+                add_row(
+                    closed_at,
+                    {
+                        "kind": "work_accrual",
+                        "kind_label": "РАБОТА",
+                        "repair_order_number": repair_order_number,
+                        "card_id": card.id,
+                        "vehicle": vehicle,
+                        "license_plate": license_plate,
+                        "item": row.name or "Работа без названия",
+                        "calculation_base": money_base("Работа", row_total),
+                        "scheme": scheme,
+                        "note": "",
+                        **self._employee_salary_reconciliation_amount_fields(
+                            accrued=amount, show_accrued=True
+                        ),
+                    },
+                )
+            for source_row in order.materials:
+                row = RepairOrderRow.from_dict(
+                    source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
+                )
+                if (
+                    self._material_salary_employee_id(row) != employee_id
+                    or not row.material_salary_accrued_at
+                ):
+                    continue
+                profit = self._parse_payroll_decimal(row.material_profit)
+                amount = self._parse_payroll_decimal(row.material_salary_amount)
+                accrued_total += amount
+                percent = normalize_text(row.material_percent_snapshot, default="", limit=40)
+                scheme = f"Материалы {percent}%" if percent else "Материалы"
+                add_row(
+                    closed_at,
+                    {
+                        "kind": "material_accrual",
+                        "kind_label": "МАТЕРИАЛ",
+                        "repair_order_number": repair_order_number,
+                        "card_id": card.id,
+                        "vehicle": vehicle,
+                        "license_plate": license_plate,
+                        "item": row.name or "Материал без названия",
+                        "calculation_base": money_base("Прибыль материалов", profit),
+                        "scheme": scheme,
+                        "note": "",
+                        **self._employee_salary_reconciliation_amount_fields(
+                            accrued=amount, show_accrued=True
+                        ),
+                    },
+                )
+
+        for transaction in cash_transactions:
+            if transaction.employee_id != employee_id:
+                continue
+            kind = normalize_text(transaction.transaction_kind, default="", limit=32).casefold()
+            if kind not in {"salary_payout", "salary_advance"}:
+                continue
+            created_at = parse_datetime(transaction.created_at)
+            if created_at is None:
+                continue
+            created_at_utc = created_at.astimezone(UTC)
+            if created_at_utc < period_start or created_at_utc > period_end:
+                continue
+            amount = Decimal(transaction.amount_minor) / Decimal("100")
+            if kind == "salary_payout":
+                payout_total += amount
+                kind_label = "ВЫПЛАТА"
+            else:
+                advance_total += amount
+                kind_label = "АВАНС"
+            cashbox = cashboxes_by_id.get(transaction.cashbox_id)
+            add_row(
+                created_at,
+                {
+                    "kind": kind,
+                    "kind_label": kind_label,
+                    "repair_order_number": "",
+                    "card_id": "",
+                    "vehicle": "",
+                    "license_plate": "",
+                    "item": "",
+                    "calculation_base": "",
+                    "scheme": "",
+                    "transaction_id": transaction.id,
+                    "cashbox_id": transaction.cashbox_id,
+                    "cashbox_name": cashbox.name if cashbox else "",
+                    "note": transaction.note,
+                    **self._employee_salary_reconciliation_amount_fields(
+                        payment=amount, show_payment=True
+                    ),
+                },
+            )
+
+        rows.sort(
+            key=lambda item: (
+                item["_sort_at"],
+                item["kind_label"],
+                item.get("repair_order_number") or "",
+                item.get("item") or "",
+            )
+        )
+        for index, row in enumerate(rows, start=1):
+            row["number"] = index
+            row.pop("_sort_at", None)
+
+        amount_due_total = accrued_total - payout_total - advance_total
+        totals: dict[str, object] = {}
+        for key, value in (
+            ("accrued_total", accrued_total),
+            ("payout_total", payout_total),
+            ("advance_total", advance_total),
+            ("amount_due_total", amount_due_total),
+        ):
+            money = self._employee_salary_report_money(value)
+            totals[key] = money["raw"]
+            totals[f"{key}_minor"] = money["minor"]
+            totals[f"{key}_display"] = money["display"]
+        return {"rows": rows, "totals": totals}
+
+    def get_employee_salary_reconciliation(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            employees = self._employees_from_settings(bundle["settings"])
+            employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
+            if not employee_id:
+                self._fail(
+                    "validation_error",
+                    "Нужно передать employee_id.",
+                    details={"field": "employee_id"},
+                )
+            employee = next((item for item in employees if item["id"] == employee_id), None)
+            if employee is None:
+                self._fail(
+                    "not_found",
+                    "Сотрудник не найден.",
+                    status_code=404,
+                    details={"employee_id": employee_id},
+                )
+            period_days = 30
+            period_end = utc_now().astimezone(UTC)
+            period_start = period_end - timedelta(days=period_days)
+            report = self._build_employee_salary_reconciliation(
+                bundle["cards"],
+                bundle["cashboxes"],
+                bundle["cash_transactions"],
+                employee,
+                period_start=period_start,
+                period_end=period_end,
+            )
+            business_start = period_start.astimezone(business_timezone())
+            business_end = period_end.astimezone(business_timezone())
+            period = {
+                "date_from": business_start.date().isoformat(),
+                "date_to": business_end.date().isoformat(),
+                "label": f"{business_start.strftime('%d.%m.%Y')} - {business_end.strftime('%d.%m.%Y')}",
+                "days": period_days,
+                "generated_at": period_end.isoformat(),
+            }
+            return {
+                "employee": {
+                    "id": employee["id"],
+                    "name": employee["name"],
+                    "position": employee.get("position", ""),
+                    "salary_mode": employee.get("salary_mode", ""),
+                    "base_salary": employee.get("base_salary", ""),
+                    "work_percent": employee.get("work_percent", ""),
+                    "material_percent": employee.get("material_percent", ""),
+                },
+                "period": period,
+                "rows": report["rows"],
+                "totals": report["totals"],
+                "meta": {
+                    "schema_version": "employee_salary_reconciliation.v1",
+                    "period_days": period_days,
+                    "row_count": len(report["rows"]),
+                },
+            }
+
     def _employee_salary_report_decimal_minor(self, value: Decimal) -> int:
         return int((value * Decimal("100")).to_integral_value(rounding=ROUND_HALF_UP))
 

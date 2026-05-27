@@ -2457,6 +2457,220 @@ class CardServiceTests(unittest.TestCase):
             report["text"],
         )
 
+    def test_employee_salary_reconciliation_builds_printable_30_day_statement(self) -> None:
+        created_at = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
+        as_of = datetime(2026, 5, 28, 12, 0, 0, tzinfo=timezone.utc)
+        create_patches = self._patch_time(created_at)
+        with create_patches[0], create_patches[1], create_patches[2]:
+            employee = self.service.save_employee(
+                {
+                    "name": "Марина Бухгалтер",
+                    "position": "Бухгалтер",
+                    "salary_mode": "salary_plus_percent",
+                    "base_salary": "1000",
+                    "work_percent": "20",
+                    "material_percent": "10",
+                }
+            )["employee"]
+            cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+                "cashbox"
+            ]
+
+        patches = self._patch_time(as_of)
+        with patches[0], patches[1], patches[2]:
+            card = self.service.create_card(
+                {
+                    "vehicle": "Honda Civic",
+                    "title": "Акт сверки зарплаты",
+                    "deadline": {"hours": 2},
+                }
+            )["card"]
+            self.service.update_card(
+                {
+                    "card_id": card["id"],
+                    "repair_order": {
+                        "number": "302",
+                        "status": "open",
+                        "vehicle": "Honda Civic",
+                        "license_plate": "А123ВС124",
+                        "payments": [
+                            {
+                                "amount": "13000",
+                                "paid_at": "28.05.2026 10:00",
+                                "payment_method": "cash",
+                            }
+                        ],
+                        "works": [
+                            {
+                                "name": "Замена генератора",
+                                "quantity": "1",
+                                "price": "10000",
+                                "executor_id": employee["id"],
+                            }
+                        ],
+                        "materials": [
+                            {
+                                "name": "Фильтр салона",
+                                "quantity": "1",
+                                "price": "3000",
+                                "cost_price": "2000",
+                                "executor_id": employee["id"],
+                            }
+                        ],
+                    },
+                }
+            )
+            self.service.set_repair_order_status({"card_id": card["id"], "status": "closed"})
+            self.service.create_employee_salary_transaction(
+                {
+                    "employee_id": employee["id"],
+                    "transaction_kind": "salary_payout",
+                    "amount": "700",
+                    "cashbox_id": cashbox["id"],
+                    "actor_name": "ADMIN",
+                    "note": "Выплата за период",
+                }
+            )
+            self.service.create_employee_salary_transaction(
+                {
+                    "employee_id": employee["id"],
+                    "transaction_kind": "salary_advance",
+                    "amount": "300",
+                    "cashbox_id": cashbox["id"],
+                    "actor_name": "ADMIN",
+                    "note": "Аванс за период",
+                }
+            )
+            report = self.service.get_employee_salary_reconciliation(
+                {"employee_id": employee["id"]}
+            )
+
+        self.assertEqual(report["meta"]["schema_version"], "employee_salary_reconciliation.v1")
+        self.assertEqual(report["employee"]["id"], employee["id"])
+        self.assertEqual(report["employee"]["position"], "Бухгалтер")
+        self.assertEqual(report["period"]["days"], 30)
+        self.assertEqual(report["totals"]["accrued_total"], "6100")
+        self.assertEqual(report["totals"]["payout_total"], "700")
+        self.assertEqual(report["totals"]["advance_total"], "300")
+        self.assertEqual(report["totals"]["amount_due_total"], "5100")
+
+        row_kinds = [row["kind"] for row in report["rows"]]
+        self.assertEqual(row_kinds.count("base_salary_accrual"), 4)
+        self.assertIn("work_accrual", row_kinds)
+        self.assertIn("material_accrual", row_kinds)
+        self.assertIn("salary_payout", row_kinds)
+        self.assertIn("salary_advance", row_kinds)
+        self.assertEqual([row["number"] for row in report["rows"]], list(range(1, 9)))
+        self.assertEqual(
+            [row["date_iso"] for row in report["rows"]],
+            sorted(row["date_iso"] for row in report["rows"]),
+        )
+
+        work_row = next(row for row in report["rows"] if row["kind"] == "work_accrual")
+        self.assertEqual(work_row["repair_order_number"], "302")
+        self.assertEqual(work_row["vehicle"], "Honda Civic")
+        self.assertEqual(work_row["license_plate"], "а123вс124")
+        self.assertEqual(work_row["item"], "Замена генератора")
+        self.assertIn("10 000,00 ₽", work_row["calculation_base"])
+        self.assertIn("20", work_row["scheme"])
+        self.assertEqual(work_row["accrued"], "2000")
+
+        material_row = next(row for row in report["rows"] if row["kind"] == "material_accrual")
+        self.assertEqual(material_row["item"], "Фильтр салона")
+        self.assertIn("1 000,00 ₽", material_row["calculation_base"])
+        self.assertIn("10", material_row["scheme"])
+        self.assertEqual(material_row["accrued"], "100")
+
+        payout_row = next(row for row in report["rows"] if row["kind"] == "salary_payout")
+        advance_row = next(row for row in report["rows"] if row["kind"] == "salary_advance")
+        self.assertEqual(payout_row["payment"], "700")
+        self.assertEqual(advance_row["payment"], "300")
+        self.assertEqual(payout_row["note"], "Выплата за период")
+        self.assertEqual(advance_row["note"], "Аванс за период")
+
+    def test_employee_salary_reconciliation_ignores_rows_outside_30_days(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Старый Мастер",
+                "position": "Мастер",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "10",
+            }
+        )["employee"]
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+
+        old_time = datetime(2026, 4, 20, 12, 0, 0, tzinfo=timezone.utc)
+        old_patches = self._patch_time(old_time)
+        with old_patches[0], old_patches[1], old_patches[2]:
+            card = self.service.create_card(
+                {"vehicle": "Skoda Octavia", "title": "Старый ЗН", "deadline": {"hours": 2}}
+            )["card"]
+            self.service.update_card(
+                {
+                    "card_id": card["id"],
+                    "repair_order": {
+                        "number": "901",
+                        "status": "open",
+                        "vehicle": "Skoda Octavia",
+                        "payments": [
+                            {
+                                "amount": "10000",
+                                "paid_at": "20.04.2026 10:00",
+                                "payment_method": "cash",
+                            }
+                        ],
+                        "works": [
+                            {
+                                "name": "Старая работа",
+                                "quantity": "1",
+                                "price": "10000",
+                                "executor_id": employee["id"],
+                            }
+                        ],
+                    },
+                }
+            )
+            self.service.set_repair_order_status({"card_id": card["id"], "status": "closed"})
+            self.service.create_employee_salary_transaction(
+                {
+                    "employee_id": employee["id"],
+                    "transaction_kind": "salary_payout",
+                    "amount": "500",
+                    "cashbox_id": cashbox["id"],
+                    "actor_name": "ADMIN",
+                }
+            )
+        bundle = self.service._store.read_bundle()
+        for stored_card in bundle["cards"]:
+            if stored_card.id == card["id"]:
+                stored_card.repair_order.closed_at = "20.04.2026 19:00"
+                break
+        self.service._store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        as_of = datetime(2026, 5, 28, 12, 0, 0, tzinfo=timezone.utc)
+        patches = self._patch_time(as_of)
+        with patches[0], patches[1], patches[2]:
+            report = self.service.get_employee_salary_reconciliation(
+                {"employee_id": employee["id"]}
+            )
+
+        self.assertEqual(report["rows"], [])
+        self.assertEqual(report["totals"]["accrued_total"], "0")
+        self.assertEqual(report["totals"]["payout_total"], "0")
+        self.assertEqual(report["totals"]["advance_total"], "0")
+        self.assertEqual(report["totals"]["amount_due_total"], "0")
+
     def test_financial_history_cleanup_clears_balances_and_preserves_new_flows(self) -> None:
         employee = self.service.save_employee(
             {

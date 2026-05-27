@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import html
 import json
 import logging
 import re
@@ -106,6 +107,128 @@ def _board_html_bytes() -> bytes:
 @cache
 def _board_html_gzip_bytes() -> bytes:
     return gzip.compress(_board_html_bytes())
+
+
+def _html_text(value: object, *, fallback: str = "-") -> str:
+    text = str(value if value is not None else "").strip()
+    return html.escape(text or fallback, quote=True)
+
+
+def _employee_salary_reconciliation_vehicle_html(row: dict) -> str:
+    vehicle = str(row.get("vehicle") or "").strip()
+    plate = str(row.get("license_plate") or "").strip()
+    if vehicle and plate:
+        return (
+            f"{_html_text(vehicle, fallback='')}"
+            f'<br><span class="muted">госномер: {_html_text(plate, fallback="")}</span>'
+        )
+    return _html_text(vehicle or plate)
+
+
+def _employee_salary_reconciliation_rows_html(report: dict) -> str:
+    rows = report.get("rows")
+    if not isinstance(rows, list) or not rows:
+        return '<tr><td colspan="11" class="empty">За последние 30 дней движений нет.</td></tr>'
+    rendered: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        rendered.append(
+            "<tr>"
+            f'<td class="is-num">{_html_text(row.get("number"), fallback="")}</td>'
+            f"<td>{_html_text(row.get('date'))}</td>"
+            f"<td>{_html_text(row.get('kind_label'))}</td>"
+            f"<td>{_html_text(row.get('repair_order_number'))}</td>"
+            f"<td>{_employee_salary_reconciliation_vehicle_html(row)}</td>"
+            f"<td>{_html_text(row.get('item'))}</td>"
+            f"<td>{_html_text(row.get('calculation_base'))}</td>"
+            f"<td>{_html_text(row.get('scheme'))}</td>"
+            f'<td class="money">{_html_text(row.get("accrued_display"), fallback="")}</td>'
+            f'<td class="money">{_html_text(row.get("payment_display"), fallback="")}</td>'
+            f"<td>{_html_text(row.get('note'), fallback='')}</td>"
+            "</tr>"
+        )
+    return "".join(rendered) or (
+        '<tr><td colspan="11" class="empty">За последние 30 дней движений нет.</td></tr>'
+    )
+
+
+def _employee_salary_reconciliation_totals_html(report: dict) -> str:
+    totals = report.get("totals")
+    if not isinstance(totals, dict):
+        totals = {}
+    items = (
+        ("Всего начислено", totals.get("accrued_total_display") or totals.get("accrued_total")),
+        ("Выплачено", totals.get("payout_total_display") or totals.get("payout_total")),
+        ("Авансы", totals.get("advance_total_display") or totals.get("advance_total")),
+        (
+            "Итог к выплате",
+            totals.get("amount_due_total_display") or totals.get("amount_due_total"),
+        ),
+    )
+    return "".join(
+        '<div class="summary-item">'
+        f"<span>{_html_text(label)}</span>"
+        f"<strong>{_html_text(value or '0')}</strong>"
+        "</div>"
+        for label, value in items
+    )
+
+
+def _employee_salary_reconciliation_print_html(report: dict) -> bytes:
+    employee = report.get("employee")
+    if not isinstance(employee, dict):
+        employee = {}
+    period = report.get("period")
+    if not isinstance(period, dict):
+        period = {}
+    generated_at = str(period.get("generated_at") or "").strip()
+    body = (
+        '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
+        "<title>Акт сверки зарплаты</title>"
+        "<style>"
+        "@page { size: A4 landscape; margin: 12mm; }"
+        'body { margin: 0; color: #111; background: #fff; font: 12px/1.35 "Segoe UI", Arial, sans-serif; }'
+        ".toolbar { position: sticky; top: 0; display: flex; justify-content: flex-end; gap: 8px; padding: 10px 0; background: #fff; border-bottom: 1px solid #ddd; margin-bottom: 18px; }"
+        ".print-button { border: 1px solid #111; background: #111; color: #fff; padding: 8px 14px; cursor: pointer; font-weight: 700; letter-spacing: .04em; }"
+        "h1 { margin: 0 0 10px; font-size: 22px; line-height: 1.15; }"
+        ".meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 18px; margin-bottom: 14px; }"
+        ".meta div, .summary-item { border: 1px solid #d4d4d4; padding: 7px 8px; }"
+        ".meta span, .summary-item span { display: block; color: #555; font-size: 10px; text-transform: uppercase; }"
+        ".meta strong, .summary-item strong { display: block; margin-top: 2px; font-size: 13px; }"
+        ".summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 10px 0 16px; }"
+        "table { width: 100%; border-collapse: collapse; table-layout: fixed; }"
+        "th, td { border: 1px solid #c9c9c9; padding: 5px 6px; vertical-align: top; word-break: break-word; }"
+        "th { background: #efefef; text-align: left; font-size: 10px; text-transform: uppercase; }"
+        ".is-num, .money { text-align: right; white-space: nowrap; }"
+        ".muted { color: #555; }"
+        ".empty { text-align: center; padding: 18px; color: #555; }"
+        ".signatures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin-top: 28px; }"
+        ".signature { border-top: 1px solid #111; padding-top: 6px; min-height: 34px; }"
+        "@media print { .toolbar { display: none; } body { font-size: 11px; } th, td { padding: 4px 5px; } }"
+        "</style></head><body>"
+        '<div class="toolbar"><button class="print-button" type="button" onclick="window.print()">ПЕЧАТЬ</button></div>'
+        "<main>"
+        "<h1>Акт сверки зарплаты</h1>"
+        '<section class="meta">'
+        f"<div><span>Сотрудник</span><strong>{_html_text(employee.get('name'), fallback='Сотрудник')}</strong></div>"
+        f"<div><span>Должность</span><strong>{_html_text(employee.get('position'), fallback='Не указана')}</strong></div>"
+        f"<div><span>Период</span><strong>{_html_text(period.get('label'), fallback='Последние 30 дней')}</strong></div>"
+        "</section>"
+        f'<section class="summary">{_employee_salary_reconciliation_totals_html(report)}</section>'
+        "<table><thead><tr>"
+        '<th style="width:34px;">№</th><th style="width:84px;">Дата</th><th style="width:76px;">Движение</th><th style="width:58px;">ЗН</th>'
+        '<th style="width:130px;">Авто / госномер</th><th>Работа / позиция</th><th style="width:120px;">База расчета</th>'
+        '<th style="width:105px;">Схема</th><th style="width:92px;">Начислено</th><th style="width:98px;">Выплата / аванс</th><th>Примечание</th>'
+        f"</tr></thead><tbody>{_employee_salary_reconciliation_rows_html(report)}</tbody></table>"
+        '<section class="signatures">'
+        '<div class="signature">Бухгалтер</div>'
+        '<div class="signature">Сотрудник</div>'
+        f'<div class="signature">Дата{": " + _html_text(generated_at, fallback="") if generated_at else ""}</div>'
+        "</section>"
+        "</main></body></html>"
+    )
+    return body.encode("utf-8")
 
 
 class ApiServer:
@@ -286,6 +409,7 @@ class ApiServer:
             "/api/get_payroll_report": service.get_payroll_report,
             "/api/get_employee_salary_ledger": service.get_employee_salary_ledger,
             "/api/get_employee_salary_report": service.get_employee_salary_report,
+            "/api/get_employee_salary_reconciliation": (service.get_employee_salary_reconciliation),
             "/api/get_cashbox": service.get_cashbox,
             "/api/create_cashbox": service.create_cashbox,
             "/api/reorder_cashboxes": service.reorder_cashboxes,
@@ -592,6 +716,11 @@ class ApiServer:
                         return
                     self._serve_repair_order_text(request_id, query)
                     return
+                if route == "/employee_salary_reconciliation_print":
+                    if not self._authenticate(request_id, query):
+                        return
+                    self._serve_employee_salary_reconciliation_print(request_id, query)
+                    return
                 readonly_routes = {
                     "/api/list_columns",
                     "/api/get_cards",
@@ -614,6 +743,7 @@ class ApiServer:
                     "/api/get_payroll_report",
                     "/api/get_employee_salary_ledger",
                     "/api/get_employee_salary_report",
+                    "/api/get_employee_salary_reconciliation",
                     "/api/get_cashbox",
                     "/api/get_gpt_wall",
                     "/api/agent_status",
@@ -903,6 +1033,54 @@ class ApiServer:
                 except Exception as exc:  # pragma: no cover
                     logger.exception(
                         "api_request_failed route=%s request_id=%s error=%s", route, request_id, exc
+                    )
+                    self._send_error_response(
+                        request_id,
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        "internal_error",
+                        "На сервере произошла непредвиденная ошибка.",
+                    )
+
+            def _serve_employee_salary_reconciliation_print(
+                self, request_id: str, query: dict
+            ) -> None:
+                route = "/employee_salary_reconciliation_print"
+                started_at = perf_counter()
+                try:
+                    report = service.get_employee_salary_reconciliation(query)
+                    body = _employee_salary_reconciliation_print_html(report)
+                    app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
+                    self._send_bytes_response(
+                        body,
+                        content_type="text/html; charset=utf-8",
+                        request_id=request_id,
+                        route=route,
+                        extra_headers={"Server-Timing": f"app;dur={app_duration_ms:.1f}"},
+                    )
+                    logger.log(
+                        _success_log_level(route),
+                        "api_request route=%s request_id=%s status=ok duration_ms=%.1f body_bytes=%s",
+                        route,
+                        request_id,
+                        app_duration_ms,
+                        len(body),
+                    )
+                except ServiceError as exc:
+                    logger.warning(
+                        "api_request route=%s request_id=%s status=error code=%s",
+                        route,
+                        request_id,
+                        exc.code,
+                    )
+                    self._send_error_response(
+                        request_id, exc.status_code, exc.code, exc.message, exc.details
+                    )
+                except Exception as exc:  # pragma: no cover
+                    logger.exception(
+                        "api_request_failed route=%s request_id=%s error=%s",
+                        route,
+                        request_id,
+                        exc,
                     )
                     self._send_error_response(
                         request_id,

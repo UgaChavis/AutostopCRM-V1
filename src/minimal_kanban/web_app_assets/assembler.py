@@ -13339,6 +13339,14 @@ BOARD_WEB_APP_HTML = "".join(
       ].filter(Boolean).join('. ');
     }
 
+    function employeeSalaryReconciliationPrintUrl(employeeId) {
+      const requestedId = String(employeeId || '').trim();
+      const params = new URLSearchParams();
+      params.set('employee_id', requestedId);
+      if (state.apiToken) params.set('access_token', state.apiToken);
+      return '/employee_salary_reconciliation_print?' + params.toString();
+    }
+
     function confirmDiscardEmployeeChanges() {
       if (!employeeFormHasUnsavedChanges()) return true;
       return window.confirm('Несохранённые изменения сотрудника будут потеряны. Продолжить?');
@@ -13458,6 +13466,7 @@ BOARD_WEB_APP_HTML = "".join(
         const summaryLabel = 'К ВЫПЛАТЕ';
         const summaryValue = String(employee.balance_total ?? summary?.balance_total ?? summary?.total_salary ?? '0');
         const rowLabel = employeeRowAriaLabel(employee, summaryValue);
+        const printUrl = employeeSalaryReconciliationPrintUrl(employee.id);
         return '<div class="employees-row' + (isActive ? ' is-active' : '') + '">'
           + '<button class="employees-row__body" type="button" data-employee-id="' + escapeHtml(employee.id) + '" aria-label="Сотрудник ' + escapeHtml(rowLabel) + '" title="' + escapeHtml(rowLabel) + '">'
             + '<div class="employees-row__top"><div class="employees-row__title">' + escapeHtml(employee.name) + '</div></div>'
@@ -13466,7 +13475,7 @@ BOARD_WEB_APP_HTML = "".join(
           + '</button>'
           + '<div class="employees-row__actions">'
             + '<button class="btn btn--ghost employees-row__salary" type="button" data-employee-salary="' + escapeHtml(employee.id) + '">ЗАРПЛАТА</button>'
-            + '<button class="btn btn--ghost employees-row__report" type="button" data-employee-report="' + escapeHtml(employee.id) + '" title="ОТКРЫТЬ ОТЧЕТ ПО НАЧИСЛЕНИЯМ ЗА ВЫБРАННЫЙ МЕСЯЦ">ОТЧЕТ</button>'
+            + '<a class="btn btn--ghost employees-row__report" href="' + escapeHtml(printUrl) + '" target="_blank" rel="noopener" data-employee-report="' + escapeHtml(employee.id) + '" title="ОТКРЫТЬ ПЕЧАТНЫЙ АКТ СВЕРКИ ЗАРПЛАТЫ ЗА 30 ДНЕЙ">ОТЧЕТ</a>'
           + '</div>'
           + '</div>';
       }).join('');
@@ -13744,6 +13753,143 @@ BOARD_WEB_APP_HTML = "".join(
       }
     }
 
+    async function loadEmployeeSalaryReconciliation(employeeId) {
+      const requestedId = String(employeeId || '').trim();
+      if (!requestedId) return null;
+      return await api('/api/get_employee_salary_reconciliation?employee_id=' + encodeURIComponent(requestedId));
+    }
+
+    function employeeSalaryReconciliationText(value, fallback = '-') {
+      const text = String(value ?? '').trim();
+      return text ? text : fallback;
+    }
+
+    function employeeSalaryReconciliationVehicleHtml(row) {
+      const vehicle = employeeSalaryReconciliationText(row?.vehicle, '');
+      const plate = employeeSalaryReconciliationText(row?.license_plate, '');
+      if (vehicle && plate) {
+        return escapeHtml(vehicle) + '<br><span class="muted">госномер: ' + escapeHtml(plate) + '</span>';
+      }
+      return escapeHtml(vehicle || plate || '-');
+    }
+
+    function employeeSalaryReconciliationRowsHtml(report) {
+      const rows = Array.isArray(report?.rows) ? report.rows : [];
+      if (!rows.length) {
+        return '<tr><td colspan="11" class="empty">За последние 30 дней движений нет.</td></tr>';
+      }
+      return rows.map((row) => {
+        return '<tr>'
+          + '<td class="is-num">' + escapeHtml(row.number || '') + '</td>'
+          + '<td>' + escapeHtml(employeeSalaryReconciliationText(row.date)) + '</td>'
+          + '<td>' + escapeHtml(employeeSalaryReconciliationText(row.kind_label)) + '</td>'
+          + '<td>' + escapeHtml(employeeSalaryReconciliationText(row.repair_order_number)) + '</td>'
+          + '<td>' + employeeSalaryReconciliationVehicleHtml(row) + '</td>'
+          + '<td>' + escapeHtml(employeeSalaryReconciliationText(row.item)) + '</td>'
+          + '<td>' + escapeHtml(employeeSalaryReconciliationText(row.calculation_base)) + '</td>'
+          + '<td>' + escapeHtml(employeeSalaryReconciliationText(row.scheme)) + '</td>'
+          + '<td class="money">' + escapeHtml(employeeSalaryReconciliationText(row.accrued_display, '')) + '</td>'
+          + '<td class="money">' + escapeHtml(employeeSalaryReconciliationText(row.payment_display, '')) + '</td>'
+          + '<td>' + escapeHtml(employeeSalaryReconciliationText(row.note, '')) + '</td>'
+          + '</tr>';
+      }).join('');
+    }
+
+    function employeeSalaryReconciliationTotalsHtml(report) {
+      const totals = report?.totals || {};
+      const items = [
+        ['Всего начислено', totals.accrued_total_display || totals.accrued_total || '0'],
+        ['Выплачено', totals.payout_total_display || totals.payout_total || '0'],
+        ['Авансы', totals.advance_total_display || totals.advance_total || '0'],
+        ['Итог к выплате', totals.amount_due_total_display || totals.amount_due_total || '0'],
+      ];
+      return items.map((item) => {
+        return '<div class="summary-item"><span>' + escapeHtml(item[0]) + '</span><strong>' + escapeHtml(item[1]) + '</strong></div>';
+      }).join('');
+    }
+
+    function buildEmployeeSalaryReconciliationPrintHtml(report) {
+      const employee = report?.employee || {};
+      const period = report?.period || {};
+      const title = 'Акт сверки зарплаты';
+      const generatedAt = employeeSalaryReconciliationText(period.generated_at, '');
+      return '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
+        + '<title>' + escapeHtml(title) + '</title>'
+        + '<style>'
+        + '@page { size: A4 landscape; margin: 12mm; }'
+        + 'body { margin: 0; color: #111; background: #fff; font: 12px/1.35 "Segoe UI", Arial, sans-serif; }'
+        + '.toolbar { position: sticky; top: 0; display: flex; justify-content: flex-end; gap: 8px; padding: 10px 0; background: #fff; border-bottom: 1px solid #ddd; margin-bottom: 18px; }'
+        + '.print-button { border: 1px solid #111; background: #111; color: #fff; padding: 8px 14px; cursor: pointer; font-weight: 700; letter-spacing: .04em; }'
+        + 'h1 { margin: 0 0 10px; font-size: 22px; line-height: 1.15; }'
+        + '.meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 18px; margin-bottom: 14px; }'
+        + '.meta div, .summary-item { border: 1px solid #d4d4d4; padding: 7px 8px; }'
+        + '.meta span, .summary-item span { display: block; color: #555; font-size: 10px; text-transform: uppercase; }'
+        + '.meta strong, .summary-item strong { display: block; margin-top: 2px; font-size: 13px; }'
+        + '.summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 10px 0 16px; }'
+        + 'table { width: 100%; border-collapse: collapse; table-layout: fixed; }'
+        + 'th, td { border: 1px solid #c9c9c9; padding: 5px 6px; vertical-align: top; word-break: break-word; }'
+        + 'th { background: #efefef; text-align: left; font-size: 10px; text-transform: uppercase; }'
+        + '.is-num, .money { text-align: right; white-space: nowrap; }'
+        + '.muted { color: #555; }'
+        + '.empty { text-align: center; padding: 18px; color: #555; }'
+        + '.signatures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin-top: 28px; }'
+        + '.signature { border-top: 1px solid #111; padding-top: 6px; min-height: 34px; }'
+        + '@media print { .toolbar { display: none; } body { font-size: 11px; } th, td { padding: 4px 5px; } }'
+        + '</style></head><body>'
+        + '<div class="toolbar"><button class="print-button" type="button" onclick="window.print()">ПЕЧАТЬ</button></div>'
+        + '<main>'
+        + '<h1>' + escapeHtml(title) + '</h1>'
+        + '<section class="meta">'
+        + '<div><span>Сотрудник</span><strong>' + escapeHtml(employeeSalaryReconciliationText(employee.name, 'Сотрудник')) + '</strong></div>'
+        + '<div><span>Должность</span><strong>' + escapeHtml(employeeSalaryReconciliationText(employee.position, 'Не указана')) + '</strong></div>'
+        + '<div><span>Период</span><strong>' + escapeHtml(employeeSalaryReconciliationText(period.label, 'Последние 30 дней')) + '</strong></div>'
+        + '</section>'
+        + '<section class="summary">' + employeeSalaryReconciliationTotalsHtml(report) + '</section>'
+        + '<table><thead><tr>'
+        + '<th style="width:34px;">№</th><th style="width:84px;">Дата</th><th style="width:76px;">Движение</th><th style="width:58px;">ЗН</th>'
+        + '<th style="width:130px;">Авто / госномер</th><th>Работа / позиция</th><th style="width:120px;">База расчета</th>'
+        + '<th style="width:105px;">Схема</th><th style="width:92px;">Начислено</th><th style="width:98px;">Выплата / аванс</th><th>Примечание</th>'
+        + '</tr></thead><tbody>' + employeeSalaryReconciliationRowsHtml(report) + '</tbody></table>'
+        + '<section class="signatures">'
+        + '<div class="signature">Бухгалтер</div>'
+        + '<div class="signature">Сотрудник</div>'
+        + '<div class="signature">Дата' + (generatedAt ? ': ' + escapeHtml(generatedAt) : '') + '</div>'
+        + '</section>'
+        + '</main></body></html>';
+    }
+
+    function createEmployeeSalaryReconciliationPrintWindow() {
+      const printWindow = window.open('', '_blank', 'width=1200,height=800');
+      if (!printWindow) {
+        setStatus('БРАУЗЕР ЗАБЛОКИРОВАЛ ПЕЧАТНОЕ ОКНО.', true);
+        return null;
+      }
+      printWindow.document.open();
+      printWindow.document.write(
+        '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
+        + '<title>Акт сверки зарплаты</title>'
+        + '<style>body{margin:32px;color:#111;background:#fff;font:14px/1.45 "Segoe UI",Arial,sans-serif;}</style>'
+        + '</head><body><h1>Загрузка акта сверки зарплаты...</h1></body></html>'
+      );
+      printWindow.document.close();
+      printWindow.focus();
+      return printWindow;
+    }
+
+    function openEmployeeSalaryReconciliationPrint(report, printWindow = null) {
+      const html = buildEmployeeSalaryReconciliationPrintHtml(report || {});
+      const targetWindow = printWindow || createEmployeeSalaryReconciliationPrintWindow();
+      if (!targetWindow) {
+        setStatus('БРАУЗЕР ЗАБЛОКИРОВАЛ ПЕЧАТНОЕ ОКНО.', true);
+        return false;
+      }
+      targetWindow.document.open();
+      targetWindow.document.write(html);
+      targetWindow.document.close();
+      targetWindow.focus();
+      return true;
+    }
+
     async function openEmployeeSalaryModal(employeeId) {
       const requestedId = String(employeeId || '').trim();
       if (!requestedId) return;
@@ -13758,9 +13904,18 @@ BOARD_WEB_APP_HTML = "".join(
     async function openEmployeeSalaryReport(employeeId) {
       const requestedId = String(employeeId || '').trim();
       if (!requestedId) return;
+      const printWindow = createEmployeeSalaryReconciliationPrintWindow();
+      if (!printWindow) return;
       try {
-        await loadEmployeeSalaryReport(requestedId, { openModal: true });
+        const report = await loadEmployeeSalaryReconciliation(requestedId);
+        if (openEmployeeSalaryReconciliationPrint(report, printWindow)) {
+          setStatus('АКТ СВЕРКИ ЗАРПЛАТЫ ОТКРЫТ.', false);
+        }
       } catch (error) {
+        try {
+          printWindow.close();
+        } catch (_) {
+        }
         setStatus(error.message, true);
       }
     }
@@ -14062,6 +14217,18 @@ BOARD_WEB_APP_HTML = "".join(
       }
       const reportButton = target.closest('[data-employee-report]');
       if (reportButton instanceof HTMLElement) {
+        if (reportButton instanceof HTMLAnchorElement) {
+          event.preventDefault();
+          const printWindow = window.open(reportButton.href, '_blank', 'width=1200,height=800');
+          if (printWindow) {
+            printWindow.focus();
+            setStatus('АКТ СВЕРКИ ЗАРПЛАТЫ ОТКРЫТ.', false);
+          } else {
+            setStatus('ОТКРЫВАЮ АКТ СВЕРКИ ЗАРПЛАТЫ В ЭТОЙ ВКЛАДКЕ.', false);
+            window.location.href = reportButton.href;
+          }
+          return;
+        }
         const employeeId = String(reportButton.dataset.employeeReport || '').trim();
         if (!employeeId) return;
         openEmployeeSalaryReport(employeeId);

@@ -169,6 +169,8 @@ Read:
 - `GET|POST /api/get_payroll_report`
 - `GET|POST /api/get_employee_salary_ledger`
 - `GET|POST /api/get_employee_salary_report`
+- `GET|POST /api/get_employee_salary_reconciliation`
+- `GET /employee_salary_reconciliation_print`
 
 Write:
 
@@ -206,6 +208,16 @@ through the audit-first runbook path.
 `get_employee_salary_report` returns `employee_salary_report.v3` for a selected
 employee and month `YYYY-MM`; it includes closed repair-order works and accrued
 amounts, not advances or salary scheme setup.
+
+`get_employee_salary_reconciliation` returns
+`employee_salary_reconciliation.v1` for a selected employee for the last 30 days.
+It is the print payload for the salary reconciliation act: employee, period,
+numbered rows for accruals/payouts/advances, and totals for accrued, paid,
+advanced, and due amounts.
+
+`employee_salary_reconciliation_print?employee_id=...` returns the same salary
+reconciliation act as a clean HTML print document with print CSS and signature
+lines for accountant, employee, and date.
 
 ## Files
 
