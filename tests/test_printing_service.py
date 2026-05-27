@@ -425,21 +425,43 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertNotIn("undefined", html)
         self.assertNotIn("NaN", html)
 
-    def test_print_context_omits_material_catalog_number(self) -> None:
+    def test_print_context_omits_internal_material_fields(self) -> None:
+        material = self.card.repair_order.materials[0]
+        material.cost_price = "700"
+        material.executor_id = "employee-1"
+        material.executor_name = "Сергей Снабженец"
+        material.material_percent_snapshot = "10"
+        material.material_profit = "1500"
+        material.material_salary_amount = "150"
+        material.material_salary_accrued_at = "06.04.2026 18:00"
+
         context = self.service._build_document_context(
             self.card,
             self.card.repair_order,
             document=self.service._document_definition("repair_order"),
             settings=self.service._read_settings(),
         )
-        self.assertNotIn("catalog_number", context["repair_order"]["materials"][0])
+        private_fields = {
+            "catalog_number",
+            "cost_price",
+            "executor_id",
+            "executor_name",
+            "material_percent_snapshot",
+            "material_profit",
+            "material_salary_amount",
+            "material_salary_accrued_at",
+        }
+        self.assertTrue(private_fields.isdisjoint(context["repair_order"]["materials"][0]))
 
         preview = self.service.preview_documents(
             self.card,
             selected_document_ids=["repair_order"],
             active_document_id="repair_order",
         )
-        self.assertNotIn("08886-81210", preview["documents"][0]["pages"][0]["html"])
+        html = preview["documents"][0]["pages"][0]["html"]
+        self.assertNotIn("08886-81210", html)
+        self.assertNotIn("Сергей Снабженец", html)
+        self.assertNotIn("material_salary_amount", html)
 
     def test_print_context_uses_payment_summary_for_payment_amounts(self) -> None:
         scenarios = [

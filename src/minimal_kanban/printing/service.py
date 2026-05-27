@@ -300,12 +300,13 @@ def _repair_row_dict(row: RepairOrderRow, *, section: str, index: int) -> dict[s
 
 def _print_safe_repair_order_dict(order: RepairOrder) -> dict[str, Any]:
     payload = order.to_dict()
+    public_row_fields = {"name", "quantity", "price", "total"}
     for field_name in ("works", "materials"):
         rows = payload.get(field_name)
         if not isinstance(rows, list):
             continue
         payload[field_name] = [
-            {key: value for key, value in row.items() if key != "catalog_number"}
+            {key: value for key, value in row.items() if key in public_row_fields}
             for row in rows
             if isinstance(row, dict)
         ]
