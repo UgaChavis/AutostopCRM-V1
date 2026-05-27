@@ -6473,15 +6473,6 @@ BOARD_WEB_APP_HTML = "".join(
       width: 154px;
       min-height: 34px;
     }
-    .employees-summary-strip {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 8px;
-      margin-top: 10px;
-    }
-    .employees-summary-strip:empty {
-      display: none;
-    }
     .employees-kpi {
       display: grid;
       gap: 3px;
@@ -6727,9 +6718,6 @@ BOARD_WEB_APP_HTML = "".join(
       }
     }
     @media (max-width: 760px) {
-      .employees-summary-strip {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
       .employees-card-actions {
         width: 100%;
         justify-content: space-between;
@@ -8845,7 +8833,6 @@ BOARD_WEB_APP_HTML = "".join(
                       + '<div class="field employees-field--span-2 employees-field--compact employees-field--percent"><label for="employeeMaterialPercentInput">% С МАТЕРИАЛОВ</label><input id="employeeMaterialPercentInput" type="text" inputmode="decimal" maxlength="40" placeholder="10"></div>'
                     + '</div>'
                     + '<details class="employees-note-details" id="employeeNoteDetails"><summary>ЗАМЕТКА</summary><div class="field field--secondary"><input id="employeeNoteInput" type="text" maxlength="240"></div></details>'
-                    + '<div class="employees-summary-strip" id="employeesSummaryStrip"></div>'
                   + '</div>'
                   + '<div class="subpanel">'
                     + '<div class="employees-panel-head"><div class="panel-title">ОТЧЁТ ПО СОТРУДНИКУ</div><input class="repair-orders-search" id="employeesMonthInput" type="month"></div>'
@@ -9062,7 +9049,6 @@ BOARD_WEB_APP_HTML = "".join(
       employeesMeta: document.getElementById('employeesMeta'),
       employeesReportMeta: document.getElementById('employeesReportMeta'),
       employeesDetailsMeta: document.getElementById('employeesDetailsMeta'),
-      employeesSummaryStrip: document.getElementById('employeesSummaryStrip'),
       employeesDetailTable: document.getElementById('employeesDetailTable'),
       employeesCreateButton: document.getElementById('employeesCreateButton'),
       employeeNameInput: document.getElementById('employeeNameInput'),
@@ -9567,7 +9553,6 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeesMeta = document.getElementById('employeesMeta');
       els.employeesReportMeta = document.getElementById('employeesReportMeta');
       els.employeesDetailsMeta = document.getElementById('employeesDetailsMeta');
-      els.employeesSummaryStrip = document.getElementById('employeesSummaryStrip');
       els.employeesDetailTable = document.getElementById('employeesDetailTable');
       els.employeesCreateButton = document.getElementById('employeesCreateButton');
       els.employeeNameInput = document.getElementById('employeeNameInput');
@@ -13266,29 +13251,6 @@ BOARD_WEB_APP_HTML = "".join(
       }).join('');
     }
 
-    function renderEmployeesSummaryStrip() {
-      const selectedEmployee = selectedEmployeeRecord();
-      const rows = Array.isArray(state.payrollReport?.summary) ? state.payrollReport.summary : [];
-      const selectedSummary = rows.find((item) => String(item.employee_id || '') === String(state.activeEmployeeId || '')) || null;
-      if (!selectedEmployee) {
-        els.employeesSummaryStrip.innerHTML = '';
-        return;
-      }
-      const kpis = [
-        { label: 'ОКЛАД', value: selectedSummary?.base_salary || selectedEmployee.base_salary || '0' },
-        { label: '% РАБОТ', value: selectedEmployee.work_percent || '0' },
-        { label: '% МАТ.', value: selectedEmployee.material_percent || '10' },
-        { label: 'РАБОТ', value: selectedSummary?.works_count || '0' },
-        { label: 'МАТ.', value: selectedSummary?.materials_count || '0' },
-        { label: 'С РАБОТ', value: selectedSummary?.work_accrued_total || selectedSummary?.accrued_total || '0' },
-        { label: 'С МАТ.', value: selectedSummary?.materials_accrued_total || '0' },
-        { label: 'НАЧИСЛЕНО', value: selectedSummary?.total_salary || '0', accent: true },
-      ];
-      els.employeesSummaryStrip.innerHTML = kpis.map((item) => (
-        '<div class="employees-kpi' + (item.accent ? ' employees-kpi--accent' : '') + '"><div class="employees-kpi__label">' + escapeHtml(item.label) + '</div><div class="employees-kpi__value">' + escapeHtml(item.value) + '</div></div>'
-      )).join('');
-    }
-
     function renderEmployeesDetails() {
       const selectedId = state.employeesReportDetailsOpen ? String(state.activeEmployeeId || '').trim() : '';
       const selectedEmployee = selectedId ? selectedEmployeeRecord() : null;
@@ -13649,7 +13611,6 @@ BOARD_WEB_APP_HTML = "".join(
       }
       fillEmployeeForm(state.employeeCreateMode ? null : selectedEmployeeRecord());
       renderEmployeesListPanel();
-      renderEmployeesSummaryStrip();
       renderEmployeesDetails();
       syncEmployeesReportPanelUi();
       renderEmployeeProfileMeta();
