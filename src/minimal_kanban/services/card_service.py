@@ -266,14 +266,19 @@ Rules:
 EMPLOYEES_SETTING_KEY = "employees"
 EMPLOYEES_MAX_COUNT = 15
 DEFAULT_MATERIAL_PERCENT = "10"
+PAYROLL_MODE_NONE = "none"
 PAYROLL_MODE_SALARY_ONLY = "salary_only"
 PAYROLL_MODE_PERCENT_ONLY = "percent_only"
 PAYROLL_MODE_SALARY_PLUS_PERCENT = "salary_plus_percent"
 PAYROLL_ALLOWED_MODES = {
+    PAYROLL_MODE_NONE,
     PAYROLL_MODE_SALARY_ONLY,
     PAYROLL_MODE_PERCENT_ONLY,
     PAYROLL_MODE_SALARY_PLUS_PERCENT,
 }
+PAYROLL_WEEKLY_BASE_SALARY_WEEKDAY = 4
+PAYROLL_WEEKLY_BASE_SALARY_HOUR = 20
+PAYROLL_WEEKLY_BASE_SALARY_MINUTE = 0
 _REPAIR_WORK_KEYWORDS = (
     "диагност",
     "провер",
@@ -3500,6 +3505,42 @@ class CardService:
         accrual_total = Decimal("0")
         payout_total = Decimal("0")
         advance_total = Decimal("0")
+        now = utc_now()
+        weekly_base_start = parse_datetime(employee.get("created_at")) or period_start
+        for accrual in self._employee_weekly_base_salary_accruals(
+            employee,
+            period_start=weekly_base_start,
+            period_end=now + timedelta(seconds=1),
+            as_of=now,
+        ):
+            amount = accrual["amount"]
+            accrued_at = accrual["accrued_at"]
+            is_recent = accrued_at.astimezone(UTC) >= period_start
+            if period_only_totals:
+                if not is_recent:
+                    continue
+                accrual_total += amount
+            else:
+                accrual_total += amount
+                if not is_recent:
+                    continue
+            journal_rows.append(
+                {
+                    "kind": "base_salary_accrual",
+                    "kind_label": "ОКЛАД",
+                    "created_at": accrued_at.strftime("%d.%m.%Y %H:%M"),
+                    "closed_at": "",
+                    "repair_order_number": "",
+                    "card_id": "",
+                    "vehicle": "",
+                    "work_name": "Недельный оклад",
+                    "amount_minor": int(
+                        (amount * Decimal("100")).to_integral_value(rounding=ROUND_HALF_UP)
+                    ),
+                    "amount_display": self._format_payroll_decimal(amount),
+                    "source_label": "пятница 20:00",
+                }
+            )
 
         for card in cards:
             order = card.repair_order
@@ -3712,6 +3753,8 @@ class CardService:
         repair_order_count: int,
         work_count: int,
         work_total: Decimal,
+        base_salary_count: int = 0,
+        base_salary_total: Decimal = Decimal("0"),
         work_accrued_total: Decimal | None = None,
         material_count: int = 0,
         material_total: Decimal = Decimal("0"),
@@ -3730,8 +3773,9 @@ class CardService:
         resolved_accrued_total = (
             accrued_total
             if accrued_total is not None
-            else resolved_work_accrued_total + material_accrued_total
+            else base_salary_total + resolved_work_accrued_total + material_accrued_total
         )
+        base_salary_money = self._employee_salary_report_money(base_salary_total)
         work_money = self._employee_salary_report_money(work_total)
         work_accrued_money = self._employee_salary_report_money(resolved_work_accrued_total)
         material_money = self._employee_salary_report_money(material_total)
@@ -3741,6 +3785,10 @@ class CardService:
         accrued_money = self._employee_salary_report_money(resolved_accrued_total)
         return {
             "repair_order_count": repair_order_count,
+            "base_salary_count": base_salary_count,
+            "base_salary_total": base_salary_money["raw"],
+            "base_salary_total_minor": base_salary_money["minor"],
+            "base_salary_total_display": base_salary_money["display"],
             "work_count": work_count,
             "work_total": work_money["raw"],
             "work_total_minor": work_money["minor"],
@@ -3789,6 +3837,8 @@ class CardService:
             [
                 "ИТОГО",
                 f"Заказ-нарядов:        {totals['repair_order_count']}",
+                f"Окладов:              {totals['base_salary_count']}",
+                f"Начислено окладом:    {totals['base_salary_total_display']}",
                 f"Работ:                {totals['work_count']}",
                 f"Стоимость работ:      {totals['work_total_display']}",
                 f"Материалы:            {totals['material_count']}",
@@ -3800,6 +3850,12 @@ class CardService:
         )
         for day in days:
             lines.extend(["", str(day["label"]), ""])
+            for salary in day.get("base_salary_accruals", []):
+                lines.append(
+                    "Оклад | "
+                    + f"{salary['created_at']} | "
+                    + f"начислено: {salary['amount_display']}"
+                )
             for order in day["repair_orders"]:
                 lines.append(
                     "ЗН "
@@ -3839,6 +3895,7 @@ class CardService:
             lines.append(
                 "Итого за день: "
                 + f"заказ-нарядов {day_totals['repair_order_count']}, "
+                + f"окладов {day_totals['base_salary_count']}, "
                 + f"работ {day_totals['work_count']}, "
                 + f"материалов {day_totals['material_count']}, "
                 + f"стоимость {day_totals['work_total_display']}, "
@@ -3852,8 +3909,45 @@ class CardService:
     ) -> dict[str, Any]:
         employee_id = employee["id"]
         period = self._employee_salary_report_period(month)
+        period_start, period_end = self._payroll_month_bounds(period["month"])
         month_key = period["month"].replace("-", "")
         grouped_days: dict[str, dict[str, Any]] = {}
+
+        for accrual in self._employee_weekly_base_salary_accruals(
+            employee,
+            period_start=period_start,
+            period_end=period_end,
+        ):
+            amount = accrual["amount"]
+            accrued_at = accrual["accrued_at"]
+            amount_money = self._employee_salary_report_money(amount)
+            day_key = accrued_at.date().isoformat()
+            day_payload = grouped_days.setdefault(
+                day_key,
+                {
+                    "date": day_key,
+                    "label": accrued_at.strftime("%d.%m.%Y"),
+                    "base_salary_accruals": [],
+                    "repair_orders": [],
+                    "_base_salary_total": Decimal("0"),
+                    "_work_total": Decimal("0"),
+                    "_work_accrued_total": Decimal("0"),
+                    "_material_total": Decimal("0"),
+                    "_material_cost_total": Decimal("0"),
+                    "_material_profit_total": Decimal("0"),
+                    "_material_accrued_total": Decimal("0"),
+                },
+            )
+            day_payload["base_salary_accruals"].append(
+                {
+                    "created_at": accrued_at.strftime("%d.%m.%Y %H:%M"),
+                    "created_at_iso": accrued_at.isoformat(),
+                    "amount": amount_money["raw"],
+                    "amount_minor": amount_money["minor"],
+                    "amount_display": amount_money["display"],
+                }
+            )
+            day_payload["_base_salary_total"] += amount
 
         for card in cards:
             order = card.repair_order
@@ -4017,7 +4111,9 @@ class CardService:
                 {
                     "date": day_key,
                     "label": closed_at.strftime("%d.%m.%Y"),
+                    "base_salary_accruals": [],
                     "repair_orders": [],
+                    "_base_salary_total": Decimal("0"),
                     "_work_total": Decimal("0"),
                     "_work_accrued_total": Decimal("0"),
                     "_material_total": Decimal("0"),
@@ -4035,6 +4131,8 @@ class CardService:
             day_payload["_material_accrued_total"] += material_accrued_total
 
         days: list[dict[str, Any]] = []
+        total_base_salary_total = Decimal("0")
+        total_base_salary_count = 0
         total_work_total = Decimal("0")
         total_work_accrued_total = Decimal("0")
         total_material_total = Decimal("0")
@@ -4052,7 +4150,9 @@ class CardService:
             )
             day_work_count = sum(int(item["work_count"]) for item in day["repair_orders"])
             day_material_count = sum(int(item["material_count"]) for item in day["repair_orders"])
+            day_base_salary_count = len(day["base_salary_accruals"])
             day_order_count = len(day["repair_orders"])
+            day_base_salary_total = day.pop("_base_salary_total")
             day_work_total = day.pop("_work_total")
             day_work_accrued_total = day.pop("_work_accrued_total")
             day_material_total = day.pop("_material_total")
@@ -4063,6 +4163,8 @@ class CardService:
                 repair_order_count=day_order_count,
                 work_count=day_work_count,
                 work_total=day_work_total,
+                base_salary_count=day_base_salary_count,
+                base_salary_total=day_base_salary_total,
                 work_accrued_total=day_work_accrued_total,
                 material_count=day_material_count,
                 material_total=day_material_total,
@@ -4071,6 +4173,8 @@ class CardService:
                 material_accrued_total=day_material_accrued_total,
             )
             days.append(day)
+            total_base_salary_count += day_base_salary_count
+            total_base_salary_total += day_base_salary_total
             total_repair_orders += day_order_count
             total_works += day_work_count
             total_materials += day_material_count
@@ -4085,6 +4189,8 @@ class CardService:
             repair_order_count=total_repair_orders,
             work_count=total_works,
             work_total=total_work_total,
+            base_salary_count=total_base_salary_count,
+            base_salary_total=total_base_salary_total,
             work_accrued_total=total_work_accrued_total,
             material_count=total_materials,
             material_total=total_material_total,
@@ -8738,6 +8844,61 @@ class CardService:
             return normalized
         return datetime.now().astimezone().strftime("%Y-%m")
 
+    def _payroll_month_bounds(self, month: str) -> tuple[datetime, datetime]:
+        normalized_month = self._validated_payroll_month(month)
+        year, month_number = [int(part) for part in normalized_month.split("-", 1)]
+        timezone = business_timezone()
+        period_start = datetime(year, month_number, 1, tzinfo=timezone)
+        if month_number == 12:
+            period_end = datetime(year + 1, 1, 1, tzinfo=timezone)
+        else:
+            period_end = datetime(year, month_number + 1, 1, tzinfo=timezone)
+        return period_start, period_end
+
+    def _employee_has_weekly_base_salary(self, employee: dict[str, Any]) -> bool:
+        salary_mode = self._normalize_payroll_mode(employee.get("salary_mode"))
+        if salary_mode not in {PAYROLL_MODE_SALARY_ONLY, PAYROLL_MODE_SALARY_PLUS_PERCENT}:
+            return False
+        return self._parse_payroll_decimal(employee.get("base_salary", "")) > Decimal("0")
+
+    def _employee_weekly_base_salary_accruals(
+        self,
+        employee: dict[str, Any],
+        *,
+        period_start: datetime,
+        period_end: datetime,
+        as_of: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        if not self._employee_has_weekly_base_salary(employee):
+            return []
+        timezone = business_timezone()
+        start_at = period_start.astimezone(timezone)
+        end_at = period_end.astimezone(timezone)
+        as_of_at = (as_of or utc_now()).astimezone(timezone)
+        created_at = parse_datetime(employee.get("created_at"))
+        if created_at is not None:
+            start_at = max(start_at, created_at.astimezone(timezone))
+        if end_at <= start_at:
+            return []
+        amount = self._parse_payroll_decimal(employee.get("base_salary", ""))
+        days_until_friday = (PAYROLL_WEEKLY_BASE_SALARY_WEEKDAY - start_at.weekday()) % 7
+        candidate_date = (start_at + timedelta(days=days_until_friday)).date()
+        candidate = datetime(
+            candidate_date.year,
+            candidate_date.month,
+            candidate_date.day,
+            PAYROLL_WEEKLY_BASE_SALARY_HOUR,
+            PAYROLL_WEEKLY_BASE_SALARY_MINUTE,
+            tzinfo=timezone,
+        )
+        if candidate < start_at:
+            candidate += timedelta(days=7)
+        accruals: list[dict[str, Any]] = []
+        while candidate < end_at and candidate <= as_of_at:
+            accruals.append({"accrued_at": candidate, "amount": amount})
+            candidate += timedelta(days=7)
+        return accruals
+
     def _normalized_employee_record(
         self, payload: Any, *, existing: dict[str, Any] | None = None
     ) -> dict[str, Any] | None:
@@ -8784,7 +8945,12 @@ class CardService:
             default=normalize_bool(existing.get("is_active"), default=True),
         )
         created_at = (
-            normalize_text(existing.get("created_at"), default=now_iso, limit=40) or now_iso
+            normalize_text(
+                existing.get("created_at") or payload.get("created_at"),
+                default=now_iso,
+                limit=40,
+            )
+            or now_iso
         )
         updated_at = (
             normalize_text(
@@ -8963,6 +9129,7 @@ class CardService:
     ) -> dict[str, list[dict[str, Any]]]:
         selected_employee_id = normalize_text(employee_id, default="", limit=64)
         month_key = month.replace("-", "")
+        period_start, period_end = self._payroll_month_bounds(month)
 
         def empty_summary(employee: dict[str, Any]) -> dict[str, Any]:
             base_salary = self._parse_payroll_decimal(employee.get("base_salary", ""))
@@ -8974,6 +9141,8 @@ class CardService:
                 "work_percent": employee.get("work_percent", ""),
                 "material_percent": employee.get("material_percent", DEFAULT_MATERIAL_PERCENT),
                 "base_salary": self._format_payroll_decimal(base_salary),
+                "base_salary_accruals_count": 0,
+                "base_salary_accrued_total": Decimal("0"),
                 "works_count": 0,
                 "works_total": Decimal("0"),
                 "work_accrued_total": Decimal("0"),
@@ -8990,6 +9159,43 @@ class CardService:
                 continue
             summaries[employee["id"]] = empty_summary(employee)
         detail_rows_by_order: dict[tuple[str, str], dict[str, Any]] = {}
+        base_salary_detail_rows: list[dict[str, Any]] = []
+        for employee in employees:
+            if selected_employee_id and employee["id"] != selected_employee_id:
+                continue
+            summary = summaries.get(employee["id"])
+            if summary is None:
+                continue
+            for accrual in self._employee_weekly_base_salary_accruals(
+                employee,
+                period_start=period_start,
+                period_end=period_end,
+            ):
+                amount = accrual["amount"]
+                accrued_at = accrual["accrued_at"]
+                summary["base_salary_accruals_count"] += 1
+                summary["base_salary_accrued_total"] += amount
+                base_salary_detail_rows.append(
+                    {
+                        "row_type": "base_salary",
+                        "type_label": "Оклад",
+                        "employee_id": employee["id"],
+                        "employee_name": employee["name"],
+                        "closed_at": accrued_at.strftime("%d.%m.%Y %H:%M"),
+                        "repair_order_number": "",
+                        "card_id": "",
+                        "vehicle": "",
+                        "works_count": 0,
+                        "work_total": Decimal("0"),
+                        "materials_count": 0,
+                        "material_name": "Недельный оклад",
+                        "material_total": Decimal("0"),
+                        "material_cost_total": Decimal("0"),
+                        "material_profit": Decimal("0"),
+                        "material_percent": "",
+                        "salary_amount": amount,
+                    }
+                )
         material_detail_rows: list[dict[str, Any]] = []
         for card in cards:
             order = card.repair_order
@@ -9016,6 +9222,8 @@ class CardService:
                         "work_percent": row.work_percent_snapshot,
                         "material_percent": "",
                         "base_salary": "0",
+                        "base_salary_accruals_count": 0,
+                        "base_salary_accrued_total": Decimal("0"),
                         "works_count": 0,
                         "works_total": Decimal("0"),
                         "work_accrued_total": Decimal("0"),
@@ -9075,6 +9283,8 @@ class CardService:
                         "work_percent": "",
                         "material_percent": row.material_percent_snapshot,
                         "base_salary": "0",
+                        "base_salary_accruals_count": 0,
+                        "base_salary_accrued_total": Decimal("0"),
                         "works_count": 0,
                         "works_total": Decimal("0"),
                         "work_accrued_total": Decimal("0"),
@@ -9118,14 +9328,15 @@ class CardService:
         summary_rows: list[dict[str, Any]] = []
         for item in summaries.values():
             base_salary = self._parse_payroll_decimal(item["base_salary"])
+            base_salary_accrued_total = item["base_salary_accrued_total"]
             works_total = item["works_total"]
             work_accrued_total = item["work_accrued_total"]
             materials_total = item["materials_total"]
             materials_cost_total = item["materials_cost_total"]
             materials_profit_total = item["materials_profit_total"]
             materials_accrued_total = item["materials_accrued_total"]
-            accrued_total = work_accrued_total + materials_accrued_total
-            total_salary = base_salary + accrued_total
+            accrued_total = base_salary_accrued_total + work_accrued_total + materials_accrued_total
+            total_salary = accrued_total
             summary_rows.append(
                 {
                     "employee_id": item["employee_id"],
@@ -9135,6 +9346,10 @@ class CardService:
                     "work_percent": item["work_percent"],
                     "material_percent": item["material_percent"],
                     "base_salary": self._format_payroll_decimal(base_salary),
+                    "base_salary_accruals_count": item["base_salary_accruals_count"],
+                    "base_salary_accrued_total": self._format_payroll_decimal(
+                        base_salary_accrued_total
+                    ),
                     "works_count": item["works_count"],
                     "works_total": self._format_payroll_decimal(works_total),
                     "work_accrued_total": self._format_payroll_decimal(work_accrued_total),
@@ -9154,7 +9369,9 @@ class CardService:
             reverse=True,
         )
         detail_rows: list[dict[str, Any]] = []
-        for item in list(detail_rows_by_order.values()) + material_detail_rows:
+        for item in (
+            base_salary_detail_rows + list(detail_rows_by_order.values()) + material_detail_rows
+        ):
             detail_rows.append(
                 {
                     "row_type": item["row_type"],

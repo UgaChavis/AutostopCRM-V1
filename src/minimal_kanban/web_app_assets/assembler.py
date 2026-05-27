@@ -6301,26 +6301,6 @@ BOARD_WEB_APP_HTML = "".join(
       opacity: 0.78;
       line-height: 1.3;
     }
-    .employees-row__scanline {
-      display: flex;
-      gap: 5px;
-      flex-wrap: wrap;
-      min-width: 0;
-    }
-    .employees-row__scan-chip {
-      border: 1px solid rgba(164, 173, 138, 0.14);
-      color: rgba(231, 226, 193, 0.72);
-      background: rgba(12, 18, 14, 0.35);
-      padding: 2px 5px;
-      font-size: 9.5px;
-      line-height: 1.15;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      max-width: 100%;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
     .employees-row__summary {
       display: flex;
       align-items: center;
@@ -6380,6 +6360,13 @@ BOARD_WEB_APP_HTML = "".join(
       gap: 8px;
       flex-wrap: wrap;
     }
+    .employees-dialog-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
     .employees-card-mode {
       font-size: 11px;
       letter-spacing: 0.1em;
@@ -6425,6 +6412,88 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .employees-form-grid .field--wide {
       grid-column: 1 / -1;
+    }
+    .employees-incentives {
+      grid-column: 1 / -1;
+      display: grid;
+      gap: 9px;
+      margin-top: 2px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(164, 173, 138, 0.12);
+    }
+    .employees-incentives__head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .employees-incentives__actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .employees-incentives__actions .btn {
+      min-height: 28px;
+      padding: 5px 8px;
+      font-size: 10px;
+    }
+    .employees-incentives__list {
+      display: grid;
+      gap: 6px;
+    }
+    .employees-incentive-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(130px, 170px) auto;
+      align-items: end;
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid rgba(164, 173, 138, 0.12);
+      background: rgba(18, 24, 20, 0.28);
+    }
+    .employees-incentive-row__main {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+    .employees-incentive-row__title {
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+    .employees-incentive-row__hint {
+      font-size: 10px;
+      line-height: 1.3;
+      color: rgba(231, 226, 193, 0.64);
+    }
+    .employees-incentive-row__value {
+      display: grid;
+      gap: 4px;
+    }
+    .employees-incentive-row__value span {
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(231, 226, 193, 0.66);
+    }
+    .employees-incentive-row__value input {
+      min-height: 34px;
+      padding: 7px 9px;
+    }
+    .employees-incentive-row__remove {
+      align-self: end;
+      min-height: 34px;
+      padding: 7px 9px;
+    }
+    .employees-incentives__empty {
+      padding: 8px;
+      border: 1px dashed rgba(164, 173, 138, 0.14);
+      color: rgba(231, 226, 193, 0.58);
+      font-size: 11px;
+      line-height: 1.35;
     }
     .employees-check {
       display: flex;
@@ -6692,6 +6761,12 @@ BOARD_WEB_APP_HTML = "".join(
       }
     }
     @media (max-width: 760px) {
+      .employees-incentive-row {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .employees-incentive-row__remove {
+        width: max-content;
+      }
       .employees-card-actions {
         width: 100%;
         justify-content: space-between;
@@ -7410,12 +7485,14 @@ BOARD_WEB_APP_HTML = "".join(
       }
     }
     .repair-order-table__select {
+      display: block;
       width: 100%;
-      min-height: 32px;
+      height: 38px;
+      min-height: 38px;
       background: rgba(18, 24, 20, 0.84);
       border: 1px solid var(--line);
       color: var(--text);
-      padding: 4px 7px;
+      padding: 5px 7px;
       font-size: 10.75px;
       line-height: 1.2;
       text-transform: uppercase;
@@ -8259,13 +8336,13 @@ BOARD_WEB_APP_HTML = "".join(
             <table class="repair-order-table">
               <thead>
                 <tr>
-                  <th style="width:28%;">Наименование</th>
-                  <th style="width:13%;">Кат. №</th>
-                  <th class="repair-order-table__numeric" style="width:9%;">Кол-во</th>
-                  <th class="repair-order-table__numeric" style="width:12%;">Закупка</th>
-                  <th class="repair-order-table__numeric" style="width:12%;">Цена</th>
-                  <th class="repair-order-table__numeric" style="width:12%;">Сумма</th>
-                  <th style="width:10%;">Списал</th>
+                  <th style="width:27%;">Наименование</th>
+                  <th style="width:14%;">Списал</th>
+                  <th style="width:12%;">Кат. №</th>
+                  <th class="repair-order-table__numeric" style="width:8%;">Кол-во</th>
+                  <th class="repair-order-table__numeric" style="width:11%;">Закупка</th>
+                  <th class="repair-order-table__numeric" style="width:11%;">Цена</th>
+                  <th class="repair-order-table__numeric" style="width:13%;">Сумма</th>
                   <th class="repair-order-table__action" style="width:4%;"></th>
                 </tr>
               </thead>
@@ -8775,7 +8852,10 @@ BOARD_WEB_APP_HTML = "".join(
             + '<div class="dialog dialog--employees dialog--fixed-actions">'
               + '<div class="dialog__head dialog__floating-actions">'
                 + '<div class="dialog__title">СОТРУДНИКИ</div>'
-                + '<button class="btn" data-close="employees">ЗАКРЫТЬ</button>'
+                + '<div class="employees-dialog-actions">'
+                  + '<button class="btn btn--ghost" id="employeesCreateButton" type="button">ДОБАВИТЬ</button>'
+                  + '<button class="btn" data-close="employees">ЗАКРЫТЬ</button>'
+                + '</div>'
               + '</div>'
               + '<div class="dialog__body-scroll employees-layout">'
                 + '<div class="employees-pane employees-pane--list">'
@@ -8794,17 +8874,25 @@ BOARD_WEB_APP_HTML = "".join(
                         + '<div class="employees-card-title"><strong id="employeesCardMode">НОВЫЙ СОТРУДНИК</strong></div>'
                       + '</div>'
                       + '<div class="employees-card-actions">'
-                        + '<button class="btn btn--ghost" id="employeesCreateButton" type="button">ДОБАВИТЬ</button>'
-                        + '<button class="btn btn--ghost" id="employeeDeleteButton" type="button">УДАЛИТЬ</button>'
+                        + '<button class="btn btn--ghost" id="employeeSaveButton" type="button">СОХРАНИТЬ</button>'
+                        + '<button class="btn btn--ghost" id="employeeDeleteButton" type="button">УВОЛИТЬ СОТРУДНИКА</button>'
                       + '</div>'
                     + '</div>'
                     + '<div class="employees-form-grid">'
-                      + '<div class="field employees-field--span-6"><label for="employeeNameInput">ИМЯ</label><input id="employeeNameInput" type="text" maxlength="80"></div>'
-                      + '<div class="field employees-field--span-6"><label for="employeePositionInput">ДОЛЖНОСТЬ</label><input id="employeePositionInput" type="text" maxlength="80"></div>'
-                      + '<div class="field employees-field--span-6 employees-field--compact employees-field--mode"><label for="employeeSalaryModeInput">СХЕМА</label><select id="employeeSalaryModeInput"><option value="salary_plus_percent">ОКЛАД + %</option><option value="percent_only">% ОТ РАБОТ</option><option value="salary_only">ТОЛЬКО ОКЛАД</option></select></div>'
-                      + '<div class="field employees-field--span-2 employees-field--compact employees-field--salary"><label for="employeeBaseSalaryInput">ОКЛАД</label><input id="employeeBaseSalaryInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
-                      + '<div class="field employees-field--span-2 employees-field--compact employees-field--percent"><label for="employeeWorkPercentInput">ПРОЦЕНТ С РАБОТ</label><input id="employeeWorkPercentInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
-                      + '<div class="field employees-field--span-2 employees-field--compact employees-field--percent"><label for="employeeMaterialPercentInput">% С МАТЕРИАЛОВ</label><input id="employeeMaterialPercentInput" type="text" inputmode="decimal" maxlength="40" placeholder="10"></div>'
+                      + '<div class="field employees-field--span-4"><label for="employeeNameInput">ИМЯ</label><input id="employeeNameInput" type="text" maxlength="80"></div>'
+                      + '<div class="field employees-field--span-4"><label for="employeeMiddleNameInput">ОТЧЕСТВО</label><input id="employeeMiddleNameInput" type="text" maxlength="80"></div>'
+                      + '<div class="field employees-field--span-4"><label for="employeePositionInput">ДОЛЖНОСТЬ</label><input id="employeePositionInput" type="text" maxlength="80"></div>'
+                      + '<input id="employeeSalaryModeInput" type="hidden" value="percent_only">'
+                      + '<input id="employeeBaseSalaryInput" type="hidden" value="">'
+                      + '<input id="employeeWorkPercentInput" type="hidden" value="">'
+                      + '<input id="employeeMaterialPercentInput" type="hidden" value="">'
+                      + '<div class="employees-incentives" id="employeeIncentivesPanel">'
+                        + '<div class="employees-incentives__head">'
+                          + '<div class="panel-title">НАЧИСЛЕНИЯ</div>'
+                          + '<div class="employees-incentives__actions" id="employeeIncentiveAddChoices"></div>'
+                        + '</div>'
+                        + '<div class="employees-incentives__list" id="employeeIncentivesList"></div>'
+                      + '</div>'
                     + '</div>'
                   + '</div>'
                   + '<div class="subpanel">'
@@ -9025,12 +9113,16 @@ BOARD_WEB_APP_HTML = "".join(
       employeesDetailTable: document.getElementById('employeesDetailTable'),
       employeesCreateButton: document.getElementById('employeesCreateButton'),
       employeeNameInput: document.getElementById('employeeNameInput'),
+      employeeMiddleNameInput: document.getElementById('employeeMiddleNameInput'),
       employeePositionInput: document.getElementById('employeePositionInput'),
       employeeSalaryModeInput: document.getElementById('employeeSalaryModeInput'),
       employeeBaseSalaryInput: document.getElementById('employeeBaseSalaryInput'),
       employeeWorkPercentInput: document.getElementById('employeeWorkPercentInput'),
       employeeMaterialPercentInput: document.getElementById('employeeMaterialPercentInput'),
+      employeeIncentivesList: document.getElementById('employeeIncentivesList'),
+      employeeIncentiveAddChoices: document.getElementById('employeeIncentiveAddChoices'),
       employeeActiveInput: document.getElementById('employeeActiveInput'),
+      employeeSaveButton: document.getElementById('employeeSaveButton'),
       employeeDeleteButton: document.getElementById('employeeDeleteButton'),
       employeeSalaryTitle: document.getElementById('employeeSalaryTitle'),
       employeeSalaryBalance: document.getElementById('employeeSalaryBalance'),
@@ -9527,12 +9619,16 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeesDetailTable = document.getElementById('employeesDetailTable');
       els.employeesCreateButton = document.getElementById('employeesCreateButton');
       els.employeeNameInput = document.getElementById('employeeNameInput');
+      els.employeeMiddleNameInput = document.getElementById('employeeMiddleNameInput');
       els.employeePositionInput = document.getElementById('employeePositionInput');
       els.employeeSalaryModeInput = document.getElementById('employeeSalaryModeInput');
       els.employeeBaseSalaryInput = document.getElementById('employeeBaseSalaryInput');
       els.employeeWorkPercentInput = document.getElementById('employeeWorkPercentInput');
       els.employeeMaterialPercentInput = document.getElementById('employeeMaterialPercentInput');
+      els.employeeIncentivesList = document.getElementById('employeeIncentivesList');
+      els.employeeIncentiveAddChoices = document.getElementById('employeeIncentiveAddChoices');
       els.employeeActiveInput = document.getElementById('employeeActiveInput');
+      els.employeeSaveButton = document.getElementById('employeeSaveButton');
       els.employeeDeleteButton = document.getElementById('employeeDeleteButton');
       els.employeeSalaryTitle = document.getElementById('employeeSalaryTitle');
       els.employeeSalaryBalance = document.getElementById('employeeSalaryBalance');
@@ -10808,6 +10904,7 @@ BOARD_WEB_APP_HTML = "".join(
       if (state.employeesUiBound) return;
       hydrateEmployeesUiRefs();
       els.employeesCreateButton?.addEventListener('click', addEmployeeFromForm);
+      els.employeeSaveButton?.addEventListener('click', saveEmployee);
       els.employeeDeleteButton?.addEventListener('click', deleteEmployee);
       els.employeeSalaryModeInput?.addEventListener('change', syncEmployeeSalaryModeUi);
       els.employeesMonthInput?.addEventListener('change', handleEmployeesMonthChange);
@@ -13022,7 +13119,47 @@ BOARD_WEB_APP_HTML = "".join(
       return (state.employees || []).find((item) => item.id === state.activeEmployeeId) || null;
     }
 
+    const EMPLOYEE_INCENTIVE_DEFINITIONS = [
+      {
+        kind: 'base_salary',
+        inputKey: 'employeeBaseSalaryInput',
+        label: 'Оклад',
+        shortLabel: 'Оклад',
+        hint: 'Фиксированная сумма за неделю. Начисляется по пятницам в 20:00.',
+        valueLabel: 'Сумма',
+        placeholder: '0',
+        defaultValue: '0',
+        inactiveValue: '',
+        activeModes: ['salary_only', 'salary_plus_percent'],
+      },
+      {
+        kind: 'work_percent',
+        inputKey: 'employeeWorkPercentInput',
+        label: 'Выплата с работ',
+        shortLabel: '% с работ',
+        hint: 'Процент от закрытых работ сотрудника.',
+        valueLabel: 'Процент',
+        placeholder: '0',
+        defaultValue: '0',
+        inactiveValue: '',
+        activeModes: ['percent_only', 'salary_plus_percent'],
+      },
+      {
+        kind: 'material_percent',
+        inputKey: 'employeeMaterialPercentInput',
+        label: 'Материалы и запчасти',
+        shortLabel: '% с материалов',
+        hint: 'Процент от прибыли продажи материалов и запчастей.',
+        valueLabel: 'Процент',
+        placeholder: '10',
+        defaultValue: '10',
+        inactiveValue: '0',
+        activeModes: [],
+      },
+    ];
+
     function employeeSalaryModeLabel(mode) {
+      if (mode === 'none') return 'БЕЗ НАЧИСЛЕНИЙ';
       if (mode === 'salary_only') return 'ОКЛАД';
       if (mode === 'percent_only') return '% ОТ РАБОТ';
       return 'ОКЛАД + %';
@@ -13037,26 +13174,153 @@ BOARD_WEB_APP_HTML = "".join(
       return parsed === null ? '' : repairOrderNumberToRaw(parsed);
     }
 
+    function employeeSalaryModeFromIncentives(flags) {
+      const hasBase = Boolean(flags?.base_salary);
+      const hasWork = Boolean(flags?.work_percent);
+      if (hasBase && hasWork) return 'salary_plus_percent';
+      if (hasBase) return 'salary_only';
+      if (hasWork) return 'percent_only';
+      return 'none';
+    }
+
+    function employeeIncentiveDefinition(kind) {
+      return EMPLOYEE_INCENTIVE_DEFINITIONS.find((item) => item.kind === kind) || null;
+    }
+
+    function employeeIncentiveInput(kind) {
+      const definition = employeeIncentiveDefinition(kind);
+      const inputKey = definition?.inputKey || '';
+      return inputKey ? els[inputKey] : null;
+    }
+
+    function employeeIncentiveFlagsFromValues(mode, baseSalary, workPercent, materialPercent) {
+      const normalizedMode = normalizeEmployeeComparableText(mode || 'percent_only');
+      const rawValues = {
+        base_salary: baseSalary,
+        work_percent: workPercent,
+        material_percent: materialPercent,
+      };
+      return EMPLOYEE_INCENTIVE_DEFINITIONS.reduce((flags, item) => {
+        const normalizedValue = normalizeEmployeeComparableNumber(rawValues[item.kind]);
+        const activeByValue = Boolean(normalizedValue && normalizedValue !== '0');
+        const activeByMode = Array.isArray(item.activeModes) && item.activeModes.includes(normalizedMode);
+        flags[item.kind] = activeByMode || activeByValue;
+        return flags;
+      }, {});
+    }
+
+    function employeeIncentiveSummaryLabel(employee) {
+      const flags = employeeIncentiveFlagsFromValues(
+        employee?.salary_mode,
+        employee?.base_salary,
+        employee?.work_percent,
+        employee?.material_percent,
+      );
+      const labels = EMPLOYEE_INCENTIVE_DEFINITIONS
+        .filter((item) => Boolean(flags[item.kind]))
+        .map((item) => item.shortLabel);
+      return labels.length ? labels.join(' + ') : 'БЕЗ НАЧИСЛЕНИЙ';
+    }
+
+    function currentEmployeeIncentiveFlags() {
+      return employeeIncentiveFlagsFromValues(
+        els.employeeSalaryModeInput?.value,
+        els.employeeBaseSalaryInput?.value,
+        els.employeeWorkPercentInput?.value,
+        els.employeeMaterialPercentInput?.value,
+      );
+    }
+
+    function employeeIncentiveFieldValue(kind) {
+      return String(employeeIncentiveInput(kind)?.value || '');
+    }
+
+    function setEmployeeIncentiveFieldValue(kind, value) {
+      const input = employeeIncentiveInput(kind);
+      if (input) input.value = String(value ?? '');
+    }
+
+    function syncEmployeeSalaryModeFromIncentives(flags = currentEmployeeIncentiveFlags()) {
+      if (els.employeeSalaryModeInput) {
+        els.employeeSalaryModeInput.value = employeeSalaryModeFromIncentives(flags);
+      }
+    }
+
+    function setEmployeeIncentiveActive(kind, active) {
+      const definition = employeeIncentiveDefinition(kind);
+      if (!definition) return;
+      const flags = currentEmployeeIncentiveFlags();
+      const wasActive = Boolean(flags[kind]);
+      flags[kind] = Boolean(active);
+      if (active && (!wasActive || !employeeIncentiveFieldValue(kind))) {
+        setEmployeeIncentiveFieldValue(kind, definition.defaultValue ?? '0');
+      }
+      if (!active) {
+        setEmployeeIncentiveFieldValue(kind, definition.inactiveValue ?? '');
+      }
+      syncEmployeeSalaryModeFromIncentives(flags);
+      renderEmployeeIncentives();
+      renderEmployeeProfileMeta();
+      const nextInput = els.employeeIncentivesList?.querySelector('[data-employee-incentive-value="' + kind + '"]');
+      if (active && nextInput instanceof HTMLInputElement) {
+        setTimeout(() => nextInput.focus(), 0);
+      }
+    }
+
+    function renderEmployeeIncentives() {
+      if (!els.employeeIncentivesList || !els.employeeIncentiveAddChoices) return;
+      const flags = currentEmployeeIncentiveFlags();
+      const activeDefinitions = EMPLOYEE_INCENTIVE_DEFINITIONS.filter((item) => Boolean(flags[item.kind]));
+      const inactiveDefinitions = EMPLOYEE_INCENTIVE_DEFINITIONS.filter((item) => !flags[item.kind]);
+      els.employeeIncentiveAddChoices.innerHTML = inactiveDefinitions.length
+        ? inactiveDefinitions.map((item) => (
+          '<button class="btn btn--ghost" type="button" data-employee-incentive-add="' + escapeHtml(item.kind) + '">+ ' + escapeHtml(item.shortLabel) + '</button>'
+        )).join('')
+        : '<span class="employees-row__summary-label">ВСЁ ДОБАВЛЕНО</span>';
+      if (!activeDefinitions.length) {
+        els.employeeIncentivesList.innerHTML = '<div class="employees-incentives__empty">Начисления не добавлены. Добавьте оклад, процент с работ или процент с материалов.</div>';
+        return;
+      }
+      els.employeeIncentivesList.innerHTML = activeDefinitions.map((item) => {
+        const value = employeeIncentiveFieldValue(item.kind);
+        return '<div class="employees-incentive-row" data-employee-incentive-row="' + escapeHtml(item.kind) + '">'
+          + '<div class="employees-incentive-row__main">'
+            + '<div class="employees-incentive-row__title">' + escapeHtml(item.label) + '</div>'
+            + '<div class="employees-incentive-row__hint">' + escapeHtml(item.hint) + '</div>'
+          + '</div>'
+          + '<label class="employees-incentive-row__value"><span>' + escapeHtml(item.valueLabel) + '</span><input type="text" inputmode="decimal" maxlength="40" placeholder="' + escapeHtml(item.placeholder) + '" value="' + escapeHtml(value) + '" data-employee-incentive-value="' + escapeHtml(item.kind) + '"></label>'
+          + '<button class="btn btn--ghost employees-incentive-row__remove" type="button" data-employee-incentive-remove="' + escapeHtml(item.kind) + '">УДАЛИТЬ</button>'
+          + '</div>';
+      }).join('');
+    }
+
     function employeeComparableSnapshot(employee = null) {
       return {
         name: normalizeEmployeeComparableText(employee?.name),
         position: normalizeEmployeeComparableText(employee?.position),
-        salary_mode: normalizeEmployeeComparableText(employee?.salary_mode || 'salary_plus_percent'),
+        salary_mode: normalizeEmployeeComparableText(employee?.salary_mode || 'percent_only'),
         base_salary: normalizeEmployeeComparableNumber(employee?.base_salary),
         work_percent: normalizeEmployeeComparableNumber(employee?.work_percent),
-        material_percent: normalizeEmployeeComparableNumber(employee?.material_percent ?? '10'),
+        material_percent: normalizeEmployeeComparableNumber(employee?.material_percent),
         is_active: employee ? Boolean(employee.is_active) : true,
       };
     }
 
+    function employeeCombinedNameFromForm() {
+      return [els.employeeNameInput?.value, els.employeeMiddleNameInput?.value]
+        .map((part) => String(part || '').trim())
+        .filter(Boolean)
+        .join(' ');
+    }
+
     function employeeFormSnapshot() {
       return {
-        name: normalizeEmployeeComparableText(els.employeeNameInput?.value),
+        name: normalizeEmployeeComparableText(employeeCombinedNameFromForm()),
         position: normalizeEmployeeComparableText(els.employeePositionInput?.value),
-        salary_mode: normalizeEmployeeComparableText(els.employeeSalaryModeInput?.value || 'salary_plus_percent'),
+        salary_mode: normalizeEmployeeComparableText(els.employeeSalaryModeInput?.value || 'percent_only'),
         base_salary: normalizeEmployeeComparableNumber(els.employeeBaseSalaryInput?.value),
         work_percent: normalizeEmployeeComparableNumber(els.employeeWorkPercentInput?.value),
-        material_percent: normalizeEmployeeComparableNumber(els.employeeMaterialPercentInput?.value || '10'),
+        material_percent: normalizeEmployeeComparableNumber(els.employeeMaterialPercentInput?.value),
         is_active: Boolean(selectedEmployeeRecord()?.is_active ?? true),
       };
     }
@@ -13070,7 +13334,7 @@ BOARD_WEB_APP_HTML = "".join(
       return [
         String(employee?.name || 'Без имени'),
         String(employee?.position || 'без должности'),
-        'схема ' + employeeSalaryModeLabel(employee?.salary_mode || 'salary_plus_percent'),
+        'начисления ' + employeeIncentiveSummaryLabel(employee),
         'к выплате ' + String(summaryValue || '0'),
       ].filter(Boolean).join('. ');
     }
@@ -13113,8 +13377,11 @@ BOARD_WEB_APP_HTML = "".join(
       } else {
         parts.push('НОВЫЙ СОТРУДНИК');
       }
-      parts.push(employeeSalaryModeLabel(mode));
-      parts.push('МАТ. ' + normalizeEmployeeComparableNumber(els.employeeMaterialPercentInput?.value || selectedEmployee?.material_percent || '10') + '%');
+      const flags = currentEmployeeIncentiveFlags();
+      const incentiveLabels = EMPLOYEE_INCENTIVE_DEFINITIONS
+        .filter((item) => Boolean(flags[item.kind]))
+        .map((item) => item.shortLabel);
+      parts.push(incentiveLabels.length ? incentiveLabels.join(' + ') : employeeSalaryModeLabel(mode));
       if (employeeFormHasUnsavedChanges()) parts.push('ИЗМЕНЕНО');
       els.employeesMeta.textContent = parts.join(' · ');
     }
@@ -13131,15 +13398,8 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function syncEmployeeSalaryModeUi() {
-      const mode = String(els.employeeSalaryModeInput?.value || 'salary_plus_percent').trim();
-      const salaryDisabled = mode === 'percent_only';
-      const percentDisabled = mode === 'salary_only';
-      if (els.employeeBaseSalaryInput) {
-        els.employeeBaseSalaryInput.disabled = salaryDisabled;
-      }
-      if (els.employeeWorkPercentInput) {
-        els.employeeWorkPercentInput.disabled = percentDisabled;
-      }
+      syncEmployeeSalaryModeFromIncentives();
+      renderEmployeeIncentives();
       renderEmployeeProfileMeta();
     }
 
@@ -13149,11 +13409,12 @@ BOARD_WEB_APP_HTML = "".join(
         els.employeesCardMode.textContent = current ? String(current.name || 'СОТРУДНИК').toUpperCase() : 'НОВЫЙ СОТРУДНИК';
       }
       els.employeeNameInput.value = current?.name || '';
+      if (els.employeeMiddleNameInput) els.employeeMiddleNameInput.value = '';
       els.employeePositionInput.value = current?.position || '';
-      els.employeeSalaryModeInput.value = current?.salary_mode || 'salary_plus_percent';
+      els.employeeSalaryModeInput.value = current?.salary_mode || 'percent_only';
       els.employeeBaseSalaryInput.value = current?.base_salary || '';
       els.employeeWorkPercentInput.value = current?.work_percent || '';
-      els.employeeMaterialPercentInput.value = current?.material_percent || '10';
+      els.employeeMaterialPercentInput.value = current?.material_percent || '';
       if (els.employeeDeleteButton) {
         els.employeeDeleteButton.disabled = !current;
       }
@@ -13166,7 +13427,7 @@ BOARD_WEB_APP_HTML = "".join(
       return {
         create_mode: Boolean(state.employeeCreateMode),
         employee_id: state.employeeCreateMode ? '' : (state.activeEmployeeId || ''),
-        name: els.employeeNameInput.value,
+        name: employeeCombinedNameFromForm(),
         position: els.employeePositionInput.value,
         salary_mode: els.employeeSalaryModeInput.value,
         base_salary: els.employeeBaseSalaryInput.value,
@@ -13196,13 +13457,11 @@ BOARD_WEB_APP_HTML = "".join(
         const summary = summaryMap.get(String(employee.id || ''));
         const summaryLabel = 'К ВЫПЛАТЕ';
         const summaryValue = String(employee.balance_total ?? summary?.balance_total ?? summary?.total_salary ?? '0');
-        const modeLabel = employeeSalaryModeLabel(employee.salary_mode || 'salary_plus_percent');
         const rowLabel = employeeRowAriaLabel(employee, summaryValue);
         return '<div class="employees-row' + (isActive ? ' is-active' : '') + '">'
           + '<button class="employees-row__body" type="button" data-employee-id="' + escapeHtml(employee.id) + '" aria-label="Сотрудник ' + escapeHtml(rowLabel) + '" title="' + escapeHtml(rowLabel) + '">'
             + '<div class="employees-row__top"><div class="employees-row__title">' + escapeHtml(employee.name) + '</div></div>'
             + '<div class="employees-row__meta">' + escapeHtml(employee.position || 'Без должности') + '</div>'
-            + '<div class="employees-row__scanline"><span class="employees-row__scan-chip">' + escapeHtml(modeLabel) + '</span><span class="employees-row__scan-chip">' + escapeHtml(summaryLabel + ': ' + summaryValue) + '</span></div>'
             + '<div class="employees-row__summary"><span class="employees-row__summary-label">' + escapeHtml(summaryLabel) + '</span><strong>' + escapeHtml(summaryValue) + '</strong></div>'
           + '</button>'
           + '<div class="employees-row__actions">'
@@ -13225,7 +13484,7 @@ BOARD_WEB_APP_HTML = "".join(
       }
       if (els.employeesDetailsMeta) {
         els.employeesDetailsMeta.textContent = selectedEmployee
-          ? ('Выбран ' + String(selectedEmployee.name || 'сотрудник') + ' · ' + employeeSalaryModeLabel(selectedEmployee.salary_mode || 'salary_plus_percent'))
+          ? ('Выбран ' + String(selectedEmployee.name || 'сотрудник') + ' · ' + employeeIncentiveSummaryLabel(selectedEmployee))
           : 'Детализация появится после выбора сотрудника.';
       }
       if (!selectedId) {
@@ -13239,10 +13498,11 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeesDetailTable.innerHTML = visibleRows.map((row) => {
         const rowType = String(row.row_type || '').trim();
         const isMaterial = rowType === 'material';
-        const positionName = isMaterial ? (row.material_name || '-') : ((row.works_count || '0') + ' раб.');
-        const saleTotal = isMaterial ? (row.material_total || '0') : (row.work_total || '0');
-        const costTotal = isMaterial ? (row.material_cost_total || '0') : '-';
-        const profitTotal = isMaterial ? (row.material_profit || '0') : '-';
+        const isBaseSalary = rowType === 'base_salary';
+        const positionName = isBaseSalary ? (row.material_name || 'Недельный оклад') : (isMaterial ? (row.material_name || '-') : ((row.works_count || '0') + ' раб.'));
+        const saleTotal = isBaseSalary ? '-' : (isMaterial ? (row.material_total || '0') : (row.work_total || '0'));
+        const costTotal = isBaseSalary ? '-' : (isMaterial ? (row.material_cost_total || '0') : '-');
+        const profitTotal = isBaseSalary ? '-' : (isMaterial ? (row.material_profit || '0') : '-');
         return '<tr data-card-id="' + escapeHtml(row.card_id || '') + '" data-open-repair-order="' + (row.repair_order_number ? '1' : '') + '">' +
           '<td>' + escapeHtml(row.closed_at || '-') + '</td>' +
           '<td>' + escapeHtml(row.repair_order_number || '-') + '</td>' +
@@ -13646,7 +13906,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     async function addEmployeeFromForm() {
-      if (employeeFormHasUnsavedChanges()) {
+      if (state.employeeCreateMode && employeeFormHasUnsavedChanges()) {
         await saveEmployee();
         return;
       }
@@ -13655,6 +13915,7 @@ BOARD_WEB_APP_HTML = "".join(
       state.activeEmployeeId = '';
       state.employeesReportDetailsOpen = false;
       renderEmployeesWorkspace();
+      setStatus('ЗАПОЛНИТЕ НОВОГО СОТРУДНИКА И НАЖМИТЕ ДОБАВИТЬ.', false);
       if (els.employeeNameInput) {
         setTimeout(() => els.employeeNameInput.focus(), 0);
       }
@@ -13681,7 +13942,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     async function saveEmployee() {
-      const employeeName = String(els.employeeNameInput?.value || '').trim();
+      const employeeName = employeeCombinedNameFromForm();
       if (!employeeName) {
         if (els.employeeNameInput) els.employeeNameInput.focus();
         setStatus('УКАЖИ ИМЯ СОТРУДНИКА.', true);
@@ -13820,15 +14081,25 @@ BOARD_WEB_APP_HTML = "".join(
     function handleEmployeesModalFormInput(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      const incentiveInput = target.closest('[data-employee-incentive-value]');
+      if (incentiveInput instanceof HTMLInputElement) {
+        const kind = String(incentiveInput.dataset.employeeIncentiveValue || '').trim();
+        setEmployeeIncentiveFieldValue(kind, incentiveInput.value);
+        syncEmployeeSalaryModeFromIncentives();
+        renderEmployeeProfileMeta();
+        return;
+      }
       if (target === els.employeeSalaryModeInput) {
         syncEmployeeSalaryModeUi();
         return;
       }
       if (
         target === els.employeeNameInput
+        || target === els.employeeMiddleNameInput
         || target === els.employeePositionInput
         || target === els.employeeBaseSalaryInput
         || target === els.employeeWorkPercentInput
+        || target === els.employeeMaterialPercentInput
       ) {
         renderEmployeeProfileMeta();
       }
@@ -17930,13 +18201,13 @@ BOARD_WEB_APP_HTML = "".join(
         : '';
       return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '" data-repair-order-material-executor-id="' + escapeHtml(normalized.material_executor_id_snapshot) + '" data-repair-order-material-executor-name="' + escapeHtml(normalized.material_executor_name_snapshot) + '" data-repair-order-material-quantity="' + escapeHtml(normalized.material_quantity_snapshot) + '" data-repair-order-material-price="' + escapeHtml(normalized.material_price_snapshot) + '" data-repair-order-material-cost-price="' + escapeHtml(normalized.material_cost_price_snapshot) + '" data-repair-order-material-percent="' + escapeHtml(normalized.material_percent_snapshot) + '" data-repair-order-material-profit="' + escapeHtml(normalized.material_profit) + '" data-repair-order-material-salary-amount="' + escapeHtml(normalized.material_salary_amount) + '" data-repair-order-material-salary-accrued-at="' + escapeHtml(normalized.material_salary_accrued_at) + '">' +
         '<td>' + repairOrderRowInputHtml('name', normalized.name, 'Наименование') + '</td>' +
+        materialExecutorCell +
         catalogCell +
         executorCell +
         '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('quantity', normalized.quantity, '1') + '</td>' +
         materialCostCell +
         '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('price', normalized.price, '0') + '</td>' +
         '<td class="repair-order-table__numeric"><div class="repair-order-cell-total" data-repair-order-row-total data-empty="' + (hasDisplayTotal ? 'false' : 'true') + '">' + escapeHtml(hasDisplayTotal ? repairOrderFormatRubles(totalValue ?? normalized.total) : '-') + '</div></td>' +
-        materialExecutorCell +
         '<td class="repair-order-table__action"><button class="btn btn--ghost repair-order-row-remove" type="button" data-remove-repair-order-row="' + escapeHtml(section) + '" data-row-index="' + escapeHtml(index) + '">&times;</button></td>' +
         '</tr>';
     }
@@ -22871,7 +23142,20 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function handleEmployeesModalOverlayClick(event) {
-      return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const addButton = target.closest('[data-employee-incentive-add]');
+      if (addButton instanceof HTMLElement) {
+        const kind = String(addButton.dataset.employeeIncentiveAdd || '').trim();
+        setEmployeeIncentiveActive(kind, true);
+        return;
+      }
+      const removeButton = target.closest('[data-employee-incentive-remove]');
+      if (removeButton instanceof HTMLElement) {
+        if (removeButton.hasAttribute('disabled')) return;
+        const kind = String(removeButton.dataset.employeeIncentiveRemove || '').trim();
+        setEmployeeIncentiveActive(kind, false);
+      }
     }
 
     function handleAgentQuickActionClick(event) {

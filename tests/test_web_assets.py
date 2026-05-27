@@ -462,7 +462,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function renderClientProfileEmptyState()", BOARD_WEB_APP_HTML)
 
         self.assertIn("function employeeRowAriaLabel(employee, summaryValue)", BOARD_WEB_APP_HTML)
-        self.assertIn("employees-row__scanline", BOARD_WEB_APP_HTML)
+        self.assertNotIn("employees-row__scanline", BOARD_WEB_APP_HTML)
+        self.assertNotIn("employees-row__scan-chip", BOARD_WEB_APP_HTML)
         self.assertIn('aria-label="Сотрудник ', BOARD_WEB_APP_HTML)
 
         self.assertIn("function sharedFileMetaParts(file)", BOARD_WEB_APP_HTML)
@@ -582,8 +583,15 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="employeeSalaryModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeesList"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeesCardMode"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeNameInput"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeMiddleNameInput"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeePositionInput"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryModeInput"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeMaterialPercentInput"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('<select id="employeeSalaryModeInput"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeIncentivesPanel"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeIncentivesList"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeIncentiveAddChoices"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="employeeNoteDetails"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="employeeNoteInput"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="employeesSummaryStrip"', BOARD_WEB_APP_HTML)
@@ -632,13 +640,25 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("function renderEmployeesSummaryStrip()", BOARD_WEB_APP_HTML)
         self.assertIn("function handleEmployeesDetailClick(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function syncEmployeeSalaryModeUi()", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderEmployeeIncentives()", BOARD_WEB_APP_HTML)
+        self.assertIn("function setEmployeeIncentiveActive(", BOARD_WEB_APP_HTML)
+        self.assertIn("function syncEmployeeSalaryModeFromIncentives(", BOARD_WEB_APP_HTML)
+        self.assertIn("function employeeIncentiveSummaryLabel(employee)", BOARD_WEB_APP_HTML)
+        self.assertIn("Начисляется по пятницам в 20:00.", BOARD_WEB_APP_HTML)
+        self.assertIn("function employeeIncentiveDefinition(kind)", BOARD_WEB_APP_HTML)
+        self.assertIn("function employeeIncentiveInput(kind)", BOARD_WEB_APP_HTML)
         self.assertIn("function syncEmployeesReportPanelUi()", BOARD_WEB_APP_HTML)
         self.assertIn("function hydrateEmployeesUiRefs()", BOARD_WEB_APP_HTML)
         self.assertIn("function bindEmployeesUiEvents()", BOARD_WEB_APP_HTML)
         self.assertIn("function addEmployeeFromForm()", BOARD_WEB_APP_HTML)
+        self.assertIn("function employeeCombinedNameFromForm()", BOARD_WEB_APP_HTML)
         self.assertIn("employeeCreateMode: false", BOARD_WEB_APP_HTML)
         self.assertIn("employeesReportDetailsOpen: false", BOARD_WEB_APP_HTML)
         self.assertIn("state.employeeCreateMode = true;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (state.employeeCreateMode && employeeFormHasUnsavedChanges())",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("create_mode: Boolean(state.employeeCreateMode)", BOARD_WEB_APP_HTML)
         self.assertIn(
             "employee_id: state.employeeCreateMode ? '' : (state.activeEmployeeId || '')",
@@ -651,7 +671,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertNotIn('class="employees-list-meta" id="employeesListMeta"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="employeeToggleButton"', BOARD_WEB_APP_HTML)
-        self.assertNotIn('id="employeeSaveButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeSaveButton"', BOARD_WEB_APP_HTML)
         self.assertIn(".employees-layout {", BOARD_WEB_APP_HTML)
         self.assertIn(
             "grid-template-columns: minmax(360px, 390px) minmax(0, 1fr);", BOARD_WEB_APP_HTML
@@ -679,25 +699,27 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".employees-card-head {", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-field--compact {", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-field--salary {", BOARD_WEB_APP_HTML)
-        self.assertIn(".employees-field--percent {", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-form-grid {", BOARD_WEB_APP_HTML)
         self.assertIn("grid-template-columns: repeat(12, minmax(0, 1fr));", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            'class="field employees-field--span-2 employees-field--compact employees-field--salary"',
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn(
-            'class="field employees-field--span-2 employees-field--compact employees-field--percent"',
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn("ПРОЦЕНТ С РАБОТ", BOARD_WEB_APP_HTML)
-        self.assertIn("% С МАТЕРИАЛОВ", BOARD_WEB_APP_HTML)
+        self.assertIn(".employees-incentives {", BOARD_WEB_APP_HTML)
+        self.assertIn(".employees-incentive-row {", BOARD_WEB_APP_HTML)
+        self.assertIn('type="hidden" value="percent_only"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-employee-incentive-add="', BOARD_WEB_APP_HTML)
+        self.assertIn('data-employee-incentive-remove="', BOARD_WEB_APP_HTML)
+        self.assertIn('data-employee-incentive-value="', BOARD_WEB_APP_HTML)
+        self.assertIn("inputKey: 'employeeBaseSalaryInput'", BOARD_WEB_APP_HTML)
+        self.assertIn("inputKey: 'employeeWorkPercentInput'", BOARD_WEB_APP_HTML)
+        self.assertIn("inputKey: 'employeeMaterialPercentInput'", BOARD_WEB_APP_HTML)
+        self.assertIn("defaultValue: '10'", BOARD_WEB_APP_HTML)
+        self.assertIn("activeModes: ['salary_only', 'salary_plus_percent']", BOARD_WEB_APP_HTML)
+        self.assertIn("return 'none';", BOARD_WEB_APP_HTML)
+        self.assertIn("Выплата с работ", BOARD_WEB_APP_HTML)
+        self.assertIn("Материалы и запчасти", BOARD_WEB_APP_HTML)
+        self.assertNotIn("Сначала добавьте другую форму начисления", BOARD_WEB_APP_HTML)
+        self.assertIn("ОТЧЕСТВО", BOARD_WEB_APP_HTML)
+        self.assertIn("name: employeeCombinedNameFromForm(),", BOARD_WEB_APP_HTML)
         self.assertIn("material_percent: normalizeEmployeeComparableNumber", BOARD_WEB_APP_HTML)
         self.assertIn("employeeMaterialPercentInput.value", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            'class="field employees-field--span-6 employees-field--compact employees-field--mode"',
-            BOARD_WEB_APP_HTML,
-        )
         self.assertNotIn('id="employeesSummaryPanel"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="employeesSummaryTable"', BOARD_WEB_APP_HTML)
         self.assertNotIn("employees-summary-strip", BOARD_WEB_APP_HTML)
@@ -738,6 +760,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("bindEmployeesUiEvents();", BOARD_WEB_APP_HTML)
         self.assertIn('id="employeesCreateButton"', BOARD_WEB_APP_HTML)
         self.assertIn(">ДОБАВИТЬ<", BOARD_WEB_APP_HTML)
+        self.assertIn("employees-dialog-actions", BOARD_WEB_APP_HTML)
+        self.assertIn(">СОХРАНИТЬ<", BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeDeleteButton"', BOARD_WEB_APP_HTML)
         self.assertIn("<th", BOARD_WEB_APP_HTML)
         self.assertIn(">Закупка<", BOARD_WEB_APP_HTML)
@@ -770,6 +794,10 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
+            "els.employeeSaveButton?.addEventListener('click', saveEmployee);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
             "els.employeeDeleteButton?.addEventListener('click', deleteEmployee);",
             BOARD_WEB_APP_HTML,
         )
@@ -781,12 +809,85 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("renderEmployeesWorkspace();", BOARD_WEB_APP_HTML)
         self.assertIn("els.employeeNameInput.focus();", BOARD_WEB_APP_HTML)
         self.assertIn("await saveEmployee();", BOARD_WEB_APP_HTML)
+        self.assertIn("target === els.employeeMiddleNameInput", BOARD_WEB_APP_HTML)
         self.assertIn('data-repair-order-cell="executor_id"', BOARD_WEB_APP_HTML)
         self.assertIn("function repairOrderExecutorOptionsHtml", BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.employeesButton.addEventListener('click', openEmployeesModal);", BOARD_WEB_APP_HTML
         )
         self.assertNotIn("function updateEmployeesListMeta()", BOARD_WEB_APP_HTML)
+
+    def test_employee_incentives_can_activate_all_defined_types(self) -> None:
+        incentives_script = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "const EMPLOYEE_INCENTIVE_DEFINITIONS = ["
+            ) : BOARD_WEB_APP_HTML.index("function employeeComparableSnapshot")
+        ]
+        self.assertIn("kind: 'base_salary'", incentives_script)
+        self.assertIn("kind: 'work_percent'", incentives_script)
+        self.assertIn("kind: 'material_percent'", incentives_script)
+        self.assertIn(
+            "return EMPLOYEE_INCENTIVE_DEFINITIONS.reduce((flags, item) =>", incentives_script
+        )
+        self.assertIn("const definition = employeeIncentiveDefinition(kind);", incentives_script)
+        self.assertIn("definition.defaultValue", incentives_script)
+        self.assertIn("const wasActive = Boolean(flags[kind]);", incentives_script)
+        self.assertIn(
+            "if (active && (!wasActive || !employeeIncentiveFieldValue(kind)))",
+            incentives_script,
+        )
+        self.assertIn("return 'none';", incentives_script)
+        self.assertIn("БЕЗ НАЧИСЛЕНИЙ", incentives_script)
+        self.assertNotIn("activeRequiredGroupCounts", incentives_script)
+        self.assertNotIn("requiredGroup", incentives_script)
+        self.assertNotIn("Сначала добавьте другую форму начисления", incentives_script)
+        self.assertNotIn("if (!(kind in flags)) return;", incentives_script)
+        self.assertNotIn("activeDefinitions.slice", incentives_script)
+        self.assertNotIn("inactiveDefinitions.slice", incentives_script)
+
+    def test_employee_add_button_lives_in_modal_header_and_opens_clean_form(self) -> None:
+        modal_head = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "+ '<div class=\"dialog__head dialog__floating-actions\">'"
+            ) : BOARD_WEB_APP_HTML.index("+ '<div class=\"dialog__body-scroll employees-layout\">'")
+        ]
+        self.assertIn('id="employeesCreateButton" type="button">ДОБАВИТЬ</button>', modal_head)
+        self.assertLess(
+            modal_head.index('id="employeesCreateButton"'),
+            modal_head.index('data-close="employees"'),
+        )
+
+        profile_actions = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "+ '<div class=\"employees-card-actions\">'"
+            ) : BOARD_WEB_APP_HTML.index("+ '<div class=\"employees-form-grid\">'")
+        ]
+        self.assertNotIn('id="employeesCreateButton"', profile_actions)
+        self.assertIn('id="employeeSaveButton"', profile_actions)
+
+        add_handler = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "async function addEmployeeFromForm()"
+            ) : BOARD_WEB_APP_HTML.index("function openEmployeesModal()")
+        ]
+        self.assertIn(
+            "if (state.employeeCreateMode && employeeFormHasUnsavedChanges())",
+            add_handler,
+        )
+        self.assertIn("state.activeEmployeeId = '';", add_handler)
+        self.assertIn(
+            "setStatus('ЗАПОЛНИТЕ НОВОГО СОТРУДНИКА И НАЖМИТЕ ДОБАВИТЬ.'",
+            add_handler,
+        )
+
+        self.assertIn("employeeMiddleNameInput", BOARD_WEB_APP_HTML)
+        self.assertIn("employeeCombinedNameFromForm()", BOARD_WEB_APP_HTML)
+
+    def test_employee_delete_button_uses_dismissal_label(self) -> None:
+        self.assertIn(
+            '<button class="btn btn--ghost" id="employeeDeleteButton" type="button">УВОЛИТЬ СОТРУДНИКА</button>',
+            BOARD_WEB_APP_HTML,
+        )
 
     def test_employee_detail_repair_order_keeps_employee_modal_parent(self) -> None:
         detail_fragment = BOARD_WEB_APP_HTML[
@@ -1979,6 +2080,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('[data-repair-order-cell="name"]', BOARD_WEB_APP_HTML)
         self.assertIn("font-size: 17px;", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-table__select {", BOARD_WEB_APP_HTML)
+        self.assertIn("height: 38px;", BOARD_WEB_APP_HTML)
+        self.assertIn("min-height: 38px;", BOARD_WEB_APP_HTML)
         self.assertIn("font-size: 10.75px;", BOARD_WEB_APP_HTML)
         self.assertIn('data-add-repair-order-row="works"', BOARD_WEB_APP_HTML)
         self.assertIn('data-add-repair-order-row="materials"', BOARD_WEB_APP_HTML)
@@ -2141,6 +2244,33 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("function buildRepairOrderPrintHtml(order)", BOARD_WEB_APP_HTML)
         self.assertNotIn("function openRepairOrderPrint(order)", BOARD_WEB_APP_HTML)
         self.assertNotIn("printWindow.print();", BOARD_WEB_APP_HTML)
+
+    def test_repair_order_materials_executor_column_is_after_name(self) -> None:
+        materials_table = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                '<section class="repair-order-table-card" data-repair-order-section="materials">'
+            ) : BOARD_WEB_APP_HTML.index('<tbody id="repairOrderMaterialsBody"></tbody>')
+        ]
+        self.assertLess(materials_table.index(">Наименование<"), materials_table.index(">Списал<"))
+        self.assertLess(materials_table.index(">Списал<"), materials_table.index(">Кат. №<"))
+        self.assertLess(materials_table.index(">Кат. №<"), materials_table.index(">Кол-во<"))
+
+        row_renderer = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "function repairOrderRowHtml(section, row, index)"
+            ) : BOARD_WEB_APP_HTML.index("function readRepairOrderRowElement(row)")
+        ]
+        self.assertLess(
+            row_renderer.index("repairOrderRowInputHtml('name'"),
+            row_renderer.index("materialExecutorCell +"),
+        )
+        self.assertLess(
+            row_renderer.index("materialExecutorCell +"), row_renderer.index("catalogCell +")
+        )
+        self.assertLess(
+            row_renderer.index("catalogCell +"),
+            row_renderer.index("repairOrderRowInputHtml('quantity'"),
+        )
 
     def test_repair_order_autofill_status_uses_report_hints(self) -> None:
         self.assertIn("function buildRepairOrderAutofillStatus(data)", BOARD_WEB_APP_HTML)

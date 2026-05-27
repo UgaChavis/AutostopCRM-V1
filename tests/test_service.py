@@ -1358,7 +1358,47 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(summary["works_count"], 1)
         self.assertEqual(summary["accrued_total"], "1500")
         self.assertEqual(summary["base_salary"], "50000")
-        self.assertEqual(summary["total_salary"], "51500")
+        self.assertEqual(summary["base_salary_accrued_total"], "0")
+        self.assertEqual(summary["total_salary"], "1500")
+
+    def test_weekly_base_salary_accrues_on_friday_evening(self) -> None:
+        created_at = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+        as_of = datetime(2026, 5, 16, 14, 0, tzinfo=timezone.utc)
+        created_patches = self._patch_time(created_at)
+        with created_patches[0], created_patches[1], created_patches[2]:
+            employee = self.service.save_employee(
+                {
+                    "name": "Пятничный Оклад",
+                    "position": "Мастер",
+                    "salary_mode": "salary_only",
+                    "base_salary": "1000",
+                }
+            )["employee"]
+
+        patches = self._patch_time(as_of)
+        with patches[0], patches[1], patches[2]:
+            report = self.service.get_payroll_report({"month": "2026-05"})
+            ledger = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+
+        summary = next(item for item in report["summary"] if item["employee_id"] == employee["id"])
+        self.assertEqual(summary["base_salary"], "1000")
+        self.assertEqual(summary["base_salary_accruals_count"], 3)
+        self.assertEqual(summary["base_salary_accrued_total"], "3000")
+        self.assertEqual(summary["accrued_total"], "3000")
+        self.assertEqual(summary["total_salary"], "3000")
+        base_rows = [
+            item
+            for item in report["detail_rows"]
+            if item["employee_id"] == employee["id"] and item["row_type"] == "base_salary"
+        ]
+        self.assertEqual(len(base_rows), 3)
+        self.assertEqual({item["salary_amount"] for item in base_rows}, {"1000"})
+        self.assertEqual(ledger["balance_total"], "3000")
+        self.assertEqual(ledger["accrued_total"], "3000")
+        self.assertEqual(
+            len([row for row in ledger["journal_rows"] if row["kind"] == "base_salary_accrual"]),
+            3,
+        )
 
     def test_payroll_report_groups_detail_rows_by_repair_order(self) -> None:
         employee = self.service.save_employee(
@@ -2633,6 +2673,28 @@ class CardServiceTests(unittest.TestCase):
             self.assertEqual(item["salary_mode"], salary_mode)
             self.assertEqual(item["base_salary"], base_salary)
             self.assertEqual(item["work_percent"], work_percent)
+
+    def test_employee_can_be_saved_without_accrual_rules(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Без начислений",
+                "position": "Стажёр",
+                "salary_mode": "none",
+                "base_salary": "",
+                "work_percent": "",
+                "material_percent": "0",
+            }
+        )["employee"]
+
+        self.assertEqual(employee["salary_mode"], "none")
+        self.assertEqual(employee["base_salary"], "0")
+        self.assertEqual(employee["work_percent"], "0")
+        self.assertEqual(employee["material_percent"], "0")
+
+        listed = self.service.list_employees()["employees"]
+        listed_employee = next(item for item in listed if item["id"] == employee["id"])
+        self.assertEqual(listed_employee["salary_mode"], "none")
+        self.assertEqual(listed_employee["balance_total"], "0")
 
     def test_employee_create_mode_ignores_stale_employee_id_and_creates_new_record(self) -> None:
         first = self.service.save_employee({"name": "Иван", "position": "Мастер"})["employee"]
