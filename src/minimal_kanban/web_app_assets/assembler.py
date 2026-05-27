@@ -6423,34 +6423,8 @@ BOARD_WEB_APP_HTML = "".join(
       width: auto;
       padding-top: 20px;
     }
-    .employees-form-grid .field--secondary {
-      opacity: 0.72;
-    }
     .employees-form-grid .field--wide {
       grid-column: 1 / -1;
-    }
-    .employees-note-details {
-      margin-top: 8px;
-      border: 1px solid rgba(164, 173, 138, 0.12);
-      background: rgba(18, 24, 20, 0.34);
-    }
-    .employees-note-details summary {
-      cursor: pointer;
-      list-style: none;
-      padding: 8px 10px;
-      font-size: 11px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: rgba(231, 226, 193, 0.7);
-    }
-    .employees-note-details summary::-webkit-details-marker {
-      display: none;
-    }
-    .employees-note-details[open] summary {
-      border-bottom: 1px solid rgba(164, 173, 138, 0.1);
-    }
-    .employees-note-details .field {
-      padding: 8px 10px;
     }
     .employees-check {
       display: flex;
@@ -8832,7 +8806,6 @@ BOARD_WEB_APP_HTML = "".join(
                       + '<div class="field employees-field--span-2 employees-field--compact employees-field--percent"><label for="employeeWorkPercentInput">ПРОЦЕНТ С РАБОТ</label><input id="employeeWorkPercentInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
                       + '<div class="field employees-field--span-2 employees-field--compact employees-field--percent"><label for="employeeMaterialPercentInput">% С МАТЕРИАЛОВ</label><input id="employeeMaterialPercentInput" type="text" inputmode="decimal" maxlength="40" placeholder="10"></div>'
                     + '</div>'
-                    + '<details class="employees-note-details" id="employeeNoteDetails"><summary>ЗАМЕТКА</summary><div class="field field--secondary"><input id="employeeNoteInput" type="text" maxlength="240"></div></details>'
                   + '</div>'
                   + '<div class="subpanel">'
                     + '<div class="employees-panel-head"><div class="panel-title">ОТЧЁТ ПО СОТРУДНИКУ</div><input class="repair-orders-search" id="employeesMonthInput" type="month"></div>'
@@ -9057,8 +9030,6 @@ BOARD_WEB_APP_HTML = "".join(
       employeeBaseSalaryInput: document.getElementById('employeeBaseSalaryInput'),
       employeeWorkPercentInput: document.getElementById('employeeWorkPercentInput'),
       employeeMaterialPercentInput: document.getElementById('employeeMaterialPercentInput'),
-      employeeNoteDetails: document.getElementById('employeeNoteDetails'),
-      employeeNoteInput: document.getElementById('employeeNoteInput'),
       employeeActiveInput: document.getElementById('employeeActiveInput'),
       employeeDeleteButton: document.getElementById('employeeDeleteButton'),
       employeeSalaryTitle: document.getElementById('employeeSalaryTitle'),
@@ -9561,8 +9532,6 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeeBaseSalaryInput = document.getElementById('employeeBaseSalaryInput');
       els.employeeWorkPercentInput = document.getElementById('employeeWorkPercentInput');
       els.employeeMaterialPercentInput = document.getElementById('employeeMaterialPercentInput');
-      els.employeeNoteDetails = document.getElementById('employeeNoteDetails');
-      els.employeeNoteInput = document.getElementById('employeeNoteInput');
       els.employeeActiveInput = document.getElementById('employeeActiveInput');
       els.employeeDeleteButton = document.getElementById('employeeDeleteButton');
       els.employeeSalaryTitle = document.getElementById('employeeSalaryTitle');
@@ -13076,7 +13045,6 @@ BOARD_WEB_APP_HTML = "".join(
         base_salary: normalizeEmployeeComparableNumber(employee?.base_salary),
         work_percent: normalizeEmployeeComparableNumber(employee?.work_percent),
         material_percent: normalizeEmployeeComparableNumber(employee?.material_percent ?? '10'),
-        note: normalizeEmployeeComparableText(employee?.note),
         is_active: employee ? Boolean(employee.is_active) : true,
       };
     }
@@ -13089,7 +13057,6 @@ BOARD_WEB_APP_HTML = "".join(
         base_salary: normalizeEmployeeComparableNumber(els.employeeBaseSalaryInput?.value),
         work_percent: normalizeEmployeeComparableNumber(els.employeeWorkPercentInput?.value),
         material_percent: normalizeEmployeeComparableNumber(els.employeeMaterialPercentInput?.value || '10'),
-        note: normalizeEmployeeComparableText(els.employeeNoteInput?.value),
         is_active: Boolean(selectedEmployeeRecord()?.is_active ?? true),
       };
     }
@@ -13187,10 +13154,6 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeeBaseSalaryInput.value = current?.base_salary || '';
       els.employeeWorkPercentInput.value = current?.work_percent || '';
       els.employeeMaterialPercentInput.value = current?.material_percent || '10';
-      els.employeeNoteInput.value = current?.note || '';
-      if (els.employeeNoteDetails) {
-        els.employeeNoteDetails.open = Boolean(String(current?.note || '').trim());
-      }
       if (els.employeeDeleteButton) {
         els.employeeDeleteButton.disabled = !current;
       }
@@ -13209,7 +13172,6 @@ BOARD_WEB_APP_HTML = "".join(
         base_salary: els.employeeBaseSalaryInput.value,
         work_percent: els.employeeWorkPercentInput.value,
         material_percent: els.employeeMaterialPercentInput.value,
-        note: els.employeeNoteInput.value,
         is_active: selectedEmployee ? Boolean(selectedEmployee.is_active) : true,
         actor_name: state.actor,
         source: 'ui',
@@ -13867,11 +13829,7 @@ BOARD_WEB_APP_HTML = "".join(
         || target === els.employeePositionInput
         || target === els.employeeBaseSalaryInput
         || target === els.employeeWorkPercentInput
-        || target === els.employeeNoteInput
       ) {
-        if (els.employeeNoteDetails && target === els.employeeNoteInput && String(els.employeeNoteInput.value || '').trim()) {
-          els.employeeNoteDetails.open = true;
-        }
         renderEmployeeProfileMeta();
       }
     }
