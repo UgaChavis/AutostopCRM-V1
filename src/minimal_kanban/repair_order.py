@@ -245,6 +245,7 @@ class RepairOrderRow:
     salary_accrued_at: str = ""
     material_executor_id_snapshot: str = ""
     material_executor_name_snapshot: str = ""
+    material_quantity_snapshot: str = ""
     material_price_snapshot: str = ""
     material_cost_price_snapshot: str = ""
     material_percent_snapshot: str = ""
@@ -288,6 +289,9 @@ class RepairOrderRow:
         self.material_executor_name_snapshot = _normalize_single_line(
             self.material_executor_name_snapshot, limit=REPAIR_ORDER_FIELD_LIMIT
         )
+        self.material_quantity_snapshot = _normalize_single_line(
+            self.material_quantity_snapshot, limit=REPAIR_ORDER_ROW_VALUE_LIMIT
+        )
         self.material_price_snapshot = _normalize_single_line(
             self.material_price_snapshot, limit=REPAIR_ORDER_ROW_VALUE_LIMIT
         )
@@ -329,6 +333,7 @@ class RepairOrderRow:
             "salary_accrued_at": self.salary_accrued_at,
             "material_executor_id_snapshot": self.material_executor_id_snapshot,
             "material_executor_name_snapshot": self.material_executor_name_snapshot,
+            "material_quantity_snapshot": self.material_quantity_snapshot,
             "material_price_snapshot": self.material_price_snapshot,
             "material_cost_price_snapshot": self.material_cost_price_snapshot,
             "material_percent_snapshot": self.material_percent_snapshot,
@@ -384,6 +389,7 @@ class RepairOrderRow:
             salary_accrued_at=payload.get("salary_accrued_at", ""),
             material_executor_id_snapshot=payload.get("material_executor_id_snapshot", ""),
             material_executor_name_snapshot=payload.get("material_executor_name_snapshot", ""),
+            material_quantity_snapshot=payload.get("material_quantity_snapshot", ""),
             material_price_snapshot=payload.get("material_price_snapshot", ""),
             material_cost_price_snapshot=payload.get("material_cost_price_snapshot", ""),
             material_percent_snapshot=payload.get("material_percent_snapshot", ""),

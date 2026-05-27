@@ -206,6 +206,7 @@ class RepairOrderRowPayload(BaseModel):
     executor_name: str = Field(default="", max_length=160)
     material_executor_id_snapshot: str = Field(default="", max_length=64)
     material_executor_name_snapshot: str = Field(default="", max_length=160)
+    material_quantity_snapshot: str = Field(default="", max_length=40)
 
 
 class RepairOrderPaymentPayload(BaseModel):

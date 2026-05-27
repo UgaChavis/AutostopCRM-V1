@@ -1815,6 +1815,79 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(other_summary["materials_count"], 0)
         self.assertEqual(other_summary["materials_accrued_total"], "0")
 
+    def test_material_salary_snapshot_keeps_original_sale_and_cost_after_row_edit(self) -> None:
+        employee = self.service.save_employee(
+            {"name": "Снабженец со снимком", "material_percent": "10"}
+        )["employee"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota RAV4",
+                "title": "Снимок суммы материалов",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "43",
+                    "status": "open",
+                    "vehicle": "Toyota RAV4",
+                    "payments": [
+                        {
+                            "amount": "2000",
+                            "paid_at": "05.04.2026 10:00",
+                            "payment_method": "cash",
+                        }
+                    ],
+                    "materials": [
+                        {
+                            "name": "Фильтр масляный",
+                            "quantity": "2",
+                            "cost_price": "700",
+                            "price": "1000",
+                            "executor_id": employee["id"],
+                        }
+                    ],
+                },
+            }
+        )
+
+        closed = self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+        closed_month = dt.strptime(closed["repair_order"]["closed_at"], "%d.%m.%Y %H:%M").strftime(
+            "%Y-%m"
+        )
+        self.assertEqual(closed["repair_order"]["materials"][0]["material_quantity_snapshot"], "2")
+        material = dict(closed["repair_order"]["materials"][0])
+        material.update({"quantity": "5", "cost_price": "1", "price": "9999"})
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    **closed["repair_order"],
+                    "payments": [
+                        {
+                            "amount": "49995",
+                            "paid_at": "05.04.2026 10:05",
+                            "payment_method": "cash",
+                        }
+                    ],
+                    "materials": [material],
+                },
+            }
+        )
+
+        report = self.service.get_payroll_report({"month": closed_month})
+        summary = next(item for item in report["summary"] if item["employee_id"] == employee["id"])
+        detail_rows = [row for row in report["detail_rows"] if row["employee_id"] == employee["id"]]
+        self.assertEqual(summary["materials_total"], "2000")
+        self.assertEqual(summary["materials_cost_total"], "1400")
+        self.assertEqual(summary["materials_profit_total"], "600")
+        self.assertEqual(detail_rows[0]["material_total"], "2000")
+        self.assertEqual(detail_rows[0]["material_cost_total"], "1400")
+        self.assertEqual(detail_rows[0]["material_profit"], "600")
+
     def test_material_salary_snapshot_clears_when_closed_order_becomes_unpaid(self) -> None:
         employee = self.service.save_employee({"name": "Снабженец Оплаты"})["employee"]
         created = self.service.create_card(

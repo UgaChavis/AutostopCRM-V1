@@ -17328,6 +17328,7 @@ BOARD_WEB_APP_HTML = "".join(
         salary_accrued_at: '',
         material_executor_id_snapshot: '',
         material_executor_name_snapshot: '',
+        material_quantity_snapshot: '',
         material_price_snapshot: '',
         material_cost_price_snapshot: '',
         material_percent_snapshot: '',
@@ -17659,6 +17660,7 @@ BOARD_WEB_APP_HTML = "".join(
         salary_accrued_at: String(source.salary_accrued_at ?? '').trim(),
         material_executor_id_snapshot: String(source.material_executor_id_snapshot ?? '').trim(),
         material_executor_name_snapshot: String(source.material_executor_name_snapshot ?? '').trim(),
+        material_quantity_snapshot: String(source.material_quantity_snapshot ?? '').trim(),
         material_price_snapshot: String(source.material_price_snapshot ?? '').trim(),
         material_cost_price_snapshot: String(source.material_cost_price_snapshot ?? '').trim(),
         material_percent_snapshot: String(source.material_percent_snapshot ?? '').trim(),
@@ -18007,7 +18009,7 @@ BOARD_WEB_APP_HTML = "".join(
       const materialExecutorCell = section === 'materials'
         ? '<td><select class="repair-order-table__select" data-repair-order-cell="executor_id">' + repairOrderExecutorOptionsHtml(normalized.executor_id, normalized.executor_name) + '</select></td>'
         : '';
-      return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '" data-repair-order-material-executor-id="' + escapeHtml(normalized.material_executor_id_snapshot) + '" data-repair-order-material-executor-name="' + escapeHtml(normalized.material_executor_name_snapshot) + '" data-repair-order-material-price="' + escapeHtml(normalized.material_price_snapshot) + '" data-repair-order-material-cost-price="' + escapeHtml(normalized.material_cost_price_snapshot) + '" data-repair-order-material-percent="' + escapeHtml(normalized.material_percent_snapshot) + '" data-repair-order-material-profit="' + escapeHtml(normalized.material_profit) + '" data-repair-order-material-salary-amount="' + escapeHtml(normalized.material_salary_amount) + '" data-repair-order-material-salary-accrued-at="' + escapeHtml(normalized.material_salary_accrued_at) + '">' +
+      return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '" data-repair-order-material-executor-id="' + escapeHtml(normalized.material_executor_id_snapshot) + '" data-repair-order-material-executor-name="' + escapeHtml(normalized.material_executor_name_snapshot) + '" data-repair-order-material-quantity="' + escapeHtml(normalized.material_quantity_snapshot) + '" data-repair-order-material-price="' + escapeHtml(normalized.material_price_snapshot) + '" data-repair-order-material-cost-price="' + escapeHtml(normalized.material_cost_price_snapshot) + '" data-repair-order-material-percent="' + escapeHtml(normalized.material_percent_snapshot) + '" data-repair-order-material-profit="' + escapeHtml(normalized.material_profit) + '" data-repair-order-material-salary-amount="' + escapeHtml(normalized.material_salary_amount) + '" data-repair-order-material-salary-accrued-at="' + escapeHtml(normalized.material_salary_accrued_at) + '">' +
         '<td>' + repairOrderRowInputHtml('name', normalized.name, 'Наименование') + '</td>' +
         catalogCell +
         executorCell +
@@ -18039,6 +18041,7 @@ BOARD_WEB_APP_HTML = "".join(
         salary_accrued_at: row.dataset.repairOrderSalaryAccruedAt || '',
         material_executor_id_snapshot: row.dataset.repairOrderMaterialExecutorId || '',
         material_executor_name_snapshot: row.dataset.repairOrderMaterialExecutorName || '',
+        material_quantity_snapshot: row.dataset.repairOrderMaterialQuantity || '',
         material_price_snapshot: row.dataset.repairOrderMaterialPrice || '',
         material_cost_price_snapshot: row.dataset.repairOrderMaterialCostPrice || '',
         material_percent_snapshot: row.dataset.repairOrderMaterialPercent || '',

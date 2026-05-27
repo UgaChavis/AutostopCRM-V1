@@ -3911,7 +3911,7 @@ class CardService:
                     or not row.material_salary_accrued_at
                 ):
                     continue
-                row_total = row.total_value()
+                row_total = self._material_sale_total(row)
                 row_cost_total = self._material_cost_total(row) or Decimal("0")
                 row_profit = self._parse_payroll_decimal(row.material_profit)
                 row_accrued = self._parse_payroll_decimal(row.material_salary_amount)
@@ -8677,18 +8677,29 @@ class CardService:
             return None
 
     def _material_cost_total(self, row: RepairOrderRow) -> Decimal | None:
+        quantity_source = row.material_quantity_snapshot or row.quantity
         cost_source = row.material_cost_price_snapshot or row.cost_price
-        quantity = self._repair_order_row_decimal_or_none(row.quantity)
+        quantity = self._repair_order_row_decimal_or_none(quantity_source)
         cost_price = self._repair_order_row_decimal_or_none(cost_source)
         if quantity is None or cost_price is None:
             return None
         return quantity * cost_price
+
+    def _material_sale_total(self, row: RepairOrderRow) -> Decimal:
+        quantity_source = row.material_quantity_snapshot or row.quantity
+        price_source = row.material_price_snapshot or row.price
+        quantity = self._repair_order_row_decimal_or_none(quantity_source)
+        price = self._repair_order_row_decimal_or_none(price_source)
+        if quantity is None or price is None:
+            return row.total_value()
+        return quantity * price
 
     def _material_has_salary_snapshot(self, row: RepairOrderRow) -> bool:
         return any(
             [
                 row.material_executor_id_snapshot,
                 row.material_executor_name_snapshot,
+                row.material_quantity_snapshot,
                 row.material_price_snapshot,
                 row.material_cost_price_snapshot,
                 row.material_percent_snapshot,
@@ -8701,6 +8712,7 @@ class CardService:
     def _clear_material_salary_snapshot(self, row: RepairOrderRow) -> None:
         row.material_executor_id_snapshot = ""
         row.material_executor_name_snapshot = ""
+        row.material_quantity_snapshot = ""
         row.material_price_snapshot = ""
         row.material_cost_price_snapshot = ""
         row.material_percent_snapshot = ""
@@ -8914,6 +8926,7 @@ class CardService:
                 row.material_executor_name_snapshot = (
                     row.material_executor_name_snapshot or row.executor_name
                 )
+                row.material_quantity_snapshot = row.material_quantity_snapshot or row.quantity
                 next_material_rows.append(row.to_dict())
                 continue
             employee = employees_by_id.get(row.executor_id)
@@ -8928,6 +8941,7 @@ class CardService:
             row.executor_name = employee["name"]
             row.material_executor_id_snapshot = employee["id"]
             row.material_executor_name_snapshot = employee["name"]
+            row.material_quantity_snapshot = row.quantity
             row.material_price_snapshot = row.price
             row.material_cost_price_snapshot = row.cost_price
             row.material_percent_snapshot = self._format_payroll_decimal(material_percent)
@@ -9055,7 +9069,7 @@ class CardService:
                 if current_employee_id not in summaries:
                     summaries[current_employee_id] = {
                         "employee_id": current_employee_id,
-                        "employee_name": row.executor_name or "Сотрудник",
+                        "employee_name": self._material_salary_employee_name(row) or "Сотрудник",
                         "position": "",
                         "salary_mode": "",
                         "work_percent": "",
@@ -9071,7 +9085,7 @@ class CardService:
                         "materials_accrued_total": Decimal("0"),
                     }
                 summary = summaries[current_employee_id]
-                material_total = row.total_value()
+                material_total = self._material_sale_total(row)
                 material_cost_total = self._material_cost_total(row) or Decimal("0")
                 material_profit = self._parse_payroll_decimal(row.material_profit)
                 accrued_total = self._parse_payroll_decimal(row.material_salary_amount)
