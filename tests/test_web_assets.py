@@ -2313,6 +2313,31 @@ class WebAssetsTests(unittest.TestCase):
             row_renderer.index("repairOrderRowInputHtml('quantity'"),
         )
 
+    def test_repair_order_work_executor_salary_override_popover_is_wired(self) -> None:
+        self.assertIn('id="repairOrderWorkSalaryPopover"', BOARD_WEB_APP_HTML)
+        self.assertIn("data-repair-order-work-salary-menu", BOARD_WEB_APP_HTML)
+        self.assertIn("data-repair-order-work-salary-gear", BOARD_WEB_APP_HTML)
+        self.assertIn('data-repair-order-cell="work_salary_guarantee"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-repair-order-cell="work_salary_percent_override"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-repair-order-cell="work_salary_note"', BOARD_WEB_APP_HTML)
+        self.assertIn("function openRepairOrderWorkSalaryPopover(", BOARD_WEB_APP_HTML)
+        self.assertIn("function applyRepairOrderWorkSalaryPopover()", BOARD_WEB_APP_HTML)
+        self.assertIn("function resetRepairOrderWorkSalaryOverride()", BOARD_WEB_APP_HTML)
+        self.assertIn("function repairOrderWorkSalaryPreview(", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "repairOrderNormalizeBool(rowData?.work_salary_override_enabled || '') === 'true'",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "return repairOrderNormalizePercentRaw(rawOverridePercent || '0') || '0';",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("work_salary_override_enabled", BOARD_WEB_APP_HTML)
+        self.assertIn("work_salary_guarantee", BOARD_WEB_APP_HTML)
+        self.assertIn("work_salary_percent_override", BOARD_WEB_APP_HTML)
+        self.assertIn("К НАЧИСЛЕНИЮ", BOARD_WEB_APP_HTML)
+        self.assertIn("ПРОЦЕНТ СЕРВИСА", BOARD_WEB_APP_HTML)
+
     def test_repair_order_autofill_status_uses_report_hints(self) -> None:
         self.assertIn("function buildRepairOrderAutofillStatus(data)", BOARD_WEB_APP_HTML)
         self.assertIn("data?.meta?.autofill_report", BOARD_WEB_APP_HTML)

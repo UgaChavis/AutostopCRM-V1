@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -27,6 +28,8 @@ TARGETS_MS = {
     "save_card": 1200.0,
     "move_card": 1200.0,
     "open_modal": 800.0,
+    "payroll_ui": 1200.0,
+    "print_act": 1200.0,
     "backend_write": 1200.0,
 }
 
@@ -50,6 +53,9 @@ class BrowserRuntime:
     base_url: str
     card_id: str
     local_temp_server: bool
+    employee_id: str = ""
+    payroll_card_id: str = ""
+    salary_override_card_id: str = ""
     runtime: Any | None = None
 
     def close(self) -> None:
@@ -138,6 +144,9 @@ def start_browser_runtime(args: argparse.Namespace) -> BrowserRuntime:
             base_url=runtime.base_url,
             card_id=args.card_id or runtime.card_id,
             local_temp_server=True,
+            employee_id=runtime.employee_id,
+            payroll_card_id=runtime.payroll_card_id,
+            salary_override_card_id=runtime.salary_override_card_id,
             runtime=runtime,
         )
     card_id = args.card_id or first_card_id_from_base_url(args.base_url)
@@ -152,6 +161,13 @@ def start_browser_runtime(args: argparse.Namespace) -> BrowserRuntime:
 def scenario_target(scenario: str) -> float:
     if scenario.startswith("open_modal."):
         return TARGETS_MS["open_modal"]
+    if scenario in {
+        "open_repair_order_salary_override",
+        "open_employee_salary_ledger",
+    }:
+        return TARGETS_MS["payroll_ui"]
+    if scenario == "open_employee_salary_reconciliation_print":
+        return TARGETS_MS["print_act"]
     if scenario.startswith("backend.") and scenario in {
         "backend.update_card",
         "backend.move_card",
@@ -188,6 +204,17 @@ def ranked_findings(rows: list[dict[str, Any]], *, limit: int = 5) -> list[dict[
                 "Open the modal shell first, then lazy-load heavy lists with compact payloads."
             )
             files = ["src/minimal_kanban/web_app_assets/assembler.py"]
+        elif scenario.startswith("open_employee_salary") or scenario.startswith(
+            "open_repair_order_salary"
+        ):
+            area = "payroll UI"
+            next_step = (
+                "Profile employee payroll payloads and keep salary/reconciliation tables compact."
+            )
+            files = [
+                "src/minimal_kanban/web_app_assets/assembler.py",
+                "src/minimal_kanban/services/card_service.py",
+            ]
         elif "move_card" in scenario:
             area = "board move"
             next_step = "Keep optimistic DOM patching on the success path and eliminate fallback full snapshot refreshes."
@@ -521,6 +548,126 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                             action=lambda _index, b=button, m=modal, r=ready_selector: modal_action(
                                 b, m, r
                             ),
+                        )
+                    )
+
+                if runtime.salary_override_card_id:
+
+                    async def open_repair_order_salary_override_action(_: int) -> None:
+                        if await page.evaluate(
+                            "() => document.querySelector('#repairOrdersModal')?.classList.contains('is-open')"
+                        ):
+                            await page.click('#repairOrdersModal [data-close="repair-orders"]')
+                            await _wait_modal_closed(page, "#repairOrdersModal")
+                        await page.click("#repairOrdersButton")
+                        await _wait_modal_open(page, "#repairOrdersModal")
+                        order_selector = (
+                            f'[data-open-repair-order-card="{runtime.salary_override_card_id}"]'
+                        )
+                        await page.wait_for_selector(order_selector, timeout=10000)
+                        await page.click(order_selector)
+                        await _wait_modal_open(page, "#repairOrderModal")
+                        await page.wait_for_selector(
+                            "#repairOrderWorksBody [data-repair-order-work-salary-gear]",
+                            timeout=10000,
+                        )
+                        await page.click(
+                            "#repairOrderWorksBody [data-repair-order-work-salary-gear]"
+                        )
+                        await page.wait_for_selector(
+                            "#repairOrderWorkSalaryPopover.is-open", timeout=8000
+                        )
+                        await page.wait_for_selector("#repairOrderWorkSalaryAmount")
+                        await page.keyboard.press("Escape")
+                        await page.click('[data-close="repair-order"]')
+                        await _wait_modal_closed(page, "#repairOrderModal")
+                        await page.click('#repairOrdersModal [data-close="repair-orders"]')
+                        await _wait_modal_closed(page, "#repairOrdersModal")
+
+                    rows.append(
+                        await measure_browser_action(
+                            page,
+                            scenario="open_repair_order_salary_override",
+                            iterations=args.iterations,
+                            responses=responses,
+                            action=open_repair_order_salary_override_action,
+                        )
+                    )
+                else:
+                    rows.append(
+                        skipped_row(
+                            "open_repair_order_salary_override",
+                            "Salary override repair order is available only in --local-temp-server.",
+                        )
+                    )
+
+                if runtime.employee_id:
+
+                    async def open_employee_salary_ledger_action(_: int) -> None:
+                        if await page.evaluate(
+                            "() => document.querySelector('#employeesModal')?.classList.contains('is-open')"
+                        ):
+                            await page.click('#employeesModal [data-close="employees"]')
+                            await _wait_modal_closed(page, "#employeesModal")
+                        await page.click("#employeesButton")
+                        await _wait_modal_open(page, "#employeesModal")
+                        await page.wait_for_selector(
+                            f'[data-employee-id="{runtime.employee_id}"]', timeout=10000
+                        )
+                        await page.click(f'[data-employee-id="{runtime.employee_id}"]')
+                        await page.click(f'[data-employee-salary="{runtime.employee_id}"]')
+                        await _wait_modal_open(page, "#employeeSalaryModal")
+                        await page.wait_for_selector("#employeeSalaryJournalTable tr")
+                        await page.click('[data-close="employeeSalary"]')
+                        await _wait_modal_closed(page, "#employeeSalaryModal")
+                        await page.click('#employeesModal [data-close="employees"]')
+                        await _wait_modal_closed(page, "#employeesModal")
+
+                    rows.append(
+                        await measure_browser_action(
+                            page,
+                            scenario="open_employee_salary_ledger",
+                            iterations=args.iterations,
+                            responses=responses,
+                            action=open_employee_salary_ledger_action,
+                        )
+                    )
+
+                    async def open_employee_salary_reconciliation_print_action(_: int) -> None:
+                        query = urllib.parse.urlencode({"employee_id": runtime.employee_id})
+                        print_page = await context.new_page()
+                        try:
+                            await print_page.goto(
+                                f"{runtime.base_url}/employee_salary_reconciliation_print?{query}",
+                                wait_until="domcontentloaded",
+                            )
+                            await print_page.wait_for_selector(
+                                "text=Акт сверки зарплаты", timeout=10000
+                            )
+                            await print_page.wait_for_selector("table")
+                        finally:
+                            await print_page.close()
+
+                    rows.append(
+                        await measure_browser_action(
+                            page,
+                            scenario="open_employee_salary_reconciliation_print",
+                            iterations=args.iterations,
+                            responses=responses,
+                            action=open_employee_salary_reconciliation_print_action,
+                        )
+                    )
+                else:
+                    rows.append(
+                        skipped_row(
+                            "open_employee_salary_ledger",
+                            "Employee payroll workflow is available only in --local-temp-server.",
+                        )
+                    )
+                    rows.append(
+                        skipped_row(
+                            "open_employee_salary_reconciliation_print",
+                            "Employee reconciliation print workflow is available only in --local-temp-server.",
                         )
                     )
             finally:

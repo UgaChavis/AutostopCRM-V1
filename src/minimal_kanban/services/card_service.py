@@ -3580,6 +3580,7 @@ class CardService:
                         ),
                         "amount_display": self._format_payroll_decimal(amount),
                         "source_label": "заказ-наряд",
+                        "scheme": self._work_salary_scheme(row),
                     }
                 )
             for source_row in order.materials:
@@ -3826,8 +3827,7 @@ class CardService:
                 row_total = row.total_value()
                 amount = self._parse_payroll_decimal(row.salary_amount)
                 accrued_total += amount
-                percent = normalize_text(row.work_percent_snapshot, default="", limit=40)
-                scheme = f"Работы {percent}%" if percent else "Работы"
+                scheme = self._work_salary_scheme(row)
                 add_row(
                     closed_at,
                     {
@@ -4164,6 +4164,8 @@ class CardService:
                             + f"Цена: {work['price_display'] or '-'}"
                         )
                     lines.append(f"    Стоимость: {work['total_display']}")
+                    if work.get("scheme"):
+                        lines.append(f"    Схема: {work['scheme']}")
                     lines.append(f"    Начислено: {work['accrued_display']}")
                 for material in order["materials"]:
                     lines.append(f"  - Материал: {material['name']}")
@@ -4279,6 +4281,7 @@ class CardService:
                         "accrued": accrued_money["raw"],
                         "accrued_minor": accrued_money["minor"],
                         "accrued_display": accrued_money["display"],
+                        "scheme": self._work_salary_scheme(row),
                     }
                 )
                 work_total += row_total
@@ -9087,6 +9090,44 @@ class CardService:
             return row.total_value()
         return quantity * price
 
+    def _work_salary_override_enabled(self, row: RepairOrderRow) -> bool:
+        return normalize_text(
+            row.work_salary_override_enabled, default="", limit=16
+        ).casefold() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+            "да",
+        }
+
+    def _work_salary_guarantee(self, row: RepairOrderRow) -> Decimal:
+        return max(self._parse_payroll_decimal(row.work_salary_guarantee), Decimal("0"))
+
+    def _work_salary_override_percent(self, row: RepairOrderRow) -> Decimal:
+        percent = self._parse_payroll_decimal(row.work_salary_percent_override)
+        return min(max(percent, Decimal("0")), Decimal("100"))
+
+    def _work_salary_override_amount(self, row: RepairOrderRow) -> tuple[Decimal, Decimal]:
+        guarantee = self._work_salary_guarantee(row)
+        percent = self._work_salary_override_percent(row)
+        percent_base = max(row.total_value() - guarantee, Decimal("0"))
+        return guarantee + (percent_base * percent / Decimal("100")), percent
+
+    def _work_salary_scheme(self, row: RepairOrderRow) -> str:
+        if self._work_salary_override_enabled(row):
+            guarantee = self._work_salary_guarantee(row)
+            percent = self._work_salary_override_percent(row)
+            return (
+                "Гарантия "
+                + self._employee_salary_report_money(guarantee)["display"]
+                + " + "
+                + self._format_payroll_decimal(percent)
+                + "%"
+            )
+        percent = normalize_text(row.work_percent_snapshot, default="", limit=40)
+        return f"Работы {percent}%" if percent else "Работы"
+
     def _material_has_salary_snapshot(self, row: RepairOrderRow) -> bool:
         return any(
             [
@@ -9348,17 +9389,22 @@ class CardService:
             row.executor_name = employee["name"]
             row.salary_mode_snapshot = employee["salary_mode"]
             row.base_salary_snapshot = employee["base_salary"]
-            row.work_percent_snapshot = employee["work_percent"]
             salary_amount = Decimal("0")
-            if employee["salary_mode"] in {
+            if self._work_salary_override_enabled(row):
+                salary_amount, applied_percent = self._work_salary_override_amount(row)
+                row.work_percent_snapshot = self._format_payroll_decimal(applied_percent)
+            elif employee["salary_mode"] in {
                 PAYROLL_MODE_PERCENT_ONLY,
                 PAYROLL_MODE_SALARY_PLUS_PERCENT,
             }:
+                row.work_percent_snapshot = employee["work_percent"]
                 salary_amount = (
                     row.total_value()
                     * self._parse_payroll_decimal(employee["work_percent"])
                     / Decimal("100")
                 )
+            else:
+                row.work_percent_snapshot = employee["work_percent"]
             row.salary_amount = self._format_payroll_decimal(salary_amount)
             row.salary_accrued_at = accrued_at
             next_work_rows.append(row.to_dict())

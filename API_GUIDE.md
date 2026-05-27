@@ -157,6 +157,24 @@ Supported print documents include repair order, vehicle acceptance act, invoice,
 invoice factura, inspection sheet, completion act, and parts sale. Agents should
 use CRM PDF export instead of building independent PDFs.
 
+Repair-order work rows may include per-row salary override fields:
+
+- `work_salary_override_enabled` - enables manual salary calculation for that
+  work row only;
+- `work_salary_guarantee` - guaranteed amount paid directly to the executor;
+- `work_salary_percent_override` - executor percent applied to the remaining
+  work amount;
+- `work_salary_note` - short internal note for later audit/report context.
+
+When override is enabled, payroll snapshot uses:
+
+```text
+guarantee + max(work total - guarantee, 0) * executor_percent / 100
+```
+
+If override is disabled or absent, legacy employee `work_percent` calculation
+stays active. Old repair-order payloads without these fields remain compatible.
+
 ## Cashboxes, Finance, Employees, Payroll
 
 Read:
@@ -207,13 +225,14 @@ through the audit-first runbook path.
 
 `get_employee_salary_report` returns `employee_salary_report.v3` for a selected
 employee and month `YYYY-MM`; it includes closed repair-order works and accrued
-amounts, not advances or salary scheme setup.
+amounts, not advances. Work rows with manual salary override show the applied
+scheme, for example `Гарантия 5 000,00 ₽ + 45%`.
 
 `get_employee_salary_reconciliation` returns
 `employee_salary_reconciliation.v1` for a selected employee for the last 30 days.
 It is the print payload for the salary reconciliation act: employee, period,
-numbered rows for accruals/payouts/advances, and totals for accrued, paid,
-advanced, and due amounts.
+numbered rows for accruals/payouts/advances, applied salary scheme, and totals
+for accrued, paid, advanced, and due amounts.
 
 `employee_salary_reconciliation_print?employee_id=...` returns the same salary
 reconciliation act as a clean HTML print document with print CSS and signature

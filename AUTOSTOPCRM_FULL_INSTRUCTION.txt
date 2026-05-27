@@ -20,6 +20,7 @@ docker compose ps
 3. Main live check
 cd /opt/autostopcrm
 docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --mcp-url https://crm.autostopcrm.ru/mcp --operator-username "${AUTOSTOP_SMOKE_OPERATOR_USERNAME:?set smoke username}" --operator-password "${AUTOSTOP_SMOKE_OPERATOR_PASSWORD:?set smoke password}" --expect-admin
+Before release from a local workstation, run browser_smoke.py and perf_workflows.py --local-temp-server --iterations 3.
 
 4. Basic diagnostics
 cd /opt/autostopcrm
@@ -53,3 +54,4 @@ If telegram-ai.env exists as an untracked server file, keep it.
 - verify local, GitHub, and server HEAD before and after deploy
 - public anonymous writes must stay blocked
 - cashbox reconciliation is internal diagnostics; operator UI uses the cash journal
+- salary release smoke must cover the repair-order executor gear, payroll ledger, and printable salary reconciliation act

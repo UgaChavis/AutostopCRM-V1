@@ -41,6 +41,11 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         self.assertIn("Write workflow skipped.", script)
         self.assertIn("external_write_workflows_enabled", script)
         self.assertIn("autostop-perf", script)
+        self.assertIn("open_repair_order_salary_override", script)
+        self.assertIn("open_employee_salary_ledger", script)
+        self.assertIn("open_employee_salary_reconciliation_print", script)
+        self.assertIn("salary_override_card_id", self.module.BrowserRuntime.__dataclass_fields__)
+        self.assertIn("employee_id", self.module.BrowserRuntime.__dataclass_fields__)
 
     def test_summarize_samples_returns_required_report_fields(self) -> None:
         summary = self.module.summarize_samples(
@@ -87,6 +92,13 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         self.assertIn("storage", findings[0]["area"])
         self.assertTrue(findings[0]["files"])
         self.assertEqual(len(findings), 3)
+
+    def test_salary_workflow_scenarios_have_performance_targets(self) -> None:
+        self.assertGreater(self.module.scenario_target("open_repair_order_salary_override"), 0)
+        self.assertGreater(self.module.scenario_target("open_employee_salary_ledger"), 0)
+        self.assertGreater(
+            self.module.scenario_target("open_employee_salary_reconciliation_print"), 0
+        )
 
 
 if __name__ == "__main__":

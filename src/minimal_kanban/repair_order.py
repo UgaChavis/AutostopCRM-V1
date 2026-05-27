@@ -168,6 +168,28 @@ def _format_decimal(value: Decimal) -> str:
     return text or "0"
 
 
+def _normalize_nonnegative_decimal_text(value) -> str:
+    parsed = _parse_decimal(value)
+    if parsed is None:
+        return ""
+    return _format_decimal(max(parsed, Decimal("0")))
+
+
+def _normalize_percent_text(value) -> str:
+    parsed = _parse_decimal(value)
+    if parsed is None:
+        return ""
+    clamped = min(max(parsed, Decimal("0")), Decimal("100"))
+    return _format_decimal(clamped)
+
+
+def _normalize_bool_text(value) -> str:
+    if isinstance(value, bool):
+        return "true" if value else ""
+    raw = _normalize_single_line(value, limit=16).casefold()
+    return "true" if raw in {"1", "true", "yes", "y", "on", "да"} else ""
+
+
 def _round_money(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
@@ -243,6 +265,10 @@ class RepairOrderRow:
     work_percent_snapshot: str = ""
     salary_amount: str = ""
     salary_accrued_at: str = ""
+    work_salary_override_enabled: str = ""
+    work_salary_guarantee: str = ""
+    work_salary_percent_override: str = ""
+    work_salary_note: str = ""
     material_executor_id_snapshot: str = ""
     material_executor_name_snapshot: str = ""
     material_quantity_snapshot: str = ""
@@ -282,6 +308,14 @@ class RepairOrderRow:
         )
         self.salary_accrued_at = _normalize_single_line(
             self.salary_accrued_at, limit=REPAIR_ORDER_DATE_LIMIT
+        )
+        self.work_salary_override_enabled = _normalize_bool_text(self.work_salary_override_enabled)
+        self.work_salary_guarantee = _normalize_nonnegative_decimal_text(self.work_salary_guarantee)
+        self.work_salary_percent_override = _normalize_percent_text(
+            self.work_salary_percent_override
+        )
+        self.work_salary_note = _normalize_single_line(
+            self.work_salary_note, limit=REPAIR_ORDER_FIELD_LIMIT
         )
         self.material_executor_id_snapshot = _normalize_single_line(
             self.material_executor_id_snapshot, limit=64
@@ -331,6 +365,10 @@ class RepairOrderRow:
             "work_percent_snapshot": self.work_percent_snapshot,
             "salary_amount": self.salary_amount,
             "salary_accrued_at": self.salary_accrued_at,
+            "work_salary_override_enabled": self.work_salary_override_enabled,
+            "work_salary_guarantee": self.work_salary_guarantee,
+            "work_salary_percent_override": self.work_salary_percent_override,
+            "work_salary_note": self.work_salary_note,
             "material_executor_id_snapshot": self.material_executor_id_snapshot,
             "material_executor_name_snapshot": self.material_executor_name_snapshot,
             "material_quantity_snapshot": self.material_quantity_snapshot,
@@ -387,6 +425,10 @@ class RepairOrderRow:
             work_percent_snapshot=payload.get("work_percent_snapshot", ""),
             salary_amount=payload.get("salary_amount", ""),
             salary_accrued_at=payload.get("salary_accrued_at", ""),
+            work_salary_override_enabled=payload.get("work_salary_override_enabled", ""),
+            work_salary_guarantee=payload.get("work_salary_guarantee", ""),
+            work_salary_percent_override=payload.get("work_salary_percent_override", ""),
+            work_salary_note=payload.get("work_salary_note", ""),
             material_executor_id_snapshot=payload.get("material_executor_id_snapshot", ""),
             material_executor_name_snapshot=payload.get("material_executor_name_snapshot", ""),
             material_quantity_snapshot=payload.get("material_quantity_snapshot", ""),

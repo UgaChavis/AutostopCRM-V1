@@ -11,8 +11,10 @@ import socket
 import sys
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +45,8 @@ SMOKE_SCENARIOS = (
     "employees_repair_order_returns_to_employee",
     "clients_repair_order_returns_to_client",
     "repair_orders_list_returns_to_list",
+    "repair_order_salary_override_popover",
+    "payroll_chain_reaches_reports_and_reconciliation",
     "archive_search_filters_visible_rows",
     "cashboxes_journal_transfer_returns_to_cashbox",
     "escape_closes_top_modal_only",
@@ -58,6 +62,8 @@ class TempRuntime:
     card_id: str
     employee_id: str
     payroll_card_id: str
+    payroll_month: str
+    salary_override_card_id: str
     client_id: str
     client_card_id: str
     archived_card_id: str
@@ -83,6 +89,12 @@ def _read_json(url: str, *, timeout: float = 8.0) -> dict[str, Any]:
     request = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _read_text(url: str, *, timeout: float = 8.0) -> str:
+    request = urllib.request.Request(url, headers={"Accept": "text/html"}, method="GET")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read().decode("utf-8")
 
 
 def _port_has_listener(host: str, port: int) -> bool:
@@ -168,7 +180,7 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
                 "vehicle": "Lada Payroll Smoke",
                 "payments": [
                     {
-                        "amount": "4000",
+                        "amount": "20000",
                         "paid_at": "18.05.2026 10:00",
                         "payment_method": "cash",
                     }
@@ -177,16 +189,57 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
                     {
                         "name": "Smoke payroll work",
                         "quantity": "1",
-                        "price": "4000",
+                        "price": "20000",
                         "executor_id": employee["id"],
+                        "work_salary_override_enabled": "true",
+                        "work_salary_guarantee": "5000",
+                        "work_salary_percent_override": "45",
+                        "work_salary_note": "Smoke salary override",
                     }
                 ],
             },
             "actor_name": "SMOKE",
         }
     )
-    service.set_repair_order_status(
+    closed_payroll = service.set_repair_order_status(
         {"card_id": payroll_card["id"], "status": "closed", "actor_name": "SMOKE"}
+    )
+    payroll_month = datetime.strptime(
+        closed_payroll["repair_order"]["closed_at"], "%d.%m.%Y %H:%M"
+    ).strftime("%Y-%m")
+    salary_override_card = service.create_card(
+        {
+            "vehicle": "Lada Salary Override",
+            "title": "Browser smoke salary override gear",
+            "deadline": {"hours": 2},
+            "actor_name": "SMOKE",
+        }
+    )["card"]
+    service.update_card(
+        {
+            "card_id": salary_override_card["id"],
+            "repair_order": {
+                "number": "903",
+                "status": "open",
+                "vehicle": "Lada Salary Override",
+                "payments": [
+                    {
+                        "amount": "20000",
+                        "paid_at": "18.05.2026 11:00",
+                        "payment_method": "cash",
+                    }
+                ],
+                "works": [
+                    {
+                        "name": "Smoke override gear work",
+                        "quantity": "1",
+                        "price": "20000",
+                        "executor_id": employee["id"],
+                    }
+                ],
+            },
+            "actor_name": "SMOKE",
+        }
     )
     client = service.create_client(
         {
@@ -269,6 +322,8 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
         card_id=card["id"],
         employee_id=employee["id"],
         payroll_card_id=payroll_card["id"],
+        payroll_month=payroll_month,
+        salary_override_card_id=salary_override_card["id"],
         client_id=client["id"],
         client_card_id=client_card["id"],
         archived_card_id=archived_card["id"],
@@ -346,6 +401,67 @@ async def _login_gate_hides_board(page: Any) -> bool:
     )
 
 
+def _api_data(payload: dict[str, Any]) -> dict[str, Any]:
+    data = payload.get("data")
+    return data if isinstance(data, dict) else payload
+
+
+def _payroll_chain_reaches_reports_and_reconciliation(runtime: TempRuntime) -> bool:
+    query = urllib.parse.urlencode({"employee_id": runtime.employee_id})
+    month_query = urllib.parse.urlencode(
+        {"employee_id": runtime.employee_id, "month": runtime.payroll_month}
+    )
+    payroll = _api_data(_read_json(f"{runtime.base_url}/api/get_payroll_report?{month_query}"))
+    ledger = _api_data(
+        _read_json(f"{runtime.base_url}/api/get_employee_salary_ledger?{query}&months=6")
+    )
+    salary_report = _api_data(
+        _read_json(f"{runtime.base_url}/api/get_employee_salary_report?{month_query}")
+    )
+    reconciliation = _api_data(
+        _read_json(f"{runtime.base_url}/api/get_employee_salary_reconciliation?{query}")
+    )
+    print_html = _read_text(f"{runtime.base_url}/employee_salary_reconciliation_print?{query}")
+
+    payroll_rows = payroll.get("detail_rows") or []
+    payroll_ok = any(
+        row.get("employee_id") == runtime.employee_id
+        and row.get("card_id") == runtime.payroll_card_id
+        and row.get("salary_amount") == "11750"
+        for row in payroll_rows
+    )
+    ledger_rows = ledger.get("journal_rows") or []
+    ledger_ok = any(
+        row.get("kind") == "accrual"
+        and row.get("card_id") == runtime.payroll_card_id
+        and row.get("amount_display") == "11750"
+        and "Гарантия" in str(row.get("scheme") or "")
+        for row in ledger_rows
+    )
+    report_ok = (
+        salary_report.get("totals", {}).get("work_accrued_total") == "11750"
+        and "Гарантия" in str(salary_report.get("text") or "")
+        and "11 750" in str(salary_report.get("text") or "").replace("\xa0", " ")
+    )
+    reconciliation_rows = reconciliation.get("rows") or []
+    reconciliation_ok = reconciliation.get("meta", {}).get(
+        "schema_version"
+    ) == "employee_salary_reconciliation.v1" and any(
+        row.get("kind") == "work_accrual"
+        and row.get("card_id") == runtime.payroll_card_id
+        and row.get("accrued") == "11750"
+        and "Гарантия 5 000,00 ₽ + 45%" in str(row.get("scheme") or "")
+        for row in reconciliation_rows
+    )
+    print_ok = (
+        "Акт сверки зарплаты" in print_html
+        and "Гарантия" in print_html
+        and "11 750" in print_html.replace("\xa0", " ")
+        and "@media print" in print_html
+    )
+    return bool(payroll_ok and ledger_ok and report_ok and reconciliation_ok and print_ok)
+
+
 async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]:
     scenarios = {
         name: False
@@ -353,6 +469,9 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
         if name not in {"mobile_board_load", "login_gate_hides_board_until_operator_login"}
     }
     await page.wait_for_selector("#board")
+    scenarios["payroll_chain_reaches_reports_and_reconciliation"] = (
+        _payroll_chain_reaches_reports_and_reconciliation(runtime)
+    )
     await page.wait_for_selector(f'[data-card-id="{runtime.card_id}"]')
     await page.click(f'[data-card-id="{runtime.card_id}"]')
     await _wait_modal_open(page, "#cardModal")
@@ -571,6 +690,101 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     scenarios["repair_orders_list_returns_to_list"] = await _is_modal_open(
         page, "#repairOrdersModal"
     )
+    await page.wait_for_selector(
+        f'[data-open-repair-order-card="{runtime.salary_override_card_id}"]'
+    )
+    await page.click(f'[data-open-repair-order-card="{runtime.salary_override_card_id}"]')
+    await _wait_modal_open(page, "#repairOrderModal")
+    await page.wait_for_selector("#repairOrderWorksBody [data-repair-order-work-salary-gear]")
+    await page.click("#repairOrderWorksBody [data-repair-order-work-salary-gear]")
+    await page.wait_for_selector("#repairOrderWorkSalaryPopover.is-open")
+    await page.fill("#repairOrderWorkSalaryGuarantee", "5000")
+    await page.fill("#repairOrderWorkSalaryPercent", "45")
+    override_45_ok = bool(
+        await page.evaluate(
+            """() => {
+              const amount = (document.querySelector('#repairOrderWorkSalaryAmount')?.textContent || '').replace(/\\s+/g, ' ');
+              const servicePercent = document.querySelector('#repairOrderWorkSalaryServicePercent')?.textContent || '';
+              const popover = document.querySelector('#repairOrderWorkSalaryPopover');
+              const rect = popover?.getBoundingClientRect();
+              const fitsViewport = Boolean(rect && rect.left >= 0 && rect.right <= window.innerWidth && rect.top >= 0 && rect.bottom <= window.innerHeight);
+              return amount.includes('11 750') && servicePercent.trim() === '55%' && fitsViewport;
+            }"""
+        )
+    )
+    await page.click("[data-repair-order-work-salary-apply]")
+    override_applied_ok = bool(
+        await page.evaluate(
+            """() => {
+              const row = document.querySelector('#repairOrderWorksBody tr[data-repair-order-row]');
+              const gear = row?.querySelector('[data-repair-order-work-salary-gear]');
+              return Boolean(
+                row?.dataset.repairOrderWorkSalaryOverrideEnabled === 'true' &&
+                row?.dataset.repairOrderWorkSalaryGuarantee === '5000' &&
+                row?.dataset.repairOrderWorkSalaryPercentOverride === '45' &&
+                gear?.classList.contains('is-active') &&
+                gear?.getAttribute('aria-pressed') === 'true'
+              );
+            }"""
+        )
+    )
+    await page.click("#repairOrderWorksBody [data-repair-order-work-salary-gear]")
+    await page.wait_for_selector("#repairOrderWorkSalaryPopover.is-open")
+    await page.fill("#repairOrderWorkSalaryPercent", "0")
+    override_zero_ok = bool(
+        await page.evaluate(
+            """() => {
+              const amount = (document.querySelector('#repairOrderWorkSalaryAmount')?.textContent || '').replace(/\\s+/g, ' ');
+              const servicePercent = document.querySelector('#repairOrderWorkSalaryServicePercent')?.textContent || '';
+              return amount.includes('5 000') && servicePercent.trim() === '100%';
+            }"""
+        )
+    )
+    await page.click("[data-repair-order-work-salary-apply]")
+    await page.click("#repairOrderWorksBody [data-repair-order-work-salary-gear]")
+    await page.wait_for_selector("#repairOrderWorkSalaryPopover.is-open")
+    override_reopened_zero_ok = bool(
+        await page.evaluate(
+            """() => {
+              const percent = document.querySelector('#repairOrderWorkSalaryPercent');
+              const row = document.querySelector('#repairOrderWorksBody tr[data-repair-order-row]');
+              return Boolean(
+                percent?.value === '0' &&
+                row?.dataset.repairOrderWorkSalaryOverrideEnabled === 'true' &&
+                row?.dataset.repairOrderWorkSalaryPercentOverride === '0'
+              );
+            }"""
+        )
+    )
+    await page.click("[data-repair-order-work-salary-reset]")
+    override_reset_ok = bool(
+        await page.evaluate(
+            """() => {
+              const row = document.querySelector('#repairOrderWorksBody tr[data-repair-order-row]');
+              const gear = row?.querySelector('[data-repair-order-work-salary-gear]');
+              const popoverOpen = document.querySelector('#repairOrderWorkSalaryPopover')?.classList.contains('is-open');
+              return Boolean(
+                row &&
+                !row.dataset.repairOrderWorkSalaryOverrideEnabled &&
+                !row.dataset.repairOrderWorkSalaryGuarantee &&
+                !row.dataset.repairOrderWorkSalaryPercentOverride &&
+                !gear?.classList.contains('is-active') &&
+                gear?.getAttribute('aria-pressed') === 'false' &&
+                !popoverOpen
+              );
+            }"""
+        )
+    )
+    scenarios["repair_order_salary_override_popover"] = bool(
+        scenarios["repair_orders_list_returns_to_list"]
+        and override_45_ok
+        and override_applied_ok
+        and override_zero_ok
+        and override_reopened_zero_ok
+        and override_reset_ok
+    )
+    await page.click('[data-close="repair-order"]')
+    await _wait_modal_closed(page, "#repairOrderModal")
     await page.click('[data-close="repair-orders"]')
     await _wait_modal_closed(page, "#repairOrdersModal")
 

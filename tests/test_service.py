@@ -1361,6 +1361,139 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(summary["base_salary_accrued_total"], "0")
         self.assertEqual(summary["total_salary"], "1500")
 
+    def test_repair_order_work_salary_override_accrues_guarantee_plus_percent(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Иван Мастер",
+                "position": "Механик",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "30",
+            }
+        )["employee"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Mercedes GLA",
+                "title": "Индивидуальная зарплата по строке",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+
+        updated = self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "77",
+                    "status": "open",
+                    "vehicle": "Mercedes GLA",
+                    "license_plate": "К777КК124",
+                    "payments": [
+                        {
+                            "amount": "20000",
+                            "paid_at": "05.04.2026 10:00",
+                            "payment_method": "cash",
+                        }
+                    ],
+                    "works": [
+                        {
+                            "name": "Ремонт модуля SCM",
+                            "quantity": "1",
+                            "price": "20000",
+                            "executor_id": employee["id"],
+                            "work_salary_override_enabled": "true",
+                            "work_salary_guarantee": "5000",
+                            "work_salary_percent_override": "45",
+                            "work_salary_note": "Премия за сложную работу",
+                        }
+                    ],
+                },
+            }
+        )
+        stored_row = updated["card"]["repair_order"]["works"][0]
+        self.assertEqual(stored_row["work_salary_override_enabled"], "true")
+        self.assertEqual(stored_row["work_salary_guarantee"], "5000")
+        self.assertEqual(stored_row["work_salary_percent_override"], "45")
+
+        closed = self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+        closed_row = closed["repair_order"]["works"][0]
+        self.assertEqual(closed_row["work_percent_snapshot"], "45")
+        self.assertEqual(closed_row["salary_amount"], "11750")
+
+        closed_month = dt.strptime(closed["repair_order"]["closed_at"], "%d.%m.%Y %H:%M").strftime(
+            "%Y-%m"
+        )
+        report = self.service.get_payroll_report(
+            {"month": closed_month, "employee_id": employee["id"]}
+        )
+        detail_row = next(
+            row for row in report["detail_rows"] if row["employee_id"] == employee["id"]
+        )
+        self.assertEqual(detail_row["salary_amount"], "11750")
+        employee_report = self.service.get_employee_salary_report(
+            {"month": closed_month, "employee_id": employee["id"]}
+        )
+        self.assertIn("Гарантия", employee_report["text"])
+        self.assertIn("45", employee_report["text"])
+
+        reconciliation = self.service.get_employee_salary_reconciliation(
+            {"employee_id": employee["id"]}
+        )
+        work_row = next(row for row in reconciliation["rows"] if row["kind"] == "work_accrual")
+        self.assertEqual(work_row["accrued"], "11750")
+        self.assertIn("Гарантия 5 000,00 ₽ + 45%", work_row["scheme"])
+        self.assertIn("Работа 20 000,00 ₽", work_row["calculation_base"])
+
+    def test_repair_order_work_salary_override_guarantee_above_total_uses_zero_base(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Премиальный Мастер",
+                "position": "Механик",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "10",
+            }
+        )["employee"]
+        card = self.service.create_card(
+            {
+                "vehicle": "Honda Civic",
+                "title": "Гарантия выше суммы",
+                "deadline": {"hours": 2},
+            }
+        )["card"]
+        self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "number": "78",
+                    "status": "open",
+                    "vehicle": "Honda Civic",
+                    "payments": [
+                        {
+                            "amount": "3000",
+                            "paid_at": "05.04.2026 10:00",
+                            "payment_method": "cash",
+                        }
+                    ],
+                    "works": [
+                        {
+                            "name": "Сложная диагностика",
+                            "quantity": "1",
+                            "price": "3000",
+                            "executor_id": employee["id"],
+                            "work_salary_override_enabled": "true",
+                            "work_salary_guarantee": "5000",
+                            "work_salary_percent_override": "80",
+                        }
+                    ],
+                },
+            }
+        )
+
+        closed = self.service.set_repair_order_status({"card_id": card["id"], "status": "closed"})
+        self.assertEqual(closed["repair_order"]["works"][0]["salary_amount"], "5000")
+        self.assertEqual(closed["repair_order"]["works"][0]["work_percent_snapshot"], "80")
+
     def test_weekly_base_salary_accrues_on_friday_evening(self) -> None:
         created_at = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
         as_of = datetime(2026, 5, 16, 14, 0, tzinfo=timezone.utc)

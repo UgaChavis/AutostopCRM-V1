@@ -60,6 +60,10 @@ python scripts\check_web_assets_js.py
 python scripts\browser_smoke.py
 ```
 
+`scripts\browser_smoke.py` runs a temp-runtime payroll chain smoke: a closed
+repair order with per-row salary override is checked through payroll report,
+employee ledger, monthly salary report, and the printable reconciliation act.
+
 For documentation-only changes, the minimum gate is:
 
 ```powershell
@@ -88,6 +92,10 @@ python scripts\perf_probe.py --local-temp-server --iterations 1 --max-snapshot-g
 python scripts\perf_mcp.py --local-temp-server --iterations 3
 python scripts\perf_workflows.py --local-temp-server --iterations 3
 ```
+
+`perf_workflows.py --local-temp-server` includes browser timings for opening a
+repair order salary override popover, the employee salary ledger, and the
+salary reconciliation print document.
 
 Production read-only:
 
@@ -241,6 +249,10 @@ Manual UI smoke after UI changes:
 - card open/save/move works;
 - card journal is readable;
 - clients, repair orders, cashboxes, employees, files, and archive modals open;
+- repair-order executor salary gear opens, calculates `5000 + 45% = 11750`,
+  preserves `0%`, and reset clears the row override before saving;
+- employee salary ledger and `ОТЧЕТ` printable reconciliation act open without
+  CRM chrome and show the applied salary scheme;
 - nested modals close one level at a time;
 - cashbox journal shows compact operation rows and `from -> to` transfer pairs;
 - public anonymous writes remain blocked.

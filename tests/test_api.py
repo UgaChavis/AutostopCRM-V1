@@ -1776,6 +1776,78 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("Бухгалтер", html)
         self.assertIn("Сотрудник", html)
 
+    def test_repair_order_work_salary_override_round_trips_through_api(self) -> None:
+        status, employee_saved = self.request(
+            "/api/save_employee",
+            {
+                "name": "Иван Мастер",
+                "position": "Мастер",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "25",
+            },
+        )
+        self.assertEqual(status, 200)
+        employee = employee_saved["data"]["employee"]
+
+        status, card_created = self.request(
+            "/api/create_card",
+            {"vehicle": "Mercedes GLA", "title": "Построчная зарплата", "deadline": {"hours": 2}},
+        )
+        self.assertEqual(status, 200)
+        card_id = card_created["data"]["card"]["id"]
+
+        status, updated = self.request(
+            "/api/update_repair_order",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "502",
+                    "status": "open",
+                    "vehicle": "Mercedes GLA",
+                    "license_plate": "К502КК124",
+                    "payments": [
+                        {
+                            "amount": "20000",
+                            "paid_at": "16.04.2026 12:00",
+                            "payment_method": "cash",
+                        }
+                    ],
+                    "works": [
+                        {
+                            "name": "Ремонт модуля SCM",
+                            "quantity": "1",
+                            "price": "20000",
+                            "executor_id": employee["id"],
+                            "work_salary_override_enabled": "true",
+                            "work_salary_guarantee": "5000",
+                            "work_salary_percent_override": "45",
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        work = updated["data"]["repair_order"]["works"][0]
+        self.assertEqual(work["work_salary_override_enabled"], "true")
+        self.assertEqual(work["work_salary_guarantee"], "5000")
+        self.assertEqual(work["work_salary_percent_override"], "45")
+
+        status, closed = self.request(
+            "/api/set_repair_order_status", {"card_id": card_id, "status": "closed"}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(closed["data"]["repair_order"]["works"][0]["salary_amount"], "11750")
+
+        status, report = self.request(
+            f"/api/get_employee_salary_reconciliation?employee_id={employee['id']}",
+            method="GET",
+        )
+        self.assertEqual(status, 200)
+        work_row = next(row for row in report["data"]["rows"] if row["kind"] == "work_accrual")
+        self.assertEqual(work_row["accrued"], "11750")
+        self.assertIn("Гарантия 5 000,00 ₽ + 45%", work_row["scheme"])
+
     def test_snapshot_compact_query_returns_board_friendly_cards(self) -> None:
         status, created = self.request(
             "/api/create_card",

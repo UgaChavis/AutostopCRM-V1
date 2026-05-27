@@ -2293,6 +2293,120 @@ BOARD_WEB_APP_HTML = "".join(
       font-variant-numeric: tabular-nums;
       font-family: var(--mono);
     }
+    .repair-order-executor-cell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 28px;
+      gap: 4px;
+      align-items: center;
+      min-width: 0;
+    }
+    .repair-order-executor-cell .repair-order-table__select {
+      min-width: 0;
+    }
+    .repair-order-work-salary-gear {
+      width: 28px;
+      min-width: 28px;
+      height: 38px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(0,0,0,0.16);
+      color: #fff;
+      font-size: 15px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .repair-order-work-salary-gear:hover,
+    .repair-order-work-salary-gear.is-active {
+      border-color: rgba(218, 226, 185, 0.82);
+      background: rgba(78, 90, 68, 0.56);
+      color: #fff;
+    }
+    .repair-order-work-salary-popover {
+      position: fixed;
+      z-index: 38;
+      width: min(330px, calc(100vw - 24px));
+      display: none;
+      border: 1px solid rgba(167, 178, 132, 0.62);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.05), transparent 24%),
+        rgba(17, 23, 18, 0.98);
+      box-shadow:
+        0 18px 42px rgba(0,0,0,0.42),
+        inset 0 1px 0 rgba(255,255,255,0.06);
+      padding: 10px;
+    }
+    .repair-order-work-salary-popover.is-open {
+      display: grid;
+      gap: 9px;
+    }
+    .repair-order-work-salary-popover__head {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+    .repair-order-work-salary-popover__title {
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.2;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .repair-order-work-salary-popover__meta {
+      color: var(--text-soft);
+      font-family: var(--mono);
+      font-size: 9.25px;
+      line-height: 1.25;
+      text-transform: uppercase;
+    }
+    .repair-order-work-salary-popover__grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 8px;
+    }
+    .repair-order-work-salary-popover .field {
+      min-width: 0;
+    }
+    .repair-order-work-salary-popover input {
+      width: 100%;
+      min-height: 32px;
+      border: 1px solid rgba(116, 126, 106, 0.66);
+      background: rgba(6, 10, 7, 0.62);
+      color: var(--text);
+      padding: 6px 7px;
+      outline: none;
+      font-size: 12px;
+    }
+    .repair-order-work-salary-popover input:focus {
+      border-color: var(--accent);
+      box-shadow: inset 0 -1px 0 rgba(167, 178, 132, 0.22);
+    }
+    .repair-order-work-salary-popover__summary {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 6px 10px;
+      align-items: baseline;
+      padding: 8px;
+      border: 1px solid rgba(116, 126, 106, 0.24);
+      background: rgba(0,0,0,0.13);
+      font-family: var(--mono);
+      font-size: 9.5px;
+      text-transform: uppercase;
+    }
+    .repair-order-work-salary-popover__summary strong {
+      color: var(--text);
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+    .repair-order-work-salary-popover__actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+    }
     .repair-order-cell-total {
       min-height: 30px;
       display: flex;
@@ -8327,6 +8441,35 @@ BOARD_WEB_APP_HTML = "".join(
           </div>
           <div class="repair-order-subtotal"><span>ИТОГО РАБОТЫ</span><strong data-repair-order-total="works">0,00</strong></div>
         </section>
+        <div class="repair-order-work-salary-popover" id="repairOrderWorkSalaryPopover" data-repair-order-work-salary-menu hidden>
+          <div class="repair-order-work-salary-popover__head">
+            <div class="repair-order-work-salary-popover__title" id="repairOrderWorkSalaryTitle">РАБОТА</div>
+            <div class="repair-order-work-salary-popover__meta" id="repairOrderWorkSalaryMeta">ИСПОЛНИТЕЛЬ НЕ ВЫБРАН</div>
+          </div>
+          <div class="repair-order-work-salary-popover__grid">
+            <label class="field">
+              <span>ГАРАНТИЯ ИСПОЛНИТЕЛЮ</span>
+              <input id="repairOrderWorkSalaryGuarantee" type="text" inputmode="decimal" data-repair-order-cell="work_salary_guarantee">
+            </label>
+            <label class="field">
+              <span>ПРОЦЕНТ ИСПОЛНИТЕЛЯ</span>
+              <input id="repairOrderWorkSalaryPercent" type="text" inputmode="decimal" data-repair-order-cell="work_salary_percent_override">
+            </label>
+          </div>
+          <label class="field">
+            <span>ПРИМЕЧАНИЕ</span>
+            <input id="repairOrderWorkSalaryNote" type="text" maxlength="160" data-repair-order-cell="work_salary_note">
+          </label>
+          <div class="repair-order-work-salary-popover__summary">
+            <span>СУММА РАБОТЫ</span><strong id="repairOrderWorkSalaryTotal">0 ₽</strong>
+            <span>ПРОЦЕНТ СЕРВИСА</span><strong id="repairOrderWorkSalaryServicePercent">0%</strong>
+            <span>К НАЧИСЛЕНИЮ</span><strong id="repairOrderWorkSalaryAmount">0 ₽</strong>
+          </div>
+          <div class="repair-order-work-salary-popover__actions">
+            <button class="btn btn--ghost" type="button" data-repair-order-work-salary-reset>СБРОСИТЬ</button>
+            <button class="btn btn--accent" type="button" data-repair-order-work-salary-apply>ПРИМЕНИТЬ</button>
+          </div>
+        </div>
         <section class="repair-order-table-card" data-repair-order-section="materials">
           <div class="repair-order-section-bar">
             <div class="panel-title">МАТЕРИАЛЫ</div>
@@ -8493,6 +8636,7 @@ BOARD_WEB_APP_HTML = "".join(
       repairOrdersItems: [],
       repairOrdersMetaState: null,
       repairOrderParentLayer: '',
+      repairOrderWorkSalaryRow: null,
       modalStack: [],
       boardSearch: {
         query: '',
@@ -9269,6 +9413,15 @@ BOARD_WEB_APP_HTML = "".join(
       repairOrderTagAddButton: document.getElementById('repairOrderTagAddButton'),
       repairOrderWorksBody: document.getElementById('repairOrderWorksBody'),
       repairOrderMaterialsBody: document.getElementById('repairOrderMaterialsBody'),
+      repairOrderWorkSalaryPopover: document.getElementById('repairOrderWorkSalaryPopover'),
+      repairOrderWorkSalaryTitle: document.getElementById('repairOrderWorkSalaryTitle'),
+      repairOrderWorkSalaryMeta: document.getElementById('repairOrderWorkSalaryMeta'),
+      repairOrderWorkSalaryGuarantee: document.getElementById('repairOrderWorkSalaryGuarantee'),
+      repairOrderWorkSalaryPercent: document.getElementById('repairOrderWorkSalaryPercent'),
+      repairOrderWorkSalaryNote: document.getElementById('repairOrderWorkSalaryNote'),
+      repairOrderWorkSalaryTotal: document.getElementById('repairOrderWorkSalaryTotal'),
+      repairOrderWorkSalaryServicePercent: document.getElementById('repairOrderWorkSalaryServicePercent'),
+      repairOrderWorkSalaryAmount: document.getElementById('repairOrderWorkSalaryAmount'),
       repairOrderAddWorkRowButton: document.getElementById('repairOrderAddWorkRowButton'),
       repairOrderAddMaterialRowButton: document.getElementById('repairOrderAddMaterialRowButton'),
       repairOrderAutofillButton: document.getElementById('repairOrderAutofillButton'),
@@ -11786,6 +11939,12 @@ BOARD_WEB_APP_HTML = "".join(
     function handleModalStackKeydown(event) {
       if (event.key !== 'Escape') return;
       if (event.defaultPrevented) return;
+      if (els.repairOrderWorkSalaryPopover?.classList.contains('is-open')) {
+        closeRepairOrderWorkSalaryPopover();
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       if (!closeTopModal()) return;
       event.preventDefault();
       event.stopPropagation();
@@ -17683,6 +17842,10 @@ BOARD_WEB_APP_HTML = "".join(
         work_percent_snapshot: '',
         salary_amount: '',
         salary_accrued_at: '',
+        work_salary_override_enabled: '',
+        work_salary_guarantee: '',
+        work_salary_percent_override: '',
+        work_salary_note: '',
         material_executor_id_snapshot: '',
         material_executor_name_snapshot: '',
         material_quantity_snapshot: '',
@@ -17714,6 +17877,24 @@ BOARD_WEB_APP_HTML = "".join(
       const rounded = repairOrderRoundMoney(value);
       if (Math.abs(rounded % 1) < 0.000001) return String(Math.trunc(rounded));
       return rounded.toFixed(2).replace(/0+$/, '').replace(/\\.$/, '');
+    }
+
+    function repairOrderNormalizeNonNegativeRaw(value) {
+      const parsed = repairOrderParseNumber(value);
+      if (parsed === null) return '';
+      return repairOrderNumberToRaw(Math.max(parsed, 0));
+    }
+
+    function repairOrderNormalizePercentRaw(value) {
+      const parsed = repairOrderParseNumber(value);
+      if (parsed === null) return '';
+      return repairOrderNumberToRaw(Math.min(Math.max(parsed, 0), 100));
+    }
+
+    function repairOrderNormalizeBool(value) {
+      if (value === true) return 'true';
+      const normalized = String(value ?? '').trim().toLowerCase();
+      return ['1', 'true', 'yes', 'on', 'да'].includes(normalized) ? 'true' : '';
     }
 
     function repairOrderFormatMoney(value) {
@@ -18015,6 +18196,10 @@ BOARD_WEB_APP_HTML = "".join(
         work_percent_snapshot: String(source.work_percent_snapshot ?? '').trim(),
         salary_amount: String(source.salary_amount ?? '').trim(),
         salary_accrued_at: String(source.salary_accrued_at ?? '').trim(),
+        work_salary_override_enabled: repairOrderNormalizeBool(source.work_salary_override_enabled ?? ''),
+        work_salary_guarantee: repairOrderNormalizeNonNegativeRaw(source.work_salary_guarantee ?? ''),
+        work_salary_percent_override: repairOrderNormalizePercentRaw(source.work_salary_percent_override ?? ''),
+        work_salary_note: String(source.work_salary_note ?? '').trim(),
         material_executor_id_snapshot: String(source.material_executor_id_snapshot ?? '').trim(),
         material_executor_name_snapshot: String(source.material_executor_name_snapshot ?? '').trim(),
         material_quantity_snapshot: String(source.material_quantity_snapshot ?? '').trim(),
@@ -18350,6 +18535,14 @@ BOARD_WEB_APP_HTML = "".join(
       return options.join('');
     }
 
+    function repairOrderWorkExecutorCellHtml(normalized) {
+      const activeClass = normalized.work_salary_override_enabled === 'true' ? ' is-active' : '';
+      return '<div class="repair-order-executor-cell">'
+        + '<select class="repair-order-table__select" data-repair-order-cell="executor_id">' + repairOrderExecutorOptionsHtml(normalized.executor_id, normalized.executor_name) + '</select>'
+        + '<button class="repair-order-work-salary-gear' + activeClass + '" type="button" title="НАСТРОИТЬ НАЧИСЛЕНИЕ" aria-label="НАСТРОИТЬ НАЧИСЛЕНИЕ" data-repair-order-work-salary-gear>⚙</button>'
+        + '</div>';
+    }
+
     function repairOrderRowHtml(section, row, index) {
       const normalized = normalizeRepairOrderRow(row);
       const totalValue = repairOrderResolvedRowTotalValue(normalized);
@@ -18358,7 +18551,7 @@ BOARD_WEB_APP_HTML = "".join(
         ? ('<td>' + repairOrderRowInputHtml('catalog_number', normalized.catalog_number, 'Артикул / OEM') + '</td>')
         : '';
       const executorCell = section === 'works'
-        ? '<td><select class="repair-order-table__select" data-repair-order-cell="executor_id">' + repairOrderExecutorOptionsHtml(normalized.executor_id, normalized.executor_name) + '</select></td>'
+        ? '<td>' + repairOrderWorkExecutorCellHtml(normalized) + '</td>'
         : '';
       const materialCostCell = section === 'materials'
         ? '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('cost_price', normalized.cost_price, '0') + '</td>'
@@ -18366,7 +18559,7 @@ BOARD_WEB_APP_HTML = "".join(
       const materialExecutorCell = section === 'materials'
         ? '<td><select class="repair-order-table__select" data-repair-order-cell="executor_id">' + repairOrderExecutorOptionsHtml(normalized.executor_id, normalized.executor_name) + '</select></td>'
         : '';
-      return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '" data-repair-order-material-executor-id="' + escapeHtml(normalized.material_executor_id_snapshot) + '" data-repair-order-material-executor-name="' + escapeHtml(normalized.material_executor_name_snapshot) + '" data-repair-order-material-quantity="' + escapeHtml(normalized.material_quantity_snapshot) + '" data-repair-order-material-price="' + escapeHtml(normalized.material_price_snapshot) + '" data-repair-order-material-cost-price="' + escapeHtml(normalized.material_cost_price_snapshot) + '" data-repair-order-material-percent="' + escapeHtml(normalized.material_percent_snapshot) + '" data-repair-order-material-profit="' + escapeHtml(normalized.material_profit) + '" data-repair-order-material-salary-amount="' + escapeHtml(normalized.material_salary_amount) + '" data-repair-order-material-salary-accrued-at="' + escapeHtml(normalized.material_salary_accrued_at) + '">' +
+      return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '" data-repair-order-work-salary-override-enabled="' + escapeHtml(normalized.work_salary_override_enabled) + '" data-repair-order-work-salary-guarantee="' + escapeHtml(normalized.work_salary_guarantee) + '" data-repair-order-work-salary-percent-override="' + escapeHtml(normalized.work_salary_percent_override) + '" data-repair-order-work-salary-note="' + escapeHtml(normalized.work_salary_note) + '" data-repair-order-material-executor-id="' + escapeHtml(normalized.material_executor_id_snapshot) + '" data-repair-order-material-executor-name="' + escapeHtml(normalized.material_executor_name_snapshot) + '" data-repair-order-material-quantity="' + escapeHtml(normalized.material_quantity_snapshot) + '" data-repair-order-material-price="' + escapeHtml(normalized.material_price_snapshot) + '" data-repair-order-material-cost-price="' + escapeHtml(normalized.material_cost_price_snapshot) + '" data-repair-order-material-percent="' + escapeHtml(normalized.material_percent_snapshot) + '" data-repair-order-material-profit="' + escapeHtml(normalized.material_profit) + '" data-repair-order-material-salary-amount="' + escapeHtml(normalized.material_salary_amount) + '" data-repair-order-material-salary-accrued-at="' + escapeHtml(normalized.material_salary_accrued_at) + '">' +
         '<td>' + repairOrderRowInputHtml('name', normalized.name, 'Наименование') + '</td>' +
         materialExecutorCell +
         catalogCell +
@@ -18396,6 +18589,10 @@ BOARD_WEB_APP_HTML = "".join(
         work_percent_snapshot: row.dataset.repairOrderWorkPercent || '',
         salary_amount: row.dataset.repairOrderSalaryAmount || '',
         salary_accrued_at: row.dataset.repairOrderSalaryAccruedAt || '',
+        work_salary_override_enabled: row.dataset.repairOrderWorkSalaryOverrideEnabled || '',
+        work_salary_guarantee: row.dataset.repairOrderWorkSalaryGuarantee || '',
+        work_salary_percent_override: row.dataset.repairOrderWorkSalaryPercentOverride || '',
+        work_salary_note: row.dataset.repairOrderWorkSalaryNote || '',
         material_executor_id_snapshot: row.dataset.repairOrderMaterialExecutorId || '',
         material_executor_name_snapshot: row.dataset.repairOrderMaterialExecutorName || '',
         material_quantity_snapshot: row.dataset.repairOrderMaterialQuantity || '',
@@ -18411,6 +18608,147 @@ BOARD_WEB_APP_HTML = "".join(
     function readRepairOrderRows(section) {
       const body = repairOrderRowsBody(section);
       return Array.from(body.querySelectorAll('tr[data-repair-order-row]')).map((row) => readRepairOrderRowElement(row)).filter(repairOrderRowHasAnyData);
+    }
+
+    function repairOrderEmployeeById(employeeId) {
+      const normalizedId = String(employeeId || '').trim();
+      if (!normalizedId) return null;
+      return (Array.isArray(state.employees) ? state.employees : []).find((item) => String(item?.id || '').trim() === normalizedId) || null;
+    }
+
+    function repairOrderWorkSalaryPercentForRow(rowData) {
+      const overrideEnabled = repairOrderNormalizeBool(rowData?.work_salary_override_enabled || '') === 'true';
+      const rawOverridePercent = rowData?.work_salary_percent_override ?? '';
+      if (overrideEnabled) return repairOrderNormalizePercentRaw(rawOverridePercent || '0') || '0';
+      const employee = repairOrderEmployeeById(rowData?.executor_id || '');
+      return repairOrderNormalizePercentRaw(employee?.work_percent || '');
+    }
+
+    function repairOrderWorkSalaryPreview(rowData, guaranteeValue = null, percentValue = null) {
+      const normalized = normalizeRepairOrderRow(rowData || {});
+      const total = repairOrderResolvedRowTotalValue(normalized) ?? 0;
+      const guarantee = repairOrderParseNumber(guaranteeValue ?? normalized.work_salary_guarantee) ?? 0;
+      const percent = repairOrderParseNumber(percentValue ?? repairOrderWorkSalaryPercentForRow(normalized)) ?? 0;
+      const safeGuarantee = Math.max(guarantee, 0);
+      const safePercent = Math.min(Math.max(percent, 0), 100);
+      const percentBase = Math.max(total - safeGuarantee, 0);
+      const accrued = safeGuarantee + (percentBase * safePercent / 100);
+      return {
+        total: repairOrderRoundMoney(total),
+        guarantee: repairOrderRoundMoney(safeGuarantee),
+        percent: repairOrderRoundMoney(safePercent),
+        servicePercent: repairOrderRoundMoney(100 - safePercent),
+        accrued: repairOrderRoundMoney(accrued),
+      };
+    }
+
+    function syncRepairOrderWorkSalaryGear(row) {
+      if (!(row instanceof HTMLElement)) return;
+      const gear = row.querySelector('[data-repair-order-work-salary-gear]');
+      if (!(gear instanceof HTMLElement)) return;
+      const active = repairOrderNormalizeBool(row.dataset.repairOrderWorkSalaryOverrideEnabled || '') === 'true';
+      gear.classList.toggle('is-active', active);
+      gear.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+
+    function closeRepairOrderWorkSalaryPopover() {
+      state.repairOrderWorkSalaryRow = null;
+      if (!els.repairOrderWorkSalaryPopover) return;
+      els.repairOrderWorkSalaryPopover.classList.remove('is-open');
+      els.repairOrderWorkSalaryPopover.hidden = true;
+    }
+
+    function positionRepairOrderWorkSalaryPopover(anchor) {
+      const popover = els.repairOrderWorkSalaryPopover;
+      if (!popover || !(anchor instanceof HTMLElement)) return;
+      const rect = anchor.getBoundingClientRect();
+      const width = Math.min(330, Math.max(260, window.innerWidth - 24));
+      popover.style.width = width + 'px';
+      popover.style.left = '12px';
+      popover.style.top = '12px';
+      const measured = popover.getBoundingClientRect();
+      const popoverWidth = measured.width || width;
+      const popoverHeight = measured.height || 260;
+      const left = Math.min(Math.max(rect.right - popoverWidth, 12), window.innerWidth - popoverWidth - 12);
+      let top = rect.bottom + 6;
+      if (top + popoverHeight > window.innerHeight - 12) {
+        top = Math.max(12, rect.top - popoverHeight - 6);
+      }
+      popover.style.left = Math.round(left) + 'px';
+      popover.style.top = Math.round(top) + 'px';
+    }
+
+    function syncRepairOrderWorkSalaryPopoverPreview() {
+      const row = state.repairOrderWorkSalaryRow;
+      if (!(row instanceof HTMLElement)) return;
+      const rowData = readRepairOrderRowElement(row);
+      const preview = repairOrderWorkSalaryPreview(
+        rowData,
+        els.repairOrderWorkSalaryGuarantee?.value || '',
+        els.repairOrderWorkSalaryPercent?.value || ''
+      );
+      if (els.repairOrderWorkSalaryTotal) els.repairOrderWorkSalaryTotal.textContent = repairOrderFormatRubles(preview.total);
+      if (els.repairOrderWorkSalaryServicePercent) els.repairOrderWorkSalaryServicePercent.textContent = repairOrderNumberToRaw(preview.servicePercent) + '%';
+      if (els.repairOrderWorkSalaryAmount) els.repairOrderWorkSalaryAmount.textContent = repairOrderFormatRubles(preview.accrued);
+    }
+
+    function openRepairOrderWorkSalaryPopover(button) {
+      const row = button?.closest?.('tr[data-repair-order-row]');
+      if (!(row instanceof HTMLElement)) return;
+      const rowData = readRepairOrderRowElement(row);
+      state.repairOrderWorkSalaryRow = row;
+      if (els.repairOrderWorkSalaryTitle) {
+        els.repairOrderWorkSalaryTitle.textContent = rowData.name || 'РАБОТА БЕЗ НАЗВАНИЯ';
+      }
+      if (els.repairOrderWorkSalaryMeta) {
+        els.repairOrderWorkSalaryMeta.textContent = rowData.executor_name ? ('ИСПОЛНИТЕЛЬ: ' + rowData.executor_name) : 'ИСПОЛНИТЕЛЬ НЕ ВЫБРАН';
+      }
+      if (els.repairOrderWorkSalaryGuarantee) {
+        els.repairOrderWorkSalaryGuarantee.value = rowData.work_salary_guarantee || '';
+      }
+      if (els.repairOrderWorkSalaryPercent) {
+        els.repairOrderWorkSalaryPercent.value = repairOrderWorkSalaryPercentForRow(rowData);
+      }
+      if (els.repairOrderWorkSalaryNote) {
+        els.repairOrderWorkSalaryNote.value = rowData.work_salary_note || '';
+      }
+      if (els.repairOrderWorkSalaryPopover) {
+        els.repairOrderWorkSalaryPopover.hidden = false;
+        els.repairOrderWorkSalaryPopover.classList.add('is-open');
+        syncRepairOrderWorkSalaryPopoverPreview();
+        positionRepairOrderWorkSalaryPopover(button);
+      }
+      els.repairOrderWorkSalaryGuarantee?.focus?.({ preventScroll: true });
+    }
+
+    function applyRepairOrderWorkSalaryPopover() {
+      const row = state.repairOrderWorkSalaryRow;
+      if (!(row instanceof HTMLElement)) return;
+      const guarantee = repairOrderNormalizeNonNegativeRaw(els.repairOrderWorkSalaryGuarantee?.value || '');
+      const percent = repairOrderNormalizePercentRaw(els.repairOrderWorkSalaryPercent?.value || '');
+      row.dataset.repairOrderWorkSalaryOverrideEnabled = 'true';
+      row.dataset.repairOrderWorkSalaryGuarantee = guarantee || '0';
+      row.dataset.repairOrderWorkSalaryPercentOverride = percent || '0';
+      row.dataset.repairOrderWorkSalaryNote = String(els.repairOrderWorkSalaryNote?.value || '').trim();
+      row.dataset.repairOrderSalaryAmount = '';
+      row.dataset.repairOrderSalaryAccruedAt = '';
+      syncRepairOrderWorkSalaryGear(row);
+      closeRepairOrderWorkSalaryPopover();
+      setStatus('НАСТРОЙКА НАЧИСЛЕНИЯ СТРОКИ СОХРАНЕНА В ЧЕРНОВИКЕ.', false);
+    }
+
+    function resetRepairOrderWorkSalaryOverride() {
+      const row = state.repairOrderWorkSalaryRow;
+      if (!(row instanceof HTMLElement)) return;
+      row.dataset.repairOrderWorkSalaryOverrideEnabled = '';
+      row.dataset.repairOrderWorkSalaryGuarantee = '';
+      row.dataset.repairOrderWorkSalaryPercentOverride = '';
+      row.dataset.repairOrderWorkSalaryNote = '';
+      row.dataset.repairOrderSalaryAmount = '';
+      row.dataset.repairOrderSalaryAccruedAt = '';
+      syncRepairOrderWorkSalaryGear(row);
+      closeRepairOrderWorkSalaryPopover();
+      setStatus('ИНДИВИДУАЛЬНОЕ НАЧИСЛЕНИЕ СТРОКИ СБРОШЕНО.', false);
     }
 
     function syncRepairOrderSectionTotals(section) {
@@ -18729,6 +19067,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     function closeRepairOrderModal() {
       const parentLayer = String(state.repairOrderParentLayer || '').trim();
+      closeRepairOrderWorkSalaryPopover();
       closeRepairOrderPaymentsModal();
       popModal('repair-order');
       state.repairOrderParentLayer = '';
@@ -20150,6 +20489,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     function renderRepairOrderRows(section, rows, { syncTotals = true } = {}) {
       const body = repairOrderRowsBody(section);
+      closeRepairOrderWorkSalaryPopover();
       body.innerHTML = ensureRepairOrderRows(rows).map((row, index) => repairOrderRowHtml(section, row, index)).join('');
       if (syncTotals) syncRepairOrderTotals();
     }
@@ -24177,6 +24517,10 @@ BOARD_WEB_APP_HTML = "".join(
           row.dataset.repairOrderWorkPercent = '';
           row.dataset.repairOrderSalaryAmount = '';
           row.dataset.repairOrderSalaryAccruedAt = '';
+          if (state.repairOrderWorkSalaryRow === row && els.repairOrderWorkSalaryMeta) {
+            const normalized = readRepairOrderRowElement(row);
+            els.repairOrderWorkSalaryMeta.textContent = normalized.executor_name ? ('ИСПОЛНИТЕЛЬ: ' + normalized.executor_name) : 'ИСПОЛНИТЕЛЬ НЕ ВЫБРАН';
+          }
         }
       }
       if (target.closest('tr[data-repair-order-row]')) syncRepairOrderTotals();
@@ -24524,6 +24868,30 @@ BOARD_WEB_APP_HTML = "".join(
         addRepairOrderRow(addRepairOrderRowButton.dataset.addRepairOrderRow);
         return;
       }
+      const workSalaryGearButton = target.closest('[data-repair-order-work-salary-gear]');
+      if (workSalaryGearButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        openRepairOrderWorkSalaryPopover(workSalaryGearButton);
+        return;
+      }
+      const workSalaryApplyButton = target.closest('[data-repair-order-work-salary-apply]');
+      if (workSalaryApplyButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        applyRepairOrderWorkSalaryPopover();
+        return;
+      }
+      const workSalaryResetButton = target.closest('[data-repair-order-work-salary-reset]');
+      if (workSalaryResetButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        resetRepairOrderWorkSalaryOverride();
+        return;
+      }
+      if (els.repairOrderWorkSalaryPopover?.classList.contains('is-open') && !target.closest('#repairOrderWorkSalaryPopover')) {
+        closeRepairOrderWorkSalaryPopover();
+      }
       const removeRepairOrderRowButton = target.closest('[data-remove-repair-order-row]');
       if (removeRepairOrderRowButton) {
         removeRepairOrderRow(
@@ -24760,6 +25128,8 @@ BOARD_WEB_APP_HTML = "".join(
     els.repairOrderAddMaterialRowButton.addEventListener('click', (event) => addRepairOrderRowFromButton('materials', event));
     els.repairOrderModal.addEventListener('input', handleRepairOrderModalInput);
     els.repairOrderModal.addEventListener('change', handleRepairOrderModalInput);
+    els.repairOrderWorkSalaryPopover?.addEventListener('input', syncRepairOrderWorkSalaryPopoverPreview);
+    els.repairOrderWorkSalaryPopover?.addEventListener('change', syncRepairOrderWorkSalaryPopoverPreview);
     els.repairOrderTagAddButton.addEventListener('click', addRepairOrderTag);
     els.repairOrderTagInput.addEventListener('keydown', handleRepairOrderTagInputKeydown);
     els.repairOrderButton.addEventListener('click', openRepairOrderModal);

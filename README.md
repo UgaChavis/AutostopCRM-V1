@@ -110,6 +110,8 @@ Run MCP/API headless:
 Core release gate:
 
 ```powershell
+.\scripts\doctor.ps1
+.\scripts\run_checks.ps1
 .\.venv\Scripts\python.exe -m ruff format --check .
 .\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m unittest discover -s .\tests -v
@@ -118,6 +120,19 @@ python scripts\audit_localization.py
 python scripts\check_web_assets_js.py
 python scripts\browser_smoke.py
 ```
+
+Payroll/UI release checks also use the temp-runtime browser and performance
+smokes:
+
+```powershell
+python scripts\perf_probe.py --local-temp-server --iterations 1 --max-snapshot-gzip-ms 1200 --max-snapshot-gzip-bytes 120000 --max-revision-ms 800 --max-get-card-ms 800
+python scripts\perf_mcp.py --local-temp-server --iterations 3
+python scripts\perf_workflows.py --local-temp-server --iterations 3
+```
+
+`scripts\browser_smoke.py` seeds a closed repair order with a salary override
+and verifies that the amount reaches payroll report, salary ledger, monthly
+employee report, and the printable salary reconciliation act.
 
 Use [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md) for production
 deploy, smoke credentials, server parity, public checks, performance probes, and
