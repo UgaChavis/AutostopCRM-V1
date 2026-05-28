@@ -7718,7 +7718,7 @@ BOARD_WEB_APP_HTML = "".join(
     <div class="dialog" style="width:min(1120px,100%)">
       <div class="dialog__head">
         <div class="dialog__title">АДМИН-ПАНЕЛЬ</div>
-        <button class="btn" data-close="operator-admin">ЗАКРЫТЬ</button>
+        <button class="btn" id="operatorAdminCloseButton" data-close="operator-admin">ЗАКРЫТЬ</button>
       </div>
       <div class="operator-admin-tabs" id="operatorAdminTabs">
         <button class="btn is-active" type="button" data-operator-admin-tab="journal">ЖУРНАЛ</button>
@@ -7778,7 +7778,7 @@ BOARD_WEB_APP_HTML = "".join(
           <div class="operator-activity-details hidden" id="operatorActivityDetailsPanel"></div>
         </div>
         <div class="operator-admin-secondary operator-admin-tab-panel hidden" id="operatorAdminUsersPanel" data-operator-admin-panel="users">
-          <div class="subpanel">
+          <div class="subpanel" id="operatorUserEditorPanel">
             <div class="panel-title">ПОЛЬЗОВАТЕЛЬ</div>
             <div class="field field--compact">
               <label for="adminUserLogin">ЛОГИН</label>
@@ -7805,7 +7805,7 @@ BOARD_WEB_APP_HTML = "".join(
               <button class="btn btn--ghost" id="operatorUserEmployeeCancelButton" type="button">ОТМЕНА</button>
             </div>
           </div>
-          <div class="subpanel">
+          <div class="subpanel" id="operatorUsersListPanel">
             <div class="panel-title">ПОЛЬЗОВАТЕЛИ</div>
             <div id="adminUsersList"></div>
           </div>
@@ -9194,10 +9194,13 @@ BOARD_WEB_APP_HTML = "".join(
       operatorAdminButton: document.getElementById('operatorAdminButton'),
       operatorLogoutButton: document.getElementById('operatorLogoutButton'),
       operatorAdminModal: document.getElementById('operatorAdminModal'),
+      operatorAdminCloseButton: document.getElementById('operatorAdminCloseButton'),
       operatorAdminTabs: document.getElementById('operatorAdminTabs'),
       operatorAdminJournalPanel: document.getElementById('operatorAdminJournalPanel'),
       operatorAdminUsersPanel: document.getElementById('operatorAdminUsersPanel'),
       adminUsersList: document.getElementById('adminUsersList'),
+      operatorUserEditorPanel: document.getElementById('operatorUserEditorPanel'),
+      operatorUsersListPanel: document.getElementById('operatorUsersListPanel'),
       operatorUserEmployeeBindingPanel: document.getElementById('operatorUserEmployeeBindingPanel'),
       operatorUserEmployeeBindingTitle: document.getElementById('operatorUserEmployeeBindingTitle'),
       operatorUserEmployeeSelect: document.getElementById('operatorUserEmployeeSelect'),
@@ -11379,6 +11382,7 @@ BOARD_WEB_APP_HTML = "".join(
       setOperatorSessionToken('');
       applyBoardScalePreference({ fallbackValue: 1, syncInput: true, persistFallback: false });
       updateOperatorButton();
+      closeOperatorEmployeeBinding();
       popModal('operator-profile', { skipFocus: true });
       popModal('operator-admin', { skipFocus: true });
       if (!preserveStatus) setStatus('Нужен вход оператора.', true);
@@ -11533,11 +11537,40 @@ BOARD_WEB_APP_HTML = "".join(
       return options.join('');
     }
 
+    function isOperatorEmployeeBindingOpen() {
+      return Boolean(String(state.operatorEmployeeBindingUser || '').trim());
+    }
+
+    function syncOperatorAdminCloseButton() {
+      if (!els.operatorAdminCloseButton) return;
+      const isNested = isOperatorEmployeeBindingOpen();
+      els.operatorAdminCloseButton.textContent = isNested ? 'НАЗАД' : 'ЗАКРЫТЬ';
+      els.operatorAdminCloseButton.setAttribute(
+        'aria-label',
+        isNested ? 'Вернуться к пользователям' : 'Закрыть админ-панель',
+      );
+    }
+
+    function closeOperatorAdminChildView() {
+      if (isOperatorEmployeeBindingOpen()) {
+        closeOperatorEmployeeBinding();
+        return true;
+      }
+      return false;
+    }
+
     function renderOperatorEmployeeBindingPanel() {
-      const username = String(state.operatorEmployeeBindingUser || '').trim().toUpperCase();
+      let username = String(state.operatorEmployeeBindingUser || '').trim().toUpperCase();
       const user = (state.operatorUsers || []).find((item) => String(item?.username || '').trim().toUpperCase() === username);
+      if (username && !user) {
+        state.operatorEmployeeBindingUser = '';
+        username = '';
+      }
       const isOpen = Boolean(username && user);
       els.operatorUserEmployeeBindingPanel?.classList.toggle('hidden', !isOpen);
+      els.operatorUserEditorPanel?.classList.toggle('hidden', isOpen);
+      els.operatorUsersListPanel?.classList.toggle('hidden', isOpen);
+      syncOperatorAdminCloseButton();
       if (!isOpen) return;
       if (els.operatorUserEmployeeBindingTitle) {
         els.operatorUserEmployeeBindingTitle.textContent = 'ПРИВЯЗКА СОТРУДНИКА / ' + username;
@@ -11911,6 +11944,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.operatorAdminUsersPanel?.classList.toggle('hidden', normalized !== 'users');
       els.operatorAdminUsersPanel?.classList.toggle('is-active', normalized === 'users');
       if (normalized !== 'users') closeOperatorEmployeeBinding();
+      syncOperatorAdminCloseButton();
       if (normalized === 'journal') updateOperatorActivityScrollHint();
     }
 
@@ -12151,7 +12185,10 @@ BOARD_WEB_APP_HTML = "".join(
         },
         'repair-order-payments': () => closeRepairOrderPaymentsModal(),
         'operator-profile': () => popModal('operator-profile'),
-        'operator-admin': () => popModal('operator-admin'),
+        'operator-admin': () => {
+          if (closeOperatorAdminChildView()) return false;
+          popModal('operator-admin');
+        },
       };
       const closeAction = closeActions[normalizedKey];
       const result = typeof closeAction === 'function' ? closeAction() : null;

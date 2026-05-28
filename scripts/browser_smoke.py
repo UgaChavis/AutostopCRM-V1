@@ -24,6 +24,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.api.server import ApiServer
+from minimal_kanban.operator_activity import OperatorActivityService
 from minimal_kanban.operator_auth import OperatorAuthService
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.services.shared_files_service import SharedFilesService
@@ -51,6 +52,7 @@ SMOKE_SCENARIOS = (
     "archive_search_filters_visible_rows",
     "cashboxes_journal_transfer_returns_to_cashbox",
     "escape_closes_top_modal_only",
+    "operator_admin_employee_binding_returns_to_users",
     "mobile_board_load",
 )
 
@@ -303,6 +305,10 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
         store,
         service,
         users_file=base_dir / "users.json",
+        activity_service=OperatorActivityService(
+            activity_dir=base_dir / "operator-activity",
+            logger=logger,
+        ),
         logger=logger,
     )
     admin_session = operator_service.login({"username": "admin", "password": "admin"})["session"]
@@ -482,6 +488,49 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     scenarios["payroll_chain_reaches_reports_and_reconciliation"] = (
         _payroll_chain_reaches_reports_and_reconciliation(runtime)
     )
+    await page.click("#operatorButton")
+    await _wait_modal_open(page, "#operatorProfileModal")
+    await page.click("#operatorAdminButton")
+    await _wait_modal_open(page, "#operatorAdminModal")
+    await page.click('[data-operator-admin-tab="users"]')
+    await page.wait_for_selector("[data-bind-operator-employee]")
+    await page.click("[data-bind-operator-employee]")
+    await page.wait_for_selector("#operatorUserEmployeeBindingPanel:not(.hidden)")
+    await page.wait_for_function(
+        """() => document.querySelector('#operatorAdminCloseButton')?.textContent.trim() === 'НАЗАД'"""
+    )
+    await page.keyboard.press("Escape")
+    await page.wait_for_function(
+        """() => document.querySelector('#operatorUserEmployeeBindingPanel')?.classList.contains('hidden')"""
+    )
+    admin_binding_escape_ok = bool(
+        await page.evaluate(
+            """() => {
+              return Boolean(
+                document.querySelector('#operatorAdminModal')?.classList.contains('is-open') &&
+                !document.querySelector('#operatorUserEditorPanel')?.classList.contains('hidden') &&
+                !document.querySelector('#operatorUsersListPanel')?.classList.contains('hidden') &&
+                document.querySelector('#operatorAdminCloseButton')?.textContent.trim() === 'ЗАКРЫТЬ'
+              );
+            }"""
+        )
+    )
+    await page.click("[data-bind-operator-employee]")
+    await page.wait_for_selector("#operatorUserEmployeeBindingPanel:not(.hidden)")
+    await page.click("#operatorAdminCloseButton")
+    await page.wait_for_function(
+        """() => document.querySelector('#operatorUserEmployeeBindingPanel')?.classList.contains('hidden')"""
+    )
+    admin_binding_back_ok = await _is_modal_open(page, "#operatorAdminModal")
+    await page.click("#operatorAdminCloseButton")
+    await _wait_modal_closed(page, "#operatorAdminModal")
+    admin_binding_final_close_ok = not await _is_modal_open(page, "#operatorAdminModal")
+    await page.click('[data-close="operator-profile"]')
+    await _wait_modal_closed(page, "#operatorProfileModal")
+    scenarios["operator_admin_employee_binding_returns_to_users"] = bool(
+        admin_binding_escape_ok and admin_binding_back_ok and admin_binding_final_close_ok
+    )
+
     await page.wait_for_selector(f'[data-card-id="{runtime.card_id}"]')
     await page.click(f'[data-card-id="{runtime.card_id}"]')
     await _wait_modal_open(page, "#cardModal")

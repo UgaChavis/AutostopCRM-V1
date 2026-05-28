@@ -1937,6 +1937,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function openOperatorAdminModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function saveOperatorUser()", BOARD_WEB_APP_HTML)
         self.assertIn("async function saveOperatorEmployeeBinding", BOARD_WEB_APP_HTML)
+        self.assertIn("function closeOperatorAdminChildView()", BOARD_WEB_APP_HTML)
         self.assertIn("async function deleteOperatorUser(username)", BOARD_WEB_APP_HTML)
         self.assertIn("async function openOperatorUserReport(username)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleAdminUsersListClick(event)", BOARD_WEB_APP_HTML)
@@ -1959,7 +1960,15 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("'/api/get_operator_user_report?username='", BOARD_WEB_APP_HTML)
         self.assertIn("data-open-operator-report", BOARD_WEB_APP_HTML)
         self.assertIn("data-bind-operator-employee", BOARD_WEB_APP_HTML)
+        self.assertIn('id="operatorAdminCloseButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="operatorUserEmployeeBindingPanel"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="operatorUserEditorPanel"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="operatorUsersListPanel"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.operatorAdminCloseButton.textContent = isNested ? 'НАЗАД' : 'ЗАКРЫТЬ';",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("if (closeOperatorAdminChildView()) return false;", BOARD_WEB_APP_HTML)
         self.assertIn("СОТРУДНИК: НЕ ПРИВЯЗАН", BOARD_WEB_APP_HTML)
         self.assertIn("СТАТИСТИКА: 15 ДНЕЙ", BOARD_WEB_APP_HTML)
         self.assertIn("bootstrapOperatorSession();", BOARD_WEB_APP_HTML)
