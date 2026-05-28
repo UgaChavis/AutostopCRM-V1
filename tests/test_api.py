@@ -1672,6 +1672,22 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(ledger["data"]["balance_total"], "2000")
         self.assertTrue(any(row["kind"] == "accrual" for row in ledger["data"]["journal_rows"]))
 
+        status, shift_accrual = self.request(
+            "/api/create_employee_shift_accrual",
+            {
+                "employee_id": employee["id"],
+                "amount": "3000",
+                "actor_name": "ADMIN",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(shift_accrual["data"]["accrual"]["employee_id"], employee["id"])
+        self.assertEqual(shift_accrual["data"]["accrual"]["amount"], "3000")
+        self.assertEqual(
+            shift_accrual["data"]["accrual"]["note"],
+            "Выплата за смены за текущую неделю",
+        )
+
         status, payout = self.request(
             "/api/create_employee_salary_transaction",
             {
@@ -1705,9 +1721,13 @@ class ApiServerTests(unittest.TestCase):
             method="GET",
         )
         self.assertEqual(status, 200)
-        self.assertEqual(ledger_after["data"]["balance_total"], "-1000")
+        self.assertEqual(ledger_after["data"]["balance_total"], "2000")
+        self.assertEqual(ledger_after["data"]["accrued_total"], "5000")
         self.assertEqual(ledger_after["data"]["payout_total"], "2500")
         self.assertEqual(ledger_after["data"]["advance_total"], "500")
+        self.assertTrue(
+            any(row["kind"] == "shift_accrual" for row in ledger_after["data"]["journal_rows"])
+        )
         self.assertTrue(
             any(row["kind"] == "salary_payout" for row in ledger_after["data"]["journal_rows"])
         )
@@ -1727,11 +1747,14 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(report["data"]["totals"]["repair_order_count"], 1)
         self.assertEqual(report["data"]["totals"]["work_count"], 1)
         self.assertEqual(report["data"]["totals"]["work_total"], "8000")
-        self.assertEqual(report["data"]["totals"]["accrued_total"], "2000")
+        self.assertEqual(report["data"]["totals"]["shift_accrual_count"], 1)
+        self.assertEqual(report["data"]["totals"]["shift_accrual_total"], "3000")
+        self.assertEqual(report["data"]["totals"]["accrued_total"], "5000")
         self.assertIn("ОТЧЕТ ПО НАЧИСЛЕНИЯМ", report["data"]["text"])
         self.assertIn("ЗН 201 | Toyota Camry | госномер: т201тс124", report["data"]["text"])
         self.assertIn("Замена генератора", report["data"]["text"])
-        self.assertNotIn("Выплата", report["data"]["text"])
+        self.assertIn("Выплата за смены за текущую неделю", report["data"]["text"])
+        self.assertNotIn("Выплата зарплаты", report["data"]["text"])
         self.assertNotIn("Аванс", report["data"]["text"])
         self.assertIn("employee-accrual-report-", report["data"]["file_name"])
         self.assertTrue(report["data"]["file_name"].endswith(".md"))
@@ -1748,6 +1771,41 @@ class ApiServerTests(unittest.TestCase):
         self.assertGreaterEqual(
             cashbox_details["data"]["cashbox"]["statistics"]["transactions_total"], 2
         )
+
+    def test_employee_shift_accrual_rejects_missing_or_inactive_employee(self) -> None:
+        status, missing = self.request(
+            "/api/create_employee_shift_accrual",
+            {"employee_id": "missing", "amount": "1000"},
+        )
+        self.assertEqual(status, 404)
+        self.assertEqual(missing["error"]["code"], "not_found")
+
+        status, employee_saved = self.request(
+            "/api/save_employee",
+            {
+                "name": "Неактивный Сотрудник",
+                "position": "Мастер",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "10",
+            },
+        )
+        self.assertEqual(status, 200)
+        employee = employee_saved["data"]["employee"]
+
+        status, toggled = self.request(
+            "/api/toggle_employee",
+            {"employee_id": employee["id"], "actor_name": "ADMIN"},
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(toggled["data"]["employee"]["is_active"])
+
+        status, inactive = self.request(
+            "/api/create_employee_shift_accrual",
+            {"employee_id": employee["id"], "amount": "1000"},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(inactive["error"]["code"], "validation_error")
 
     def test_employee_salary_reconciliation_route_returns_print_payload(self) -> None:
         status, employee_saved = self.request(
@@ -1839,6 +1897,17 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(advance["data"]["transaction"]["amount_minor"], 25000)
 
+        status, shift_accrual = self.request(
+            "/api/create_employee_shift_accrual",
+            {
+                "employee_id": employee["id"],
+                "amount": "1200",
+                "actor_name": "ADMIN",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(shift_accrual["data"]["accrual"]["amount_minor"], 120000)
+
         status, report = self.request(
             f"/api/get_employee_salary_reconciliation?employee_id={employee['id']}",
             method="GET",
@@ -1849,11 +1918,12 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(data["meta"]["schema_version"], "employee_salary_reconciliation.v1")
         self.assertEqual(data["period"]["days"], 30)
         self.assertEqual(data["employee"]["id"], employee["id"])
-        self.assertEqual(data["totals"]["accrued_total"], "2000")
+        self.assertEqual(data["totals"]["accrued_total"], "3200")
         self.assertEqual(data["totals"]["payout_total"], "500")
         self.assertEqual(data["totals"]["advance_total"], "250")
-        self.assertEqual(data["totals"]["amount_due_total"], "1250")
+        self.assertEqual(data["totals"]["amount_due_total"], "2450")
         self.assertTrue(any(row["kind"] == "work_accrual" for row in data["rows"]))
+        self.assertTrue(any(row["kind"] == "shift_accrual" for row in data["rows"]))
         self.assertTrue(any(row["kind"] == "salary_payout" for row in data["rows"]))
         self.assertTrue(any(row["kind"] == "salary_advance" for row in data["rows"]))
         work_row = next(row for row in data["rows"] if row["kind"] == "work_accrual")
@@ -1872,6 +1942,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("Toyota Camry", html)
         self.assertIn("т501тс124", html)
         self.assertIn("Замена генератора", html)
+        self.assertIn("Выплата за смены за текущую неделю", html)
         self.assertIn("ПЕЧАТЬ", html)
         self.assertIn("@media print", html)
         self.assertIn("Бухгалтер", html)

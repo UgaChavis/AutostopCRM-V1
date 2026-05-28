@@ -196,6 +196,7 @@ Write:
   `/api/create_cashbox_transfer`, `/api/delete_cashbox`
 - `POST /api/create_cash_transaction`,
   `/api/create_employee_salary_transaction`,
+  `/api/create_employee_shift_accrual`,
   `/api/cancel_last_cash_transaction`
 - `POST /api/save_employee`, `/api/toggle_employee`, `/api/delete_employee`
 
@@ -223,10 +224,16 @@ as one logical `cashbox -> cashbox` row, and no visible finance-audit entrypoint
 `finance_audit.v1` is internal read-only diagnostics. Apply safe fixes only
 through the audit-first runbook path.
 
+`create_employee_shift_accrual` stores a manual non-cash payroll accrual for
+one active employee. Payload: `employee_id`, `amount`, optional `note`
+(defaults to `Выплата за смены за текущую неделю`). It affects payroll reports,
+employee salary ledger, and reconciliation act without changing cashboxes.
+
 `get_employee_salary_report` returns `employee_salary_report.v3` for a selected
-employee and month `YYYY-MM`; it includes closed repair-order works and accrued
-amounts, not advances. Work rows with manual salary override show the applied
-scheme, for example `Гарантия 5 000,00 ₽ + 45%`.
+employee and month `YYYY-MM`; it includes closed repair-order works, material
+salary accruals, weekly base salary accruals, and manual shift accruals, not
+advances. Work rows with manual salary override show the applied scheme, for
+example `Гарантия 5 000,00 ₽ + 45%`.
 
 `get_employee_salary_reconciliation` returns
 `employee_salary_reconciliation.v1` for a selected employee for the last 30 days.

@@ -6555,6 +6555,13 @@ BOARD_WEB_APP_HTML = "".join(
       gap: 6px;
       flex-wrap: wrap;
     }
+    .employees-incentives__choices {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
     .employees-incentives__actions .btn {
       min-height: 28px;
       padding: 5px 8px;
@@ -8720,6 +8727,8 @@ BOARD_WEB_APP_HTML = "".join(
       employeeSalaryActionKind: '',
       employeeSalaryActionDraft: '',
       employeeSalaryCashboxId: '',
+      employeeShiftAccrualOpen: false,
+      employeeShiftAccrualDraft: '',
       employeesUiBound: false,
       repairOrderPaymentsUiBound: false,
       repairOrderTags: [],
@@ -9047,9 +9056,22 @@ BOARD_WEB_APP_HTML = "".join(
                       + '<div class="employees-incentives" id="employeeIncentivesPanel">'
                         + '<div class="employees-incentives__head">'
                           + '<div class="panel-title">НАЧИСЛЕНИЯ</div>'
-                          + '<div class="employees-incentives__actions" id="employeeIncentiveAddChoices"></div>'
+                          + '<div class="employees-incentives__actions">'
+                            + '<button class="btn btn--ghost" id="employeeShiftAccrualButton" type="button">+ СМЕНЫ</button>'
+                            + '<div class="employees-incentives__choices" id="employeeIncentiveAddChoices"></div>'
+                          + '</div>'
                         + '</div>'
                         + '<div class="employees-incentives__list" id="employeeIncentivesList"></div>'
+                        + '<div class="employees-salary-dialog employees-shift-dialog" id="employeeShiftAccrualDialog" hidden>'
+                          + '<div class="employees-salary-dialog__head">'
+                            + '<div class="panel-title">ВЫПЛАТА ЗА СМЕНЫ</div>'
+                            + '<button class="btn btn--ghost" id="employeeShiftAccrualCancelButton" type="button">ОТМЕНА</button>'
+                          + '</div>'
+                          + '<div class="employees-salary-dialog__body">'
+                            + '<div class="field employees-field--compact employees-field--salary"><label for="employeeShiftAccrualAmountInput">СУММА</label><input id="employeeShiftAccrualAmountInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
+                            + '<button class="btn btn--accent" id="employeeShiftAccrualConfirmButton" type="button">НАЧИСЛИТЬ</button>'
+                          + '</div>'
+                        + '</div>'
                       + '</div>'
                     + '</div>'
                   + '</div>'
@@ -9287,6 +9309,11 @@ BOARD_WEB_APP_HTML = "".join(
       employeeMaterialPercentInput: document.getElementById('employeeMaterialPercentInput'),
       employeeIncentivesList: document.getElementById('employeeIncentivesList'),
       employeeIncentiveAddChoices: document.getElementById('employeeIncentiveAddChoices'),
+      employeeShiftAccrualButton: document.getElementById('employeeShiftAccrualButton'),
+      employeeShiftAccrualDialog: document.getElementById('employeeShiftAccrualDialog'),
+      employeeShiftAccrualAmountInput: document.getElementById('employeeShiftAccrualAmountInput'),
+      employeeShiftAccrualConfirmButton: document.getElementById('employeeShiftAccrualConfirmButton'),
+      employeeShiftAccrualCancelButton: document.getElementById('employeeShiftAccrualCancelButton'),
       employeeActiveInput: document.getElementById('employeeActiveInput'),
       employeeSaveButton: document.getElementById('employeeSaveButton'),
       employeeDeleteButton: document.getElementById('employeeDeleteButton'),
@@ -9801,6 +9828,11 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeeMaterialPercentInput = document.getElementById('employeeMaterialPercentInput');
       els.employeeIncentivesList = document.getElementById('employeeIncentivesList');
       els.employeeIncentiveAddChoices = document.getElementById('employeeIncentiveAddChoices');
+      els.employeeShiftAccrualButton = document.getElementById('employeeShiftAccrualButton');
+      els.employeeShiftAccrualDialog = document.getElementById('employeeShiftAccrualDialog');
+      els.employeeShiftAccrualAmountInput = document.getElementById('employeeShiftAccrualAmountInput');
+      els.employeeShiftAccrualConfirmButton = document.getElementById('employeeShiftAccrualConfirmButton');
+      els.employeeShiftAccrualCancelButton = document.getElementById('employeeShiftAccrualCancelButton');
       els.employeeActiveInput = document.getElementById('employeeActiveInput');
       els.employeeSaveButton = document.getElementById('employeeSaveButton');
       els.employeeDeleteButton = document.getElementById('employeeDeleteButton');
@@ -11086,6 +11118,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.employeesDetailTable?.addEventListener('click', handleEmployeesDetailClick);
       els.employeesModal?.addEventListener('input', handleEmployeesModalFormInput);
       els.employeesModal?.addEventListener('change', handleEmployeesModalFormInput);
+      els.employeesModal?.addEventListener('keydown', handleEmployeesModalKeydown);
       els.employeesModal?.addEventListener('click', handleEmployeesModalOverlayClick);
       els.employeeSalaryModal?.addEventListener('input', handleEmployeeSalaryModalInput);
       els.employeeSalaryModal?.addEventListener('change', handleEmployeeSalaryModalInput);
@@ -13613,6 +13646,45 @@ BOARD_WEB_APP_HTML = "".join(
       }).join('');
     }
 
+    function renderEmployeeShiftAccrualDialog() {
+      const employee = selectedEmployeeRecord();
+      const isOpen = Boolean(state.employeeShiftAccrualOpen && employee && !state.employeeCreateMode);
+      if (els.employeeShiftAccrualDialog) els.employeeShiftAccrualDialog.hidden = !isOpen;
+      if (els.employeeShiftAccrualButton) {
+        els.employeeShiftAccrualButton.disabled = !employee || state.employeeCreateMode || employeeFormHasUnsavedChanges();
+      }
+      if (!isOpen) return;
+      if (els.employeeShiftAccrualAmountInput && !String(els.employeeShiftAccrualAmountInput.value || '').trim()) {
+        els.employeeShiftAccrualAmountInput.value = state.employeeShiftAccrualDraft || '';
+      }
+    }
+
+    function openEmployeeShiftAccrualDialog() {
+      const employee = selectedEmployeeRecord();
+      if (!employee || state.employeeCreateMode) {
+        setStatus('СНАЧАЛА ВЫБЕРИТЕ СОТРУДНИКА.', true);
+        return;
+      }
+      if (employeeFormHasUnsavedChanges()) {
+        setStatus('СНАЧАЛА СОХРАНИТЕ ИЗМЕНЕНИЯ СОТРУДНИКА.', true);
+        return;
+      }
+      state.employeeShiftAccrualOpen = true;
+      state.employeeShiftAccrualDraft = '';
+      if (els.employeeShiftAccrualAmountInput) els.employeeShiftAccrualAmountInput.value = '';
+      renderEmployeeShiftAccrualDialog();
+      if (els.employeeShiftAccrualAmountInput) {
+        setTimeout(() => els.employeeShiftAccrualAmountInput.focus(), 0);
+      }
+    }
+
+    function closeEmployeeShiftAccrualDialog() {
+      state.employeeShiftAccrualOpen = false;
+      state.employeeShiftAccrualDraft = '';
+      if (els.employeeShiftAccrualAmountInput) els.employeeShiftAccrualAmountInput.value = '';
+      renderEmployeeShiftAccrualDialog();
+    }
+
     function employeeComparableSnapshot(employee = null) {
       return {
         name: normalizeEmployeeComparableText(employee?.name),
@@ -13827,10 +13899,11 @@ BOARD_WEB_APP_HTML = "".join(
         const rowType = String(row.row_type || '').trim();
         const isMaterial = rowType === 'material';
         const isBaseSalary = rowType === 'base_salary';
-        const positionName = isBaseSalary ? (row.material_name || 'Недельный оклад') : (isMaterial ? (row.material_name || '-') : ((row.works_count || '0') + ' раб.'));
-        const saleTotal = isBaseSalary ? '-' : (isMaterial ? (row.material_total || '0') : (row.work_total || '0'));
-        const costTotal = isBaseSalary ? '-' : (isMaterial ? (row.material_cost_total || '0') : '-');
-        const profitTotal = isBaseSalary ? '-' : (isMaterial ? (row.material_profit || '0') : '-');
+        const isShiftAccrual = rowType === 'shift_accrual';
+        const positionName = (isBaseSalary || isShiftAccrual) ? (row.material_name || (isBaseSalary ? 'Недельный оклад' : 'Выплата за смены за текущую неделю')) : (isMaterial ? (row.material_name || '-') : ((row.works_count || '0') + ' раб.'));
+        const saleTotal = (isBaseSalary || isShiftAccrual) ? '-' : (isMaterial ? (row.material_total || '0') : (row.work_total || '0'));
+        const costTotal = (isBaseSalary || isShiftAccrual) ? '-' : (isMaterial ? (row.material_cost_total || '0') : '-');
+        const profitTotal = (isBaseSalary || isShiftAccrual) ? '-' : (isMaterial ? (row.material_profit || '0') : '-');
         return '<tr data-card-id="' + escapeHtml(row.card_id || '') + '" data-open-repair-order="' + (row.repair_order_number ? '1' : '') + '">' +
           '<td>' + escapeHtml(row.closed_at || '-') + '</td>' +
           '<td>' + escapeHtml(row.repair_order_number || '-') + '</td>' +
@@ -14304,6 +14377,50 @@ BOARD_WEB_APP_HTML = "".join(
       }
     }
 
+    async function handleEmployeeShiftAccrualConfirm() {
+      const employeeId = String(state.activeEmployeeId || '').trim();
+      const amount = String(els.employeeShiftAccrualAmountInput?.value || '').trim();
+      if (!employeeId || state.employeeCreateMode) {
+        setStatus('СНАЧАЛА ВЫБЕРИТЕ СОТРУДНИКА.', true);
+        return;
+      }
+      if (employeeFormHasUnsavedChanges()) {
+        setStatus('СНАЧАЛА СОХРАНИТЕ ИЗМЕНЕНИЯ СОТРУДНИКА.', true);
+        return;
+      }
+      if (!amount) {
+        setStatus('УКАЖИТЕ СУММУ.', true);
+        els.employeeShiftAccrualAmountInput?.focus();
+        return;
+      }
+      try {
+        if (els.employeeShiftAccrualConfirmButton) els.employeeShiftAccrualConfirmButton.disabled = true;
+        await api('/api/create_employee_shift_accrual', {
+          method: 'POST',
+          body: {
+            employee_id: employeeId,
+            amount,
+            note: 'Выплата за смены за текущую неделю',
+            actor_name: state.actor,
+            source: 'ui',
+          },
+        });
+        closeEmployeeShiftAccrualDialog();
+        state.employeesLoadedMonth = '';
+        await loadEmployeesReference();
+        await loadPayrollReport();
+        renderEmployeesWorkspace();
+        if (String(state.activeEmployeeSalaryId || '') === employeeId) {
+          await loadEmployeeSalarySheet(employeeId, { openModal: true });
+        }
+        setStatus('ВЫПЛАТА ЗА СМЕНЫ НАЧИСЛЕНА.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        if (els.employeeShiftAccrualConfirmButton) els.employeeShiftAccrualConfirmButton.disabled = false;
+      }
+    }
+
     function renderEmployeesWorkspace() {
       const employees = Array.isArray(state.employees) ? state.employees : [];
       if (!state.employeeCreateMode && !state.activeEmployeeId && employees.length) {
@@ -14324,6 +14441,7 @@ BOARD_WEB_APP_HTML = "".join(
       renderEmployeesDetails();
       syncEmployeesReportPanelUi();
       renderEmployeeProfileMeta();
+      renderEmployeeShiftAccrualDialog();
     }
 
     async function loadEmployeesReference() {
@@ -14402,6 +14520,8 @@ BOARD_WEB_APP_HTML = "".join(
       state.employeeCreateMode = true;
       state.activeEmployeeId = '';
       state.employeesReportDetailsOpen = false;
+      state.employeeShiftAccrualOpen = false;
+      state.employeeShiftAccrualDraft = '';
       renderEmployeesWorkspace();
       setStatus('ЗАПОЛНИТЕ НОВОГО СОТРУДНИКА И НАЖМИТЕ ДОБАВИТЬ.', false);
       if (els.employeeNameInput) {
@@ -14477,6 +14597,8 @@ BOARD_WEB_APP_HTML = "".join(
           state.activeEmployeeId = '';
         }
         state.employeesReportDetailsOpen = false;
+        state.employeeShiftAccrualOpen = false;
+        state.employeeShiftAccrualDraft = '';
         state.employeeCreateMode = !state.employees.length;
         await loadPayrollReport();
         if (String(state.activeEmployeeSalaryId || '') === String(employee.id || '')) {
@@ -14575,22 +14697,30 @@ BOARD_WEB_APP_HTML = "".join(
       state.employeeCreateMode = false;
       state.activeEmployeeId = nextEmployeeId;
       state.employeesReportDetailsOpen = true;
+      state.employeeShiftAccrualOpen = false;
+      state.employeeShiftAccrualDraft = '';
       renderEmployeesWorkspace();
     }
 
     function handleEmployeesModalFormInput(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      if (target === els.employeeShiftAccrualAmountInput) {
+        state.employeeShiftAccrualDraft = String(els.employeeShiftAccrualAmountInput.value || '').trim();
+        return;
+      }
       const incentiveInput = target.closest('[data-employee-incentive-value]');
       if (incentiveInput instanceof HTMLInputElement) {
         const kind = String(incentiveInput.dataset.employeeIncentiveValue || '').trim();
         setEmployeeIncentiveFieldValue(kind, incentiveInput.value);
         syncEmployeeSalaryModeFromIncentives();
         renderEmployeeProfileMeta();
+        renderEmployeeShiftAccrualDialog();
         return;
       }
       if (target === els.employeeSalaryModeInput) {
         syncEmployeeSalaryModeUi();
+        renderEmployeeShiftAccrualDialog();
         return;
       }
       if (
@@ -14602,6 +14732,16 @@ BOARD_WEB_APP_HTML = "".join(
         || target === els.employeeMaterialPercentInput
       ) {
         renderEmployeeProfileMeta();
+        renderEmployeeShiftAccrualDialog();
+      }
+    }
+
+    function handleEmployeesModalKeydown(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target === els.employeeShiftAccrualAmountInput && event.key === 'Enter') {
+        event.preventDefault();
+        handleEmployeeShiftAccrualConfirm();
       }
     }
 
@@ -23850,6 +23990,18 @@ BOARD_WEB_APP_HTML = "".join(
     function handleEmployeesModalOverlayClick(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      if (target === els.employeeShiftAccrualButton) {
+        openEmployeeShiftAccrualDialog();
+        return;
+      }
+      if (target === els.employeeShiftAccrualCancelButton) {
+        closeEmployeeShiftAccrualDialog();
+        return;
+      }
+      if (target === els.employeeShiftAccrualConfirmButton) {
+        handleEmployeeShiftAccrualConfirm();
+        return;
+      }
       const addButton = target.closest('[data-employee-incentive-add]');
       if (addButton instanceof HTMLElement) {
         const kind = String(addButton.dataset.employeeIncentiveAdd || '').trim();

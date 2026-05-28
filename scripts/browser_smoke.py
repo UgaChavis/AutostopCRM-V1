@@ -45,6 +45,7 @@ SMOKE_SCENARIOS = (
     "files_modal",
     "shared_files_scanability_markup",
     "employees_repair_order_returns_to_employee",
+    "employee_shift_accrual_manual_salary",
     "clients_repair_order_returns_to_client",
     "repair_orders_list_returns_to_list",
     "repair_order_salary_override_popover",
@@ -737,6 +738,29 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     await page.click(f'[data-employee-id="{runtime.employee_id}"]')
     await page.wait_for_selector(
         f'#employeesDetailTable [data-card-id="{runtime.payroll_card_id}"]'
+    )
+    await page.click("#employeeShiftAccrualButton")
+    await page.wait_for_selector("#employeeShiftAccrualDialog:not([hidden])")
+    await page.fill("#employeeShiftAccrualAmountInput", "1234")
+    await page.click("#employeeShiftAccrualConfirmButton")
+    await page.wait_for_function(
+        """() => document.querySelector('#employeeShiftAccrualDialog')?.hidden === true"""
+    )
+    await page.wait_for_function(
+        """() => {
+          const rows = Array.from(document.querySelectorAll('#employeesDetailTable tr'));
+          return rows.some((row) =>
+            row.textContent.includes('Выплата за смены за текущую неделю') &&
+            row.textContent.includes('1234')
+          );
+        }"""
+    )
+    shift_query = urllib.parse.urlencode({"employee_id": runtime.employee_id, "months": 6})
+    shift_ledger = _api_data(
+        _read_json(f"{runtime.base_url}/api/get_employee_salary_ledger?{shift_query}")
+    )
+    scenarios["employee_shift_accrual_manual_salary"] = bool(
+        any(row.get("kind") == "shift_accrual" for row in shift_ledger.get("journal_rows") or [])
     )
     await page.click(f'#employeesDetailTable [data-card-id="{runtime.payroll_card_id}"]')
     await _wait_modal_open(page, "#repairOrderModal")

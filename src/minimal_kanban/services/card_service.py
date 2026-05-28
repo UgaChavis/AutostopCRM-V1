@@ -264,6 +264,8 @@ Rules:
 - vin_or_plate may contain both VIN and license plate in one short string.
 """
 EMPLOYEES_SETTING_KEY = "employees"
+EMPLOYEE_SHIFT_ACCRUALS_SETTING_KEY = "employee_shift_accruals"
+EMPLOYEE_SHIFT_ACCRUAL_NOTE = "Выплата за смены за текущую неделю"
 EMPLOYEES_MAX_COUNT = 15
 DEFAULT_MATERIAL_PERCENT = "10"
 PAYROLL_MODE_NONE = "none"
@@ -1860,6 +1862,97 @@ class CardService:
                 "employee": employee,
             }
 
+    def create_employee_shift_accrual(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            settings = dict(bundle["settings"])
+            events = bundle["events"]
+            actor_name, source = self._audit_identity(payload, default_source="ui")
+            employees = self._employees_from_settings(settings)
+            employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
+            if not employee_id:
+                self._fail(
+                    "validation_error",
+                    "Нужно передать employee_id.",
+                    details={"field": "employee_id"},
+                )
+            employee = next((item for item in employees if item["id"] == employee_id), None)
+            if employee is None:
+                self._fail(
+                    "not_found",
+                    "Сотрудник не найден.",
+                    status_code=404,
+                    details={"employee_id": employee_id},
+                )
+            if not employee.get("is_active", True):
+                self._fail(
+                    "validation_error",
+                    "Начисление можно добавить только активному сотруднику.",
+                    details={"employee_id": employee_id},
+                )
+            amount_minor = self._validated_cash_amount_minor(payload)
+            amount = Decimal(amount_minor) / Decimal("100")
+            note = self._validated_cash_transaction_note(
+                payload.get("note") or EMPLOYEE_SHIFT_ACCRUAL_NOTE
+            )
+            created_at = parse_business_datetime(payload.get("created_at")) or utc_now()
+            accrual = {
+                "id": str(uuid.uuid4()),
+                "employee_id": employee["id"],
+                "employee_name": employee["name"],
+                "amount": self._format_payroll_decimal(amount),
+                "amount_minor": amount_minor,
+                "note": note,
+                "created_at": created_at.isoformat(),
+                "updated_at": utc_now_iso(),
+                "actor_name": actor_name,
+                "source": source,
+            }
+            employees_by_id = {item["id"]: item for item in employees}
+            shift_accruals = self._employee_shift_accruals_from_settings(
+                settings, employees_by_id=employees_by_id
+            )
+            shift_accruals.append(accrual)
+            shift_accruals.sort(
+                key=lambda item: (
+                    self._repair_order_sortable_datetime(item.get("created_at")),
+                    item.get("id") or "",
+                )
+            )
+            settings[EMPLOYEE_SHIFT_ACCRUALS_SETTING_KEY] = [
+                self._employee_shift_accrual_storage_payload(item) for item in shift_accruals
+            ]
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="employee_shift_accrual_created",
+                message=f"{actor_name} добавил начисление за смены сотруднику",
+                card_id=None,
+                details={
+                    "employee_id": employee["id"],
+                    "employee_name": employee["name"],
+                    "accrual_id": accrual["id"],
+                    "amount_minor": amount_minor,
+                    "amount_display": format_money_minor(amount_minor),
+                    "note": note,
+                },
+            )
+            self._save_bundle(
+                bundle,
+                columns=bundle["columns"],
+                cards=bundle["cards"],
+                cashboxes=bundle["cashboxes"],
+                cash_transactions=bundle["cash_transactions"],
+                events=events,
+                settings=settings,
+            )
+            return {
+                "accrual": self._serialize_employee_shift_accrual(accrual),
+                "employee": employee,
+            }
+
     def cancel_last_cash_transaction(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
@@ -3303,8 +3396,17 @@ class CardService:
             payload = payload or {}
             bundle = self._store.read_bundle()
             employees = self._employees_from_settings(bundle["settings"])
+            employees_by_id = {item["id"]: item for item in employees}
+            shift_accruals = self._employee_shift_accruals_from_settings(
+                bundle["settings"], employees_by_id=employees_by_id
+            )
             month = self._validated_payroll_month(payload.get("month"))
-            report = self._build_payroll_report(bundle["cards"], employees, month=month)
+            report = self._build_payroll_report(
+                bundle["cards"],
+                employees,
+                shift_accruals=shift_accruals,
+                month=month,
+            )
             cashboxes = bundle["cashboxes"]
             cash_transactions = bundle["cash_transactions"]
             employee_balances = {
@@ -3313,6 +3415,7 @@ class CardService:
                     cashboxes,
                     cash_transactions,
                     employee,
+                    shift_accruals=shift_accruals,
                     months=6,
                 )["balance_total"]
                 for employee in employees
@@ -3477,10 +3580,18 @@ class CardService:
             payload = payload or {}
             bundle = self._store.read_bundle()
             employees = self._employees_from_settings(bundle["settings"])
+            employees_by_id = {item["id"]: item for item in employees}
+            shift_accruals = self._employee_shift_accruals_from_settings(
+                bundle["settings"], employees_by_id=employees_by_id
+            )
             month = self._validated_payroll_month(payload.get("month"))
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
             report = self._build_payroll_report(
-                bundle["cards"], employees, month=month, employee_id=employee_id or None
+                bundle["cards"],
+                employees,
+                shift_accruals=shift_accruals,
+                month=month,
+                employee_id=employee_id or None,
             )
             return {
                 "month": month,
@@ -3495,6 +3606,7 @@ class CardService:
         cash_transactions: list[CashTransaction],
         employee: dict[str, Any],
         *,
+        shift_accruals: list[dict[str, Any]] | None = None,
         months: int = 6,
         period_only_totals: bool = False,
     ) -> dict[str, Any]:
@@ -3539,6 +3651,48 @@ class CardService:
                     ),
                     "amount_display": self._format_payroll_decimal(amount),
                     "source_label": "пятница 20:00",
+                }
+            )
+
+        for shift_accrual in shift_accruals or []:
+            if shift_accrual.get("employee_id") != employee_id:
+                continue
+            amount = Decimal(normalize_money_minor(shift_accrual.get("amount_minor"))) / Decimal(
+                "100"
+            )
+            if amount <= Decimal("0"):
+                continue
+            created_at = parse_business_datetime(shift_accrual.get("created_at"))
+            if created_at is None:
+                continue
+            is_recent = created_at.astimezone(UTC) >= period_start
+            if period_only_totals:
+                if not is_recent:
+                    continue
+                accrual_total += amount
+            else:
+                accrual_total += amount
+                if not is_recent:
+                    continue
+            journal_rows.append(
+                {
+                    "kind": "shift_accrual",
+                    "kind_label": "СМЕНЫ",
+                    "created_at": created_at.astimezone(business_timezone()).strftime(
+                        "%d.%m.%Y %H:%M"
+                    ),
+                    "closed_at": "",
+                    "repair_order_number": "",
+                    "card_id": "",
+                    "vehicle": "",
+                    "work_name": shift_accrual.get("note") or EMPLOYEE_SHIFT_ACCRUAL_NOTE,
+                    "accrual_id": shift_accrual.get("id") or "",
+                    "amount_minor": int(normalize_money_minor(shift_accrual.get("amount_minor"))),
+                    "amount_display": format_money_minor(
+                        normalize_money_minor(shift_accrual.get("amount_minor"))
+                    ),
+                    "source_label": "ручное начисление",
+                    "note": shift_accrual.get("note") or EMPLOYEE_SHIFT_ACCRUAL_NOTE,
                 }
             )
 
@@ -3696,6 +3850,10 @@ class CardService:
             payload = payload or {}
             bundle = self._store.read_bundle()
             employees = self._employees_from_settings(bundle["settings"])
+            employees_by_id = {item["id"]: item for item in employees}
+            shift_accruals = self._employee_shift_accruals_from_settings(
+                bundle["settings"], employees_by_id=employees_by_id
+            )
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
             if not employee_id:
                 self._fail(
@@ -3717,6 +3875,7 @@ class CardService:
                 bundle["cashboxes"],
                 bundle["cash_transactions"],
                 employee,
+                shift_accruals=shift_accruals,
                 months=months,
             )
             return ledger
@@ -3754,6 +3913,7 @@ class CardService:
         cash_transactions: list[CashTransaction],
         employee: dict[str, Any],
         *,
+        shift_accruals: list[dict[str, Any]] | None = None,
         period_start: datetime,
         period_end: datetime,
     ) -> dict[str, Any]:
@@ -3795,6 +3955,42 @@ class CardService:
                     "calculation_base": money_base("Оклад", amount),
                     "scheme": "Недельный оклад",
                     "note": "пятница 20:00",
+                    **self._employee_salary_reconciliation_amount_fields(
+                        accrued=amount, show_accrued=True
+                    ),
+                },
+            )
+
+        for shift_accrual in shift_accruals or []:
+            if shift_accrual.get("employee_id") != employee_id:
+                continue
+            created_at = parse_business_datetime(shift_accrual.get("created_at"))
+            if created_at is None:
+                continue
+            created_at_utc = created_at.astimezone(UTC)
+            if created_at_utc < period_start or created_at_utc > period_end:
+                continue
+            amount = Decimal(normalize_money_minor(shift_accrual.get("amount_minor"))) / Decimal(
+                "100"
+            )
+            if amount <= Decimal("0"):
+                continue
+            accrued_total += amount
+            note = shift_accrual.get("note") or EMPLOYEE_SHIFT_ACCRUAL_NOTE
+            add_row(
+                created_at,
+                {
+                    "kind": "shift_accrual",
+                    "kind_label": "СМЕНЫ",
+                    "repair_order_number": "",
+                    "card_id": "",
+                    "vehicle": "",
+                    "license_plate": "",
+                    "item": note,
+                    "calculation_base": "Ручное начисление",
+                    "scheme": "Смены за неделю",
+                    "accrual_id": shift_accrual.get("id") or "",
+                    "note": note,
                     **self._employee_salary_reconciliation_amount_fields(
                         accrued=amount, show_accrued=True
                     ),
@@ -3952,6 +4148,10 @@ class CardService:
             payload = payload or {}
             bundle = self._store.read_bundle()
             employees = self._employees_from_settings(bundle["settings"])
+            employees_by_id = {item["id"]: item for item in employees}
+            shift_accruals = self._employee_shift_accruals_from_settings(
+                bundle["settings"], employees_by_id=employees_by_id
+            )
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
             if not employee_id:
                 self._fail(
@@ -3975,6 +4175,7 @@ class CardService:
                 bundle["cashboxes"],
                 bundle["cash_transactions"],
                 employee,
+                shift_accruals=shift_accruals,
                 period_start=period_start,
                 period_end=period_end,
             )
@@ -4048,6 +4249,8 @@ class CardService:
         material_cost_total: Decimal = Decimal("0"),
         material_profit_total: Decimal = Decimal("0"),
         material_accrued_total: Decimal = Decimal("0"),
+        shift_accrual_count: int = 0,
+        shift_accrual_total: Decimal = Decimal("0"),
         accrued_total: Decimal | None = None,
     ) -> dict[str, object]:
         resolved_work_accrued_total = (
@@ -4060,9 +4263,15 @@ class CardService:
         resolved_accrued_total = (
             accrued_total
             if accrued_total is not None
-            else base_salary_total + resolved_work_accrued_total + material_accrued_total
+            else (
+                base_salary_total
+                + shift_accrual_total
+                + resolved_work_accrued_total
+                + material_accrued_total
+            )
         )
         base_salary_money = self._employee_salary_report_money(base_salary_total)
+        shift_accrual_money = self._employee_salary_report_money(shift_accrual_total)
         work_money = self._employee_salary_report_money(work_total)
         work_accrued_money = self._employee_salary_report_money(resolved_work_accrued_total)
         material_money = self._employee_salary_report_money(material_total)
@@ -4076,6 +4285,10 @@ class CardService:
             "base_salary_total": base_salary_money["raw"],
             "base_salary_total_minor": base_salary_money["minor"],
             "base_salary_total_display": base_salary_money["display"],
+            "shift_accrual_count": shift_accrual_count,
+            "shift_accrual_total": shift_accrual_money["raw"],
+            "shift_accrual_total_minor": shift_accrual_money["minor"],
+            "shift_accrual_total_display": shift_accrual_money["display"],
             "work_count": work_count,
             "work_total": work_money["raw"],
             "work_total_minor": work_money["minor"],
@@ -4126,6 +4339,8 @@ class CardService:
                 f"Заказ-нарядов:        {totals['repair_order_count']}",
                 f"Окладов:              {totals['base_salary_count']}",
                 f"Начислено окладом:    {totals['base_salary_total_display']}",
+                f"Выплат за смены:      {totals['shift_accrual_count']}",
+                f"Начислено сменами:    {totals['shift_accrual_total_display']}",
                 f"Работ:                {totals['work_count']}",
                 f"Стоимость работ:      {totals['work_total_display']}",
                 f"Материалы:            {totals['material_count']}",
@@ -4142,6 +4357,13 @@ class CardService:
                     "Оклад | "
                     + f"{salary['created_at']} | "
                     + f"начислено: {salary['amount_display']}"
+                )
+            for shift in day.get("shift_accruals", []):
+                lines.append(
+                    "Смены | "
+                    + f"{shift['created_at']} | "
+                    + f"{shift['note']} | "
+                    + f"начислено: {shift['amount_display']}"
                 )
             for order in day["repair_orders"]:
                 lines.append(
@@ -4185,6 +4407,7 @@ class CardService:
                 "Итого за день: "
                 + f"заказ-нарядов {day_totals['repair_order_count']}, "
                 + f"окладов {day_totals['base_salary_count']}, "
+                + f"смен {day_totals['shift_accrual_count']}, "
                 + f"работ {day_totals['work_count']}, "
                 + f"материалов {day_totals['material_count']}, "
                 + f"стоимость {day_totals['work_total_display']}, "
@@ -4194,7 +4417,12 @@ class CardService:
         return "\n".join(lines).strip()
 
     def _build_employee_salary_report(
-        self, cards: list[Card], employee: dict[str, Any], *, month: str
+        self,
+        cards: list[Card],
+        employee: dict[str, Any],
+        *,
+        month: str,
+        shift_accruals: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         employee_id = employee["id"]
         period = self._employee_salary_report_period(month)
@@ -4217,8 +4445,10 @@ class CardService:
                     "date": day_key,
                     "label": accrued_at.strftime("%d.%m.%Y"),
                     "base_salary_accruals": [],
+                    "shift_accruals": [],
                     "repair_orders": [],
                     "_base_salary_total": Decimal("0"),
+                    "_shift_accrual_total": Decimal("0"),
                     "_work_total": Decimal("0"),
                     "_work_accrued_total": Decimal("0"),
                     "_material_total": Decimal("0"),
@@ -4237,6 +4467,54 @@ class CardService:
                 }
             )
             day_payload["_base_salary_total"] += amount
+
+        for shift_accrual in shift_accruals or []:
+            if shift_accrual.get("employee_id") != employee_id:
+                continue
+            created_at = parse_business_datetime(shift_accrual.get("created_at"))
+            if created_at is None:
+                continue
+            created_at = created_at.astimezone(business_timezone())
+            if created_at < period_start or created_at >= period_end:
+                continue
+            amount = Decimal(normalize_money_minor(shift_accrual.get("amount_minor"))) / Decimal(
+                "100"
+            )
+            if amount <= Decimal("0"):
+                continue
+            amount_money = self._employee_salary_report_money(amount)
+            day_key = created_at.date().isoformat()
+            day_payload = grouped_days.setdefault(
+                day_key,
+                {
+                    "date": day_key,
+                    "label": created_at.strftime("%d.%m.%Y"),
+                    "base_salary_accruals": [],
+                    "shift_accruals": [],
+                    "repair_orders": [],
+                    "_base_salary_total": Decimal("0"),
+                    "_shift_accrual_total": Decimal("0"),
+                    "_work_total": Decimal("0"),
+                    "_work_accrued_total": Decimal("0"),
+                    "_material_total": Decimal("0"),
+                    "_material_cost_total": Decimal("0"),
+                    "_material_profit_total": Decimal("0"),
+                    "_material_accrued_total": Decimal("0"),
+                },
+            )
+            note = shift_accrual.get("note") or EMPLOYEE_SHIFT_ACCRUAL_NOTE
+            day_payload["shift_accruals"].append(
+                {
+                    "id": shift_accrual.get("id") or "",
+                    "created_at": created_at.strftime("%d.%m.%Y %H:%M"),
+                    "created_at_iso": created_at.isoformat(),
+                    "note": note,
+                    "amount": amount_money["raw"],
+                    "amount_minor": amount_money["minor"],
+                    "amount_display": amount_money["display"],
+                }
+            )
+            day_payload["_shift_accrual_total"] += amount
 
         for card in cards:
             order = card.repair_order
@@ -4402,8 +4680,10 @@ class CardService:
                     "date": day_key,
                     "label": closed_at.strftime("%d.%m.%Y"),
                     "base_salary_accruals": [],
+                    "shift_accruals": [],
                     "repair_orders": [],
                     "_base_salary_total": Decimal("0"),
+                    "_shift_accrual_total": Decimal("0"),
                     "_work_total": Decimal("0"),
                     "_work_accrued_total": Decimal("0"),
                     "_material_total": Decimal("0"),
@@ -4423,6 +4703,8 @@ class CardService:
         days: list[dict[str, Any]] = []
         total_base_salary_total = Decimal("0")
         total_base_salary_count = 0
+        total_shift_accrual_total = Decimal("0")
+        total_shift_accrual_count = 0
         total_work_total = Decimal("0")
         total_work_accrued_total = Decimal("0")
         total_material_total = Decimal("0")
@@ -4441,8 +4723,10 @@ class CardService:
             day_work_count = sum(int(item["work_count"]) for item in day["repair_orders"])
             day_material_count = sum(int(item["material_count"]) for item in day["repair_orders"])
             day_base_salary_count = len(day["base_salary_accruals"])
+            day_shift_accrual_count = len(day.get("shift_accruals", []))
             day_order_count = len(day["repair_orders"])
             day_base_salary_total = day.pop("_base_salary_total")
+            day_shift_accrual_total = day.pop("_shift_accrual_total")
             day_work_total = day.pop("_work_total")
             day_work_accrued_total = day.pop("_work_accrued_total")
             day_material_total = day.pop("_material_total")
@@ -4455,6 +4739,8 @@ class CardService:
                 work_total=day_work_total,
                 base_salary_count=day_base_salary_count,
                 base_salary_total=day_base_salary_total,
+                shift_accrual_count=day_shift_accrual_count,
+                shift_accrual_total=day_shift_accrual_total,
                 work_accrued_total=day_work_accrued_total,
                 material_count=day_material_count,
                 material_total=day_material_total,
@@ -4465,6 +4751,8 @@ class CardService:
             days.append(day)
             total_base_salary_count += day_base_salary_count
             total_base_salary_total += day_base_salary_total
+            total_shift_accrual_count += day_shift_accrual_count
+            total_shift_accrual_total += day_shift_accrual_total
             total_repair_orders += day_order_count
             total_works += day_work_count
             total_materials += day_material_count
@@ -4481,6 +4769,8 @@ class CardService:
             work_total=total_work_total,
             base_salary_count=total_base_salary_count,
             base_salary_total=total_base_salary_total,
+            shift_accrual_count=total_shift_accrual_count,
+            shift_accrual_total=total_shift_accrual_total,
             work_accrued_total=total_work_accrued_total,
             material_count=total_materials,
             material_total=total_material_total,
@@ -4507,6 +4797,10 @@ class CardService:
             payload = payload or {}
             bundle = self._store.read_bundle()
             employees = self._employees_from_settings(bundle["settings"])
+            employees_by_id = {item["id"]: item for item in employees}
+            shift_accruals = self._employee_shift_accruals_from_settings(
+                bundle["settings"], employees_by_id=employees_by_id
+            )
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
             if not employee_id:
                 self._fail(
@@ -4523,7 +4817,9 @@ class CardService:
                     status_code=404,
                     details={"employee_id": employee_id},
                 )
-            report = self._build_employee_salary_report(bundle["cards"], employee, month=month)
+            report = self._build_employee_salary_report(
+                bundle["cards"], employee, month=month, shift_accruals=shift_accruals
+            )
             return {
                 "employee_id": employee_id,
                 "employee_name": employee["name"],
@@ -9227,6 +9523,98 @@ class CardService:
             candidate += timedelta(days=7)
         return accruals
 
+    def _normalized_employee_shift_accrual(
+        self,
+        payload: Any,
+        *,
+        employees_by_id: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None:
+        if not isinstance(payload, dict):
+            return None
+        employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
+        if not employee_id:
+            return None
+        amount_minor = normalize_money_minor(payload.get("amount_minor"), default=0)
+        if amount_minor < 1:
+            amount_minor = normalize_money_minor(payload.get("amount"), default=0)
+        if amount_minor < 1:
+            return None
+        employee = (employees_by_id or {}).get(employee_id)
+        amount = Decimal(amount_minor) / Decimal("100")
+        created_at = parse_business_datetime(payload.get("created_at")) or utc_now()
+        updated_at = parse_business_datetime(payload.get("updated_at")) or created_at
+        note = self._validated_cash_transaction_note(
+            payload.get("note") or EMPLOYEE_SHIFT_ACCRUAL_NOTE
+        )
+        return {
+            "id": normalize_text(payload.get("id") or str(uuid.uuid4()), default="", limit=64)
+            or str(uuid.uuid4()),
+            "employee_id": employee_id,
+            "employee_name": normalize_text(
+                payload.get("employee_name"),
+                default=employee.get("name", "") if employee else "",
+                limit=80,
+            ),
+            "amount": self._format_payroll_decimal(amount),
+            "amount_minor": amount_minor,
+            "note": note,
+            "created_at": created_at.isoformat(),
+            "updated_at": updated_at.isoformat(),
+            "actor_name": normalize_actor_name(payload.get("actor_name")),
+            "source": normalize_source(payload.get("source"), default="api"),
+        }
+
+    def _employee_shift_accrual_storage_payload(self, accrual: dict[str, Any]) -> dict[str, Any]:
+        amount_minor = normalize_money_minor(accrual.get("amount_minor"), default=0)
+        if amount_minor < 1:
+            amount_minor = normalize_money_minor(accrual.get("amount"), default=0)
+        amount = Decimal(amount_minor) / Decimal("100") if amount_minor >= 1 else Decimal("0")
+        return {
+            "id": normalize_text(accrual.get("id") or str(uuid.uuid4()), default="", limit=64)
+            or str(uuid.uuid4()),
+            "employee_id": normalize_text(accrual.get("employee_id"), default="", limit=64),
+            "employee_name": normalize_text(accrual.get("employee_name"), default="", limit=80),
+            "amount": self._format_payroll_decimal(amount),
+            "amount_minor": amount_minor,
+            "note": self._validated_cash_transaction_note(
+                accrual.get("note") or EMPLOYEE_SHIFT_ACCRUAL_NOTE
+            ),
+            "created_at": normalize_text(accrual.get("created_at"), default="", limit=64),
+            "updated_at": normalize_text(accrual.get("updated_at"), default="", limit=64),
+            "actor_name": normalize_actor_name(accrual.get("actor_name")),
+            "source": normalize_source(accrual.get("source"), default="api"),
+        }
+
+    def _serialize_employee_shift_accrual(self, accrual: dict[str, Any]) -> dict[str, Any]:
+        payload = self._employee_shift_accrual_storage_payload(accrual)
+        amount_minor = normalize_money_minor(payload.get("amount_minor"), default=0)
+        return {**payload, "amount_display": format_money_minor(amount_minor)}
+
+    def _employee_shift_accruals_from_settings(
+        self,
+        settings: dict[str, Any],
+        *,
+        employees_by_id: dict[str, dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        raw_items = settings.get(EMPLOYEE_SHIFT_ACCRUALS_SETTING_KEY)
+        if not isinstance(raw_items, list):
+            return []
+        accruals: list[dict[str, Any]] = []
+        for item in raw_items:
+            normalized = self._normalized_employee_shift_accrual(
+                item, employees_by_id=employees_by_id
+            )
+            if normalized is None:
+                continue
+            accruals.append(normalized)
+        accruals.sort(
+            key=lambda item: (
+                self._repair_order_sortable_datetime(item.get("created_at")),
+                item.get("id") or "",
+            )
+        )
+        return accruals
+
     def _normalized_employee_record(
         self, payload: Any, *, existing: dict[str, Any] | None = None
     ) -> dict[str, Any] | None:
@@ -9457,12 +9845,14 @@ class CardService:
         cards: list[Card],
         employees: list[dict[str, Any]],
         *,
+        shift_accruals: list[dict[str, Any]] | None = None,
         month: str,
         employee_id: str | None = None,
     ) -> dict[str, list[dict[str, Any]]]:
         selected_employee_id = normalize_text(employee_id, default="", limit=64)
         month_key = month.replace("-", "")
         period_start, period_end = self._payroll_month_bounds(month)
+        employees_by_id = {item["id"]: item for item in employees}
 
         def empty_summary(employee: dict[str, Any]) -> dict[str, Any]:
             base_salary = self._parse_payroll_decimal(employee.get("base_salary", ""))
@@ -9476,6 +9866,8 @@ class CardService:
                 "base_salary": self._format_payroll_decimal(base_salary),
                 "base_salary_accruals_count": 0,
                 "base_salary_accrued_total": Decimal("0"),
+                "shift_accruals_count": 0,
+                "shift_accrued_total": Decimal("0"),
                 "works_count": 0,
                 "works_total": Decimal("0"),
                 "work_accrued_total": Decimal("0"),
@@ -9529,6 +9921,76 @@ class CardService:
                         "salary_amount": amount,
                     }
                 )
+        shift_detail_rows: list[dict[str, Any]] = []
+        for shift_accrual in shift_accruals or []:
+            current_employee_id = normalize_text(
+                shift_accrual.get("employee_id"), default="", limit=64
+            )
+            if not current_employee_id:
+                continue
+            if selected_employee_id and current_employee_id != selected_employee_id:
+                continue
+            created_at = parse_business_datetime(shift_accrual.get("created_at"))
+            if created_at is None:
+                continue
+            created_at = created_at.astimezone(business_timezone())
+            if created_at < period_start or created_at >= period_end:
+                continue
+            amount = Decimal(normalize_money_minor(shift_accrual.get("amount_minor"))) / Decimal(
+                "100"
+            )
+            if amount <= Decimal("0"):
+                continue
+            if current_employee_id not in summaries:
+                employee = employees_by_id.get(current_employee_id, {})
+                summaries[current_employee_id] = {
+                    "employee_id": current_employee_id,
+                    "employee_name": shift_accrual.get("employee_name")
+                    or employee.get("name")
+                    or "Сотрудник",
+                    "position": employee.get("position", ""),
+                    "salary_mode": employee.get("salary_mode", ""),
+                    "work_percent": employee.get("work_percent", ""),
+                    "material_percent": employee.get("material_percent", ""),
+                    "base_salary": employee.get("base_salary", "0"),
+                    "base_salary_accruals_count": 0,
+                    "base_salary_accrued_total": Decimal("0"),
+                    "shift_accruals_count": 0,
+                    "shift_accrued_total": Decimal("0"),
+                    "works_count": 0,
+                    "works_total": Decimal("0"),
+                    "work_accrued_total": Decimal("0"),
+                    "materials_count": 0,
+                    "materials_total": Decimal("0"),
+                    "materials_cost_total": Decimal("0"),
+                    "materials_profit_total": Decimal("0"),
+                    "materials_accrued_total": Decimal("0"),
+                }
+            summary = summaries[current_employee_id]
+            note = shift_accrual.get("note") or EMPLOYEE_SHIFT_ACCRUAL_NOTE
+            summary["shift_accruals_count"] += 1
+            summary["shift_accrued_total"] += amount
+            shift_detail_rows.append(
+                {
+                    "row_type": "shift_accrual",
+                    "type_label": "Смены",
+                    "employee_id": current_employee_id,
+                    "employee_name": summary["employee_name"],
+                    "closed_at": created_at.strftime("%d.%m.%Y %H:%M"),
+                    "repair_order_number": "",
+                    "card_id": "",
+                    "vehicle": "",
+                    "works_count": 0,
+                    "work_total": Decimal("0"),
+                    "materials_count": 0,
+                    "material_name": note,
+                    "material_total": Decimal("0"),
+                    "material_cost_total": Decimal("0"),
+                    "material_profit": Decimal("0"),
+                    "material_percent": "",
+                    "salary_amount": amount,
+                }
+            )
         material_detail_rows: list[dict[str, Any]] = []
         for card in cards:
             order = card.repair_order
@@ -9557,6 +10019,8 @@ class CardService:
                         "base_salary": "0",
                         "base_salary_accruals_count": 0,
                         "base_salary_accrued_total": Decimal("0"),
+                        "shift_accruals_count": 0,
+                        "shift_accrued_total": Decimal("0"),
                         "works_count": 0,
                         "works_total": Decimal("0"),
                         "work_accrued_total": Decimal("0"),
@@ -9618,6 +10082,8 @@ class CardService:
                         "base_salary": "0",
                         "base_salary_accruals_count": 0,
                         "base_salary_accrued_total": Decimal("0"),
+                        "shift_accruals_count": 0,
+                        "shift_accrued_total": Decimal("0"),
                         "works_count": 0,
                         "works_total": Decimal("0"),
                         "work_accrued_total": Decimal("0"),
@@ -9662,13 +10128,19 @@ class CardService:
         for item in summaries.values():
             base_salary = self._parse_payroll_decimal(item["base_salary"])
             base_salary_accrued_total = item["base_salary_accrued_total"]
+            shift_accrued_total = item["shift_accrued_total"]
             works_total = item["works_total"]
             work_accrued_total = item["work_accrued_total"]
             materials_total = item["materials_total"]
             materials_cost_total = item["materials_cost_total"]
             materials_profit_total = item["materials_profit_total"]
             materials_accrued_total = item["materials_accrued_total"]
-            accrued_total = base_salary_accrued_total + work_accrued_total + materials_accrued_total
+            accrued_total = (
+                base_salary_accrued_total
+                + shift_accrued_total
+                + work_accrued_total
+                + materials_accrued_total
+            )
             total_salary = accrued_total
             summary_rows.append(
                 {
@@ -9683,6 +10155,8 @@ class CardService:
                     "base_salary_accrued_total": self._format_payroll_decimal(
                         base_salary_accrued_total
                     ),
+                    "shift_accruals_count": item["shift_accruals_count"],
+                    "shift_accrued_total": self._format_payroll_decimal(shift_accrued_total),
                     "works_count": item["works_count"],
                     "works_total": self._format_payroll_decimal(works_total),
                     "work_accrued_total": self._format_payroll_decimal(work_accrued_total),
@@ -9703,7 +10177,10 @@ class CardService:
         )
         detail_rows: list[dict[str, Any]] = []
         for item in (
-            base_salary_detail_rows + list(detail_rows_by_order.values()) + material_detail_rows
+            base_salary_detail_rows
+            + shift_detail_rows
+            + list(detail_rows_by_order.values())
+            + material_detail_rows
         ):
             detail_rows.append(
                 {
