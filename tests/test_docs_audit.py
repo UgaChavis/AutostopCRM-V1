@@ -130,6 +130,31 @@ class DocsAuditTests(unittest.TestCase):
                 "canonical production SSH identity is not documented: autostopcrm_server_ed25519",
                 "production SSH command does not force the documented identity: IdentitiesOnly=yes",
                 "deploy branch env var is not documented: AUTOSTOP_DEPLOY_BRANCH",
+                "deploy/watchdog lock path env var is not documented: AUTOSTOP_DEPLOY_LOCK_PATH",
+                "deploy smoke retry count env var is not documented: AUTOSTOP_SMOKE_ATTEMPTS",
+                "deploy smoke retry delay env var is not documented: AUTOSTOP_SMOKE_DELAY_SECONDS",
+            },
+            {issue.detail for issue in issues},
+        )
+
+    def test_mcp_guide_mentions_transport_security_allowlist_overrides(self) -> None:
+        module = load_docs_audit_module()
+
+        self.assertEqual([], module._check_api_guide_required_routes(ROOT))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            (temp_root / "MCP_GUIDE.md").write_text(
+                "MCP runtime docs without allowlist overrides.\n",
+                encoding="utf-8",
+            )
+
+            issues = module._check_api_guide_required_routes(temp_root)
+
+        self.assertEqual(
+            {
+                "MCP allowed-host transport security override is not documented: MINIMAL_KANBAN_MCP_ALLOWED_HOSTS",
+                "MCP allowed-origin transport security override is not documented: MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS",
             },
             {issue.detail for issue in issues},
         )

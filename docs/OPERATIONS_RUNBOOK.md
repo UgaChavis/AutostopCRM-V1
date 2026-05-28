@@ -244,8 +244,12 @@ Useful deploy variables:
 - `AUTOSTOP_PUBLIC_SITE_URL`, `AUTOSTOP_PUBLIC_MCP_URL` - public smoke URLs.
 - `AUTOSTOP_SMOKE_OPERATOR_USERNAME`, `AUTOSTOP_SMOKE_OPERATOR_PASSWORD` -
   smoke credentials.
+- `AUTOSTOP_SMOKE_ATTEMPTS`, `AUTOSTOP_SMOKE_DELAY_SECONDS` - deploy smoke
+  retry budget; defaults are 20 attempts and 3 seconds.
 - `AUTOSTOP_DESKTOP_INSTRUCTION_PATH` - server copy target for
   `AUTOSTOPCRM_FULL_INSTRUCTION.txt`.
+- `AUTOSTOP_DEPLOY_LOCK_PATH` - deploy/watchdog coordination lock path; default
+  is `.autostop-deploy.lock` in the repo root.
 - `AUTOSTOP_INSTALL_WATCHDOG=0` - skip watchdog install.
 
 `deploy.sh` fetches the target branch, resets tracked files to `FETCH_HEAD`,

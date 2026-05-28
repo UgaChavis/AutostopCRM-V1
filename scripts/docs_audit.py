@@ -143,6 +143,17 @@ API_GUIDE_REQUIRED_TEXT = (
     ),
 )
 
+MCP_GUIDE_REQUIRED_TEXT = (
+    (
+        "MINIMAL_KANBAN_MCP_ALLOWED_HOSTS",
+        "MCP allowed-host transport security override is not documented",
+    ),
+    (
+        "MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS",
+        "MCP allowed-origin transport security override is not documented",
+    ),
+)
+
 RUNBOOK_REQUIRED_TEXT = (
     (
         "state_size_report.py",
@@ -167,6 +178,18 @@ RUNBOOK_REQUIRED_TEXT = (
     (
         "AUTOSTOP_DEPLOY_BRANCH",
         "deploy branch env var is not documented",
+    ),
+    (
+        "AUTOSTOP_DEPLOY_LOCK_PATH",
+        "deploy/watchdog lock path env var is not documented",
+    ),
+    (
+        "AUTOSTOP_SMOKE_ATTEMPTS",
+        "deploy smoke retry count env var is not documented",
+    ),
+    (
+        "AUTOSTOP_SMOKE_DELAY_SECONDS",
+        "deploy smoke retry delay env var is not documented",
     ),
 )
 
@@ -217,29 +240,40 @@ def _contains_route_text(text: str, route: str) -> bool:
 
 def _check_api_guide_required_routes(root: Path) -> list[Issue]:
     path = root / "API_GUIDE.md"
-    if not path.exists():
-        return []
-
-    text = _read_text(path)
     issues: list[Issue] = []
-    for route, detail in API_GUIDE_REQUIRED_ROUTE_TEXT:
-        if not _contains_route_text(text, route):
-            issues.append(
-                Issue(
-                    "api_guide_missing_route",
-                    _display_path(path, root),
-                    f"{detail}: {route}",
+
+    if path.exists():
+        text = _read_text(path)
+        for route, detail in API_GUIDE_REQUIRED_ROUTE_TEXT:
+            if not _contains_route_text(text, route):
+                issues.append(
+                    Issue(
+                        "api_guide_missing_route",
+                        _display_path(path, root),
+                        f"{detail}: {route}",
+                    )
                 )
-            )
-    for required_text, detail in API_GUIDE_REQUIRED_TEXT:
-        if required_text not in text:
-            issues.append(
-                Issue(
-                    "api_guide_missing_contract",
-                    _display_path(path, root),
-                    f"{detail}: {required_text}",
+        for required_text, detail in API_GUIDE_REQUIRED_TEXT:
+            if required_text not in text:
+                issues.append(
+                    Issue(
+                        "api_guide_missing_contract",
+                        _display_path(path, root),
+                        f"{detail}: {required_text}",
+                    )
                 )
-            )
+    mcp_guide = root / "MCP_GUIDE.md"
+    if mcp_guide.exists():
+        mcp_text = _read_text(mcp_guide)
+        for required_text, detail in MCP_GUIDE_REQUIRED_TEXT:
+            if required_text not in mcp_text:
+                issues.append(
+                    Issue(
+                        "mcp_guide_missing_contract",
+                        _display_path(mcp_guide, root),
+                        f"{detail}: {required_text}",
+                    )
+                )
     runbook = root / "docs" / "OPERATIONS_RUNBOOK.md"
     if runbook.exists():
         runbook_text = _read_text(runbook)

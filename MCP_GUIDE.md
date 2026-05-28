@@ -53,6 +53,8 @@ MCP runtime:
 - `MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL`
 - `MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL`
 - `MINIMAL_KANBAN_MCP_BEARER_TOKEN`
+- `MINIMAL_KANBAN_MCP_ALLOWED_HOSTS`
+- `MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS`
 
 Backend API:
 
@@ -61,6 +63,10 @@ Backend API:
 
 Saved settings live in `%APPDATA%\Minimal Kanban\settings.json`; explicit env
 variables win.
+
+`MINIMAL_KANBAN_MCP_ALLOWED_HOSTS` and
+`MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS` add comma/newline-separated transport
+security allowlist entries. Defaults are derived from local and public MCP URLs.
 
 Production can publish embedded OAuth/DCR metadata for ChatGPT linking when
 bearer mode is enabled. Manual MCP clients and Responses API integrations may
