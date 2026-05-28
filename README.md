@@ -212,8 +212,12 @@ For the local secret/access bundle, run the optional stale-instruction scan
 without printing secret values:
 
 ```powershell
-python scripts\docs_audit.py --format text --secret-bundle "C:\Users\9860606\Desktop\КЛЮЧЕВАЯ ДОКУМЕНТАЦИЯ CRM VPN Сервер"
+$env:AUTOSTOPCRM_SECRET_BUNDLE = "C:\path\to\КЛЮЧЕВАЯ ДОКУМЕНТАЦИЯ CRM VPN Сервер"
+python scripts\docs_audit.py --format text --secret-bundle $env:AUTOSTOPCRM_SECRET_BUNDLE
 ```
+
+Do not hard-code personal workstation paths in committed docs. Use environment
+variables or local-only access notes for machine-specific locations.
 
 Keep active documentation small and role-based. Historical plans and one-off
 reports belong outside active docs or must be clearly marked as historical.

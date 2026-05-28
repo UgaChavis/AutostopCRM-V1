@@ -16,10 +16,10 @@ monitoring files are not the active CRM deployment source of truth.
 
 ## Начало Работы
 
-Local checkout:
+Local checkout (use the actual clone root on the workstation):
 
-```text
-C:\Users\9860606\Desktop\AutostopCRM\autostopcrm
+```powershell
+Set-Location <current AutoStop CRM clone root>
 ```
 
 Local parity:
@@ -34,14 +34,21 @@ git rev-parse --short origin/autostopcrm-v1
 Production parity from this workstation:
 
 ```powershell
-$env:AUTOSTOPCRM_SSH_KEY = "C:\Users\9860606\Desktop\КЛЮЧЕВАЯ ДОКУМЕНТАЦИЯ CRM VPN Сервер\.ssh\autostopcrm_server_ed25519"
+if (-not $env:AUTOSTOPCRM_SSH_KEY) {
+    $candidate = Join-Path $HOME ".ssh\autostopcrm_server_ed25519"
+    if (Test-Path -LiteralPath $candidate) {
+        $env:AUTOSTOPCRM_SSH_KEY = $candidate
+    }
+}
 Test-Path -LiteralPath $env:AUTOSTOPCRM_SSH_KEY
 ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && git status --short --branch && git rev-parse --short HEAD && git rev-parse --short origin/autostopcrm-v1 && docker compose ps"
 ```
 
-Canonical SSH identity is `autostopcrm_server_ed25519` in the local secret
-bundle. If the key is missing, inspect the same bundle first. Do not try stale
-identity names, password auth, or new ad-hoc keys.
+Canonical SSH identity file name is `autostopcrm_server_ed25519`. Prefer
+`$env:AUTOSTOPCRM_SSH_KEY`; the usual workstation fallback is
+`$HOME\.ssh\autostopcrm_server_ed25519`. If the key is missing, inspect the
+local secret bundle first. Do not try stale identity names, password auth, or
+new ad-hoc keys.
 
 ## Release Checklist
 
@@ -77,7 +84,8 @@ python scripts\audit_localization.py
 Secret/access bundle stale-instruction scan:
 
 ```powershell
-python scripts\docs_audit.py --format text --secret-bundle "C:\Users\9860606\Desktop\КЛЮЧЕВАЯ ДОКУМЕНТАЦИЯ CRM VPN Сервер"
+$env:AUTOSTOPCRM_SECRET_BUNDLE = "C:\path\to\КЛЮЧЕВАЯ ДОКУМЕНТАЦИЯ CRM VPN Сервер"
+python scripts\docs_audit.py --format text --secret-bundle $env:AUTOSTOPCRM_SECRET_BUNDLE
 ```
 
 This scan reports stale instruction classes and file paths only. It must not
@@ -96,6 +104,24 @@ python scripts\perf_workflows.py --local-temp-server --iterations 3
 `perf_workflows.py --local-temp-server` includes browser timings for opening a
 repair order salary override popover, the employee salary ledger, and the
 salary reconciliation print document.
+
+## Workspace Cleanup Hygiene
+
+Before release or after browser-heavy QA, inspect local growth and ignored
+artifacts:
+
+```powershell
+git status --ignored --short
+Get-ChildItem -Force | Where-Object { $_.PSIsContainer } | ForEach-Object {
+    $bytes = (Get-ChildItem -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+    [pscustomobject]@{ Name = $_.Name; MB = [math]::Round(($bytes / 1MB), 2) }
+} | Sort-Object MB -Descending
+```
+
+Safe cleanup candidates are ignored temp folders such as `output\playwright`,
+`tmp\local-crm`, `.pytest_cache`, `.ruff_cache`, and `__pycache__` directories.
+Keep `dist\`, `release\`, historical audit outputs, real data, and secret files
+unless a separate release/archive task explicitly says otherwise.
 
 Production read-only:
 
@@ -199,7 +225,12 @@ Normal path:
 Server command:
 
 ```powershell
-$env:AUTOSTOPCRM_SSH_KEY = "C:\Users\9860606\Desktop\КЛЮЧЕВАЯ ДОКУМЕНТАЦИЯ CRM VPN Сервер\.ssh\autostopcrm_server_ed25519"
+if (-not $env:AUTOSTOPCRM_SSH_KEY) {
+    $candidate = Join-Path $HOME ".ssh\autostopcrm_server_ed25519"
+    if (Test-Path -LiteralPath $candidate) {
+        $env:AUTOSTOPCRM_SSH_KEY = $candidate
+    }
+}
 ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && AUTOSTOP_DEPLOY_BRANCH=autostopcrm-v1 AUTOSTOP_VERIFY_PUBLIC_HTTPS=1 ./deploy.sh"
 ```
 

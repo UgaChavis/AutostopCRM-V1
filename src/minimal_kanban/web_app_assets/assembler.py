@@ -13234,8 +13234,8 @@ BOARD_WEB_APP_HTML = "".join(
     async function loadArchive(openModal = false, { force = false } = {}) {
       if (state.archiveLoading) {
         const pending = state.archiveLoading;
-        await pending;
         if (openModal) maybeOpenModal(els.archiveModal, true);
+        await pending;
         return pending;
       }
       if (state.archiveLoaded && !force) {
@@ -13253,13 +13253,11 @@ BOARD_WEB_APP_HTML = "".join(
           state.archiveCards = Array.isArray(data?.cards) ? data.cards : [];
           state.archiveLoaded = true;
           renderArchive();
-          if (openModal) maybeOpenModal(els.archiveModal, true);
           return data;
         } catch (error) {
           if (els.archiveList) {
             els.archiveList.innerHTML = '<div class="log-row__meta">НЕ УДАЛОСЬ ЗАГРУЗИТЬ АРХИВ.</div>';
           }
-          if (openModal) maybeOpenModal(els.archiveModal, true);
           setStatus(error.message, true);
           return null;
         } finally {

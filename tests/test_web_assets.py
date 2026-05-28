@@ -430,6 +430,26 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("archive-row archive-row--compact", BOARD_WEB_APP_HTML)
         self.assertIn("await restoreCard(target.dataset.restoreCard);", BOARD_WEB_APP_HTML)
 
+    def test_archive_loader_does_not_reopen_modal_after_async_close(self) -> None:
+        start = BOARD_WEB_APP_HTML.index(
+            "async function loadArchive(openModal = false, { force = false } = {})"
+        )
+        end = BOARD_WEB_APP_HTML.index("function renderArchive()", start)
+        loader = BOARD_WEB_APP_HTML[start:end]
+
+        self.assertIn(
+            "if (openModal) maybeOpenModal(els.archiveModal, true);\n        await pending;",
+            loader,
+        )
+        self.assertNotIn(
+            "renderArchive();\n          if (openModal) maybeOpenModal(els.archiveModal, true);",
+            loader,
+        )
+        self.assertNotIn(
+            "НЕ УДАЛОСЬ ЗАГРУЗИТЬ АРХИВ.</div>';\n          if (openModal) maybeOpenModal(els.archiveModal, true);",
+            loader,
+        )
+
     def test_operator_login_gate_hides_workspace_until_session_is_valid(self) -> None:
         self.assertIn("function setOperatorLoginGateOpen(isOpen)", BOARD_WEB_APP_HTML)
         self.assertIn(
