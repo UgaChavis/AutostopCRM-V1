@@ -8473,10 +8473,6 @@ BOARD_WEB_APP_HTML = "".join(
               <input id="repairOrderWorkSalaryPercent" type="text" inputmode="decimal" data-repair-order-cell="work_salary_percent_override">
             </label>
           </div>
-          <label class="field">
-            <span>ПРИМЕЧАНИЕ</span>
-            <input id="repairOrderWorkSalaryNote" type="text" maxlength="160" data-repair-order-cell="work_salary_note">
-          </label>
           <div class="repair-order-work-salary-popover__summary">
             <span>СУММА РАБОТЫ</span><strong id="repairOrderWorkSalaryTotal">0 ₽</strong>
             <span>ПРОЦЕНТ СЕРВИСА</span><strong id="repairOrderWorkSalaryServicePercent">0%</strong>
@@ -9444,7 +9440,6 @@ BOARD_WEB_APP_HTML = "".join(
       repairOrderWorkSalaryMeta: document.getElementById('repairOrderWorkSalaryMeta'),
       repairOrderWorkSalaryGuarantee: document.getElementById('repairOrderWorkSalaryGuarantee'),
       repairOrderWorkSalaryPercent: document.getElementById('repairOrderWorkSalaryPercent'),
-      repairOrderWorkSalaryNote: document.getElementById('repairOrderWorkSalaryNote'),
       repairOrderWorkSalaryTotal: document.getElementById('repairOrderWorkSalaryTotal'),
       repairOrderWorkSalaryServicePercent: document.getElementById('repairOrderWorkSalaryServicePercent'),
       repairOrderWorkSalaryAmount: document.getElementById('repairOrderWorkSalaryAmount'),
@@ -18905,9 +18900,6 @@ BOARD_WEB_APP_HTML = "".join(
       if (els.repairOrderWorkSalaryPercent) {
         els.repairOrderWorkSalaryPercent.value = repairOrderWorkSalaryPercentForRow(rowData);
       }
-      if (els.repairOrderWorkSalaryNote) {
-        els.repairOrderWorkSalaryNote.value = rowData.work_salary_note || '';
-      }
       if (els.repairOrderWorkSalaryPopover) {
         els.repairOrderWorkSalaryPopover.hidden = false;
         els.repairOrderWorkSalaryPopover.classList.add('is-open');
@@ -18925,7 +18917,6 @@ BOARD_WEB_APP_HTML = "".join(
       row.dataset.repairOrderWorkSalaryOverrideEnabled = 'true';
       row.dataset.repairOrderWorkSalaryGuarantee = guarantee || '0';
       row.dataset.repairOrderWorkSalaryPercentOverride = percent || '0';
-      row.dataset.repairOrderWorkSalaryNote = String(els.repairOrderWorkSalaryNote?.value || '').trim();
       row.dataset.repairOrderSalaryAmount = '';
       row.dataset.repairOrderSalaryAccruedAt = '';
       syncRepairOrderWorkSalaryGear(row);
