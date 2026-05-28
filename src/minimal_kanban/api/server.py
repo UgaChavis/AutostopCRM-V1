@@ -25,6 +25,7 @@ from ..config import (
     get_api_port,
     get_api_port_fallback_limit,
 )
+from ..models import business_timezone, parse_datetime
 from ..operator_auth import OperatorAuthService
 from ..services.card_service import CardService, ServiceError
 from ..services.shared_files_service import SharedFilesService
@@ -175,6 +176,16 @@ def _employee_salary_reconciliation_totals_html(report: dict) -> str:
     )
 
 
+def _employee_salary_reconciliation_print_date(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = parse_datetime(raw)
+    if parsed is None:
+        return raw
+    return parsed.astimezone(business_timezone()).strftime("%d.%m.%Y")
+
+
 def _employee_salary_reconciliation_print_html(report: dict) -> bytes:
     employee = report.get("employee")
     if not isinstance(employee, dict):
@@ -182,7 +193,7 @@ def _employee_salary_reconciliation_print_html(report: dict) -> bytes:
     period = report.get("period")
     if not isinstance(period, dict):
         period = {}
-    generated_at = str(period.get("generated_at") or "").strip()
+    generated_at = _employee_salary_reconciliation_print_date(period.get("generated_at"))
     body = (
         '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
         "<title>Акт сверки зарплаты</title>"

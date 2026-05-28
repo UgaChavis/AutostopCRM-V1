@@ -778,6 +778,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("/employee_salary_reconciliation_print?", BOARD_WEB_APP_HTML)
         self.assertIn('target="_blank"', BOARD_WEB_APP_HTML)
         self.assertIn('rel="noopener"', BOARD_WEB_APP_HTML)
+        self.assertIn("function employeeSalaryReconciliationPrintDate(", BOARD_WEB_APP_HTML)
         self.assertIn(
             "function createEmployeeSalaryReconciliationPrintWindow(",
             BOARD_WEB_APP_HTML,
@@ -794,6 +795,13 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("window.print()", BOARD_WEB_APP_HTML)
         self.assertIn("Бухгалтер", BOARD_WEB_APP_HTML)
         self.assertIn("Сотрудник", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const generatedAt = employeeSalaryReconciliationPrintDate", BOARD_WEB_APP_HTML
+        )
+        self.assertNotIn(
+            "const generatedAt = employeeSalaryReconciliationText(period.generated_at",
+            BOARD_WEB_APP_HTML,
+        )
         report_handler_start = BOARD_WEB_APP_HTML.index("async function openEmployeeSalaryReport")
         report_handler_end = BOARD_WEB_APP_HTML.index(
             "async function handleEmployeeSalaryActionConfirm", report_handler_start

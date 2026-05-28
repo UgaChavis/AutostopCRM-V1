@@ -13965,11 +13965,25 @@ BOARD_WEB_APP_HTML = "".join(
       }).join('');
     }
 
+    function employeeSalaryReconciliationPrintDate(value) {
+      const raw = employeeSalaryReconciliationText(value, '');
+      if (!raw) return '';
+      try {
+        const date = value instanceof Date ? value : new Date(raw);
+        if (Number.isNaN(date.getTime())) return raw;
+        const dd = String(date.getDate()).padStart(2, '0');
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        return dd + '.' + mm + '.' + date.getFullYear();
+      } catch {
+        return raw;
+      }
+    }
+
     function buildEmployeeSalaryReconciliationPrintHtml(report) {
       const employee = report?.employee || {};
       const period = report?.period || {};
       const title = 'Акт сверки зарплаты';
-      const generatedAt = employeeSalaryReconciliationText(period.generated_at, '');
+      const generatedAt = employeeSalaryReconciliationPrintDate(period.generated_at);
       return '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
         + '<title>' + escapeHtml(title) + '</title>'
         + '<style>'

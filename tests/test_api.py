@@ -1775,6 +1775,9 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("@media print", html)
         self.assertIn("Бухгалтер", html)
         self.assertIn("Сотрудник", html)
+        self.assertRegex(html, r"Дата: \d{2}\.\d{2}\.\d{4}")
+        self.assertNotRegex(html, r"Дата: \d{4}-\d{2}-\d{2}T")
+        self.assertNotIn("+00:00", html)
 
     def test_repair_order_work_salary_override_round_trips_through_api(self) -> None:
         status, employee_saved = self.request(
