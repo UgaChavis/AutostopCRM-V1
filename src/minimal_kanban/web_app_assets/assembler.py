@@ -4482,15 +4482,6 @@ BOARD_WEB_APP_HTML = "".join(
       line-height: 1;
       color: var(--text);
     }
-    .operator-security-warning {
-      border: 1px solid rgba(212, 175, 55, 0.76);
-      background: rgba(212, 175, 55, 0.12);
-      color: #f5df9b;
-      padding: 10px 12px;
-      font-size: 12px;
-      line-height: 1.35;
-      margin-bottom: 12px;
-    }
     .operator-admin-layout {
       display: grid;
       grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
@@ -7705,7 +7696,6 @@ BOARD_WEB_APP_HTML = "".join(
         </div>
       </div>
       <div class="wall-meta" id="operatorProfileMeta">ЗАГРУЗКА ПРОФИЛЯ...</div>
-      <div class="operator-security-warning hidden" id="operatorSecurityWarning"></div>
       <div class="operator-stats-grid" id="operatorStatsGrid"></div>
       <div class="subpanel">
         <div class="panel-title">ПОСЛЕДНИЕ ДЕЙСТВИЯ</div>
@@ -9188,7 +9178,6 @@ BOARD_WEB_APP_HTML = "".join(
       identitySave: document.getElementById('identitySave'),
       operatorProfileModal: document.getElementById('operatorProfileModal'),
       operatorProfileMeta: document.getElementById('operatorProfileMeta'),
-      operatorSecurityWarning: document.getElementById('operatorSecurityWarning'),
       operatorStatsGrid: document.getElementById('operatorStatsGrid'),
       operatorActivityList: document.getElementById('operatorActivityList'),
       operatorAdminButton: document.getElementById('operatorAdminButton'),
@@ -11423,9 +11412,6 @@ BOARD_WEB_APP_HTML = "".join(
         operatorStatHtml('ЗАКРЫТО', stats.cards_archived ?? 0),
         operatorStatHtml('ПЕРЕМЕЩЕНИЙ', stats.card_moves ?? 0),
       ].join('');
-      const securityWarning = data?.security?.warning || '';
-      els.operatorSecurityWarning.textContent = securityWarning;
-      els.operatorSecurityWarning.classList.toggle('hidden', !securityWarning);
       renderOperatorActivity(data?.recent_actions || []);
       els.operatorAdminButton.classList.toggle('hidden', !data?.user?.is_admin);
       closeOperatorLoginModal();

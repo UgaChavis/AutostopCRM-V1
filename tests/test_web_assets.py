@@ -1906,12 +1906,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("'X-Operator-Session'", BOARD_WEB_APP_HTML)
         self.assertIn('id="operatorProfileModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="operatorAdminModal"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="operatorSecurityWarning"', BOARD_WEB_APP_HTML)
-        self.assertIn(".operator-security-warning {", BOARD_WEB_APP_HTML)
-        self.assertIn("const securityWarning = data?.security?.warning || '';", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "els.operatorSecurityWarning.classList.toggle('hidden', !securityWarning);",
-            BOARD_WEB_APP_HTML,
+        self.assertNotIn('id="operatorSecurityWarning"', BOARD_WEB_APP_HTML)
+        self.assertNotIn(".operator-security-warning {", BOARD_WEB_APP_HTML)
+        self.assertNotIn("operatorSecurityWarning", BOARD_WEB_APP_HTML)
+        self.assertNotIn(
+            "const securityWarning = data?.security?.warning || '';", BOARD_WEB_APP_HTML
         )
         self.assertIn('id="identityPassword"', BOARD_WEB_APP_HTML)
         self.assertIn('id="adminUserLogin"', BOARD_WEB_APP_HTML)
