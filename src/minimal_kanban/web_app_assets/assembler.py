@@ -18756,13 +18756,21 @@ BOARD_WEB_APP_HTML = "".join(
     function readRepairOrderRowElement(row) {
       const executorSelect = row.querySelector('[data-repair-order-cell="executor_id"]');
       const selectedOption = executorSelect instanceof HTMLSelectElement ? executorSelect.options[executorSelect.selectedIndex] : null;
+      const quantityValue = row.querySelector('[data-repair-order-cell="quantity"]')?.value;
+      const priceValue = row.querySelector('[data-repair-order-cell="price"]')?.value;
+      const quantityParsed = repairOrderParseNumber(quantityValue);
+      const priceParsed = repairOrderParseNumber(priceValue);
+      const effectiveQuantity = quantityParsed === null && !String(quantityValue ?? '').trim() ? 1 : quantityParsed;
+      const liveTotalValue = effectiveQuantity !== null && priceParsed !== null
+        ? repairOrderNumberToRaw(repairOrderRoundMoney(effectiveQuantity * priceParsed))
+        : (row.dataset.repairOrderTotalRaw || '');
       return normalizeRepairOrderRow({
         name: row.querySelector('[data-repair-order-cell="name"]')?.value,
         catalog_number: row.querySelector('[data-repair-order-cell="catalog_number"]')?.value,
-        quantity: row.querySelector('[data-repair-order-cell="quantity"]')?.value,
+        quantity: quantityValue,
         cost_price: row.querySelector('[data-repair-order-cell="cost_price"]')?.value,
-        price: row.querySelector('[data-repair-order-cell="price"]')?.value,
-        total: row.dataset.repairOrderTotalRaw || '',
+        price: priceValue,
+        total: liveTotalValue,
         executor_id: executorSelect instanceof HTMLSelectElement ? executorSelect.value : '',
         executor_name: selectedOption ? selectedOption.textContent : '',
         salary_mode_snapshot: row.dataset.repairOrderSalaryMode || '',

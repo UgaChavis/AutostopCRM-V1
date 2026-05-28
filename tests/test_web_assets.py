@@ -2395,6 +2395,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("work_salary_percent_override", BOARD_WEB_APP_HTML)
         self.assertIn("К НАЧИСЛЕНИЮ", BOARD_WEB_APP_HTML)
         self.assertIn("ПРОЦЕНТ СЕРВИСА", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const effectiveQuantity = quantityParsed === null && !String(quantityValue ?? '').trim() ? 1 : quantityParsed;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("total: liveTotalValue,", BOARD_WEB_APP_HTML)
 
     def test_repair_order_autofill_status_uses_report_hints(self) -> None:
         self.assertIn("function buildRepairOrderAutofillStatus(data)", BOARD_WEB_APP_HTML)
