@@ -43,7 +43,7 @@ from minimal_kanban.api.server import _success_log_level
 from minimal_kanban.models import AuditEvent, utc_now
 from minimal_kanban.operator_activity import OperatorActivityService
 from minimal_kanban.operator_auth import OperatorAuthService, _password_hash
-from minimal_kanban.services.card_service import CardService
+from minimal_kanban.services.card_service import CardService, ServiceError
 from minimal_kanban.storage.json_store import JsonStore
 from minimal_kanban.web_assets import BOARD_WEB_APP_HTML
 
@@ -642,6 +642,107 @@ class ApiServerTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertTrue(deleted["data"]["deleted"])
+
+    def test_operator_user_employee_binding_controls_material_default_executor(self) -> None:
+        status, logged_in = self.request(
+            "/api/login_operator",
+            {"username": "admin", "password": "admin"},
+        )
+        self.assertEqual(status, 200)
+        headers = {"X-Operator-Session": logged_in["data"]["session"]["token"]}
+        employee = self.service.save_employee({"name": "Иван Снабженец", "position": "Снабженец"})[
+            "employee"
+        ]
+
+        status, saved = self.request(
+            "/api/save_operator_user",
+            {"username": "parts", "password": "1234"},
+            headers=headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(saved["data"]["user"]["employee_id"], "")
+
+        status, bound = self.request(
+            "/api/set_operator_user_employee",
+            {"username": "parts", "employee_id": employee["id"]},
+            headers=headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(bound["data"]["meta"]["bound"])
+        self.assertEqual(bound["data"]["user"]["employee_id"], employee["id"])
+
+        status, listed = self.request("/api/list_operator_users", method="GET", headers=headers)
+        self.assertEqual(status, 200)
+        parts_user = next(item for item in listed["data"]["users"] if item["username"] == "PARTS")
+        self.assertEqual(parts_user["employee_id"], employee["id"])
+
+        status, parts_login = self.request(
+            "/api/login_operator",
+            {"username": "parts", "password": "1234"},
+        )
+        self.assertEqual(status, 200)
+        parts_headers = {"X-Operator-Session": parts_login["data"]["session"]["token"]}
+        status, profile = self.request(
+            "/api/get_operator_profile", method="GET", headers=parts_headers
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(profile["data"]["user"]["employee_id"], employee["id"])
+
+        status, unbound = self.request(
+            "/api/set_operator_user_employee",
+            {"username": "parts", "employee_id": ""},
+            headers=headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(unbound["data"]["meta"]["bound"])
+        self.assertEqual(unbound["data"]["user"]["employee_id"], "")
+
+    def test_operator_user_employee_binding_rejects_duplicate_missing_and_inactive(self) -> None:
+        logged_in = self.operator_service.login({"username": "admin", "password": "admin"})
+        session = logged_in["session"]
+        employee = self.service.save_employee({"name": "Мария Снабженец", "position": "Снабженец"})[
+            "employee"
+        ]
+        disabled_employee = self.service.save_employee(
+            {"name": "Сергей Архив", "position": "Мастер"}
+        )["employee"]
+        self.service.toggle_employee({"employee_id": disabled_employee["id"]})
+        self.operator_service.save_user(
+            {"_operator_session": session, "username": "katya", "password": "1234"}
+        )
+        self.operator_service.save_user(
+            {"_operator_session": session, "username": "maria", "password": "1234"}
+        )
+        self.operator_service.set_user_employee(
+            {"_operator_session": session, "username": "katya", "employee_id": employee["id"]}
+        )
+
+        with self.assertRaises(ServiceError) as duplicate:
+            self.operator_service.set_user_employee(
+                {
+                    "_operator_session": session,
+                    "username": "maria",
+                    "employee_id": employee["id"],
+                }
+            )
+        self.assertEqual(duplicate.exception.status_code, 409)
+        self.assertEqual(duplicate.exception.details["username"], "KATYA")
+
+        with self.assertRaises(ServiceError) as missing:
+            self.operator_service.set_user_employee(
+                {"_operator_session": session, "username": "maria", "employee_id": "missing"}
+            )
+        self.assertEqual(missing.exception.status_code, 404)
+
+        with self.assertRaises(ServiceError) as inactive:
+            self.operator_service.set_user_employee(
+                {
+                    "_operator_session": session,
+                    "username": "maria",
+                    "employee_id": disabled_employee["id"],
+                }
+            )
+        self.assertEqual(inactive.exception.status_code, 409)
 
     def test_ui_write_routes_require_operator_session(self) -> None:
         status, blocked = self.request(

@@ -269,6 +269,7 @@ are blocked. Delete is destructive.
 - `GET|POST /api/get_operator_profile`
 - `GET|POST /api/list_operator_users`
 - `POST /api/save_operator_user`
+- `POST /api/set_operator_user_employee`
 - `POST /api/delete_operator_user`
 - `GET|POST /api/get_operator_user_report`
 - `GET|POST /api/list_operator_activity`
@@ -280,6 +281,11 @@ are blocked. Delete is destructive.
 Admin-only routes go through `OperatorAuthService`. Smoke checks should use
 `AUTOSTOP_SMOKE_OPERATOR_USERNAME` and `AUTOSTOP_SMOKE_OPERATOR_PASSWORD`, not
 hard-coded default credentials.
+
+`set_operator_user_employee` links an operator account to one active employee.
+The link is used by the UI as the default executor for newly added repair-order
+material rows. Empty `employee_id` removes the link; one employee cannot be
+linked to multiple operator accounts.
 
 The operator activity journal is the admin-facing dense table of user actions.
 Admins can read all users; a regular operator can read only their own activity.

@@ -1936,6 +1936,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function openOperatorWorkspace()", BOARD_WEB_APP_HTML)
         self.assertIn("async function openOperatorAdminModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function saveOperatorUser()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function saveOperatorEmployeeBinding", BOARD_WEB_APP_HTML)
         self.assertIn("async function deleteOperatorUser(username)", BOARD_WEB_APP_HTML)
         self.assertIn("async function openOperatorUserReport(username)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleAdminUsersListClick(event)", BOARD_WEB_APP_HTML)
@@ -1954,8 +1955,12 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("'/api/login_operator'", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/get_operator_profile'", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/list_operator_users'", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/set_operator_user_employee'", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/get_operator_user_report?username='", BOARD_WEB_APP_HTML)
         self.assertIn("data-open-operator-report", BOARD_WEB_APP_HTML)
+        self.assertIn("data-bind-operator-employee", BOARD_WEB_APP_HTML)
+        self.assertIn('id="operatorUserEmployeeBindingPanel"', BOARD_WEB_APP_HTML)
+        self.assertIn("СОТРУДНИК: НЕ ПРИВЯЗАН", BOARD_WEB_APP_HTML)
         self.assertIn("СТАТИСТИКА: 15 ДНЕЙ", BOARD_WEB_APP_HTML)
         self.assertIn("bootstrapOperatorSession();", BOARD_WEB_APP_HTML)
 
@@ -2133,6 +2138,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="repairOrderTagAddButton"', BOARD_WEB_APP_HTML)
         self.assertIn('data-repair-order-total="works"', BOARD_WEB_APP_HTML)
         self.assertIn('data-repair-order-total="materials"', BOARD_WEB_APP_HTML)
+        self.assertIn("function operatorDefaultMaterialExecutor()", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const defaults = section === 'materials' ? operatorDefaultMaterialExecutor() : {};",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn('id="repairOrderPaymentMethod"', BOARD_WEB_APP_HTML)
         self.assertIn('<option value="card">На карту</option>', BOARD_WEB_APP_HTML)
         self.assertIn('class="repair-order-hidden-fields"', BOARD_WEB_APP_HTML)
@@ -2248,7 +2258,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".repair-order-total--cashless-due {", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-total--cash-due {", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-total--taxes {", BOARD_WEB_APP_HTML)
-        self.assertIn("function addRepairOrderRowFromButton(section, event)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "async function addRepairOrderRowFromButton(section, event)", BOARD_WEB_APP_HTML
+        )
         self.assertIn("function handleRepairOrderModalInput(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function renderRepairOrderTags()", BOARD_WEB_APP_HTML)
         self.assertIn("function editRepairOrderTag(label)", BOARD_WEB_APP_HTML)
@@ -2268,7 +2280,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            "body.insertAdjacentHTML('beforeend', repairOrderRowHtml(section, emptyRepairOrderRow(), rowIndex));",
+            "body.insertAdjacentHTML('beforeend', repairOrderRowHtml(section, emptyRepairOrderRow(defaults), rowIndex));",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("saveRepairOrder = async function(", BOARD_WEB_APP_HTML)

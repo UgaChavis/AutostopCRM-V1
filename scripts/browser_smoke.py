@@ -38,6 +38,7 @@ SMOKE_SCENARIOS = (
     "cashbox_journal_mode_and_period_navigation",
     "cashbox_journal_first_render_budget",
     "repair_order_payments_modal",
+    "repair_order_material_executor_defaults_to_operator_employee",
     "clients_modal",
     "clients_search_selects_realistic_row",
     "files_modal",
@@ -303,6 +304,15 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
         service,
         users_file=base_dir / "users.json",
         logger=logger,
+    )
+    admin_session = operator_service.login({"username": "admin", "password": "admin"})["session"]
+    operator_service.set_user_employee(
+        {
+            "_operator_session": admin_session,
+            "username": "admin",
+            "employee_id": employee["id"],
+            "source": "smoke",
+        }
     )
     api = ApiServer(
         service,
@@ -618,6 +628,49 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     await _wait_modal_open(page, "#cardModal")
     await page.click("#repairOrderButton")
     await _wait_modal_open(page, "#repairOrderModal")
+    material_rows_before = int(
+        await page.evaluate(
+            "() => document.querySelectorAll('#repairOrderMaterialsBody tr[data-repair-order-row]').length"
+        )
+    )
+    await page.click("#repairOrderAddMaterialRowButton")
+    await page.wait_for_function(
+        """(expected) => document.querySelectorAll('#repairOrderMaterialsBody tr[data-repair-order-row]').length === expected""",
+        arg=material_rows_before + 1,
+    )
+    material_default_ok = bool(
+        await page.evaluate(
+            """(employeeId) => {
+              const rows = Array.from(document.querySelectorAll('#repairOrderMaterialsBody tr[data-repair-order-row]'));
+              const select = rows.at(-1)?.querySelector('[data-repair-order-cell="executor_id"]');
+              return select?.value === employeeId;
+            }""",
+            runtime.employee_id,
+        )
+    )
+    await page.select_option(
+        '#repairOrderMaterialsBody tr[data-repair-order-row]:last-child [data-repair-order-cell="executor_id"]',
+        "",
+    )
+    await page.click("#repairOrderAddMaterialRowButton")
+    await page.wait_for_function(
+        """(expected) => document.querySelectorAll('#repairOrderMaterialsBody tr[data-repair-order-row]').length === expected""",
+        arg=material_rows_before + 2,
+    )
+    material_manual_preserved_ok = bool(
+        await page.evaluate(
+            """(employeeId) => {
+              const rows = Array.from(document.querySelectorAll('#repairOrderMaterialsBody tr[data-repair-order-row]'));
+              const previous = rows.at(-2)?.querySelector('[data-repair-order-cell="executor_id"]');
+              const current = rows.at(-1)?.querySelector('[data-repair-order-cell="executor_id"]');
+              return previous?.value === '' && current?.value === employeeId;
+            }""",
+            runtime.employee_id,
+        )
+    )
+    scenarios["repair_order_material_executor_defaults_to_operator_employee"] = bool(
+        material_default_ok and material_manual_preserved_ok
+    )
     await page.wait_for_selector("#repairOrderPaymentsButton")
     await page.click("#repairOrderPaymentsButton")
     await _wait_modal_open(page, "#repairOrderPaymentsModal")

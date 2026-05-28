@@ -38,6 +38,10 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("clients_search_selects_realistic_row", module.SMOKE_SCENARIOS)
         self.assertIn("shared_files_scanability_markup", module.SMOKE_SCENARIOS)
         self.assertIn("repair_order_salary_override_popover", module.SMOKE_SCENARIOS)
+        self.assertIn(
+            "repair_order_material_executor_defaults_to_operator_employee",
+            module.SMOKE_SCENARIOS,
+        )
         self.assertIn("payroll_chain_reaches_reports_and_reconciliation", module.SMOKE_SCENARIOS)
         self.assertNotIn("crm.autostopcrm.ru", script)
         self.assertTrue(callable(module.start_temp_runtime))
@@ -60,6 +64,8 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("work_salary_override_enabled", script)
         self.assertIn("repairOrderWorkSalaryAmount", script)
         self.assertIn("employee_salary_reconciliation_print", script)
+        self.assertIn("operator_service.set_user_employee", script)
+        self.assertIn("material_manual_preserved_ok", script)
         self.assertIn("service.archive_card", script)
         self.assertIn("employees_repair_order_returns_to_employee", script)
         self.assertIn("clients_repair_order_returns_to_client", script)

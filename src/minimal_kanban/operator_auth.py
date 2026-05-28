@@ -17,7 +17,14 @@ from .config import (
     get_default_admin_username,
     get_users_file,
 )
-from .models import normalize_actor_name, normalize_int, parse_datetime, utc_now, utc_now_iso
+from .models import (
+    normalize_actor_name,
+    normalize_int,
+    normalize_text,
+    parse_datetime,
+    utc_now,
+    utc_now_iso,
+)
 from .operator_activity import OperatorActivityService
 from .services.card_service import CardService, ServiceError
 from .storage.file_lock import ProcessFileLock
@@ -228,6 +235,7 @@ class OperatorAuthService:
                     "role": "operator",
                     "created_at": now_iso,
                     "updated_at": now_iso,
+                    "employee_id": "",
                     "stats": {OPEN_COUNT_KEY: 0},
                     ACTION_HISTORY_KEY: [],
                 }
@@ -235,6 +243,9 @@ class OperatorAuthService:
             else:
                 existing["password_hash"] = _password_hash(password)
                 existing["updated_at"] = now_iso
+                existing["employee_id"] = normalize_text(
+                    existing.get("employee_id"), default="", limit=64
+                )
                 if not isinstance(existing.get("stats"), dict):
                     existing["stats"] = {OPEN_COUNT_KEY: 0}
                 if not isinstance(existing.get(ACTION_HISTORY_KEY), list):
@@ -258,6 +269,68 @@ class OperatorAuthService:
                 "created": created,
                 "updated": not created,
             },
+        }
+
+    def set_user_employee(self, payload: dict | None = None) -> dict:
+        session = self._required_admin_session(payload)
+        payload = payload or {}
+        username = self._validated_username(payload.get("username"))
+        employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
+        employee = self._employee_for_binding(employee_id) if employee_id else None
+        now_iso = utc_now_iso()
+        with self._lock:
+            state = self._read_normalized_state()
+            target = self._find_user(state["users"], username)
+            if target is None:
+                self._fail("not_found", "Пользователь не найден.", status_code=404)
+            if employee_id:
+                duplicate = next(
+                    (
+                        user
+                        for user in state["users"]
+                        if user.get("username") != username
+                        and normalize_text(user.get("employee_id"), default="", limit=64)
+                        == employee_id
+                    ),
+                    None,
+                )
+                if duplicate is not None:
+                    self._fail(
+                        "validation_error",
+                        "Этот сотрудник уже привязан к другому пользователю.",
+                        status_code=409,
+                        details={
+                            "field": "employee_id",
+                            "employee_id": employee_id,
+                            "username": duplicate.get("username", ""),
+                        },
+                    )
+            target["employee_id"] = employee_id
+            target["updated_at"] = now_iso
+            self._write_state(state)
+            snapshot = deepcopy(target)
+        self._record_activity_safe(
+            username=session["username"],
+            module="admin",
+            action="operator_user_employee_bound"
+            if employee_id
+            else "operator_user_employee_unbound",
+            action_label="Привязал сотрудника" if employee_id else "Отвязал сотрудника",
+            object_type="operator",
+            object_id=snapshot["username"],
+            object_label=snapshot["username"],
+            summary=(
+                f"Пользователь привязан к сотруднику {employee.get('name', '')}."
+                if employee
+                else "Привязка сотрудника к пользователю снята."
+            ),
+            source=str(payload.get("source") or "ui"),
+            details={"employee_id": employee_id},
+        )
+        return {
+            "user": self._serialize_user_summary(snapshot),
+            "employee": employee,
+            "meta": {"bound": bool(employee_id)},
         }
 
     def delete_user(self, payload: dict | None = None) -> dict:
@@ -550,6 +623,7 @@ class OperatorAuthService:
             "is_admin": user["role"] == "admin",
             "created_at": user["created_at"],
             "updated_at": user["updated_at"],
+            "employee_id": normalize_text(user.get("employee_id"), default="", limit=64),
         }
 
     def _session_payload(self, *, token: str, user: dict[str, Any]) -> dict[str, Any]:
@@ -558,6 +632,7 @@ class OperatorAuthService:
             "username": user["username"],
             "role": user["role"],
             "is_admin": user["role"] == "admin",
+            "employee_id": normalize_text(user.get("employee_id"), default="", limit=64),
         }
 
     def _build_profile_payload(self, user: dict[str, Any], *, token: str) -> dict:
@@ -810,6 +885,46 @@ class OperatorAuthService:
             )
         return password
 
+    def _employee_for_binding(self, employee_id: str) -> dict[str, Any]:
+        try:
+            result = self._card_service.list_employees({})
+        except ServiceError:
+            raise
+        except Exception as exc:
+            self._fail(
+                "internal_error",
+                "Не удалось прочитать список сотрудников.",
+                status_code=500,
+                details={"error": str(exc)},
+            )
+        employees = result.get("employees")
+        if not isinstance(employees, list):
+            employees = []
+        employee = next(
+            (
+                item
+                for item in employees
+                if isinstance(item, dict)
+                and normalize_text(item.get("id"), default="", limit=64) == employee_id
+            ),
+            None,
+        )
+        if employee is None:
+            self._fail(
+                "not_found",
+                "Сотрудник не найден.",
+                status_code=404,
+                details={"field": "employee_id", "employee_id": employee_id},
+            )
+        if not employee.get("is_active"):
+            self._fail(
+                "validation_error",
+                "Нельзя привязать выключенного сотрудника.",
+                status_code=409,
+                details={"field": "employee_id", "employee_id": employee_id},
+            )
+        return deepcopy(employee)
+
     def _validated_role(self, value) -> str:
         role = str(value or "operator").strip().lower()
         if role not in USER_ROLE_VALUES:
@@ -927,6 +1042,7 @@ class OperatorAuthService:
                     "role": "admin",
                     "created_at": now_iso,
                     "updated_at": now_iso,
+                    "employee_id": "",
                     "stats": {OPEN_COUNT_KEY: 0},
                     ACTION_HISTORY_KEY: [],
                 }
@@ -995,6 +1111,7 @@ class OperatorAuthService:
             ):
                 continue
             stats = item.get("stats")
+            employee_id = normalize_text(item.get("employee_id"), default="", limit=64)
             normalized.append(
                 {
                     "username": username,
@@ -1006,6 +1123,7 @@ class OperatorAuthService:
                         or parse_datetime(item.get("created_at"))
                         or utc_now()
                     ).isoformat(),
+                    "employee_id": employee_id,
                     "stats": {
                         OPEN_COUNT_KEY: normalize_int(
                             (stats or {}).get(OPEN_COUNT_KEY), default=0, minimum=0

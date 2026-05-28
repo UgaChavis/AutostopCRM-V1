@@ -4523,6 +4523,16 @@ BOARD_WEB_APP_HTML = "".join(
       font-size: 12px;
       color: var(--muted);
     }
+    .operator-user-binding-panel {
+      border-color: rgba(182, 177, 116, 0.46);
+      background: rgba(182, 177, 116, 0.08);
+    }
+    .operator-user-binding-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
     .operator-activity-panel {
       display: grid;
       gap: 10px;
@@ -7783,6 +7793,18 @@ BOARD_WEB_APP_HTML = "".join(
               <button class="btn btn--accent" id="adminSaveUserButton">СОХРАНИТЬ</button>
             </div>
           </div>
+          <div class="subpanel operator-user-binding-panel hidden" id="operatorUserEmployeeBindingPanel">
+            <div class="panel-title" id="operatorUserEmployeeBindingTitle">ПРИВЯЗКА СОТРУДНИКА</div>
+            <div class="field field--compact">
+              <label for="operatorUserEmployeeSelect">СОТРУДНИК</label>
+              <select id="operatorUserEmployeeSelect"></select>
+            </div>
+            <div class="operator-user-binding-actions">
+              <button class="btn btn--accent" id="operatorUserEmployeeSaveButton" type="button">ПРИВЯЗАТЬ</button>
+              <button class="btn btn--ghost" id="operatorUserEmployeeClearButton" type="button">ОТВЯЗАТЬ</button>
+              <button class="btn btn--ghost" id="operatorUserEmployeeCancelButton" type="button">ОТМЕНА</button>
+            </div>
+          </div>
           <div class="subpanel">
             <div class="panel-title">ПОЛЬЗОВАТЕЛИ</div>
             <div id="adminUsersList"></div>
@@ -8559,6 +8581,7 @@ BOARD_WEB_APP_HTML = "".join(
       operatorSessionToken: localStorage.getItem(OPERATOR_SESSION_STORAGE_KEY) || '',
       operatorProfile: null,
       operatorUsers: [],
+      operatorEmployeeBindingUser: '',
       operatorAdminTab: 'journal',
       operatorActivityRows: [],
       operatorActivityMeta: null,
@@ -9175,6 +9198,12 @@ BOARD_WEB_APP_HTML = "".join(
       operatorAdminJournalPanel: document.getElementById('operatorAdminJournalPanel'),
       operatorAdminUsersPanel: document.getElementById('operatorAdminUsersPanel'),
       adminUsersList: document.getElementById('adminUsersList'),
+      operatorUserEmployeeBindingPanel: document.getElementById('operatorUserEmployeeBindingPanel'),
+      operatorUserEmployeeBindingTitle: document.getElementById('operatorUserEmployeeBindingTitle'),
+      operatorUserEmployeeSelect: document.getElementById('operatorUserEmployeeSelect'),
+      operatorUserEmployeeSaveButton: document.getElementById('operatorUserEmployeeSaveButton'),
+      operatorUserEmployeeClearButton: document.getElementById('operatorUserEmployeeClearButton'),
+      operatorUserEmployeeCancelButton: document.getElementById('operatorUserEmployeeCancelButton'),
       operatorActivityFilters: document.getElementById('operatorActivityFilters'),
       operatorActivityDays: document.getElementById('operatorActivityDays'),
       operatorActivityUserFilter: document.getElementById('operatorActivityUserFilter'),
@@ -11454,6 +11483,112 @@ BOARD_WEB_APP_HTML = "".join(
       }
     }
 
+    function operatorEmployeeById(employeeId) {
+      const normalizedId = String(employeeId || '').trim();
+      if (!normalizedId) return null;
+      return (Array.isArray(state.employees) ? state.employees : []).find((item) => String(item?.id || '').trim() === normalizedId) || null;
+    }
+
+    function operatorEmployeeBoundUsername(employeeId, exceptUsername = '') {
+      const normalizedId = String(employeeId || '').trim();
+      const normalizedUsername = String(exceptUsername || '').trim().toUpperCase();
+      if (!normalizedId) return '';
+      const user = (Array.isArray(state.operatorUsers) ? state.operatorUsers : []).find((item) => {
+        const username = String(item?.username || '').trim().toUpperCase();
+        return username && username !== normalizedUsername && String(item?.employee_id || '').trim() === normalizedId;
+      });
+      return user?.username || '';
+    }
+
+    function operatorUserEmployeeLabel(user) {
+      const employeeId = String(user?.employee_id || '').trim();
+      if (!employeeId) return 'СОТРУДНИК: НЕ ПРИВЯЗАН';
+      const employee = operatorEmployeeById(employeeId);
+      if (!employee) return 'СОТРУДНИК: НЕ НАЙДЕН';
+      return 'СОТРУДНИК: ' + (employee.name || 'Сотрудник') + (employee.is_active ? '' : ' (ВЫКЛЮЧЕН)');
+    }
+
+    function operatorUserEmployeeOptionsHtml(selectedId = '', username = '') {
+      const selected = String(selectedId || '').trim();
+      const normalizedUsername = String(username || '').trim().toUpperCase();
+      const employees = Array.isArray(state.employees) ? state.employees : [];
+      const rendered = new Set();
+      const options = ['<option value="">НЕ ПРИВЯЗАН</option>'];
+      employees.forEach((employee) => {
+        const employeeId = String(employee?.id || '').trim();
+        if (!employeeId || rendered.has(employeeId) || !employee?.is_active) return;
+        rendered.add(employeeId);
+        const boundUsername = operatorEmployeeBoundUsername(employeeId, normalizedUsername);
+        const disabled = boundUsername ? ' disabled' : '';
+        const suffix = boundUsername ? (' (' + boundUsername + ')') : '';
+        options.push(
+          '<option value="' + escapeHtml(employeeId) + '"' + (employeeId === selected ? ' selected' : '') + disabled + '>' + escapeHtml((employee.name || 'Сотрудник') + suffix) + '</option>'
+        );
+      });
+      if (selected && !rendered.has(selected)) {
+        const employee = operatorEmployeeById(selected);
+        const label = employee ? ((employee.name || 'Сотрудник') + ' (ВЫКЛЮЧЕН)') : 'СОТРУДНИК НЕ НАЙДЕН';
+        options.push('<option value="' + escapeHtml(selected) + '" selected disabled>' + escapeHtml(label) + '</option>');
+      }
+      return options.join('');
+    }
+
+    function renderOperatorEmployeeBindingPanel() {
+      const username = String(state.operatorEmployeeBindingUser || '').trim().toUpperCase();
+      const user = (state.operatorUsers || []).find((item) => String(item?.username || '').trim().toUpperCase() === username);
+      const isOpen = Boolean(username && user);
+      els.operatorUserEmployeeBindingPanel?.classList.toggle('hidden', !isOpen);
+      if (!isOpen) return;
+      if (els.operatorUserEmployeeBindingTitle) {
+        els.operatorUserEmployeeBindingTitle.textContent = 'ПРИВЯЗКА СОТРУДНИКА / ' + username;
+      }
+      if (els.operatorUserEmployeeSelect) {
+        els.operatorUserEmployeeSelect.innerHTML = operatorUserEmployeeOptionsHtml(user.employee_id, username);
+        els.operatorUserEmployeeSelect.value = String(user.employee_id || '').trim();
+      }
+    }
+
+    async function openOperatorEmployeeBinding(username) {
+      state.operatorEmployeeBindingUser = String(username || '').trim().toUpperCase();
+      try {
+        await loadEmployeesReference();
+        renderOperatorEmployeeBindingPanel();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    function closeOperatorEmployeeBinding() {
+      state.operatorEmployeeBindingUser = '';
+      renderOperatorEmployeeBindingPanel();
+    }
+
+    async function saveOperatorEmployeeBinding(employeeIdOverride = null) {
+      const username = String(state.operatorEmployeeBindingUser || '').trim().toUpperCase();
+      if (!username) return;
+      const employeeId = employeeIdOverride === null
+        ? String(els.operatorUserEmployeeSelect?.value || '').trim()
+        : String(employeeIdOverride || '').trim();
+      try {
+        const data = await api('/api/set_operator_user_employee', {
+          method: 'POST',
+          body: {
+            username,
+            employee_id: employeeId,
+            source: 'ui',
+          },
+        });
+        setStatus(data?.meta?.bound ? 'СОТРУДНИК ПРИВЯЗАН.' : 'СОТРУДНИК ОТВЯЗАН.', false);
+        await refreshOperatorAdminSurfaces({
+          openAdminModal: true,
+          refreshProfile: String(state.actor || '').trim().toUpperCase() === username,
+          tabName: 'users',
+        });
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
     function renderOperatorUsers(data) {
       const users = data?.users || [];
       state.operatorUsers = users;
@@ -11461,17 +11596,20 @@ BOARD_WEB_APP_HTML = "".join(
       els.adminUsersList.innerHTML = users.length
         ? users.map((user) => {
             const stats = user.stats || {};
+            const employeeLabel = operatorUserEmployeeLabel(user);
             return '<div class="operator-user-row">' +
               '<div class="operator-user-row__head"><strong>' + escapeHtml(user.username) + '</strong><span class="operator-user-chip">' + escapeHtml(user.is_admin ? 'АДМИН' : 'ОПЕРАТОР') + '</span></div>' +
               '<div class="operator-user-row__stats">' +
                 '<span class="operator-user-chip">ОТКРЫТО: ' + escapeHtml(stats.cards_opened ?? 0) + '</span>' +
                 '<span class="operator-user-chip">ЗАКРЫТО: ' + escapeHtml(stats.cards_archived ?? 0) + '</span>' +
                 '<span class="operator-user-chip">ПЕРЕМЕЩЕНИЙ: ' + escapeHtml(stats.card_moves ?? 0) + '</span>' +
+                '<span class="operator-user-chip">' + escapeHtml(employeeLabel) + '</span>' +
               '</div>' +
-              '<div class="operator-user-row__actions"><span class="log-row__meta">ОБНОВЛЕНО: ' + escapeHtml(formatDate(user.updated_at)) + ' | СТАТИСТИКА: 15 ДНЕЙ</span><div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="btn" type="button" data-open-operator-report="' + escapeHtml(user.username) + '">СТАТИСТИКА</button><button class="btn btn--danger" type="button" data-delete-operator-user="' + escapeHtml(user.username) + '">УДАЛИТЬ</button></div></div>' +
+              '<div class="operator-user-row__actions"><span class="log-row__meta">ОБНОВЛЕНО: ' + escapeHtml(formatDate(user.updated_at)) + ' | СТАТИСТИКА: 15 ДНЕЙ</span><div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="btn" type="button" data-open-operator-report="' + escapeHtml(user.username) + '">СТАТИСТИКА</button><button class="btn btn--ghost" type="button" data-bind-operator-employee="' + escapeHtml(user.username) + '">СОТРУДНИК</button><button class="btn btn--danger" type="button" data-delete-operator-user="' + escapeHtml(user.username) + '">УДАЛИТЬ</button></div></div>' +
             '</div>';
           }).join('')
         : '<div class="log-row__meta">ПОЛЬЗОВАТЕЛЕЙ ПОКА НЕТ.</div>';
+      renderOperatorEmployeeBindingPanel();
     }
 
     function renderOperatorActivityUserOptions() {
@@ -11772,6 +11910,7 @@ BOARD_WEB_APP_HTML = "".join(
       els.operatorAdminJournalPanel?.classList.toggle('is-active', normalized === 'journal');
       els.operatorAdminUsersPanel?.classList.toggle('hidden', normalized !== 'users');
       els.operatorAdminUsersPanel?.classList.toggle('is-active', normalized === 'users');
+      if (normalized !== 'users') closeOperatorEmployeeBinding();
       if (normalized === 'journal') updateOperatorActivityScrollHint();
     }
 
@@ -16195,6 +16334,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     async function reloadOperatorAdminUsers({ openModal = false } = {}) {
+      await loadEmployeesReference();
       return loadModalData('/api/list_operator_users', {
         openModal,
         modalEl: els.operatorAdminModal,
@@ -16232,6 +16372,11 @@ BOARD_WEB_APP_HTML = "".join(
       const reportUser = target.dataset.openOperatorReport;
       if (reportUser) {
         openOperatorUserReport(reportUser);
+        return;
+      }
+      const bindUser = target.dataset.bindOperatorEmployee;
+      if (bindUser) {
+        openOperatorEmployeeBinding(bindUser);
         return;
       }
       const username = target.dataset.deleteOperatorUser;
@@ -17844,7 +17989,7 @@ BOARD_WEB_APP_HTML = "".join(
       };
     }
 
-    function emptyRepairOrderRow() {
+    function emptyRepairOrderRow(overrides = {}) {
       return {
         name: '',
         catalog_number: '',
@@ -17872,6 +18017,7 @@ BOARD_WEB_APP_HTML = "".join(
         material_profit: '',
         material_salary_amount: '',
         material_salary_accrued_at: '',
+        ...overrides,
       };
     }
 
@@ -18633,6 +18779,16 @@ BOARD_WEB_APP_HTML = "".join(
       return (Array.isArray(state.employees) ? state.employees : []).find((item) => String(item?.id || '').trim() === normalizedId) || null;
     }
 
+    function operatorDefaultMaterialExecutor() {
+      const employeeId = String(state.operatorProfile?.user?.employee_id || '').trim();
+      const employee = repairOrderEmployeeById(employeeId);
+      if (!employee || !employee.is_active) return {};
+      return {
+        executor_id: String(employee.id || '').trim(),
+        executor_name: String(employee.name || '').trim(),
+      };
+    }
+
     function repairOrderWorkSalaryPercentForRow(rowData) {
       const overrideEnabled = repairOrderNormalizeBool(rowData?.work_salary_override_enabled || '') === 'true';
       const rawOverridePercent = rowData?.work_salary_percent_override ?? '';
@@ -19093,10 +19249,14 @@ BOARD_WEB_APP_HTML = "".join(
       }
     }
 
-    function addRepairOrderRow(section) {
+    async function addRepairOrderRow(section) {
+      if (section === 'materials') {
+        await loadEmployeesReference();
+      }
       const body = repairOrderRowsBody(section);
       const rowIndex = body.querySelectorAll('tr[data-repair-order-row]').length;
-      body.insertAdjacentHTML('beforeend', repairOrderRowHtml(section, emptyRepairOrderRow(), rowIndex));
+      const defaults = section === 'materials' ? operatorDefaultMaterialExecutor() : {};
+      body.insertAdjacentHTML('beforeend', repairOrderRowHtml(section, emptyRepairOrderRow(defaults), rowIndex));
       syncRepairOrderTotals();
       body.querySelector('tr:last-child input')?.focus();
     }
@@ -24517,10 +24677,10 @@ BOARD_WEB_APP_HTML = "".join(
       openActiveSharedFile();
     }
 
-    function addRepairOrderRowFromButton(section, event) {
+    async function addRepairOrderRowFromButton(section, event) {
       event.preventDefault();
       event.stopPropagation();
-      addRepairOrderRow(section);
+      await addRepairOrderRow(section);
     }
 
     function handleRepairOrderModalInput(event) {
@@ -24882,7 +25042,7 @@ BOARD_WEB_APP_HTML = "".join(
       }
       const addRepairOrderRowButton = target.closest('[data-add-repair-order-row]');
       if (addRepairOrderRowButton) {
-        addRepairOrderRow(addRepairOrderRowButton.dataset.addRepairOrderRow);
+        await addRepairOrderRow(addRepairOrderRowButton.dataset.addRepairOrderRow);
         return;
       }
       const workSalaryGearButton = target.closest('[data-repair-order-work-salary-gear]');
@@ -24977,6 +25137,9 @@ BOARD_WEB_APP_HTML = "".join(
     remountElement('operatorLogoutButton');
     remountElement('operatorAdminButton');
     remountElement('adminSaveUserButton');
+    remountElement('operatorUserEmployeeSaveButton');
+    remountElement('operatorUserEmployeeClearButton');
+    remountElement('operatorUserEmployeeCancelButton');
     remountElement('operatorActivityExportButton');
     remountElement('sharedFilesButton');
     remountElement('sharedFilesUploadButton');
@@ -25012,6 +25175,9 @@ BOARD_WEB_APP_HTML = "".join(
     els.operatorAdminTabs?.addEventListener('click', handleOperatorAdminTabsClick);
     els.adminSaveUserButton.addEventListener('click', saveOperatorUser);
     els.adminUsersList.addEventListener('click', handleAdminUsersListClick);
+    els.operatorUserEmployeeSaveButton?.addEventListener('click', () => saveOperatorEmployeeBinding());
+    els.operatorUserEmployeeClearButton?.addEventListener('click', () => saveOperatorEmployeeBinding(''));
+    els.operatorUserEmployeeCancelButton?.addEventListener('click', closeOperatorEmployeeBinding);
     els.operatorActivityDays?.addEventListener('change', handleOperatorActivityFilterChange);
     els.operatorActivityUserFilter?.addEventListener('change', handleOperatorActivityFilterChange);
     els.operatorActivityModuleFilter?.addEventListener('change', handleOperatorActivityFilterChange);
@@ -25141,8 +25307,12 @@ BOARD_WEB_APP_HTML = "".join(
     els.cardDescriptionToolbar.addEventListener('mousedown', handleDescriptionToolbarMouseDown);
     els.cardDescriptionToolbar.addEventListener('click', handleDescriptionFormatClick);
     els.vehicleAutofillButton.addEventListener('click', autofillVehicleProfile);
-    els.repairOrderAddWorkRowButton.addEventListener('click', (event) => addRepairOrderRowFromButton('works', event));
-    els.repairOrderAddMaterialRowButton.addEventListener('click', (event) => addRepairOrderRowFromButton('materials', event));
+    els.repairOrderAddWorkRowButton.addEventListener('click', (event) => {
+      addRepairOrderRowFromButton('works', event).catch((error) => setStatus(error.message, true));
+    });
+    els.repairOrderAddMaterialRowButton.addEventListener('click', (event) => {
+      addRepairOrderRowFromButton('materials', event).catch((error) => setStatus(error.message, true));
+    });
     els.repairOrderModal.addEventListener('input', handleRepairOrderModalInput);
     els.repairOrderModal.addEventListener('change', handleRepairOrderModalInput);
     els.repairOrderWorkSalaryPopover?.addEventListener('input', syncRepairOrderWorkSalaryPopoverPreview);

@@ -579,6 +579,7 @@ class ApiServer:
         admin_only_routes = {
             "/api/list_operator_users",
             "/api/save_operator_user",
+            "/api/set_operator_user_employee",
             "/api/delete_operator_user",
             "/api/get_operator_user_report",
             "/api/correct_repair_order_number",
@@ -592,6 +593,7 @@ class ApiServer:
                     "/api/get_operator_profile": operator_service.get_profile,
                     "/api/list_operator_users": operator_service.list_users,
                     "/api/save_operator_user": operator_service.save_user,
+                    "/api/set_operator_user_employee": operator_service.set_user_employee,
                     "/api/delete_operator_user": operator_service.delete_user,
                     "/api/get_operator_user_report": operator_service.get_user_report,
                     "/api/list_operator_activity": operator_service.list_activity,
