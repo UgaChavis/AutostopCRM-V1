@@ -715,7 +715,15 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".employees-row {", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-row__actions {", BOARD_WEB_APP_HTML)
         self.assertIn("color: var(--text);", BOARD_WEB_APP_HTML)
-        self.assertIn(".employees-row__salary,\n    .employees-row__report {", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            ".employees-row__salary,\n"
+            "    .employees-row__report {\n"
+            "      display: flex;\n"
+            "      align-items: center;\n"
+            "      justify-content: center;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("      text-align: center;\n      align-self: stretch;", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-card-head {", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-field--compact {", BOARD_WEB_APP_HTML)
         self.assertIn(".employees-field--salary {", BOARD_WEB_APP_HTML)

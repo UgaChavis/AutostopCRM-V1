@@ -6383,11 +6383,16 @@ BOARD_WEB_APP_HTML = "".join(
     }
     .employees-row__salary,
     .employees-row__report {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
       width: 100%;
       min-height: 0;
       padding: 6px 5px;
       white-space: normal;
       line-height: 1.05;
+      text-align: center;
       align-self: stretch;
       justify-self: end;
       font-size: 10px;
