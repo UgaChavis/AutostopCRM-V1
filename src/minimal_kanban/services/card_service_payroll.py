@@ -180,7 +180,7 @@ class CardServicePayrollMixin:
                 row = RepairOrderRow.from_dict(
                     source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
                 )
-                if self._work_salary_employee_id(row) != employee_id:
+                if self._work_salary_employee_id(row) != employee_id or not row.salary_accrued_at:
                     continue
                 amount = self._parse_payroll_decimal(row.salary_amount)
                 if period_only_totals:
@@ -490,7 +490,7 @@ class CardServicePayrollMixin:
                 row = RepairOrderRow.from_dict(
                     source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
                 )
-                if self._work_salary_employee_id(row) != employee_id:
+                if self._work_salary_employee_id(row) != employee_id or not row.salary_accrued_at:
                     continue
                 row_total = row.total_value()
                 amount = self._parse_payroll_decimal(row.salary_amount)
@@ -1014,7 +1014,7 @@ class CardServicePayrollMixin:
                 row = RepairOrderRow.from_dict(
                     source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
                 )
-                if self._work_salary_employee_id(row) != employee_id:
+                if self._work_salary_employee_id(row) != employee_id or not row.salary_accrued_at:
                     continue
                 row_total = row.total_value()
                 row_accrued = self._parse_payroll_decimal(row.salary_amount)
@@ -2242,6 +2242,8 @@ class CardServicePayrollMixin:
                 row = RepairOrderRow.from_dict(
                     source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
                 )
+                if not row.salary_accrued_at:
+                    continue
                 current_employee_id = self._work_salary_employee_id(row)
                 if not current_employee_id:
                     continue
