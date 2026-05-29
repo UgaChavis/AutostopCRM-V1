@@ -111,15 +111,14 @@ class RepairOrderNumberAuditTests(unittest.TestCase):
         self.assertTrue(data["meta"]["read_only"])
         self.assertTrue(data["meta"]["dry_run"])
         self.assertEqual(data["summary"]["safe_fix_count"], 0)
+        self.assertEqual(data["summary"]["review_required_count"], len(data["issues"]))
         self.assertIn("duplicate_number", codes)
         self.assertIn("missing_number", codes)
         self.assertIn("nonnumeric_number", codes)
         self.assertIn("number_gap", codes)
         self.assertIn("number_time_inversion", codes)
         self.assertIn("payment_note_number_mismatch", codes)
-        self.assertFalse(
-            any(issue["card_id"] == "card-empty-skeleton" for issue in data["issues"])
-        )
+        self.assertFalse(any(issue["card_id"] == "card-empty-skeleton" for issue in data["issues"]))
 
     def test_same_timestamp_orders_are_sorted_by_number_before_inversion_check(self) -> None:
         module = load_repair_order_number_audit_module()
@@ -260,6 +259,35 @@ class RepairOrderNumberAuditTests(unittest.TestCase):
         self.assertIn("current_number=2", text)
         self.assertIn("opened_sort_value=2026-04-04T02:37:00+00:00", text)
         self.assertIn("safe_fix=no", text)
+
+    def test_text_report_includes_fixability_and_count_summaries(self) -> None:
+        module = load_repair_order_number_audit_module()
+        payload = {
+            "ok": True,
+            "data": {
+                "issues": [],
+                "summary": {
+                    "orders_total": 3,
+                    "issues_total": 2,
+                    "safe_fix_count": 0,
+                    "review_required_count": 2,
+                    "counts_by_severity": {"error": 1, "warning": 1, "info": 0},
+                    "counts_by_code": {"missing_number": 1, "number_gap": 1},
+                },
+                "meta": {
+                    "schema_version": "repair_order_number_audit.v1",
+                    "read_only": True,
+                    "dry_run": True,
+                },
+            },
+        }
+
+        text = module._format_text(payload, issue_limit=10)
+
+        self.assertIn("safe_fixes_available: 0", text)
+        self.assertIn("review_required: 2", text)
+        self.assertIn("issues_by_severity: error=1, info=0, warning=1", text)
+        self.assertIn("issues_by_code: missing_number=1, number_gap=1", text)
 
     def test_main_reads_state_file_without_modifying_it(self) -> None:
         module = load_repair_order_number_audit_module()

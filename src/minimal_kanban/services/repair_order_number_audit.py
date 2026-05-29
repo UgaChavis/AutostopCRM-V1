@@ -6,7 +6,6 @@ from typing import Any
 
 from ..repair_order import RepairOrder
 
-
 DEFAULT_NOTE_RE = re.compile(r"заказ-наряд\s*№\s*(?P<number>\S+)", re.IGNORECASE)
 
 
@@ -280,12 +279,15 @@ def build_repair_order_number_audit(state: dict[str, Any]) -> dict[str, Any]:
 
     counts_by_code: dict[str, int] = {}
     counts_by_severity = {"error": 0, "warning": 0, "info": 0}
+    safe_fix_count = 0
     for issue in issues:
         code = _text(issue.get("code")) or "unknown"
         severity = _text(issue.get("severity")) or "info"
         counts_by_code[code] = counts_by_code.get(code, 0) + 1
         if severity in counts_by_severity:
             counts_by_severity[severity] += 1
+        if issue.get("safe_fix_available"):
+            safe_fix_count += 1
 
     return {
         "issues": issues,
@@ -296,7 +298,8 @@ def build_repair_order_number_audit(state: dict[str, Any]) -> dict[str, Any]:
             "counts_by_severity": counts_by_severity,
             "numeric_min": min(numeric_orders_by_number) if numeric_orders_by_number else 0,
             "numeric_max": max(numeric_orders_by_number) if numeric_orders_by_number else 0,
-            "safe_fix_count": 0,
+            "safe_fix_count": safe_fix_count,
+            "review_required_count": len(issues) - safe_fix_count,
         },
         "meta": {
             "schema_version": "repair_order_number_audit.v1",
@@ -321,21 +324,30 @@ def limited_repair_order_number_audit_data(
     return limited
 
 
-def format_repair_order_number_audit_text(
-    payload: dict[str, Any], *, issue_limit: int
-) -> str:
+def format_repair_order_number_audit_text(payload: dict[str, Any], *, issue_limit: int) -> str:
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
     issues = data.get("issues") if isinstance(data.get("issues"), list) else []
+    issues_total = int(summary.get("issues_total") or len(issues))
+    safe_fix_count = int(summary.get("safe_fix_count") or 0)
+    review_required = int(summary.get("review_required_count") or (issues_total - safe_fix_count))
     lines = [
         "AutoStop CRM repair order number audit",
         f"schema: {meta.get('schema_version', '')}",
         f"read_only: {bool(meta.get('read_only'))}",
         f"dry_run: {bool(meta.get('dry_run'))}",
         f"orders: {int(summary.get('orders_total') or 0)}",
-        f"issues: {int(summary.get('issues_total') or len(issues))}",
+        f"issues: {issues_total}",
+        f"safe_fixes_available: {safe_fix_count}",
+        f"review_required: {review_required}",
     ]
+    counts_by_severity = _format_counts(summary.get("counts_by_severity"))
+    counts_by_code = _format_counts(summary.get("counts_by_code"))
+    if counts_by_severity:
+        lines.append(f"issues_by_severity: {counts_by_severity}")
+    if counts_by_code:
+        lines.append(f"issues_by_code: {counts_by_code}")
     for issue in issues[: max(0, issue_limit)]:
         if not isinstance(issue, dict):
             continue
@@ -348,6 +360,20 @@ def format_repair_order_number_audit_text(
             ).rstrip()
         )
     return "\n".join(lines)
+
+
+def _format_counts(value: object) -> str:
+    if not isinstance(value, dict):
+        return ""
+    parts: list[str] = []
+    for key in sorted(value):
+        count = value.get(key)
+        try:
+            number = int(count)
+        except (TypeError, ValueError):
+            continue
+        parts.append(f"{key}={number}")
+    return ", ".join(parts)
 
 
 def format_repair_order_number_issue_context(issue: dict[str, Any]) -> str:
