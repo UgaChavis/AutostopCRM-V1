@@ -127,6 +127,7 @@ def build_audit(state: dict[str, Any]) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
     numbers: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
     numeric_orders: list[tuple[datetime, int, dict[str, Any], dict[str, Any]]] = []
+    numeric_orders_by_number: dict[int, list[tuple[datetime, dict[str, Any], dict[str, Any]]]] = {}
 
     for card, order in order_cards:
         card_id = card.get("id", "")
@@ -143,7 +144,10 @@ def build_audit(state: dict[str, Any]) -> dict[str, Any]:
             continue
         numbers.setdefault(_number_key(number), []).append((card, order))
         if number.isdigit():
-            numeric_orders.append((_sort_datetime(card, order), int(number), card, order))
+            numeric_number = int(number)
+            opened_at = _sort_datetime(card, order)
+            numeric_orders.append((opened_at, numeric_number, card, order))
+            numeric_orders_by_number.setdefault(numeric_number, []).append((opened_at, card, order))
         else:
             issues.append(
                 _issue(
@@ -171,26 +175,47 @@ def build_audit(state: dict[str, Any]) -> dict[str, Any]:
             )
         )
 
-    previous_number = 0
-    max_seen_number = 0
-    for opened_at, number, card, order in sorted(numeric_orders, key=lambda item: item[0]):
-        card_id = card.get("id", "")
-        order_number = order.get("number", "")
-        if previous_number and number - previous_number > 1:
+    previous_number: int | None = None
+    for number in sorted(numeric_orders_by_number):
+        if previous_number is not None and number - previous_number > 1:
+            first_entry = sorted(
+                numeric_orders_by_number[number],
+                key=lambda item: (item[0], _text(item[1].get("id"))),
+            )[0]
+            _opened_at, card, order = first_entry
+            missing_start = previous_number + 1
+            missing_end = number - 1
+            missing_count = missing_end - missing_start + 1
             issues.append(
                 _issue(
                     "number_gap",
                     "warning",
-                    "В хронологии заказ-нарядов есть скачок номера.",
-                    card_id=card_id,
-                    repair_order_number=order_number,
+                    "В последовательности номеров заказ-нарядов есть пропущенные номера.",
+                    card_id=card.get("id", ""),
+                    repair_order_number=order.get("number", ""),
                     data={
                         "previous_number": previous_number,
                         "current_number": number,
-                        "opened_sort_value": opened_at.isoformat(),
+                        "missing_start": missing_start,
+                        "missing_end": missing_end,
+                        "missing_count": missing_count,
+                        "missing_numbers": (
+                            list(range(missing_start, missing_end + 1))
+                            if missing_count <= 20
+                            else []
+                        ),
                     },
                 )
             )
+        previous_number = number
+
+    max_seen_number = 0
+    for opened_at, number, card, order in sorted(
+        numeric_orders,
+        key=lambda item: (item[0], item[1], _text(item[2].get("id"))),
+    ):
+        card_id = card.get("id", "")
+        order_number = order.get("number", "")
         if number < max_seen_number:
             issues.append(
                 _issue(
@@ -206,7 +231,6 @@ def build_audit(state: dict[str, Any]) -> dict[str, Any]:
                     },
                 )
             )
-        previous_number = number
         max_seen_number = max(max_seen_number, number)
 
     transactions_by_id = {
@@ -284,6 +308,8 @@ def build_audit(state: dict[str, Any]) -> dict[str, Any]:
                 "issues_total": len(issues),
                 "counts_by_code": dict(sorted(counts_by_code.items())),
                 "counts_by_severity": counts_by_severity,
+                "numeric_min": min(numeric_orders_by_number) if numeric_orders_by_number else 0,
+                "numeric_max": max(numeric_orders_by_number) if numeric_orders_by_number else 0,
                 "safe_fix_count": 0,
             },
             "meta": {

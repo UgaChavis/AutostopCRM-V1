@@ -121,6 +121,39 @@ class RepairOrderNumberAuditTests(unittest.TestCase):
             any(issue["card_id"] == "card-empty-skeleton" for issue in data["issues"])
         )
 
+    def test_same_timestamp_orders_are_sorted_by_number_before_inversion_check(self) -> None:
+        module = load_repair_order_number_audit_module()
+        payload = module.build_audit(
+            {
+                "cards": [
+                    {
+                        "id": "card-2",
+                        "created_at": "2026-05-19T08:00:00+07:00",
+                        "repair_order": {
+                            "number": "2",
+                            "client": "Петр",
+                            "opened_at": "19.05.2026 08:00",
+                        },
+                    },
+                    {
+                        "id": "card-1",
+                        "created_at": "2026-05-19T08:00:00+07:00",
+                        "repair_order": {
+                            "number": "1",
+                            "client": "Иван",
+                            "opened_at": "19.05.2026 08:00",
+                        },
+                    },
+                ],
+                "cash_transactions": [],
+            }
+        )
+
+        issues = payload["data"]["issues"]
+
+        self.assertFalse(any(issue["code"] == "number_time_inversion" for issue in issues))
+        self.assertFalse(any(issue["code"] == "number_gap" for issue in issues))
+
     def test_limited_data_limits_issue_details(self) -> None:
         module = load_repair_order_number_audit_module()
         limited = module._limited_data(
