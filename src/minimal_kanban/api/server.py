@@ -543,6 +543,7 @@ class ApiServer:
                     "/api/list_cashboxes",
                     "/api/get_cash_journal",
                     "/api/finance_audit",
+                    "/api/repair_order_number_audit",
                     "/api/list_employees",
                     "/api/list_clients",
                     "/api/search_clients",

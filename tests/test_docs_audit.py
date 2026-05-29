@@ -160,6 +160,7 @@ class DocsAuditTests(unittest.TestCase):
         self.assertEqual(
             {
                 "read-only finance audit API route is not documented: /api/finance_audit",
+                "read-only repair-order number audit API route is not documented: /api/repair_order_number_audit",
                 "repair-order number maintenance route is not documented: /api/correct_repair_order_number",
                 "manual employee shift accrual route is not documented: /api/create_employee_shift_accrual",
                 "card log archive hydration option is not documented: include_full_details",

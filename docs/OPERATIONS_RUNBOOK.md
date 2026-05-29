@@ -138,7 +138,7 @@ journal-first and must not expose finance-audit/reconciliation entrypoints.
 Repair-order number audit:
 
 ```powershell
-python scripts\repair_order_number_audit.py --format text --issue-limit 50
+python scripts\repair_order_number_audit.py --base-url https://crm.autostopcrm.ru --format text --issue-limit 50
 ```
 
 ## Deploy

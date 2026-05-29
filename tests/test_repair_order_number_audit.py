@@ -176,6 +176,51 @@ class RepairOrderNumberAuditTests(unittest.TestCase):
         self.assertEqual(limited["summary"], {"issues_total": 3})
         self.assertTrue(limited["meta"]["read_only"])
 
+    def test_fetch_audit_uses_read_only_repair_order_number_audit_endpoint(self) -> None:
+        module = load_repair_order_number_audit_module()
+        seen: list[tuple[str, str]] = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+
+            def read(self) -> bytes:
+                return json.dumps(
+                    {
+                        "ok": True,
+                        "data": {
+                            "issues": [],
+                            "summary": {"issues_total": 0},
+                            "meta": {
+                                "schema_version": "repair_order_number_audit.v1",
+                                "read_only": True,
+                                "dry_run": True,
+                            },
+                        },
+                    },
+                    ensure_ascii=False,
+                ).encode("utf-8")
+
+        def fake_urlopen(request, timeout):
+            _ = timeout
+            seen.append((request.full_url, request.get_method()))
+            return FakeResponse()
+
+        payload = module.fetch_audit(
+            "https://crm.autostopcrm.ru/",
+            timeout=5,
+            urlopen=fake_urlopen,
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(
+            seen,
+            [("https://crm.autostopcrm.ru/api/repair_order_number_audit", "GET")],
+        )
+
     def test_text_report_includes_actionable_issue_context(self) -> None:
         module = load_repair_order_number_audit_module()
         payload = {

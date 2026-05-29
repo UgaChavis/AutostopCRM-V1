@@ -149,6 +149,10 @@ API_GUIDE_REQUIRED_ROUTE_TEXT = (
         "finance audit maintenance route is not documented",
     ),
     (
+        "/api/repair_order_number_audit",
+        "read-only repair-order number audit API route is not documented",
+    ),
+    (
         "/api/correct_repair_order_number",
         "repair-order number maintenance route is not documented",
     ),

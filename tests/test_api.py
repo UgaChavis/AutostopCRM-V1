@@ -1485,6 +1485,18 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("issues", audit["data"])
         self.assertIn("counts_by_code", audit["data"]["summary"])
 
+        status, number_audit = self.request("/api/repair_order_number_audit", method="GET")
+        self.assertEqual(status, 200)
+        self.assertTrue(number_audit["ok"])
+        self.assertEqual(
+            number_audit["data"]["meta"]["schema_version"],
+            "repair_order_number_audit.v1",
+        )
+        self.assertTrue(number_audit["data"]["meta"]["read_only"])
+        self.assertTrue(number_audit["data"]["meta"]["dry_run"])
+        self.assertIn("issues", number_audit["data"])
+        self.assertIn("counts_by_code", number_audit["data"]["summary"])
+
     def test_cancel_last_cash_transaction_route_removes_latest_manual_movement(self) -> None:
         status, created = self.request(
             "/api/create_cashbox", {"name": "Касса API", "actor_name": "ADMIN"}

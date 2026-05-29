@@ -74,8 +74,8 @@ clients/vehicles and overwriting card fields require clear owner intent.
 ## Repair Orders And Printing
 
 Read: `list_repair_orders`, `get_repair_order`, `get_repair_order_text`,
-`get_repair_order_print_workspace`, `get_inspection_sheet_form`, and
-`/api/repair_order_text?card_id=CARD_ID`.
+`get_repair_order_print_workspace`, `get_inspection_sheet_form`,
+`/api/repair_order_number_audit`, and `/api/repair_order_text?card_id=CARD_ID`.
 
 Write/generate: `update_repair_order`, `set_repair_order_status`,
 `replace_repair_order_works`, `replace_repair_order_materials`,
@@ -85,9 +85,11 @@ Write/generate: `update_repair_order`, `set_repair_order_status`,
 
 Maintenance-only: `/api/correct_repair_order_number`.
 
-Repair-order numbers are immutable after first assignment. Historical fixes
-must use the runbook maintenance flow: backup, read-only/dry-run audit, owner
-approval, and post-fix checks.
+Repair-order numbers are immutable after first assignment.
+`repair_order_number_audit.v1` is read-only/dry-run diagnostics for missing,
+duplicate, nonnumeric, skipped, time-inverted, and payment-note mismatched
+numbers. Historical fixes must use the runbook maintenance flow: backup,
+read-only/dry-run audit, owner approval, and post-fix checks.
 
 Supported print documents include repair order, acceptance act, invoice,
 invoice factura, inspection sheet, completion act, and parts sale. Agents

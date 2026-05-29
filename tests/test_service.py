@@ -4557,6 +4557,45 @@ class CardServiceTests(unittest.TestCase):
         core_audit["meta"]["generated_at"] = ""
         self.assertEqual(facade_audit, core_audit)
 
+    def test_repair_order_number_audit_service_is_read_only_and_reports_context(self) -> None:
+        card = self.service.create_card(
+            {"vehicle": "Skoda Rapid", "title": "Аудит номеров", "deadline": {"hours": 2}}
+        )["card"]
+        self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "number": "10",
+                    "client": "Клиент",
+                    "works": [{"name": "Работа", "quantity": "1", "price": "1000"}],
+                },
+            }
+        )
+        bundle = self.store.read_bundle()
+        stored_card = next(item for item in bundle["cards"] if item.id == card["id"])
+        stored_card.repair_order.number = ""
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        before = self.state_file.read_text(encoding="utf-8")
+        audit = self.service.get_repair_order_number_audit()
+
+        self.assertTrue(audit["meta"]["read_only"])
+        self.assertTrue(audit["meta"]["dry_run"])
+        self.assertEqual(audit["summary"]["safe_fix_count"], 0)
+        issue = next(issue for issue in audit["issues"] if issue["code"] == "missing_number")
+        self.assertEqual(issue["card_id"], card["id"])
+        self.assertFalse(issue["safe_fix_available"])
+        self.assertEqual(self.state_file.read_text(encoding="utf-8"), before)
+
     def test_move_card_can_reorder_within_same_column(self) -> None:
         first = self.service.create_card(
             {"title": "First", "column": "inbox", "deadline": {"hours": 2}}

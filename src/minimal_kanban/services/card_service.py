@@ -99,6 +99,7 @@ from .column_service import ColumnService
 from .errors import ServiceError
 from .finance_read_core import FinanceReadCore
 from .ready_column import READY_CARD_TAG_COLOR, READY_CARD_TAG_LABEL, ensure_ready_column
+from .repair_order_number_audit import build_repair_order_number_audit
 from .snapshot_service import SnapshotService
 from .vehicle_profile_service import VehicleProfileService
 
@@ -1482,6 +1483,18 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                     "directory": str(self._repair_orders_dir),
                 },
             }
+
+    def get_repair_order_number_audit(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            _ = payload or {}
+            bundle = self._store.read_bundle()
+            state = {
+                "cards": [card.to_storage_dict() for card in bundle["cards"]],
+                "cash_transactions": [
+                    transaction.to_storage_dict() for transaction in bundle["cash_transactions"]
+                ],
+            }
+            return build_repair_order_number_audit(state)
 
     def get_card_context(self, payload: dict | None = None) -> dict:
         with self._lock:

@@ -123,6 +123,7 @@ def build_service_routes(
         "/api/get_cash_journal": service.get_cash_journal,
         "/api/finance_audit": service.get_finance_audit,
         "/api/finance_audit/apply_safe_fixes": service.apply_finance_audit_safe_fixes,
+        "/api/repair_order_number_audit": service.get_repair_order_number_audit,
         "/api/list_employees": service.list_employees,
         "/api/save_employee": service.save_employee,
         "/api/toggle_employee": service.toggle_employee,

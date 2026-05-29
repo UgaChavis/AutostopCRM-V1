@@ -67,6 +67,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/fetch_shared_file",
     "/api/finance_audit",
     "/api/finance_audit/apply_safe_fixes",
+    "/api/repair_order_number_audit",
     "/api/get_board_content",
     "/api/get_board_context",
     "/api/get_board_events",
