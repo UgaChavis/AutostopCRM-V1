@@ -4722,11 +4722,7 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
         if settings is not None:
             order = self._preserve_repair_order_payroll_snapshots(previous_order, order)
             order = self._apply_repair_order_payroll_snapshot(order, settings)
-        if (
-            previous_order.status != REPAIR_ORDER_STATUS_CLOSED
-            and order.status == REPAIR_ORDER_STATUS_CLOSED
-        ):
-            self._ensure_repair_order_can_change_status(card, order.status, order=order)
+        self._ensure_closed_repair_order_payment_state_valid(card, previous_order, order)
         if order.to_storage_dict() == previous_order.to_storage_dict():
             return False
         card.repair_order = order
@@ -6561,6 +6557,29 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                 "due_total": checked_order.due_total_amount(),
                 "payment_status": checked_order.payment_status(),
             },
+        )
+
+    def _ensure_closed_repair_order_payment_state_valid(
+        self, card: Card, previous_order: RepairOrder, order: RepairOrder
+    ) -> None:
+        if order.status != REPAIR_ORDER_STATUS_CLOSED or order.is_paid():
+            return
+        if (
+            previous_order.status == REPAIR_ORDER_STATUS_CLOSED
+            and not previous_order.is_paid()
+            and self._repair_order_balance_signature(previous_order)
+            == self._repair_order_balance_signature(order)
+        ):
+            return
+        self._ensure_repair_order_can_change_status(card, order.status, order=order)
+
+    def _repair_order_balance_signature(self, order: RepairOrder) -> tuple[object, ...]:
+        return (
+            tuple(row.to_dict() for row in order.works),
+            tuple(row.to_dict() for row in order.materials),
+            tuple(payment.to_storage_dict() for payment in order.payments),
+            order.prepayment,
+            order.payment_method,
         )
 
     def _validated_repair_order_status(

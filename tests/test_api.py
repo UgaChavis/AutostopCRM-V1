@@ -3809,6 +3809,70 @@ class ApiServerTests(unittest.TestCase):
         self.assertFalse(response["ok"])
         self.assertEqual(response["error"]["code"], "repair_order_payment_required")
 
+    def test_repair_order_update_route_rejects_closed_order_financial_underpayment(
+        self,
+    ) -> None:
+        status, cashbox_response = self.request(
+            "/api/create_cashbox", {"name": "Касса закрытых нарядов", "actor_name": "ADMIN"}
+        )
+        self.assertEqual(status, 200)
+        cashbox = cashbox_response["data"]["cashbox"]
+        status, created = self.request(
+            "/api/create_card",
+            {
+                "vehicle": "Toyota Camry",
+                "title": "Закрытый наряд нельзя сделать неоплаченным",
+                "deadline": {"hours": 4},
+            },
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        status, updated = self.request(
+            "/api/update_repair_order",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Иван Иванов",
+                    "works": [
+                        {"name": "Диагностика", "quantity": "1", "price": "1500", "total": ""}
+                    ],
+                    "payments": [
+                        {
+                            "amount": "1500",
+                            "paid_at": "06.04.2026 10:00",
+                            "payment_method": "cash",
+                            "cashbox_id": cashbox["id"],
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["data"]["repair_order"]["payment_status"], "paid")
+        status, closed = self.request(
+            "/api/set_repair_order_status", {"card_id": card_id, "status": "closed"}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(closed["data"]["repair_order"]["status"], "closed")
+
+        status, response = self.request(
+            "/api/update_repair_order",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "works": [
+                        {"name": "Диагностика", "quantity": "1", "price": "2000", "total": ""}
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(status, 409)
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error"]["code"], "repair_order_payment_required")
+        self.assertEqual(response["error"]["details"]["due_total"], "500")
+
     def test_repair_order_list_route_supports_query_sort_and_tags(self) -> None:
         status, first = self.request(
             "/api/create_card",

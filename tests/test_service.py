@@ -1117,6 +1117,55 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "repair_order_payment_required")
         self.assertEqual(raised.exception.status_code, 409)
 
+    def test_update_paid_closed_repair_order_rejects_financial_edit_that_creates_underpayment(
+        self,
+    ) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota Corolla",
+                "title": "Закрытый наряд нельзя сделать неоплаченным",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_repair_order(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Иван",
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+                    "payments": [
+                        {
+                            "amount": "1000",
+                            "paid_at": "06.04.2026 10:00",
+                            "payment_method": "cash",
+                            "cashbox_id": cashbox["id"],
+                        }
+                    ],
+                },
+            }
+        )
+        self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+
+        with self.assertRaises(ServiceError) as raised:
+            self.service.update_repair_order(
+                {
+                    "card_id": card_id,
+                    "repair_order": {
+                        "works": [
+                            {"name": "Диагностика", "quantity": "1", "price": "1500"},
+                        ],
+                    },
+                }
+            )
+
+        self.assertEqual(raised.exception.code, "repair_order_payment_required")
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(raised.exception.details["due_total"], "500")
+
     def test_unpaid_closed_repair_order_does_not_accrue_work_salary_on_legacy_edit(
         self,
     ) -> None:
@@ -2574,7 +2623,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(detail_rows[0]["material_cost_total"], "1400")
         self.assertEqual(detail_rows[0]["material_profit"], "600")
 
-    def test_material_salary_snapshot_clears_when_closed_order_becomes_unpaid(self) -> None:
+    def test_closed_order_rejects_payment_removal_that_would_leave_material_unpaid(self) -> None:
         employee = self.service.save_employee({"name": "Снабженец Оплаты"})["employee"]
         created = self.service.create_card(
             {
@@ -2614,22 +2663,26 @@ class CardServiceTests(unittest.TestCase):
         closed = self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
         self.assertEqual(closed["repair_order"]["materials"][0]["material_salary_amount"], "20")
 
-        unpaid = self.service.update_repair_order(
-            {
-                "card_id": card_id,
-                "repair_order": {
-                    **closed["repair_order"],
-                    "payments": [],
-                    "prepayment": "0",
-                },
-            }
-        )
+        with self.assertRaises(ServiceError) as raised:
+            self.service.update_repair_order(
+                {
+                    "card_id": card_id,
+                    "repair_order": {
+                        **closed["repair_order"],
+                        "payments": [],
+                        "prepayment": "0",
+                    },
+                }
+            )
 
-        material = unpaid["repair_order"]["materials"][0]
-        self.assertEqual(material["material_percent_snapshot"], "")
-        self.assertEqual(material["material_profit"], "")
-        self.assertEqual(material["material_salary_amount"], "")
-        self.assertEqual(material["material_salary_accrued_at"], "")
+        self.assertEqual(raised.exception.code, "repair_order_payment_required")
+        self.assertEqual(raised.exception.status_code, 409)
+        stored = self.service.get_repair_order({"card_id": card_id})["repair_order"]
+        material = stored["materials"][0]
+        self.assertEqual(material["material_percent_snapshot"], "10")
+        self.assertEqual(material["material_profit"], "200")
+        self.assertEqual(material["material_salary_amount"], "20")
+        self.assertTrue(material["material_salary_accrued_at"])
 
     def test_employee_salary_ledger_combines_closed_orders_payouts_and_advances(self) -> None:
         employee = self.service.save_employee(
