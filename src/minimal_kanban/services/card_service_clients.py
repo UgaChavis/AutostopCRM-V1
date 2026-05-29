@@ -27,6 +27,10 @@ class CardServiceClientsMixin:
             include_stats = self._validated_optional_bool(payload, "include_stats", default=True)
             bundle = self._store.read_bundle()
             clients = self._ordered_clients(bundle["clients"])
+            selected = clients[:limit]
+            related_cards_by_client_id = (
+                self._client_related_cards_map(selected, bundle["cards"]) if include_stats else {}
+            )
             return {
                 "clients": [
                     self._serialize_client(
@@ -35,8 +39,9 @@ class CardServiceClientsMixin:
                         include_stats=include_stats,
                         compact=True,
                         include_vehicle_preview=include_stats,
+                        related_cards=related_cards_by_client_id.get(client.id),
                     )
-                    for client in clients[:limit]
+                    for client in selected
                 ],
                 "meta": {
                     "total": len(clients),

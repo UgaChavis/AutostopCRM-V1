@@ -416,6 +416,46 @@ class CardServiceTests(unittest.TestCase):
         self.assertNotEqual(first["id"], second["client"]["id"])
         self.assertEqual(len(self.service.list_clients({"limit": 10})["clients"]), 2)
 
+    def test_list_clients_batches_related_cards_when_stats_requested(self) -> None:
+        clients = [
+            self.service.create_client(
+                {
+                    "display_name": f"Клиент пакетной статистики {index}",
+                    "phone": f"+7 900 000-00-0{index}",
+                }
+            )["client"]
+            for index in range(1, 4)
+        ]
+        for index, client in enumerate(clients, start=1):
+            self.service.create_card(
+                {
+                    "vehicle": f"Toyota Test {index}",
+                    "title": f"Работа {index}",
+                    "description": "Проверка пакетной клиентской статистики",
+                    "deadline": {"hours": 1},
+                    "client_id": client["id"],
+                    "vehicle_profile": {"vin": f"TESTVIN000000000{index}"},
+                }
+            )
+
+        with patch.object(
+            self.service,
+            "_client_related_cards",
+            side_effect=AssertionError("list_clients must use batched related-card lookup"),
+        ):
+            listed = self.service.list_clients({"limit": 10, "include_stats": True})
+
+        listed_by_id = {client["id"]: client for client in listed["clients"]}
+        self.assertEqual(listed["meta"]["returned"], 3)
+        for client in clients:
+            row = listed_by_id[client["id"]]
+            self.assertEqual(row["stats"]["cards_total"], 1)
+            self.assertEqual(row["stats"]["vehicles_total"], 1)
+            self.assertEqual(
+                row["vehicles_preview"][0]["vin"],
+                "TESTVIN000000000" + client["phone"][-1],
+            )
+
     def test_client_profile_supports_up_to_three_phones(self) -> None:
         client = self.service.create_client(
             {
