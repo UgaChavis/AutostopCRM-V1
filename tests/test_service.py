@@ -748,9 +748,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(related_index.call_count, 1)
 
     def test_client_search_reuses_related_vehicle_index_between_queries(self) -> None:
-        client = self.service.create_client({"display_name": "Клиент с кэшем поиска"})[
-            "client"
-        ]
+        client = self.service.create_client({"display_name": "Клиент с кэшем поиска"})["client"]
         self.service.create_card(
             {
                 "title": "История для кэша поиска",
@@ -778,9 +776,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(related_index.call_count, 1)
 
     def test_suggest_clients_for_card_uses_related_card_vehicle_fields(self) -> None:
-        client = self.service.create_client({"display_name": "Клиент из истории VIN"})[
-            "client"
-        ]
+        client = self.service.create_client({"display_name": "Клиент из истории VIN"})["client"]
         self.service.create_card(
             {
                 "title": "Историческая привязка",
@@ -3953,9 +3949,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(inactive_ledger["accrued_total"], "1000")
         self.assertEqual(
             sum(
-                1
-                for row in inactive_ledger["journal_rows"]
-                if row["kind"] == "base_salary_accrual"
+                1 for row in inactive_ledger["journal_rows"] if row["kind"] == "base_salary_accrual"
             ),
             1,
         )
@@ -6744,9 +6738,7 @@ class CardServiceTests(unittest.TestCase):
                         {
                             "card_id": card["id"],
                             "repair_order": {
-                                "works": [
-                                    {"name": "Работы", "quantity": "1", "price": "6000"}
-                                ],
+                                "works": [{"name": "Работы", "quantity": "1", "price": "6000"}],
                                 "payments": [
                                     {
                                         "amount": raw_amount,
@@ -7536,7 +7528,7 @@ class CardServiceTests(unittest.TestCase):
             "stale_default_repair_order_note", {issue["code"] for issue in applied["issues"]}
         )
 
-    def test_finance_audit_reports_payment_amount_and_cashbox_when_link_missing(self) -> None:
+    def test_finance_audit_safe_fix_creates_missing_payment_cash_transaction(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"
         ]
@@ -7587,12 +7579,101 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(issue["repair_order_payment_id"], payment_id)
         self.assertEqual(issue["cashbox_id"], cashbox["id"])
         self.assertEqual(issue["amount_minor"], 400000)
+        self.assertTrue(issue["safe_fix_available"])
+        self.assertEqual(issue["safe_fix"]["kind"], "create_missing_payment_cash_transaction")
+
+        dry_run = self.service.apply_finance_audit_safe_fixes()
+        self.assertTrue(dry_run["meta"]["dry_run"])
+        self.assertEqual(dry_run["meta"]["planned"], 1)
+        self.assertEqual(
+            self.service.get_cashbox({"cashbox_id": cashbox["id"]})["transactions"], []
+        )
+
+        applied = self.service.apply_finance_audit_safe_fixes(
+            {"dry_run": False, "actor_name": "ADMIN"}
+        )
+        self.assertEqual(applied["meta"]["applied"], 1)
+
+        refreshed_order = self.service.get_repair_order({"card_id": card["id"]})["repair_order"]
+        refreshed_payment = refreshed_order["payments"][0]
+        cashbox_details = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        transaction = cashbox_details["transactions"][0]
+
+        self.assertEqual(refreshed_payment["cash_transaction_id"], transaction["id"])
+        self.assertEqual(transaction["transaction_kind"], "repair_order_payment")
+        self.assertEqual(transaction["amount_minor"], 400000)
+        self.assertEqual(transaction["note"], "Заказ-наряд №305")
+        self.assertTrue(transaction["created_at"].startswith("2026-05-18T12:39:00"))
+
+        next_audit = self.service.get_finance_audit()
+        self.assertNotIn(
+            payment_id,
+            {
+                item["repair_order_payment_id"]
+                for item in next_audit["issues"]
+                if item["code"] == "payment_without_cash_transaction_id"
+            },
+        )
+
+    def test_finance_audit_does_not_safe_fix_ambiguous_missing_payment_link(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        card = self.service.create_card(
+            {"vehicle": "Skoda Rapid", "title": "Сверка оплаты", "deadline": {"hours": 2}}
+        )["card"]
+        order = self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "number": "306",
+                    "works": [{"name": "Работа", "quantity": "1", "price": "4000"}],
+                    "payments": [
+                        {
+                            "amount": "4000",
+                            "paid_at": "18.05.2026 12:39",
+                            "payment_method": "cash",
+                            "cashbox_id": cashbox["id"],
+                            "actor_name": "ADMIN",
+                        }
+                    ],
+                },
+            }
+        )["card"]["repair_order"]
+        payment_id = order["payments"][0]["id"]
+        transaction_id = order["payments"][0]["cash_transaction_id"]
+        bundle = self.store.read_bundle()
+        stored_card = next(item for item in bundle["cards"] if item.id == card["id"])
+        stored_card.repair_order.payments[0].cash_transaction_id = ""
+        transaction = next(
+            item for item in bundle["cash_transactions"] if item.id == transaction_id
+        )
+        transaction.transaction_kind = ""
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        audit = self.service.get_finance_audit()
+        issue = next(
+            issue
+            for issue in audit["issues"]
+            if issue["code"] == "payment_without_cash_transaction_id"
+            and issue["repair_order_payment_id"] == payment_id
+        )
+
         self.assertFalse(issue["safe_fix_available"])
 
     def test_finance_audit_does_not_flag_closed_noncash_fee_as_underpaid(self) -> None:
-        cashbox = self.service.create_cashbox({"name": "Безнал", "actor_name": "ADMIN"})[
-            "cashbox"
-        ]
+        cashbox = self.service.create_cashbox({"name": "Безнал", "actor_name": "ADMIN"})["cashbox"]
         card = self.service.create_card(
             {"vehicle": "Skoda Rapid", "title": "Безналичная оплата", "deadline": {"hours": 2}}
         )["card"]
@@ -7704,9 +7785,7 @@ class CardServiceTests(unittest.TestCase):
         )
 
         audit = self.service.get_finance_audit()
-        codes = {
-            issue["code"] for issue in audit["issues"] if issue["card_id"] == card["id"]
-        }
+        codes = {issue["code"] for issue in audit["issues"] if issue["card_id"] == card["id"]}
 
         self.assertIn("open_with_payments", codes)
         self.assertNotIn("paid_zero_total", codes)
@@ -7751,9 +7830,7 @@ class CardServiceTests(unittest.TestCase):
         )
 
         audit = self.service.get_finance_audit()
-        codes = {
-            issue["code"] for issue in audit["issues"] if issue["card_id"] == card["id"]
-        }
+        codes = {issue["code"] for issue in audit["issues"] if issue["card_id"] == card["id"]}
 
         self.assertIn("paid_zero_total", codes)
         self.assertNotIn("open_with_payments", codes)
