@@ -38,7 +38,7 @@ class DocsAuditTests(unittest.TestCase):
         self.assertIn("!README.md", rules)
         self.assertIn("!API_GUIDE.md", rules)
         self.assertIn("!MCP_GUIDE.md", rules)
-        self.assertNotIn("!CHATGPT_CONNECTOR_SETUP.md", rules)
+        self.assertIn("!CHATGPT_CONNECTOR_SETUP.md", rules)
 
     def test_scan_forbidden_text_detects_stale_references(self) -> None:
         module = load_docs_audit_module()
@@ -199,6 +199,30 @@ class DocsAuditTests(unittest.TestCase):
                 "ChatGPT connector setup flow is not documented in MCP guide: ChatGPT Apps & Connectors",
                 "production MCP connector URL is not documented: https://crm.autostopcrm.ru/mcp",
                 "MCP security rule for public anonymous writes is not documented: Public anonymous writes must remain blocked",
+            },
+            {issue.detail for issue in issues},
+        )
+
+    def test_chatgpt_connector_setup_mentions_current_endpoint_and_safety(self) -> None:
+        module = load_docs_audit_module()
+
+        self.assertEqual([], module._check_api_guide_required_routes(ROOT))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            (temp_root / "CHATGPT_CONNECTOR_SETUP.md").write_text(
+                "Connector setup without current endpoint.\n",
+                encoding="utf-8",
+            )
+
+            issues = module._check_api_guide_required_routes(temp_root)
+
+        self.assertEqual(
+            {
+                "production ChatGPT connector URL is not documented: https://crm.autostopcrm.ru/mcp",
+                "ChatGPT connector bootstrap call is not documented: bootstrap_context(compact=true)",
+                "ChatGPT connector runtime diagnostic call is not documented: get_runtime_status",
+                "ChatGPT connector write-safety rule is not documented: Public anonymous writes must remain blocked",
             },
             {issue.detail for issue in issues},
         )

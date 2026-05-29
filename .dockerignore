@@ -38,5 +38,6 @@ start_autostopvpn.ps1
 !README.md
 !API_GUIDE.md
 !MCP_GUIDE.md
+!CHATGPT_CONNECTOR_SETUP.md
 *.png
 *.spec

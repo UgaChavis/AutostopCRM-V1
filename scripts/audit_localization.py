@@ -14,6 +14,7 @@ TARGETS = [
     ROOT / "README.md",
     ROOT / "API_GUIDE.md",
     ROOT / "MCP_GUIDE.md",
+    ROOT / "CHATGPT_CONNECTOR_SETUP.md",
     ROOT / "docs" / "OPERATIONS_RUNBOOK.md",
 ]
 

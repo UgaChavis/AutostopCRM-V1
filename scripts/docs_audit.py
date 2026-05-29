@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CRM_CANONICAL_DOCS = (
     "API_GUIDE.md",
     "AUTOSTOPCRM_FULL_INSTRUCTION.txt",
+    "CHATGPT_CONNECTOR_SETUP.md",
     "MCP_GUIDE.md",
     "README.md",
     "docs/OPERATIONS_RUNBOOK.md",
@@ -54,7 +55,6 @@ RETIRED_DOC_GLOBS = (
     "GPT_AGENT_*",
     "docs/superpowers/plans/*.md",
     "docs/superpowers/specs/*.md",
-    "CHATGPT_CONNECTOR_SETUP.md",
     "mcp-tools-example.json",
     "openai-tools-example.json",
     "main_agent.py",
@@ -189,6 +189,25 @@ MCP_GUIDE_REQUIRED_TEXT = (
     (
         "Public anonymous writes must remain blocked",
         "MCP security rule for public anonymous writes is not documented",
+    ),
+)
+
+CHATGPT_CONNECTOR_REQUIRED_TEXT = (
+    (
+        "https://crm.autostopcrm.ru/mcp",
+        "production ChatGPT connector URL is not documented",
+    ),
+    (
+        "bootstrap_context(compact=true)",
+        "ChatGPT connector bootstrap call is not documented",
+    ),
+    (
+        "get_runtime_status",
+        "ChatGPT connector runtime diagnostic call is not documented",
+    ),
+    (
+        "Public anonymous writes must remain blocked",
+        "ChatGPT connector write-safety rule is not documented",
     ),
 )
 
@@ -392,6 +411,18 @@ def _check_api_guide_required_routes(root: Path) -> list[Issue]:
                     Issue(
                         "mcp_guide_missing_contract",
                         _display_path(mcp_guide, root),
+                        f"{detail}: {required_text}",
+                    )
+                )
+    chatgpt_setup = root / "CHATGPT_CONNECTOR_SETUP.md"
+    if chatgpt_setup.exists():
+        chatgpt_text = _read_text(chatgpt_setup)
+        for required_text, detail in CHATGPT_CONNECTOR_REQUIRED_TEXT:
+            if required_text not in chatgpt_text:
+                issues.append(
+                    Issue(
+                        "chatgpt_connector_setup_missing_contract",
+                        _display_path(chatgpt_setup, root),
                         f"{detail}: {required_text}",
                     )
                 )

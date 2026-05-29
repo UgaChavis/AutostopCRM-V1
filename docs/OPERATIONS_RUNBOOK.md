@@ -257,6 +257,7 @@ Canonical active docs:
 - `docs/OPERATIONS_RUNBOOK.md`
 - `API_GUIDE.md`
 - `MCP_GUIDE.md`
+- `CHATGPT_CONNECTOR_SETUP.md`
 - `AUTOSTOPCRM_FULL_INSTRUCTION.txt`
 
 `requirements.txt` and `requirements-dev.txt` are manifests. Release copies and

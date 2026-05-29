@@ -57,6 +57,7 @@ ChatGPT connects to the production MCP endpoint:
 https://crm.autostopcrm.ru/mcp
 ```
 
+Use `CHATGPT_CONNECTOR_SETUP.md` for the short role-specific setup checklist.
 Connector scope is exactly one current AutoStop CRM board. In CRM integration
 settings, enable integration, local API, MCP, public HTTPS base/full MCP URL,
 and MCP auth mode/token when the endpoint is protected. The final connector URL
