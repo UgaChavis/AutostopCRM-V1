@@ -1024,6 +1024,50 @@ class CardServiceTests(unittest.TestCase):
         archived = self.service.archive_card({"card_id": card_id})
         self.assertTrue(archived["card"]["archived"])
 
+    def test_archive_card_rejects_legacy_closed_unpaid_repair_order(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "Mazda Axela",
+                "title": "Legacy закрыт без оплаты",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "64",
+                    "status": "open",
+                    "client": "Егорова Таисия",
+                    "vehicle": "Mazda Axela",
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+                },
+            }
+        )
+
+        bundle = self.store.read_bundle()
+        stored_card = next(item for item in bundle["cards"] if item.id == card_id)
+        stored_card.repair_order.status = "closed"
+        stored_card.repair_order.closed_at = "15.04.2026 09:10"
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        with self.assertRaises(ServiceError) as raised:
+            self.service.archive_card({"card_id": card_id})
+
+        self.assertEqual(raised.exception.code, "repair_order_unpaid_archive_blocked")
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(raised.exception.details["due_total"], "1000")
+
     def test_close_repair_order_requires_full_payment(self) -> None:
         created = self.service.create_card(
             {

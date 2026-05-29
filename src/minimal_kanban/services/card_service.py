@@ -6518,10 +6518,27 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
         return changed
 
     def _ensure_card_can_be_archived(self, card: Card) -> None:
-        if not self._card_has_open_repair_order(card):
+        if not self._card_has_repair_order(card):
             return
         repair_order_number = str(card.repair_order.number or "").strip()
         number_suffix = f" №{repair_order_number}" if repair_order_number else ""
+        if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED:
+            if card.repair_order.is_paid():
+                return
+            self._fail(
+                "repair_order_unpaid_archive_blocked",
+                (
+                    f"Нельзя отправить карточку в архив: заказ-наряд{number_suffix} закрыт, "
+                    "но не оплачен. Сначала внесите оплату или верните заказ-наряд в работу."
+                ),
+                status_code=409,
+                details={
+                    "card_id": card.id,
+                    "repair_order_number": repair_order_number,
+                    "due_total": card.repair_order.due_total_amount(),
+                    "payment_status": card.repair_order.payment_status(),
+                },
+            )
         self._fail(
             "repair_order_open_archive_blocked",
             f"Нельзя отправить карточку в архив: по ней открыт заказ-наряд{number_suffix}. Сначала закройте заказ-наряд или снимите его с карточки.",
