@@ -1258,7 +1258,14 @@ class CardServiceClientsMixin:
         return keys
 
     def _client_search_digits_blob(self, client: ClientProfile) -> str:
-        values = [client.inn, client.ogrn, client.contact_person]
+        values = [
+            client.name(),
+            client.full_name(),
+            client.display_name,
+            client.inn,
+            client.ogrn,
+            client.contact_person,
+        ]
         for phone in [client.phone, *client.phones]:
             digits = re.sub(r"\D+", "", str(phone or ""))
             if len(digits) < 7:
