@@ -6904,15 +6904,15 @@ BOARD_WEB_APP_HTML = "".join(
       }
     }
     .dialog--clients {
-      width: min(1240px, 100%);
-      height: min(88vh, 900px);
-      max-height: min(88vh, 900px);
+      width: min(96vw, 2100px);
+      height: min(92vh, 1180px);
+      max-height: min(92vh, 1180px);
       overflow: hidden;
       grid-template-rows: auto minmax(0, 1fr);
     }
     .clients-layout {
       display: grid;
-      grid-template-columns: minmax(280px, 34%) minmax(0, 1fr);
+      grid-template-columns: minmax(420px, 40%) minmax(0, 1fr);
       gap: 12px;
       min-height: 0;
       align-items: stretch;
@@ -12331,7 +12331,6 @@ BOARD_WEB_APP_HTML = "".join(
     function clientRowChipsHtml(client) {
       const stats = client?.stats || {};
       const chips = [
-        compactPhoneLine(client, ''),
         stats.repair_orders_total !== undefined ? ('ЗН: ' + stats.repair_orders_total) : '',
         stats.vehicles_total !== undefined ? ('АВТО: ' + stats.vehicles_total) : '',
         stats.last_visit ? ('ПОСЛЕДНИЙ: ' + formatDate(stats.last_visit)) : '',

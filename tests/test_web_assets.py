@@ -1520,12 +1520,25 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("pendingCardClientId", BOARD_WEB_APP_HTML)
         self.assertNotIn("clientProfileMeta", BOARD_WEB_APP_HTML)
         self.assertIn(".clients-list-pane {", BOARD_WEB_APP_HTML)
-        self.assertIn("height: min(88vh, 900px);", BOARD_WEB_APP_HTML)
+        self.assertIn("width: min(96vw, 2100px);", BOARD_WEB_APP_HTML)
+        self.assertIn("height: min(92vh, 1180px);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "grid-template-columns: minmax(420px, 40%) minmax(0, 1fr);", BOARD_WEB_APP_HTML
+        )
         self.assertIn("grid-template-rows: auto minmax(0, 1fr);", BOARD_WEB_APP_HTML)
         self.assertIn("overflow: hidden;", BOARD_WEB_APP_HTML)
         self.assertIn("overflow: auto;", BOARD_WEB_APP_HTML)
         self.assertIn("display: flex;", BOARD_WEB_APP_HTML)
         self.assertIn("flex: 1 1 auto;", BOARD_WEB_APP_HTML)
+        client_row_chips_fragment = BOARD_WEB_APP_HTML.split(
+            "function clientRowChipsHtml(client)", 1
+        )[1].split("function clientDebtAmountText", 1)[0]
+        self.assertIn("function clientMetaLine(client)", BOARD_WEB_APP_HTML)
+        self.assertIn("clientMetaLine(client)", BOARD_WEB_APP_HTML)
+        self.assertNotIn("compactPhoneLine(client, '')", client_row_chips_fragment)
+        self.assertIn("'ЗН: ' + stats.repair_orders_total", client_row_chips_fragment)
+        self.assertIn("'АВТО: ' + stats.vehicles_total", client_row_chips_fragment)
+        self.assertIn("'ПОСЛЕДНИЙ: ' + formatDate(stats.last_visit)", client_row_chips_fragment)
         self.assertIn(
             "clientProfileTitle) els.clientProfileTitle.textContent = clientDisplayName(client);",
             BOARD_WEB_APP_HTML,
