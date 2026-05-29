@@ -2455,6 +2455,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("work_salary_override_enabled", BOARD_WEB_APP_HTML)
         self.assertIn("work_salary_guarantee", BOARD_WEB_APP_HTML)
         self.assertIn("work_salary_percent_override", BOARD_WEB_APP_HTML)
+        self.assertIn("ВЫПЛАТА ИСПОЛНИТЕЛЮ", BOARD_WEB_APP_HTML)
+        self.assertNotIn("ГАРАНТИЯ ИСПОЛНИТЕЛЮ", BOARD_WEB_APP_HTML)
         self.assertIn("К НАЧИСЛЕНИЮ", BOARD_WEB_APP_HTML)
         self.assertIn("ПРОЦЕНТ СЕРВИСА", BOARD_WEB_APP_HTML)
         self.assertIn(
