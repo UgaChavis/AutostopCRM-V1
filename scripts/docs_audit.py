@@ -15,7 +15,6 @@ ROOT = Path(__file__).resolve().parents[1]
 CRM_CANONICAL_DOCS = (
     "API_GUIDE.md",
     "AUTOSTOPCRM_FULL_INSTRUCTION.txt",
-    "CHATGPT_CONNECTOR_SETUP.md",
     "MCP_GUIDE.md",
     "README.md",
     "docs/OPERATIONS_RUNBOOK.md",
@@ -55,6 +54,7 @@ RETIRED_DOC_GLOBS = (
     "GPT_AGENT_*",
     "docs/superpowers/plans/*.md",
     "docs/superpowers/specs/*.md",
+    "CHATGPT_CONNECTOR_SETUP.md",
     "mcp-tools-example.json",
     "openai-tools-example.json",
     "main_agent.py",
@@ -70,6 +70,8 @@ SKIP_DIRS = {
     "build",
     "dist",
     "node_modules",
+    "release",
+    "release.staging",
 }
 
 SECRET_BUNDLE_DOC_SUFFIXES = {".md", ".txt"}
@@ -175,6 +177,18 @@ MCP_GUIDE_REQUIRED_TEXT = (
     (
         "MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS",
         "MCP allowed-origin transport security override is not documented",
+    ),
+    (
+        "ChatGPT Apps & Connectors",
+        "ChatGPT connector setup flow is not documented in MCP guide",
+    ),
+    (
+        "https://crm.autostopcrm.ru/mcp",
+        "production MCP connector URL is not documented",
+    ),
+    (
+        "Public anonymous writes must remain blocked",
+        "MCP security rule for public anonymous writes is not documented",
     ),
 )
 

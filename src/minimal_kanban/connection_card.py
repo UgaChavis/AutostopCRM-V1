@@ -457,7 +457,7 @@ def get_mcp_python_entry_path() -> Path:
 
 def get_mcp_setup_doc_path() -> Path:
     project_root = get_project_root()
-    return project_root / "CHATGPT_CONNECTOR_SETUP.md"
+    return project_root / "MCP_GUIDE.md"
 
 
 def build_settings_export(settings: IntegrationSettings, *, include_secrets: bool = False) -> str:

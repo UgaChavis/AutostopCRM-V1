@@ -334,9 +334,7 @@ class ConnectionCardTests(unittest.TestCase):
             self.assertEqual(get_release_exe_path(), fake_executable)
             self.assertEqual(get_mcp_script_path(), fake_executable)
             self.assertEqual(get_mcp_python_entry_path(), fake_executable)
-            self.assertEqual(
-                get_mcp_setup_doc_path(), ROOT / "release" / "CHATGPT_CONNECTOR_SETUP.md"
-            )
+            self.assertEqual(get_mcp_setup_doc_path(), ROOT / "release" / "MCP_GUIDE.md")
 
 
 if __name__ == "__main__":

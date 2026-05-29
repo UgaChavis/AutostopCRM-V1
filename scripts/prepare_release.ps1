@@ -48,7 +48,7 @@ if (-not (Test-Path $portableExeTarget)) {
 }
 
 $optionalDocs = @(
-    "CHATGPT_CONNECTOR_SETUP.md"
+    "MCP_GUIDE.md"
 )
 foreach ($docName in $optionalDocs) {
     $docSource = Join-Path $projectRoot $docName

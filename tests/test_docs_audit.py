@@ -38,7 +38,7 @@ class DocsAuditTests(unittest.TestCase):
         self.assertIn("!README.md", rules)
         self.assertIn("!API_GUIDE.md", rules)
         self.assertIn("!MCP_GUIDE.md", rules)
-        self.assertIn("!CHATGPT_CONNECTOR_SETUP.md", rules)
+        self.assertNotIn("!CHATGPT_CONNECTOR_SETUP.md", rules)
 
     def test_scan_forbidden_text_detects_stale_references(self) -> None:
         module = load_docs_audit_module()
@@ -196,6 +196,9 @@ class DocsAuditTests(unittest.TestCase):
             {
                 "MCP allowed-host transport security override is not documented: MINIMAL_KANBAN_MCP_ALLOWED_HOSTS",
                 "MCP allowed-origin transport security override is not documented: MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS",
+                "ChatGPT connector setup flow is not documented in MCP guide: ChatGPT Apps & Connectors",
+                "production MCP connector URL is not documented: https://crm.autostopcrm.ru/mcp",
+                "MCP security rule for public anonymous writes is not documented: Public anonymous writes must remain blocked",
             },
             {issue.detail for issue in issues},
         )
