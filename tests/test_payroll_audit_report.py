@@ -74,6 +74,8 @@ class PayrollAuditReportTests(unittest.TestCase):
                         {
                             "row_type": "material",
                             "employee_id": "emp-1",
+                            "material_profit": "3000",
+                            "material_percent": "10",
                             "salary_amount": "300",
                         },
                     ],
@@ -193,6 +195,73 @@ class PayrollAuditReportTests(unittest.TestCase):
         self.assertIn("payroll_duplicate_ledger_row", codes)
         self.assertIn({"month": ["2026-05"]}, seen_queries)
         self.assertIn({"employee_id": ["emp-1"], "months": ["3"]}, seen_queries)
+
+    def test_build_payroll_audit_reports_material_formula_mismatch(self) -> None:
+        module = load_payroll_audit_report_module()
+        employee = {"id": "emp-1", "name": "Иван Снабженец"}
+        responses = {
+            "/api/list_employees": _ok({"employees": [employee]}),
+            "/api/get_payroll_report": _ok(
+                {
+                    "summary": [
+                        {
+                            "employee_id": "emp-1",
+                            "employee_name": "Иван Снабженец",
+                            "base_salary_accrued_total": "0",
+                            "shift_accrued_total": "0",
+                            "work_accrued_total": "0",
+                            "materials_accrued_total": "500",
+                            "accrued_total": "500",
+                        }
+                    ],
+                    "detail_rows": [
+                        {
+                            "row_type": "material",
+                            "employee_id": "emp-1",
+                            "employee_name": "Иван Снабженец",
+                            "card_id": "card-1",
+                            "repair_order_number": "52",
+                            "material_name": "Фильтр",
+                            "material_profit": "1000",
+                            "material_percent": "10",
+                            "salary_amount": "500",
+                        }
+                    ],
+                }
+            ),
+            "/api/get_employee_salary_ledger": _ok(
+                {
+                    "employee_id": "emp-1",
+                    "employee_name": "Иван Снабженец",
+                    "accrued_total": "500",
+                    "payout_total": "0",
+                    "advance_total": "0",
+                    "balance_total": "500",
+                    "journal_total": 0,
+                    "journal_rows": [],
+                }
+            ),
+        }
+
+        def fake_urlopen(request, timeout):
+            _ = timeout
+            return FakeResponse(responses[urlparse(request.full_url).path])
+
+        result = module.build_payroll_audit(
+            "https://crm.autostopcrm.ru",
+            months_back=1,
+            ledger_months=6,
+            urlopen=fake_urlopen,
+            reference=datetime(2026, 5, 29),
+        )
+
+        issue = next(
+            item
+            for item in result["issues"]
+            if item["code"] == "payroll_material_salary_formula_mismatch"
+        )
+        self.assertEqual(issue["data"]["expected_salary_amount"], "100")
+        self.assertEqual(issue["data"]["salary_amount"], "500")
 
 
 if __name__ == "__main__":

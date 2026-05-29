@@ -8,7 +8,7 @@ import urllib.request
 from collections import Counter, defaultdict
 from collections.abc import Callable
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 UrlOpen = Callable[[urllib.request.Request, float], Any]
@@ -59,11 +59,15 @@ def _money(value: Any) -> Decimal:
 
 
 def _format_money(value: Decimal) -> str:
-    normalized = value.quantize(Decimal("0.01"))
+    normalized = _round_money(value)
     text = format(normalized, "f")
     if "." in text:
         text = text.rstrip("0").rstrip(".")
     return text or "0"
+
+
+def _round_money(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def _month_keys(months_back: int, *, reference: datetime | None = None) -> list[str]:
@@ -157,6 +161,29 @@ def _audit_report_totals(report: dict[str, Any], *, month: str) -> list[dict[str
             detail_totals[employee_id]["work_accrued_total"] += amount
         elif row_type == "material":
             detail_totals[employee_id]["materials_accrued_total"] += amount
+            material_profit = _money(row.get("material_profit"))
+            material_percent = _money(row.get("material_percent"))
+            expected_amount = material_profit * material_percent / Decimal("100")
+            if _round_money(expected_amount) != _round_money(amount):
+                issues.append(
+                    _issue(
+                        code="payroll_material_salary_formula_mismatch",
+                        severity="error",
+                        message="Начисление по материалу не равно прибыль * процент сотрудника.",
+                        employee_id=employee_id,
+                        employee_name=str(row.get("employee_name") or ""),
+                        month=month,
+                        data={
+                            "card_id": row.get("card_id"),
+                            "repair_order_number": row.get("repair_order_number"),
+                            "material_name": row.get("material_name"),
+                            "material_profit": _format_money(material_profit),
+                            "material_percent": _format_money(material_percent),
+                            "expected_salary_amount": _format_money(expected_amount),
+                            "salary_amount": _format_money(amount),
+                        },
+                    )
+                )
 
     for employee_id, summary in summaries.items():
         employee_name = str(summary.get("employee_name") or "")
