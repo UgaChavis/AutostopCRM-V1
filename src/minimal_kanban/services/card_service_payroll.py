@@ -1968,10 +1968,19 @@ class CardServicePayrollMixin:
         employees_by_id = {item["id"]: item for item in self._employees_from_settings(settings)}
         next_work_rows: list[dict[str, str]] = []
         accrued_at = order.closed_at or self._repair_order_now()
+        order_is_paid = order.is_paid()
         for source_row in order.works:
             row = RepairOrderRow.from_dict(
                 source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
             )
+            if not order_is_paid:
+                row.salary_mode_snapshot = ""
+                row.base_salary_snapshot = ""
+                row.work_percent_snapshot = ""
+                row.salary_amount = ""
+                row.salary_accrued_at = ""
+                next_work_rows.append(row.to_dict())
+                continue
             employee = employees_by_id.get(row.executor_id)
             if employee is None:
                 row.salary_mode_snapshot = ""
@@ -2005,7 +2014,6 @@ class CardServicePayrollMixin:
             row.salary_accrued_at = accrued_at
             next_work_rows.append(row.to_dict())
         next_material_rows: list[dict[str, str]] = []
-        order_is_paid = order.is_paid()
         for source_row in order.materials:
             row = RepairOrderRow.from_dict(
                 source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row

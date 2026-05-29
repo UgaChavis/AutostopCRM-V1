@@ -909,6 +909,77 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "repair_order_payment_required")
         self.assertEqual(raised.exception.status_code, 409)
 
+    def test_unpaid_closed_repair_order_does_not_accrue_work_salary_on_legacy_edit(
+        self,
+    ) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Иван Исполнитель",
+                "salary_mode": "percent_only",
+                "work_percent": "50",
+                "material_percent": "10",
+            }
+        )["employee"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota Corolla",
+                "title": "Исторически закрыт без оплаты",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Иван",
+                    "works": [
+                        {
+                            "name": "Диагностика",
+                            "quantity": "1",
+                            "price": "1000",
+                            "executor_id": employee["id"],
+                        }
+                    ],
+                    "materials": [
+                        {
+                            "name": "Фильтр",
+                            "quantity": "1",
+                            "cost_price": "500",
+                            "price": "1000",
+                            "executor_id": employee["id"],
+                        }
+                    ],
+                },
+            }
+        )
+        bundle = self.store.read_bundle()
+        stored_card = next(item for item in bundle["cards"] if item.id == card_id)
+        stored_card.repair_order.status = "closed"
+        stored_card.repair_order.closed_at = "18.05.2026 12:39"
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        edited = self.service.update_repair_order(
+            {"card_id": card_id, "repair_order": {"comment": "Историческая правка"}}
+        )["repair_order"]
+
+        work = edited["works"][0]
+        material = edited["materials"][0]
+        self.assertEqual(work["salary_amount"], "")
+        self.assertEqual(work["salary_accrued_at"], "")
+        self.assertEqual(work["salary_mode_snapshot"], "")
+        self.assertEqual(material["material_salary_amount"], "")
+        self.assertEqual(material["material_salary_accrued_at"], "")
+
     def test_create_card_does_not_materialize_repair_order_before_first_open(self) -> None:
         created = self.service.create_card(
             {
