@@ -5,6 +5,7 @@ import asyncio
 import base64
 import gc
 import hashlib
+import json
 import logging
 import re
 import socket
@@ -345,6 +346,22 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     "odometer",
                 ):
                     self.assertIn(field_name, repair_order_properties)
+                for tool_name in EXPECTED_MCP_TOOLS:
+                    description = str(tool_map[tool_name].description or "")
+                    self.assertIn("Scope: current AutoStop CRM board only.", description)
+                    self.assertNotIn("Do not use it for Trello, YouGile", description)
+                for tool_name in ("create_card", "update_card"):
+                    schema_json = json.dumps(
+                        tool_map[tool_name].inputSchema,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    self.assertLess(len(schema_json.encode("utf-8")), 3000)
+                    vehicle_profile_schema = tool_map[tool_name].inputSchema["properties"][
+                        "vehicle_profile"
+                    ]
+                    self.assertNotIn("make_display", json.dumps(vehicle_profile_schema))
+                    self.assertIn("additionalProperties", vehicle_profile_schema["anyOf"][0])
                 self.assertNotIn("autofill_vehicle_data", tool_map)
                 self.assertNotIn("autofill_repair_order", tool_map)
 

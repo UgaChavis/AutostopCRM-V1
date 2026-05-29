@@ -137,62 +137,6 @@ class TagPayload(BaseModel):
     color: Literal["green", "yellow", "red"] = "green"
 
 
-class VehicleProfilePayload(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    make_display: str | None = Field(default=None, max_length=120)
-    model_display: str | None = Field(default=None, max_length=120)
-    generation_or_platform: str | None = Field(default=None, max_length=120)
-    production_year: int | None = Field(default=None, ge=1900, le=2100)
-    customer_phone: str | None = Field(default=None, max_length=120)
-    customer_phones: list[str] | None = Field(default=None, max_length=3)
-    customer_name: str | None = Field(default=None, max_length=120)
-    vin: str | None = Field(default=None, max_length=32)
-    registration_plate: str | None = Field(default=None, max_length=120)
-    pts_series: str | None = Field(default=None, max_length=120)
-    pts_number: str | None = Field(default=None, max_length=120)
-    sts_series: str | None = Field(default=None, max_length=120)
-    sts_number: str | None = Field(default=None, max_length=120)
-    body_number: str | None = Field(default=None, max_length=120)
-    chassis_number: str | None = Field(default=None, max_length=120)
-    engine_code: str | None = Field(default=None, max_length=120)
-    engine_model: str | None = Field(default=None, max_length=120)
-    engine_displacement_l: float | None = Field(default=None, ge=0, le=20)
-    engine_power_hp: int | None = Field(default=None, ge=0, le=5000)
-    gearbox_type: str | None = Field(default=None, max_length=120)
-    gearbox_model: str | None = Field(default=None, max_length=120)
-    drivetrain: str | None = Field(default=None, max_length=120)
-    fuel_type: str | None = Field(default=None, max_length=120)
-    oil_engine_capacity_l: float | None = Field(default=None, ge=0, le=30)
-    oil_gearbox_capacity_l: float | None = Field(default=None, ge=0, le=30)
-    coolant_capacity_l: float | None = Field(default=None, ge=0, le=50)
-    steering_system_type: str | None = Field(default=None, max_length=120)
-    brake_front_type: str | None = Field(default=None, max_length=120)
-    brake_rear_type: str | None = Field(default=None, max_length=120)
-    wheel_bolt_pattern: str | None = Field(default=None, max_length=120)
-    oem_notes: str | None = Field(default=None, max_length=1200)
-    source_summary: str | None = Field(default=None, max_length=120)
-    source_confidence: float | None = Field(default=None, ge=0, le=1)
-    source_links_or_refs: list[str] | None = None
-    data_completion_state: (
-        Literal[
-            "manually_entered",
-            "partially_autofilled",
-            "mostly_autofilled",
-            "verified",
-        ]
-        | None
-    ) = None
-    manual_fields: list[str] | None = None
-    autofilled_fields: list[str] | None = None
-    tentative_fields: list[str] | None = None
-    field_sources: dict[str, str] | None = None
-    raw_input_text: str | None = Field(default=None, max_length=6000)
-    raw_image_text: str | None = Field(default=None, max_length=6000)
-    image_parse_status: str | None = Field(default=None, max_length=120)
-    warnings: list[str] | None = None
-
-
 class RepairOrderRowPayload(BaseModel):
     name: str = Field(default="", max_length=240)
     catalog_number: str = Field(default="", max_length=160)
@@ -454,8 +398,12 @@ def _single_board_rule_text() -> str:
     )
 
 
+def _tool_scope_suffix() -> str:
+    return "Scope: current AutoStop CRM board only."
+
+
 def _scoped_description(summary: str) -> str:
-    return f"{_external_product_text(summary)} {_single_board_rule_text()}"
+    return f"{_external_product_text(summary)} {_tool_scope_suffix()}"
 
 
 def _read_tool_annotations(title: str | None = None) -> ToolAnnotations:
@@ -485,6 +433,14 @@ def _write_tool_annotations(
 
 def _title_from_tool_name(tool_name: str) -> str:
     return " ".join(part.capitalize() for part in str(tool_name).split("_") if part)
+
+
+def _compact_mapping_payload(payload: dict[str, Any] | BaseModel | None) -> dict[str, Any] | None:
+    if payload is None:
+        return None
+    if isinstance(payload, BaseModel):
+        return payload.model_dump(exclude_none=True)
+    return {str(key): value for key, value in dict(payload).items() if value is not None}
 
 
 def _annotate_autostop_manager_tools(server: FastMCP, logger: Logger) -> None:
@@ -2554,7 +2510,7 @@ def create_mcp_server(
         description: str = "",
         column: str | None = None,
         tags: list[TagPayload] | None = None,
-        vehicle_profile: VehicleProfilePayload | None = None,
+        vehicle_profile: dict[str, Any] | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
@@ -2566,9 +2522,7 @@ def create_mcp_server(
                 column=column,
                 tags=[tag.model_dump() for tag in tags] if tags is not None else None,
                 deadline=_resolved_create_card_deadline(deadline),
-                vehicle_profile=vehicle_profile.model_dump(exclude_none=True)
-                if vehicle_profile is not None
-                else None,
+                vehicle_profile=_compact_mapping_payload(vehicle_profile),
                 actor_name=actor_name,
             ),
         )
@@ -2590,7 +2544,7 @@ def create_mcp_server(
         description: str | None = None,
         tags: list[TagPayload] | None = None,
         deadline: DeadlinePayload | None = None,
-        vehicle_profile: VehicleProfilePayload | None = None,
+        vehicle_profile: dict[str, Any] | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
@@ -2602,9 +2556,7 @@ def create_mcp_server(
                 description=description,
                 tags=[tag.model_dump() for tag in tags] if tags is not None else None,
                 deadline=deadline.model_dump() if deadline is not None else None,
-                vehicle_profile=vehicle_profile.model_dump(exclude_none=True)
-                if vehicle_profile is not None
-                else None,
+                vehicle_profile=_compact_mapping_payload(vehicle_profile),
                 actor_name=actor_name,
             ),
         )
