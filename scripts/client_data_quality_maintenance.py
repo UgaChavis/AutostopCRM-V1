@@ -32,6 +32,7 @@ _VIN_PLACEHOLDER_KEYS = {
     "NOVIN",
     "UNKNOWN",
 }
+_SAFE_FIX_REASONS = {"empty_compact", "placeholder", "repeated_character"}
 
 
 def _text(value: object) -> str:
@@ -51,11 +52,15 @@ def invalid_client_vehicle_vin_reason(value: object) -> str:
         return "placeholder"
     if not compact:
         return "empty_compact"
-    if len(compact) < 6:
-        return "too_short"
     if len(set(compact)) <= 1:
         return "repeated_character"
+    if len(compact) < 6:
+        return "too_short"
     return ""
+
+
+def _safe_fix_available(reason: str) -> bool:
+    return reason in _SAFE_FIX_REASONS
 
 
 def _read_state(state_file: Path) -> dict[str, Any]:
@@ -120,6 +125,7 @@ def _build_plan_from_state(state: dict[str, Any], state_file: Path) -> dict[str,
                     "vehicle_label": _vehicle_label(raw_vehicle),
                     "previous_vin": previous_vin,
                     "reason": reason,
+                    "safe_fix_available": _safe_fix_available(reason),
                 }
             )
 
@@ -131,6 +137,7 @@ def _build_plan_from_state(state: dict[str, Any], state_file: Path) -> dict[str,
             str(item["vehicle_id"]),
         )
     )
+    safe_fix_count = sum(1 for operation in operations if operation["safe_fix_available"])
     return {
         "schema": "client_data_quality_maintenance.v1",
         "read_only": True,
@@ -139,7 +146,8 @@ def _build_plan_from_state(state: dict[str, Any], state_file: Path) -> dict[str,
             "invalid_vehicle_vins": len(operations),
             "clients_affected": len(clients_affected),
             "vehicles_affected": len(vehicles_affected),
-            "safe_fixes_available": len(operations),
+            "safe_fixes_available": safe_fix_count,
+            "review_required": len(operations) - safe_fix_count,
         },
         "operations": operations,
     }
@@ -165,7 +173,10 @@ def apply_client_data_quality_plan(
     with lock.acquire():
         state = _read_state(state_file)
         plan = _build_plan_from_state(state, state_file)
-        if not plan["operations"]:
+        operations_to_apply = [
+            operation for operation in plan["operations"] if operation["safe_fix_available"]
+        ]
+        if not operations_to_apply:
             return {**plan, "read_only": False, "applied": False, "backup_file": ""}
 
         backup_file = state_file.with_name(
@@ -177,7 +188,7 @@ def apply_client_data_quality_plan(
         raw_clients = state.get("clients") if isinstance(state.get("clients"), list) else []
         applied_operations: list[dict[str, Any]] = []
         touched_client_indexes: set[int] = set()
-        for operation in plan["operations"]:
+        for operation in operations_to_apply:
             client_index = int(operation["client_index"])
             vehicle_index = int(operation["vehicle_index"])
             try:
@@ -186,7 +197,8 @@ def apply_client_data_quality_plan(
                 continue
             if not isinstance(raw_vehicle, dict):
                 continue
-            if invalid_client_vehicle_vin_reason(raw_vehicle.get("vin")):
+            reason = invalid_client_vehicle_vin_reason(raw_vehicle.get("vin"))
+            if reason and _safe_fix_available(reason):
                 raw_vehicle["vin"] = ""
                 applied_operations.append(operation)
                 touched_client_indexes.add(client_index)
@@ -248,6 +260,7 @@ def _format_text(result: dict[str, Any], *, issue_limit: int) -> str:
         f"clients_affected: {summary.get('clients_affected', 0)}",
         f"vehicles_affected: {summary.get('vehicles_affected', 0)}",
         f"safe_fixes_available: {summary.get('safe_fixes_available', 0)}",
+        f"review_required: {summary.get('review_required', 0)}",
     ]
     if "applied_fixes" in summary:
         lines.append(f"applied_fixes: {summary['applied_fixes']}")
@@ -260,7 +273,8 @@ def _format_text(result: dict[str, Any], *, issue_limit: int) -> str:
             f"name={operation['client_name']} "
             f"vehicle={operation['vehicle_id']} "
             f"vin={operation['previous_vin']} "
-            f"reason={operation['reason']}"
+            f"reason={operation['reason']} "
+            f"safe_fix={'yes' if operation['safe_fix_available'] else 'no'}"
         )
     return "\n".join(lines)
 

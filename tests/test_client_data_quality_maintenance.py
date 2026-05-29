@@ -52,6 +52,7 @@ class ClientDataQualityMaintenanceTests(unittest.TestCase):
                     {"vehicle": "Toyota", "vin": "1111111111111"},
                     {"vehicle": "Honda", "vin": "-"},
                     {"vehicle": "Nissan", "vin": "UNKNOWN"},
+                    {"vehicle": "Subaru", "vin": "JZX90"},
                     {"vehicle": "Mazda", "vin": "NCP165-0033993"},
                 ],
             }
@@ -62,12 +63,17 @@ class ClientDataQualityMaintenanceTests(unittest.TestCase):
         after_state = json.loads(self.state_file.read_text(encoding="utf-8"))
 
         self.assertTrue(plan["read_only"])
-        self.assertEqual(plan["summary"]["invalid_vehicle_vins"], 3)
+        self.assertEqual(plan["summary"]["invalid_vehicle_vins"], 4)
         self.assertEqual(plan["summary"]["safe_fixes_available"], 3)
+        self.assertEqual(plan["summary"]["review_required"], 1)
         self.assertEqual(
             {operation["reason"] for operation in plan["operations"]},
-            {"repeated_character", "empty_compact", "placeholder"},
+            {"repeated_character", "empty_compact", "placeholder", "too_short"},
         )
+        review_operations = [
+            operation for operation in plan["operations"] if not operation["safe_fix_available"]
+        ]
+        self.assertEqual([operation["previous_vin"] for operation in review_operations], ["JZX90"])
         self.assertEqual(before_state, after_state)
 
     def test_apply_clears_only_invalid_vehicle_vins_and_creates_backup(self) -> None:
@@ -77,6 +83,7 @@ class ClientDataQualityMaintenanceTests(unittest.TestCase):
                 "display_name": "Клиент для очистки VIN",
                 "vehicles": [
                     {"vehicle": "Toyota", "vin": "1"},
+                    {"vehicle": "Subaru", "vin": "JZX90"},
                     {"vehicle": "Mazda", "vin": "NCP165-0033993"},
                 ],
             }
@@ -91,7 +98,8 @@ class ClientDataQualityMaintenanceTests(unittest.TestCase):
         self.assertTrue(Path(result["backup_file"]).exists())
         self.assertEqual(result["summary"]["applied_fixes"], 1)
         self.assertEqual(vehicles[0]["vin"], "")
-        self.assertEqual(vehicles[1]["vin"], "NCP165-0033993")
+        self.assertEqual(vehicles[1]["vin"], "JZX90")
+        self.assertEqual(vehicles[2]["vin"], "NCP165-0033993")
         self.assertTrue(
             any(
                 event.get("action") == "client_vehicle_vin_placeholders_cleared"
