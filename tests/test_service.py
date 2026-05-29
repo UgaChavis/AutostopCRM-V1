@@ -725,6 +725,48 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(search["clients"][0]["id"], client["id"])
         self.assertEqual(related_cards.call_count, 0)
 
+    def test_suggest_clients_for_card_uses_related_card_vehicle_fields(self) -> None:
+        client = self.service.create_client({"display_name": "Клиент из истории VIN"})[
+            "client"
+        ]
+        self.service.create_card(
+            {
+                "title": "Историческая привязка",
+                "vehicle": "Subaru Forester",
+                "description": "VIN есть только в связанной карточке",
+                "deadline": {"hours": 1},
+                "client_id": client["id"],
+                "vehicle_profile": {
+                    "vin": "JF1SJ5LC5DG012345",
+                    "registration_plate": "С123СС124",
+                },
+            }
+        )
+        candidate = self.service.create_card(
+            {
+                "title": "Новая карточка по VIN",
+                "vehicle": "Subaru Forester",
+                "description": "Клиента еще не выбрали",
+                "deadline": {"hours": 1},
+                "vehicle_profile": {"vin": "JF1SJ5LC5DG012345"},
+            }
+        )["card"]
+
+        with patch.object(
+            self.service,
+            "_client_related_cards",
+            side_effect=AssertionError("suggest_clients_for_card must use batched lookup"),
+        ):
+            suggestions = self.service.suggest_clients_for_card(
+                {"card_id": candidate["id"], "limit": 5}
+            )
+
+        self.assertTrue(suggestions["clients"])
+        self.assertEqual(suggestions["clients"][0]["id"], client["id"])
+        self.assertEqual(
+            suggestions["clients"][0]["vehicles_preview"][0]["vin"], "JF1SJ5LC5DG012345"
+        )
+
     def test_card_can_link_to_specific_client_vehicle(self) -> None:
         client = self.service.create_client(
             {

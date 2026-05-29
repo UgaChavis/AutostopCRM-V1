@@ -622,8 +622,9 @@ class CardServiceClientsMixin:
                     "clients": [],
                     "meta": {"query": query, "total": 0, "returned": 0},
                 }
-            matches = self._rank_client_matches(bundle["clients"], query)
+            matches = self._rank_client_matches(bundle["clients"], query, bundle["cards"])
             selected = [client for _, client in matches[:limit]]
+            related_cards_by_client_id = self._client_related_cards_map(selected, bundle["cards"])
             return {
                 "card": self._serialize_card(
                     card,
@@ -638,6 +639,7 @@ class CardServiceClientsMixin:
                         include_stats=True,
                         compact=True,
                         query=query,
+                        related_cards=related_cards_by_client_id.get(client.id, []),
                     )
                     for client in selected
                 ],
