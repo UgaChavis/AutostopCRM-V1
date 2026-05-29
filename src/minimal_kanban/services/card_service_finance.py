@@ -1449,6 +1449,20 @@ class CardServiceFinanceMixin:
                     )
                 )
             if kind_casefold in {"salary_payout", "salary_advance"}:
+                if transaction.direction != "expense":
+                    issues.append(
+                        self._finance_audit_issue(
+                            code="salary_transaction_wrong_direction",
+                            severity="error",
+                            message="Зарплатное движение кассы должно быть расходом.",
+                            transaction=transaction,
+                            data={
+                                "direction": transaction.direction,
+                                "expected_direction": "expense",
+                                "transaction_kind": kind,
+                            },
+                        )
+                    )
                 employee_id = normalize_text(transaction.employee_id, default="", limit=64)
                 if not employee_id or employee_id not in employee_ids:
                     employee_name = normalize_text(

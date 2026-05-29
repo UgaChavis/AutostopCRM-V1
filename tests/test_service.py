@@ -8201,6 +8201,51 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(employee["name"], "Удаленный сотрудник")
         self.assertFalse(employee["is_active"])
 
+    def test_finance_audit_reports_salary_transaction_with_wrong_direction(self) -> None:
+        employee = self.service.save_employee({"name": "Мастер выплаты"})["employee"]
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        bundle = self.store.read_bundle()
+        bundle["cash_transactions"].append(
+            CashTransaction(
+                id="tx-salary-income",
+                cashbox_id=cashbox["id"],
+                direction="income",
+                amount_minor=100000,
+                note="Выплата зарплаты ошибочным приходом",
+                created_at="2026-05-18T10:00:00+07:00",
+                actor_name="ADMIN",
+                source="api",
+                employee_id=employee["id"],
+                employee_name=employee["name"],
+                transaction_kind="salary_payout",
+            )
+        )
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        audit = self.service.get_finance_audit()
+        issue = next(
+            issue
+            for issue in audit["issues"]
+            if issue["code"] == "salary_transaction_wrong_direction"
+        )
+
+        self.assertEqual(issue["severity"], "error")
+        self.assertEqual(issue["cash_transaction_id"], "tx-salary-income")
+        self.assertEqual(issue["data"]["direction"], "income")
+        self.assertEqual(issue["data"]["expected_direction"], "expense")
+        self.assertFalse(issue["safe_fix_available"])
+
     def test_finance_audit_reports_cash_transactions_without_cashbox(self) -> None:
         cashbox = CashBox(
             id="cashbox-existing",
@@ -8235,6 +8280,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertFalse(issues["cash_transaction_missing_cashbox"]["safe_fix_available"])
 
     def test_finance_audit_reports_read_only_cross_link_issues(self) -> None:
+        employee = self.service.save_employee({"name": "Сотрудник сверки"})["employee"]
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"
         ]
@@ -8322,6 +8368,18 @@ class CardServiceTests(unittest.TestCase):
                     employee_id="employee-missing",
                     transaction_kind="salary_payout",
                 ),
+                CashTransaction(
+                    id="tx-salary-wrong-direction",
+                    cashbox_id=cashbox["id"],
+                    direction="income",
+                    amount_minor=200000,
+                    note="Ошибочная выплата приходом",
+                    created_at="2026-05-18T10:05:00+07:00",
+                    actor_name="ADMIN",
+                    source="api",
+                    employee_id=employee["id"],
+                    transaction_kind="salary_advance",
+                ),
             ]
         )
         self.store.write_bundle(
@@ -8341,11 +8399,13 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("duplicate_repair_order_payment_cash_link", codes)
         self.assertIn("transfer_pair_amount_mismatch", codes)
         self.assertIn("salary_transaction_missing_employee", codes)
+        self.assertIn("salary_transaction_wrong_direction", codes)
         for issue in audit["issues"]:
             if issue["code"] in {
                 "duplicate_repair_order_payment_cash_link",
                 "transfer_pair_amount_mismatch",
                 "salary_transaction_missing_employee",
+                "salary_transaction_wrong_direction",
             }:
                 self.assertFalse(issue["safe_fix_available"])
 
