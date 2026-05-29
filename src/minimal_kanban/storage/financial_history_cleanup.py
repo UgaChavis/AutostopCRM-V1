@@ -65,6 +65,10 @@ def _clear_repair_order_payroll_fields(repair_order: dict[str, Any]) -> None:
                 row["executor_id"] = ""
             if "executor_name" in row:
                 row["executor_name"] = ""
+            if "work_executor_id_snapshot" in row:
+                row["work_executor_id_snapshot"] = ""
+            if "work_executor_name_snapshot" in row:
+                row["work_executor_name_snapshot"] = ""
             if "salary_mode_snapshot" in row:
                 row["salary_mode_snapshot"] = ""
             if "base_salary_snapshot" in row:

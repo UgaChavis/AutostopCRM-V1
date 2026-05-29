@@ -1942,6 +1942,126 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(reopened_row["base_salary_snapshot"], "")
         self.assertEqual(reopened_row["work_percent_snapshot"], "")
 
+    def test_work_salary_snapshot_keeps_original_executor_after_closed_order_edit(self) -> None:
+        original_employee = self.service.save_employee(
+            {
+                "name": "Оригинальный Мастер",
+                "position": "Механик",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "10",
+            }
+        )["employee"]
+        other_employee = self.service.save_employee(
+            {
+                "name": "Другой Мастер",
+                "position": "Механик",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "50",
+            }
+        )["employee"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Skoda Rapid",
+                "title": "Снимок исполнителя работы",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "46",
+                    "status": "open",
+                    "vehicle": "Skoda Rapid",
+                    "payments": [
+                        {
+                            "amount": "1000",
+                            "paid_at": "05.04.2026 10:00",
+                            "payment_method": "cash",
+                        }
+                    ],
+                    "works": [
+                        {
+                            "name": "Диагностика",
+                            "quantity": "1",
+                            "price": "1000",
+                            "executor_id": original_employee["id"],
+                        }
+                    ],
+                },
+            }
+        )
+        closed = self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+        closed_month = dt.strptime(closed["repair_order"]["closed_at"], "%d.%m.%Y %H:%M").strftime(
+            "%Y-%m"
+        )
+        self.assertEqual(closed["repair_order"]["works"][0]["salary_amount"], "100")
+
+        bundle = self.store.read_bundle()
+        stored_card = next(item for item in bundle["cards"] if item.id == card_id)
+        stored_card.repair_order.works[0].work_executor_id_snapshot = ""
+        stored_card.repair_order.works[0].work_executor_name_snapshot = ""
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        self.service.save_employee(
+            {
+                "employee_id": original_employee["id"],
+                "name": original_employee["name"],
+                "position": original_employee["position"],
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "90",
+            }
+        )
+        edited_work = {
+            **closed["repair_order"]["works"][0],
+            "work_executor_id_snapshot": "",
+            "work_executor_name_snapshot": "",
+            "executor_id": other_employee["id"],
+            "executor_name": other_employee["name"],
+        }
+        updated = self.service.update_repair_order(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    **closed["repair_order"],
+                    "note": "Редактирование после закрытия не переносит начисление",
+                    "works": [edited_work],
+                },
+            }
+        )
+
+        work = updated["repair_order"]["works"][0]
+        self.assertEqual(work["executor_id"], other_employee["id"])
+        self.assertEqual(work["work_executor_id_snapshot"], original_employee["id"])
+        self.assertEqual(work["work_executor_name_snapshot"], original_employee["name"])
+        self.assertEqual(work["work_percent_snapshot"], "10")
+        self.assertEqual(work["salary_amount"], "100")
+
+        report = self.service.get_payroll_report({"month": closed_month})
+        original_summary = next(
+            item for item in report["summary"] if item["employee_id"] == original_employee["id"]
+        )
+        other_summary = next(
+            item for item in report["summary"] if item["employee_id"] == other_employee["id"]
+        )
+        self.assertEqual(original_summary["works_count"], 1)
+        self.assertEqual(original_summary["work_accrued_total"], "100")
+        self.assertEqual(other_summary["works_count"], 0)
+        self.assertEqual(other_summary["work_accrued_total"], "0")
+
     def test_material_rows_persist_cost_and_executor_through_section_replace(self) -> None:
         employee = self.service.save_employee(
             {

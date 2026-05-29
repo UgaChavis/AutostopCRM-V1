@@ -9821,6 +9821,8 @@
         total: '',
         executor_id: '',
         executor_name: '',
+        work_executor_id_snapshot: '',
+        work_executor_name_snapshot: '',
         salary_mode_snapshot: '',
         base_salary_snapshot: '',
         work_percent_snapshot: '',
@@ -10177,6 +10179,8 @@
         total: totalValue === null ? fallbackTotal : repairOrderNumberToRaw(totalValue),
         executor_id: String(source.executor_id ?? source.employee_id ?? '').trim(),
         executor_name: String(source.executor_name ?? source.employee_name ?? '').trim(),
+        work_executor_id_snapshot: String(source.work_executor_id_snapshot ?? '').trim(),
+        work_executor_name_snapshot: String(source.work_executor_name_snapshot ?? '').trim(),
         salary_mode_snapshot: String(source.salary_mode_snapshot ?? '').trim(),
         base_salary_snapshot: String(source.base_salary_snapshot ?? '').trim(),
         work_percent_snapshot: String(source.work_percent_snapshot ?? '').trim(),
@@ -10546,7 +10550,7 @@
       const materialExecutorCell = section === 'materials'
         ? '<td><select class="repair-order-table__select" data-repair-order-cell="executor_id">' + repairOrderExecutorOptionsHtml(normalized.executor_id, normalized.executor_name) + '</select></td>'
         : '';
-      return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '" data-repair-order-work-salary-override-enabled="' + escapeHtml(normalized.work_salary_override_enabled) + '" data-repair-order-work-salary-guarantee="' + escapeHtml(normalized.work_salary_guarantee) + '" data-repair-order-work-salary-percent-override="' + escapeHtml(normalized.work_salary_percent_override) + '" data-repair-order-work-salary-cost-price="' + escapeHtml(normalized.work_salary_cost_price) + '" data-repair-order-work-salary-note="' + escapeHtml(normalized.work_salary_note) + '" data-repair-order-material-executor-id="' + escapeHtml(normalized.material_executor_id_snapshot) + '" data-repair-order-material-executor-name="' + escapeHtml(normalized.material_executor_name_snapshot) + '" data-repair-order-material-quantity="' + escapeHtml(normalized.material_quantity_snapshot) + '" data-repair-order-material-price="' + escapeHtml(normalized.material_price_snapshot) + '" data-repair-order-material-cost-price="' + escapeHtml(normalized.material_cost_price_snapshot) + '" data-repair-order-material-percent="' + escapeHtml(normalized.material_percent_snapshot) + '" data-repair-order-material-profit="' + escapeHtml(normalized.material_profit) + '" data-repair-order-material-salary-amount="' + escapeHtml(normalized.material_salary_amount) + '" data-repair-order-material-salary-accrued-at="' + escapeHtml(normalized.material_salary_accrued_at) + '">' +
+      return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-work-executor-id="' + escapeHtml(normalized.work_executor_id_snapshot) + '" data-repair-order-work-executor-name="' + escapeHtml(normalized.work_executor_name_snapshot) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '" data-repair-order-work-salary-override-enabled="' + escapeHtml(normalized.work_salary_override_enabled) + '" data-repair-order-work-salary-guarantee="' + escapeHtml(normalized.work_salary_guarantee) + '" data-repair-order-work-salary-percent-override="' + escapeHtml(normalized.work_salary_percent_override) + '" data-repair-order-work-salary-cost-price="' + escapeHtml(normalized.work_salary_cost_price) + '" data-repair-order-work-salary-note="' + escapeHtml(normalized.work_salary_note) + '" data-repair-order-material-executor-id="' + escapeHtml(normalized.material_executor_id_snapshot) + '" data-repair-order-material-executor-name="' + escapeHtml(normalized.material_executor_name_snapshot) + '" data-repair-order-material-quantity="' + escapeHtml(normalized.material_quantity_snapshot) + '" data-repair-order-material-price="' + escapeHtml(normalized.material_price_snapshot) + '" data-repair-order-material-cost-price="' + escapeHtml(normalized.material_cost_price_snapshot) + '" data-repair-order-material-percent="' + escapeHtml(normalized.material_percent_snapshot) + '" data-repair-order-material-profit="' + escapeHtml(normalized.material_profit) + '" data-repair-order-material-salary-amount="' + escapeHtml(normalized.material_salary_amount) + '" data-repair-order-material-salary-accrued-at="' + escapeHtml(normalized.material_salary_accrued_at) + '">' +
         '<td>' + repairOrderRowInputHtml('name', normalized.name, 'Наименование') + '</td>' +
         materialExecutorCell +
         catalogCell +
@@ -10579,6 +10583,8 @@
         total: liveTotalValue,
         executor_id: executorSelect instanceof HTMLSelectElement ? executorSelect.value : '',
         executor_name: selectedOption ? selectedOption.textContent : '',
+        work_executor_id_snapshot: row.dataset.repairOrderWorkExecutorId || '',
+        work_executor_name_snapshot: row.dataset.repairOrderWorkExecutorName || '',
         salary_mode_snapshot: row.dataset.repairOrderSalaryMode || '',
         base_salary_snapshot: row.dataset.repairOrderBaseSalary || '',
         work_percent_snapshot: row.dataset.repairOrderWorkPercent || '',

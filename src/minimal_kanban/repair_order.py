@@ -260,6 +260,8 @@ class RepairOrderRow:
     total: str = ""
     executor_id: str = ""
     executor_name: str = ""
+    work_executor_id_snapshot: str = ""
+    work_executor_name_snapshot: str = ""
     salary_mode_snapshot: str = ""
     base_salary_snapshot: str = ""
     work_percent_snapshot: str = ""
@@ -296,6 +298,12 @@ class RepairOrderRow:
         self.executor_id = _normalize_single_line(self.executor_id, limit=64)
         self.executor_name = _normalize_single_line(
             self.executor_name, limit=REPAIR_ORDER_FIELD_LIMIT
+        )
+        self.work_executor_id_snapshot = _normalize_single_line(
+            self.work_executor_id_snapshot, limit=64
+        )
+        self.work_executor_name_snapshot = _normalize_single_line(
+            self.work_executor_name_snapshot, limit=REPAIR_ORDER_FIELD_LIMIT
         )
         self.salary_mode_snapshot = _normalize_single_line(self.salary_mode_snapshot, limit=32)
         self.base_salary_snapshot = _normalize_single_line(
@@ -364,6 +372,8 @@ class RepairOrderRow:
             "total": self.total,
             "executor_id": self.executor_id,
             "executor_name": self.executor_name,
+            "work_executor_id_snapshot": self.work_executor_id_snapshot,
+            "work_executor_name_snapshot": self.work_executor_name_snapshot,
             "salary_mode_snapshot": self.salary_mode_snapshot,
             "base_salary_snapshot": self.base_salary_snapshot,
             "work_percent_snapshot": self.work_percent_snapshot,
@@ -425,6 +435,8 @@ class RepairOrderRow:
             total=payload.get("total", payload.get("sum", "")),
             executor_id=payload.get("executor_id", payload.get("employee_id", "")),
             executor_name=payload.get("executor_name", payload.get("employee_name", "")),
+            work_executor_id_snapshot=payload.get("work_executor_id_snapshot", ""),
+            work_executor_name_snapshot=payload.get("work_executor_name_snapshot", ""),
             salary_mode_snapshot=payload.get("salary_mode_snapshot", ""),
             base_salary_snapshot=payload.get("base_salary_snapshot", ""),
             work_percent_snapshot=payload.get("work_percent_snapshot", ""),

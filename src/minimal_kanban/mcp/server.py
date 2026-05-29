@@ -204,6 +204,8 @@ class RepairOrderRowPayload(BaseModel):
     total: str = Field(default="", max_length=40)
     executor_id: str = Field(default="", max_length=64)
     executor_name: str = Field(default="", max_length=160)
+    work_executor_id_snapshot: str = Field(default="", max_length=64)
+    work_executor_name_snapshot: str = Field(default="", max_length=160)
     material_executor_id_snapshot: str = Field(default="", max_length=64)
     material_executor_name_snapshot: str = Field(default="", max_length=160)
     material_quantity_snapshot: str = Field(default="", max_length=40)

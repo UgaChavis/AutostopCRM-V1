@@ -175,7 +175,7 @@ class CardServicePayrollMixin:
                 row = RepairOrderRow.from_dict(
                     source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
                 )
-                if row.executor_id != employee_id:
+                if self._work_salary_employee_id(row) != employee_id:
                     continue
                 amount = self._parse_payroll_decimal(row.salary_amount)
                 if period_only_totals:
@@ -485,7 +485,7 @@ class CardServicePayrollMixin:
                 row = RepairOrderRow.from_dict(
                     source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
                 )
-                if row.executor_id != employee_id:
+                if self._work_salary_employee_id(row) != employee_id:
                     continue
                 row_total = row.total_value()
                 amount = self._parse_payroll_decimal(row.salary_amount)
@@ -1009,7 +1009,7 @@ class CardServicePayrollMixin:
                 row = RepairOrderRow.from_dict(
                     source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
                 )
-                if row.executor_id != employee_id:
+                if self._work_salary_employee_id(row) != employee_id:
                     continue
                 row_total = row.total_value()
                 row_accrued = self._parse_payroll_decimal(row.salary_amount)
@@ -1520,7 +1520,7 @@ class CardServicePayrollMixin:
                 row = RepairOrderRow.from_dict(
                     source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
                 )
-                if normalize_text(row.executor_id, default="", limit=64) == employee_id:
+                if self._work_salary_employee_id(row) == employee_id:
                     usage["repair_order_works"] += 1
             for source_row in order.materials:
                 row = RepairOrderRow.from_dict(
@@ -1662,6 +1662,82 @@ class CardServicePayrollMixin:
 
     def _material_salary_employee_name(self, row: RepairOrderRow) -> str:
         return row.material_executor_name_snapshot or row.executor_name
+
+    def _work_salary_employee_id(self, row: RepairOrderRow) -> str:
+        return row.work_executor_id_snapshot or row.executor_id
+
+    def _work_salary_employee_name(self, row: RepairOrderRow) -> str:
+        return row.work_executor_name_snapshot or row.executor_name
+
+    def _work_has_salary_snapshot(self, row: RepairOrderRow) -> bool:
+        return any(
+            [
+                row.work_executor_id_snapshot,
+                row.work_executor_name_snapshot,
+                row.salary_mode_snapshot,
+                row.base_salary_snapshot,
+                row.work_percent_snapshot,
+                row.salary_amount,
+                row.salary_accrued_at,
+            ]
+        )
+
+    def _clear_work_salary_snapshot(self, row: RepairOrderRow) -> None:
+        row.work_executor_id_snapshot = ""
+        row.work_executor_name_snapshot = ""
+        row.salary_mode_snapshot = ""
+        row.base_salary_snapshot = ""
+        row.work_percent_snapshot = ""
+        row.salary_amount = ""
+        row.salary_accrued_at = ""
+
+    def _preserve_repair_order_payroll_snapshots(
+        self, previous_order: RepairOrder, next_order: RepairOrder
+    ) -> RepairOrder:
+        if next_order.status != REPAIR_ORDER_STATUS_CLOSED:
+            return next_order
+        next_rows: list[dict[str, str]] = []
+        changed = False
+        previous_rows = list(previous_order.works)
+        snapshot_fields = (
+            "salary_mode_snapshot",
+            "base_salary_snapshot",
+            "work_percent_snapshot",
+            "salary_amount",
+            "salary_accrued_at",
+        )
+        for index, source_row in enumerate(next_order.works):
+            row = RepairOrderRow.from_dict(
+                source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
+            )
+            before = row.to_dict()
+            if index < len(previous_rows):
+                previous_row = RepairOrderRow.from_dict(
+                    previous_rows[index].to_dict()
+                    if isinstance(previous_rows[index], RepairOrderRow)
+                    else previous_rows[index]
+                )
+                if previous_row.salary_accrued_at:
+                    row.work_executor_id_snapshot = (
+                        row.work_executor_id_snapshot
+                        or previous_row.work_executor_id_snapshot
+                        or previous_row.executor_id
+                    )
+                    row.work_executor_name_snapshot = (
+                        row.work_executor_name_snapshot
+                        or previous_row.work_executor_name_snapshot
+                        or previous_row.executor_name
+                    )
+                    for field in snapshot_fields:
+                        if not getattr(row, field):
+                            setattr(row, field, getattr(previous_row, field))
+            after = row.to_dict()
+            if after != before:
+                changed = True
+            next_rows.append(after)
+        if not changed:
+            return next_order
+        return RepairOrder.from_dict({**next_order.to_storage_dict(), "works": next_rows})
 
     def _normalize_payroll_mode(self, value, *, default: str = PAYROLL_MODE_PERCENT_ONLY) -> str:
         normalized = normalize_text(value, default=default, limit=32).lower()
@@ -1932,21 +2008,9 @@ class CardServicePayrollMixin:
                 row = RepairOrderRow.from_dict(
                     source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
                 )
-                if any(
-                    [
-                        row.salary_mode_snapshot,
-                        row.base_salary_snapshot,
-                        row.work_percent_snapshot,
-                        row.salary_amount,
-                        row.salary_accrued_at,
-                    ]
-                ):
+                if self._work_has_salary_snapshot(row):
                     changed = True
-                row.salary_mode_snapshot = ""
-                row.base_salary_snapshot = ""
-                row.work_percent_snapshot = ""
-                row.salary_amount = ""
-                row.salary_accrued_at = ""
+                self._clear_work_salary_snapshot(row)
                 next_work_rows.append(row.to_dict())
             for source_row in order.materials:
                 row = RepairOrderRow.from_dict(
@@ -1974,23 +2038,24 @@ class CardServicePayrollMixin:
                 source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
             )
             if not order_is_paid:
-                row.salary_mode_snapshot = ""
-                row.base_salary_snapshot = ""
-                row.work_percent_snapshot = ""
-                row.salary_amount = ""
-                row.salary_accrued_at = ""
+                self._clear_work_salary_snapshot(row)
+                next_work_rows.append(row.to_dict())
+                continue
+            if row.salary_accrued_at:
+                row.work_executor_id_snapshot = row.work_executor_id_snapshot or row.executor_id
+                row.work_executor_name_snapshot = (
+                    row.work_executor_name_snapshot or row.executor_name
+                )
                 next_work_rows.append(row.to_dict())
                 continue
             employee = employees_by_id.get(row.executor_id)
             if employee is None:
-                row.salary_mode_snapshot = ""
-                row.base_salary_snapshot = ""
-                row.work_percent_snapshot = ""
-                row.salary_amount = ""
-                row.salary_accrued_at = ""
+                self._clear_work_salary_snapshot(row)
                 next_work_rows.append(row.to_dict())
                 continue
             row.executor_name = employee["name"]
+            row.work_executor_id_snapshot = employee["id"]
+            row.work_executor_name_snapshot = employee["name"]
             row.salary_mode_snapshot = employee["salary_mode"]
             row.base_salary_snapshot = employee["base_salary"]
             salary_amount = Decimal("0")
@@ -2219,7 +2284,7 @@ class CardServicePayrollMixin:
                 row = RepairOrderRow.from_dict(
                     source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
                 )
-                current_employee_id = row.executor_id
+                current_employee_id = self._work_salary_employee_id(row)
                 if not current_employee_id:
                     continue
                 if selected_employee_id and current_employee_id != selected_employee_id:
@@ -2227,7 +2292,7 @@ class CardServicePayrollMixin:
                 if current_employee_id not in summaries:
                     summaries[current_employee_id] = {
                         "employee_id": current_employee_id,
-                        "employee_name": self._material_salary_employee_name(row) or "Сотрудник",
+                        "employee_name": self._work_salary_employee_name(row) or "Сотрудник",
                         "position": "",
                         "salary_mode": row.salary_mode_snapshot,
                         "work_percent": row.work_percent_snapshot,

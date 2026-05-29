@@ -4715,6 +4715,7 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                 source,
             )
         if settings is not None:
+            order = self._preserve_repair_order_payroll_snapshots(previous_order, order)
             order = self._apply_repair_order_payroll_snapshot(order, settings)
         if (
             previous_order.status != REPAIR_ORDER_STATUS_CLOSED
