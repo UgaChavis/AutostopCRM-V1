@@ -14,6 +14,14 @@ WORK_SNAPSHOT_FIELDS = (
     "salary_accrued_at",
 )
 
+WORK_SALARY_TERM_FIELDS = (
+    "work_salary_override_enabled",
+    "work_salary_guarantee",
+    "work_salary_percent_override",
+    "work_salary_cost_price",
+    "work_salary_note",
+)
+
 MATERIAL_SNAPSHOT_FIELDS = (
     "material_quantity_snapshot",
     "material_price_snapshot",
@@ -43,6 +51,11 @@ def _work_salary_snapshot_signature(row: RepairOrderRow) -> tuple[str, ...]:
         normalize_text(row.salary_mode_snapshot, default="", limit=40),
         normalize_text(row.base_salary_snapshot, default="", limit=40),
         normalize_text(row.work_percent_snapshot, default="", limit=40),
+        normalize_text(row.work_salary_override_enabled, default="", limit=16),
+        normalize_text(row.work_salary_guarantee, default="", limit=40),
+        normalize_text(row.work_salary_percent_override, default="", limit=40),
+        normalize_text(row.work_salary_cost_price, default="", limit=40),
+        normalize_text(row.work_salary_note, default="", limit=160),
         normalize_text(row.salary_amount, default="", limit=40),
         normalize_text(row.salary_accrued_at, default="", limit=40),
     )
@@ -119,8 +132,11 @@ def preserve_repair_order_payroll_snapshots(
                     or previous_row.total
                 )
                 for field in WORK_SNAPSHOT_FIELDS:
-                    if not getattr(row, field):
-                        setattr(row, field, getattr(previous_row, field))
+                    previous_value = getattr(previous_row, field)
+                    if previous_value or not getattr(row, field):
+                        setattr(row, field, previous_value)
+                for field in WORK_SALARY_TERM_FIELDS:
+                    setattr(row, field, getattr(previous_row, field))
         after = row.to_dict()
         changed = changed or after != before
         next_rows.append(after)
@@ -159,8 +175,9 @@ def preserve_repair_order_payroll_snapshots(
                     or previous_row.executor_name
                 )
                 for field in MATERIAL_SNAPSHOT_FIELDS:
-                    if not getattr(row, field):
-                        setattr(row, field, getattr(previous_row, field))
+                    previous_value = getattr(previous_row, field)
+                    if previous_value or not getattr(row, field):
+                        setattr(row, field, previous_value)
         after = row.to_dict()
         changed = changed or after != before
         next_material_rows.append(after)

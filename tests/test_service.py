@@ -2057,6 +2057,100 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(closed_row["work_percent_snapshot"], "30")
         self.assertEqual(closed_row["salary_amount"], "1200")
 
+    def test_work_salary_snapshot_keeps_original_override_terms_after_closed_order_edit(
+        self,
+    ) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Мастер исторической себестоимости",
+                "position": "Механик",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "30",
+            }
+        )["employee"]
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota Camry",
+                "title": "История выплаты исполнителю",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "81",
+                    "status": "open",
+                    "vehicle": "Toyota Camry",
+                    "payments": [
+                        {
+                            "amount": "20000",
+                            "paid_at": "05.04.2026 10:00",
+                            "payment_method": "cash",
+                        }
+                    ],
+                    "works": [
+                        {
+                            "name": "Работа с подрядом",
+                            "quantity": "1",
+                            "price": "20000",
+                            "executor_id": employee["id"],
+                            "work_salary_override_enabled": "true",
+                            "work_salary_guarantee": "5000",
+                            "work_salary_percent_override": "45",
+                            "work_salary_cost_price": "3000",
+                            "work_salary_note": "Первичная договоренность",
+                        }
+                    ],
+                },
+            }
+        )
+        closed = self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+        self.assertEqual(closed["repair_order"]["works"][0]["salary_amount"], "10400")
+
+        edited_work = dict(closed["repair_order"]["works"][0])
+        edited_work.update(
+            {
+                "salary_amount": "1",
+                "work_percent_snapshot": "10",
+                "work_salary_guarantee": "1000",
+                "work_salary_percent_override": "10",
+                "work_salary_cost_price": "9000",
+                "work_salary_note": "Поздняя правка",
+            }
+        )
+        updated = self.service.update_repair_order(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    **closed["repair_order"],
+                    "comment": "Правка после закрытия не меняет payroll snapshot",
+                    "works": [edited_work],
+                },
+            }
+        )
+        work = updated["repair_order"]["works"][0]
+        self.assertEqual(work["salary_amount"], "10400")
+        self.assertEqual(work["work_percent_snapshot"], "45")
+        self.assertEqual(work["work_salary_guarantee"], "5000")
+        self.assertEqual(work["work_salary_percent_override"], "45")
+        self.assertEqual(work["work_salary_cost_price"], "3000")
+        self.assertEqual(work["work_salary_note"], "Первичная договоренность")
+
+        closed_month = dt.strptime(closed["repair_order"]["closed_at"], "%d.%m.%Y %H:%M").strftime(
+            "%Y-%m"
+        )
+        reconciliation = self.service.get_employee_salary_reconciliation(
+            {"month": closed_month, "employee_id": employee["id"]}
+        )
+        work_row = next(row for row in reconciliation["rows"] if row["kind"] == "work_accrual")
+        self.assertEqual(work_row["accrued"], "10400")
+        self.assertIn("Выплата исполнителю 5 000,00 ₽ + 45%", work_row["scheme"])
+        self.assertIn("Себестоимость работы 3 000,00 ₽", work_row["calculation_base"])
+        self.assertNotIn("9 000,00 ₽", work_row["calculation_base"])
+
     def test_repair_order_work_salary_override_guarantee_above_total_uses_zero_base(self) -> None:
         employee = self.service.save_employee(
             {
