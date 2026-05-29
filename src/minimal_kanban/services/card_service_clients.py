@@ -1238,7 +1238,7 @@ class CardServiceClientsMixin:
                     vehicle.vehicle,
                     vehicle.brand,
                     vehicle.model,
-                    vehicle.vin,
+                    self._client_vehicle_search_vin(vehicle.vin),
                     vehicle.license_plate,
                     vehicle.year,
                     vehicle.body_number,
@@ -1280,7 +1280,7 @@ class CardServiceClientsMixin:
                     vehicle.vehicle,
                     vehicle.brand,
                     vehicle.model,
-                    vehicle.vin,
+                    self._client_vehicle_search_vin(vehicle.vin),
                     vehicle.license_plate,
                     vehicle.year,
                     vehicle.body_number,
@@ -1426,7 +1426,7 @@ class CardServiceClientsMixin:
                         vehicle.vehicle,
                         vehicle.brand,
                         vehicle.model,
-                        vehicle.vin,
+                        self._client_vehicle_search_vin(vehicle.vin),
                         vehicle.license_plate,
                         vehicle.year,
                         vehicle.body_number,
@@ -1462,6 +1462,17 @@ class CardServiceClientsMixin:
         self._client_search_index_signature = signature
         self._client_search_index = index
         return index
+
+    def _client_vehicle_search_vin(self, value: Any) -> str:
+        raw = normalize_text(value, default="", limit=160).upper()
+        if not raw:
+            return ""
+        compact = re.sub(r"[^A-Z0-9]+", "", raw)
+        if len(compact) < 6:
+            return ""
+        if len(set(compact)) <= 1:
+            return ""
+        return raw
 
     def _rank_client_matches(
         self, clients: list[ClientProfile], query: str, cards: list[Card] | None = None

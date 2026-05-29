@@ -627,6 +627,47 @@ class CardServiceTests(unittest.TestCase):
                     search["clients"][0]["vehicles_preview"][0]["vin"], "JTDBE32K620654321"
                 )
 
+    def test_client_search_ignores_placeholder_vehicle_vins(self) -> None:
+        placeholder = self.service.create_client(
+            {
+                "display_name": "Плейсхолдер VIN",
+                "vehicles": [
+                    {
+                        "vehicle": "Toyota Placeholder",
+                        "vin": "1111111111111",
+                    },
+                    {
+                        "vehicle": "Short Placeholder",
+                        "vin": "-",
+                    },
+                ],
+            }
+        )["client"]
+        valid = self.service.create_client(
+            {
+                "display_name": "Нормальный VIN",
+                "vehicles": [
+                    {
+                        "vehicle": "Toyota Probox",
+                        "vin": "NCP165-0033993",
+                    }
+                ],
+            }
+        )["client"]
+
+        by_placeholder = self.service.search_clients({"query": "1111111111111", "limit": 5})
+        by_short_placeholder = self.service.search_clients({"query": "-", "limit": 5})
+        by_valid = self.service.search_clients({"query": "NCP165-0033993", "limit": 5})
+
+        self.assertFalse(
+            any(client["id"] == placeholder["id"] for client in by_placeholder["clients"])
+        )
+        self.assertFalse(
+            any(client["id"] == placeholder["id"] for client in by_short_placeholder["clients"])
+        )
+        self.assertTrue(by_valid["clients"])
+        self.assertEqual(by_valid["clients"][0]["id"], valid["id"])
+
     def test_client_search_uses_secondary_card_customer_phone_for_related_vehicle(self) -> None:
         client = self.service.create_client(
             {
