@@ -5278,6 +5278,62 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(len(archived_cards), 2)
         self.assertEqual({card.id for card in archived_cards}, set(archived_ids[-2:]))
 
+    def test_store_retains_archived_repair_orders_beyond_plain_archive_limit(self) -> None:
+        with patch("minimal_kanban.storage.json_store.ARCHIVED_CARD_RETENTION_LIMIT", 1):
+            plain_ids: list[str] = []
+            for index in range(2):
+                created = self.service.create_card(
+                    {
+                        "title": f"PLAIN ARCHIVE {index}",
+                        "deadline": {"hours": 1},
+                    }
+                )
+                self.service.archive_card({"card_id": created["card"]["id"]})
+                plain_ids.append(created["card"]["id"])
+
+            repair_order_ids: list[str] = []
+            for index in range(2):
+                created = self.service.create_card(
+                    {
+                        "vehicle": f"REPAIR ARCHIVE {index}",
+                        "title": f"Repair archive {index}",
+                        "deadline": {"hours": 1},
+                    }
+                )
+                card_id = created["card"]["id"]
+                self.service.update_card(
+                    {
+                        "card_id": card_id,
+                        "repair_order": {
+                            "works": [
+                                {
+                                    "name": "Сохранить историю заказ-наряда",
+                                    "quantity": "1",
+                                    "price": "1000",
+                                }
+                            ],
+                            "payments": [
+                                {
+                                    "amount": "1000",
+                                    "paid_at": "29.05.2026 12:00",
+                                    "payment_method": "cash",
+                                }
+                            ],
+                        },
+                    }
+                )
+                self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+                self.service.archive_card({"card_id": card_id})
+                repair_order_ids.append(card_id)
+
+        archived_cards = [card for card in self.store.read_bundle()["cards"] if card.archived]
+        archived_ids = {card.id for card in archived_cards}
+
+        self.assertEqual(len(archived_cards), 3)
+        self.assertIn(plain_ids[-1], archived_ids)
+        self.assertNotIn(plain_ids[0], archived_ids)
+        self.assertTrue(set(repair_order_ids).issubset(archived_ids))
+
     def test_store_prunes_old_audit_events_outside_retention_window(self) -> None:
         bundle = self.store.read_bundle()
         now = utc_now()

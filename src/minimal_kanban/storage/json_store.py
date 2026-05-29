@@ -512,7 +512,15 @@ class JsonStore:
             ),
             reverse=True,
         )
-        retained_cards = active_cards + archived_cards[:ARCHIVED_CARD_RETENTION_LIMIT]
+        archived_repair_order_cards = [
+            card for card in archived_cards if not card.repair_order.is_empty()
+        ]
+        archived_plain_cards = [card for card in archived_cards if card.repair_order.is_empty()]
+        retained_cards = (
+            active_cards
+            + archived_repair_order_cards
+            + archived_plain_cards[:ARCHIVED_CARD_RETENTION_LIMIT]
+        )
         return retained_cards, len(retained_cards) != len(cards)
 
     def _normalize_clients(self, state: dict) -> tuple[list[ClientProfile], bool]:
