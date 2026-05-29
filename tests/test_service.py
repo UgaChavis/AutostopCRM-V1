@@ -6143,6 +6143,49 @@ class CardServiceTests(unittest.TestCase):
         legacy_details = reloaded.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 5})
         self.assertEqual(legacy_details["transactions"][0]["source_label"], "заказ-наряд")
 
+    def test_repair_order_payment_rejects_zero_or_missing_amount(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+
+        for raw_amount in ("", "0"):
+            with self.subTest(raw_amount=raw_amount):
+                card = self.service.create_card(
+                    {
+                        "vehicle": "TOYOTA CAMRY",
+                        "title": "Некорректная оплата",
+                        "deadline": {"hours": 2},
+                    }
+                )["card"]
+
+                with self.assertRaises(ServiceError) as error:
+                    self.service.update_card(
+                        {
+                            "card_id": card["id"],
+                            "repair_order": {
+                                "works": [
+                                    {"name": "Работы", "quantity": "1", "price": "6000"}
+                                ],
+                                "payments": [
+                                    {
+                                        "amount": raw_amount,
+                                        "paid_at": "03.05.2026 21:26",
+                                        "note": "Пустая сумма не должна создать кассу",
+                                        "payment_method": "cash",
+                                        "cashbox_id": cashbox["id"],
+                                        "actor_name": "ADMIN",
+                                    }
+                                ],
+                            },
+                        }
+                    )
+
+                self.assertEqual(error.exception.code, "validation_error")
+
+        details = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 5})
+        self.assertEqual(details["cashbox"]["statistics"]["transactions_total"], 0)
+        self.assertEqual(details["transactions"], [])
+
     def test_repair_order_payment_summary_handles_cash_cashless_and_mixed_payments(self) -> None:
         cashless_cashbox = self.service.create_cashbox(
             {"name": "Безналичный", "actor_name": "ADMIN"}

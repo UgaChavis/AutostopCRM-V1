@@ -6063,7 +6063,18 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                 f"Поле {field_name} должно быть массивом оплат заказ-наряда.",
                 details={"field": field_name},
             )
-        return [payment.to_storage_dict() for payment in normalize_repair_order_payments(value)]
+        payments = normalize_repair_order_payments(value)
+        for index, payment in enumerate(payments, start=1):
+            if payment.amount_value() <= 0:
+                self._fail(
+                    "validation_error",
+                    "Сумма оплаты заказ-наряда должна быть больше нуля.",
+                    details={
+                        "field": f"{field_name}.{index}.amount",
+                        "payment_id": payment.id,
+                    },
+                )
+        return [payment.to_storage_dict() for payment in payments]
 
     def _merged_repair_order_storage(
         self,
