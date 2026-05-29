@@ -153,6 +153,35 @@ class RepairOrderNumberAuditTests(unittest.TestCase):
         self.assertFalse(any(issue["code"] == "number_time_inversion" for issue in issues))
         self.assertFalse(any(issue["code"] == "number_gap" for issue in issues))
 
+    def test_local_opened_at_is_compared_in_business_timezone_against_iso_created_at(self) -> None:
+        module = load_repair_order_number_audit_module()
+        payload = module.build_audit(
+            {
+                "cards": [
+                    {
+                        "id": "card-later-iso",
+                        "created_at": "2026-05-28T09:50:00+00:00",
+                        "repair_order": {"number": "10", "client": "Позже по UTC"},
+                    },
+                    {
+                        "id": "card-earlier-local",
+                        "created_at": "2026-05-28T10:00:00+00:00",
+                        "repair_order": {
+                            "number": "9",
+                            "client": "Раньше по локальному времени",
+                            "opened_at": "28.05.2026 16:10",
+                        },
+                    },
+                ],
+                "cash_transactions": [],
+            }
+        )
+
+        issues = payload["data"]["issues"]
+
+        self.assertFalse(any(issue["code"] == "number_time_inversion" for issue in issues))
+        self.assertFalse(any(issue["code"] == "number_gap" for issue in issues))
+
     def test_limited_data_limits_issue_details(self) -> None:
         module = load_repair_order_number_audit_module()
         limited = module._limited_data(

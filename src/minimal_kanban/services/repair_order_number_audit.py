@@ -4,6 +4,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
+from ..models import parse_business_datetime
 from ..repair_order import RepairOrder
 
 DEFAULT_NOTE_RE = re.compile(r"заказ-наряд\s*№\s*(?P<number>\S+)", re.IGNORECASE)
@@ -26,21 +27,7 @@ def _repair_order_has_data(order: dict[str, Any]) -> bool:
 
 
 def _parse_datetime(value: object) -> datetime | None:
-    text = _text(value)
-    if not text:
-        return None
-    normalized = text.replace("Z", "+00:00")
-    try:
-        parsed = datetime.fromisoformat(normalized)
-        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
-    except ValueError:
-        pass
-    for fmt in ("%d.%m.%Y %H:%M", "%d.%m.%Y %H:%M:%S", "%d.%m.%Y"):
-        try:
-            return datetime.strptime(text, fmt).replace(tzinfo=UTC)
-        except ValueError:
-            continue
-    return None
+    return parse_business_datetime(_text(value))
 
 
 def _sort_datetime(card: dict[str, Any], order: dict[str, Any]) -> datetime:
