@@ -6955,6 +6955,59 @@ class CardServiceTests(unittest.TestCase):
             "stale_default_repair_order_note", {issue["code"] for issue in applied["issues"]}
         )
 
+    def test_finance_audit_reports_payment_amount_and_cashbox_when_link_missing(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        card = self.service.create_card(
+            {"vehicle": "Skoda Rapid", "title": "Сверка оплаты", "deadline": {"hours": 2}}
+        )["card"]
+        order = self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "number": "305",
+                    "works": [{"name": "Работа", "quantity": "1", "price": "4000"}],
+                    "payments": [
+                        {
+                            "amount": "4000",
+                            "paid_at": "18.05.2026 12:39",
+                            "payment_method": "cash",
+                            "cashbox_id": cashbox["id"],
+                            "actor_name": "ADMIN",
+                        }
+                    ],
+                },
+            }
+        )["card"]["repair_order"]
+        payment_id = order["payments"][0]["id"]
+        bundle = self.store.read_bundle()
+        stored_card = next(item for item in bundle["cards"] if item.id == card["id"])
+        stored_card.repair_order.payments[0].cash_transaction_id = ""
+        bundle["cash_transactions"] = []
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        audit = self.service.get_finance_audit()
+        issue = next(
+            issue
+            for issue in audit["issues"]
+            if issue["code"] == "payment_without_cash_transaction_id"
+        )
+
+        self.assertEqual(issue["repair_order_payment_id"], payment_id)
+        self.assertEqual(issue["cashbox_id"], cashbox["id"])
+        self.assertEqual(issue["amount_minor"], 400000)
+        self.assertFalse(issue["safe_fix_available"])
+
     def test_finance_audit_does_not_flag_closed_noncash_fee_as_underpaid(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Безнал", "actor_name": "ADMIN"})[
             "cashbox"

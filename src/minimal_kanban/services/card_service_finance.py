@@ -15,6 +15,7 @@ from ..models import (
     format_money_minor,
     normalize_actor_name,
     normalize_cash_direction,
+    normalize_money_minor,
     normalize_text,
     parse_business_datetime,
     parse_datetime,
@@ -1108,8 +1109,12 @@ class CardServiceFinanceMixin:
             else "",
             "repair_order_payment_id": payment.id if payment is not None else "",
             "cash_transaction_id": transaction.id if transaction is not None else "",
-            "cashbox_id": transaction.cashbox_id if transaction is not None else "",
-            "amount_minor": transaction.amount_minor if transaction is not None else 0,
+            "cashbox_id": transaction.cashbox_id
+            if transaction is not None
+            else (payment.cashbox_id if payment is not None else ""),
+            "amount_minor": transaction.amount_minor
+            if transaction is not None
+            else (normalize_money_minor(payment.amount) if payment is not None else 0),
             "safe_fix_available": safe_fix is not None,
             "safe_fix": safe_fix or {},
             "data": data or {},
