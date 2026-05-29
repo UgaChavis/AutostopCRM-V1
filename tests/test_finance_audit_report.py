@@ -109,6 +109,61 @@ class FinanceAuditReportTests(unittest.TestCase):
         self.assertEqual(limited["summary"], {"issues_total": 3})
         self.assertEqual(limited["meta"], {"schema_version": "finance_audit.v1", "read_only": True})
 
+    def test_text_report_includes_actionable_issue_context(self) -> None:
+        module = load_finance_audit_report_module()
+        payload = {
+            "ok": True,
+            "data": {
+                "issues": [
+                    {
+                        "id": "closed_underpaid:card-1",
+                        "code": "closed_underpaid",
+                        "severity": "error",
+                        "message": "Закрытый заказ-наряд имеет недоплату.",
+                        "card_id": "card-1",
+                        "repair_order_number": "64",
+                        "repair_order_vehicle": "Mazda Axela",
+                        "amount_minor": 0,
+                        "safe_fix_available": False,
+                        "data": {
+                            "due_total": "42500",
+                            "paid_total": "0",
+                            "grand_total": "42500",
+                        },
+                    },
+                    {
+                        "id": "payment_without_cash_transaction_id:card-2:payment-1",
+                        "code": "payment_without_cash_transaction_id",
+                        "severity": "warning",
+                        "message": "Оплата заказ-наряда не связана с движением кассы.",
+                        "card_id": "card-2",
+                        "repair_order_number": "68",
+                        "repair_order_payment_id": "payment-1",
+                        "cashbox_id": "cashbox-1",
+                        "amount_minor": 1060000,
+                        "safe_fix_available": False,
+                        "data": {},
+                    },
+                ],
+                "summary": {"issues_total": 2, "safe_fix_count": 0},
+                "meta": {"schema_version": "finance_audit.v1", "read_only": True},
+            },
+        }
+        summary = module.summarize_audit(payload)
+
+        text = module._format_text(summary, payload, issue_limit=10)
+
+        self.assertIn("id=closed_underpaid:card-1", text)
+        self.assertIn("card_id=card-1", text)
+        self.assertIn("zn=64", text)
+        self.assertIn("vehicle=Mazda Axela", text)
+        self.assertIn("due_total=42500", text)
+        self.assertIn("paid_total=0", text)
+        self.assertIn("payment_id=payment-1", text)
+        self.assertIn("cashbox_id=cashbox-1", text)
+        self.assertIn("amount_minor=1060000", text)
+        self.assertIn("safe_fix=no", text)
+
 
 if __name__ == "__main__":
     unittest.main()

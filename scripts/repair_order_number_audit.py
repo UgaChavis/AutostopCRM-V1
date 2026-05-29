@@ -330,6 +330,38 @@ def _limited_data(payload: dict[str, Any], *, issue_limit: int) -> dict[str, Any
     return limited
 
 
+def _format_issue_context(issue: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for field_name, label in (
+        ("id", "id"),
+        ("card_id", "card_id"),
+        ("repair_order_number", "number"),
+    ):
+        value = _text(issue.get(field_name))
+        if value:
+            parts.append(f"{label}={value}")
+    data = issue.get("data")
+    if isinstance(data, dict):
+        for field_name in (
+            "previous_number",
+            "current_number",
+            "max_seen_number",
+            "missing_start",
+            "missing_end",
+            "missing_count",
+            "opened_sort_value",
+            "payment_id",
+            "cash_transaction_id",
+            "transaction_note",
+            "note_number",
+        ):
+            value = _text(data.get(field_name))
+            if value:
+                parts.append(f"{field_name}={value}")
+    parts.append(f"safe_fix={'yes' if issue.get('safe_fix_available') else 'no'}")
+    return " ".join(parts)
+
+
 def _format_text(payload: dict[str, Any], *, issue_limit: int) -> str:
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
@@ -347,12 +379,11 @@ def _format_text(payload: dict[str, Any], *, issue_limit: int) -> str:
         if not isinstance(issue, dict):
             continue
         lines.append(
-            "- [{severity}] {code}: {message} {card_id} {number}".format(
+            "- [{severity}] {code}: {message} {context}".format(
                 severity=issue.get("severity") or "info",
                 code=issue.get("code") or "unknown",
                 message=issue.get("message") or "",
-                card_id=issue.get("card_id") or "",
-                number=issue.get("repair_order_number") or "",
+                context=_format_issue_context(issue),
             ).rstrip()
         )
     return "\n".join(lines)

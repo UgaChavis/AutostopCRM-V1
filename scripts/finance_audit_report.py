@@ -60,6 +60,47 @@ def summarize_audit(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _text(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _format_issue_context(issue: dict[str, Any]) -> str:
+    parts: list[str] = []
+    field_labels = (
+        ("id", "id"),
+        ("card_id", "card_id"),
+        ("repair_order_number", "zn"),
+        ("repair_order_vehicle", "vehicle"),
+        ("repair_order_payment_id", "payment_id"),
+        ("cash_transaction_id", "cash_transaction_id"),
+        ("cashbox_id", "cashbox_id"),
+    )
+    for field_name, label in field_labels:
+        value = _text(issue.get(field_name))
+        if value:
+            parts.append(f"{label}={value}")
+    amount_minor = issue.get("amount_minor")
+    if isinstance(amount_minor, int | float) and amount_minor:
+        parts.append(f"amount_minor={int(amount_minor)}")
+    data = issue.get("data")
+    if isinstance(data, dict):
+        for field_name in (
+            "due_total",
+            "paid_total",
+            "grand_total",
+            "cashbox_id",
+            "payment_id",
+            "cash_transaction_id",
+            "stored_note",
+            "expected_note",
+        ):
+            value = _text(data.get(field_name))
+            if value:
+                parts.append(f"{field_name}={value}")
+    parts.append(f"safe_fix={'yes' if issue.get('safe_fix_available') else 'no'}")
+    return " ".join(parts)
+
+
 def _format_text(summary: dict[str, Any], payload: dict[str, Any], *, issue_limit: int) -> str:
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     issues = data.get("issues") if isinstance(data.get("issues"), list) else []
@@ -80,8 +121,8 @@ def _format_text(summary: dict[str, Any], payload: dict[str, Any], *, issue_limi
         code = str(issue.get("code") or "unknown")
         severity = str(issue.get("severity") or "info")
         message = str(issue.get("message") or "")
-        issue_id = str(issue.get("id") or "")
-        lines.append(f"- [{severity}] {code}: {message} {issue_id}".rstrip())
+        context = _format_issue_context(issue)
+        lines.append(f"- [{severity}] {code}: {message} {context}".rstrip())
     return "\n".join(lines)
 
 

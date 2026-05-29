@@ -176,6 +176,46 @@ class RepairOrderNumberAuditTests(unittest.TestCase):
         self.assertEqual(limited["summary"], {"issues_total": 3})
         self.assertTrue(limited["meta"]["read_only"])
 
+    def test_text_report_includes_actionable_issue_context(self) -> None:
+        module = load_repair_order_number_audit_module()
+        payload = {
+            "ok": True,
+            "data": {
+                "issues": [
+                    {
+                        "id": "number_time_inversion:card-1:2",
+                        "code": "number_time_inversion",
+                        "severity": "warning",
+                        "message": "Более поздний заказ-наряд имеет номер меньше уже встреченного в хронологии.",
+                        "card_id": "card-1",
+                        "repair_order_number": "2",
+                        "safe_fix_available": False,
+                        "data": {
+                            "max_seen_number": 4,
+                            "current_number": 2,
+                            "opened_sort_value": "2026-04-04T02:37:00+00:00",
+                        },
+                    }
+                ],
+                "summary": {"orders_total": 1, "issues_total": 1},
+                "meta": {
+                    "schema_version": "repair_order_number_audit.v1",
+                    "read_only": True,
+                    "dry_run": True,
+                },
+            },
+        }
+
+        text = module._format_text(payload, issue_limit=10)
+
+        self.assertIn("id=number_time_inversion:card-1:2", text)
+        self.assertIn("card_id=card-1", text)
+        self.assertIn("number=2", text)
+        self.assertIn("max_seen_number=4", text)
+        self.assertIn("current_number=2", text)
+        self.assertIn("opened_sort_value=2026-04-04T02:37:00+00:00", text)
+        self.assertIn("safe_fix=no", text)
+
     def test_main_reads_state_file_without_modifying_it(self) -> None:
         module = load_repair_order_number_audit_module()
         with tempfile.TemporaryDirectory() as temp_dir:
