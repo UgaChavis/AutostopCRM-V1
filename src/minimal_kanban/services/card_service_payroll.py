@@ -37,6 +37,7 @@ from .payroll_constants import (
     PAYROLL_MODE_SALARY_ONLY,
     PAYROLL_MODE_SALARY_PLUS_PERCENT,
 )
+from .payroll_snapshot_preservation import preserve_repair_order_payroll_snapshots
 
 EMPLOYEES_SETTING_KEY = "employees"
 EMPLOYEE_SHIFT_ACCRUALS_SETTING_KEY = "employee_shift_accruals"
@@ -1707,50 +1708,7 @@ class CardServicePayrollMixin:
     def _preserve_repair_order_payroll_snapshots(
         self, previous_order: RepairOrder, next_order: RepairOrder
     ) -> RepairOrder:
-        if next_order.status != REPAIR_ORDER_STATUS_CLOSED:
-            return next_order
-        next_rows: list[dict[str, str]] = []
-        changed = False
-        previous_rows = list(previous_order.works)
-        snapshot_fields = (
-            "salary_mode_snapshot",
-            "base_salary_snapshot",
-            "work_percent_snapshot",
-            "salary_amount",
-            "salary_accrued_at",
-        )
-        for index, source_row in enumerate(next_order.works):
-            row = RepairOrderRow.from_dict(
-                source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
-            )
-            before = row.to_dict()
-            if index < len(previous_rows):
-                previous_row = RepairOrderRow.from_dict(
-                    previous_rows[index].to_dict()
-                    if isinstance(previous_rows[index], RepairOrderRow)
-                    else previous_rows[index]
-                )
-                if previous_row.salary_accrued_at:
-                    row.work_executor_id_snapshot = (
-                        row.work_executor_id_snapshot
-                        or previous_row.work_executor_id_snapshot
-                        or previous_row.executor_id
-                    )
-                    row.work_executor_name_snapshot = (
-                        row.work_executor_name_snapshot
-                        or previous_row.work_executor_name_snapshot
-                        or previous_row.executor_name
-                    )
-                    for field in snapshot_fields:
-                        if not getattr(row, field):
-                            setattr(row, field, getattr(previous_row, field))
-            after = row.to_dict()
-            if after != before:
-                changed = True
-            next_rows.append(after)
-        if not changed:
-            return next_order
-        return RepairOrder.from_dict({**next_order.to_storage_dict(), "works": next_rows})
+        return preserve_repair_order_payroll_snapshots(previous_order, next_order)
 
     def _normalize_payroll_mode(self, value, *, default: str = PAYROLL_MODE_PERCENT_ONLY) -> str:
         normalized = normalize_text(value, default=default, limit=32).lower()
