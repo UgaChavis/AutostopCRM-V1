@@ -107,6 +107,54 @@ class ClientDataQualityMaintenanceTests(unittest.TestCase):
             )
         )
 
+    def test_apply_replaces_phone_like_client_name_from_related_card(self) -> None:
+        client = self.service.create_client(
+            {
+                "client_id": "phone-like-client",
+                "display_name": "89233229162",
+                "phone": "89233229162",
+            }
+        )["client"]
+        card = self.service.create_card(
+            {
+                "vehicle": "SsangYong Rexton",
+                "title": "Связь по телефону",
+                "deadline": {"hours": 2},
+            }
+        )["card"]
+        self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "client": "Драко Алексей Владимирович",
+                    "phone": "89233229162",
+                    "vehicle": "SsangYong Rexton",
+                },
+            }
+        )
+
+        plan = self.module.build_client_data_quality_plan(self.state_file)
+        operation = next(
+            item for item in plan["operations"] if item["kind"] == "replace_phone_like_client_name"
+        )
+        self.assertEqual(operation["client_id"], client["id"])
+        self.assertEqual(operation["previous_name"], "89233229162")
+        self.assertEqual(operation["replacement_name"], "Драко Алексей Владимирович")
+        self.assertTrue(operation["safe_fix_available"])
+
+        result = self.module.apply_client_data_quality_plan(self.state_file, backup=True)
+        self.assertTrue(result["applied"])
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        stored_client = state["clients"][0]
+        self.assertEqual(stored_client["display_name"], "Драко Алексей Владимирович")
+        self.assertEqual(stored_client["phone"], "89233229162")
+        self.assertTrue(
+            any(
+                event.get("action") == "client_vehicle_vin_placeholders_cleared"
+                for event in state["events"]
+            )
+        )
+
     def test_apply_requires_backup(self) -> None:
         with self.assertRaisesRegex(ValueError, "backup"):
             self.module.apply_client_data_quality_plan(self.state_file, backup=False)

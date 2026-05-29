@@ -39,6 +39,28 @@ def _text(value: object) -> str:
     return str(value or "").strip()
 
 
+def _normalize_search_text(value: object) -> str:
+    text = _text(value).casefold()
+    text = re.sub(r"[\s_./\\|,;:()\[\]{}<>\"'`~!@#$%^&*+=?]+", " ", text)
+    return " ".join(text.split())
+
+
+def _phone_key(value: object) -> str:
+    digits = re.sub(r"\D+", "", _text(value))
+    if len(digits) < 7:
+        return ""
+    if len(digits) >= 10:
+        return "7" + digits[-10:]
+    return digits
+
+
+def _is_phone_like_text(value: object) -> bool:
+    text = _text(value)
+    digits = re.sub(r"\D+", "", text)
+    letters = re.findall(r"[A-Za-zА-Яа-я]", text)
+    return len(digits) >= 7 and not letters
+
+
 def _compact_vin(value: object) -> str:
     return re.sub(r"[^A-Z0-9]+", "", _text(value).upper())
 
@@ -83,6 +105,82 @@ def _client_name(raw_client: dict[str, Any]) -> str:
         return _text(raw_client.get("display_name") or raw_client.get("last_name")) or "Без имени"
 
 
+def _client_full_name(raw_client: dict[str, Any]) -> str:
+    return " ".join(
+        part
+        for part in (
+            _text(raw_client.get("last_name")),
+            _text(raw_client.get("first_name")),
+            _text(raw_client.get("middle_name")),
+        )
+        if part
+    ).strip()
+
+
+def _client_phone_keys(raw_client: dict[str, Any]) -> set[str]:
+    values = [raw_client.get("phone")]
+    phones = raw_client.get("phones")
+    if isinstance(phones, list):
+        values.extend(phones)
+    return {key for key in (_phone_key(value) for value in values) if key}
+
+
+def _card_phone_keys(raw_card: dict[str, Any]) -> set[str]:
+    values: list[object] = []
+    profile = raw_card.get("vehicle_profile")
+    if isinstance(profile, dict):
+        values.append(profile.get("customer_phone"))
+        phones = profile.get("customer_phones")
+        if isinstance(phones, list):
+            values.extend(phones)
+    repair_order = raw_card.get("repair_order")
+    if isinstance(repair_order, dict):
+        values.append(repair_order.get("phone"))
+    return {key for key in (_phone_key(value) for value in values) if key}
+
+
+def _card_client_name_candidates(raw_card: dict[str, Any]) -> list[str]:
+    candidates: list[str] = []
+    profile = raw_card.get("vehicle_profile")
+    if isinstance(profile, dict):
+        candidates.append(_text(profile.get("customer_name")))
+    repair_order = raw_card.get("repair_order")
+    if isinstance(repair_order, dict):
+        candidates.append(_text(repair_order.get("client")))
+    normalized: dict[str, str] = {}
+    for candidate in candidates:
+        if not candidate or _is_phone_like_text(candidate):
+            continue
+        key = _normalize_search_text(candidate)
+        if not key or key in {"нет данных", "нет", "клиент"}:
+            continue
+        normalized.setdefault(key, candidate)
+    return list(normalized.values())
+
+
+def _candidate_client_names_for_phone_like_client(
+    raw_client: dict[str, Any], raw_cards: list[Any]
+) -> tuple[list[str], list[str]]:
+    client_id = _text(raw_client.get("id"))
+    phone_keys = _client_phone_keys(raw_client)
+    names: dict[str, str] = {}
+    related_card_ids: list[str] = []
+    for raw_card in raw_cards:
+        if not isinstance(raw_card, dict):
+            continue
+        card_id = _text(raw_card.get("id"))
+        is_related = bool(client_id and _text(raw_card.get("client_id")) == client_id)
+        if not is_related and phone_keys:
+            is_related = bool(phone_keys.intersection(_card_phone_keys(raw_card)))
+        if not is_related:
+            continue
+        for candidate in _card_client_name_candidates(raw_card):
+            names.setdefault(_normalize_search_text(candidate), candidate)
+        if card_id:
+            related_card_ids.append(card_id)
+    return list(names.values()), related_card_ids
+
+
 def _vehicle_label(raw_vehicle: dict[str, Any]) -> str:
     parts = [
         _text(raw_vehicle.get("vehicle") or raw_vehicle.get("name") or raw_vehicle.get("title")),
@@ -95,6 +193,7 @@ def _vehicle_label(raw_vehicle: dict[str, Any]) -> str:
 
 def _build_plan_from_state(state: dict[str, Any], state_file: Path) -> dict[str, Any]:
     raw_clients = state.get("clients") if isinstance(state.get("clients"), list) else []
+    raw_cards = state.get("cards") if isinstance(state.get("cards"), list) else []
     operations: list[dict[str, Any]] = []
     clients_affected: set[str] = set()
     vehicles_affected: set[str] = set()
@@ -117,6 +216,7 @@ def _build_plan_from_state(state: dict[str, Any], state_file: Path) -> dict[str,
             vehicles_affected.add(f"{client_id}:{vehicle_id}:{vehicle_index}")
             operations.append(
                 {
+                    "kind": "clear_invalid_vehicle_vin",
                     "client_index": client_index,
                     "vehicle_index": vehicle_index,
                     "client_id": client_id,
@@ -128,22 +228,52 @@ def _build_plan_from_state(state: dict[str, Any], state_file: Path) -> dict[str,
                     "safe_fix_available": _safe_fix_available(reason),
                 }
             )
+        client_name = _client_name(raw_client)
+        if _is_phone_like_text(client_name):
+            candidate_names, related_card_ids = _candidate_client_names_for_phone_like_client(
+                raw_client, raw_cards
+            )
+            if candidate_names:
+                safe_fix_available = len(candidate_names) == 1
+                operations.append(
+                    {
+                        "kind": "replace_phone_like_client_name",
+                        "client_index": client_index,
+                        "client_id": client_id,
+                        "client_name": client_name,
+                        "previous_name": client_name,
+                        "replacement_name": candidate_names[0] if safe_fix_available else "",
+                        "candidate_names": candidate_names,
+                        "related_card_ids": related_card_ids,
+                        "reason": "phone_like_name",
+                        "safe_fix_available": safe_fix_available,
+                    }
+                )
+                clients_affected.add(client_id)
 
     operations.sort(
         key=lambda item: (
+            str(item["kind"]),
             str(item["reason"]),
             str(item["client_name"]).casefold(),
             str(item["client_id"]),
-            str(item["vehicle_id"]),
+            str(item.get("vehicle_id", "")),
         )
     )
     safe_fix_count = sum(1 for operation in operations if operation["safe_fix_available"])
+    invalid_vehicle_vins = sum(
+        1 for operation in operations if operation["kind"] == "clear_invalid_vehicle_vin"
+    )
+    phone_like_client_names = sum(
+        1 for operation in operations if operation["kind"] == "replace_phone_like_client_name"
+    )
     return {
         "schema": "client_data_quality_maintenance.v1",
         "read_only": True,
         "state_file": str(state_file.resolve()),
         "summary": {
-            "invalid_vehicle_vins": len(operations),
+            "invalid_vehicle_vins": invalid_vehicle_vins,
+            "phone_like_client_names": phone_like_client_names,
             "clients_affected": len(clients_affected),
             "vehicles_affected": len(vehicles_affected),
             "safe_fixes_available": safe_fix_count,
@@ -189,7 +319,30 @@ def apply_client_data_quality_plan(
         applied_operations: list[dict[str, Any]] = []
         touched_client_indexes: set[int] = set()
         for operation in operations_to_apply:
+            kind = _text(operation.get("kind"))
             client_index = int(operation["client_index"])
+            if kind == "replace_phone_like_client_name":
+                try:
+                    raw_client = raw_clients[client_index]
+                except (IndexError, TypeError):
+                    continue
+                if not isinstance(raw_client, dict):
+                    continue
+                current_name = _client_name(raw_client)
+                replacement_name = _text(operation.get("replacement_name"))
+                if not replacement_name or not _is_phone_like_text(current_name):
+                    continue
+                if _is_phone_like_text(_client_full_name(raw_client)):
+                    raw_client["last_name"] = ""
+                    raw_client["first_name"] = ""
+                    raw_client["middle_name"] = ""
+                raw_client["display_name"] = replacement_name
+                applied_operations.append(operation)
+                touched_client_indexes.add(client_index)
+                continue
+
+            if kind != "clear_invalid_vehicle_vin":
+                continue
             vehicle_index = int(operation["vehicle_index"])
             try:
                 raw_vehicle = raw_clients[client_index]["vehicles"][vehicle_index]
@@ -220,16 +373,19 @@ def apply_client_data_quality_plan(
                 actor_name="System",
                 source="system",
                 action="client_vehicle_vin_placeholders_cleared",
-                message="System очистил мусорные VIN автомобилей клиентов",
+                message="System применил безопасные правки качества клиентских данных",
                 card_id=None,
                 details={
                     "operations": [
                         {
                             "client_id": operation["client_id"],
                             "client_name": operation["client_name"],
-                            "vehicle_id": operation["vehicle_id"],
-                            "vehicle_label": operation["vehicle_label"],
-                            "previous_vin": operation["previous_vin"],
+                            "kind": operation["kind"],
+                            "vehicle_id": operation.get("vehicle_id", ""),
+                            "vehicle_label": operation.get("vehicle_label", ""),
+                            "previous_vin": operation.get("previous_vin", ""),
+                            "previous_name": operation.get("previous_name", ""),
+                            "replacement_name": operation.get("replacement_name", ""),
                             "reason": operation["reason"],
                         }
                         for operation in applied_operations
@@ -257,6 +413,7 @@ def _format_text(result: dict[str, Any], *, issue_limit: int) -> str:
         f"schema: {result['schema']}",
         f"read_only: {result['read_only']}",
         f"invalid_vehicle_vins: {summary.get('invalid_vehicle_vins', 0)}",
+        f"phone_like_client_names: {summary.get('phone_like_client_names', 0)}",
         f"clients_affected: {summary.get('clients_affected', 0)}",
         f"vehicles_affected: {summary.get('vehicles_affected', 0)}",
         f"safe_fixes_available: {summary.get('safe_fixes_available', 0)}",
@@ -267,15 +424,25 @@ def _format_text(result: dict[str, Any], *, issue_limit: int) -> str:
     if result.get("backup_file"):
         lines.append(f"backup_file: {result['backup_file']}")
     for operation in result["operations"][: max(0, issue_limit)]:
-        lines.append(
-            "- "
-            f"client={operation['client_id']} "
-            f"name={operation['client_name']} "
-            f"vehicle={operation['vehicle_id']} "
-            f"vin={operation['previous_vin']} "
-            f"reason={operation['reason']} "
-            f"safe_fix={'yes' if operation['safe_fix_available'] else 'no'}"
-        )
+        if operation.get("kind") == "replace_phone_like_client_name":
+            lines.append(
+                "- "
+                f"client={operation['client_id']} "
+                f"name={operation['client_name']} "
+                f"replacement={operation.get('replacement_name') or operation.get('candidate_names')} "
+                f"reason={operation['reason']} "
+                f"safe_fix={'yes' if operation['safe_fix_available'] else 'no'}"
+            )
+        else:
+            lines.append(
+                "- "
+                f"client={operation['client_id']} "
+                f"name={operation['client_name']} "
+                f"vehicle={operation['vehicle_id']} "
+                f"vin={operation['previous_vin']} "
+                f"reason={operation['reason']} "
+                f"safe_fix={'yes' if operation['safe_fix_available'] else 'no'}"
+            )
     return "\n".join(lines)
 
 
