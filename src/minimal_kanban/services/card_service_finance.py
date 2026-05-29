@@ -1242,7 +1242,11 @@ class CardServiceFinanceMixin:
                         },
                     )
                 )
-            if order.prepayment_value() > Decimal("0") and order.subtotal_value() == Decimal("0"):
+            if (
+                order.status != REPAIR_ORDER_STATUS_OPEN
+                and order.prepayment_value() > Decimal("0")
+                and order.subtotal_value() == Decimal("0")
+            ):
                 issues.append(
                     self._finance_audit_issue(
                         code="paid_zero_total",

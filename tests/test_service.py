@@ -7000,6 +7000,87 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(issue["data"]["paid_total"], "500")
         self.assertEqual(issue["data"]["grand_total"], "1000")
 
+    def test_finance_audit_treats_open_zero_total_prepayment_as_info_only(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Предоплата", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        card = self.service.create_card(
+            {"vehicle": "Audi A6", "title": "Предоплата до согласования", "deadline": {"hours": 2}}
+        )["card"]
+        self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "number": "303",
+                    "status": "open",
+                    "payments": [
+                        {
+                            "amount": "1000",
+                            "paid_at": "18.05.2026 12:39",
+                            "payment_method": "cash",
+                            "cashbox_id": cashbox["id"],
+                            "actor_name": "ADMIN",
+                        }
+                    ],
+                },
+            }
+        )
+
+        audit = self.service.get_finance_audit()
+        codes = {
+            issue["code"] for issue in audit["issues"] if issue["card_id"] == card["id"]
+        }
+
+        self.assertIn("open_with_payments", codes)
+        self.assertNotIn("paid_zero_total", codes)
+
+    def test_finance_audit_warns_when_non_open_order_has_payment_but_zero_total(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Предоплата", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        card = self.service.create_card(
+            {"vehicle": "Audi A6", "title": "Закрытая нулевая сумма", "deadline": {"hours": 2}}
+        )["card"]
+        self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "number": "304",
+                    "status": "open",
+                    "payments": [
+                        {
+                            "amount": "1000",
+                            "paid_at": "18.05.2026 12:39",
+                            "payment_method": "cash",
+                            "cashbox_id": cashbox["id"],
+                            "actor_name": "ADMIN",
+                        }
+                    ],
+                },
+            }
+        )
+        bundle = self.store.read_bundle()
+        stored_card = next(item for item in bundle["cards"] if item.id == card["id"])
+        stored_card.repair_order.status = "closed"
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        audit = self.service.get_finance_audit()
+        codes = {
+            issue["code"] for issue in audit["issues"] if issue["card_id"] == card["id"]
+        }
+
+        self.assertIn("paid_zero_total", codes)
+        self.assertNotIn("open_with_payments", codes)
+
     def test_finance_audit_safe_fix_restores_missing_salary_employee(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"
