@@ -58,17 +58,35 @@ class ClientDuplicatesMaintenanceTests(unittest.TestCase):
                 "vehicles": [{"vehicle": "Kia Spectra", "license_plate": "т896те124"}],
             }
         )["client"]
-        self.service.create_client(
-            {"display_name": "Другой клиент", "phone": "+7 983 154-66-68"}
-        )
+        self.service.create_client({"display_name": "Другой клиент", "phone": "+7 983 154-66-68"})
 
         plan = self.module.build_client_duplicate_plan(self.state_file)
 
         self.assertTrue(plan["read_only"])
         self.assertEqual(plan["summary"]["groups_total"], 1)
         group = plan["groups"][0]
-        self.assertEqual({group["canonical_id"], *group["duplicate_ids"]}, {first["id"], second["id"]})
+        self.assertEqual(
+            {group["canonical_id"], *group["duplicate_ids"]}, {first["id"], second["id"]}
+        )
         self.assertEqual(group["phone_key"], "79831546668")
+
+    def test_dry_run_reports_phone_only_name_duplicate_with_real_client_phone(self) -> None:
+        phone_only = self.service.create_client({"display_name": "89504235457"})["client"]
+        named = self.service.create_client(
+            {
+                "display_name": "Анцифиров Вячеслав Геннадьевич",
+                "phone": "8 950 423-54-57",
+            }
+        )["client"]
+
+        plan = self.module.build_client_duplicate_plan(self.state_file)
+
+        self.assertEqual(plan["summary"]["groups_total"], 1)
+        group = plan["groups"][0]
+        self.assertEqual(group["phone_key"], "79504235457")
+        self.assertEqual(group["name_key"], "phone-only-name:79504235457")
+        self.assertEqual(group["canonical_id"], named["id"])
+        self.assertEqual(group["duplicate_ids"], [phone_only["id"]])
 
     def test_apply_merges_duplicate_clients_relinks_cards_and_creates_backup(self) -> None:
         first = self.service.create_client(
@@ -107,7 +125,9 @@ class ClientDuplicatesMaintenanceTests(unittest.TestCase):
                 "deadline": {"hours": 2},
             }
         )["card"]
-        self.service.link_card_to_client({"card_id": duplicate_card["id"], "client_id": first["id"]})
+        self.service.link_card_to_client(
+            {"card_id": duplicate_card["id"], "client_id": first["id"]}
+        )
         self.service.link_card_to_client(
             {"card_id": canonical_card_one["id"], "client_id": second["id"]}
         )

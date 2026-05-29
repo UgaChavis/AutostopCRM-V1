@@ -62,6 +62,17 @@ def _client_phone_keys(client: ClientProfile) -> set[str]:
     return keys
 
 
+def _client_phone_like_name_key(client: ClientProfile) -> str:
+    return _phone_key(client.name())
+
+
+def _client_name_quality(client: ClientProfile) -> int:
+    name_key = _client_name_key(client)
+    if not name_key:
+        return 0
+    return 0 if _client_phone_like_name_key(client) else 1
+
+
 def _vehicle_key(vehicle: Any) -> str:
     return "|".join(
         part.casefold()
@@ -113,6 +124,7 @@ def _choose_canonical_client(
     return max(
         clients,
         key=lambda client: (
+            _client_name_quality(client),
             len(linked_cards_by_client.get(client.id, [])),
             len(client.vehicles),
             len(client.phones),
@@ -136,18 +148,59 @@ def build_client_duplicate_plan(state_file: Path | None = None) -> dict[str, Any
         linked_cards.sort(key=_card_sort_key, reverse=True)
 
     clients_by_name: dict[str, dict[str, ClientProfile]] = defaultdict(dict)
-    phone_clients_by_name: dict[str, dict[str, set[str]]] = defaultdict(
-        lambda: defaultdict(set)
-    )
+    phone_clients_by_name: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+    phone_name_clients_by_key: dict[str, dict[str, ClientProfile]] = defaultdict(dict)
+    actual_phone_clients_by_key: dict[str, dict[str, ClientProfile]] = defaultdict(dict)
     for client in clients:
         name_key = _client_name_key(client)
+        phone_keys = _client_phone_keys(client)
+        for phone_key in phone_keys:
+            actual_phone_clients_by_key[phone_key][client.id] = client
+        phone_name_key = _client_phone_like_name_key(client)
+        if phone_name_key and not phone_keys:
+            phone_name_clients_by_key[phone_name_key][client.id] = client
         if not name_key:
             continue
-        for phone_key in _client_phone_keys(client):
+        for phone_key in phone_keys:
             clients_by_name[name_key][client.id] = client
             phone_clients_by_name[name_key][phone_key].add(client.id)
 
     groups: list[dict[str, Any]] = []
+    seen_group_client_ids: set[frozenset[str]] = set()
+
+    def add_group(
+        *,
+        name_key: str,
+        phone_keys: list[str],
+        unique_clients: list[ClientProfile],
+    ) -> None:
+        group_ids = frozenset(client.id for client in unique_clients)
+        if len(group_ids) < 2 or group_ids in seen_group_client_ids or not phone_keys:
+            return
+        seen_group_client_ids.add(group_ids)
+        canonical = _choose_canonical_client(unique_clients, linked_cards_by_client)
+        duplicate_clients = [client for client in unique_clients if client.id != canonical.id]
+        cards_to_relink = [
+            card
+            for client in duplicate_clients
+            for card in linked_cards_by_client.get(client.id, [])
+        ]
+        groups.append(
+            {
+                "name_key": name_key,
+                "phone_key": phone_keys[0],
+                "phone_keys": phone_keys,
+                "canonical_id": canonical.id,
+                "duplicate_ids": [client.id for client in duplicate_clients],
+                "clients": [
+                    _client_snapshot(client, linked_cards_by_client.get(client.id, []))
+                    for client in unique_clients
+                ],
+                "cards_to_relink": [card.id for card in cards_to_relink],
+                "vehicles_to_merge": sum(len(client.vehicles) for client in duplicate_clients),
+            }
+        )
+
     for name_key, clients_map in sorted(clients_by_name.items()):
         parent = {client_id: client_id for client_id in clients_map}
 
@@ -188,30 +241,23 @@ def build_client_duplicate_plan(state_file: Path | None = None) -> dict[str, Any
             if not shared_phone_keys:
                 continue
             unique_clients = [clients_map[client_id] for client_id in group_client_ids]
-            canonical = _choose_canonical_client(unique_clients, linked_cards_by_client)
-            duplicate_clients = [client for client in unique_clients if client.id != canonical.id]
-            cards_to_relink = [
-                card
-                for client in duplicate_clients
-                for card in linked_cards_by_client.get(client.id, [])
-            ]
-            groups.append(
-                {
-                    "name_key": name_key,
-                    "phone_key": shared_phone_keys[0],
-                    "phone_keys": shared_phone_keys,
-                    "canonical_id": canonical.id,
-                    "duplicate_ids": [client.id for client in duplicate_clients],
-                    "clients": [
-                        _client_snapshot(client, linked_cards_by_client.get(client.id, []))
-                        for client in unique_clients
-                    ],
-                    "cards_to_relink": [card.id for card in cards_to_relink],
-                    "vehicles_to_merge": sum(
-                        len(client.vehicles) for client in duplicate_clients
-                    ),
-                }
+            add_group(
+                name_key=name_key,
+                phone_keys=shared_phone_keys,
+                unique_clients=unique_clients,
             )
+
+    for phone_key, phone_name_clients in sorted(phone_name_clients_by_key.items()):
+        clients_map = dict(phone_name_clients)
+        clients_map.update(actual_phone_clients_by_key.get(phone_key, {}))
+        has_real_phone_profile = bool(actual_phone_clients_by_key.get(phone_key))
+        if len(clients_map) < 2 or not has_real_phone_profile:
+            continue
+        add_group(
+            name_key=f"phone-only-name:{phone_key}",
+            phone_keys=[phone_key],
+            unique_clients=list(clients_map.values()),
+        )
 
     return {
         "schema": "client_duplicates_maintenance.v1",
@@ -231,6 +277,9 @@ def _merge_phone_lists(canonical: ClientProfile, duplicate_clients: list[ClientP
     values = [canonical.phone, *list(canonical.phones or [])]
     for client in duplicate_clients:
         values.extend([client.phone, *list(client.phones or [])])
+    for client in [canonical, *duplicate_clients]:
+        if _client_phone_like_name_key(client):
+            values.append(client.name())
     canonical.phones = []
     canonical.phone = ""
     merged = ClientProfile.from_dict({**canonical.to_storage_dict(), "phone": "", "phones": values})
@@ -306,7 +355,9 @@ def apply_client_duplicate_plan(
                     old_vehicle_id_to_key[vehicle.id] = key
         _merge_client_fields(canonical, duplicate_clients)
         canonical_vehicle_id_by_key = {
-            _vehicle_key(vehicle): vehicle.id for vehicle in canonical.vehicles if _vehicle_key(vehicle)
+            _vehicle_key(vehicle): vehicle.id
+            for vehicle in canonical.vehicles
+            if _vehicle_key(vehicle)
         }
         duplicate_ids = {client.id for client in duplicate_clients}
         for card in cards:
