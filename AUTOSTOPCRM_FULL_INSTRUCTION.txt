@@ -54,4 +54,4 @@ If telegram-ai.env exists as an untracked server file, keep it.
 - verify local, GitHub, and server HEAD before and after deploy
 - public anonymous writes must stay blocked
 - cashbox reconciliation is internal diagnostics; operator UI uses the cash journal
-- salary release smoke must cover the repair-order executor gear, payroll ledger, and printable salary reconciliation act
+- salary release smoke must cover the repair-order executor gear, operator-to-employee material executor defaults, manual shift accruals, payroll ledger, and printable salary reconciliation act

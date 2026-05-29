@@ -132,7 +132,9 @@ python scripts\perf_workflows.py --local-temp-server --iterations 3
 
 `scripts\browser_smoke.py` seeds a closed repair order with a salary override
 and verifies that the amount reaches payroll report, salary ledger, monthly
-employee report, and the printable salary reconciliation act.
+employee report, and the printable salary reconciliation act. It also covers
+operator-to-employee material executor defaults and the
+`employee_shift_accrual_manual_salary` manual shift accrual path.
 
 Use [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md) for production
 deploy, smoke credentials, server parity, public checks, performance probes, and
@@ -201,7 +203,9 @@ apply only with `--apply --backup`.
 ## Documentation Hygiene
 
 Run docs checks after changing routes, tools, deploy, auth, performance,
-maintenance, or user-facing instructions:
+maintenance, or user-facing instructions. `docs_audit.py` classifies tracked
+documentation files, treats dependency files as manifests, and scans
+script-facing instructions in `deploy.sh` and `scripts`:
 
 ```powershell
 python scripts\docs_audit.py --format text

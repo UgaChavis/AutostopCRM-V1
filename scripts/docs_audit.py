@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import ast
+import fnmatch
 import json
 import re
+import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -18,6 +20,24 @@ CRM_CANONICAL_DOCS = (
     "README.md",
     "docs/OPERATIONS_RUNBOOK.md",
 )
+
+CRM_DOCUMENTATION_MANIFESTS = (
+    "requirements.txt",
+    "requirements-dev.txt",
+)
+
+DOCUMENTATION_SUFFIXES = (".md", ".txt", ".rst", ".adoc")
+
+SCRIPT_INSTRUCTION_SUFFIXES = (
+    ".ps1",
+    ".sh",
+    ".py",
+    ".conf.example",
+)
+
+SCRIPT_INSTRUCTION_SKIP_FILES = {
+    "scripts/docs_audit.py",
+}
 
 MANAGER_CANONICAL_DOCS = (
     "README.md",
@@ -130,6 +150,10 @@ API_GUIDE_REQUIRED_ROUTE_TEXT = (
         "/api/correct_repair_order_number",
         "repair-order number maintenance route is not documented",
     ),
+    (
+        "/api/create_employee_shift_accrual",
+        "manual employee shift accrual route is not documented",
+    ),
 )
 
 API_GUIDE_REQUIRED_TEXT = (
@@ -191,6 +215,10 @@ RUNBOOK_REQUIRED_TEXT = (
         "AUTOSTOP_SMOKE_DELAY_SECONDS",
         "deploy smoke retry delay env var is not documented",
     ),
+    (
+        "employee_shift_accrual_manual_salary",
+        "manual shift salary accrual browser-smoke scenario is not documented",
+    ),
 )
 
 
@@ -210,6 +238,85 @@ def _display_path(path: Path, root: Path) -> str:
 
 def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _iter_git_tracked_files(root: Path) -> list[Path]:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(root), "ls-files"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    return [root / line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+
+def _is_skipped_path(path: Path) -> bool:
+    return any(part in SKIP_DIRS for part in path.parts)
+
+
+def _matches_relative_glob(path: Path, root: Path, patterns: tuple[str, ...]) -> bool:
+    relative_path = _display_path(path, root)
+    return any(fnmatch.fnmatch(relative_path, pattern) for pattern in patterns)
+
+
+def _check_unclassified_tracked_docs(root: Path) -> list[Issue]:
+    allowed = set(CRM_CANONICAL_DOCS) | set(CRM_DOCUMENTATION_MANIFESTS)
+    issues: list[Issue] = []
+
+    for path in _iter_git_tracked_files(root):
+        if _is_skipped_path(path):
+            continue
+        relative_path = _display_path(path, root)
+        if path.suffix.lower() not in DOCUMENTATION_SUFFIXES:
+            continue
+        if relative_path in allowed:
+            continue
+        if _matches_relative_glob(path, root, RETIRED_DOC_GLOBS):
+            continue
+        issues.append(
+            Issue(
+                "unclassified_tracked_doc",
+                relative_path,
+                "tracked documentation file is not classified in docs_audit",
+            )
+        )
+    return issues
+
+
+def _iter_script_instruction_files(root: Path) -> list[Path]:
+    tracked_files = _iter_git_tracked_files(root)
+    if not tracked_files:
+        candidates = [root / "deploy.sh"]
+        scripts_dir = root / "scripts"
+        if scripts_dir.exists():
+            candidates.extend(scripts_dir.rglob("*"))
+        tracked_files = candidates
+
+    instruction_files: list[Path] = []
+    for path in tracked_files:
+        if not path.is_file() or _is_skipped_path(path):
+            continue
+        relative_path = _display_path(path, root)
+        if relative_path in SCRIPT_INSTRUCTION_SKIP_FILES:
+            continue
+        if relative_path == "deploy.sh" or (
+            relative_path.startswith("scripts/")
+            and any(relative_path.endswith(suffix) for suffix in SCRIPT_INSTRUCTION_SUFFIXES)
+        ):
+            instruction_files.append(path)
+    return sorted(instruction_files)
+
+
+def _check_script_instruction_text(root: Path) -> list[Issue]:
+    issues: list[Issue] = []
+    for path in _iter_script_instruction_files(root):
+        text = _read_text(path)
+        issues.extend(scan_forbidden_text(path, text, root=root))
+        issues.extend(scan_crm_only_forbidden_text(path, text, root=root))
+    return issues
 
 
 def scan_forbidden_text(path: Path, text: str, *, root: Path = ROOT) -> list[Issue]:
@@ -532,6 +639,7 @@ def audit(
     issues: list[Issue] = []
 
     issues.extend(_check_required(CRM_CANONICAL_DOCS, root, "CRM"))
+    issues.extend(_check_unclassified_tracked_docs(root))
     for relative_path in CRM_CANONICAL_DOCS:
         path = root / relative_path
         if path.exists():
@@ -539,6 +647,7 @@ def audit(
             issues.extend(scan_forbidden_text(path, text, root=root))
             issues.extend(scan_crm_only_forbidden_text(path, text, root=root))
 
+    issues.extend(_check_script_instruction_text(root))
     issues.extend(_check_api_guide_required_routes(root))
 
     for retired_path in _iter_retired_candidates(root):

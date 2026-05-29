@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -77,6 +78,44 @@ class DocsAuditTests(unittest.TestCase):
         self.assertEqual(["stale_workspace_path"], [issue.code for issue in issues])
         self.assertIn("manager knowledge vault", issues[0].detail)
 
+    def test_script_instruction_scan_detects_stale_instruction_text(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            script = temp_root / "scripts" / "run_dev.ps1"
+            script.parent.mkdir(parents=True)
+            script.write_text(
+                "Use AUTOSTOP_GIT_BRANCH=autostopcrm-v1 before deploy.\n",
+                encoding="utf-8",
+            )
+
+            issues = module._check_script_instruction_text(temp_root)
+
+        self.assertEqual(["stale_deploy_env"], [issue.code for issue in issues])
+        self.assertEqual("scripts/run_dev.ps1", issues[0].path)
+
+    def test_tracked_documentation_requires_explicit_classification(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            (temp_root / "README.md").write_text("canonical\n", encoding="utf-8")
+            (temp_root / "requirements.txt").write_text("manifest\n", encoding="utf-8")
+            (temp_root / "notes.md").write_text("unclassified\n", encoding="utf-8")
+            subprocess.run(["git", "init"], cwd=temp_root, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "add", "README.md", "requirements.txt", "notes.md"],
+                cwd=temp_root,
+                check=True,
+                capture_output=True,
+            )
+
+            issues = module._check_unclassified_tracked_docs(temp_root)
+
+        self.assertEqual(["unclassified_tracked_doc"], [issue.code for issue in issues])
+        self.assertEqual("notes.md", issues[0].path)
+
     def test_superpowers_planning_docs_are_retired_artifacts(self) -> None:
         module = load_docs_audit_module()
 
@@ -122,6 +161,7 @@ class DocsAuditTests(unittest.TestCase):
             {
                 "read-only finance audit API route is not documented: /api/finance_audit",
                 "repair-order number maintenance route is not documented: /api/correct_repair_order_number",
+                "manual employee shift accrual route is not documented: /api/create_employee_shift_accrual",
                 "card log archive hydration option is not documented: include_full_details",
                 "cashbox transaction pagination offset is not documented: transaction_offset",
                 "state size diagnostics script is not documented: state_size_report.py",
@@ -133,6 +173,7 @@ class DocsAuditTests(unittest.TestCase):
                 "deploy/watchdog lock path env var is not documented: AUTOSTOP_DEPLOY_LOCK_PATH",
                 "deploy smoke retry count env var is not documented: AUTOSTOP_SMOKE_ATTEMPTS",
                 "deploy smoke retry delay env var is not documented: AUTOSTOP_SMOKE_DELAY_SECONDS",
+                "manual shift salary accrual browser-smoke scenario is not documented: employee_shift_accrual_manual_salary",
             },
             {issue.detail for issue in issues},
         )

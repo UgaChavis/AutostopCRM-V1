@@ -70,6 +70,8 @@ python scripts\browser_smoke.py
 `scripts\browser_smoke.py` runs a temp-runtime payroll chain smoke: a closed
 repair order with per-row salary override is checked through payroll report,
 employee ledger, monthly salary report, and the printable reconciliation act.
+It also verifies operator-to-employee material executor defaults and
+`employee_shift_accrual_manual_salary`, the manual shift accrual path.
 
 For documentation-only changes, the minimum gate is:
 
@@ -286,6 +288,8 @@ Manual UI smoke after UI changes:
 - clients, repair orders, cashboxes, employees, files, and archive modals open;
 - repair-order executor salary gear opens, calculates `5000 + 45% = 11750`,
   preserves `0%`, and reset clears the row override before saving;
+- employee `+ СМЕНЫ` accrual opens, accepts a manual amount, and appears in
+  the ledger/report as `ВЫПЛАТА ЗА СМЕНЫ`;
 - employee salary ledger and `ОТЧЕТ` printable reconciliation act open without
   CRM chrome and show the applied salary scheme;
 - nested modals close one level at a time;
@@ -345,3 +349,8 @@ Canonical active docs:
 Release copies and secret-bundle copies must either match these docs or be
 clearly marked historical. Do not add one-off plans or frozen reports to active
 docs.
+
+`requirements.txt` and `requirements-dev.txt` are dependency manifests, not
+operator documentation. Script-facing instructions in `deploy.sh` and
+`scripts` are audited for stale paths, deploy variables, production URLs, and
+smoke credential examples together with the canonical docs.

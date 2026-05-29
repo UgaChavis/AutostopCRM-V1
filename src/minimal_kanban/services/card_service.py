@@ -9466,7 +9466,7 @@ class CardService:
         normalized = normalize_text(value, default="", limit=7)
         if re.fullmatch(r"\d{4}-\d{2}", normalized):
             return normalized
-        return datetime.now().astimezone().strftime("%Y-%m")
+        return utc_now().astimezone(business_timezone()).strftime("%Y-%m")
 
     def _payroll_month_bounds(self, month: str) -> tuple[datetime, datetime]:
         normalized_month = self._validated_payroll_month(month)
@@ -12318,7 +12318,7 @@ class CardService:
             )
 
     def _repair_order_now(self) -> str:
-        return datetime.now().astimezone().strftime("%d.%m.%Y %H:%M")
+        return utc_now().astimezone(business_timezone()).strftime("%d.%m.%Y %H:%M")
 
     def _ensure_ready_column_for_bundle(
         self,
