@@ -452,12 +452,12 @@ def _payroll_chain_reaches_reports_and_reconciliation(runtime: TempRuntime) -> b
         row.get("kind") == "accrual"
         and row.get("card_id") == runtime.payroll_card_id
         and row.get("amount_display") == "11750"
-        and "Гарантия" in str(row.get("scheme") or "")
+        and "Выплата исполнителю" in str(row.get("scheme") or "")
         for row in ledger_rows
     )
     report_ok = (
         salary_report.get("totals", {}).get("work_accrued_total") == "11750"
-        and "Гарантия" in str(salary_report.get("text") or "")
+        and "Выплата исполнителю" in str(salary_report.get("text") or "")
         and "11 750" in str(salary_report.get("text") or "").replace("\xa0", " ")
     )
     reconciliation_rows = reconciliation.get("rows") or []
@@ -467,12 +467,12 @@ def _payroll_chain_reaches_reports_and_reconciliation(runtime: TempRuntime) -> b
         row.get("kind") == "work_accrual"
         and row.get("card_id") == runtime.payroll_card_id
         and row.get("accrued") == "11750"
-        and "Гарантия 5 000,00 ₽ + 45%" in str(row.get("scheme") or "")
+        and "Выплата исполнителю 5 000,00 ₽ + 45%" in str(row.get("scheme") or "")
         for row in reconciliation_rows
     )
     print_ok = (
         "Акт сверки зарплаты" in print_html
-        and "Гарантия" in print_html
+        and "Выплата исполнителю" in print_html
         and "11 750" in print_html.replace("\xa0", " ")
         and "@media print" in print_html
     )
