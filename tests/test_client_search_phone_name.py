@@ -35,15 +35,16 @@ class ClientSearchPhoneNameTests(unittest.TestCase):
         competitor = self.service.create_client({"display_name": "История с таким телефоном"})[
             "client"
         ]
-        self.service.create_card(
-            {
-                "title": "Косвенная история по телефону",
-                "vehicle": "Toyota Corolla",
-                "client_id": competitor["id"],
-                "vehicle_profile": {"customer_phone": "8 950 423-54-57"},
-                "deadline": {"hours": 1},
-            }
-        )
+        for index in range(15):
+            self.service.create_card(
+                {
+                    "title": f"Косвенная история по телефону {index}",
+                    "vehicle": "Toyota Corolla",
+                    "client_id": competitor["id"],
+                    "vehicle_profile": {"customer_phone": "8 950 423-54-57"},
+                    "deadline": {"hours": 1},
+                }
+            )
 
         search = self.service.search_clients({"query": "89504235457", "limit": 5})
 

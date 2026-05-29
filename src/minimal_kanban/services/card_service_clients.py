@@ -1487,14 +1487,14 @@ class CardServiceClientsMixin:
                 direct_digit_values = indexed.get("direct_digit_values", set())
                 if direct_digit_values:
                     if query_digits in direct_digit_values:
-                        score += 40
+                        score += 1000
                     elif any(
                         query_digits in value or value in query_digits
                         for value in direct_digit_values
                     ):
-                        score += 18
+                        score += 200
                     if query_phone_variants.intersection(direct_digit_values):
-                        score += 40
+                        score += 1000
                 if digits_blob and query_digits in digits_blob:
                     score += 10
                 score += self._score_client_related_search_fields(
