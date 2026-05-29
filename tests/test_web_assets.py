@@ -3103,7 +3103,7 @@ class WebAssetsTests(unittest.TestCase):
             "const transactionOffset = Math.max(0, Number(offset || 0));", BOARD_WEB_APP_HTML
         )
         self.assertIn(
-            "'&transaction_limit=' + CASHBOX_TRANSACTION_PAGE_SIZE + '&transaction_offset=' + transactionOffset",
+            "'&transaction_limit=' + CASHBOX_TRANSACTION_PAGE_SIZE + '&transaction_offset=' + transactionOffset + '&compact=true'",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(

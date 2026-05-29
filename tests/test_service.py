@@ -4465,6 +4465,56 @@ class CardServiceTests(unittest.TestCase):
             )
         )
 
+    def test_get_cashbox_compact_transactions_keep_ui_fields_without_verbose_dates(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "expense",
+                "amount": "500",
+                "note": "Покупка расходников",
+                "actor_name": "ADMIN",
+            }
+        )
+
+        full = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 1})
+        compact = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 1, "compact": True}
+        )
+
+        full_transaction = full["transactions"][0]
+        compact_transaction = compact["transactions"][0]
+        self.assertFalse(full["meta"]["compact"])
+        self.assertTrue(compact["meta"]["compact"])
+        for field_name in (
+            "id",
+            "cashbox_id",
+            "direction",
+            "amount_minor",
+            "amount_display",
+            "note",
+            "created_at",
+            "actor_name",
+            "source",
+            "business_datetime_display",
+            "source_label",
+            "link_status",
+        ):
+            self.assertEqual(compact_transaction[field_name], full_transaction[field_name])
+        for verbose_field in (
+            "business_datetime",
+            "business_date",
+            "business_time",
+            "created_at_utc",
+            "created_at_original",
+            "short_id",
+            "direction_label",
+        ):
+            self.assertNotIn(verbose_field, compact_transaction)
+        self.assertLess(len(compact_transaction), len(full_transaction))
+
     def test_cash_journal_returns_structured_markdown_report(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"

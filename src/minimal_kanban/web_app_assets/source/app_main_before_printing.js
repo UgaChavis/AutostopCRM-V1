@@ -14041,7 +14041,7 @@
       if (!normalizedId) return null;
       try {
         const transactionOffset = Math.max(0, Number(offset || 0));
-        const data = await api('/api/get_cashbox?cashbox_id=' + encodeURIComponent(normalizedId) + '&transaction_limit=' + CASHBOX_TRANSACTION_PAGE_SIZE + '&transaction_offset=' + transactionOffset);
+        const data = await api('/api/get_cashbox?cashbox_id=' + encodeURIComponent(normalizedId) + '&transaction_limit=' + CASHBOX_TRANSACTION_PAGE_SIZE + '&transaction_offset=' + transactionOffset + '&compact=true');
         const nextTransactions = Array.isArray(data?.transactions) ? data.transactions : [];
         const canAppend = append && state.activeCashbox?.cashbox?.id === (data?.cashbox?.id || normalizedId);
         const transactions = canAppend

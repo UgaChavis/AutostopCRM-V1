@@ -42,6 +42,7 @@ class FinanceReadCore:
                 payload.get("transaction_limit"), default=300, maximum=5000
             )
             transaction_offset = _validated_offset(payload.get("transaction_offset"))
+            compact = service._validated_optional_bool(payload, "compact", default=False)
             bundle = service._store.read_bundle()
             cashboxes = service._ordered_cashboxes(bundle["cashboxes"])
             cashbox = service._find_cashbox(cashboxes, payload.get("cashbox_id"))
@@ -52,10 +53,15 @@ class FinanceReadCore:
             repair_order_transaction_context = service._repair_order_transaction_context(
                 bundle["cards"]
             )
+            serialize_transaction = (
+                service._serialize_cash_transaction_compact
+                if compact
+                else service._serialize_cash_transaction
+            )
             return {
                 "cashbox": service._serialize_cashbox(cashbox, bundle["cash_transactions"]),
                 "transactions": [
-                    service._serialize_cash_transaction(
+                    serialize_transaction(
                         item,
                         repair_order_context=repair_order_transaction_context.get(item.id),
                     )
@@ -67,6 +73,7 @@ class FinanceReadCore:
                     "transaction_offset": transaction_offset,
                     "transactions_returned": len(returned_transactions),
                     "has_more": transaction_offset + len(returned_transactions) < len(transactions),
+                    "compact": compact,
                 },
             }
 

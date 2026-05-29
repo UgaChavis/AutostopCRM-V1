@@ -1061,6 +1061,42 @@ class CardServiceFinanceMixin:
                 )
         return serialized
 
+    def _serialize_cash_transaction_compact(
+        self,
+        transaction: CashTransaction,
+        *,
+        repair_order_context: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        serialized = self._serialize_cash_transaction(
+            transaction,
+            repair_order_context=repair_order_context,
+        )
+        compact_keys = (
+            "id",
+            "cashbox_id",
+            "direction",
+            "amount_minor",
+            "amount_display",
+            "note",
+            "created_at",
+            "actor_name",
+            "source",
+            "transaction_kind",
+            "transfer_group_id",
+            "related_transaction_id",
+            "business_datetime_display",
+            "source_label",
+            "link_status",
+            "stored_note",
+            "repair_order_number",
+            "repair_order_card_id",
+            "repair_order_payment_id",
+            "repair_order_vehicle",
+        )
+        return {
+            key: value for key in compact_keys if (value := serialized.get(key)) not in ("", None)
+        }
+
     def _cash_transaction_business_datetime(self, value: str | None) -> datetime | None:
         parsed = parse_datetime(value)
         if parsed is None:
