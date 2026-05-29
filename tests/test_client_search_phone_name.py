@@ -32,11 +32,24 @@ class ClientSearchPhoneNameTests(unittest.TestCase):
 
     def test_phone_like_client_name_is_found_by_phone_digits_without_phone_field(self) -> None:
         client = self.service.create_client({"display_name": "89504235457"})["client"]
+        competitor = self.service.create_client({"display_name": "История с таким телефоном"})[
+            "client"
+        ]
+        self.service.create_card(
+            {
+                "title": "Косвенная история по телефону",
+                "vehicle": "Toyota Corolla",
+                "client_id": competitor["id"],
+                "vehicle_profile": {"customer_phone": "8 950 423-54-57"},
+                "deadline": {"hours": 1},
+            }
+        )
 
         search = self.service.search_clients({"query": "89504235457", "limit": 5})
 
         self.assertTrue(search["clients"])
         self.assertEqual(search["clients"][0]["id"], client["id"])
+        self.assertIn(competitor["id"], {item["id"] for item in search["clients"]})
 
 
 if __name__ == "__main__":

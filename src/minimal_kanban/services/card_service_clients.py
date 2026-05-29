@@ -1293,6 +1293,30 @@ class CardServiceClientsMixin:
             )
         return "".join(re.sub(r"\D+", "", str(value or "")) for value in values)
 
+    def _client_direct_digit_values(self, client: ClientProfile) -> set[str]:
+        values = [
+            client.name(),
+            client.full_name(),
+            client.display_name,
+            client.phone,
+            *client.phones,
+            client.inn,
+            client.ogrn,
+            client.contact_person,
+        ]
+        digits_values: set[str] = set()
+        for value in values:
+            digits = re.sub(r"\D+", "", str(value or ""))
+            if len(digits) < 3:
+                continue
+            digits_values.add(digits)
+            if len(digits) >= 4 and digits[0] in "78":
+                digits_values.add(digits[1:])
+            if len(digits) >= 10:
+                last_ten = digits[-10:]
+                digits_values.update({last_ten, "7" + last_ten, "8" + last_ten})
+        return digits_values
+
     def _card_client_values(self, card: Card) -> set[str]:
         values = [
             card.vehicle_profile.customer_name,
@@ -1430,6 +1454,7 @@ class CardServiceClientsMixin:
                 "vehicle_searchable": vehicle_searchable,
                 "compact_searchable": compact_searchable,
                 "digits_blob": self._client_search_digits_blob(client),
+                "direct_digit_values": self._client_direct_digit_values(client),
                 "match_keys": self._client_match_keys(client),
                 "phone_variants": phone_variants,
             }
@@ -1457,7 +1482,19 @@ class CardServiceClientsMixin:
             ranked: list[tuple[int, ClientProfile]] = []
             for client in clients:
                 score = 0
-                digits_blob = client_search_index.get(client.id, {}).get("digits_blob", "")
+                indexed = client_search_index.get(client.id, {})
+                digits_blob = indexed.get("digits_blob", "")
+                direct_digit_values = indexed.get("direct_digit_values", set())
+                if direct_digit_values:
+                    if query_digits in direct_digit_values:
+                        score += 40
+                    elif any(
+                        query_digits in value or value in query_digits
+                        for value in direct_digit_values
+                    ):
+                        score += 18
+                    if query_phone_variants.intersection(direct_digit_values):
+                        score += 40
                 if digits_blob and query_digits in digits_blob:
                     score += 10
                 score += self._score_client_related_search_fields(
