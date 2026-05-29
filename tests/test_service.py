@@ -668,6 +668,53 @@ class CardServiceTests(unittest.TestCase):
         self.assertTrue(by_valid["clients"])
         self.assertEqual(by_valid["clients"][0]["id"], valid["id"])
 
+    def test_client_search_ignores_placeholder_vins_from_related_cards(self) -> None:
+        client = self.service.create_client(
+            {
+                "display_name": "Клиент с мусорным VIN в истории",
+                "phone": "+7 913 111-22-33",
+            }
+        )["client"]
+        self.service.create_card(
+            {
+                "vehicle": "Toyota Corolla",
+                "title": "Связанная карточка с плейсхолдером",
+                "deadline": {"hours": 1},
+                "client_id": client["id"],
+                "vehicle_profile": {
+                    "customer_name": "Клиент с мусорным VIN в истории",
+                    "customer_phone": "+7 913 111-22-33",
+                    "vin": "1111111111111",
+                },
+                "repair_order": {
+                    "client": "Клиент с мусорным VIN в истории",
+                    "phone": "+7 913 111-22-33",
+                    "vin": "ABC",
+                },
+            }
+        )
+
+        by_repeated_placeholder = self.service.search_clients(
+            {"query": "1111111111111", "limit": 5}
+        )
+        by_short_placeholder = self.service.search_clients({"query": "ABC", "limit": 5})
+        by_phone = self.service.search_clients({"query": "89131112233", "limit": 5})
+
+        self.assertFalse(
+            any(
+                client_result["id"] == client["id"]
+                for client_result in by_repeated_placeholder["clients"]
+            )
+        )
+        self.assertFalse(
+            any(
+                client_result["id"] == client["id"]
+                for client_result in by_short_placeholder["clients"]
+            )
+        )
+        self.assertTrue(by_phone["clients"])
+        self.assertEqual(by_phone["clients"][0]["id"], client["id"])
+
     def test_client_search_uses_secondary_card_customer_phone_for_related_vehicle(self) -> None:
         client = self.service.create_client(
             {

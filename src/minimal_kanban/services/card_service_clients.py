@@ -929,10 +929,10 @@ class CardServiceClientsMixin:
                 card.vehicle_profile.make_display,
                 card.vehicle_profile.model_display,
                 card.vehicle_profile.registration_plate,
-                card.vehicle_profile.vin,
+                self._client_vehicle_search_vin(card.vehicle_profile.vin),
                 card.repair_order.vehicle,
                 card.repair_order.license_plate,
-                card.repair_order.vin,
+                self._client_vehicle_search_vin(card.repair_order.vin),
                 card.repair_order.number,
             ]
             if explicit_link:
