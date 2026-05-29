@@ -6820,6 +6820,65 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(issue["data"]["paid_total"], "500")
         self.assertEqual(issue["data"]["grand_total"], "1000")
 
+    def test_finance_audit_safe_fix_restores_missing_salary_employee(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        bundle = self.store.read_bundle()
+        bundle["cash_transactions"].append(
+            CashTransaction(
+                id="tx-salary-restorable-employee",
+                cashbox_id=cashbox["id"],
+                direction="expense",
+                amount_minor=100000,
+                note="Выплата зарплаты: Удаленный сотрудник",
+                created_at="2026-05-18T10:00:00+07:00",
+                actor_name="ADMIN",
+                source="api",
+                employee_id="employee-restorable",
+                employee_name="Удаленный сотрудник",
+                transaction_kind="salary_payout",
+            )
+        )
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        audit = self.service.get_finance_audit()
+        issue = next(
+            issue
+            for issue in audit["issues"]
+            if issue["code"] == "salary_transaction_missing_employee"
+        )
+        self.assertTrue(issue["safe_fix_available"])
+        self.assertEqual(issue["safe_fix"]["kind"], "restore_missing_employee")
+        dry_run = self.service.apply_finance_audit_safe_fixes()
+        self.assertEqual(dry_run["meta"]["planned"], 1)
+
+        applied = self.service.apply_finance_audit_safe_fixes(
+            {"dry_run": False, "actor_name": "ADMIN"}
+        )
+
+        self.assertEqual(applied["meta"]["applied"], 1)
+        self.assertNotIn(
+            "salary_transaction_missing_employee",
+            {issue["code"] for issue in applied["issues"]},
+        )
+        employee = next(
+            item
+            for item in self.service.list_employees()["employees"]
+            if item["id"] == "employee-restorable"
+        )
+        self.assertEqual(employee["name"], "Удаленный сотрудник")
+        self.assertFalse(employee["is_active"])
+
     def test_finance_audit_reports_cash_transactions_without_cashbox(self) -> None:
         cashbox = CashBox(
             id="cashbox-existing",

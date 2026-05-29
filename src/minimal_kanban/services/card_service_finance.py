@@ -27,6 +27,7 @@ from ..repair_order import (
 )
 from .payroll_constants import EMPLOYEE_SHIFT_ACCRUAL_NOTE
 
+EMPLOYEES_SETTING_KEY = "employees"
 EMPLOYEE_SHIFT_ACCRUALS_SETTING_KEY = "employee_shift_accruals"
 _CASH_EXPENSE_NOTE_MIN_CHARS = 10
 
@@ -92,13 +93,54 @@ class CardServiceFinanceMixin:
             for fix in planned_fixes:
                 if not isinstance(fix, dict):
                     continue
+                kind = normalize_text(fix.get("kind"), default="", limit=64)
+                if kind == "restore_missing_employee":
+                    employee_id = normalize_text(fix.get("employee_id"), default="", limit=64)
+                    employee_name = normalize_text(fix.get("employee_name"), default="", limit=80)
+                    if not employee_id or not employee_name:
+                        continue
+                    existing_employees = self._employees_from_settings(bundle["settings"])
+                    if any(employee["id"] == employee_id for employee in existing_employees):
+                        continue
+                    restored_employee = self._normalized_employee_record(
+                        {
+                            "id": employee_id,
+                            "name": employee_name,
+                            "is_active": False,
+                            "note": "Восстановлен автоматически из зарплатного движения.",
+                        }
+                    )
+                    if restored_employee is None:
+                        continue
+                    next_employees = [
+                        employee
+                        for employee in existing_employees
+                        if employee["id"] != restored_employee["id"]
+                    ]
+                    next_employees.append(restored_employee)
+                    next_employees.sort(
+                        key=lambda item: (
+                            not item["is_active"],
+                            item["name"].casefold(),
+                            item["id"],
+                        )
+                    )
+                    bundle["settings"][EMPLOYEES_SETTING_KEY] = next_employees
+                    applied.append(
+                        {
+                            "kind": kind,
+                            "employee_id": employee_id,
+                            "employee_name": employee_name,
+                            "is_active": False,
+                        }
+                    )
+                    continue
                 transaction_id = normalize_text(
                     fix.get("cash_transaction_id"), default="", limit=128
                 )
                 transaction = transactions_by_id.get(transaction_id)
                 if transaction is None or transaction_id not in payment_links:
                     continue
-                kind = normalize_text(fix.get("kind"), default="", limit=64)
                 if kind == "set_transaction_kind":
                     value = normalize_text(fix.get("value"), default="", limit=32)
                     if value != "repair_order_payment":
@@ -150,6 +192,7 @@ class CardServiceFinanceMixin:
                     cashboxes=bundle["cashboxes"],
                     cash_transactions=bundle["cash_transactions"],
                     events=bundle["events"],
+                    settings=bundle["settings"],
                 )
             next_audit = self._build_finance_audit(bundle)
             return {
@@ -1090,9 +1133,8 @@ class CardServiceFinanceMixin:
                     payment_refs_by_transaction_id.setdefault(transaction_id, []).append(
                         (payment_card, payment)
                     )
-        employee_ids = {
-            employee["id"] for employee in self._employees_from_settings(bundle.get("settings", {}))
-        }
+        employees = self._employees_from_settings(bundle.get("settings", {}))
+        employee_ids = {employee["id"] for employee in employees}
         issues: list[dict[str, object]] = []
         checked_transfer_keys: set[str] = set()
 
@@ -1237,15 +1279,28 @@ class CardServiceFinanceMixin:
             if kind_casefold in {"salary_payout", "salary_advance"}:
                 employee_id = normalize_text(transaction.employee_id, default="", limit=64)
                 if not employee_id or employee_id not in employee_ids:
+                    employee_name = normalize_text(
+                        transaction.employee_name,
+                        default="",
+                        limit=80,
+                    )
+                    safe_fix = None
+                    if employee_id and employee_name:
+                        safe_fix = {
+                            "kind": "restore_missing_employee",
+                            "employee_id": employee_id,
+                            "employee_name": employee_name,
+                        }
                     issues.append(
                         self._finance_audit_issue(
                             code="salary_transaction_missing_employee",
                             severity="error",
                             message="Зарплатное движение кассы ссылается на отсутствующего сотрудника.",
                             transaction=transaction,
+                            safe_fix=safe_fix,
                             data={
                                 "employee_id": employee_id,
-                                "employee_name": transaction.employee_name,
+                                "employee_name": employee_name,
                                 "transaction_kind": kind,
                             },
                         )
