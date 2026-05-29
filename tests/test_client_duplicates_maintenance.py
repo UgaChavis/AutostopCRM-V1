@@ -71,11 +71,23 @@ class ClientDuplicatesMaintenanceTests(unittest.TestCase):
         self.assertEqual(group["phone_key"], "79831546668")
 
     def test_dry_run_reports_phone_only_name_duplicate_with_real_client_phone(self) -> None:
-        phone_only = self.service.create_client({"display_name": "89504235457"})["client"]
+        phone_only = self.service.create_client(
+            {
+                "display_name": "89504235457",
+                "vehicles": [{"vin": "JTMBH31V905017850"}],
+            }
+        )["client"]
         named = self.service.create_client(
             {
                 "display_name": "Анцифиров Вячеслав Геннадьевич",
                 "phone": "8 950 423-54-57",
+                "vehicles": [
+                    {
+                        "vehicle": "Toyota Rav 4 2006",
+                        "vin": "JTMBH31V905017850",
+                        "license_plate": "н104кт124",
+                    }
+                ],
             }
         )["client"]
 
@@ -87,6 +99,39 @@ class ClientDuplicatesMaintenanceTests(unittest.TestCase):
         self.assertEqual(group["name_key"], "phone-only-name:79504235457")
         self.assertEqual(group["canonical_id"], named["id"])
         self.assertEqual(group["duplicate_ids"], [phone_only["id"]])
+        self.assertEqual(group["vehicles_to_merge"], 0)
+
+    def test_apply_phone_only_name_duplicate_keeps_richer_existing_vehicle(self) -> None:
+        phone_only = self.service.create_client(
+            {
+                "display_name": "89504235457",
+                "vehicles": [{"vin": "JTMBH31V905017850"}],
+            }
+        )["client"]
+        named = self.service.create_client(
+            {
+                "display_name": "Анцифиров Вячеслав Геннадьевич",
+                "phone": "8 950 423-54-57",
+                "vehicles": [
+                    {
+                        "vehicle": "Toyota Rav 4 2006",
+                        "vin": "JTMBH31V905017850",
+                        "license_plate": "н104кт124",
+                    }
+                ],
+            }
+        )["client"]
+
+        result = self.module.apply_client_duplicate_plan(self.state_file, backup=True)
+        bundle = self.store.read_bundle()
+        clients = {client.id: client for client in bundle["clients"]}
+
+        self.assertTrue(result["applied"])
+        self.assertIn(named["id"], clients)
+        self.assertNotIn(phone_only["id"], clients)
+        self.assertEqual(len(clients[named["id"]].vehicles), 1)
+        self.assertEqual(clients[named["id"]].vehicles[0].vehicle, "Toyota Rav 4 2006")
+        self.assertEqual(clients[named["id"]].vehicles[0].vin, "JTMBH31V905017850")
 
     def test_apply_merges_duplicate_clients_relinks_cards_and_creates_backup(self) -> None:
         first = self.service.create_client(

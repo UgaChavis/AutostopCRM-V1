@@ -88,6 +88,36 @@ def _vehicle_key(vehicle: Any) -> str:
     )
 
 
+def _vehicle_merge_identity(vehicle: Any) -> str:
+    vin = re.sub(r"[^A-Z0-9]+", "", _text(getattr(vehicle, "vin", "")).upper())
+    if len(vin) >= 6:
+        return f"vin:{vin}"
+    plate = _normalize_search_text(getattr(vehicle, "license_plate", ""))
+    if plate:
+        return f"plate:{plate}"
+    return _vehicle_key(vehicle)
+
+
+def _mergeable_duplicate_vehicle_payloads(
+    canonical: ClientProfile, duplicate_clients: list[ClientProfile]
+) -> list[dict[str, Any]]:
+    seen = {
+        identity
+        for identity in (_vehicle_merge_identity(vehicle) for vehicle in canonical.vehicles)
+        if identity
+    }
+    payloads: list[dict[str, Any]] = []
+    for client in duplicate_clients:
+        for vehicle in client.vehicles:
+            identity = _vehicle_merge_identity(vehicle)
+            if identity and identity in seen:
+                continue
+            if identity:
+                seen.add(identity)
+            payloads.append(vehicle.to_dict())
+    return payloads
+
+
 def _card_sort_key(card: Any) -> tuple[str, str, str]:
     repair_order = getattr(card, "repair_order", None)
     return (
@@ -197,7 +227,9 @@ def build_client_duplicate_plan(state_file: Path | None = None) -> dict[str, Any
                     for client in unique_clients
                 ],
                 "cards_to_relink": [card.id for card in cards_to_relink],
-                "vehicles_to_merge": sum(len(client.vehicles) for client in duplicate_clients),
+                "vehicles_to_merge": len(
+                    _mergeable_duplicate_vehicle_payloads(canonical, duplicate_clients)
+                ),
             }
         )
 
@@ -292,11 +324,7 @@ def _merge_client_fields(canonical: ClientProfile, duplicate_clients: list[Clien
     canonical.vehicles = normalize_client_vehicles(
         [
             *[vehicle.to_dict() for vehicle in canonical.vehicles],
-            *[
-                vehicle.to_dict()
-                for client in duplicate_clients
-                for vehicle in list(client.vehicles or [])
-            ],
+            *_mergeable_duplicate_vehicle_payloads(canonical, duplicate_clients),
         ]
     )
     deleted_keys = list(canonical.deleted_vehicle_keys or [])
