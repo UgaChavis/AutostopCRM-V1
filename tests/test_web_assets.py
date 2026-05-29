@@ -2437,6 +2437,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("data-repair-order-work-salary-gear", BOARD_WEB_APP_HTML)
         self.assertIn('data-repair-order-cell="work_salary_guarantee"', BOARD_WEB_APP_HTML)
         self.assertIn('data-repair-order-cell="work_salary_percent_override"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-repair-order-cell="work_salary_cost_price"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="repairOrderWorkSalaryCostPrice"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="repairOrderWorkSalaryCostPreview"', BOARD_WEB_APP_HTML)
+        self.assertIn("data-repair-order-work-salary-cost-price", BOARD_WEB_APP_HTML)
         self.assertNotIn('id="repairOrderWorkSalaryNote"', BOARD_WEB_APP_HTML)
         self.assertNotIn('data-repair-order-cell="work_salary_note"', BOARD_WEB_APP_HTML)
         self.assertNotIn("els.repairOrderWorkSalaryNote", BOARD_WEB_APP_HTML)
@@ -2455,10 +2459,13 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("work_salary_override_enabled", BOARD_WEB_APP_HTML)
         self.assertIn("work_salary_guarantee", BOARD_WEB_APP_HTML)
         self.assertIn("work_salary_percent_override", BOARD_WEB_APP_HTML)
+        self.assertIn("work_salary_cost_price", BOARD_WEB_APP_HTML)
         self.assertIn("ВЫПЛАТА ИСПОЛНИТЕЛЮ", BOARD_WEB_APP_HTML)
+        self.assertIn("СЕБЕСТОИМОСТЬ РАБОТЫ", BOARD_WEB_APP_HTML)
         self.assertNotIn("ГАРАНТИЯ ИСПОЛНИТЕЛЮ", BOARD_WEB_APP_HTML)
         self.assertIn("К НАЧИСЛЕНИЮ", BOARD_WEB_APP_HTML)
         self.assertIn("ПРОЦЕНТ СЕРВИСА", BOARD_WEB_APP_HTML)
+        self.assertIn("const percentBase = Math.max(total - safeGuarantee - safeCostPrice, 0);", BOARD_WEB_APP_HTML)
         self.assertIn(
             "const effectiveQuantity = quantityParsed === null && !String(quantityValue ?? '').trim() ? 1 : quantityParsed;",
             BOARD_WEB_APP_HTML,

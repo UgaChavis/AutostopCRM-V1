@@ -491,6 +491,10 @@ class CardServicePayrollMixin:
                 amount = self._parse_payroll_decimal(row.salary_amount)
                 accrued_total += amount
                 scheme = self._work_salary_scheme(row)
+                calculation_base = money_base("Работа", row_total)
+                work_cost_price = self._work_salary_cost_price(row)
+                if work_cost_price > Decimal("0"):
+                    calculation_base += "; " + money_base("Себестоимость работы", work_cost_price)
                 add_row(
                     closed_at,
                     {
@@ -501,7 +505,7 @@ class CardServicePayrollMixin:
                         "vehicle": vehicle,
                         "license_plate": license_plate,
                         "item": row.name or "Работа без названия",
-                        "calculation_base": money_base("Работа", row_total),
+                        "calculation_base": calculation_base,
                         "scheme": scheme,
                         "note": "",
                         **self._employee_salary_reconciliation_amount_fields(
@@ -1601,10 +1605,16 @@ class CardServicePayrollMixin:
         percent = self._parse_payroll_decimal(row.work_salary_percent_override)
         return min(max(percent, Decimal("0")), Decimal("100"))
 
+    def _work_salary_cost_price(self, row: RepairOrderRow) -> Decimal:
+        return max(self._parse_payroll_decimal(row.work_salary_cost_price), Decimal("0"))
+
+    def _work_salary_percent_base(self, row: RepairOrderRow, guarantee: Decimal) -> Decimal:
+        return max(row.total_value() - guarantee - self._work_salary_cost_price(row), Decimal("0"))
+
     def _work_salary_override_amount(self, row: RepairOrderRow) -> tuple[Decimal, Decimal]:
         guarantee = self._work_salary_guarantee(row)
         percent = self._work_salary_override_percent(row)
-        percent_base = max(row.total_value() - guarantee, Decimal("0"))
+        percent_base = self._work_salary_percent_base(row, guarantee)
         return guarantee + (percent_base * percent / Decimal("100")), percent
 
     def _work_salary_scheme(self, row: RepairOrderRow) -> str:
@@ -1983,8 +1993,9 @@ class CardServicePayrollMixin:
                 PAYROLL_MODE_SALARY_PLUS_PERCENT,
             }:
                 row.work_percent_snapshot = employee["work_percent"]
+                work_salary_base = self._work_salary_percent_base(row, Decimal("0"))
                 salary_amount = (
-                    row.total_value()
+                    work_salary_base
                     * self._parse_payroll_decimal(employee["work_percent"])
                     / Decimal("100")
                 )

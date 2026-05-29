@@ -268,6 +268,7 @@ class RepairOrderRow:
     work_salary_override_enabled: str = ""
     work_salary_guarantee: str = ""
     work_salary_percent_override: str = ""
+    work_salary_cost_price: str = ""
     work_salary_note: str = ""
     material_executor_id_snapshot: str = ""
     material_executor_name_snapshot: str = ""
@@ -313,6 +314,9 @@ class RepairOrderRow:
         self.work_salary_guarantee = _normalize_nonnegative_decimal_text(self.work_salary_guarantee)
         self.work_salary_percent_override = _normalize_percent_text(
             self.work_salary_percent_override
+        )
+        self.work_salary_cost_price = _normalize_nonnegative_decimal_text(
+            self.work_salary_cost_price
         )
         self.work_salary_note = _normalize_single_line(
             self.work_salary_note, limit=REPAIR_ORDER_FIELD_LIMIT
@@ -368,6 +372,7 @@ class RepairOrderRow:
             "work_salary_override_enabled": self.work_salary_override_enabled,
             "work_salary_guarantee": self.work_salary_guarantee,
             "work_salary_percent_override": self.work_salary_percent_override,
+            "work_salary_cost_price": self.work_salary_cost_price,
             "work_salary_note": self.work_salary_note,
             "material_executor_id_snapshot": self.material_executor_id_snapshot,
             "material_executor_name_snapshot": self.material_executor_name_snapshot,
@@ -428,6 +433,7 @@ class RepairOrderRow:
             work_salary_override_enabled=payload.get("work_salary_override_enabled", ""),
             work_salary_guarantee=payload.get("work_salary_guarantee", ""),
             work_salary_percent_override=payload.get("work_salary_percent_override", ""),
+            work_salary_cost_price=payload.get("work_salary_cost_price", ""),
             work_salary_note=payload.get("work_salary_note", ""),
             material_executor_id_snapshot=payload.get("material_executor_id_snapshot", ""),
             material_executor_name_snapshot=payload.get("material_executor_name_snapshot", ""),

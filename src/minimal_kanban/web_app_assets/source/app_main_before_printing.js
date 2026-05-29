@@ -928,7 +928,9 @@
       repairOrderWorkSalaryMeta: document.getElementById('repairOrderWorkSalaryMeta'),
       repairOrderWorkSalaryGuarantee: document.getElementById('repairOrderWorkSalaryGuarantee'),
       repairOrderWorkSalaryPercent: document.getElementById('repairOrderWorkSalaryPercent'),
+      repairOrderWorkSalaryCostPrice: document.getElementById('repairOrderWorkSalaryCostPrice'),
       repairOrderWorkSalaryTotal: document.getElementById('repairOrderWorkSalaryTotal'),
+      repairOrderWorkSalaryCostPreview: document.getElementById('repairOrderWorkSalaryCostPreview'),
       repairOrderWorkSalaryServicePercent: document.getElementById('repairOrderWorkSalaryServicePercent'),
       repairOrderWorkSalaryAmount: document.getElementById('repairOrderWorkSalaryAmount'),
       repairOrderAddWorkRowButton: document.getElementById('repairOrderAddWorkRowButton'),
@@ -9827,6 +9829,7 @@
         work_salary_override_enabled: '',
         work_salary_guarantee: '',
         work_salary_percent_override: '',
+        work_salary_cost_price: '',
         work_salary_note: '',
         material_executor_id_snapshot: '',
         material_executor_name_snapshot: '',
@@ -10182,6 +10185,7 @@
         work_salary_override_enabled: repairOrderNormalizeBool(source.work_salary_override_enabled ?? ''),
         work_salary_guarantee: repairOrderNormalizeNonNegativeRaw(source.work_salary_guarantee ?? ''),
         work_salary_percent_override: repairOrderNormalizePercentRaw(source.work_salary_percent_override ?? ''),
+        work_salary_cost_price: repairOrderNormalizeNonNegativeRaw(source.work_salary_cost_price ?? ''),
         work_salary_note: String(source.work_salary_note ?? '').trim(),
         material_executor_id_snapshot: String(source.material_executor_id_snapshot ?? '').trim(),
         material_executor_name_snapshot: String(source.material_executor_name_snapshot ?? '').trim(),
@@ -10542,7 +10546,7 @@
       const materialExecutorCell = section === 'materials'
         ? '<td><select class="repair-order-table__select" data-repair-order-cell="executor_id">' + repairOrderExecutorOptionsHtml(normalized.executor_id, normalized.executor_name) + '</select></td>'
         : '';
-      return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '" data-repair-order-work-salary-override-enabled="' + escapeHtml(normalized.work_salary_override_enabled) + '" data-repair-order-work-salary-guarantee="' + escapeHtml(normalized.work_salary_guarantee) + '" data-repair-order-work-salary-percent-override="' + escapeHtml(normalized.work_salary_percent_override) + '" data-repair-order-work-salary-note="' + escapeHtml(normalized.work_salary_note) + '" data-repair-order-material-executor-id="' + escapeHtml(normalized.material_executor_id_snapshot) + '" data-repair-order-material-executor-name="' + escapeHtml(normalized.material_executor_name_snapshot) + '" data-repair-order-material-quantity="' + escapeHtml(normalized.material_quantity_snapshot) + '" data-repair-order-material-price="' + escapeHtml(normalized.material_price_snapshot) + '" data-repair-order-material-cost-price="' + escapeHtml(normalized.material_cost_price_snapshot) + '" data-repair-order-material-percent="' + escapeHtml(normalized.material_percent_snapshot) + '" data-repair-order-material-profit="' + escapeHtml(normalized.material_profit) + '" data-repair-order-material-salary-amount="' + escapeHtml(normalized.material_salary_amount) + '" data-repair-order-material-salary-accrued-at="' + escapeHtml(normalized.material_salary_accrued_at) + '">' +
+      return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '" data-repair-order-work-salary-override-enabled="' + escapeHtml(normalized.work_salary_override_enabled) + '" data-repair-order-work-salary-guarantee="' + escapeHtml(normalized.work_salary_guarantee) + '" data-repair-order-work-salary-percent-override="' + escapeHtml(normalized.work_salary_percent_override) + '" data-repair-order-work-salary-cost-price="' + escapeHtml(normalized.work_salary_cost_price) + '" data-repair-order-work-salary-note="' + escapeHtml(normalized.work_salary_note) + '" data-repair-order-material-executor-id="' + escapeHtml(normalized.material_executor_id_snapshot) + '" data-repair-order-material-executor-name="' + escapeHtml(normalized.material_executor_name_snapshot) + '" data-repair-order-material-quantity="' + escapeHtml(normalized.material_quantity_snapshot) + '" data-repair-order-material-price="' + escapeHtml(normalized.material_price_snapshot) + '" data-repair-order-material-cost-price="' + escapeHtml(normalized.material_cost_price_snapshot) + '" data-repair-order-material-percent="' + escapeHtml(normalized.material_percent_snapshot) + '" data-repair-order-material-profit="' + escapeHtml(normalized.material_profit) + '" data-repair-order-material-salary-amount="' + escapeHtml(normalized.material_salary_amount) + '" data-repair-order-material-salary-accrued-at="' + escapeHtml(normalized.material_salary_accrued_at) + '">' +
         '<td>' + repairOrderRowInputHtml('name', normalized.name, 'Наименование') + '</td>' +
         materialExecutorCell +
         catalogCell +
@@ -10583,6 +10587,7 @@
         work_salary_override_enabled: row.dataset.repairOrderWorkSalaryOverrideEnabled || '',
         work_salary_guarantee: row.dataset.repairOrderWorkSalaryGuarantee || '',
         work_salary_percent_override: row.dataset.repairOrderWorkSalaryPercentOverride || '',
+        work_salary_cost_price: row.dataset.repairOrderWorkSalaryCostPrice || '',
         work_salary_note: row.dataset.repairOrderWorkSalaryNote || '',
         material_executor_id_snapshot: row.dataset.repairOrderMaterialExecutorId || '',
         material_executor_name_snapshot: row.dataset.repairOrderMaterialExecutorName || '',
@@ -10625,19 +10630,23 @@
       return repairOrderNormalizePercentRaw(employee?.work_percent || '');
     }
 
-    function repairOrderWorkSalaryPreview(rowData, guaranteeValue = null, percentValue = null) {
+    function repairOrderWorkSalaryPreview(rowData, guaranteeValue = null, percentValue = null, costPriceValue = null) {
       const normalized = normalizeRepairOrderRow(rowData || {});
       const total = repairOrderResolvedRowTotalValue(normalized) ?? 0;
       const guarantee = repairOrderParseNumber(guaranteeValue ?? normalized.work_salary_guarantee) ?? 0;
       const percent = repairOrderParseNumber(percentValue ?? repairOrderWorkSalaryPercentForRow(normalized)) ?? 0;
+      const costPrice = repairOrderParseNumber(costPriceValue ?? normalized.work_salary_cost_price) ?? 0;
       const safeGuarantee = Math.max(guarantee, 0);
       const safePercent = Math.min(Math.max(percent, 0), 100);
-      const percentBase = Math.max(total - safeGuarantee, 0);
+      const safeCostPrice = Math.max(costPrice, 0);
+      const percentBase = Math.max(total - safeGuarantee - safeCostPrice, 0);
       const accrued = safeGuarantee + (percentBase * safePercent / 100);
       return {
         total: repairOrderRoundMoney(total),
         guarantee: repairOrderRoundMoney(safeGuarantee),
         percent: repairOrderRoundMoney(safePercent),
+        costPrice: repairOrderRoundMoney(safeCostPrice),
+        percentBase: repairOrderRoundMoney(percentBase),
         servicePercent: repairOrderRoundMoney(100 - safePercent),
         accrued: repairOrderRoundMoney(accrued),
       };
@@ -10663,7 +10672,7 @@
       const popover = els.repairOrderWorkSalaryPopover;
       if (!popover || !(anchor instanceof HTMLElement)) return;
       const rect = anchor.getBoundingClientRect();
-      const width = Math.min(330, Math.max(260, window.innerWidth - 24));
+      const width = Math.min(380, Math.max(260, window.innerWidth - 24));
       popover.style.width = width + 'px';
       popover.style.left = '12px';
       popover.style.top = '12px';
@@ -10686,9 +10695,11 @@
       const preview = repairOrderWorkSalaryPreview(
         rowData,
         els.repairOrderWorkSalaryGuarantee?.value || '',
-        els.repairOrderWorkSalaryPercent?.value || ''
+        els.repairOrderWorkSalaryPercent?.value || '',
+        els.repairOrderWorkSalaryCostPrice?.value || ''
       );
       if (els.repairOrderWorkSalaryTotal) els.repairOrderWorkSalaryTotal.textContent = repairOrderFormatRubles(preview.total);
+      if (els.repairOrderWorkSalaryCostPreview) els.repairOrderWorkSalaryCostPreview.textContent = repairOrderFormatRubles(preview.costPrice);
       if (els.repairOrderWorkSalaryServicePercent) els.repairOrderWorkSalaryServicePercent.textContent = repairOrderNumberToRaw(preview.servicePercent) + '%';
       if (els.repairOrderWorkSalaryAmount) els.repairOrderWorkSalaryAmount.textContent = repairOrderFormatRubles(preview.accrued);
     }
@@ -10710,6 +10721,9 @@
       if (els.repairOrderWorkSalaryPercent) {
         els.repairOrderWorkSalaryPercent.value = repairOrderWorkSalaryPercentForRow(rowData);
       }
+      if (els.repairOrderWorkSalaryCostPrice) {
+        els.repairOrderWorkSalaryCostPrice.value = rowData.work_salary_cost_price || '';
+      }
       if (els.repairOrderWorkSalaryPopover) {
         els.repairOrderWorkSalaryPopover.hidden = false;
         els.repairOrderWorkSalaryPopover.classList.add('is-open');
@@ -10724,9 +10738,11 @@
       if (!(row instanceof HTMLElement)) return;
       const guarantee = repairOrderNormalizeNonNegativeRaw(els.repairOrderWorkSalaryGuarantee?.value || '');
       const percent = repairOrderNormalizePercentRaw(els.repairOrderWorkSalaryPercent?.value || '');
+      const costPrice = repairOrderNormalizeNonNegativeRaw(els.repairOrderWorkSalaryCostPrice?.value || '');
       row.dataset.repairOrderWorkSalaryOverrideEnabled = 'true';
       row.dataset.repairOrderWorkSalaryGuarantee = guarantee || '0';
       row.dataset.repairOrderWorkSalaryPercentOverride = percent || '0';
+      row.dataset.repairOrderWorkSalaryCostPrice = costPrice || '0';
       row.dataset.repairOrderSalaryAmount = '';
       row.dataset.repairOrderSalaryAccruedAt = '';
       syncRepairOrderWorkSalaryGear(row);
@@ -10740,6 +10756,7 @@
       row.dataset.repairOrderWorkSalaryOverrideEnabled = '';
       row.dataset.repairOrderWorkSalaryGuarantee = '';
       row.dataset.repairOrderWorkSalaryPercentOverride = '';
+      row.dataset.repairOrderWorkSalaryCostPrice = '';
       row.dataset.repairOrderWorkSalaryNote = '';
       row.dataset.repairOrderSalaryAmount = '';
       row.dataset.repairOrderSalaryAccruedAt = '';
@@ -16544,4 +16561,3 @@
     function saveRepairOrderDraft() {
       return saveRepairOrder(false);
     }
-
