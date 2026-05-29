@@ -51,9 +51,12 @@ routes call the same backend API and storage.
 - `main_telegram_ai.py` - Telegram AI worker.
 - `src/minimal_kanban/api/server.py` - HTTP API routes.
 - `src/minimal_kanban/services/card_service.py` - main business service.
+- `src/minimal_kanban/services/card_service_*.py` - domain mixins for clients,
+  finance, and payroll.
 - `src/minimal_kanban/storage/json_store.py` - JSON storage.
 - `src/minimal_kanban/mcp/server.py` - MCP tools and optional manager mount.
-- `src/minimal_kanban/web_app_assets/assembler.py` - browser UI assembly.
+- `src/minimal_kanban/web_app_assets/assembler.py` - browser UI chunk assembly.
+- `src/minimal_kanban/web_app_assets/source/` - HTML/CSS/JS browser UI chunks.
 - `deploy.sh`, `docker-compose.yml`, `Dockerfile` - production deployment.
 
 ## Documentation Map
@@ -94,6 +97,7 @@ Minimum local gate before release:
 .\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m unittest discover -s .\tests -v
 python scripts\docs_audit.py --format text
+python scripts\code_health_audit.py --format text
 python scripts\audit_localization.py
 python scripts\check_web_assets_js.py
 python scripts\browser_smoke.py

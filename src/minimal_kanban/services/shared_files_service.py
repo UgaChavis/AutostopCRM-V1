@@ -18,7 +18,7 @@ from uuid import uuid4
 from ..config import get_shared_files_dir, get_shared_files_index_file
 from ..models import normalize_actor_name, normalize_file_name, normalize_int
 from ..storage.file_lock import ProcessFileLock
-from .card_service import ServiceError
+from .errors import ServiceError
 
 SHARED_FILES_STORAGE_LIMIT_BYTES = 500 * 1024 * 1024
 SHARED_FILES_INDEX_SCHEMA_VERSION = 1

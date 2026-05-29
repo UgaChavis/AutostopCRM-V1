@@ -35,3 +35,6 @@ else {
 
 & $pythonExe (Join-Path $PSScriptRoot "check_web_assets_js.py")
 if ($LASTEXITCODE -ne 0) { throw "generated web assets JavaScript check failed." }
+
+& $pythonExe (Join-Path $PSScriptRoot "code_health_audit.py") --include-untracked
+if ($LASTEXITCODE -ne 0) { throw "code health audit failed." }

@@ -203,7 +203,7 @@ def ranked_findings(rows: list[dict[str, Any]], *, limit: int = 5) -> list[dict[
             next_step = (
                 "Open the modal shell first, then lazy-load heavy lists with compact payloads."
             )
-            files = ["src/minimal_kanban/web_app_assets/assembler.py"]
+            files = ["src/minimal_kanban/web_app_assets/source/"]
         elif scenario.startswith("open_employee_salary") or scenario.startswith(
             "open_repair_order_salary"
         ):
@@ -212,14 +212,14 @@ def ranked_findings(rows: list[dict[str, Any]], *, limit: int = 5) -> list[dict[
                 "Profile employee payroll payloads and keep salary/reconciliation tables compact."
             )
             files = [
-                "src/minimal_kanban/web_app_assets/assembler.py",
+                "src/minimal_kanban/web_app_assets/source/",
                 "src/minimal_kanban/services/card_service.py",
             ]
         elif "move_card" in scenario:
             area = "board move"
             next_step = "Keep optimistic DOM patching on the success path and eliminate fallback full snapshot refreshes."
             files = [
-                "src/minimal_kanban/web_app_assets/assembler.py",
+                "src/minimal_kanban/web_app_assets/source/",
                 "src/minimal_kanban/services/card_service.py",
             ]
         elif "save_card" in scenario:
@@ -228,14 +228,14 @@ def ranked_findings(rows: list[dict[str, Any]], *, limit: int = 5) -> list[dict[
                 "Measure update_card write time and remove post-save refresh or heavy side effects."
             )
             files = [
-                "src/minimal_kanban/web_app_assets/assembler.py",
+                "src/minimal_kanban/web_app_assets/source/",
                 "src/minimal_kanban/services/card_service.py",
             ]
         else:
             area = "card open"
             next_step = "Use compact snapshot immediately and keep journal/files lazy."
             files = [
-                "src/minimal_kanban/web_app_assets/assembler.py",
+                "src/minimal_kanban/web_app_assets/source/",
                 "src/minimal_kanban/services/snapshot_service.py",
             ]
         findings.append(

@@ -1,0 +1,3462 @@
+
+    #cashboxesModal .dialog { width: min(1060px, 100%); }
+    #cashboxJournalModal .dialog {
+      width: min(1040px, 100%);
+      max-height: calc(100dvh - 44px);
+      display: flex;
+      flex-direction: column;
+    }
+    #cashboxTransferModal .dialog { width: min(820px, 100%); }
+    .cashboxes-layout {
+      display: grid;
+      grid-template-columns: minmax(214px, 244px) minmax(0, 1fr);
+      gap: 12px;
+      min-height: 472px;
+    }
+    .cashboxes-pane {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .cashboxes-pane__foot {
+      margin-top: auto;
+      padding-top: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 8px;
+    }
+    .cashbox-journal-main-button {
+      min-width: 110px;
+      justify-content: center;
+      background: rgba(167, 178, 132, 0.08);
+    }
+    .cashboxes-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .cashboxes-actions .btn {
+      min-height: 34px;
+      padding: 7px 10px;
+    }
+    .cashboxes-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1 1 auto;
+      max-height: 540px;
+      overflow: auto;
+      padding-right: 3px;
+      position: relative;
+    }
+    .cashboxes-list.is-drag-active .cashbox-row {
+      transition: none;
+    }
+    .cashboxes-list.is-drop-end::after {
+      content: "";
+      display: block;
+      flex: 0 0 3px;
+      height: 3px;
+      margin: 1px 0 0;
+      border-radius: 999px;
+      background: #d7e89b;
+      box-shadow: 0 0 0 1px rgba(7, 12, 9, 0.86), 0 0 14px rgba(215, 232, 155, 0.42);
+    }
+    .cashbox-row {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      width: 100%;
+      text-align: left;
+      padding: 9px 10px;
+      border: 1px solid var(--line-soft);
+      background: rgba(255,255,255,0.02);
+      color: var(--text);
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+    }
+    .cashbox-row[draggable="true"] {
+      cursor: grab;
+    }
+    .cashbox-row[draggable="true"]:active {
+      cursor: grabbing;
+    }
+    .cashbox-row.is-active { border-color: rgba(167, 178, 132, 0.64); background: rgba(167, 178, 132, 0.06); box-shadow: inset 3px 0 0 rgba(167, 178, 132, 0.76); }
+    .cashbox-row.is-dragging {
+      opacity: 0.62;
+    }
+    .cashbox-row.is-drop-target {
+      border-color: var(--line-soft);
+      box-shadow: none;
+    }
+    .cashbox-row.is-drop-target::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: -6px;
+      height: 3px;
+      border-radius: 999px;
+      background: #d7e89b;
+      box-shadow: 0 0 0 1px rgba(7, 12, 9, 0.86), 0 0 14px rgba(215, 232, 155, 0.42);
+      pointer-events: none;
+      z-index: 2;
+    }
+    .cashbox-row__head,
+    .cashbox-stat-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px;
+      align-items: center;
+    }
+    .cashbox-row__name { font-size: 15px; font-weight: 700; line-height: 1.18; }
+    .cashbox-row__balance,
+    .cashbox-stat-grid__value {
+      font-size: 16px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .cashbox-row__balance[data-balance-sign="negative"],
+    .cashbox-stat-grid__value[data-balance-sign="negative"] { color: #f0b1a6; }
+    .cashbox-transaction__meta,
+    .cashboxes-empty {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .cashbox-stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .cashbox-stat-grid {
+      border: 1px solid var(--line-soft);
+      padding: 8px 9px;
+      background: rgba(255,255,255,0.02);
+    }
+    .cashbox-stat-grid:first-child {
+      border-color: rgba(167, 178, 132, 0.3);
+      background: rgba(167, 178, 132, 0.06);
+    }
+    .cashbox-stat-grid__label {
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .cashbox-detail {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      min-width: 0;
+    }
+    .cashbox-detail__identity {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+    .cashbox-composer {
+      display: grid;
+      gap: 7px;
+      padding: 8px;
+      border: 1px solid var(--line-soft);
+      background: rgba(255,255,255,0.02);
+    }
+    .cashbox-composer__row {
+      display: grid;
+      grid-template-columns: minmax(144px, 166px) minmax(0, 1fr);
+      gap: 8px;
+      align-items: end;
+    }
+    .cashbox-composer__row .field--compact input[type="text"],
+    .cashbox-composer__row .field--compact textarea {
+      min-height: 54px;
+      padding: 6px 8px;
+    }
+    .cashbox-composer__row .field--compact textarea.is-invalid {
+      border-color: rgba(207, 91, 75, 0.92);
+      background: rgba(207, 91, 75, 0.08);
+      box-shadow: 0 0 0 1px rgba(207, 91, 75, 0.28), 0 0 14px rgba(207, 91, 75, 0.24);
+    }
+    .cashbox-composer textarea {
+      min-height: 54px;
+      max-height: 54px;
+      resize: none;
+    }
+    .cashbox-composer__actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .cashbox-composer__actions .btn {
+      min-height: 34px;
+      padding: 7px 10px;
+    }
+    .cashbox-transfer-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(248px, 290px);
+      gap: 12px;
+      align-items: start;
+    }
+    .cashbox-transfer-pane {
+      display: grid;
+      gap: 8px;
+    }
+    .cashbox-transfer-source {
+      display: grid;
+      gap: 3px;
+      padding: 10px 12px;
+      border: 1px solid var(--line-soft);
+      background: rgba(255,255,255,0.02);
+    }
+    .cashbox-transfer-source__name {
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .cashbox-transfer-source__balance,
+    .cashbox-transfer-target__balance,
+    .cashbox-transfer-preview__label {
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .cashbox-transfer-targets {
+      display: grid;
+      gap: 6px;
+      max-height: 320px;
+      overflow: auto;
+      padding-right: 3px;
+    }
+    .cashbox-transfer-target {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
+      align-items: center;
+      width: 100%;
+      padding: 9px 10px;
+      border: 1px solid var(--line-soft);
+      background: rgba(255,255,255,0.02);
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+    }
+    .cashbox-transfer-target.is-active {
+      border-color: rgba(167, 178, 132, 0.64);
+      background: rgba(167, 178, 132, 0.08);
+      box-shadow: inset 3px 0 0 rgba(167, 178, 132, 0.76);
+    }
+    .cashbox-transfer-target__name {
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .cashbox-transfer-target__balance {
+      margin-top: 3px;
+    }
+    .cashbox-transfer-summary {
+      display: grid;
+      gap: 6px;
+      padding: 8px 9px;
+      border: 1px solid var(--line-soft);
+      background: rgba(255,255,255,0.02);
+    }
+    .cashbox-transfer-summary .field--compact input[type="text"],
+    .cashbox-transfer-summary .field--compact textarea {
+      min-height: 34px;
+      padding: 6px 8px;
+    }
+    .cashbox-transfer-summary textarea {
+      min-height: 74px;
+      max-height: 112px;
+    }
+    .cashbox-transfer-preview {
+      display: grid;
+      gap: 5px;
+      padding: 8px;
+      border: 1px solid rgba(167, 178, 132, 0.18);
+      background: rgba(0,0,0,0.12);
+      color: var(--text-soft);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .cashbox-transfer-preview__rows {
+      display: grid;
+      gap: 3px;
+    }
+    .cashbox-transfer-preview__row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: baseline;
+    }
+    .cashbox-transfer-preview__amount {
+      color: var(--text);
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .cashbox-transfer-preview__amount[data-balance-sign="negative"] {
+      color: #f0b1a6;
+    }
+    .cashbox-transfer-foot {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .cashbox-transfer-foot .btn {
+      min-height: 34px;
+      padding: 7px 10px;
+    }
+    .cashbox-transactions-card {
+      display: grid;
+      gap: 6px;
+      padding: 9px;
+      border: 1px solid var(--line-soft);
+      background: rgba(255,255,255,0.02);
+    }
+    .cashbox-transactions-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .cashbox-cancel-last-button[disabled] {
+      opacity: 0.5;
+      cursor: default;
+    }
+    .cashbox-cancel-last-button {
+      border-color: rgba(207, 91, 75, 0.34);
+      color: #ffd2c9;
+    }
+    .cashbox-detail__head {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .cashbox-delete-button {
+      border-color: rgba(135, 113, 109, 0.34);
+      color: rgba(224, 214, 208, 0.78);
+      background: rgba(255,255,255,0.02);
+    }
+    .cashbox-delete-button:hover {
+      border-color: rgba(163, 132, 126, 0.48);
+      background: rgba(255,255,255,0.04);
+      color: rgba(255, 228, 219, 0.92);
+    }
+    .cashbox-delete-button[disabled] {
+      opacity: 0.42;
+      cursor: not-allowed;
+    }
+    .cashbox-transactions {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      max-height: 340px;
+      overflow: auto;
+      padding-right: 3px;
+    }
+    .cashbox-transactions__more {
+      min-height: 34px;
+      justify-content: center;
+      width: 100%;
+    }
+    .cashbox-transaction {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 6px;
+      align-items: start;
+      border: 1px solid var(--line-soft);
+      padding: 6px 7px;
+      background: rgba(255,255,255,0.02);
+    }
+    .cashbox-transaction__body {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+    .cashbox-transaction__summary {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .cashbox-transaction__badge {
+      width: 104px;
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3px 6px;
+      border: 1px solid var(--line-soft);
+      font-size: 9.5px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .cashbox-transaction__badge[data-direction="income"] { border-color: rgba(67, 126, 79, 0.62); color: #d3efd9; }
+    .cashbox-transaction__badge[data-direction="expense"] { border-color: rgba(152, 86, 78, 0.58); color: #ffd2c9; }
+    .cashbox-transaction__amount {
+      font-size: 14px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .cashbox-transaction__amount[data-direction="expense"] { color: #f0b1a6; }
+    .cashbox-transaction__context {
+      color: rgba(231, 226, 193, 0.72);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .cashbox-journal-text {
+      border: 1px solid var(--line-soft);
+      background: rgba(8, 12, 10, 0.68);
+      padding: 10px 12px 12px;
+      min-height: 420px;
+      max-height: none;
+      flex: 1 1 auto;
+      overflow: auto;
+      font-size: 13px;
+      line-height: 1.34;
+      font-variant-numeric: tabular-nums;
+    }
+    .cashbox-journal-view {
+      --cash-journal-operation-grid: 52px minmax(112px, 154px) minmax(82px, 108px) minmax(0, 1fr) minmax(82px, 118px) minmax(78px, 96px);
+      display: grid;
+      gap: 9px;
+    }
+    .cashbox-journal-actions {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      margin-left: auto;
+    }
+    .cashbox-journal-mode-switch {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid rgba(167, 178, 132, 0.26);
+      background: rgba(0,0,0,0.14);
+      padding: 2px;
+      gap: 2px;
+    }
+    .cashbox-journal-mode-button {
+      min-height: 29px;
+      border: 0;
+      background: transparent;
+      color: var(--text-soft);
+      padding: 6px 10px;
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 10.5px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-mode-button:hover,
+    .cashbox-journal-mode-button:focus-visible {
+      color: var(--text);
+      background: rgba(167, 178, 132, 0.08);
+      outline: none;
+    }
+    .cashbox-journal-mode-button.is-active {
+      color: #f5f8e9;
+      background: rgba(167, 178, 132, 0.12);
+      box-shadow: inset 0 0 0 1px rgba(167, 178, 132, 0.22);
+    }
+    .cashbox-journal-sticky {
+      position: sticky;
+      top: -10px;
+      z-index: 2;
+      display: grid;
+      gap: 8px;
+      margin: -10px -12px 0;
+      padding: 10px 12px 9px;
+      background:
+        linear-gradient(180deg, rgba(8, 12, 10, 0.98), rgba(8, 12, 10, 0.94)),
+        var(--bg-panel);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .cashbox-journal-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 2px 0 6px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+    .cashbox-journal-toolbar__status {
+      color: var(--text-soft);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .cashbox-journal-toolbar__meta,
+    .cashbox-journal-toolbar__total,
+    .cashbox-journal-filter label,
+    .cashbox-journal-operation-row__source,
+    .cashbox-journal-operation-row__actor,
+    .cashbox-journal-day-divider__meta,
+    .cashbox-journal-opening summary {
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-toolbar__total {
+      color: var(--text);
+      text-align: right;
+      white-space: nowrap;
+    }
+    .cashbox-journal-toolbar__total strong {
+      display: block;
+      margin-top: 2px;
+      font-size: 16px;
+      color: #f5f8e9;
+    }
+    .cashbox-journal-filters {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(135px, auto) minmax(135px, auto) minmax(220px, auto) auto;
+      gap: 7px;
+      align-items: end;
+    }
+    .cashbox-journal-filter {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+    .cashbox-journal-filter input,
+    .cashbox-journal-filter select {
+      width: 100%;
+      min-height: 31px;
+      border: 1px solid rgba(167, 178, 132, 0.28);
+      background: rgba(0,0,0,0.18);
+      color: var(--text);
+      padding: 7px 8px;
+      outline: none;
+    }
+    .cashbox-journal-filter input:focus,
+    .cashbox-journal-filter select:focus {
+      border-color: rgba(167, 178, 132, 0.78);
+      box-shadow: 0 0 0 1px rgba(167, 178, 132, 0.12);
+    }
+    .cashbox-journal-filter--period select {
+      display: none;
+    }
+    .cashbox-journal-period-segments {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 3px;
+      min-height: 31px;
+    }
+    .cashbox-journal-period-button,
+    .cashbox-journal-active-filter {
+      border: 1px solid rgba(167, 178, 132, 0.24);
+      background: rgba(0,0,0,0.12);
+      color: var(--text-soft);
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 9.5px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-period-button {
+      padding: 6px 5px;
+      white-space: nowrap;
+    }
+    .cashbox-journal-period-button:hover,
+    .cashbox-journal-period-button:focus-visible,
+    .cashbox-journal-active-filter:hover,
+    .cashbox-journal-active-filter:focus-visible {
+      border-color: rgba(167, 178, 132, 0.72);
+      color: var(--text);
+      outline: none;
+    }
+    .cashbox-journal-period-button.is-active {
+      border-color: rgba(167, 178, 132, 0.58);
+      background: rgba(167, 178, 132, 0.09);
+      color: #f5f8e9;
+    }
+    .cashbox-journal-active-filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      min-height: 0;
+    }
+    .cashbox-journal-active-filters:empty {
+      display: none;
+    }
+    .cashbox-journal-active-filter {
+      min-height: 24px;
+      padding: 3px 7px;
+      text-align: left;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cashbox-journal-reset {
+      min-width: 78px;
+      min-height: 31px;
+      align-self: end;
+      border: 1px solid rgba(167, 178, 132, 0.22);
+      background: rgba(0,0,0,0.12);
+      color: var(--text-soft);
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-reset:hover,
+    .cashbox-journal-reset:focus-visible {
+      border-color: rgba(167, 178, 132, 0.78);
+      color: #f5f8e9;
+      outline: none;
+    }
+    .cashbox-journal-filter-reset {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .cashbox-journal-filter-reset[hidden] {
+      display: none !important;
+    }
+    .cashbox-journal-balance-strip {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      padding: 2px 0 7px;
+      border-bottom: 1px solid rgba(255,255,255,0.055);
+    }
+    .cashbox-journal-balance-strip.is-expanded {
+      padding-bottom: 9px;
+    }
+    .cashbox-journal-balance-strip:not(.is-expanded) .cashbox-journal-balance-chip:not(.cashbox-journal-balance-chip--total),
+    .cashbox-journal-balance-strip:not(.is-expanded) .cashbox-journal-balance-strip__items {
+      display: none;
+    }
+    .cashbox-journal-balance-strip__main,
+    .cashbox-journal-balance-strip__items {
+      display: inline-flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      min-width: 0;
+    }
+    .cashbox-journal-balance-chip {
+      display: inline-flex;
+      gap: 7px;
+      align-items: baseline;
+      min-width: 0;
+      color: var(--text-soft);
+      white-space: nowrap;
+    }
+    .cashbox-journal-balance-chip strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+    .cashbox-journal-balance-chip[data-balance-sign="negative"] strong {
+      color: #f0b1a6;
+    }
+    .cashbox-journal-balance-toggle {
+      min-height: 24px;
+      border: 1px solid rgba(167, 178, 132, 0.22);
+      background: rgba(0,0,0,0.1);
+      color: var(--text-soft);
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 9.5px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-balance-toggle:hover,
+    .cashbox-journal-balance-toggle:focus-visible {
+      border-color: rgba(167, 178, 132, 0.66);
+      color: var(--text);
+      outline: none;
+    }
+    .cashbox-journal-balance-toggle[data-balance-warning="true"] {
+      border-color: rgba(212, 175, 55, 0.46);
+      color: #e8dfaf;
+    }
+    .cashbox-journal-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 6px;
+    }
+    .cashbox-journal-stats-section__head {
+      color: var(--text);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-stat,
+    .cashbox-journal-opening,
+    .cashbox-journal-day,
+    .cashbox-journal-stats-section {
+      border: 0;
+      background: transparent;
+    }
+    .cashbox-journal-stat {
+      display: grid;
+      gap: 4px;
+      padding: 6px 0;
+      min-width: 0;
+    }
+    .cashbox-journal-stat__label,
+    .cashbox-journal-opening__title,
+    .cashbox-journal-stats-row__meta {
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-stat__value,
+    .cashbox-journal-balance__amount,
+    .cashbox-journal-operation-row__amount {
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .cashbox-journal-stat__value,
+    .cashbox-journal-balance__amount {
+      font-size: 15px;
+    }
+    .cashbox-journal-day {
+      display: grid;
+      gap: 4px;
+      padding: 2px 0 7px;
+    }
+    .cashbox-journal-day-divider {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 9px 0 6px;
+      border-top: 1px solid rgba(255,255,255,0.09);
+    }
+    .cashbox-journal-day-divider__title {
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .cashbox-journal-day-divider__meta {
+      display: inline-flex;
+      gap: 9px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .cashbox-journal-day-details {
+      margin: -2px 0 2px 52px;
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-day-details summary {
+      cursor: pointer;
+      list-style-position: inside;
+      padding: 2px 0 4px;
+    }
+    .cashbox-journal-day-details__grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 2px 0 4px 12px;
+      border-left: 2px solid rgba(167, 178, 132, 0.22);
+    }
+    .cashbox-journal-opening {
+      display: grid;
+      gap: 6px;
+      margin: 0 0 4px 52px;
+      padding: 0;
+    }
+    .cashbox-journal-opening summary {
+      cursor: pointer;
+      list-style-position: inside;
+      padding: 4px 0;
+    }
+    .cashbox-journal-opening__grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 4px;
+      padding: 4px 0 7px 12px;
+      border-left: 2px solid rgba(167, 178, 132, 0.34);
+    }
+    .cashbox-journal-balance {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px;
+      align-items: center;
+      padding: 3px 0;
+      border: 0;
+      background: transparent;
+    }
+    .cashbox-journal-balance__name {
+      min-width: 0;
+      overflow-wrap: normal;
+      word-break: normal;
+      hyphens: none;
+    }
+    .cashbox-journal-operation-row__note {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .cashbox-journal-entries {
+      display: grid;
+      gap: 0;
+    }
+    .cashbox-journal-operation-head {
+      position: sticky;
+      top: 104px;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: var(--cash-journal-operation-grid);
+      gap: 9px;
+      align-items: center;
+      padding: 7px 0 6px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      background: rgba(8, 12, 10, 0.96);
+      color: var(--muted);
+      font-size: 9.5px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-operation-head span {
+      min-width: 0;
+    }
+    .cashbox-journal-operation-head span:last-child {
+      text-align: right;
+    }
+    .cashbox-journal-operation-row {
+      display: grid;
+      grid-template-columns: var(--cash-journal-operation-grid);
+      gap: 9px;
+      align-items: baseline;
+      padding: 5px 0;
+      border-top: 1px solid rgba(255,255,255,0.045);
+    }
+    .cashbox-journal-operation-row__time {
+      color: rgba(231, 226, 193, 0.8);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .cashbox-journal-operation-row__cashbox {
+      color: var(--text-soft);
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .cashbox-journal-operation-row__type {
+      color: rgba(231, 226, 193, 0.76);
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .cashbox-journal-operation-row__body {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+    .cashbox-journal-operation-row__amount {
+      text-align: right;
+    }
+    .cashbox-journal-operation-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      min-width: 0;
+    }
+    .cashbox-journal-operation-tag {
+      display: inline-flex;
+      min-height: 17px;
+      align-items: center;
+      padding: 1px 5px;
+      border: 1px solid rgba(167, 178, 132, 0.18);
+      background: rgba(0,0,0,0.12);
+      color: rgba(231, 226, 193, 0.74);
+      font-size: 9.5px;
+      line-height: 1.1;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cashbox-journal-operation-row__amount[data-direction="expense"],
+    .cashbox-journal-balance__amount[data-balance-sign="negative"],
+    .cashbox-journal-stat__value[data-balance-sign="negative"],
+    .cashbox-journal-stats-row__value[data-balance-sign="negative"] {
+      color: #f0b1a6;
+    }
+    .cashbox-journal-operation-row__amount[data-direction="income"] {
+      color: #d3efd9;
+    }
+    .cashbox-journal-stats-row__value[data-balance-sign="positive"] {
+      color: #d3efd9;
+    }
+    .cashbox-journal-operation-row__amount[data-direction="transfer"] {
+      color: #e8dfaf;
+    }
+    .cashbox-journal-operation-row--transfer {
+      box-shadow: inset 2px 0 0 rgba(167, 178, 132, 0.42);
+      padding-left: 7px;
+    }
+    .cashbox-journal-load-more {
+      width: 100%;
+      margin-top: 8px;
+      border: 1px solid rgba(167, 178, 132, 0.32);
+      background: rgba(0,0,0,0.18);
+      color: var(--text);
+      min-height: 34px;
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-load-more:hover,
+    .cashbox-journal-load-more:focus-visible {
+      border-color: rgba(167, 178, 132, 0.72);
+      background: rgba(167, 178, 132, 0.08);
+      outline: none;
+    }
+    .cashbox-journal-status-line {
+      color: var(--muted);
+      padding: 6px 0 0;
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-stats-section {
+      --cash-journal-stats-grid: minmax(240px, 1fr) minmax(112px, 128px) minmax(112px, 128px) minmax(112px, 128px) minmax(178px, 210px);
+      display: grid;
+      gap: 7px;
+      padding: 10px 0;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .cashbox-journal-stats-table {
+      display: grid;
+      gap: 0;
+    }
+    .cashbox-journal-stats-head {
+      display: grid;
+      grid-template-columns: var(--cash-journal-stats-grid);
+      gap: 8px;
+      align-items: center;
+      padding: 4px 0 6px;
+      border-bottom: 1px solid rgba(255,255,255,0.055);
+      color: var(--muted);
+      font-size: 9.5px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-stats-head span,
+    .cashbox-journal-stats-row > * {
+      min-width: 0;
+    }
+    .cashbox-journal-stats-head span:not(:first-child) {
+      text-align: right;
+    }
+    .cashbox-journal-stats-row {
+      display: grid;
+      grid-template-columns: var(--cash-journal-stats-grid);
+      gap: 8px;
+      align-items: center;
+      width: 100%;
+      padding: 7px 0;
+      border: 0;
+      border-top: 1px solid rgba(255,255,255,0.045);
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
+    }
+    .cashbox-journal-stats-row:hover,
+    .cashbox-journal-stats-row:focus-visible {
+      background: rgba(167, 178, 132, 0.055);
+      outline: none;
+    }
+    .cashbox-journal-stats-row__label {
+      font-weight: 700;
+      min-width: 0;
+    }
+    .cashbox-journal-stats-row__value {
+      font-weight: 700;
+      white-space: nowrap;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .cashbox-journal-stats-row__meta {
+      overflow: hidden;
+      text-align: right;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cashbox-journal-link-flags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      min-width: 0;
+    }
+    .cashbox-journal-link-flag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 18px;
+      padding: 1px 6px;
+      border: 1px solid rgba(232, 180, 132, 0.36);
+      background: rgba(232, 180, 132, 0.08);
+      color: #edc7a4;
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+    .cashbox-journal-loading,
+    .cashbox-journal-empty {
+      color: var(--muted);
+      padding: 8px;
+    }
+    .cashbox-journal-loading {
+      display: grid;
+      gap: 5px;
+      line-height: 1.35;
+    }
+    .cashbox-journal-loading__title {
+      color: var(--text);
+      font-weight: 700;
+    }
+    .cashbox-journal-loading__hint {
+      color: var(--text-soft);
+      font-size: 11px;
+    }
+    @media (max-width: 720px) {
+      .cashbox-journal-toolbar {
+        display: grid;
+      }
+      .cashbox-journal-toolbar__total {
+        text-align: left;
+      }
+      .cashbox-journal-filters,
+      .cashbox-journal-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .cashbox-journal-filter--period select {
+        display: block;
+      }
+      .cashbox-journal-period-segments,
+      .cashbox-journal-operation-head {
+        display: none;
+      }
+      .cashbox-journal-operation-row {
+        grid-template-columns: 42px minmax(74px, auto) minmax(0, 1fr);
+        gap: 6px;
+      }
+      .cashbox-journal-operation-row__cashbox,
+      .cashbox-journal-operation-row__type,
+      .cashbox-journal-operation-row__body,
+      .cashbox-journal-operation-row__actor {
+        grid-column: 3;
+      }
+      .cashbox-journal-operation-row__amount {
+        grid-column: 2;
+        grid-row: 1;
+        text-align: left;
+      }
+      .cashbox-journal-opening {
+        margin-left: 42px;
+      }
+      .cashbox-journal-stats-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+      }
+      .cashbox-journal-stats-head {
+        display: none;
+      }
+      .cashbox-journal-stats-row__meta {
+        grid-column: 1 / -1;
+        text-align: left;
+      }
+    }
+    .cashbox-journal-download-button {
+      min-width: 34px;
+      width: 34px;
+      min-height: 34px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      border-color: rgba(167, 178, 132, 0.42);
+      background: rgba(255, 255, 255, 0.03);
+      color: rgba(239, 242, 226, 0.92);
+      line-height: 1;
+    }
+    .cashbox-journal-download-button svg {
+      width: 16px;
+      height: 16px;
+      display: block;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .cashbox-journal-download-button:hover {
+      border-color: rgba(167, 178, 132, 0.68);
+      background: rgba(167, 178, 132, 0.08);
+      color: #f5f8e6;
+    }
+    .cashbox-transaction__note {
+      font-size: 12.5px;
+      line-height: 1.3;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .employees-layout {
+      display: grid;
+      grid-template-columns: minmax(360px, 390px) minmax(0, 1fr);
+      gap: 14px;
+      align-items: stretch;
+      height: 100%;
+      overflow: hidden;
+    }
+    .dialog--employees {
+      width: min(1240px, 100%);
+      height: min(88vh, 900px);
+      max-height: min(88vh, 900px);
+    }
+    .dialog--employees > .employees-layout,
+    .dialog--employees > .dialog__body-scroll {
+      min-height: 0;
+      align-items: stretch;
+      padding-right: 2px;
+    }
+    .dialog--employees .employees-card-head.dialog__floating-actions {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      align-items: center;
+      margin: -2px -2px 10px;
+      padding: 8px;
+      border: 1px solid rgba(115, 126, 105, 0.22);
+    }
+    .employees-pane {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+      min-height: 0;
+      height: 100%;
+      align-self: stretch;
+    }
+    .employees-pane--list {
+      position: sticky;
+      top: 0;
+      align-self: stretch;
+      min-height: 0;
+    }
+    .employees-pane--list .subpanel {
+      display: flex;
+      flex-direction: column;
+      flex: 0 0 auto;
+      min-height: 0;
+    }
+    .employees-list-tools {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .employees-search {
+      width: 100%;
+      min-height: 34px;
+      padding: 7px 9px;
+    }
+    .employees-filterbar {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .employees-filterbar .btn {
+      min-height: 30px;
+      padding: 6px 9px;
+      font-size: 10.5px;
+    }
+    .employees-filterbar .btn.is-active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(182, 177, 116, 0.08);
+    }
+    .employees-list-meta,
+    .employees-report-meta,
+    .employees-profile-meta {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(231, 226, 193, 0.68);
+      white-space: nowrap;
+    }
+    .employees-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
+      padding-right: 4px;
+    }
+    .employees-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 72px;
+      gap: 4px;
+      align-items: stretch;
+    }
+    .employees-row__body {
+      border: 1px solid var(--line);
+      background: rgba(21, 29, 23, 0.68);
+      padding: 7px 9px;
+      cursor: pointer;
+      display: grid;
+      gap: 3px;
+      text-align: left;
+      color: var(--text);
+      width: 100%;
+      min-width: 0;
+    }
+    .employees-row__body:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .employees-row.is-active {
+      border-color: var(--accent);
+      background: rgba(38, 48, 40, 0.92);
+      box-shadow: inset 0 0 0 1px rgba(182, 177, 116, 0.16);
+    }
+    .employees-row__actions {
+      display: grid;
+      grid-template-rows: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+      min-width: 0;
+    }
+    .employees-row__salary,
+    .employees-row__report {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      width: 100%;
+      min-height: 0;
+      padding: 6px 5px;
+      white-space: normal;
+      line-height: 1.05;
+      text-align: center;
+      align-self: stretch;
+      justify-self: end;
+      font-size: 10px;
+    }
+    .employees-row__top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .employees-row__title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .employees-row__state {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(231, 226, 193, 0.64);
+      white-space: nowrap;
+    }
+    .employees-row__meta {
+      font-size: 10.5px;
+      opacity: 0.78;
+      line-height: 1.3;
+    }
+    .employees-row__summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding-top: 3px;
+      border-top: 1px solid rgba(164, 173, 138, 0.1);
+      font-size: 10.5px;
+      color: rgba(231, 226, 193, 0.76);
+    }
+    .employees-row__summary-label {
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 9.5px;
+      opacity: 0.8;
+    }
+    .employees-row__summary strong {
+      font-size: 11.5px;
+      color: var(--text);
+    }
+    .employees-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+    .employees-card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .employees-card-head-main {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+    .employees-card-title {
+      display: grid;
+      gap: 4px;
+    }
+    .employees-card-title strong {
+      font-size: 18px;
+      line-height: 1.1;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+    .employees-card-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .employees-dialog-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .employees-card-mode {
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(231, 226, 193, 0.68);
+    }
+    .employees-form-grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 8px 10px;
+      align-items: end;
+    }
+    .employees-form-grid .field,
+    .employees-form-grid .employees-check {
+      min-width: 0;
+    }
+    .employees-form-grid input[type="text"],
+    .employees-form-grid select {
+      min-height: 34px;
+      padding: 7px 9px;
+    }
+    .employees-field--span-2 { grid-column: span 2; }
+    .employees-field--span-4 { grid-column: span 4; }
+    .employees-field--span-6 { grid-column: span 6; }
+    .employees-field--span-12 { grid-column: 1 / -1; }
+    .employees-field--compact {
+      justify-self: start;
+      width: min(100%, var(--employees-field-width, 100%));
+    }
+    .employees-field--mode {
+      --employees-field-width: 320px;
+    }
+    .employees-field--salary {
+      --employees-field-width: 176px;
+    }
+    .employees-field--percent {
+      --employees-field-width: 148px;
+    }
+    .employees-field--active {
+      justify-self: start;
+      width: auto;
+      padding-top: 20px;
+    }
+    .employees-form-grid .field--wide {
+      grid-column: 1 / -1;
+    }
+    .employees-incentives {
+      grid-column: 1 / -1;
+      display: grid;
+      gap: 9px;
+      margin-top: 2px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(164, 173, 138, 0.12);
+    }
+    .employees-incentives__head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .employees-incentives__actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .employees-incentives__choices {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .employees-incentives__actions .btn {
+      min-height: 28px;
+      padding: 5px 8px;
+      font-size: 10px;
+    }
+    .employees-incentives__list {
+      display: grid;
+      gap: 6px;
+    }
+    .employees-incentive-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(130px, 170px) auto;
+      align-items: end;
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid rgba(164, 173, 138, 0.12);
+      background: rgba(18, 24, 20, 0.28);
+    }
+    .employees-incentive-row__main {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+    .employees-incentive-row__title {
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+    .employees-incentive-row__hint {
+      font-size: 10px;
+      line-height: 1.3;
+      color: rgba(231, 226, 193, 0.64);
+    }
+    .employees-incentive-row__value {
+      display: grid;
+      gap: 4px;
+    }
+    .employees-incentive-row__value span {
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(231, 226, 193, 0.66);
+    }
+    .employees-incentive-row__value input {
+      min-height: 34px;
+      padding: 7px 9px;
+    }
+    .employees-incentive-row__remove {
+      align-self: end;
+      min-height: 34px;
+      padding: 7px 9px;
+    }
+    .employees-incentives__empty {
+      padding: 8px;
+      border: 1px dashed rgba(164, 173, 138, 0.14);
+      color: rgba(231, 226, 193, 0.58);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .employees-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      opacity: 0.9;
+      min-height: 34px;
+    }
+    .employees-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .employees-panel-head .repair-orders-search {
+      width: 154px;
+      min-height: 34px;
+    }
+    .employees-kpi {
+      display: grid;
+      gap: 3px;
+      padding: 9px 10px;
+      border: 1px solid rgba(164, 173, 138, 0.12);
+      background: rgba(18, 24, 20, 0.44);
+    }
+    .employees-kpi--accent {
+      background: rgba(182, 177, 116, 0.09);
+      border-color: rgba(182, 177, 116, 0.26);
+      box-shadow: inset 0 0 0 1px rgba(182, 177, 116, 0.08);
+    }
+    .employees-kpi__label {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(231, 226, 193, 0.68);
+    }
+    .employees-kpi__value {
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .employees-kpi--accent .employees-kpi__value {
+      font-size: 19px;
+    }
+    .employees-report-shell {
+      display: grid;
+      gap: 12px;
+      min-height: 0;
+      grid-template-rows: minmax(0, 1fr);
+    }
+    .employees-report-panel {
+      display: grid;
+      gap: 8px;
+      min-height: 0;
+      padding: 10px 10px 12px;
+      border: 1px solid rgba(164, 173, 138, 0.14);
+      background: rgba(18, 24, 20, 0.18);
+    }
+    .employees-report-panel--details {
+      border-color: rgba(182, 177, 116, 0.2);
+      background: rgba(182, 177, 116, 0.04);
+    }
+    .employees-report-panel__head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .employees-report-panel__title {
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(231, 226, 193, 0.75);
+      font-family: var(--mono);
+    }
+    .employees-report-panel__meta {
+      font-size: 11px;
+      color: rgba(231, 226, 193, 0.68);
+    }
+    .employees-report-panel__meta strong {
+      color: var(--text);
+    }
+    .employees-report-panel.is-collapsed {
+      border-style: dashed;
+    }
+    .employees-report-shell[data-details-open="false"] .employees-report-panel--details {
+      padding-bottom: 8px;
+    }
+    .employees-report-shell[data-details-open="false"] .employees-report-panel--details .employees-table-wrap {
+      display: none;
+    }
+    .employees-table-wrap {
+      overflow: auto;
+      min-height: 0;
+      max-height: 100%;
+      border: 1px solid var(--line);
+      background: rgba(18, 24, 20, 0.6);
+    }
+    .employees-table-wrap--details {
+      min-height: 200px;
+    }
+    .employees-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .employees-table th,
+    .employees-table td {
+      padding: 7px 9px;
+      border-bottom: 1px solid rgba(164, 173, 138, 0.1);
+      text-align: left;
+      vertical-align: top;
+    }
+    .employees-table th {
+      position: sticky;
+      top: 0;
+      background: rgba(31, 39, 33, 0.98);
+      z-index: 1;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: rgba(231, 226, 193, 0.72);
+    }
+    .employees-table tr.is-active td {
+      background: rgba(182, 177, 116, 0.08);
+    }
+    .employees-table tr[data-employee-id],
+    .employees-table tr[data-card-id] {
+      cursor: pointer;
+    }
+    .employees-table tr[data-employee-id]:hover td,
+    .employees-table tr[data-card-id]:hover td {
+      background: rgba(182, 177, 116, 0.06);
+    }
+    .employees-table td.is-num,
+    .employees-table th.is-num {
+      text-align: right;
+      white-space: nowrap;
+    }
+    .employees-salary-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .employees-salary-balance {
+      display: grid;
+      gap: 4px;
+      padding: 10px 12px;
+      border: 1px solid rgba(182, 177, 116, 0.24);
+      background: rgba(182, 177, 116, 0.08);
+      min-width: 180px;
+    }
+    .employees-salary-balance__label,
+    .employees-salary-journal__meta {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(231, 226, 193, 0.68);
+    }
+    .employees-salary-balance__value {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+    .employees-salary-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+    .employees-salary-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .employees-salary-summary:empty {
+      display: none;
+    }
+    .employees-salary-summary .employees-kpi--accent .employees-kpi__value {
+      font-size: 18px;
+    }
+    .employees-salary-journal {
+      display: grid;
+      gap: 8px;
+    }
+    .employees-salary-journal__head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .employees-salary-table .is-num {
+      white-space: nowrap;
+    }
+    .employees-salary-dialog {
+      margin-top: 10px;
+      border: 1px solid rgba(182, 177, 116, 0.24);
+      background: rgba(18, 24, 20, 0.58);
+      padding: 10px 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .employees-salary-dialog__head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .employees-salary-dialog__body {
+      display: flex;
+      gap: 10px;
+      align-items: end;
+      flex-wrap: wrap;
+    }
+    .employees-salary-dialog[hidden] {
+      display: none;
+    }
+    .dialog--salary-report {
+      width: min(1120px, 100%);
+    }
+    .employee-salary-report {
+      display: grid;
+      gap: 8px;
+      min-height: 0;
+    }
+    .employee-salary-report__meta {
+      color: rgba(231, 226, 193, 0.72);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .employee-salary-report__text {
+      margin: 0;
+      max-height: min(68vh, 720px);
+      overflow: auto;
+      padding: 14px 16px;
+      border: 1px solid rgba(164, 173, 138, 0.18);
+      background: rgba(8, 12, 10, 0.68);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.48;
+      font-variant-numeric: tabular-nums;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    @media (max-width: 1160px) {
+      .employees-layout {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .employees-pane--list {
+        position: static;
+      }
+    }
+    @media (max-width: 760px) {
+      .employees-incentive-row {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .employees-incentive-row__remove {
+        width: max-content;
+      }
+      .employees-card-actions {
+        width: 100%;
+        justify-content: space-between;
+      }
+      .employee-salary-report__text {
+        max-height: min(66vh, 680px);
+        padding: 12px;
+      }
+    }
+    .dialog--clients {
+      width: min(96vw, 2100px);
+      height: min(92vh, 1180px);
+      max-height: min(92vh, 1180px);
+      overflow: hidden;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+    .clients-layout {
+      display: grid;
+      grid-template-columns: minmax(420px, 40%) minmax(0, 1fr);
+      gap: 12px;
+      min-height: 0;
+      align-items: stretch;
+    }
+    .clients-list-pane,
+    .clients-profile-pane {
+      border: 1px solid var(--line);
+      background: rgba(12, 18, 14, 0.58);
+      padding: 10px;
+      min-width: 0;
+    }
+    .clients-list-pane {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .clients-profile-pane {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: auto;
+      padding-right: 12px;
+    }
+    .clients-toolbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      margin-bottom: 10px;
+      flex: 0 0 auto;
+    }
+    .clients-list,
+    .clients-mini-list {
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+    .clients-list {
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: none;
+      overflow: auto;
+      padding-right: 4px;
+    }
+    .client-row {
+      border: 1px solid rgba(160, 174, 135, 0.18);
+      background: rgba(22, 29, 24, 0.82);
+      padding: 9px 10px;
+      cursor: pointer;
+      text-align: left;
+      color: var(--text);
+    }
+    .client-row:hover,
+    .client-row.is-active {
+      border-color: var(--accent);
+      background: rgba(37, 47, 39, 0.95);
+    }
+    .client-row__title {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 700;
+      line-height: 1.25;
+    }
+    .client-row__name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .client-row__chips {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .client-row__chip {
+      border: 1px solid rgba(160, 174, 135, 0.18);
+      background: rgba(12, 18, 14, 0.52);
+      color: var(--text-soft);
+      padding: 2px 5px;
+      font-size: 10px;
+      line-height: 1.2;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .client-type-badge {
+      border: 1px solid var(--line);
+      color: var(--muted);
+      padding: 2px 5px;
+      font-size: 10px;
+      flex: 0 0 auto;
+    }
+    .client-row__meta,
+    .client-mini__meta {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .clients-profile-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .clients-profile-head.dialog__floating-actions {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      align-items: center;
+      margin: -2px -2px 10px;
+      padding: 8px;
+      border: 1px solid rgba(115, 126, 105, 0.22);
+    }
+    .clients-profile-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+      min-width: 180px;
+    }
+    .clients-form-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    #clientProfileTitle {
+      color: var(--text);
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1.25;
+      letter-spacing: 0.03em;
+      text-transform: none;
+      word-break: break-word;
+    }
+    .client-profile-phone {
+      margin-top: 4px;
+      color: var(--accent-soft);
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.25;
+      letter-spacing: 0.04em;
+    }
+    .clients-profile-empty {
+      border: 1px dashed rgba(160, 174, 135, 0.24);
+      background: rgba(16, 22, 18, 0.48);
+      color: var(--text-soft);
+      padding: 12px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .clients-profile-empty[hidden] {
+      display: none;
+    }
+    .clients-profile-pane.is-empty .clients-form-grid,
+    .clients-profile-pane.is-empty .clients-requisites,
+    .clients-profile-pane.is-empty .clients-profile-columns,
+    .clients-profile-pane.is-empty .clients-profile-actions {
+      display: none;
+    }
+    .client-debt-card {
+      min-width: 180px;
+      border: 1px solid rgba(160, 174, 135, 0.18);
+      background: rgba(16, 22, 18, 0.7);
+      padding: 8px 10px;
+      text-align: right;
+    }
+    .client-debt-card__label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .client-debt-card__value {
+      margin-top: 3px;
+      color: var(--text);
+      font-size: 19px;
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: 0.03em;
+    }
+    .clients-profile-pane #clientLastNameInput,
+    .clients-profile-pane #clientFirstNameInput,
+    .clients-profile-pane #clientMiddleNameInput {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+    .clients-profile-pane #clientPhoneInput {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+    .clients-field--phones {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .client-phone-head {
+      display: flex;
+      align-items: center;
+    }
+    .client-phone-head label {
+      margin: 0;
+    }
+    .client-phone-head .client-phone-add {
+      display: none;
+    }
+    .client-phone-add,
+    .client-phone-remove,
+    .vehicle-phone-add,
+    .vehicle-phone-remove {
+      min-width: 28px;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+      font-size: 13px;
+      line-height: 1;
+    }
+    .client-phone-list,
+    .vehicle-phone-list {
+      display: grid;
+      gap: 5px;
+    }
+    .client-phone-row {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+    }
+    .client-phone-row input {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .vehicle-phone-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 5px;
+      align-items: center;
+    }
+    .clients-field--type {
+      grid-column: span 3;
+      max-width: 220px;
+    }
+    .clients-field--wide {
+      grid-column: span 3;
+    }
+    .clients-requisites {
+      margin-top: 10px;
+      border: 1px solid rgba(160, 174, 135, 0.16);
+      padding: 8px;
+    }
+    .clients-requisites summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .clients-profile-columns {
+      display: grid;
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .client-mini {
+      border: 1px solid rgba(160, 174, 135, 0.16);
+      background: rgba(16, 22, 18, 0.72);
+      color: var(--text);
+      padding: 10px 11px;
+    }
+    .client-vehicles-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 7px;
+    }
+    .client-vehicle-add {
+      padding: 5px 8px;
+      font-size: 11px;
+    }
+    .client-mini--vehicle {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+    .client-mini__vehicle-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .client-mini__vehicle-title {
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.2;
+      word-break: break-word;
+    }
+    .client-mini__vehicle-source {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+    .client-mini__vehicle-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: flex-end;
+      gap: 5px;
+      min-width: 64px;
+    }
+    .client-mini__vehicle-actions .btn {
+      padding: 5px 7px;
+      font-size: 10px;
+      line-height: 1.1;
+    }
+    .client-vehicle-form {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 7px;
+      border: 1px dashed rgba(160, 174, 135, 0.24);
+      background: rgba(7, 12, 9, 0.34);
+      padding: 8px;
+    }
+    .client-vehicle-form__actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+    .client-vehicle-form__actions .btn {
+      padding: 6px 8px;
+      font-size: 11px;
+    }
+    .client-mini--order {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+      text-align: left;
+    }
+    .client-mini__order-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .client-mini__order-status {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 22px;
+      padding: 0 8px;
+      border: 1px solid rgba(167, 178, 132, 0.38);
+      background: rgba(0, 0, 0, 0.16);
+      color: #f0ecdc;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.1;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .client-mini__order-status[data-status="closed"] {
+      border-color: rgba(198, 148, 116, 0.4);
+      background: rgba(72, 40, 24, 0.28);
+      color: #f2d9c8;
+    }
+    .client-mini__order-status[data-status="open"] {
+      border-color: rgba(167, 178, 132, 0.36);
+      background: rgba(22, 32, 24, 0.42);
+      color: #edf4d8;
+    }
+    .client-mini__order-status[data-status="ready"] {
+      border-color: rgba(174, 181, 181, 0.42);
+      background: rgba(70, 78, 80, 0.34);
+      color: #eef3f3;
+    }
+    .client-mini__order-number {
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .client-mini__order-meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    .client-mini__order-total-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .client-mini__order-total-label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .client-mini__order-total-value {
+      color: var(--text);
+      font-size: 16px;
+      font-weight: 800;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+    .client-match-panel {
+      display: none;
+      margin-top: 8px;
+      border: 1px solid rgba(160, 174, 135, 0.2);
+      background: rgba(12, 18, 14, 0.96);
+      box-shadow: 0 16px 30px rgba(0, 0, 0, 0.28);
+      padding: 9px;
+    }
+    .client-match-panel.is-visible {
+      display: block;
+    }
+    .client-match-list {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: 6px;
+    }
+    .client-match-item {
+      border: 1px solid var(--line);
+      background: rgba(29, 37, 31, 0.9);
+      color: var(--text);
+      padding: 8px 9px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .client-match-item:hover,
+    .client-match-item.is-active {
+      border-color: var(--accent);
+      background: rgba(37, 47, 39, 0.98);
+    }
+    .client-match-item__name {
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+    .client-match-item__name mark {
+      background: rgba(200, 217, 151, 0.18);
+      color: var(--text);
+      padding: 0 1px;
+    }
+    .client-match-item__phone,
+    .client-match-item__vehicles {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .client-match-vehicles {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: 7px;
+    }
+    .client-match-vehicle,
+    .client-match-new-vehicle,
+    .client-match-load {
+      width: 100%;
+      border: 1px solid rgba(160, 174, 135, 0.22);
+      background: rgba(8, 12, 10, 0.48);
+      color: var(--text);
+      padding: 7px 8px;
+      text-align: left;
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1.3;
+    }
+    .client-match-vehicle:hover,
+    .client-match-new-vehicle:hover,
+    .client-match-load:hover,
+    .client-match-vehicle.is-exact {
+      border-color: var(--accent);
+      background: rgba(52, 62, 47, 0.72);
+    }
+    .client-match-vehicle__label {
+      display: block;
+      font-weight: 800;
+    }
+    .client-match-vehicle__meta {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+    }
+    .client-match-new-vehicle {
+      border-style: dashed;
+      color: var(--accent);
+      font-weight: 800;
+    }
+    .client-match-empty {
+      border: 1px dashed rgba(160, 174, 135, 0.24);
+      padding: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .client-match-create {
+      margin-top: 7px;
+      width: 100%;
+      min-height: 30px;
+      justify-content: center;
+    }
+    #sharedFilesModal .dialog { width: min(1120px, 100%); }
+    .shared-files-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .shared-files-toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .shared-files-toolbar .btn {
+      min-height: 32px;
+      padding: 7px 10px;
+      font-size: 11px;
+    }
+    .shared-files-desktop {
+      position: relative;
+      min-height: 460px;
+      overflow: auto;
+      border: 1px solid rgba(160, 174, 135, 0.18);
+      background:
+        linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+        rgba(16, 22, 18, 0.92);
+      background-size: 32px 32px;
+      padding: 12px;
+    }
+    .shared-files-desktop:focus-visible {
+      outline: none;
+      border-color: rgba(116, 180, 255, 0.74);
+      box-shadow: 0 0 0 1px rgba(80, 154, 255, 0.36);
+    }
+    .shared-files-desktop.is-drop-target {
+      border-color: rgba(159, 190, 115, 0.72);
+      box-shadow: inset 0 0 0 1px rgba(159, 190, 115, 0.28);
+    }
+    .shared-files-context-menu {
+      position: fixed;
+      z-index: 70;
+      min-width: 236px;
+      display: grid;
+      gap: 4px;
+      padding: 6px;
+      border: 1px solid rgba(160, 174, 135, 0.42);
+      background: rgba(20, 28, 23, 0.98);
+      box-shadow: 0 18px 36px rgba(0, 0, 0, 0.42);
+    }
+    .shared-files-context-menu[hidden] {
+      display: none;
+    }
+    .shared-files-context-menu .btn {
+      width: 100%;
+      justify-content: flex-start;
+      min-height: 28px;
+      padding: 6px 8px;
+      font-size: 10.5px;
+      text-align: left;
+    }
+    .shared-files-context-menu .btn:disabled {
+      opacity: 0.46;
+      cursor: not-allowed;
+    }
+    .shared-files-empty {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 18px;
+    }
+    .shared-file-icon {
+      position: absolute;
+      width: 106px;
+      min-height: 112px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text);
+      display: grid;
+      justify-items: center;
+      align-content: start;
+      gap: 7px;
+      padding: 8px 6px;
+      cursor: grab;
+      user-select: none;
+      touch-action: none;
+    }
+    .shared-file-icon:active,
+    .shared-file-icon.is-dragging {
+      cursor: grabbing;
+    }
+    .shared-file-icon:hover,
+    .shared-file-icon.is-active {
+      border-color: rgba(167, 178, 132, 0.55);
+      background: rgba(44, 55, 45, 0.72);
+    }
+    .shared-file-icon__glyph {
+      width: 48px;
+      height: 58px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(214, 218, 198, 0.42);
+      background: linear-gradient(180deg, rgba(238, 239, 226, 0.95), rgba(184, 191, 171, 0.9));
+      color: #1b211c;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      position: relative;
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.22);
+    }
+    .shared-file-icon__glyph::after {
+      content: "";
+      position: absolute;
+      top: -1px;
+      right: -1px;
+      border-top: 13px solid rgba(16, 22, 18, 0.9);
+      border-left: 13px solid rgba(120, 132, 108, 0.58);
+    }
+    .shared-file-icon__name {
+      width: 96px;
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.2;
+      text-align: center;
+      overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .shared-file-icon__meta {
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.15;
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: 96px;
+    }
+    .shared-file-icon__meta-chip {
+      border: 1px solid rgba(160, 174, 135, 0.16);
+      background: rgba(12, 18, 14, 0.36);
+      color: var(--muted);
+      padding: 1px 4px;
+    }
+    @media (max-width: 980px) {
+      .clients-layout,
+      .clients-profile-columns {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .clients-list { max-height: none; }
+      .clients-form-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .clients-field--type {
+        grid-column: auto;
+        max-width: none;
+      }
+      .clients-field--wide {
+        grid-column: auto;
+      }
+      .shared-files-head {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      .shared-files-desktop {
+        min-height: 420px;
+      }
+    }
+    .repair-order-table__select {
+      display: block;
+      width: 100%;
+      height: 38px;
+      min-height: 38px;
+      background: rgba(18, 24, 20, 0.84);
+      border: 1px solid var(--line);
+      color: var(--text);
+      padding: 5px 7px;
+      font-size: 10.75px;
+      line-height: 1.2;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="topbar__left">
+        <button class="gear-button" id="boardSettingsButton" title="НАСТРОЙКИ ДОСКИ" aria-label="НАСТРОЙКИ ДОСКИ">
+          <img class="gear-button__logo" src="/favicon.png" alt="" aria-hidden="true" focusable="false">
+        </button>
+        <div class="brand">
+          <div class="brand__title">AUTOSTOP</div>
+          <div class="topbar__meta">
+            <div class="status-shell" id="topbarStatusHost"></div>
+          </div>
+        </div>
+        <div class="topbar__rare-actions" aria-label="Редкие модули">
+          <button class="btn" id="operatorButton">ОПЕРАТОР</button>
+          <button class="btn" id="archiveButton">АРХИВ</button>
+          <button class="btn" id="sharedFilesButton">ФАЙЛЫ</button>
+        </div>
+      </div>
+      <div class="topbar-search" role="search" aria-label="Поиск по карточкам">
+        <div class="topbar-search__box">
+          <input class="topbar-search__input" id="boardSearchInput" type="search" autocomplete="off" spellcheck="false" aria-label="Поиск по доске" aria-controls="boardSearchResults" aria-expanded="false">
+          <button class="topbar-search__clear" id="boardSearchClearButton" type="button" aria-label="Очистить поиск" hidden>×</button>
+        </div>
+        <div class="topbar-search__results" id="boardSearchResults" role="listbox" aria-label="Результаты поиска"></div>
+      </div>
+      <div class="topbar__actions">
+        <button class="btn" id="repairOrdersButton">ЗАКАЗ-НАРЯДЫ</button>
+        <button class="btn" id="clientsButton">КЛИЕНТЫ</button>
+        <button class="btn" id="cashboxesButton">КАССЫ</button>
+        <button class="btn" id="employeesButton">СОТРУДНИКИ</button>
+        <button class="btn" id="columnButton">+ СТОЛБЕЦ</button>
+          <button class="btn btn--accent" id="cardButton" type="button">+ КАРТОЧКА</button>
+      </div>
+    </header>
+    <div class="board-scroll">
+      <div class="message" id="statusLine" data-connection="pending" data-tone="normal">СОЕДИНЕНИЕ С ДОСКОЙ...</div>
+      <div class="board" id="board"></div>
+    </div>
+  </div>
+
+  <div class="sticky-dock">
+    <button class="sticky-dock__button" id="stickyDockButton" type="button" aria-label="Новый стикер" title="Новый стикер">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M8 6h12l4 4v16H8z"></path>
+        <path d="M20 6v6h6"></path>
+        <path d="M12 16h8"></path>
+        <path d="M12 21h6"></path>
+      </svg>
+    </button>
+  </div>
+  <div class="modal" id="identityModal">
+    <div class="dialog" style="width:min(480px,100%)">
+      <div class="dialog__title">КТО РАБОТАЕТ С ДОСКОЙ</div>
+      <div class="field">
+        <label for="identityInput">ИМЯ ОПЕРАТОРА</label>
+        <input id="identityInput" type="text" maxlength="40" placeholder="Например: АНДРЕЙ">
+      </div>
+      <div class="dialog__foot">
+        <div class="log-row__meta">Имя попадёт в журнал всех действий этой сессии.</div>
+        <button class="btn btn--accent" id="identitySave">ПРИМЕНИТЬ</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="operatorProfileModal">
+    <div class="dialog" style="width:min(920px,100%)">
+      <div class="dialog__head">
+        <div class="dialog__title">ПРОФИЛЬ ОПЕРАТОРА</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn btn--ghost hidden" id="operatorAdminButton">АДМИН-ПАНЕЛЬ</button>
+          <button class="btn" id="operatorLogoutButton">ВЫЙТИ</button>
+          <button class="btn" data-close="operator-profile">ЗАКРЫТЬ</button>
+        </div>
+      </div>
+      <div class="wall-meta" id="operatorProfileMeta">ЗАГРУЗКА ПРОФИЛЯ...</div>
+      <div class="operator-stats-grid" id="operatorStatsGrid"></div>
+      <div class="subpanel">
+        <div class="panel-title">ПОСЛЕДНИЕ ДЕЙСТВИЯ</div>
+        <div class="log-view" id="operatorActivityList"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="operatorAdminModal">
+    <div class="dialog" style="width:min(1120px,100%)">
+      <div class="dialog__head">
+        <div class="dialog__title">АДМИН-ПАНЕЛЬ</div>
+        <button class="btn" id="operatorAdminCloseButton" data-close="operator-admin">ЗАКРЫТЬ</button>
+      </div>
+      <div class="operator-admin-tabs" id="operatorAdminTabs">
+        <button class="btn is-active" type="button" data-operator-admin-tab="journal">ЖУРНАЛ</button>
+        <button class="btn btn--ghost" type="button" data-operator-admin-tab="users">ПОЛЬЗОВАТЕЛИ</button>
+      </div>
+      <div class="operator-activity-panel">
+        <div class="subpanel operator-admin-tab-panel is-active" id="operatorAdminJournalPanel" data-operator-admin-panel="journal">
+          <div class="panel-title">ЖУРНАЛ ДЕЙСТВИЙ</div>
+          <div class="operator-activity-toolbar" id="operatorActivityFilters">
+            <div class="field field--compact">
+              <label for="operatorActivityDays">ПЕРИОД</label>
+              <select id="operatorActivityDays">
+                <option value="15">15 дней</option>
+                <option value="30">30 дней</option>
+                <option value="90" selected>90 дней</option>
+              </select>
+            </div>
+            <div class="field field--compact">
+              <label for="operatorActivityUserFilter">ПОЛЬЗОВАТЕЛЬ</label>
+              <select id="operatorActivityUserFilter">
+                <option value="">ВСЕ</option>
+              </select>
+            </div>
+            <div class="field field--compact">
+              <label for="operatorActivityModuleFilter">МОДУЛЬ</label>
+              <select id="operatorActivityModuleFilter">
+                <option value="">ВСЕ</option>
+                <option value="auth">ВХОД</option>
+                <option value="card">КАРТОЧКИ</option>
+                <option value="repair_order">ЗАКАЗ-НАРЯДЫ</option>
+                <option value="cashbox">КАССА</option>
+                <option value="admin">АДМИН</option>
+              </select>
+            </div>
+            <div class="field field--compact">
+              <label for="operatorActivityActionFilter">ДЕЙСТВИЕ</label>
+              <select id="operatorActivityActionFilter">
+                <option value="">ВСЕ</option>
+                <option value="login">Вход</option>
+                <option value="card_opened">Открыл карточку</option>
+                <option value="operator_activity_exported">Экспорт</option>
+                <option value="cash_transaction_created">Касса</option>
+                <option value="repair_order_updated">Заказ-наряд</option>
+              </select>
+            </div>
+            <div class="field field--compact">
+              <label for="operatorActivitySearchInput">ПОИСК</label>
+              <input id="operatorActivitySearchInput" type="search" maxlength="120" placeholder="Авто, клиент, ЗН, файл">
+            </div>
+            <button class="btn" id="operatorActivityExportButton" type="button">ЭКСПОРТ</button>
+          </div>
+          <div class="operator-activity-scroll">
+            <div class="operator-activity-table" id="operatorActivityTable" data-operator-activity-table></div>
+          </div>
+          <div class="operator-activity-scroll-hint" id="operatorActivityScrollHint" hidden>Сдвиньте вправо</div>
+          <div class="log-row__meta" id="operatorActivityMeta">ЖУРНАЛ НЕ ЗАГРУЖЕН.</div>
+          <div class="operator-activity-details hidden" id="operatorActivityDetailsPanel"></div>
+        </div>
+        <div class="operator-admin-secondary operator-admin-tab-panel hidden" id="operatorAdminUsersPanel" data-operator-admin-panel="users">
+          <div class="subpanel" id="operatorUserEditorPanel">
+            <div class="panel-title">ПОЛЬЗОВАТЕЛЬ</div>
+            <div class="field field--compact">
+              <label for="adminUserLogin">ЛОГИН</label>
+              <input id="adminUserLogin" type="text" maxlength="40" placeholder="OPERATOR">
+            </div>
+            <div class="field field--compact">
+              <label for="adminUserPassword">ПАРОЛЬ</label>
+              <input id="adminUserPassword" type="password" maxlength="120" placeholder="Минимум 4 символа">
+            </div>
+            <div class="dialog__foot" style="padding:0; border:none; margin-top:10px;">
+              <div class="log-row__meta">Администратор создает пользователя или обновляет ему пароль.</div>
+              <button class="btn btn--accent" id="adminSaveUserButton">СОХРАНИТЬ</button>
+            </div>
+          </div>
+          <div class="subpanel operator-user-binding-panel hidden" id="operatorUserEmployeeBindingPanel">
+            <div class="panel-title" id="operatorUserEmployeeBindingTitle">ПРИВЯЗКА СОТРУДНИКА</div>
+            <div class="field field--compact">
+              <label for="operatorUserEmployeeSelect">СОТРУДНИК</label>
+              <select id="operatorUserEmployeeSelect"></select>
+            </div>
+            <div class="operator-user-binding-actions">
+              <button class="btn btn--accent" id="operatorUserEmployeeSaveButton" type="button">ПРИВЯЗАТЬ</button>
+              <button class="btn btn--ghost" id="operatorUserEmployeeClearButton" type="button">ОТВЯЗАТЬ</button>
+              <button class="btn btn--ghost" id="operatorUserEmployeeCancelButton" type="button">ОТМЕНА</button>
+            </div>
+          </div>
+          <div class="subpanel" id="operatorUsersListPanel">
+            <div class="panel-title">ПОЛЬЗОВАТЕЛИ</div>
+            <div id="adminUsersList"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="stickyModal">
+    <div class="dialog" style="width:min(560px,100%)">
+      <div class="dialog__head">
+        <div class="dialog__title" id="stickyModalTitle">СТИКЕР</div>
+        <button class="btn" data-close="sticky">ЗАКРЫТЬ</button>
+      </div>
+      <div class="field">
+        <label for="stickyText">ТЕКСТ СТИКЕРА</label>
+        <textarea id="stickyText" maxlength="1000" placeholder="Короткая заметка без лишнего шума."></textarea>
+      </div>
+      <div class="signal-grid">
+        <div class="signal-cell">
+          <span>ДНИ</span>
+          <input id="stickyDays" type="number" min="0" max="365" value="0">
+        </div>
+        <div class="signal-cell">
+          <span>ЧАСЫ</span>
+          <input id="stickyHours" type="number" min="0" max="23" value="4">
+        </div>
+      </div>
+      <div class="compact-note">Стикер появится на доске, после чего его можно двигать мышью.</div>
+      <div class="dialog__foot">
+        <button class="btn" data-close="sticky">ОТМЕНА</button>
+        <button class="btn btn--accent" id="saveStickyButton">СОХРАНИТЬ</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="archiveModal">
+    <div class="dialog" style="width:min(720px,100%)">
+      <div class="dialog__head">
+        <div class="dialog__title">АРХИВ / ПОСЛЕДНИЕ 30</div>
+        <button class="btn" data-close="archive">ЗАКРЫТЬ</button>
+      </div>
+      <div class="field field--compact archive-search">
+        <label for="archiveSearchInput">ПОИСК ПО ПОКАЗАННЫМ АРХИВНЫМ КАРТОЧКАМ</label>
+        <input id="archiveSearchInput" type="search" maxlength="160" placeholder="авто, клиент, описание, дата">
+        <div class="archive-search-meta" id="archiveSearchMeta">ПОКАЗАНЫ ПОСЛЕДНИЕ 30 АРХИВНЫХ КАРТОЧЕК</div>
+      </div>
+      <div id="archiveList"></div>
+    </div>
+  </div>
+
+    <div class="modal" id="repairOrdersModal">
+      <div class="dialog dialog--repair-orders">
+        <div class="dialog__head dialog__head--repair-orders">
+          <div class="dialog__head-row dialog__head-row--repair-orders">
+            <div class="dialog__head-left dialog__head-left--repair-orders">
+              <div class="dialog__title">ЗАКАЗ-НАРЯДЫ</div>
+              <div class="dialog__tabs dialog__tabs--repair-orders">
+                <div>
+                  <button class="tab-btn is-active" id="repairOrdersOpenTab" data-repair-orders-status="open">ОТКРЫТЫЕ</button>
+                  <button class="tab-btn" id="repairOrdersReadyTab" data-repair-orders-status="ready">ГОТОВЫЕ</button>
+                  <button class="tab-btn" id="repairOrdersClosedTab" data-repair-orders-status="closed">ЗАКРЫТЫЕ</button>
+                </div>
+              </div>
+            </div>
+            <button class="btn" data-close="repair-orders">ЗАКРЫТЬ</button>
+          </div>
+        </div>
+        <div class="repair-orders-controls">
+        <div class="field field--compact">
+          <label for="repairOrdersSearchInput" class="repair-orders-search-label"><span>ПОИСК</span><span class="repair-orders-search-spinner" id="repairOrdersSearchSpinner" aria-hidden="true"></span></label>
+          <input id="repairOrdersSearchInput" type="text" maxlength="120" placeholder="номер, владелец, телефон, авто, смысл">
+        </div>
+        <div class="field field--compact">
+          <label for="repairOrdersSortBy">СОРТИРОВКА</label>
+          <select id="repairOrdersSortBy">
+            <option value="opened_at">Дата открытия</option>
+            <option value="closed_at">Дата закрытия</option>
+            <option value="number">Номер</option>
+          </select>
+        </div>
+        <div class="field field--compact">
+          <label for="repairOrdersSortDir">ПОРЯДОК</label>
+          <select id="repairOrdersSortDir">
+            <option value="desc">Сначала новые</option>
+            <option value="asc">Сначала старые</option>
+          </select>
+        </div>
+      </div>
+      <div class="wall-meta" id="repairOrdersMeta">ЗАГРУЗКА СПИСКА...</div>
+      <div class="repair-orders-table-head" id="repairOrdersTableHead">
+        <div class="repair-orders-table-head__searchable"><span>№</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="number" aria-label="Искать по графе номер" title="Искать по графе номер"></button></div>
+        <div class="repair-orders-table-head__searchable"><span>Даты</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="date" aria-label="Искать по графе даты" title="Искать по графе даты"></button></div>
+        <div>Оплата</div>
+        <div class="repair-orders-table-head__searchable"><span>Клиент</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="client" aria-label="Искать по графе клиент" title="Искать по графе клиент"></button></div>
+        <div class="repair-orders-table-head__searchable"><span>Телефон</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="phone" aria-label="Искать по графе телефон" title="Искать по графе телефон"></button></div>
+        <div class="repair-orders-table-head__searchable"><span>Автомобиль</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="vehicle" aria-label="Искать по графе автомобиль" title="Искать по графе автомобиль"></button></div>
+        <div class="repair-orders-table-head__searchable-group"><div class="repair-orders-table-head__searchable"><span>Смысл карточки</span><button class="repair-orders-search-scope is-active" type="button" data-repair-orders-search-field="summary" aria-label="Искать по графе смысл карточки" title="Искать по графе смысл карточки"></button></div><div class="repair-orders-table-head__searchable repair-orders-table-head__searchable--plate"><span>Госномер</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="license_plate" aria-label="Искать по госномеру" title="Искать по госномеру"></button></div></div>
+        <div class="repair-orders-table-head__sum">Внесено</div>
+        <div class="repair-orders-table-head__sum">Сумма</div>
+      </div>
+      <div class="repair-orders-list" id="repairOrdersList"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="clientsModal">
+    <div class="dialog dialog--clients dialog--fixed-actions">
+      <div class="dialog__head dialog__floating-actions">
+        <div>
+          <div class="dialog__title">КЛИЕНТЫ</div>
+          <div class="wall-meta" id="clientsMeta">ЗАГРУЗКА...</div>
+        </div>
+        <button class="btn" data-close="clients">ЗАКРЫТЬ</button>
+      </div>
+      <div class="dialog__body-scroll clients-layout">
+        <section class="clients-list-pane">
+          <div class="clients-toolbar">
+            <input id="clientsSearchInput" type="text" maxlength="160" placeholder="ПОИСК: ФИО, телефон, госномер, авто">
+            <button class="btn btn--accent" id="clientNewButton" type="button">+ КЛИЕНТ</button>
+          </div>
+          <div class="clients-list" id="clientsList"></div>
+        </section>
+        <section class="clients-profile-pane">
+          <div class="clients-profile-head dialog__floating-actions">
+            <div>
+              <div class="panel-title" id="clientProfileTitle">КЛИЕНТ НЕ ВЫБРАН</div>
+              <div class="client-profile-phone" id="clientProfilePhone">ТЕЛЕФОН НЕ УКАЗАН</div>
+            </div>
+            <div class="clients-profile-actions">
+              <button class="btn btn--accent" id="clientSaveButton" type="button">СОХРАНИТЬ</button>
+              <div class="client-debt-card" id="clientDebtCard">
+                <div class="client-debt-card__label">ЗАДОЛЖЕННОСТЬ</div>
+                <div class="client-debt-card__value" id="clientDebtValue">0 ₽</div>
+              </div>
+            </div>
+          </div>
+          <div class="clients-profile-empty" id="clientProfileEmptyState">ВЫБЕРИТЕ КЛИЕНТА СЛЕВА ИЛИ НАЙДИТЕ ЕГО ПО ТЕЛЕФОНУ, ФИО, ГОСНОМЕРУ ИЛИ АВТО.</div>
+          <div class="clients-form-grid">
+            <div class="field field--compact clients-field--type">
+              <label for="clientTypeInput">ТИП</label>
+              <select id="clientTypeInput">
+                <option value="person">ФЛ</option>
+                <option value="ip">ИП</option>
+                <option value="ooo">ООО</option>
+                <option value="company">ЮЛ</option>
+              </select>
+            </div>
+            <div class="field field--compact clients-name-field"><label for="clientLastNameInput">ФАМИЛИЯ</label><input id="clientLastNameInput" type="text" maxlength="120" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+            <div class="field field--compact clients-name-field"><label for="clientFirstNameInput">ИМЯ</label><input id="clientFirstNameInput" type="text" maxlength="120" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+            <div class="field field--compact clients-name-field"><label for="clientMiddleNameInput">ОТЧЕСТВО</label><input id="clientMiddleNameInput" type="text" maxlength="120" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+            <div class="field field--compact clients-field--wide"><label for="clientDisplayNameInput">НАЗВАНИЕ / ОТОБРАЖЕНИЕ</label><input id="clientDisplayNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+            <div class="field field--compact clients-field--phones">
+              <div class="client-phone-head"><label for="clientPhoneInput">ТЕЛЕФОН</label></div>
+              <div class="client-phone-list" id="clientPhoneFields"></div>
+            </div>
+            <div class="field field--compact"><label for="clientEmailInput">EMAIL</label><input id="clientEmailInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+            <div class="field field--compact clients-field--wide"><label for="clientCommentInput">КОММЕНТАРИЙ</label><textarea id="clientCommentInput" maxlength="2000" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea></div>
+          </div>
+          <details class="clients-requisites" id="clientRequisitesDetails">
+            <summary>РЕКВИЗИТЫ</summary>
+            <div class="clients-form-grid clients-form-grid--requisites">
+              <div class="field field--compact clients-field--wide"><label for="clientLegalNameInput">ПОЛНОЕ НАЗВАНИЕ</label><input id="clientLegalNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientShortNameInput">КРАТКОЕ НАЗВАНИЕ</label><input id="clientShortNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientInnInput">ИНН</label><input id="clientInnInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientKppInput">КПП</label><input id="clientKppInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientOgrnInput">ОГРН / ОГРНИП</label><input id="clientOgrnInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientCheckingAccountInput">РАСЧЕТНЫЙ СЧЕТ</label><input id="clientCheckingAccountInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientBankNameInput">БАНК</label><input id="clientBankNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientBikInput">БИК</label><input id="clientBikInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientCorrespondentAccountInput">КОРР. СЧЕТ</label><input id="clientCorrespondentAccountInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientContactPersonInput">КОНТАКТНОЕ ЛИЦО</label><input id="clientContactPersonInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact"><label for="clientContactPositionInput">ДОЛЖНОСТЬ</label><input id="clientContactPositionInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact clients-field--wide"><label for="clientLegalAddressInput">ЮР. АДРЕС</label><input id="clientLegalAddressInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+              <div class="field field--compact clients-field--wide"><label for="clientActualAddressInput">ФАКТ. АДРЕС</label><input id="clientActualAddressInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+            </div>
+          </details>
+          <div class="clients-profile-columns">
+            <section class="subpanel">
+              <div class="client-vehicles-head">
+                <div class="panel-title">МАШИНЫ</div>
+                <button class="btn btn--ghost client-vehicle-add" id="clientVehicleAddButton" type="button">+ АВТО</button>
+              </div>
+              <div class="clients-mini-list" id="clientVehiclesList"></div>
+            </section>
+            <section class="subpanel">
+              <div class="panel-title">ЗАКАЗ-НАРЯДЫ</div>
+              <div class="clients-mini-list" id="clientOrdersList"></div>
+            </section>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="sharedFilesModal">
+    <div class="dialog">
+      <div class="dialog__head">
+        <div>
+          <div class="dialog__title">ФАЙЛЫ</div>
+          <div class="wall-meta" id="sharedFilesMeta">ЗАГРУЗКА...</div>
+        </div>
+        <button class="btn" data-close="shared-files">ЗАКРЫТЬ</button>
+      </div>
+      <div class="shared-files-head">
+        <div class="shared-files-toolbar">
+          <button class="btn btn--accent" id="sharedFilesUploadButton" type="button">+ ЗАГРУЗИТЬ</button>
+          <button class="btn" id="sharedFilesOpenButton" type="button">ОТКРЫТЬ</button>
+          <button class="btn" id="sharedFilesDownloadButton" type="button">СКАЧАТЬ</button>
+          <button class="btn" id="sharedFilesRenameButton" type="button">ПЕРЕИМЕНОВАТЬ</button>
+          <button class="btn" id="sharedFilesCopyButton" type="button">КОПИРОВАТЬ</button>
+          <button class="btn" id="sharedFilesPasteButton" type="button">ВСТАВИТЬ</button>
+          <button class="btn btn--danger" id="sharedFilesDeleteButton" type="button">УДАЛИТЬ</button>
+        </div>
+        <input id="sharedFilesInput" type="file" multiple hidden>
+      </div>
+      <div class="shared-files-desktop" id="sharedFilesDesktop" tabindex="0" aria-label="Рабочее поле файлов"></div>
+      <div class="shared-files-context-menu" id="sharedFilesContextMenu" hidden>
+        <button class="btn" type="button" data-shared-files-menu-action="paste-clipboard">ВСТАВИТЬ ФАЙЛ ИЗ БУФЕРА</button>
+        <button class="btn" type="button" data-shared-files-menu-action="paste-crm">ВСТАВИТЬ КОПИЮ CRM</button>
+        <button class="btn" type="button" data-shared-files-menu-action="upload">ЗАГРУЗИТЬ ФАЙЛ...</button>
+      </div>
+    </div>
+  </div>
+
+    <div class="modal" id="cashboxesModal">
+    <div class="dialog">
+      <div class="dialog__head">
+        <div class="dialog__title">КАССЫ</div>
+        <button class="btn" data-close="cashboxes">ЗАКРЫТЬ</button>
+      </div>
+      <div class="cashboxes-layout">
+        <div class="subpanel cashboxes-pane">
+          <div class="panel-title">КАССЫ</div>
+          <div class="cashboxes-actions">
+            <button class="btn btn--accent" id="cashboxCreateButton">+ ДОБАВИТЬ</button>
+            <button class="btn btn--ghost cashbox-delete-button" id="cashboxDeleteButton">- УДАЛИТЬ</button>
+          </div>
+          <div class="cashboxes-list" id="cashboxesList"></div>
+          <div class="cashboxes-pane__foot">
+            <button class="btn btn--accent cashbox-journal-main-button" id="cashboxJournalButton">ЖУРНАЛ</button>
+            <button class="btn btn--ghost cashbox-journal-download-button" id="cashboxJournalDownloadButton" title="СКАЧАТЬ ЖУРНАЛ" aria-label="СКАЧАТЬ ЖУРНАЛ">
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="M8 2v7"></path>
+                <path d="M5.5 6.5 8 9l2.5-2.5"></path>
+                <path d="M3 12.5h10"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="subpanel cashbox-detail cashboxes-pane">
+          <div class="cashbox-detail__head">
+            <div class="cashbox-detail__identity">
+              <div class="panel-title" id="cashboxDetailTitle">КАССА НЕ ВЫБРАНА</div>
+              <div class="cashbox-detail__meta" id="cashboxDetailMeta"></div>
+            </div>
+          </div>
+          <div class="cashbox-stats" id="cashboxStats"></div>
+          <div class="cashbox-composer">
+            <div class="cashbox-composer__row">
+              <div class="field field--compact">
+                <label for="cashboxAmountInput">СУММА</label>
+                <input id="cashboxAmountInput" type="text" inputmode="decimal" maxlength="24">
+              </div>
+              <div class="field field--compact">
+                <label for="cashboxNoteInput">КОММЕНТАРИЙ</label>
+                <textarea id="cashboxNoteInput" maxlength="240" placeholder="Коротко опишите движение."></textarea>
+              </div>
+            </div>
+            <div class="cashbox-composer__actions">
+              <button class="btn btn--accent" id="cashboxIncomeButton">+ ПОСТУПЛЕНИЕ</button>
+              <button class="btn" id="cashboxTransferButton">- ПЕРЕМЕЩЕНИЕ</button>
+              <button class="btn" id="cashboxExpenseButton">- СПИСАНИЕ</button>
+            </div>
+          </div>
+          <div class="cashbox-transactions-card">
+            <div class="cashbox-transactions-head">
+              <div class="panel-title">ДВИЖЕНИЯ</div>
+              <button class="btn btn--danger cashbox-cancel-last-button" id="cashboxCancelLastButton" title="Отменить последнее движение: выберите кассу">ОТМЕНИТЬ ПОСЛЕДНЕЕ</button>
+            </div>
+            <div class="cashbox-transactions" id="cashboxTransactions"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="cashboxJournalModal">
+      <div class="dialog dialog--cashbox-journal">
+        <div class="dialog__head">
+          <div class="dialog__title">ЖУРНАЛ ДВИЖЕНИЯ ДЕНЕГ</div>
+          <div class="cashbox-journal-actions">
+            <div class="cashbox-journal-mode-switch" role="group" aria-label="Режим журнала движения денег">
+              <button class="cashbox-journal-mode-button" id="cashboxJournalLedgerButton" type="button" data-cash-journal-view="journal" aria-controls="cashboxJournalText" aria-pressed="true">Журнал</button>
+              <button class="cashbox-journal-mode-button" id="cashboxJournalStatsButton" type="button" data-cash-journal-view="stats" aria-controls="cashboxJournalText" aria-pressed="false">Сводка</button>
+            </div>
+            <button class="btn" data-close="cashbox-journal">ЗАКРЫТЬ</button>
+          </div>
+        </div>
+      <div class="cashbox-journal-text" id="cashboxJournalText">ЗАГРУЗКА...</div>
+    </div>
+  </div>
+
+  <div class="modal" id="cashboxTransferModal">
+    <div class="dialog">
+      <div class="dialog__head">
+        <div class="dialog__title">ПЕРЕМЕЩЕНИЕ</div>
+        <button class="btn" data-close="cashbox-transfer">ЗАКРЫТЬ</button>
+      </div>
+      <div class="cashbox-transfer-grid">
+        <div class="cashbox-transfer-pane">
+            <div class="cashbox-transfer-source">
+              <div class="cashbox-transfer-source__name" id="cashboxTransferSourceName">КАССА НЕ ВЫБРАНА</div>
+              <div class="cashbox-transfer-source__balance" id="cashboxTransferSourceBalance"></div>
+            </div>
+          <div class="cashbox-transfer-summary">
+            <div class="field field--compact">
+              <label for="cashboxTransferAmountInput">СУММА</label>
+                <input id="cashboxTransferAmountInput" type="text" inputmode="decimal" maxlength="24">
+            </div>
+            <div class="field field--compact">
+              <label for="cashboxTransferNoteInput">КОММЕНТАРИЙ</label>
+              <textarea id="cashboxTransferNoteInput" maxlength="240" placeholder="Коротко опишите перемещение."></textarea>
+            </div>
+            <div class="cashbox-transfer-preview" id="cashboxTransferPreview"></div>
+          </div>
+        </div>
+        <div class="cashbox-transfer-pane">
+          <div class="cashbox-transfer-targets" id="cashboxTransferTargets"></div>
+        </div>
+      </div>
+      <div class="cashbox-transfer-foot">
+        <button class="btn btn--ghost" data-close="cashbox-transfer">ОТМЕНА</button>
+        <button class="btn btn--accent" id="cashboxTransferConfirmButton">ПЕРЕМЕСТИТЬ</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="gptWallModal">
+    <div class="dialog" style="width:min(1040px,100%)">
+      <div class="dialog__head">
+        <div class="dialog__title">СТЕНА / СВЯЗЬ С GPT</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn btn--ghost" id="gptWallRefresh">ОБНОВИТЬ</button>
+          <button class="btn" data-close="wall">ЗАКРЫТЬ</button>
+        </div>
+      </div>
+      <div class="wall-meta" id="gptWallMeta">СЛУЖЕБНЫЙ СЛОЙ ЕЩЁ НЕ ЗАГРУЖЕН.</div>
+      <div class="dialog__tabs">
+        <div>
+          <button class="tab-btn is-active" id="gptWallBoardTab" data-wall-view="board_content">СОДЕРЖАНИЕ ДОСКИ</button>
+          <button class="tab-btn" id="gptWallEventsTab" data-wall-view="event_log">ЖУРНАЛ СОБЫТИЙ</button>
+        </div>
+      </div>
+      <pre class="wall-view" id="gptWallText">ЗАГРУЗКА...</pre>
+    </div>
+  </div>
+
+  <div class="modal" id="boardSettingsModal">
+    <div class="dialog" style="width:min(560px,100%)">
+      <div class="dialog__head">
+        <div class="dialog__title">НАСТРОЙКИ ДОСКИ</div>
+        <button class="btn" data-close="settings">ЗАКРЫТЬ</button>
+      </div>
+      <div class="field">
+        <div class="scale-control">
+          <div class="scale-head">
+            <label class="scale-head__label" for="boardScaleInput">МАСШТАБ</label>
+            <span class="scale-head__value" id="boardScaleValue">100%</span>
+          </div>
+          <div class="scale-track">
+            <input id="boardScaleInput" type="range" min="50" max="150" step="5" value="100">
+          </div>
+        </div>
+      </div>
+      <div class="dialog__foot">
+        <button class="btn btn--ghost" id="boardScaleReset">СБРОСИТЬ НА 100%</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="cardModal">
+    <div class="dialog dialog--card dialog--fixed-actions">
+      <div class="dialog__head dialog__head--card dialog__floating-actions">
+        <div class="dialog__title-wrap">
+          <div class="dialog__title-prefix">КАРТОЧКА</div>
+          <div class="dialog__title dialog__title--card" id="cardModalTitle">РАБОЧАЯ КАРТОЧКА</div>
+        </div>
+        <button class="btn" id="cardModalCloseButtonTop" data-close="card" onclick="window.__closeCardModal && window.__closeCardModal(); return false;">ЗАКРЫТЬ</button>
+      </div>
+      <div class="dialog__tabs dialog__tabs--card">
+        <div>
+          <button class="tab-btn is-active" data-tab="overview">ОБЗОР</button>
+          <button class="tab-btn" data-tab="files">ФАЙЛЫ</button>
+          <button class="tab-btn" data-tab="journal">ЖУРНАЛ</button>
+        </div>
+        <div class="log-row__meta" id="cardMetaLine"></div>
+      </div>
+      <section class="dialog__body-scroll" data-panel="overview">
+        <div class="overview-layout">
+          <div class="overview-main">
+            <div class="grid grid--overview">
+              <div class="field field--compact">
+                <label for="cardVehicle">МАРКА / МОДЕЛЬ</label>
+                <input id="cardVehicle" type="text" maxlength="60" placeholder="KIA RIO">
+              </div>
+              <div class="field field--compact">
+                <label for="cardTitle">КРАТКАЯ СУТЬ</label>
+                <input id="cardTitle" type="text" maxlength="120">
+              </div>
+            </div>
+            <div class="field field--description">
+              <div class="description-field-head">
+                <label for="cardDescriptionEditor">ОПИСАНИЕ</label>
+                <div class="description-format-toolbar" id="cardDescriptionToolbar" aria-label="Формат описания">
+                  <button class="description-format-button" data-description-format="bold" type="button" aria-label="Жирный" title="Жирный">B</button>
+                  <button class="description-format-button" data-description-format="italic" type="button" aria-label="Курсив" title="Курсив">I</button>
+                  <button class="description-format-button" data-description-format="underline" type="button" aria-label="Подчёркивание" title="Подчёркивание">U</button>
+                </div>
+              </div>
+              <div id="cardDescriptionEditor" class="description-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Описание" data-placeholder="Описание карточки"></div>
+              <textarea id="cardDescription" maxlength="20000" class="description-source" hidden aria-hidden="true" tabindex="-1"></textarea>
+            </div>
+            <div class="overview-main__meta">
+                <div class="subpanel signal-panel">
+                <div class="panel-title">ОБРАТНЫЙ ОТСЧЁТ</div>
+                <div class="signal-preview" id="signalPreview">01Д 00Ч</div>
+                <div class="signal-grid signal-grid--timer">
+                  <label class="signal-cell signal-cell--timer">
+                    <span class="signal-cell__label">&#1044;&#1085;&#1077;&#1081;</span>
+                    <div class="signal-stepper">
+                      <button class="signal-stepper__button" id="signalDaysDecrementButton" type="button" aria-label="Уменьшить дни">&minus;</button>
+                      <button class="signal-stepper__button" id="signalDaysIncrementButton" type="button" aria-label="Добавить дни">+</button>
+                    </div>
+                  </label>
+                  <label class="signal-cell signal-cell--timer">
+                    <span class="signal-cell__label">&#1063;&#1072;&#1089;&#1086;&#1074;</span>
+                    <div class="signal-stepper">
+                      <button class="signal-stepper__button" id="signalHoursDecrementButton" type="button" aria-label="Уменьшить часы">&minus;</button>
+                      <button class="signal-stepper__button" id="signalHoursIncrementButton" type="button" aria-label="Добавить часы">+</button>
+                    </div>
+                  </label>
+                  <input class="signal-input--hidden" id="signalDays" type="number" min="0" max="365">
+                  <input class="signal-input--hidden" id="signalHours" type="number" min="0" max="23">
+                </div>
+              </div>
+              <div class="subpanel tags-panel">
+                <div class="field field--tags">
+                  <div class="tags-panel__head">
+                    <label for="tagInput">МЕТКИ</label>
+                    <div class="tag-limit" id="tagMeta">0 / 3</div>
+                  </div>
+                  <div class="tag-list" id="tagList"></div>
+                  <div class="tag-suggestions" id="tagSuggestions"></div>
+                  <div class="tag-controls">
+                    <div class="tag-color-picker" id="tagColorPicker"></div>
+                    <div class="tag-entry">
+                      <input id="tagInput" type="text" maxlength="24" placeholder="ЖДЁМ">
+                      <button class="btn" id="tagAddButton">+</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <aside class="subpanel vehicle-panel">
+            <div class="vehicle-panel__head">
+              <div class="stack" style="gap:6px;">
+                <div class="panel-title">ПАСПОРТ АВТОМОБИЛЯ</div>
+                <div class="vehicle-panel__summary" id="vehiclePanelSummary">ТЕХКАРТА ЕЩЁ НЕ ЗАПОЛНЕНА.</div>
+              </div>
+              <button class="btn btn--ghost" id="vehicleAutofillButton">АВТОЗАПОЛНИТЬ</button>
+            </div>
+            <div class="vehicle-panel__fields" id="vehicleProfileFields"></div>
+            <div class="client-match-panel" id="clientMatchPanel">
+              <div class="panel-title">НАЙДЕННЫЕ КЛИЕНТЫ И АВТОМОБИЛИ</div>
+              <div class="client-match-list" id="clientMatchList"></div>
+            </div>
+            <div class="vehicle-panel__repair">
+              <button class="btn" id="repairOrderButton" data-open-repair-order-modal="true" type="button">ЗАКАЗ-НАРЯД</button>
+            </div>
+          </aside>
+        </div>
+      </section>
+      <section class="dialog__body-scroll hidden" data-panel="files">
+        <div class="subpanel file-zone-panel">
+          <div class="file-dropzone" id="fileDropzone" tabindex="0" contenteditable="plaintext-only" spellcheck="false" data-title="ПЕРЕНЕСИТЕ ИЛИ ВСТАВЬТЕ ФАЙЛ" data-hint="Ctrl+V, правый клик -> Вставить, drag-and-drop или клик для выбора. PNG, JPG, JPEG, WEBP, GIF, TXT, PDF, Word, Excel." aria-label="Поле для вставки и переноса файлов"></div>
+          <div class="file-dropzone__meta" id="fileDropMeta">Сначала сохраните карточку, затем добавляйте вложения.</div>
+          <div class="file-upload-legacy" hidden>
+          <input id="fileInput" type="file" multiple hidden accept=".png,.jpg,.jpeg,.webp,.gif,.txt,.pdf,.doc,.docx,.xls,.xlsx,image/png,image/jpeg,image/webp,image/gif,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+            <button class="btn" id="uploadButton">ЗАГРУЗИТЬ</button>
+          </div>
+          <div id="fileList"></div>
+          <div class="file-preview hidden" id="filePreviewPanel">
+            <div class="file-preview__head">
+              <div class="stack" style="gap:4px;">
+                <div class="panel-title" id="filePreviewTitle">ПРОСМОТР</div>
+                <div class="file-preview__meta" id="filePreviewMeta"></div>
+              </div>
+              <button class="btn btn--ghost" id="filePreviewCloseButton" type="button" data-close-file-preview="1">СКРЫТЬ</button>
+            </div>
+            <div class="file-preview__stage">
+              <div class="file-preview__status" id="filePreviewStatus"></div>
+              <img class="file-preview__image" id="filePreviewImage" alt="Предпросмотр вложения" hidden>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="dialog__body-scroll hidden" data-panel="journal">
+        <div class="log-view" id="logList"></div>
+      </section>
+      <div class="dialog__foot dialog__foot--card dialog__floating-actions">
+        <div class="dialog__foot-group dialog__foot-group--danger">
+          <button class="btn btn--danger hidden" id="archiveAction">В АРХИВ</button>
+          <button class="btn hidden" id="restoreAction">ВЕРНУТЬ ИЗ АРХИВА</button>
+        </div>
+        <div class="dialog__foot-group dialog__foot-group--main">
+          <button class="btn" id="cardModalCloseButtonBottom" data-close="card" onclick="window.__closeCardModal && window.__closeCardModal(); return false;">ОТМЕНА</button>
+          <button class="btn btn--ghost card-agent-button" id="cardAgentButton" type="button" title="Индикатор карточки" aria-label="Индикатор карточки"></button>
+          <button class="btn btn--accent" id="saveCardButton" type="button">СОХРАНИТЬ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="cardClientCreateModal">
+    <div class="dialog dialog--card-client-create">
+      <div class="dialog__head">
+        <div class="dialog__title-wrap">
+          <div class="dialog__title-prefix">КАРТОЧКА</div>
+          <div class="dialog__title">НОВЫЙ КЛИЕНТ</div>
+        </div>
+        <button class="btn" data-close="card-client-create" type="button">ЗАКРЫТЬ</button>
+      </div>
+      <div class="card-client-create-grid">
+        <div class="field field--compact">
+          <label for="cardClientCreateTypeInput">ТИП</label>
+          <select id="cardClientCreateTypeInput">
+            <option value="person">ФЛ</option>
+            <option value="ip">ИП</option>
+            <option value="ooo">ООО</option>
+            <option value="company">ЮЛ</option>
+          </select>
+        </div>
+        <div class="field field--compact">
+          <label for="cardClientCreateNameInput">ФИО / НАЗВАНИЕ</label>
+          <input id="cardClientCreateNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
+        </div>
+        <div class="field field--compact field--wide">
+          <label>ТЕЛЕФОНЫ</label>
+          <div class="card-client-phone-list" id="cardClientCreatePhoneFields"></div>
+        </div>
+        <div class="field field--compact field--wide">
+          <label for="cardClientCreateCommentInput">КОММЕНТАРИЙ</label>
+          <textarea id="cardClientCreateCommentInput" maxlength="1000" placeholder="Короткая заметка по клиенту"></textarea>
+        </div>
+        <label class="card-client-create-vehicle" for="cardClientCreateVehicleInput">
+          <input id="cardClientCreateVehicleInput" type="checkbox">
+          <span>
+            <span class="card-client-create-vehicle__label">ДОБАВИТЬ АВТО ИЗ КАРТОЧКИ</span>
+            <span class="card-client-create-vehicle__summary" id="cardClientCreateVehicleSummary">ДАННЫЕ АВТО ЕЩЁ НЕ ЗАПОЛНЕНЫ.</span>
+          </span>
+        </label>
+      </div>
+      <div class="dialog__foot">
+        <button class="btn btn--ghost" data-close="card-client-create" type="button">ОТМЕНА</button>
+        <button class="btn btn--accent" id="cardClientCreateSaveButton" type="button" data-card-client-create-save="true">СОЗДАТЬ И ПРИВЯЗАТЬ</button>
+      </div>
+    </div>
+  </div>
+
+    <div class="modal" id="repairOrderModal">
+      <div class="dialog dialog--repair-order dialog--fixed-actions">
+        <div class="dialog__head dialog__head--card dialog__head--repair-order dialog__floating-actions">
+          <div class="dialog__title-wrap">
+            <div class="repair-order-headline">
+              <div class="dialog__title dialog__title--card" id="repairOrderModalTitle">ЗАКАЗ-НАРЯД</div>
+              <div class="repair-order-status" id="repairOrderStatus">Открыт</div>
+            </div>
+          </div>
+          <div class="repair-order-headline-actions">
+            <button class="btn btn--ghost" id="repairOrderAutofillButton" type="button">АВТОЗАПОЛНЕНИЕ</button>
+          </div>
+          <button class="btn" data-close="repair-order">ЗАКРЫТЬ</button>
+        </div>
+        <div class="repair-order-shell dialog__body-scroll">
+          <div class="repair-order-groups">
+            <section class="repair-order-card" data-repair-order-section="document">
+              <div class="panel-title">ДОКУМЕНТ</div>
+            <div class="repair-order-card__grid repair-order-card__grid--document">
+              <div class="field field--compact repair-order-field repair-order-field--number">
+                <label for="repairOrderNumber">НОМЕР</label>
+                <div id="repairOrderNumber" class="repair-order-number-display" data-repair-order-field="number" role="status" aria-live="polite">-</div>
+              </div>
+              <div class="field field--compact repair-order-field repair-order-field--date">
+                <label for="repairOrderDate">ДАТА</label>
+                <input id="repairOrderDate" data-repair-order-field="date" type="text" maxlength="32">
+              </div>
+              <div class="field field--compact repair-order-field repair-order-field--date">
+                <label for="repairOrderOpenedAt">ОТКРЫТА</label>
+                <input id="repairOrderOpenedAt" data-repair-order-field="opened_at" type="text" maxlength="32">
+              </div>
+              <div class="field field--compact repair-order-field repair-order-field--date">
+                <label for="repairOrderClosedAt">ЗАКРЫТА</label>
+                <input id="repairOrderClosedAt" data-repair-order-field="closed_at" type="text" maxlength="32">
+              </div>
+            </div>
+          </section>
+          <section class="repair-order-card" data-repair-order-section="client">
+            <div class="panel-title">КЛИЕНТ</div>
+            <div class="repair-order-card__grid repair-order-card__grid--client">
+              <div class="field field--compact repair-order-field repair-order-field--client">
+                <input id="repairOrderClient" data-repair-order-field="client" aria-label="Клиент" type="text" maxlength="120" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
+              </div>
+              <div class="field field--compact repair-order-field repair-order-field--phone">
+                <label for="repairOrderPhone">ТЕЛЕФОН</label>
+                <input id="repairOrderPhone" data-repair-order-field="phone" type="text" maxlength="60" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
+              </div>
+            </div>
+          </section>
+          <section class="repair-order-card" data-repair-order-section="vehicle">
+            <div class="panel-title">АВТОМОБИЛЬ</div>
+            <div class="repair-order-card__grid repair-order-card__grid--vehicle">
+              <div class="field field--compact repair-order-field repair-order-field--vehicle">
+                <input id="repairOrderVehicle" data-repair-order-field="vehicle" aria-label="Автомобиль" type="text" maxlength="120" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
+              </div>
+              <div class="field field--compact repair-order-field repair-order-field--plate">
+                <label for="repairOrderLicensePlate">ГОСНОМЕР</label>
+                <input id="repairOrderLicensePlate" data-repair-order-field="license_plate" type="text" maxlength="20" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
+              </div>
+              <div class="field field--compact repair-order-field repair-order-field--vin">
+                <label for="repairOrderVin">VIN</label>
+                <input id="repairOrderVin" data-repair-order-field="vin" type="text" maxlength="32" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
+              </div>
+              <div class="field field--compact repair-order-field repair-order-field--mileage">
+                <label for="repairOrderMileage">ПРОБЕГ</label>
+                <input id="repairOrderMileage" data-repair-order-field="mileage" type="text" maxlength="32" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
+              </div>
+            </div>
+            <div class="repair-order-hidden-fields" aria-hidden="true">
+              <div class="field field--compact repair-order-field repair-order-field--payment-method">
+                <label for="repairOrderPaymentMethod">ФОРМА ОПЛАТЫ</label>
+                <select id="repairOrderPaymentMethod" data-repair-order-field="payment_method" tabindex="-1">
+                  <option value="cash">Наличный</option>
+                  <option value="cashless">Безналичный</option>
+                  <option value="card">На карту</option>
+                </select>
+              </div>
+              <div class="field field--compact repair-order-field repair-order-field--prepayment">
+                <label for="repairOrderPrepayment">ПРЕДОПЛАТА</label>
+                <input id="repairOrderPrepayment" data-repair-order-field="prepayment" type="hidden" value="0">
+              </div>
+            </div>
+          </section>
+        </div>
+        <section class="repair-order-card repair-order-card--wide hidden" data-repair-order-section="reason" aria-hidden="true">
+          <div class="panel-title">ПРИЧИНА ОБРАЩЕНИЯ</div>
+          <div class="field field--compact repair-order-client-info">
+            <textarea id="repairOrderReason" data-repair-order-field="reason" aria-label="Причина обращения" maxlength="4000"></textarea>
+          </div>
+        </section>
+        <section class="repair-order-card repair-order-card--wide" data-repair-order-section="client_information">
+          <div class="panel-title">ИНФОРМАЦИЯ ДЛЯ КЛИЕНТА</div>
+          <div class="field field--compact repair-order-client-info">
+            <textarea id="repairOrderComment" data-repair-order-field="client_information" aria-label="Информация для клиента" maxlength="4000"></textarea>
+          </div>
+        </section>
+        <section class="repair-order-card repair-order-card--wide hidden" data-repair-order-section="note" aria-hidden="true">
+          <div class="panel-title">ПРИМЕЧАНИЕ</div>
+          <div class="field field--compact repair-order-client-info">
+            <textarea id="repairOrderNote" data-repair-order-field="note" aria-label="Примечание мастера" maxlength="4000"></textarea>
+          </div>
+        </section>
+        <section class="repair-order-card repair-order-card--wide repair-order-tags-card hidden" data-repair-order-section="tags" aria-hidden="true">
+          <div class="repair-order-section-bar">
+            <div class="panel-title">ВНУТРЕННИЕ МЕТКИ</div>
+            <div class="tag-limit" id="repairOrderTagMeta">0 / 5</div>
+          </div>
+          <div class="tag-list repair-order-tag-list" id="repairOrderTagList"></div>
+          <div class="repair-order-tag-editor">
+            <div class="tag-color-picker" id="repairOrderTagColorPicker"></div>
+            <div class="tag-entry">
+              <input id="repairOrderTagInput" type="text" maxlength="24">
+              <button class="btn" id="repairOrderTagAddButton" type="button">+</button>
+            </div>
+          </div>
+        </section>
+        <section class="repair-order-table-card" data-repair-order-section="works">
+          <div class="repair-order-section-bar">
+            <div class="panel-title">РАБОТЫ</div>
+            <button class="btn btn--ghost" id="repairOrderAddWorkRowButton" type="button" data-add-repair-order-row="works">+ СТРОКА</button>
+          </div>
+          <div class="repair-order-table-wrap">
+            <table class="repair-order-table">
+              <thead>
+                <tr>
+                  <th style="width:40%;">Наименование</th>
+                  <th style="width:18%;">Исполнитель</th>
+                  <th class="repair-order-table__numeric" style="width:9%;">Кол-во</th>
+                  <th class="repair-order-table__numeric" style="width:14%;">Цена</th>
+                  <th class="repair-order-table__numeric" style="width:15%;">Сумма</th>
+                  <th class="repair-order-table__action" style="width:4%;"></th>
+                </tr>
+              </thead>
+              <tbody id="repairOrderWorksBody"></tbody>
+            </table>
+          </div>
+          <div class="repair-order-subtotal"><span>ИТОГО РАБОТЫ</span><strong data-repair-order-total="works">0,00</strong></div>
+        </section>
+        <div class="repair-order-work-salary-popover" id="repairOrderWorkSalaryPopover" data-repair-order-work-salary-menu hidden>
+          <div class="repair-order-work-salary-popover__head">
+            <div class="repair-order-work-salary-popover__title" id="repairOrderWorkSalaryTitle">РАБОТА</div>
+            <div class="repair-order-work-salary-popover__meta" id="repairOrderWorkSalaryMeta">ИСПОЛНИТЕЛЬ НЕ ВЫБРАН</div>
+          </div>
+          <div class="repair-order-work-salary-popover__grid">
+            <label class="field">
+              <span>ГАРАНТИЯ ИСПОЛНИТЕЛЮ</span>
+              <input id="repairOrderWorkSalaryGuarantee" type="text" inputmode="decimal" data-repair-order-cell="work_salary_guarantee">
+            </label>
+            <label class="field">
+              <span>ПРОЦЕНТ ИСПОЛНИТЕЛЯ</span>
+              <input id="repairOrderWorkSalaryPercent" type="text" inputmode="decimal" data-repair-order-cell="work_salary_percent_override">
+            </label>
+          </div>
+          <div class="repair-order-work-salary-popover__summary">
+            <span>СУММА РАБОТЫ</span><strong id="repairOrderWorkSalaryTotal">0 ₽</strong>
+            <span>ПРОЦЕНТ СЕРВИСА</span><strong id="repairOrderWorkSalaryServicePercent">0%</strong>
+            <span>К НАЧИСЛЕНИЮ</span><strong id="repairOrderWorkSalaryAmount">0 ₽</strong>
+          </div>
+          <div class="repair-order-work-salary-popover__actions">
+            <button class="btn btn--ghost" type="button" data-repair-order-work-salary-reset>СБРОСИТЬ</button>
+            <button class="btn btn--accent" type="button" data-repair-order-work-salary-apply>ПРИМЕНИТЬ</button>
+          </div>
+        </div>
+        <section class="repair-order-table-card" data-repair-order-section="materials">
+          <div class="repair-order-section-bar">
+            <div class="panel-title">МАТЕРИАЛЫ</div>
+            <button class="btn btn--ghost" id="repairOrderAddMaterialRowButton" type="button" data-add-repair-order-row="materials">+ СТРОКА</button>
+          </div>
+          <div class="repair-order-table-wrap">
+            <table class="repair-order-table">
+              <thead>
+                <tr>
+                  <th style="width:27%;">Наименование</th>
+                  <th style="width:14%;">Списал</th>
+                  <th style="width:12%;">Кат. №</th>
+                  <th class="repair-order-table__numeric" style="width:8%;">Кол-во</th>
+                  <th class="repair-order-table__numeric" style="width:11%;">Закупка</th>
+                  <th class="repair-order-table__numeric" style="width:11%;">Цена</th>
+                  <th class="repair-order-table__numeric" style="width:13%;">Сумма</th>
+                  <th class="repair-order-table__action" style="width:4%;"></th>
+                </tr>
+              </thead>
+              <tbody id="repairOrderMaterialsBody"></tbody>
+            </table>
+          </div>
+          <div class="repair-order-subtotal"><span>ИТОГО МАТЕРИАЛЫ</span><strong data-repair-order-total="materials">0,00</strong></div>
+        </section>
+      </div>
+        <div class="dialog__foot repair-order-footer dialog__floating-actions">
+          <div class="repair-order-footer__totals">
+            <div class="repair-order-total repair-order-total--subtotal">
+              <span>ИТОГО ПО ЗАКАЗ-НАРЯДУ</span>
+              <strong data-repair-order-total="subtotal">0,00</strong>
+            </div>
+            <div class="repair-order-total repair-order-total--cashless-due">
+              <span>К ДОПЛАТЕ БЕЗНАЛ</span>
+              <strong data-repair-order-total="cashless_due">0,00</strong>
+            </div>
+            <div class="repair-order-total repair-order-total--cash-due">
+              <span>К ДОПЛАТЕ НАЛ</span>
+              <strong data-repair-order-total="cash_due">0,00</strong>
+            </div>
+            <div class="repair-order-total repair-order-total--taxes is-hidden" data-repair-order-total-block="taxes">
+              <span>НАЛОГИ И СБОРЫ</span>
+              <strong data-repair-order-total="taxes">0,00</strong>
+            </div>
+          </div>
+        <div class="repair-order-footer__actions">
+          <button class="btn" data-close="repair-order">ОТМЕНА</button>
+          <button class="btn btn--ghost" id="repairOrderCloseButton" type="button">ЗАКРЫТЬ ЗАКАЗ-НАРЯД</button>
+          <button class="btn repair-order-save" id="repairOrderSaveButton" type="button">СОХРАНИТЬ</button>
+          <button class="btn btn--ghost" id="repairOrderPrintButton" type="button">РАСПЕЧАТАТЬ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+

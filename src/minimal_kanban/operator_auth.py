@@ -26,7 +26,8 @@ from .models import (
     utc_now_iso,
 )
 from .operator_activity import OperatorActivityService
-from .services.card_service import CardService, ServiceError
+from .services.card_service import CardService
+from .services.errors import ServiceError
 from .storage.file_lock import ProcessFileLock
 from .storage.json_store import JsonStore
 

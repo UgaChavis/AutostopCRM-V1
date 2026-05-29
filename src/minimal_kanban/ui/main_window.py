@@ -23,7 +23,8 @@ from ..connection_card import (
     resolve_local_api_bearer_token,
 )
 from ..desktop_connector_files import write_connector_files
-from ..services.card_service import CardService, ServiceError
+from ..services.card_service import CardService
+from ..services.errors import ServiceError
 from ..settings_service import SettingsService
 from ..texts import (
     API_LABEL_PREFIX,

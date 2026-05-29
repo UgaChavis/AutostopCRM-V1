@@ -21,6 +21,7 @@ $distPath = Join-Path $projectRoot "dist"
 $buildPath = Join-Path $projectRoot "build"
 $distStagingPath = Join-Path $projectRoot "dist.staging"
 $buildStagingPath = Join-Path $projectRoot "build.staging"
+$webAssetSourcePath = Join-Path $projectRoot "src\\minimal_kanban\\web_app_assets\\source"
 
 if (-not (Test-Path $pythonExe)) {
     New-ProjectVirtualEnvironment -VenvPath $venvPath | Out-Null
@@ -43,6 +44,7 @@ if (Test-Path $buildStagingPath) { Remove-Item -Recurse -Force $buildStagingPath
     --distpath $distStagingPath `
     --workpath $buildStagingPath `
     --paths (Join-Path $projectRoot "src") `
+    --add-data "$webAssetSourcePath;minimal_kanban/web_app_assets/source" `
     (Join-Path $projectRoot "main.py")
 Assert-LastExitCode "Build production app"
 

@@ -49,6 +49,7 @@ operator instructions:
 .\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m unittest discover -s .\tests -v
 python scripts\docs_audit.py --format text
+python scripts\code_health_audit.py --format text
 python scripts\audit_localization.py
 python scripts\check_web_assets_js.py
 python scripts\browser_smoke.py

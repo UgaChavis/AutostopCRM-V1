@@ -11,7 +11,7 @@ from typing import Any
 
 from .config import get_operator_activity_dir
 from .models import normalize_actor_name, normalize_text, parse_datetime, utc_now, utc_now_iso
-from .services.card_service import ServiceError
+from .services.errors import ServiceError
 from .storage.file_lock import ProcessFileLock
 
 OPERATOR_ACTIVITY_SCHEMA_VERSION = 1

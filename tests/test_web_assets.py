@@ -49,6 +49,22 @@ class WebAssetsTests(unittest.TestCase):
 
         self.assertEqual(BOARD_WEB_APP_HTML, assembled_html)
 
+    def test_web_assets_are_loaded_from_packaged_source_chunks(self) -> None:
+        source_dir = ROOT / "src" / "minimal_kanban" / "web_app_assets" / "source"
+        self.assertTrue(source_dir.is_dir())
+        self.assertLess(
+            (ROOT / "src" / "minimal_kanban" / "web_app_assets" / "assembler.py").stat().st_size,
+            4096,
+        )
+        self.assertIn(
+            "minimal_kanban/web_app_assets/source",
+            (ROOT / "scripts" / "build_app.ps1").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "minimal_kanban/web_app_assets/source",
+            (ROOT / "MinimalKanban.spec").read_text(encoding="utf-8"),
+        )
+
     def test_board_brand_uses_autostop_name(self) -> None:
         self.assertIn("<title>AutoStop</title>", BOARD_WEB_APP_HTML)
         self.assertIn(

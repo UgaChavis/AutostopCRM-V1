@@ -46,6 +46,9 @@ jobs:
       - name: Unit tests
         run: python -m unittest discover -s tests -v
 
+      - name: Code health audit
+        run: python scripts/code_health_audit.py --format text
+
       - name: Localization audit
         run: python scripts/audit_localization.py
 

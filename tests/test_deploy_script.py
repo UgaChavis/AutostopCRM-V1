@@ -66,6 +66,12 @@ class DeployScriptTests(unittest.TestCase):
             with self.subTest(package=package):
                 self.assertIn(package, dockerfile)
 
+    def test_dockerignore_excludes_server_local_vpn_artifacts(self) -> None:
+        dockerignore = (PROJECT_ROOT / ".dockerignore").read_text(encoding="utf-8")
+
+        self.assertIn("amnezia*", dockerignore)
+        self.assertIn("apply_telegram_*.ps1", dockerignore)
+
     def test_github_actions_quality_workflow_runs_release_gates(self) -> None:
         workflow = (PROJECT_ROOT / ".github" / "workflows" / "quality.yml").read_text(
             encoding="utf-8"
@@ -75,6 +81,7 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("ruff format --check .", workflow)
         self.assertIn("ruff check .", workflow)
         self.assertIn("python -m unittest discover -s tests -v", workflow)
+        self.assertIn("python scripts/code_health_audit.py --format text", workflow)
         self.assertIn("python scripts/audit_localization.py", workflow)
         self.assertIn("python scripts/check_web_assets_js.py", workflow)
         self.assertIn("python scripts/perf_probe.py", workflow)
