@@ -15,43 +15,10 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.config import get_state_file
+from minimal_kanban.repair_order import RepairOrder
 
 
 DEFAULT_NOTE_RE = re.compile(r"заказ-наряд\s*№\s*(?P<number>\S+)", re.IGNORECASE)
-REPAIR_ORDER_DATA_FIELDS = (
-    "number",
-    "date",
-    "opened_at",
-    "openedAt",
-    "closed_at",
-    "closedAt",
-    "client",
-    "phone",
-    "vehicle",
-    "license_plate",
-    "licensePlate",
-    "vin",
-    "mileage",
-    "odometer",
-    "payment_method",
-    "paymentMethod",
-    "prepayment",
-    "advance_payment",
-    "advancePayment",
-    "payments",
-    "payment_history",
-    "reason",
-    "comment",
-    "client_information",
-    "clientInformation",
-    "note",
-    "master_comment",
-    "masterComment",
-    "tags",
-    "works",
-    "materials",
-)
-
 
 def _text(value: object) -> str:
     return str(value or "").strip()
@@ -61,16 +28,12 @@ def _number_key(value: object) -> str:
     return _text(value).casefold()
 
 
-def _is_non_empty(value: object) -> bool:
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, (list, dict)):
-        return bool(value)
-    return value is not None and value != ""
+def _repair_order_from_payload(order: dict[str, Any]) -> RepairOrder:
+    return RepairOrder.from_dict(order)
 
 
 def _repair_order_has_data(order: dict[str, Any]) -> bool:
-    return any(_is_non_empty(order.get(field)) for field in REPAIR_ORDER_DATA_FIELDS)
+    return not _repair_order_from_payload(order).is_empty()
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -155,7 +118,7 @@ def _iter_order_cards(state: dict[str, Any]) -> list[tuple[dict[str, Any], dict[
         order = card.get("repair_order")
         if not isinstance(order, dict) or not _repair_order_has_data(order):
             continue
-        result.append((card, order))
+        result.append((card, _repair_order_from_payload(order).to_storage_dict()))
     return result
 
 

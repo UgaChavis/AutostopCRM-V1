@@ -33,7 +33,14 @@ class RepairOrderNumberAuditTests(unittest.TestCase):
                         "repair_order": {
                             "number": "1",
                             "client": "Иван",
-                            "payments": [{"id": "payment-1", "cash_transaction_id": "tx-1"}],
+                            "payments": [
+                                {
+                                    "id": "payment-1",
+                                    "amount": "1000",
+                                    "paid_at": "19.05.2026 08:00",
+                                    "cash_transaction_id": "tx-1",
+                                }
+                            ],
                         },
                     },
                     {
@@ -61,6 +68,32 @@ class RepairOrderNumberAuditTests(unittest.TestCase):
                         "created_at": "2026-05-19T13:00:00+07:00",
                         "repair_order": {"number": "5", "client": "Инверсия"},
                     },
+                    {
+                        "id": "card-empty-skeleton",
+                        "created_at": "2026-05-19T14:00:00+07:00",
+                        "repair_order": {
+                            "number": "",
+                            "date": "",
+                            "status": "open",
+                            "opened_at": "",
+                            "closed_at": "",
+                            "client": "",
+                            "phone": "",
+                            "vehicle": "",
+                            "license_plate": "",
+                            "vin": "",
+                            "mileage": "",
+                            "payment_method": "cash",
+                            "prepayment": "",
+                            "payments": [],
+                            "reason": "",
+                            "comment": "",
+                            "note": "",
+                            "tags": [],
+                            "works": [],
+                            "materials": [],
+                        },
+                    },
                 ],
                 "cash_transactions": [
                     {
@@ -84,6 +117,9 @@ class RepairOrderNumberAuditTests(unittest.TestCase):
         self.assertIn("number_gap", codes)
         self.assertIn("number_time_inversion", codes)
         self.assertIn("payment_note_number_mismatch", codes)
+        self.assertFalse(
+            any(issue["card_id"] == "card-empty-skeleton" for issue in data["issues"])
+        )
 
     def test_limited_data_limits_issue_details(self) -> None:
         module = load_repair_order_number_audit_module()
