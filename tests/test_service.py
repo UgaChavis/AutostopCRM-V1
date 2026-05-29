@@ -354,6 +354,68 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(updated["contact_person"], "Иванов Иван")
         self.assertEqual(updated["comment"], "Проверка nested patch")
 
+    def test_create_client_reuses_exact_duplicate_without_explicit_id(self) -> None:
+        first = self.service.create_client(
+            {
+                "display_name": "Дубль клиента",
+                "phone": "8 953 586-86-35",
+                "vehicles": [
+                    {
+                        "vehicle": "Kia Spectra",
+                        "vin": "XWKFB227370040491",
+                        "license_plate": "Т896ТЕ124",
+                        "year": "2007",
+                    }
+                ],
+            }
+        )["client"]
+        duplicate = self.service.create_client(
+            {
+                "display_name": "Дубль клиента",
+                "phone": "+7 953 586-86-35",
+                "vehicles": [
+                    {
+                        "vehicle": "Kia Spectra",
+                        "vin": "XWKFB227370040491",
+                        "license_plate": "т896те124",
+                        "year": "2007",
+                    }
+                ],
+            }
+        )
+
+        self.assertFalse(duplicate["meta"]["created"])
+        self.assertTrue(duplicate["meta"]["duplicate"])
+        self.assertEqual(duplicate["client"]["id"], first["id"])
+        self.assertEqual(len(self.service.list_clients({"limit": 10})["clients"]), 1)
+
+    def test_create_client_allows_same_phone_with_different_name(self) -> None:
+        first = self.service.create_client(
+            {"display_name": "Первый клиент", "phone": "+7 953 586-86-35"}
+        )["client"]
+        second = self.service.create_client(
+            {"display_name": "Второй клиент", "phone": "8 953 586-86-35"}
+        )["client"]
+
+        self.assertNotEqual(first["id"], second["id"])
+        self.assertEqual(len(self.service.list_clients({"limit": 10})["clients"]), 2)
+
+    def test_create_client_keeps_new_vehicle_when_existing_has_none(self) -> None:
+        first = self.service.create_client(
+            {"display_name": "Клиент с новым авто позже", "phone": "+7 953 586-86-35"}
+        )["client"]
+        second = self.service.create_client(
+            {
+                "display_name": "Клиент с новым авто позже",
+                "phone": "8 953 586-86-35",
+                "vehicles": [{"vehicle": "Toyota Camry", "license_plate": "А123ВС124"}],
+            }
+        )
+
+        self.assertTrue(second["meta"]["created"])
+        self.assertNotEqual(first["id"], second["client"]["id"])
+        self.assertEqual(len(self.service.list_clients({"limit": 10})["clients"]), 2)
+
     def test_client_profile_supports_up_to_three_phones(self) -> None:
         client = self.service.create_client(
             {

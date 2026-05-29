@@ -104,6 +104,21 @@ class CardServiceClientsMixin:
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
             client = self._validated_client_profile(payload)
+            explicit_id = bool(
+                normalize_text(payload.get("client_id") or payload.get("id"), default="", limit=128)
+            )
+            duplicate = None if explicit_id else self._find_duplicate_client(clients, client)
+            if duplicate is not None:
+                return {
+                    "client": self._serialize_client(
+                        duplicate, bundle["cards"], include_stats=True
+                    ),
+                    "meta": {
+                        "created": False,
+                        "duplicate": True,
+                        "duplicate_of": duplicate.id,
+                    },
+                }
             clients.append(client)
             self._append_event(
                 events,
@@ -651,6 +666,63 @@ class CardServiceClientsMixin:
             ):
                 return client
         return None
+
+    def _canonical_client_phone_keys(self, client: ClientProfile) -> set[str]:
+        keys: set[str] = set()
+        for phone in [client.phone, *list(client.phones or [])]:
+            digits = re.sub(r"\D+", "", str(phone or ""))
+            if len(digits) < 7:
+                continue
+            keys.add("7" + digits[-10:] if len(digits) >= 10 else digits)
+        return keys
+
+    def _client_duplicate_vehicle_keys(self, client: ClientProfile) -> set[str]:
+        keys: set[str] = set()
+        for vehicle in client.vehicles:
+            key = self._client_vehicle_identity_key(
+                vehicle.vehicle,
+                vehicle.vin,
+                vehicle.license_plate,
+                vehicle.year,
+            )
+            if key:
+                keys.add(key)
+        return keys
+
+    def _find_duplicate_client(
+        self, clients: list[ClientProfile], client: ClientProfile
+    ) -> ClientProfile | None:
+        name_key = self._normalize_search_text(client.name())
+        phone_keys = self._canonical_client_phone_keys(client)
+        if not name_key or not phone_keys:
+            return None
+        vehicle_keys = self._client_duplicate_vehicle_keys(client)
+        matches: list[ClientProfile] = []
+        for existing in clients:
+            if existing.id == client.id:
+                continue
+            if self._normalize_search_text(existing.name()) != name_key:
+                continue
+            if not phone_keys.intersection(self._canonical_client_phone_keys(existing)):
+                continue
+            existing_vehicle_keys = self._client_duplicate_vehicle_keys(existing)
+            if vehicle_keys:
+                if not existing_vehicle_keys:
+                    continue
+                if not vehicle_keys.intersection(existing_vehicle_keys):
+                    continue
+            matches.append(existing)
+        if not matches:
+            return None
+        return max(
+            matches,
+            key=lambda item: (
+                len(item.vehicles),
+                item.updated_at,
+                item.created_at,
+                item.id,
+            ),
+        )
 
     def _client_patch_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         source_payload: dict[str, Any] = {}
