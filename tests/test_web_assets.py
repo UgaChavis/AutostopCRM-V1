@@ -2465,7 +2465,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("ГАРАНТИЯ ИСПОЛНИТЕЛЮ", BOARD_WEB_APP_HTML)
         self.assertIn("К НАЧИСЛЕНИЮ", BOARD_WEB_APP_HTML)
         self.assertIn("ПРОЦЕНТ СЕРВИСА", BOARD_WEB_APP_HTML)
-        self.assertIn("const percentBase = Math.max(total - safeGuarantee - safeCostPrice, 0);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const percentBase = Math.max(total - safeGuarantee - safeCostPrice, 0);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "const effectiveQuantity = quantityParsed === null && !String(quantityValue ?? '').trim() ? 1 : quantityParsed;",
             BOARD_WEB_APP_HTML,
