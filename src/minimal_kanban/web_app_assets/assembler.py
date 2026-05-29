@@ -1134,6 +1134,20 @@ BOARD_WEB_APP_HTML = "".join(
       gap: 10px;
       grid-template-rows: auto auto minmax(0, 1fr) auto;
     }
+    #cardClientCreateModal {
+      z-index: 24;
+    }
+    .dialog--card-client-create {
+      width: min(520px, calc(100% - 28px));
+      max-height: min(88vh, 720px);
+      overflow: auto;
+      gap: 12px;
+    }
+    .dialog--card-client-create textarea {
+      min-height: 78px;
+      max-height: 160px;
+      resize: vertical;
+    }
     .dialog--card > .dialog__body-scroll {
       grid-row: 3;
       min-height: 0;
@@ -3549,6 +3563,66 @@ BOARD_WEB_APP_HTML = "".join(
       color: var(--text);
       border-color: var(--accent);
     }
+    .vehicle-client-create {
+      width: 24px;
+      height: 22px;
+      min-width: 24px;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+      border: 1px solid rgba(115, 126, 105, 0.32);
+      background: rgba(0, 0, 0, 0.18);
+      color: var(--text);
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .vehicle-client-create:hover {
+      border-color: var(--accent);
+      background: rgba(52, 62, 47, 0.72);
+    }
+    .card-client-create-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 150px) minmax(0, 1fr);
+      gap: 9px;
+      align-items: start;
+    }
+    .card-client-create-grid .field--wide {
+      grid-column: 1 / -1;
+    }
+    .card-client-phone-list {
+      display: grid;
+      gap: 5px;
+    }
+    .card-client-create-vehicle {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+      border: 1px solid rgba(160, 174, 135, 0.2);
+      background: rgba(0, 0, 0, 0.14);
+      padding: 9px;
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.4;
+      cursor: pointer;
+    }
+    .card-client-create-vehicle input {
+      margin-top: 2px;
+    }
+    .card-client-create-vehicle__label {
+      display: block;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .card-client-create-vehicle__summary {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+    }
     .vehicle-suspect {
       border-color: rgba(209, 90, 76, 0.62) !important;
       box-shadow: inset 0 0 0 1px rgba(209, 90, 76, 0.15);
@@ -4723,6 +4797,7 @@ BOARD_WEB_APP_HTML = "".join(
       .operator-activity-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .operator-activity-details__grid { grid-template-columns: 1fr; }
       .operator-admin-secondary { grid-template-columns: 1fr; }
+      .card-client-create-grid { grid-template-columns: 1fr; }
       .vehicle-group__grid { grid-template-columns: 1fr; }
       .vehicle-panel { max-width: none; width: 100%; margin-left: 0; }
       .vehicle-panel::before { display: none; }
@@ -8327,6 +8402,52 @@ BOARD_WEB_APP_HTML = "".join(
     </div>
   </div>
 
+  <div class="modal" id="cardClientCreateModal">
+    <div class="dialog dialog--card-client-create">
+      <div class="dialog__head">
+        <div class="dialog__title-wrap">
+          <div class="dialog__title-prefix">КАРТОЧКА</div>
+          <div class="dialog__title">НОВЫЙ КЛИЕНТ</div>
+        </div>
+        <button class="btn" data-close="card-client-create" type="button">ЗАКРЫТЬ</button>
+      </div>
+      <div class="card-client-create-grid">
+        <div class="field field--compact">
+          <label for="cardClientCreateTypeInput">ТИП</label>
+          <select id="cardClientCreateTypeInput">
+            <option value="person">ФЛ</option>
+            <option value="ip">ИП</option>
+            <option value="ooo">ООО</option>
+            <option value="company">ЮЛ</option>
+          </select>
+        </div>
+        <div class="field field--compact">
+          <label for="cardClientCreateNameInput">ФИО / НАЗВАНИЕ</label>
+          <input id="cardClientCreateNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false">
+        </div>
+        <div class="field field--compact field--wide">
+          <label>ТЕЛЕФОНЫ</label>
+          <div class="card-client-phone-list" id="cardClientCreatePhoneFields"></div>
+        </div>
+        <div class="field field--compact field--wide">
+          <label for="cardClientCreateCommentInput">КОММЕНТАРИЙ</label>
+          <textarea id="cardClientCreateCommentInput" maxlength="1000" placeholder="Короткая заметка по клиенту"></textarea>
+        </div>
+        <label class="card-client-create-vehicle" for="cardClientCreateVehicleInput">
+          <input id="cardClientCreateVehicleInput" type="checkbox">
+          <span>
+            <span class="card-client-create-vehicle__label">ДОБАВИТЬ АВТО ИЗ КАРТОЧКИ</span>
+            <span class="card-client-create-vehicle__summary" id="cardClientCreateVehicleSummary">ДАННЫЕ АВТО ЕЩЁ НЕ ЗАПОЛНЕНЫ.</span>
+          </span>
+        </label>
+      </div>
+      <div class="dialog__foot">
+        <button class="btn btn--ghost" data-close="card-client-create" type="button">ОТМЕНА</button>
+        <button class="btn btn--accent" id="cardClientCreateSaveButton" type="button" data-card-client-create-save="true">СОЗДАТЬ И ПРИВЯЗАТЬ</button>
+      </div>
+    </div>
+  </div>
+
     <div class="modal" id="repairOrderModal">
       <div class="dialog dialog--repair-order dialog--fixed-actions">
         <div class="dialog__head dialog__head--card dialog__head--repair-order dialog__floating-actions">
@@ -8762,6 +8883,7 @@ BOARD_WEB_APP_HTML = "".join(
       clientSuggestionQuery: '',
       pendingCardClientVehicleId: '',
       pendingCreateClientVehicleFromCard: false,
+      cardClientCreateSaving: false,
       filePreview: {
         attachmentId: '',
         fileName: '',
@@ -9427,6 +9549,14 @@ BOARD_WEB_APP_HTML = "".join(
       vehicleProfileFields: document.getElementById('vehicleProfileFields'),
       clientMatchPanel: document.getElementById('clientMatchPanel'),
       clientMatchList: document.getElementById('clientMatchList'),
+      cardClientCreateModal: document.getElementById('cardClientCreateModal'),
+      cardClientCreateTypeInput: document.getElementById('cardClientCreateTypeInput'),
+      cardClientCreateNameInput: document.getElementById('cardClientCreateNameInput'),
+      cardClientCreatePhoneFields: document.getElementById('cardClientCreatePhoneFields'),
+      cardClientCreateCommentInput: document.getElementById('cardClientCreateCommentInput'),
+      cardClientCreateVehicleInput: document.getElementById('cardClientCreateVehicleInput'),
+      cardClientCreateVehicleSummary: document.getElementById('cardClientCreateVehicleSummary'),
+      cardClientCreateSaveButton: document.getElementById('cardClientCreateSaveButton'),
       vehicleAutofillButton: document.getElementById('vehicleAutofillButton'),
       repairOrderButton: document.getElementById('repairOrderButton'),
       repairOrderModal: document.getElementById('repairOrderModal'),
@@ -11985,6 +12115,7 @@ BOARD_WEB_APP_HTML = "".join(
 
     const MODAL_KEY_BY_ID = {
       cardModal: 'card',
+      cardClientCreateModal: 'card-client-create',
       archiveModal: 'archive',
       repairOrdersModal: 'repair-orders',
       clientsModal: 'clients',
@@ -12015,6 +12146,7 @@ BOARD_WEB_APP_HTML = "".join(
       const normalizedKey = String(key || '').trim();
       const byKey = {
         card: els.cardModal,
+        'card-client-create': els.cardClientCreateModal,
         archive: els.archiveModal,
         'repair-orders': els.repairOrdersModal,
         clients: els.clientsModal,
@@ -12154,6 +12286,7 @@ BOARD_WEB_APP_HTML = "".join(
       const normalizedKey = String(closeKey || '').trim();
       const closeActions = {
         card: () => closeCardModal(),
+        'card-client-create': () => closeCardClientCreateModal(),
         archive: () => {
           popModal('archive');
           state.archiveCards = [];
@@ -13091,51 +13224,90 @@ BOARD_WEB_APP_HTML = "".join(
       ].some((value) => String(value || '').trim()));
     }
 
+    function normalizedCardClientCreatePayload(payload) {
+      const source = payload && typeof payload === 'object' ? payload : {};
+      const allowedTypes = new Set(['person', 'ip', 'ooo', 'company']);
+      const clientType = allowedTypes.has(String(source.client_type || '').trim()) ? String(source.client_type || '').trim() : 'person';
+      const phones = normalizePhoneList([
+        source.phone,
+        ...(Array.isArray(source.phones) ? source.phones : []),
+      ]);
+      const phone = phones[0] || String(source.phone || '').trim();
+      const displayName = String(source.display_name || source.short_name || source.legal_name || '').trim();
+      const request = {
+        ...source,
+        client_type: clientType,
+        display_name: displayName || phone,
+        phone,
+        phones,
+      };
+      if (clientType !== 'person' && request.display_name) {
+        if (!String(request.short_name || '').trim()) request.short_name = request.display_name;
+        if (!String(request.legal_name || '').trim()) request.legal_name = request.display_name;
+      }
+      return request;
+    }
+
+    async function createClientForCard(profile, payload, { createVehicleFromCard = true } = {}) {
+      const sourceProfile = profile && typeof profile === 'object' ? profile : readVehicleProfileForm();
+      const request = normalizedCardClientCreatePayload(payload);
+      const displayName = String(request.display_name || '').trim();
+      const phone = String(request.phone || '').trim();
+      if (!displayName && !phone) {
+        setStatus('УКАЖИТЕ ИМЯ ИЛИ ТЕЛЕФОН КЛИЕНТА.', true);
+        return null;
+      }
+      const created = await api('/api/create_client', {
+        method: 'POST',
+        body: request,
+      });
+      const client = created?.client || {};
+      const clientId = String(client.id || '').trim();
+      if (!clientId) throw new Error('КЛИЕНТ СОЗДАН БЕЗ ID.');
+      let clientVehicleId = '';
+      const shouldCreateVehicle = Boolean(createVehicleFromCard && profileHasVehicleIdentity(sourceProfile));
+      if (shouldCreateVehicle) {
+        if (state.editingId) {
+          const linked = await linkActiveCardToClient(clientId, { createVehicleFromCard: true });
+          clientVehicleId = linked?.card?.client_vehicle_id || '';
+        } else {
+          const upserted = await api('/api/upsert_client_vehicle', {
+            method: 'POST',
+            body: {
+              client_id: clientId,
+              vehicle: vehiclePayloadFromProfile(sourceProfile),
+              sync_linked_cards: true,
+            },
+          });
+          clientVehicleId = upserted?.vehicle?.id || '';
+        }
+      } else if (state.editingId) {
+        await linkActiveCardToClient(clientId);
+      }
+      state.pendingCardClientId = clientId;
+      state.pendingCardClientVehicleId = clientVehicleId;
+      state.pendingCreateClientVehicleFromCard = false;
+      hideClientSuggestions();
+      return { client, clientId, clientVehicleId };
+    }
+
     async function createClientFromCardSuggestion() {
       const profile = readVehicleProfileForm();
       const displayName = String(profile.customer_name || '').trim();
       const phone = String(profile.customer_phone || '').trim();
       const phones = normalizePhoneList([phone, ...(Array.isArray(profile.customer_phones) ? profile.customer_phones : [])]);
-      if (!displayName && !phone) {
-        setStatus('УКАЖИТЕ ИМЯ ИЛИ ТЕЛЕФОН КЛИЕНТА.', true);
-        return;
-      }
       try {
-        const created = await api('/api/create_client', {
-          method: 'POST',
-          body: {
+        const created = await createClientForCard(
+          profile,
+          {
             client_type: 'person',
             display_name: displayName || phone,
             phone: phones[0] || phone,
             phones,
           },
-        });
-        const client = created?.client || {};
-        const clientId = String(client.id || '').trim();
-        if (!clientId) throw new Error('КЛИЕНТ СОЗДАН БЕЗ ID.');
-        let clientVehicleId = '';
-        if (profileHasVehicleIdentity(profile)) {
-          if (state.editingId) {
-            const linked = await linkActiveCardToClient(clientId, { createVehicleFromCard: true });
-            clientVehicleId = linked?.card?.client_vehicle_id || '';
-          } else {
-            const upserted = await api('/api/upsert_client_vehicle', {
-              method: 'POST',
-              body: {
-                client_id: clientId,
-                vehicle: vehiclePayloadFromProfile(profile),
-                sync_linked_cards: true,
-              },
-            });
-            clientVehicleId = upserted?.vehicle?.id || '';
-          }
-        } else if (state.editingId) {
-          await linkActiveCardToClient(clientId);
-        }
-        state.pendingCardClientId = clientId;
-        state.pendingCardClientVehicleId = clientVehicleId;
-        state.pendingCreateClientVehicleFromCard = false;
-        hideClientSuggestions();
+          { createVehicleFromCard: true },
+        );
+        if (!created) return;
         setStatus(state.editingId ? 'КЛИЕНТ СОЗДАН И ПРИВЯЗАН К КАРТОЧКЕ.' : 'КЛИЕНТ СОЗДАН И БУДЕТ ПРИВЯЗАН ПОСЛЕ СОХРАНЕНИЯ КАРТОЧКИ.', false);
       } catch (error) {
         setStatus(error.message, true);
@@ -17833,8 +18005,11 @@ BOARD_WEB_APP_HTML = "".join(
           const copyButton = field.copy
             ? '<button class="vehicle-copy" type="button" data-copy-vehicle-field="' + escapeHtml(field.name) + '">копия</button>'
             : '';
+          const createClientButton = field.name === 'customer_name'
+            ? '<button class="vehicle-client-create" type="button" data-open-card-client-create="true" aria-label="Создать клиента из карточки" title="Создать клиента">+</button>'
+            : '';
           return '<div class="field field--compact vehicle-field' + (field.wide ? ' vehicle-field--wide' : '') + '">' +
-            '<div class="vehicle-field__label"><span>' + escapeHtml(field.label) + '</span>' + copyButton + '</div>' +
+            '<div class="vehicle-field__label"><span>' + escapeHtml(field.label) + '</span>' + copyButton + createClientButton + '</div>' +
             vehicleFieldControlHtml(field) +
             '</div>';
         }).join('');
@@ -18034,6 +18209,159 @@ BOARD_WEB_APP_HTML = "".join(
       profile.warnings = warnings;
       state.vehicleProfileDraft = cloneVehicleProfile(profile);
       return profile;
+    }
+
+    function renderCardClientCreatePhoneFields(values = ['']) {
+      const container = els.cardClientCreatePhoneFields || document.getElementById('cardClientCreatePhoneFields');
+      if (!container) return;
+      const rawItems = Array.isArray(values) ? values : [values];
+      const visible = [];
+      const seen = new Set();
+      for (const raw of rawItems) {
+        const phone = String(raw || '').replace(/\\s+/g, ' ').trim();
+        const key = phone ? (phone.replace(/\\D+/g, '') || phone.toLowerCase()) : '';
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
+        visible.push(phone);
+        if (visible.length >= CLIENT_PHONE_LIMIT) break;
+      }
+      if (!visible.length) visible.push('');
+      container.innerHTML = visible.map((phone, index) => {
+        const inputId = index === 0 ? 'cardClientCreatePhoneInput' : 'cardClientCreatePhoneInput' + (index + 1);
+        const actionButton = index === 0
+          ? '<button class="btn btn--ghost client-phone-add" type="button" data-card-client-phone-add="true" title="Добавить телефон"' + (visible.length >= CLIENT_PHONE_LIMIT ? ' disabled' : '') + '>+</button>'
+          : '<button class="btn btn--ghost client-phone-remove" type="button" data-card-client-phone-remove="' + index + '" title="Удалить телефон">×</button>';
+        return '<div class="client-phone-row">'
+          + '<input id="' + inputId + '" data-card-client-phone-input="' + index + '" type="text" maxlength="80" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" value="' + escapeHtml(phone) + '">'
+          + actionButton
+          + '</div>';
+      }).join('');
+    }
+
+    function readCardClientCreatePhoneFields() {
+      const inputs = Array.from(document.querySelectorAll('#cardClientCreatePhoneFields [data-card-client-phone-input]'));
+      return normalizePhoneList(inputs.map((input) => input.value));
+    }
+
+    function addCardClientCreatePhoneField() {
+      const current = Array.from(document.querySelectorAll('#cardClientCreatePhoneFields [data-card-client-phone-input]')).map((input) => input.value);
+      if (current.length >= CLIENT_PHONE_LIMIT) return;
+      const next = current.length ? current.slice() : [''];
+      next.push('');
+      renderCardClientCreatePhoneFields(next);
+      const input = document.getElementById('cardClientCreatePhoneInput' + next.length);
+      if (input instanceof HTMLInputElement) input.focus();
+    }
+
+    function removeCardClientCreatePhoneField(index) {
+      const normalizedIndex = Number(index);
+      if (!Number.isInteger(normalizedIndex) || normalizedIndex <= 0) return;
+      const values = Array.from(document.querySelectorAll('#cardClientCreatePhoneFields [data-card-client-phone-input]')).map((input) => input.value);
+      values.splice(normalizedIndex, 1);
+      renderCardClientCreatePhoneFields(values.length ? values : ['']);
+    }
+
+    function cardClientCreateVehicleSummary(profile) {
+      const vehicle = vehicleDisplayFromProfile(profile) || String(els.cardVehicle?.value || '').trim();
+      const parts = [
+        vehicle,
+        profile?.registration_plate,
+        profile?.vin,
+      ].map((item) => String(item || '').trim()).filter(Boolean);
+      return parts.join(' · ') || 'ДАННЫЕ АВТО ЕЩЁ НЕ ЗАПОЛНЕНЫ.';
+    }
+
+    function setCardClientCreateSaving(isSaving) {
+      const saving = Boolean(isSaving);
+      state.cardClientCreateSaving = saving;
+      if (els.cardClientCreateSaveButton) {
+        els.cardClientCreateSaveButton.disabled = saving;
+        els.cardClientCreateSaveButton.textContent = saving ? 'СОЗДАЕМ...' : 'СОЗДАТЬ И ПРИВЯЗАТЬ';
+      }
+    }
+
+    function resetCardClientCreateForm(profile = readVehicleProfileForm()) {
+      const displayName = String(profile.customer_name || '').trim();
+      const phones = normalizePhoneList([
+        profile.customer_phone,
+        ...(Array.isArray(profile.customer_phones) ? profile.customer_phones : []),
+      ]);
+      if (els.cardClientCreateTypeInput) els.cardClientCreateTypeInput.value = 'person';
+      if (els.cardClientCreateNameInput) els.cardClientCreateNameInput.value = displayName;
+      renderCardClientCreatePhoneFields(phones.length ? phones : ['']);
+      if (els.cardClientCreateCommentInput) els.cardClientCreateCommentInput.value = '';
+      const vehicleAvailable = profileHasVehicleIdentity(profile);
+      if (els.cardClientCreateVehicleInput) {
+        els.cardClientCreateVehicleInput.checked = vehicleAvailable;
+        els.cardClientCreateVehicleInput.disabled = !vehicleAvailable;
+      }
+      if (els.cardClientCreateVehicleSummary) {
+        els.cardClientCreateVehicleSummary.textContent = vehicleAvailable
+          ? cardClientCreateVehicleSummary(profile)
+          : 'ДАННЫЕ АВТО ЕЩЁ НЕ ЗАПОЛНЕНЫ.';
+      }
+      setCardClientCreateSaving(false);
+    }
+
+    function openCardClientCreateModal() {
+      const profile = readVehicleProfileForm();
+      resetCardClientCreateForm(profile);
+      hideClientSuggestions();
+      pushModal('card-client-create', els.cardClientCreateModal, { parentKey: 'card' });
+      window.setTimeout(() => {
+        const target = els.cardClientCreateNameInput?.value
+          ? document.querySelector('#cardClientCreatePhoneFields [data-card-client-phone-input]')
+          : els.cardClientCreateNameInput;
+        if (target instanceof HTMLElement) target.focus({ preventScroll: true });
+      }, 0);
+    }
+
+    function closeCardClientCreateModal() {
+      setCardClientCreateSaving(false);
+      popModal('card-client-create');
+    }
+
+    function readCardClientCreatePayload() {
+      const phones = readCardClientCreatePhoneFields();
+      const displayName = String(els.cardClientCreateNameInput?.value || '').trim();
+      const phone = phones[0] || '';
+      if (!displayName && !phone) {
+        setStatus('УКАЖИТЕ ИМЯ ИЛИ ТЕЛЕФОН КЛИЕНТА.', true);
+        if (els.cardClientCreateNameInput instanceof HTMLInputElement) els.cardClientCreateNameInput.focus();
+        return null;
+      }
+      const clientType = els.cardClientCreateTypeInput?.value || 'person';
+      const payload = {
+        client_type: clientType,
+        display_name: displayName || phone,
+        phone,
+        phones,
+        comment: String(els.cardClientCreateCommentInput?.value || '').trim(),
+      };
+      if (clientType !== 'person') {
+        payload.short_name = payload.display_name;
+        payload.legal_name = payload.display_name;
+      }
+      return payload;
+    }
+
+    async function saveCardClientFromPopup() {
+      if (state.cardClientCreateSaving) return;
+      const payload = readCardClientCreatePayload();
+      if (!payload) return;
+      const profile = readVehicleProfileForm();
+      const createVehicleFromCard = Boolean(els.cardClientCreateVehicleInput?.checked && !els.cardClientCreateVehicleInput?.disabled);
+      setCardClientCreateSaving(true);
+      try {
+        const created = await createClientForCard(profile, payload, { createVehicleFromCard });
+        if (!created) return;
+        closeCardClientCreateModal();
+        setStatus(state.editingId ? 'КЛИЕНТ СОЗДАН И ПРИВЯЗАН К КАРТОЧКЕ.' : 'КЛИЕНТ СОЗДАН И БУДЕТ ПРИВЯЗАН ПОСЛЕ СОХРАНЕНИЯ КАРТОЧКИ.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        setCardClientCreateSaving(false);
+      }
     }
 
     async function copyVehicleFieldValue(fieldName) {
@@ -19716,6 +20044,7 @@ BOARD_WEB_APP_HTML = "".join(
       state.pendingCardClientId = '';
       state.pendingCardClientVehicleId = '';
       state.pendingCreateClientVehicleFromCard = false;
+      state.cardClientCreateSaving = false;
       hideClientSuggestions();
       state.draftTags = [];
       state.draftTagColor = 'green';
@@ -21222,6 +21551,7 @@ BOARD_WEB_APP_HTML = "".join(
     }
 
     function closeCardModal() {
+      closeCardClientCreateModal();
       closeRepairOrderModal();
       clearFilePreview({ sync: false });
       popModal('card');
@@ -25173,6 +25503,34 @@ BOARD_WEB_APP_HTML = "".join(
           selectClientSuggestionTarget.dataset.clientSuggestion
             || selectClientSuggestionTarget.dataset.selectClientSuggestion,
         );
+        return;
+      }
+      const openCardClientCreateTarget = target.closest('[data-open-card-client-create]');
+      if (openCardClientCreateTarget instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        openCardClientCreateModal();
+        return;
+      }
+      const saveCardClientCreateTarget = target.closest('[data-card-client-create-save]');
+      if (saveCardClientCreateTarget instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        await saveCardClientFromPopup();
+        return;
+      }
+      const addCardClientPhoneTarget = target.closest('[data-card-client-phone-add]');
+      if (addCardClientPhoneTarget instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        addCardClientCreatePhoneField();
+        return;
+      }
+      const removeCardClientPhoneTarget = target.closest('[data-card-client-phone-remove]');
+      if (removeCardClientPhoneTarget instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        removeCardClientCreatePhoneField(removeCardClientPhoneTarget.dataset.cardClientPhoneRemove);
         return;
       }
       const createClientSuggestionTarget = target.closest('[data-client-suggest-create]');
