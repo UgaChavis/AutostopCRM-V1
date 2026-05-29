@@ -284,6 +284,53 @@ def _audit_report_totals(report: dict[str, Any], *, month: str) -> list[dict[str
     return issues
 
 
+def _audit_report_employee_references(
+    report: dict[str, Any],
+    *,
+    month: str,
+    employee_ids: set[str],
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    names_by_employee: dict[str, str] = {}
+    row_types_by_employee: dict[str, set[str]] = defaultdict(set)
+    rows_by_employee: Counter[str] = Counter()
+    for summary in _items(report.get("summary")):
+        employee_id = str(summary.get("employee_id") or "")
+        if not employee_id:
+            continue
+        names_by_employee[employee_id] = str(summary.get("employee_name") or "")
+        row_types_by_employee[employee_id].add("summary")
+    for row in _items(report.get("detail_rows")):
+        employee_id = str(row.get("employee_id") or "")
+        if not employee_id:
+            continue
+        names_by_employee.setdefault(employee_id, str(row.get("employee_name") or ""))
+        row_types_by_employee[employee_id].add(str(row.get("row_type") or "detail"))
+        rows_by_employee[employee_id] += 1
+
+    for employee_id in sorted(set(names_by_employee) | set(rows_by_employee)):
+        if employee_id in employee_ids:
+            continue
+        issues.append(
+            _issue(
+                code="payroll_accrual_missing_employee",
+                severity="error",
+                message=(
+                    "В отчете зарплат есть начисления на сотрудника, которого нет в "
+                    "справочнике; ведомость и история сотрудника будут недоступны."
+                ),
+                employee_id=employee_id,
+                employee_name=names_by_employee.get(employee_id, ""),
+                month=month,
+                data={
+                    "detail_rows": rows_by_employee.get(employee_id, 0),
+                    "row_types": sorted(row_types_by_employee.get(employee_id, set())),
+                },
+            )
+        )
+    return issues
+
+
 def _work_detail_card_ids(report: dict[str, Any]) -> set[str]:
     return {
         str(row.get("card_id") or "")
@@ -461,6 +508,7 @@ def build_payroll_audit(
         base_url, "/api/list_employees", timeout=timeout, urlopen=urlopen
     )
     employees = _items(_data(employees_payload).get("employees"))
+    employee_ids = {str(employee.get("id") or "") for employee in employees}
     all_cards_by_id: dict[str, dict[str, Any]] | None = None
     for month in _month_keys(months_back, reference=reference):
         report_payload = _fetch_json(
@@ -496,6 +544,13 @@ def build_payroll_audit(
                 if isinstance(card, dict):
                     cards_by_id[card_id] = card
                     all_cards_by_id[card_id] = card
+        issues.extend(
+            _audit_report_employee_references(
+                report,
+                month=month,
+                employee_ids=employee_ids,
+            )
+        )
         issues.extend(_audit_report_totals(report, month=month))
         issues.extend(_audit_work_card_formulas(report, month=month, cards_by_id=cards_by_id))
     for employee in employees:

@@ -263,6 +263,60 @@ class PayrollAuditReportTests(unittest.TestCase):
         self.assertEqual(issue["data"]["expected_salary_amount"], "100")
         self.assertEqual(issue["data"]["salary_amount"], "500")
 
+    def test_build_payroll_audit_reports_accrual_for_missing_employee(self) -> None:
+        module = load_payroll_audit_report_module()
+        responses = {
+            "/api/list_employees": _ok({"employees": []}),
+            "/api/get_payroll_report": _ok(
+                {
+                    "summary": [
+                        {
+                            "employee_id": "deleted-employee",
+                            "employee_name": "Удаленный мастер",
+                            "base_salary_accrued_total": "0",
+                            "shift_accrued_total": "0",
+                            "work_accrued_total": "1500",
+                            "materials_accrued_total": "0",
+                            "accrued_total": "1500",
+                        }
+                    ],
+                    "detail_rows": [
+                        {
+                            "row_type": "work",
+                            "employee_id": "deleted-employee",
+                            "employee_name": "Удаленный мастер",
+                            "card_id": "card-1",
+                            "repair_order_number": "72",
+                            "salary_amount": "1500",
+                        }
+                    ],
+                }
+            ),
+            "/api/get_cards": _ok({"cards": []}),
+            "/api/get_card": _ok({"card": {}}),
+        }
+
+        def fake_urlopen(request, timeout):
+            _ = timeout
+            return FakeResponse(responses[urlparse(request.full_url).path])
+
+        result = module.build_payroll_audit(
+            "https://crm.autostopcrm.ru",
+            months_back=1,
+            ledger_months=6,
+            urlopen=fake_urlopen,
+            reference=datetime(2026, 5, 29),
+        )
+
+        issue = next(
+            item for item in result["issues"] if item["code"] == "payroll_accrual_missing_employee"
+        )
+        self.assertEqual(issue["severity"], "error")
+        self.assertEqual(issue["employee_id"], "deleted-employee")
+        self.assertEqual(issue["employee_name"], "Удаленный мастер")
+        self.assertEqual(issue["data"]["detail_rows"], 1)
+        self.assertEqual(issue["data"]["row_types"], ["summary", "work"])
+
     def test_build_payroll_audit_reports_work_formula_mismatch_from_card(self) -> None:
         module = load_payroll_audit_report_module()
         employee = {"id": "emp-1", "name": "Иван Мастер"}
