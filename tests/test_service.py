@@ -1668,7 +1668,7 @@ class CardServiceTests(unittest.TestCase):
         employee_report = self.service.get_employee_salary_report(
             {"month": closed_month, "employee_id": employee["id"]}
         )
-        self.assertIn("Гарантия", employee_report["text"])
+        self.assertIn("Выплата исполнителю", employee_report["text"])
         self.assertIn("45", employee_report["text"])
 
         reconciliation = self.service.get_employee_salary_reconciliation(
@@ -1676,7 +1676,7 @@ class CardServiceTests(unittest.TestCase):
         )
         work_row = next(row for row in reconciliation["rows"] if row["kind"] == "work_accrual")
         self.assertEqual(work_row["accrued"], "11750")
-        self.assertIn("Гарантия 5 000,00 ₽ + 45%", work_row["scheme"])
+        self.assertIn("Выплата исполнителю 5 000,00 ₽ + 45%", work_row["scheme"])
         self.assertIn("Работа 20 000,00 ₽", work_row["calculation_base"])
 
     def test_repair_order_work_salary_cost_price_reduces_percent_base(self) -> None:

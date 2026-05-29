@@ -2023,7 +2023,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         work_row = next(row for row in report["data"]["rows"] if row["kind"] == "work_accrual")
         self.assertEqual(work_row["accrued"], "10400")
-        self.assertIn("Гарантия 5 000,00 ₽ + 45%", work_row["scheme"])
+        self.assertIn("Выплата исполнителю 5 000,00 ₽ + 45%", work_row["scheme"])
         self.assertIn("Себестоимость работы 3 000,00 ₽", work_row["calculation_base"])
 
     def test_snapshot_compact_query_returns_board_friendly_cards(self) -> None:

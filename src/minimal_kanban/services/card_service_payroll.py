@@ -1622,7 +1622,7 @@ class CardServicePayrollMixin:
             guarantee = self._work_salary_guarantee(row)
             percent = self._work_salary_override_percent(row)
             return (
-                "Гарантия "
+                "Выплата исполнителю "
                 + self._employee_salary_report_money(guarantee)["display"]
                 + " + "
                 + self._format_payroll_decimal(percent)
