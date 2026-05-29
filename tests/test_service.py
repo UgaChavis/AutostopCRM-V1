@@ -725,6 +725,28 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(search["clients"][0]["id"], client["id"])
         self.assertEqual(related_cards.call_count, 0)
 
+    def test_client_search_builds_related_vehicle_index_once_on_miss(self) -> None:
+        self.service.create_client({"display_name": "Клиент без совпадения"})["client"]
+        self.service.create_card(
+            {
+                "title": "История без совпадения",
+                "vehicle": "Toyota Corolla",
+                "description": "Проверка промаха поиска",
+                "deadline": {"hours": 1},
+                "vehicle_profile": {"vin": "NOMATCH0000000001"},
+            }
+        )
+
+        with patch.object(
+            self.service,
+            "_client_related_vehicle_fields_index",
+            wraps=self.service._client_related_vehicle_fields_index,
+        ) as related_index:
+            search = self.service.search_clients({"query": "ZZZ-UNKNOWN-999", "limit": 5})
+
+        self.assertEqual(search["clients"], [])
+        self.assertEqual(related_index.call_count, 1)
+
     def test_suggest_clients_for_card_uses_related_card_vehicle_fields(self) -> None:
         client = self.service.create_client({"display_name": "Клиент из истории VIN"})[
             "client"

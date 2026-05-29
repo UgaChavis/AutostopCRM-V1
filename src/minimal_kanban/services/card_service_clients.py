@@ -1444,7 +1444,6 @@ class CardServiceClientsMixin:
             return ranked
 
         ranked: list[tuple[int, ClientProfile]] = []
-        fallback_clients: list[ClientProfile] = []
         cards = cards or []
         for client in clients:
             indexed = client_search_index.get(client.id, {})
@@ -1496,38 +1495,6 @@ class CardServiceClientsMixin:
             )
             if score > 0:
                 ranked.append((score, client))
-            else:
-                fallback_clients.append(client)
-        if not ranked and cards and fallback_clients:
-            related_fields_by_client_id = self._client_related_vehicle_fields_index(
-                fallback_clients, cards
-            )
-            for client in fallback_clients:
-                score = 0
-                related_vehicle_fields = related_fields_by_client_id.get(client.id, [])
-                related_searchable = [
-                    self._normalize_search_text(value) for value in related_vehicle_fields if value
-                ]
-                related_compact_searchable = [
-                    re.sub(r"[\W_]+", "", value) for value in related_searchable if value
-                ]
-                for variant in query_variants:
-                    if not variant:
-                        continue
-                    for value in related_searchable:
-                        if value == variant:
-                            score += 7
-                        elif variant in value:
-                            score += 5
-                        elif all(part in value for part in variant.split()):
-                            score += 3
-                    compact_variant = re.sub(r"[\W_]+", "", variant)
-                    if compact_variant and any(
-                        compact_variant in value for value in related_compact_searchable
-                    ):
-                        score += 5
-                if score > 0:
-                    ranked.append((score, client))
         ranked.sort(key=lambda item: (item[0], item[1].updated_at, item[1].name()), reverse=True)
         return ranked
 
