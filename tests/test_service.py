@@ -377,6 +377,18 @@ class CardServiceTests(unittest.TestCase):
         search = self.service.search_clients({"query": "79020000003", "limit": 5})
         self.assertEqual(search["clients"][0]["id"], client["id"])
 
+    def test_client_profile_deduplicates_russian_phone_formats(self) -> None:
+        client = self.service.create_client(
+            {
+                "display_name": "Клиент с дублем телефона",
+                "phone": "89535868635",
+                "phones": ["+7 953 586-86-35", "+7 913 000-00-01"],
+            }
+        )["client"]
+
+        self.assertEqual(client["phone"], "89535868635")
+        self.assertEqual(client["phones"], ["89535868635", "+7 913 000-00-01"])
+
     def test_card_vehicle_profile_keeps_three_customer_phones(self) -> None:
         client = self.service.create_client(
             {
@@ -747,6 +759,41 @@ class CardServiceTests(unittest.TestCase):
                 search = self.service.search_clients({"query": query, "limit": 5})
                 self.assertTrue(search["clients"])
                 self.assertEqual(search["clients"][0]["id"], prefix_client["id"])
+
+    def test_client_search_uses_explicit_linked_card_phone(self) -> None:
+        linked_client = self.service.create_client(
+            {"display_name": "Связанный клиент без телефона"}
+        )["client"]
+        unlinked_same_name = self.service.create_client(
+            {"display_name": "Связанный клиент без телефона"}
+        )["client"]
+        direct_client = self.service.create_client(
+            {
+                "display_name": "Прямой клиент с тем же телефоном",
+                "phone": "+7 961 738-01-11",
+            }
+        )["client"]
+        card = self.service.create_card(
+            {
+                "title": "Связанная карточка с телефоном",
+                "vehicle": "BMW X5",
+                "vehicle_profile": {
+                    "customer_name": "Связанный клиент без телефона",
+                    "customer_phone": "8 961 738-01-11",
+                },
+                "deadline": {"hours": 2},
+            }
+        )["card"]
+        self.service.link_card_to_client(
+            {"card_id": card["id"], "client_id": linked_client["id"], "sync_fields": False}
+        )
+
+        search = self.service.search_clients({"query": "89617380111", "limit": 10})
+        found_ids = {client["id"] for client in search["clients"]}
+
+        self.assertIn(linked_client["id"], found_ids)
+        self.assertIn(direct_client["id"], found_ids)
+        self.assertNotIn(unlinked_same_name["id"], found_ids)
 
     def test_delete_client_rejects_linked_cards_unless_explicitly_allowed(self) -> None:
         client = self.service.create_client(

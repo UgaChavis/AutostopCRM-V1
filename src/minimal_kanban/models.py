@@ -248,6 +248,13 @@ def normalize_client_phone(value) -> str:
     return _SPACES_PATTERN.sub(" ", text)
 
 
+def _client_phone_dedupe_key(value: str) -> str:
+    digits = re.sub(r"\D+", "", value)
+    if len(digits) >= 10:
+        return "7" + digits[-10:]
+    return digits or value.casefold()
+
+
 def normalize_client_phones(value) -> list[str]:
     if value is None:
         return []
@@ -263,8 +270,7 @@ def normalize_client_phones(value) -> list[str]:
         phone = normalize_client_phone(raw)
         if not phone:
             continue
-        key = re.sub(r"\D+", "", phone)
-        dedupe_key = key or phone.casefold()
+        dedupe_key = _client_phone_dedupe_key(phone)
         if dedupe_key in seen:
             continue
         seen.add(dedupe_key)
