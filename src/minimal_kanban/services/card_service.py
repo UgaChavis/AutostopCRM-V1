@@ -5068,8 +5068,8 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
             order.vehicle = card.vehicle_display() or order.vehicle
         if order.vehicle != original_order.get("vehicle", ""):
             changed_fields.append("vehicle")
-        if overwrite or not order.opened_at:
-            order.opened_at = self._repair_order_card_datetime(card.created_at) or order.opened_at
+        if not order.opened_at:
+            order.opened_at = self._repair_order_now()
         if order.opened_at != original_order.get("opened_at", ""):
             changed_fields.append("opened_at")
         if overwrite or not order.vin:
@@ -6151,11 +6151,7 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                 or self._repair_order_now()
             )
         if not prepared.opened_at:
-            prepared.opened_at = (
-                self._repair_order_card_datetime(card.created_at if card is not None else "")
-                or prepared.date
-                or self._repair_order_now()
-            )
+            prepared.opened_at = self._repair_order_now()
         prepared.status = normalize_repair_order_status(
             prepared.status, default=REPAIR_ORDER_STATUS_OPEN
         )
