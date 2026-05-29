@@ -2930,6 +2930,72 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(len(listed_after["employees"]), 2)
         self.assertFalse(any(item["id"] == second["id"] for item in listed_after["employees"]))
 
+    def test_employee_delete_rejects_employee_with_payroll_references(self) -> None:
+        employee = self.service.save_employee(
+            {"name": "Олег Мастер", "position": "Механик", "work_percent": "30"}
+        )["employee"]
+        cashbox = self.service.create_cashbox({"name": "Зарплатная касса"})["cashbox"]
+        self.service.create_employee_salary_transaction(
+            {
+                "employee_id": employee["id"],
+                "transaction_kind": "salary_payout",
+                "amount": "1000",
+                "cashbox_id": cashbox["id"],
+            }
+        )
+        self.service.create_employee_shift_accrual(
+            {"employee_id": employee["id"], "amount": "2000"}
+        )
+        card = self.service.create_card(
+            {
+                "vehicle": "Toyota Camry",
+                "title": "Ссылки на сотрудника",
+                "deadline": {"hours": 2},
+            }
+        )["card"]
+        self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "number": "501",
+                    "status": "open",
+                    "works": [
+                        {
+                            "name": "Диагностика",
+                            "quantity": "1",
+                            "price": "5000",
+                            "executor_id": employee["id"],
+                        }
+                    ],
+                    "materials": [
+                        {
+                            "name": "Фильтр",
+                            "quantity": "1",
+                            "price": "1000",
+                            "executor_id": employee["id"],
+                        }
+                    ],
+                },
+            }
+        )
+
+        with self.assertRaises(ServiceError) as raised:
+            self.service.delete_employee({"employee_id": employee["id"], "actor_name": "ADMIN"})
+
+        self.assertEqual(raised.exception.code, "validation_error")
+        self.assertIn("нельзя удалить", raised.exception.message)
+        self.assertEqual(
+            raised.exception.details["usage"],
+            {
+                "repair_order_works": 1,
+                "repair_order_materials": 1,
+                "salary_transactions": 1,
+                "shift_accruals": 1,
+            },
+        )
+        listed_after = self.service.list_employees()
+        self.assertTrue(any(item["id"] == employee["id"] for item in listed_after["employees"]))
+
     def test_employee_list_shows_current_balance_after_salary_payout(self) -> None:
         employee = self.service.save_employee(
             {

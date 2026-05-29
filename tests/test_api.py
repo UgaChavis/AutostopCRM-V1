@@ -2557,6 +2557,32 @@ class ApiServerTests(unittest.TestCase):
             listed_after["data"]["employees"][0]["id"], first["data"]["employee"]["id"]
         )
 
+    def test_delete_employee_route_rejects_payroll_referenced_employee(self) -> None:
+        status, saved = self.request(
+            "/api/save_employee", {"name": "Олег Мастер", "position": "Механик"}
+        )
+        self.assertEqual(status, 200)
+        employee_id = saved["data"]["employee"]["id"]
+        status, cashbox = self.request("/api/create_cashbox", {"name": "Зарплатная касса"})
+        self.assertEqual(status, 200)
+        status, payout = self.request(
+            "/api/create_employee_salary_transaction",
+            {
+                "employee_id": employee_id,
+                "transaction_kind": "salary_payout",
+                "amount": "1000",
+                "cashbox_id": cashbox["data"]["cashbox"]["id"],
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payout["data"]["transaction"]["employee_id"], employee_id)
+
+        status, deleted = self.request("/api/delete_employee", {"employee_id": employee_id})
+
+        self.assertEqual(status, 400)
+        self.assertEqual(deleted["error"]["code"], "validation_error")
+        self.assertEqual(deleted["error"]["details"]["usage"]["salary_transactions"], 1)
+
     def test_employee_routes_toggle_active_state(self) -> None:
         status, saved = self.request("/api/save_employee", {"name": "Иван", "position": "Мастер"})
         self.assertEqual(status, 200)

@@ -1343,7 +1343,7 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                         actor_name=actor_name,
                         source=source,
                         action="board_ai_control_changed",
-                        message=f"{actor_name} РѕР±РЅРѕРІРёР» С‚РёС…РёРµ РЅР°СЃС‚СЂРѕР№РєРё board_control",
+                        message=f"{actor_name} обновил тихие настройки board_control",
                         card_id=None,
                         details={"before": previous_board_control, "after": board_control_settings},
                     )
@@ -2843,7 +2843,7 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                             actor_name=actor_name,
                             source=source,
                             action="card_moved",
-                            message=f"{actor_name} РїРµСЂРµРјРµСЃС‚РёР» РєР°СЂС‚РѕС‡РєСѓ",
+                            message=f"{actor_name} переместил карточку",
                             card_id=card.id,
                             details={
                                 "before_column": previous_column,

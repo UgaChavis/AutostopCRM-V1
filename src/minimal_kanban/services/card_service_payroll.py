@@ -1459,16 +1459,23 @@ class CardServicePayrollMixin:
             if not employee_id:
                 self._fail(
                     "validation_error",
-                    "РќСѓР¶РЅРѕ РїРµСЂРµРґР°С‚СЊ employee_id.",
+                    "Нужно передать employee_id.",
                     details={"field": "employee_id"},
                 )
             target = next((item for item in employees if item["id"] == employee_id), None)
             if target is None:
                 self._fail(
                     "not_found",
-                    "РЎРѕС‚СЂСѓРґРЅРёРє РЅРµ РЅР°Р№РґРµРЅ.",
+                    "Сотрудник не найден.",
                     status_code=404,
                     details={"employee_id": employee_id},
+                )
+            usage = self._employee_delete_usage_counts(bundle, employee_id)
+            if any(usage.values()):
+                self._fail(
+                    "validation_error",
+                    "Сотрудника нельзя удалить: есть связанные заказ-наряды, начисления или кассовые операции.",
+                    details={"employee_id": employee_id, "usage": usage},
                 )
             next_employees = [item for item in employees if item["id"] != employee_id]
             settings[EMPLOYEES_SETTING_KEY] = next_employees
@@ -1477,7 +1484,7 @@ class CardServicePayrollMixin:
                 actor_name=actor_name,
                 source=source,
                 action="employee_deleted",
-                message=f"{actor_name} СѓРґР°Р»РёР» СЃРѕС‚СЂСѓРґРЅРёРєР°",
+                message=f"{actor_name} удалил сотрудника",
                 card_id=None,
                 details={"employee_id": employee_id, "name": target["name"]},
             )
@@ -1491,6 +1498,47 @@ class CardServicePayrollMixin:
                 settings=settings,
             )
             return {"deleted": True, "employee_id": employee_id, "employees": next_employees}
+
+    def _employee_delete_usage_counts(
+        self, bundle: dict[str, Any], employee_id: str
+    ) -> dict[str, int]:
+        usage = {
+            "repair_order_works": 0,
+            "repair_order_materials": 0,
+            "salary_transactions": 0,
+            "shift_accruals": 0,
+        }
+        for card in bundle.get("cards", []):
+            order = (
+                card.repair_order if isinstance(card, Card) else Card.from_dict(card).repair_order
+            )
+            for source_row in order.works:
+                row = RepairOrderRow.from_dict(
+                    source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
+                )
+                if normalize_text(row.executor_id, default="", limit=64) == employee_id:
+                    usage["repair_order_works"] += 1
+            for source_row in order.materials:
+                row = RepairOrderRow.from_dict(
+                    source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
+                )
+                if self._material_salary_employee_id(row) == employee_id:
+                    usage["repair_order_materials"] += 1
+        for transaction in bundle.get("cash_transactions", []):
+            transaction = (
+                transaction
+                if isinstance(transaction, CashTransaction)
+                else CashTransaction.from_dict(transaction)
+            )
+            kind = normalize_text(transaction.transaction_kind, default="", limit=32).casefold()
+            if normalize_text(
+                transaction.employee_id, default="", limit=64
+            ) == employee_id and kind in {"salary_payout", "salary_advance"}:
+                usage["salary_transactions"] += 1
+        for accrual in self._employee_shift_accruals_from_settings(bundle.get("settings", {})):
+            if normalize_text(accrual.get("employee_id"), default="", limit=64) == employee_id:
+                usage["shift_accruals"] += 1
+        return usage
 
     def _parse_payroll_decimal(self, value, *, default: Decimal = Decimal("0")) -> Decimal:
         raw = normalize_text(value, default="", limit=40).replace(" ", "").replace(",", ".")

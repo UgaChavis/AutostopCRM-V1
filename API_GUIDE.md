@@ -132,6 +132,10 @@ one active employee. Payload: `employee_id`, `amount`, optional `note`
 (default `Выплата за смены за текущую неделю`). It affects payroll reports,
 employee salary ledger, and reconciliation act without changing cashboxes.
 
+`delete_employee` is allowed only for employees without linked repair-order
+rows, salary cash transactions, or manual shift accruals. Use
+`toggle_employee` to deactivate employees that already have payroll history.
+
 `get_employee_salary_report` returns `employee_salary_report.v3` for month
 `YYYY-MM`; it includes closed works, material salary accruals, weekly base
 salary accruals, and manual shift accruals, not advances.
