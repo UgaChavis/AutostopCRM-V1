@@ -233,23 +233,22 @@ def _build_plan_from_state(state: dict[str, Any], state_file: Path) -> dict[str,
             candidate_names, related_card_ids = _candidate_client_names_for_phone_like_client(
                 raw_client, raw_cards
             )
-            if candidate_names:
-                safe_fix_available = len(candidate_names) == 1
-                operations.append(
-                    {
-                        "kind": "replace_phone_like_client_name",
-                        "client_index": client_index,
-                        "client_id": client_id,
-                        "client_name": client_name,
-                        "previous_name": client_name,
-                        "replacement_name": candidate_names[0] if safe_fix_available else "",
-                        "candidate_names": candidate_names,
-                        "related_card_ids": related_card_ids,
-                        "reason": "phone_like_name",
-                        "safe_fix_available": safe_fix_available,
-                    }
-                )
-                clients_affected.add(client_id)
+            safe_fix_available = len(candidate_names) == 1
+            operations.append(
+                {
+                    "kind": "replace_phone_like_client_name",
+                    "client_index": client_index,
+                    "client_id": client_id,
+                    "client_name": client_name,
+                    "previous_name": client_name,
+                    "replacement_name": candidate_names[0] if safe_fix_available else "",
+                    "candidate_names": candidate_names,
+                    "related_card_ids": related_card_ids,
+                    "reason": "phone_like_name",
+                    "safe_fix_available": safe_fix_available,
+                }
+            )
+            clients_affected.add(client_id)
 
     operations.sort(
         key=lambda item: (

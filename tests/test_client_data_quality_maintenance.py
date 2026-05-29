@@ -155,6 +155,34 @@ class ClientDataQualityMaintenanceTests(unittest.TestCase):
             )
         )
 
+    def test_dry_run_reports_phone_like_client_name_without_safe_candidate(self) -> None:
+        client = self.service.create_client(
+            {
+                "client_id": "phone-like-review",
+                "display_name": "89080162605",
+                "phone": "89080162605",
+            }
+        )["client"]
+
+        plan = self.module.build_client_data_quality_plan(self.state_file)
+        operation = next(
+            item for item in plan["operations"] if item["kind"] == "replace_phone_like_client_name"
+        )
+
+        self.assertEqual(plan["summary"]["phone_like_client_names"], 1)
+        self.assertEqual(plan["summary"]["safe_fixes_available"], 0)
+        self.assertEqual(plan["summary"]["review_required"], 1)
+        self.assertEqual(operation["client_id"], client["id"])
+        self.assertEqual(operation["previous_name"], "89080162605")
+        self.assertEqual(operation["candidate_names"], [])
+        self.assertEqual(operation["replacement_name"], "")
+        self.assertFalse(operation["safe_fix_available"])
+
+        result = self.module.apply_client_data_quality_plan(self.state_file, backup=True)
+        self.assertFalse(result["applied"])
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        self.assertEqual(state["clients"][0]["display_name"], "89080162605")
+
     def test_apply_requires_backup(self) -> None:
         with self.assertRaisesRegex(ValueError, "backup"):
             self.module.apply_client_data_quality_plan(self.state_file, backup=False)
