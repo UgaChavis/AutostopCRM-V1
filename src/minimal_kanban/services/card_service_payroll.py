@@ -492,7 +492,7 @@ class CardServicePayrollMixin:
                 )
                 if self._work_salary_employee_id(row) != employee_id or not row.salary_accrued_at:
                     continue
-                row_total = row.total_value()
+                row_total = self._work_salary_total(row)
                 amount = self._parse_payroll_decimal(row.salary_amount)
                 accrued_total += amount
                 scheme = self._work_salary_scheme(row)
@@ -1016,9 +1016,14 @@ class CardServicePayrollMixin:
                 )
                 if self._work_salary_employee_id(row) != employee_id or not row.salary_accrued_at:
                     continue
-                row_total = row.total_value()
+                row_total = self._work_salary_total(row)
                 row_accrued = self._parse_payroll_decimal(row.salary_amount)
-                row_price_text = normalize_text(row.price, default="", limit=40)
+                row_quantity_text = normalize_text(
+                    row.work_quantity_snapshot or row.quantity, default="", limit=40
+                )
+                row_price_text = normalize_text(
+                    row.work_price_snapshot or row.price, default="", limit=40
+                )
                 row_price = self._parse_payroll_decimal(row_price_text)
                 work_money = self._employee_salary_report_money(row_total)
                 accrued_money = self._employee_salary_report_money(row_accrued)
@@ -1026,7 +1031,7 @@ class CardServicePayrollMixin:
                 works.append(
                     {
                         "name": row.name or "Работа без названия",
-                        "quantity": row.quantity,
+                        "quantity": row_quantity_text,
                         "price": self._format_payroll_decimal(row_price) if row_price_text else "",
                         "price_display": price_money["display"] if row_price_text else "",
                         "total": work_money["raw"],
@@ -1622,8 +1627,25 @@ class CardServicePayrollMixin:
     def _work_salary_cost_price(self, row: RepairOrderRow) -> Decimal:
         return max(self._parse_payroll_decimal(row.work_salary_cost_price), Decimal("0"))
 
+    def _work_salary_total(self, row: RepairOrderRow) -> Decimal:
+        if row.salary_accrued_at and (
+            row.work_quantity_snapshot or row.work_price_snapshot or row.work_total_snapshot
+        ):
+            quantity = self._repair_order_row_decimal_or_none(row.work_quantity_snapshot)
+            price = self._repair_order_row_decimal_or_none(row.work_price_snapshot)
+            if quantity is not None and price is not None:
+                return quantity * price
+            if row.work_total_snapshot:
+                snap_total = self._repair_order_row_decimal_or_none(row.work_total_snapshot)
+                if snap_total is not None:
+                    return snap_total
+        return row.total_value()
+
     def _work_salary_percent_base(self, row: RepairOrderRow, guarantee: Decimal) -> Decimal:
-        return max(row.total_value() - guarantee - self._work_salary_cost_price(row), Decimal("0"))
+        return max(
+            self._work_salary_total(row) - guarantee - self._work_salary_cost_price(row),
+            Decimal("0"),
+        )
 
     def _work_salary_override_amount(self, row: RepairOrderRow) -> tuple[Decimal, Decimal]:
         guarantee = self._work_salary_guarantee(row)
@@ -1688,6 +1710,9 @@ class CardServicePayrollMixin:
             [
                 row.work_executor_id_snapshot,
                 row.work_executor_name_snapshot,
+                row.work_quantity_snapshot,
+                row.work_price_snapshot,
+                row.work_total_snapshot,
                 row.salary_mode_snapshot,
                 row.base_salary_snapshot,
                 row.work_percent_snapshot,
@@ -1699,6 +1724,9 @@ class CardServicePayrollMixin:
     def _clear_work_salary_snapshot(self, row: RepairOrderRow) -> None:
         row.work_executor_id_snapshot = ""
         row.work_executor_name_snapshot = ""
+        row.work_quantity_snapshot = ""
+        row.work_price_snapshot = ""
+        row.work_total_snapshot = ""
         row.salary_mode_snapshot = ""
         row.base_salary_snapshot = ""
         row.work_percent_snapshot = ""
@@ -2004,6 +2032,9 @@ class CardServicePayrollMixin:
                 row.work_executor_name_snapshot = (
                     row.work_executor_name_snapshot or row.executor_name
                 )
+                row.work_quantity_snapshot = row.work_quantity_snapshot or row.quantity
+                row.work_price_snapshot = row.work_price_snapshot or row.price
+                row.work_total_snapshot = row.work_total_snapshot or row.total
                 next_work_rows.append(row.to_dict())
                 continue
             employee = employees_by_id.get(row.executor_id)
@@ -2014,6 +2045,9 @@ class CardServicePayrollMixin:
             row.executor_name = employee["name"]
             row.work_executor_id_snapshot = employee["id"]
             row.work_executor_name_snapshot = employee["name"]
+            row.work_quantity_snapshot = row.quantity
+            row.work_price_snapshot = row.price
+            row.work_total_snapshot = row.total
             row.salary_mode_snapshot = employee["salary_mode"]
             row.base_salary_snapshot = employee["base_salary"]
             salary_amount = Decimal("0")
@@ -2272,7 +2306,7 @@ class CardServicePayrollMixin:
                         "materials_accrued_total": Decimal("0"),
                     }
                 summary = summaries[current_employee_id]
-                work_total = row.total_value()
+                work_total = self._work_salary_total(row)
                 accrued_total = self._parse_payroll_decimal(row.salary_amount)
                 summary["works_count"] += 1
                 summary["works_total"] += work_total

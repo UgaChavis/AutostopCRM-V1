@@ -80,6 +80,20 @@ def _percent(value: Any) -> Decimal:
 
 
 def _work_row_total(row: dict[str, Any]) -> Decimal:
+    if row.get("salary_accrued_at") and (
+        row.get("work_quantity_snapshot")
+        or row.get("work_price_snapshot")
+        or row.get("work_total_snapshot")
+    ):
+        quantity = _money(row.get("work_quantity_snapshot"))
+        price = _money(row.get("work_price_snapshot"))
+        if (
+            str(row.get("work_quantity_snapshot") or "").strip()
+            and str(row.get("work_price_snapshot") or "").strip()
+        ):
+            return quantity * price
+        if str(row.get("work_total_snapshot") or "").strip():
+            return _money(row.get("work_total_snapshot"))
     quantity = _money(row.get("quantity"))
     price = _money(row.get("price"))
     if quantity > Decimal("0") and price > Decimal("0"):

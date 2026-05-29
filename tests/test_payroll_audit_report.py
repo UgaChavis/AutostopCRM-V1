@@ -507,6 +507,98 @@ class PayrollAuditReportTests(unittest.TestCase):
             {item["code"] for item in result["issues"]},
         )
 
+    def test_build_payroll_audit_uses_work_sale_snapshot_after_closed_edit(self) -> None:
+        module = load_payroll_audit_report_module()
+        employee = {"id": "emp-1", "name": "Иван Мастер"}
+        responses = {
+            "/api/list_employees": _ok({"employees": [employee]}),
+            "/api/get_payroll_report": _ok(
+                {
+                    "summary": [
+                        {
+                            "employee_id": "emp-1",
+                            "employee_name": "Иван Мастер",
+                            "base_salary_accrued_total": "0",
+                            "shift_accrued_total": "0",
+                            "work_accrued_total": "100",
+                            "materials_accrued_total": "0",
+                            "accrued_total": "100",
+                        }
+                    ],
+                    "detail_rows": [
+                        {
+                            "row_type": "work",
+                            "employee_id": "emp-1",
+                            "employee_name": "Иван Мастер",
+                            "card_id": "card-1",
+                            "repair_order_number": "74",
+                            "closed_at": "29.05.2026 12:00",
+                            "vehicle": "Toyota",
+                            "salary_amount": "100",
+                        }
+                    ],
+                }
+            ),
+            "/api/get_cards": _ok(
+                {
+                    "cards": [
+                        {
+                            "id": "card-1",
+                            "repair_order": {
+                                "number": "74",
+                                "works": [
+                                    {
+                                        "name": "Диагностика",
+                                        "quantity": "5",
+                                        "price": "1000",
+                                        "executor_id": "emp-1",
+                                        "work_executor_id_snapshot": "emp-1",
+                                        "work_executor_name_snapshot": "Иван Мастер",
+                                        "work_quantity_snapshot": "1",
+                                        "work_price_snapshot": "1000",
+                                        "work_total_snapshot": "1000",
+                                        "salary_mode_snapshot": "percent_only",
+                                        "work_percent_snapshot": "10",
+                                        "salary_amount": "100",
+                                        "salary_accrued_at": "29.05.2026 12:00",
+                                    }
+                                ],
+                            },
+                        }
+                    ]
+                }
+            ),
+            "/api/get_employee_salary_ledger": _ok(
+                {
+                    "employee_id": "emp-1",
+                    "employee_name": "Иван Мастер",
+                    "accrued_total": "100",
+                    "payout_total": "0",
+                    "advance_total": "0",
+                    "balance_total": "100",
+                    "journal_total": 0,
+                    "journal_rows": [],
+                }
+            ),
+        }
+
+        def fake_urlopen(request, timeout):
+            _ = timeout
+            return FakeResponse(responses[urlparse(request.full_url).path])
+
+        result = module.build_payroll_audit(
+            "https://crm.autostopcrm.ru",
+            months_back=1,
+            ledger_months=6,
+            urlopen=fake_urlopen,
+            reference=datetime(2026, 5, 29),
+        )
+
+        self.assertNotIn(
+            "payroll_work_salary_formula_mismatch",
+            {item["code"] for item in result["issues"]},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

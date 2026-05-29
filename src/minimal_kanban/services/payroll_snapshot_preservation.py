@@ -4,6 +4,9 @@ from ..models import normalize_text
 from ..repair_order import REPAIR_ORDER_STATUS_CLOSED, RepairOrder, RepairOrderRow
 
 WORK_SNAPSHOT_FIELDS = (
+    "work_quantity_snapshot",
+    "work_price_snapshot",
+    "work_total_snapshot",
     "salary_mode_snapshot",
     "base_salary_snapshot",
     "work_percent_snapshot",
@@ -34,6 +37,9 @@ def _work_salary_snapshot_signature(row: RepairOrderRow) -> tuple[str, ...]:
     return (
         normalize_text(row.work_executor_id_snapshot, default="", limit=64),
         normalize_text(row.work_executor_name_snapshot, default="", limit=80),
+        normalize_text(row.work_quantity_snapshot, default="", limit=40),
+        normalize_text(row.work_price_snapshot, default="", limit=40),
+        normalize_text(row.work_total_snapshot, default="", limit=40),
         normalize_text(row.salary_mode_snapshot, default="", limit=40),
         normalize_text(row.base_salary_snapshot, default="", limit=40),
         normalize_text(row.work_percent_snapshot, default="", limit=40),
@@ -96,6 +102,21 @@ def preserve_repair_order_payroll_snapshots(
                     row.work_executor_name_snapshot
                     or previous_row.work_executor_name_snapshot
                     or previous_row.executor_name
+                )
+                row.work_quantity_snapshot = (
+                    row.work_quantity_snapshot
+                    or previous_row.work_quantity_snapshot
+                    or previous_row.quantity
+                )
+                row.work_price_snapshot = (
+                    row.work_price_snapshot
+                    or previous_row.work_price_snapshot
+                    or previous_row.price
+                )
+                row.work_total_snapshot = (
+                    row.work_total_snapshot
+                    or previous_row.work_total_snapshot
+                    or previous_row.total
                 )
                 for field in WORK_SNAPSHOT_FIELDS:
                     if not getattr(row, field):

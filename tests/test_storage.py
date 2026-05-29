@@ -361,6 +361,9 @@ class JsonStoreTests(unittest.TestCase):
                                 "name": "Диагностика",
                                 "executor_id": "emp-1",
                                 "executor_name": "Иван Мастер",
+                                "work_quantity_snapshot": "1",
+                                "work_price_snapshot": "1500",
+                                "work_total_snapshot": "1500",
                                 "salary_mode_snapshot": "percent_only",
                                 "base_salary_snapshot": "0",
                                 "work_percent_snapshot": "100",
@@ -406,6 +409,15 @@ class JsonStoreTests(unittest.TestCase):
         self.assertEqual(sanitized["cash_transactions"], [])
         self.assertEqual(sanitized["cards"][0]["repair_order"]["works"][0]["executor_id"], "")
         self.assertEqual(sanitized["cards"][0]["repair_order"]["works"][0]["executor_name"], "")
+        self.assertEqual(
+            sanitized["cards"][0]["repair_order"]["works"][0]["work_quantity_snapshot"], ""
+        )
+        self.assertEqual(
+            sanitized["cards"][0]["repair_order"]["works"][0]["work_price_snapshot"], ""
+        )
+        self.assertEqual(
+            sanitized["cards"][0]["repair_order"]["works"][0]["work_total_snapshot"], ""
+        )
         self.assertEqual(sanitized["cards"][0]["repair_order"]["works"][0]["salary_amount"], "")
         self.assertEqual(sanitized["cards"][0]["repair_order"]["works"][0]["salary_accrued_at"], "")
         self.assertEqual(
