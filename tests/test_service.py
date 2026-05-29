@@ -3619,6 +3619,142 @@ class CardServiceTests(unittest.TestCase):
             )
         )
 
+    def test_employee_toggle_closes_legacy_active_period_at_toggle_time(self) -> None:
+        created_at = datetime(2026, 5, 4, 3, 0, tzinfo=timezone.utc)
+        stale_updated_at = datetime(2026, 5, 5, 3, 0, tzinfo=timezone.utc)
+        deactivated_at = datetime(2026, 5, 20, 3, 0, tzinfo=timezone.utc)
+        ledger_at = datetime(2026, 5, 22, 14, 0, tzinfo=timezone.utc)
+
+        patches = self._patch_time(created_at)
+        with patches[0], patches[1], patches[2]:
+            employee = self.service.save_employee(
+                {
+                    "name": "Legacy оклад",
+                    "position": "Мастер",
+                    "salary_mode": "salary_only",
+                    "base_salary": "1000",
+                }
+            )["employee"]
+
+        bundle = self.store.read_bundle()
+        for item in bundle["settings"]["employees"]:
+            if item["id"] == employee["id"]:
+                item.pop("active_periods", None)
+                item["updated_at"] = stale_updated_at.isoformat()
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        patches = self._patch_time(deactivated_at)
+        with patches[0], patches[1], patches[2]:
+            toggled_off = self.service.toggle_employee(
+                {"employee_id": employee["id"], "actor_name": "ADMIN"}
+            )["employee"]
+
+        self.assertEqual(toggled_off["active_periods"][-1]["start_at"], created_at.isoformat())
+        self.assertEqual(toggled_off["active_periods"][-1]["end_at"], deactivated_at.isoformat())
+
+        patches = self._patch_time(ledger_at)
+        with patches[0], patches[1], patches[2]:
+            ledger = self.service.get_employee_salary_ledger(
+                {"employee_id": employee["id"], "months": 1}
+            )
+
+        self.assertEqual(ledger["accrued_total"], "2000")
+        self.assertEqual(
+            sum(1 for row in ledger["journal_rows"] if row["kind"] == "base_salary_accrual"),
+            2,
+        )
+
+    def test_weekly_base_salary_stops_during_employee_inactive_period(self) -> None:
+        created_at = datetime(2026, 5, 4, 3, 0, tzinfo=timezone.utc)
+        first_friday_after_accrual = datetime(2026, 5, 8, 14, 0, tzinfo=timezone.utc)
+        deactivated_at = datetime(2026, 5, 9, 3, 0, tzinfo=timezone.utc)
+        inactive_friday_after_accrual = datetime(2026, 5, 15, 14, 0, tzinfo=timezone.utc)
+        reactivated_at = datetime(2026, 5, 16, 3, 0, tzinfo=timezone.utc)
+        reactivated_friday_after_accrual = datetime(2026, 5, 22, 14, 0, tzinfo=timezone.utc)
+
+        patches = self._patch_time(created_at)
+        with patches[0], patches[1], patches[2]:
+            employee = self.service.save_employee(
+                {
+                    "name": "Окладный мастер",
+                    "position": "Мастер",
+                    "salary_mode": "salary_only",
+                    "base_salary": "1000",
+                }
+            )["employee"]
+
+        patches = self._patch_time(first_friday_after_accrual)
+        with patches[0], patches[1], patches[2]:
+            active_ledger = self.service.get_employee_salary_ledger(
+                {"employee_id": employee["id"], "months": 1}
+            )
+
+        self.assertEqual(active_ledger["accrued_total"], "1000")
+        self.assertEqual(
+            sum(1 for row in active_ledger["journal_rows"] if row["kind"] == "base_salary_accrual"),
+            1,
+        )
+
+        patches = self._patch_time(deactivated_at)
+        with patches[0], patches[1], patches[2]:
+            toggled_off = self.service.toggle_employee(
+                {"employee_id": employee["id"], "actor_name": "ADMIN"}
+            )["employee"]
+
+        self.assertFalse(toggled_off["is_active"])
+        self.assertEqual(toggled_off["active_periods"][-1]["end_at"], deactivated_at.isoformat())
+
+        patches = self._patch_time(inactive_friday_after_accrual)
+        with patches[0], patches[1], patches[2]:
+            inactive_ledger = self.service.get_employee_salary_ledger(
+                {"employee_id": employee["id"], "months": 1}
+            )
+
+        self.assertEqual(inactive_ledger["accrued_total"], "1000")
+        self.assertEqual(
+            sum(
+                1
+                for row in inactive_ledger["journal_rows"]
+                if row["kind"] == "base_salary_accrual"
+            ),
+            1,
+        )
+
+        patches = self._patch_time(reactivated_at)
+        with patches[0], patches[1], patches[2]:
+            toggled_on = self.service.toggle_employee(
+                {"employee_id": employee["id"], "actor_name": "ADMIN"}
+            )["employee"]
+
+        self.assertTrue(toggled_on["is_active"])
+        self.assertEqual(toggled_on["active_periods"][-1]["start_at"], reactivated_at.isoformat())
+        self.assertEqual(toggled_on["active_periods"][-1]["end_at"], "")
+
+        patches = self._patch_time(reactivated_friday_after_accrual)
+        with patches[0], patches[1], patches[2]:
+            reactivated_ledger = self.service.get_employee_salary_ledger(
+                {"employee_id": employee["id"], "months": 1}
+            )
+
+        self.assertEqual(reactivated_ledger["accrued_total"], "2000")
+        self.assertEqual(
+            sum(
+                1
+                for row in reactivated_ledger["journal_rows"]
+                if row["kind"] == "base_salary_accrual"
+            ),
+            2,
+        )
+
     def test_employee_creation_rejects_more_than_fifteen_records(self) -> None:
         for index in range(15):
             self.service.save_employee({"name": f"Сотрудник {index + 1}"})

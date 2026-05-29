@@ -24,6 +24,12 @@ from ..models import (
 )
 from ..repair_order import REPAIR_ORDER_STATUS_CLOSED, RepairOrder, RepairOrderRow
 from ..vehicle_profile import normalize_license_plate
+from .payroll_active_periods import (
+    employee_active_periods_after_state_change,
+    employee_active_periods_for_save,
+    employee_weekly_base_salary_accruals,
+    normalized_employee_active_periods,
+)
 from .payroll_constants import (
     EMPLOYEE_SHIFT_ACCRUAL_NOTE,
     PAYROLL_ALLOWED_MODES,
@@ -36,9 +42,7 @@ EMPLOYEES_SETTING_KEY = "employees"
 EMPLOYEE_SHIFT_ACCRUALS_SETTING_KEY = "employee_shift_accruals"
 EMPLOYEES_MAX_COUNT = 15
 DEFAULT_MATERIAL_PERCENT = "10"
-PAYROLL_WEEKLY_BASE_SALARY_WEEKDAY = 4
-PAYROLL_WEEKLY_BASE_SALARY_HOUR = 20
-PAYROLL_WEEKLY_BASE_SALARY_MINUTE = 0
+PAYROLL_WEEKLY_BASE_SALARY_AT = {"weekday": 4, "hour": 20, "minute": 0}
 
 
 class CardServicePayrollMixin:
@@ -1381,6 +1385,8 @@ class CardServicePayrollMixin:
                     details={"field": EMPLOYEES_SETTING_KEY, "max_count": EMPLOYEES_MAX_COUNT},
                 )
             employee = self._validated_employee_payload(payload, existing=existing)
+            if existing is not None:
+                employee["active_periods"] = employee_active_periods_for_save(existing, employee)
             next_employees = [item for item in employees if item["id"] != employee["id"]]
             next_employees.append(employee)
             next_employees.sort(
@@ -1429,8 +1435,15 @@ class CardServicePayrollMixin:
                     status_code=404,
                     details={"employee_id": employee_id},
                 )
-            target["is_active"] = not bool(target.get("is_active"))
-            target["updated_at"] = model_helpers.utc_now_iso()
+            now_iso = model_helpers.utc_now_iso()
+            next_is_active = not bool(target.get("is_active"))
+            target["active_periods"] = employee_active_periods_after_state_change(
+                target,
+                next_is_active=next_is_active,
+                changed_at=now_iso,
+            )
+            target["is_active"] = next_is_active
+            target["updated_at"] = now_iso
             settings[EMPLOYEES_SETTING_KEY] = employees
             self._append_event(
                 bundle["events"],
@@ -1778,33 +1791,14 @@ class CardServicePayrollMixin:
     ) -> list[dict[str, Any]]:
         if not self._employee_has_weekly_base_salary(employee):
             return []
-        timezone = business_timezone()
-        start_at = period_start.astimezone(timezone)
-        end_at = period_end.astimezone(timezone)
-        as_of_at = (as_of or model_helpers.utc_now()).astimezone(timezone)
-        created_at = parse_datetime(employee.get("created_at"))
-        if created_at is not None:
-            start_at = max(start_at, created_at.astimezone(timezone))
-        if end_at <= start_at:
-            return []
-        amount = self._parse_payroll_decimal(employee.get("base_salary", ""))
-        days_until_friday = (PAYROLL_WEEKLY_BASE_SALARY_WEEKDAY - start_at.weekday()) % 7
-        candidate_date = (start_at + timedelta(days=days_until_friday)).date()
-        candidate = datetime(
-            candidate_date.year,
-            candidate_date.month,
-            candidate_date.day,
-            PAYROLL_WEEKLY_BASE_SALARY_HOUR,
-            PAYROLL_WEEKLY_BASE_SALARY_MINUTE,
-            tzinfo=timezone,
+        return employee_weekly_base_salary_accruals(
+            employee,
+            amount=self._parse_payroll_decimal(employee.get("base_salary", "")),
+            period_start=period_start,
+            period_end=period_end,
+            as_of=as_of or model_helpers.utc_now(),
+            **PAYROLL_WEEKLY_BASE_SALARY_AT,
         )
-        if candidate < start_at:
-            candidate += timedelta(days=7)
-        accruals: list[dict[str, Any]] = []
-        while candidate < end_at and candidate <= as_of_at:
-            accruals.append({"accrued_at": candidate, "amount": amount})
-            candidate += timedelta(days=7)
-        return accruals
 
     def _normalized_employee_shift_accrual(
         self,
@@ -1966,6 +1960,12 @@ class CardServicePayrollMixin:
             "work_percent": work_percent,
             "material_percent": material_percent,
             "is_active": is_active,
+            "active_periods": normalized_employee_active_periods(
+                payload.get("active_periods", existing.get("active_periods")),
+                created_at=created_at,
+                updated_at=updated_at,
+                is_active=is_active,
+            ),
             "note": note,
             "created_at": created_at,
             "updated_at": updated_at,
