@@ -1357,6 +1357,35 @@ class CardServiceFinanceMixin:
                             },
                         )
                     )
+                expected_amount_minor = normalize_money_minor(payment.amount, default=0)
+                expected_cashbox_id = normalize_text(payment.cashbox_id, default="", limit=128)
+                mismatch_reasons: list[str] = []
+                if transaction.direction != "income":
+                    mismatch_reasons.append("direction")
+                if transaction.amount_minor != expected_amount_minor:
+                    mismatch_reasons.append("amount")
+                if expected_cashbox_id and transaction.cashbox_id != expected_cashbox_id:
+                    mismatch_reasons.append("cashbox")
+                if mismatch_reasons:
+                    issues.append(
+                        self._finance_audit_issue(
+                            code="linked_payment_cash_transaction_mismatch",
+                            severity="error",
+                            message="Связанное движение кассы не совпадает с оплатой заказ-наряда.",
+                            card=card,
+                            payment=payment,
+                            transaction=transaction,
+                            data={
+                                "mismatch_reasons": mismatch_reasons,
+                                "expected_direction": "income",
+                                "direction": transaction.direction,
+                                "expected_amount_minor": expected_amount_minor,
+                                "amount_minor": transaction.amount_minor,
+                                "expected_cashbox_id": expected_cashbox_id,
+                                "cashbox_id": transaction.cashbox_id,
+                            },
+                        )
+                    )
                 if transaction.transaction_kind != "repair_order_payment":
                     issues.append(
                         self._finance_audit_issue(

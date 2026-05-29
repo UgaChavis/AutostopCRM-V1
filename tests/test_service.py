@@ -8279,6 +8279,72 @@ class CardServiceTests(unittest.TestCase):
         )
         self.assertFalse(issues["cash_transaction_missing_cashbox"]["safe_fix_available"])
 
+    def test_finance_audit_reports_linked_payment_cash_transaction_mismatch(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        other_cashbox = self.service.create_cashbox({"name": "Безнал", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        card = self.service.create_card(
+            {"vehicle": "Skoda Rapid", "title": "Сверка оплаты", "deadline": {"hours": 2}}
+        )["card"]
+        order = self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "number": "213",
+                    "works": [{"name": "Работа", "quantity": "1", "price": "4000"}],
+                    "payments": [
+                        {
+                            "amount": "4000",
+                            "paid_at": "18.05.2026 12:39",
+                            "payment_method": "cash",
+                            "cashbox_id": cashbox["id"],
+                            "actor_name": "ADMIN",
+                        }
+                    ],
+                },
+            }
+        )["card"]["repair_order"]
+        transaction_id = order["payments"][0]["cash_transaction_id"]
+
+        bundle = self.store.read_bundle()
+        transaction = next(
+            item for item in bundle["cash_transactions"] if item.id == transaction_id
+        )
+        transaction.direction = "expense"
+        transaction.amount_minor = 350000
+        transaction.cashbox_id = other_cashbox["id"]
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        audit = self.service.get_finance_audit()
+        issue = next(
+            item
+            for item in audit["issues"]
+            if item["code"] == "linked_payment_cash_transaction_mismatch"
+        )
+
+        self.assertEqual(issue["severity"], "error")
+        self.assertFalse(issue["safe_fix_available"])
+        self.assertCountEqual(
+            issue["data"]["mismatch_reasons"],
+            ["direction", "amount", "cashbox"],
+        )
+        self.assertEqual(issue["data"]["expected_amount_minor"], 400000)
+        self.assertEqual(issue["data"]["amount_minor"], 350000)
+        self.assertEqual(issue["data"]["expected_cashbox_id"], cashbox["id"])
+        self.assertEqual(issue["data"]["cashbox_id"], other_cashbox["id"])
+
     def test_finance_audit_reports_read_only_cross_link_issues(self) -> None:
         employee = self.service.save_employee({"name": "Сотрудник сверки"})["employee"]
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
