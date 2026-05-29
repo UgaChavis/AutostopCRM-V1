@@ -3563,10 +3563,16 @@ BOARD_WEB_APP_HTML = "".join(
       color: var(--text);
       border-color: var(--accent);
     }
+    .vehicle-client-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 5px;
+      align-items: center;
+    }
     .vehicle-client-create {
-      width: 24px;
-      height: 22px;
-      min-width: 24px;
+      width: 28px;
+      height: 28px;
+      min-width: 28px;
       padding: 0;
       display: inline-grid;
       place-items: center;
@@ -3575,7 +3581,7 @@ BOARD_WEB_APP_HTML = "".join(
       color: var(--text);
       cursor: pointer;
       font-family: var(--mono);
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 800;
       line-height: 1;
     }
@@ -17996,7 +18002,14 @@ BOARD_WEB_APP_HTML = "".join(
         field.mono ? 'class="vehicle-control--mono"' : '',
         (field.name === 'customer_name' || field.name === 'customer_phone') ? 'autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"' : '',
       ].filter(Boolean).join(' ');
-      return '<input ' + attrs + '>';
+      const inputHtml = '<input ' + attrs + '>';
+      if (field.name === 'customer_name') {
+        return '<div class="vehicle-client-row">' +
+          inputHtml +
+          '<button class="vehicle-client-create" type="button" data-open-card-client-create="true" aria-label="Создать клиента из карточки" title="Создать клиента">+</button>' +
+          '</div>';
+      }
+      return inputHtml;
     }
 
     function renderVehicleProfileFields() {
@@ -18005,11 +18018,8 @@ BOARD_WEB_APP_HTML = "".join(
           const copyButton = field.copy
             ? '<button class="vehicle-copy" type="button" data-copy-vehicle-field="' + escapeHtml(field.name) + '">копия</button>'
             : '';
-          const createClientButton = field.name === 'customer_name'
-            ? '<button class="vehicle-client-create" type="button" data-open-card-client-create="true" aria-label="Создать клиента из карточки" title="Создать клиента">+</button>'
-            : '';
           return '<div class="field field--compact vehicle-field' + (field.wide ? ' vehicle-field--wide' : '') + '">' +
-            '<div class="vehicle-field__label"><span>' + escapeHtml(field.label) + '</span>' + copyButton + createClientButton + '</div>' +
+            '<div class="vehicle-field__label"><span>' + escapeHtml(field.label) + '</span>' + copyButton + '</div>' +
             vehicleFieldControlHtml(field) +
             '</div>';
         }).join('');

@@ -1513,6 +1513,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function createClientFromCardSuggestion()", BOARD_WEB_APP_HTML)
         self.assertIn('id="cardClientCreateModal"', BOARD_WEB_APP_HTML)
         self.assertIn('data-open-card-client-create="true"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="vehicle-client-row"', BOARD_WEB_APP_HTML)
+        self.assertIn("if (field.name === 'customer_name') {", BOARD_WEB_APP_HTML)
         self.assertIn('id="cardClientCreateNameInput"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cardClientCreatePhoneFields"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cardClientCreateVehicleInput"', BOARD_WEB_APP_HTML)
@@ -1527,6 +1529,11 @@ class WebAssetsTests(unittest.TestCase):
             "pushModal('card-client-create', els.cardClientCreateModal, { parentKey: 'card' });",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn(
+            "'<div class=\"vehicle-field__label\"><span>' + escapeHtml(field.label) + '</span>' + copyButton + '</div>'",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertNotIn("copyButton + createClientButton", BOARD_WEB_APP_HTML)
         self.assertIn("await saveCardClientFromPopup();", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/create_client'", BOARD_WEB_APP_HTML)
         self.assertIn("vehiclePayloadFromProfile(profile)", BOARD_WEB_APP_HTML)
