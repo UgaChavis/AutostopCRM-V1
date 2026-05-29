@@ -70,6 +70,46 @@ def _round_money(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _bool_text(value: Any) -> bool:
+    raw = str(value or "").strip().casefold()
+    return raw in {"1", "true", "yes", "y", "on", "да"}
+
+
+def _percent(value: Any) -> Decimal:
+    return min(max(_money(value), Decimal("0")), Decimal("100"))
+
+
+def _work_row_total(row: dict[str, Any]) -> Decimal:
+    quantity = _money(row.get("quantity"))
+    price = _money(row.get("price"))
+    if quantity > Decimal("0") and price > Decimal("0"):
+        return quantity * price
+    return _money(row.get("total"))
+
+
+def _work_salary_employee_id(row: dict[str, Any]) -> str:
+    return str(row.get("work_executor_id_snapshot") or row.get("executor_id") or "")
+
+
+def _expected_work_salary(row: dict[str, Any]) -> Decimal | None:
+    total = _work_row_total(row)
+    cost_price = max(_money(row.get("work_salary_cost_price")), Decimal("0"))
+    if _bool_text(row.get("work_salary_override_enabled")):
+        guarantee = max(_money(row.get("work_salary_guarantee")), Decimal("0"))
+        percent = _percent(row.get("work_salary_percent_override"))
+        percent_base = max(total - guarantee - cost_price, Decimal("0"))
+        return guarantee + (percent_base * percent / Decimal("100"))
+
+    mode = str(row.get("salary_mode_snapshot") or "").strip().casefold()
+    if mode in {"percent_only", "salary_plus_percent"}:
+        percent = _percent(row.get("work_percent_snapshot"))
+        percent_base = max(total - cost_price, Decimal("0"))
+        return percent_base * percent / Decimal("100")
+    if mode == "salary_only":
+        return Decimal("0")
+    return None
+
+
 def _month_keys(months_back: int, *, reference: datetime | None = None) -> list[str]:
     reference = reference or datetime.now()
     year = reference.year
@@ -244,6 +284,111 @@ def _audit_report_totals(report: dict[str, Any], *, month: str) -> list[dict[str
     return issues
 
 
+def _work_detail_card_ids(report: dict[str, Any]) -> set[str]:
+    return {
+        str(row.get("card_id") or "")
+        for row in _items(report.get("detail_rows"))
+        if str(row.get("row_type") or "") == "work" and str(row.get("card_id") or "")
+    }
+
+
+def _cards_by_id_from_list(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    cards: dict[str, dict[str, Any]] = {}
+    for card in _items(payload.get("cards")):
+        card_id = str(card.get("id") or "")
+        if card_id:
+            cards[card_id] = card
+    return cards
+
+
+def _audit_work_card_formulas(
+    report: dict[str, Any],
+    *,
+    month: str,
+    cards_by_id: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    reported_totals: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
+    for row in _items(report.get("detail_rows")):
+        if str(row.get("row_type") or "") != "work":
+            continue
+        employee_id = str(row.get("employee_id") or "")
+        card_id = str(row.get("card_id") or "")
+        if not employee_id or not card_id:
+            continue
+        reported_totals[(employee_id, card_id)] += _money(row.get("salary_amount"))
+
+    stored_totals: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
+    for (employee_id, card_id), _reported_total in sorted(reported_totals.items()):
+        card = cards_by_id.get(card_id, {})
+        repair_order = card.get("repair_order") if isinstance(card, dict) else {}
+        if not isinstance(repair_order, dict):
+            continue
+        for index, row in enumerate(_items(repair_order.get("works")), start=1):
+            if _work_salary_employee_id(row) != employee_id or not row.get("salary_accrued_at"):
+                continue
+            amount = _money(row.get("salary_amount"))
+            stored_totals[(employee_id, card_id)] += amount
+            expected = _expected_work_salary(row)
+            if expected is None:
+                continue
+            if _round_money(expected) == _round_money(amount):
+                continue
+            issues.append(
+                _issue(
+                    code="payroll_work_salary_formula_mismatch",
+                    severity="error",
+                    message=(
+                        "Начисление по работе не равно формуле выплаты исполнителю, "
+                        "процента и себестоимости."
+                    ),
+                    employee_id=employee_id,
+                    employee_name=str(row.get("work_executor_name_snapshot") or ""),
+                    month=month,
+                    data={
+                        "card_id": card_id,
+                        "repair_order_number": repair_order.get("number"),
+                        "work_index": index,
+                        "work_name": row.get("name"),
+                        "work_total": _format_money(_work_row_total(row)),
+                        "work_salary_guarantee": _format_money(
+                            _money(row.get("work_salary_guarantee"))
+                        ),
+                        "work_salary_cost_price": _format_money(
+                            _money(row.get("work_salary_cost_price"))
+                        ),
+                        "work_percent": str(
+                            row.get("work_salary_percent_override")
+                            if _bool_text(row.get("work_salary_override_enabled"))
+                            else row.get("work_percent_snapshot")
+                        ),
+                        "expected_salary_amount": _format_money(expected),
+                        "salary_amount": _format_money(amount),
+                    },
+                )
+            )
+
+    for (employee_id, card_id), reported_total in sorted(reported_totals.items()):
+        stored_total = stored_totals.get((employee_id, card_id), Decimal("0"))
+        if _round_money(reported_total) == _round_money(stored_total):
+            continue
+        issues.append(
+            _issue(
+                code="payroll_work_report_card_total_mismatch",
+                severity="error",
+                message="Итог работ в отчете зарплат не совпадает с начислениями в карточке.",
+                employee_id=employee_id,
+                month=month,
+                data={
+                    "card_id": card_id,
+                    "reported_salary_amount": _format_money(reported_total),
+                    "stored_salary_amount": _format_money(stored_total),
+                },
+            )
+        )
+    return issues
+
+
 def _audit_ledger(ledger: dict[str, Any], employee: dict[str, Any]) -> list[dict[str, Any]]:
     employee_id = str(employee.get("id") or ledger.get("employee_id") or "")
     employee_name = str(employee.get("name") or ledger.get("employee_name") or "")
@@ -316,6 +461,7 @@ def build_payroll_audit(
         base_url, "/api/list_employees", timeout=timeout, urlopen=urlopen
     )
     employees = _items(_data(employees_payload).get("employees"))
+    all_cards_by_id: dict[str, dict[str, Any]] | None = None
     for month in _month_keys(months_back, reference=reference):
         report_payload = _fetch_json(
             base_url,
@@ -324,7 +470,34 @@ def build_payroll_audit(
             timeout=timeout,
             urlopen=urlopen,
         )
-        issues.extend(_audit_report_totals(_data(report_payload), month=month))
+        report = _data(report_payload)
+        card_ids = _work_detail_card_ids(report)
+        cards_by_id: dict[str, dict[str, Any]] = {}
+        if card_ids:
+            if all_cards_by_id is None:
+                cards_payload = _fetch_json(
+                    base_url,
+                    "/api/get_cards",
+                    query={"include_archived": "true"},
+                    timeout=timeout,
+                    urlopen=urlopen,
+                )
+                all_cards_by_id = _cards_by_id_from_list(_data(cards_payload))
+            cards_by_id.update(all_cards_by_id)
+            for card_id in sorted(card_ids - set(cards_by_id)):
+                card_payload = _fetch_json(
+                    base_url,
+                    "/api/get_card",
+                    query={"card_id": card_id},
+                    timeout=timeout,
+                    urlopen=urlopen,
+                )
+                card = _data(card_payload).get("card")
+                if isinstance(card, dict):
+                    cards_by_id[card_id] = card
+                    all_cards_by_id[card_id] = card
+        issues.extend(_audit_report_totals(report, month=month))
+        issues.extend(_audit_work_card_formulas(report, month=month, cards_by_id=cards_by_id))
     for employee in employees:
         employee_id = str(employee.get("id") or "")
         if not employee_id:

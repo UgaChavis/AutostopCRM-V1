@@ -125,7 +125,7 @@ class PayrollAuditReportTests(unittest.TestCase):
         duplicate_detail = {
             "row_type": "work",
             "employee_id": "emp-1",
-            "card_id": "card-1",
+            "card_id": "",
             "repair_order_number": "42",
             "closed_at": "29.05.2026 12:00",
             "vehicle": "Toyota",
@@ -262,6 +262,196 @@ class PayrollAuditReportTests(unittest.TestCase):
         )
         self.assertEqual(issue["data"]["expected_salary_amount"], "100")
         self.assertEqual(issue["data"]["salary_amount"], "500")
+
+    def test_build_payroll_audit_reports_work_formula_mismatch_from_card(self) -> None:
+        module = load_payroll_audit_report_module()
+        employee = {"id": "emp-1", "name": "Иван Мастер"}
+        seen_queries: list[dict[str, list[str]]] = []
+        responses = {
+            "/api/list_employees": _ok({"employees": [employee]}),
+            "/api/get_payroll_report": _ok(
+                {
+                    "summary": [
+                        {
+                            "employee_id": "emp-1",
+                            "employee_name": "Иван Мастер",
+                            "base_salary_accrued_total": "0",
+                            "shift_accrued_total": "0",
+                            "work_accrued_total": "2000",
+                            "materials_accrued_total": "0",
+                            "accrued_total": "2000",
+                        }
+                    ],
+                    "detail_rows": [
+                        {
+                            "row_type": "work",
+                            "employee_id": "emp-1",
+                            "employee_name": "Иван Мастер",
+                            "card_id": "card-1",
+                            "repair_order_number": "72",
+                            "closed_at": "29.05.2026 12:00",
+                            "vehicle": "Toyota",
+                            "salary_amount": "2000",
+                        }
+                    ],
+                }
+            ),
+            "/api/get_cards": _ok(
+                {
+                    "cards": [
+                        {
+                            "id": "card-1",
+                            "repair_order": {
+                                "number": "72",
+                                "works": [
+                                    {
+                                        "name": "Диагностика",
+                                        "quantity": "1",
+                                        "price": "10000",
+                                        "executor_id": "emp-1",
+                                        "work_executor_id_snapshot": "emp-1",
+                                        "work_executor_name_snapshot": "Иван Мастер",
+                                        "salary_mode_snapshot": "percent_only",
+                                        "work_percent_snapshot": "20",
+                                        "work_salary_cost_price": "1000",
+                                        "salary_amount": "2000",
+                                        "salary_accrued_at": "29.05.2026 12:00",
+                                    }
+                                ],
+                            },
+                        }
+                    ]
+                }
+            ),
+            "/api/get_employee_salary_ledger": _ok(
+                {
+                    "employee_id": "emp-1",
+                    "employee_name": "Иван Мастер",
+                    "accrued_total": "2000",
+                    "payout_total": "0",
+                    "advance_total": "0",
+                    "balance_total": "2000",
+                    "journal_total": 0,
+                    "journal_rows": [],
+                }
+            ),
+        }
+
+        def fake_urlopen(request, timeout):
+            _ = timeout
+            parsed = urlparse(request.full_url)
+            seen_queries.append(parse_qs(parsed.query))
+            return FakeResponse(responses[parsed.path])
+
+        result = module.build_payroll_audit(
+            "https://crm.autostopcrm.ru",
+            months_back=1,
+            ledger_months=6,
+            urlopen=fake_urlopen,
+            reference=datetime(2026, 5, 29),
+        )
+
+        issue = next(
+            item
+            for item in result["issues"]
+            if item["code"] == "payroll_work_salary_formula_mismatch"
+        )
+        self.assertEqual(issue["data"]["expected_salary_amount"], "1800")
+        self.assertEqual(issue["data"]["salary_amount"], "2000")
+        self.assertIn({"include_archived": ["true"]}, seen_queries)
+
+    def test_build_payroll_audit_accepts_work_override_with_cost_price(self) -> None:
+        module = load_payroll_audit_report_module()
+        employee = {"id": "emp-1", "name": "Иван Мастер"}
+        responses = {
+            "/api/list_employees": _ok({"employees": [employee]}),
+            "/api/get_payroll_report": _ok(
+                {
+                    "summary": [
+                        {
+                            "employee_id": "emp-1",
+                            "employee_name": "Иван Мастер",
+                            "base_salary_accrued_total": "0",
+                            "shift_accrued_total": "0",
+                            "work_accrued_total": "10400",
+                            "materials_accrued_total": "0",
+                            "accrued_total": "10400",
+                        }
+                    ],
+                    "detail_rows": [
+                        {
+                            "row_type": "work",
+                            "employee_id": "emp-1",
+                            "employee_name": "Иван Мастер",
+                            "card_id": "card-1",
+                            "repair_order_number": "73",
+                            "closed_at": "29.05.2026 12:00",
+                            "vehicle": "Toyota",
+                            "salary_amount": "10400",
+                        }
+                    ],
+                }
+            ),
+            "/api/get_cards": _ok(
+                {
+                    "cards": [
+                        {
+                            "id": "card-1",
+                            "repair_order": {
+                                "number": "73",
+                                "works": [
+                                    {
+                                        "name": "Работа с подрядом",
+                                        "quantity": "1",
+                                        "price": "20000",
+                                        "executor_id": "emp-1",
+                                        "work_executor_id_snapshot": "emp-1",
+                                        "work_executor_name_snapshot": "Иван Мастер",
+                                        "salary_mode_snapshot": "percent_only",
+                                        "work_percent_snapshot": "45",
+                                        "work_salary_override_enabled": "true",
+                                        "work_salary_guarantee": "5000",
+                                        "work_salary_percent_override": "45",
+                                        "work_salary_cost_price": "3000",
+                                        "salary_amount": "10400",
+                                        "salary_accrued_at": "29.05.2026 12:00",
+                                    }
+                                ],
+                            },
+                        }
+                    ]
+                }
+            ),
+            "/api/get_employee_salary_ledger": _ok(
+                {
+                    "employee_id": "emp-1",
+                    "employee_name": "Иван Мастер",
+                    "accrued_total": "10400",
+                    "payout_total": "0",
+                    "advance_total": "0",
+                    "balance_total": "10400",
+                    "journal_total": 0,
+                    "journal_rows": [],
+                }
+            ),
+        }
+
+        def fake_urlopen(request, timeout):
+            _ = timeout
+            return FakeResponse(responses[urlparse(request.full_url).path])
+
+        result = module.build_payroll_audit(
+            "https://crm.autostopcrm.ru",
+            months_back=1,
+            ledger_months=6,
+            urlopen=fake_urlopen,
+            reference=datetime(2026, 5, 29),
+        )
+
+        self.assertNotIn(
+            "payroll_work_salary_formula_mismatch",
+            {item["code"] for item in result["issues"]},
+        )
 
 
 if __name__ == "__main__":
