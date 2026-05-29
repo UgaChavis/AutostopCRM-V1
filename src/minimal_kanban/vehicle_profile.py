@@ -92,6 +92,13 @@ VIN_SOFT_PATTERN = re.compile(r"\b([A-HJ-NPR-Z0-9]{11,17})\b", re.IGNORECASE)
 _VIN_ALLOWED_PATTERN = re.compile(r"^[A-HJ-NPR-Z0-9]+$", re.IGNORECASE)
 
 
+def _vehicle_phone_dedupe_key(value: str) -> str:
+    digits = re.sub(r"\D+", "", value)
+    if len(digits) >= 10:
+        return "7" + digits[-10:]
+    return digits or value.casefold()
+
+
 def normalize_vehicle_text(value, *, limit: int = VEHICLE_TEXT_LIMIT) -> str:
     text = " ".join(str(value or "").strip().split())
     return text[:limit]
@@ -112,7 +119,7 @@ def normalize_vehicle_phones(value) -> list[str]:
         phone = normalize_vehicle_text(raw)
         if not phone:
             continue
-        key = re.sub(r"\D+", "", phone) or phone.casefold()
+        key = _vehicle_phone_dedupe_key(phone)
         if key in seen:
             continue
         seen.add(key)

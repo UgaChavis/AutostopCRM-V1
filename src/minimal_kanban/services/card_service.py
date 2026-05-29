@@ -1534,6 +1534,7 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                             for part in (
                                 card.vehicle_profile.customer_name,
                                 card.vehicle_profile.customer_phone,
+                                *list(card.vehicle_profile.customer_phones or []),
                                 card.repair_order.client,
                                 card.repair_order.phone,
                             )
@@ -1546,6 +1547,7 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                     for part in (
                         card.vehicle_profile.customer_name,
                         card.vehicle_profile.customer_phone,
+                        *list(card.vehicle_profile.customer_phones or []),
                         card.repair_order.client,
                         card.repair_order.phone,
                     )
@@ -2272,6 +2274,7 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                 preview_card.repair_order.phone,
                 preview_card.vehicle_profile.customer_name,
                 preview_card.vehicle_profile.customer_phone,
+                *list(preview_card.vehicle_profile.customer_phones or []),
             )
             if part
         ).strip()
@@ -3906,6 +3909,7 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
             "vin": profile.vin,
             "customer_name": profile.customer_name,
             "customer_phone": profile.customer_phone,
+            "customer_phones": " ".join(profile.customer_phones),
             "engine_code": profile.engine_code,
             "engine_model": profile.engine_model,
             "gearbox_type": profile.gearbox_type,
@@ -3971,6 +3975,7 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
             ("vin", 9),
             ("customer_name", 7),
             ("customer_phone", 8),
+            ("customer_phones", 8),
             ("engine_code", 7),
             ("engine_model", 5),
             ("gearbox_type", 4),
@@ -5091,10 +5096,23 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
         }
         return order, autofill_report
 
+    def _card_customer_phone_match_keys(self, card: Card) -> set[str]:
+        values = [
+            card.vehicle_profile.customer_phone,
+            *list(card.vehicle_profile.customer_phones or []),
+            card.repair_order.phone,
+        ]
+        keys: set[str] = set()
+        for value in values:
+            keys.update(self._phone_match_keys(value))
+        if not keys:
+            keys.update(self._phone_match_keys(self._extract_phone(card)))
+        return keys
+
     def _related_cards(self, card: Card, cards: list[Card]) -> list[Card]:
         current_vin = self._extract_vin(card, fallback="")
         current_license = self._extract_license_plate(card, fallback="")
-        current_phone = self._extract_phone(card)
+        current_phone_keys = self._card_customer_phone_match_keys(card)
         current_vehicle = self._normalize_search_text(
             card.vehicle_display() or card.repair_order.vehicle
         )
@@ -5112,7 +5130,9 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                 candidate, fallback=""
             ):
                 score += 10
-            if current_phone and current_phone == self._extract_phone(candidate):
+            if current_phone_keys and current_phone_keys.intersection(
+                self._card_customer_phone_match_keys(candidate)
+            ):
                 score += 8
             candidate_vehicle = self._normalize_search_text(
                 candidate.vehicle_display() or candidate.repair_order.vehicle

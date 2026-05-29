@@ -501,6 +501,28 @@ class CardServiceTests(unittest.TestCase):
             ["+7 900 111-11-11", "+7 901 222-22-22", "+7 902 333-33-33"],
         )
 
+    def test_card_vehicle_profile_deduplicates_russian_customer_phone_formats(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota",
+                "title": "Дубли телефонов",
+                "deadline": {"hours": 1},
+                "vehicle_profile": {
+                    "customer_phone": "8 913 222-33-44",
+                    "customer_phones": [
+                        "+7 913 222-33-44",
+                        "+7 914 222-33-44",
+                    ],
+                },
+            }
+        )["card"]
+
+        self.assertEqual(created["vehicle_profile"]["customer_phone"], "8 913 222-33-44")
+        self.assertEqual(
+            created["vehicle_profile"]["customer_phones"],
+            ["8 913 222-33-44", "+7 914 222-33-44"],
+        )
+
     def test_client_matching_treats_plus_seven_and_eight_phone_as_same(self) -> None:
         client = self.service.create_client(
             {
@@ -564,6 +586,39 @@ class CardServiceTests(unittest.TestCase):
                 self.assertEqual(
                     search["clients"][0]["vehicles_preview"][0]["vin"], "JTDBE32K620654321"
                 )
+
+    def test_client_search_uses_secondary_card_customer_phone_for_related_vehicle(self) -> None:
+        client = self.service.create_client(
+            {
+                "last_name": "Федоров",
+                "first_name": "Игорь",
+                "phone": "+7 901 222-33-44",
+            }
+        )["client"]
+        card = self.service.create_card(
+            {
+                "vehicle": "Honda Fit",
+                "title": "Плановый осмотр",
+                "description": "В карточке основной телефон другой",
+                "deadline": {"hours": 2},
+                "vehicle_profile": {
+                    "customer_name": "Другой контакт",
+                    "customer_phone": "+7 900 000-00-01",
+                    "customer_phones": ["+7 900 000-00-01", "8 901 222-33-44"],
+                    "vin": "GD123456789",
+                    "registration_plate": "В222ВВ124",
+                },
+            }
+        )["card"]
+
+        by_plate = self.service.search_clients({"query": "В222ВВ124", "limit": 5})
+        self.assertTrue(by_plate["clients"])
+        self.assertEqual(by_plate["clients"][0]["id"], client["id"])
+        self.assertEqual(by_plate["clients"][0]["vehicles_preview"][0]["vehicle"], "Honda Fit")
+
+        suggestions = self.service.suggest_clients_for_card({"card_id": card["id"], "limit": 5})
+        self.assertTrue(suggestions["clients"])
+        self.assertEqual(suggestions["clients"][0]["id"], client["id"])
 
     def test_client_profile_can_store_imported_vehicles(self) -> None:
         client = self.service.create_client(

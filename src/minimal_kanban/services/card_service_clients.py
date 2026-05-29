@@ -596,6 +596,7 @@ class CardServiceClientsMixin:
                     for part in (
                         card.vehicle_profile.customer_name,
                         card.vehicle_profile.customer_phone,
+                        *list(card.vehicle_profile.customer_phones or []),
                         card.repair_order.client,
                         card.repair_order.phone,
                         card.vehicle_profile.vin,
@@ -1256,12 +1257,13 @@ class CardServiceClientsMixin:
         return "".join(re.sub(r"\D+", "", str(value or "")) for value in values)
 
     def _card_client_values(self, card: Card) -> set[str]:
-        values = {
+        values = [
             card.vehicle_profile.customer_name,
             card.vehicle_profile.customer_phone,
+            *list(card.vehicle_profile.customer_phones or []),
             card.repair_order.client,
             card.repair_order.phone,
-        }
+        ]
         normalized_values: set[str] = set()
         for value in values:
             normalized = self._normalize_search_text(value)
