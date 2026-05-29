@@ -960,6 +960,29 @@ class CardServiceClientsMixin:
 
         return related_fields
 
+    def _client_related_vehicle_fields_index_for(
+        self, clients: list[ClientProfile], cards: list[Card]
+    ) -> dict[str, list[str]]:
+        signature = (
+            tuple(self._client_search_index_key(client) for client in clients),
+            tuple(
+                (
+                    card.id,
+                    card.updated_at,
+                    card.client_id,
+                    card.client_vehicle_id,
+                )
+                for card in cards
+            ),
+        )
+        if signature == self._client_related_vehicle_fields_index_signature:
+            return self._client_related_vehicle_fields_index_cache
+
+        related_fields = self._client_related_vehicle_fields_index(clients, cards)
+        self._client_related_vehicle_fields_index_signature = signature
+        self._client_related_vehicle_fields_index_cache = related_fields
+        return related_fields
+
     def _score_client_related_search_fields(
         self,
         fields: list[str],
@@ -1420,7 +1443,7 @@ class CardServiceClientsMixin:
         phone_like_query = bool(query_digits) and not re.search(r"[A-Za-zА-Яа-я]", query)
         client_search_index = self._client_search_index_for(clients)
         related_fields_by_client_id = (
-            self._client_related_vehicle_fields_index(clients, cards) if cards else {}
+            self._client_related_vehicle_fields_index_for(clients, cards) if cards else {}
         )
 
         if phone_like_query:

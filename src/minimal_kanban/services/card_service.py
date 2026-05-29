@@ -481,6 +481,8 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
         self._agent_control: Any | None = None
         self._client_search_index_signature: tuple[Any, ...] | None = None
         self._client_search_index: dict[str, dict[str, Any]] = {}
+        self._client_related_vehicle_fields_index_signature: tuple[Any, ...] | None = None
+        self._client_related_vehicle_fields_index_cache: dict[str, list[str]] = {}
         self._attachments_dir = attachments_dir or get_attachments_dir()
         self._attachments_dir.mkdir(parents=True, exist_ok=True)
         self._repair_orders_dir = repair_orders_dir or (self._store.base_dir / "repair-orders")
