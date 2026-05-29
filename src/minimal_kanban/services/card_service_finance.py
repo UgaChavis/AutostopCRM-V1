@@ -1185,9 +1185,8 @@ class CardServiceFinanceMixin:
                         )
                     )
 
-            if order.status == REPAIR_ORDER_STATUS_CLOSED and order.due_total_value() > Decimal(
-                "0"
-            ):
+            payment_summary = order.payment_summary_amounts()
+            if order.status == REPAIR_ORDER_STATUS_CLOSED and not order.is_paid():
                 issues.append(
                     self._finance_audit_issue(
                         code="closed_underpaid",
@@ -1195,9 +1194,9 @@ class CardServiceFinanceMixin:
                         message="Закрытый заказ-наряд имеет недоплату.",
                         card=card,
                         data={
-                            "due_total": order.due_total_amount(),
-                            "paid_total": order.prepayment_amount(),
-                            "grand_total": order.grand_total_amount(),
+                            "due_total": payment_summary["due_total"],
+                            "paid_total": payment_summary["total_paid"],
+                            "grand_total": payment_summary["grand_total"],
                         },
                     )
                 )
