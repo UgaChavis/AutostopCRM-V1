@@ -257,6 +257,13 @@
         await linkActiveCardToClient(linkClientTarget.dataset.linkClient);
         return;
       }
+      const closeClientSuggestionsTarget = target.closest('[data-close-client-suggestions]');
+      if (closeClientSuggestionsTarget instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        hideClientSuggestions();
+        return;
+      }
       const selectClientVehicleTarget = target.closest('[data-select-client-vehicle]');
       if (selectClientVehicleTarget instanceof HTMLElement) {
         event.preventDefault();

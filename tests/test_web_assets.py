@@ -1661,6 +1661,14 @@ class WebAssetsTests(unittest.TestCase):
             "const suggestionGroups = await Promise.all(queryCandidates.map(async (candidate) => {",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn('class="client-match-panel__head"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-close-client-suggestions="true"', BOARD_WEB_APP_HTML)
+        self.assertIn(".client-match-panel.is-visible {", BOARD_WEB_APP_HTML)
+        self.assertIn("grid-template-rows: auto minmax(0, 1fr);", BOARD_WEB_APP_HTML)
+        self.assertIn("max-height: min(42vh, 360px);", BOARD_WEB_APP_HTML)
+        self.assertIn(".client-match-list {\n      display: flex;", BOARD_WEB_APP_HTML)
+        self.assertIn("overflow-y: auto;", BOARD_WEB_APP_HTML)
+        self.assertIn("target.closest('[data-close-client-suggestions]')", BOARD_WEB_APP_HTML)
         self.assertIn(
             "target.closest('[data-client-suggestion], [data-select-client-suggestion]')",
             BOARD_WEB_APP_HTML,
