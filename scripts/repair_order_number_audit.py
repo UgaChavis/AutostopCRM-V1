@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 # ruff: noqa: E402
-
 import argparse
 import json
 import sys
@@ -18,12 +17,10 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.config import get_state_file
 from minimal_kanban.services.repair_order_number_audit import (
-    build_repair_order_number_audit,
     format_repair_order_number_audit_text,
     limited_repair_order_number_audit_data,
     repair_order_number_audit_payload,
 )
-
 
 UrlOpen = Callable[[urllib.request.Request, float], Any]
 

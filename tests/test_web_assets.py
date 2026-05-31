@@ -1399,6 +1399,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "await copyVehicleFieldValue(target.dataset.copyVehicleField);", BOARD_WEB_APP_HTML
         )
+        self.assertIn("function syncVehicleCopyButtons()", BOARD_WEB_APP_HTML)
+        self.assertIn("data-copy-available", BOARD_WEB_APP_HTML)
+        self.assertIn("button.disabled = !value;", BOARD_WEB_APP_HTML)
+        self.assertIn(".vehicle-copy:disabled", BOARD_WEB_APP_HTML)
         self.assertNotIn("payload.image_base64", BOARD_WEB_APP_HTML)
         self.assertNotIn("vehicleAutofillImage.files?.[0]", BOARD_WEB_APP_HTML)
         self.assertNotIn('id="vehicleAutofillText"', BOARD_WEB_APP_HTML)

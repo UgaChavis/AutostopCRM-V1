@@ -2388,6 +2388,14 @@
       color: var(--text);
       border-color: var(--accent);
     }
+    .vehicle-copy:disabled,
+    .vehicle-copy[data-copy-available="false"] {
+      opacity: 0.42;
+      cursor: not-allowed;
+      color: rgba(200, 198, 187, 0.58);
+      border-color: rgba(115, 126, 105, 0.16);
+      background: rgba(0, 0, 0, 0.08);
+    }
     .vehicle-client-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;

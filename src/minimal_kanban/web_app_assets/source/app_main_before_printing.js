@@ -9342,7 +9342,7 @@
       els.vehicleProfileFields.innerHTML = VEHICLE_FIELD_GROUPS.map((group, index) => {
         const fields = group.fields.map((field) => {
           const copyButton = field.copy
-            ? '<button class="vehicle-copy" type="button" data-copy-vehicle-field="' + escapeHtml(field.name) + '">копия</button>'
+            ? '<button class="vehicle-copy" type="button" data-copy-vehicle-field="' + escapeHtml(field.name) + '" data-copy-available="false" title="Нет данных для копирования" disabled>копия</button>'
             : '';
           return '<div class="field field--compact vehicle-field' + (field.wide ? ' vehicle-field--wide' : '') + '">' +
             '<div class="vehicle-field__label"><span>' + escapeHtml(field.label) + '</span>' + copyButton + '</div>' +
@@ -9361,6 +9361,7 @@
           input.addEventListener('keydown', handleClientSuggestionKeydown);
         }
       });
+      syncVehicleCopyButtons();
     }
 
     function renderVehicleCustomerPhoneFields(values = ['']) {
@@ -9452,6 +9453,16 @@
       return String(input.value || '').trim();
     }
 
+    function syncVehicleCopyButtons() {
+      document.querySelectorAll('[data-copy-vehicle-field]').forEach((button) => {
+        const rawValue = readVehicleFieldValue(button.dataset.copyVehicleField);
+        const value = Array.isArray(rawValue) ? rawValue.join('\n').trim() : String(rawValue || '').trim();
+        button.disabled = !value;
+        button.dataset.copyAvailable = value ? 'true' : 'false';
+        button.title = value ? 'Скопировать поле' : 'Нет данных для копирования';
+      });
+    }
+
     function defaultVehicleStatusText(profile) {
       const lines = [];
       if (profile?.source_summary) lines.push('Источник: ' + profile.source_summary);
@@ -9484,6 +9495,7 @@
       state.vehicleProfileDraft = normalized;
       VEHICLE_PRIMARY_FIELDS.forEach((fieldName) => setVehicleFieldValue(fieldName, normalized[fieldName]));
       renderVehicleCustomerPhoneFields(normalized.customer_phones.length ? normalized.customer_phones : [normalized.customer_phone]);
+      syncVehicleCopyButtons();
       refreshVehiclePanel();
       if (!preserveStatus) renderVehicleAutofillStatus(defaultVehicleStatusText(normalized), Boolean(normalized.warnings?.length || vinLooksSuspicious(normalized.vin)));
     }
@@ -9508,6 +9520,7 @@
       profile.tentative_fields = Array.from(tentativeFields).sort();
       state.vehicleProfileDraft = profile;
       state.vehicleAutofillResult = null;
+      syncVehicleCopyButtons();
       refreshVehiclePanel();
       if (['customer_name', 'customer_phone', 'vin', 'registration_plate', 'body_number'].includes(fieldName)) {
         state.pendingCardClientId = '';
