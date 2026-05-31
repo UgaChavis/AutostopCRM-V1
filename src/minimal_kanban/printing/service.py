@@ -6,7 +6,7 @@ import json
 import re
 import uuid
 from copy import deepcopy
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -36,6 +36,7 @@ _INSPECTION_SHEET_FORMS_FILE_NAME = "inspection_sheet_forms.json"
 _PAGE_BREAK_MARKER = "<!-- AUTOSTOPCRM_PAGE_BREAK -->"
 _SENTENCE_SPLIT_RE = re.compile(r"[\n\r]+|(?<=[.!?])\s+")
 _MONEY_QUANT = Decimal("0.01")
+_INVOICE_VAT_RATE = Decimal("0.05")
 _BRAND_LOGO_PATH = Path(__file__).resolve().parent / "assets" / "autostop_brand_logo.png"
 _MONEY_UNITS_MALE = (
     "",
@@ -148,6 +149,10 @@ def _parse_decimal(value: Any) -> Decimal | None:
         return Decimal(raw)
     except InvalidOperation:
         return None
+
+
+def _round_money(value: Decimal) -> Decimal:
+    return value.quantize(_MONEY_QUANT, rounding=ROUND_HALF_UP)
 
 
 def _money_display(value: Any) -> str:
@@ -296,6 +301,18 @@ def _repair_row_dict(row: RepairOrderRow, *, section: str, index: int) -> dict[s
         "price_display": _money_display(row.price),
         "total_display": _money_display(row.total or row.computed_total()),
     }
+
+
+def _invoice_line_item_dict(item: dict[str, Any]) -> dict[str, Any]:
+    invoice_item = dict(item)
+    factor = Decimal("1") + REPAIR_ORDER_PAYMENT_TAX_RATE
+    price = _round_money((_parse_decimal(item.get("price")) or Decimal("0")) * factor)
+    total = _round_money((_parse_decimal(item.get("total")) or Decimal("0")) * factor)
+    invoice_item["price"] = price
+    invoice_item["total"] = total
+    invoice_item["price_display"] = _money_display(price)
+    invoice_item["total_display"] = _money_display(total)
+    return invoice_item
 
 
 def _print_safe_repair_order_dict(order: RepairOrder) -> dict[str, Any]:
@@ -1327,7 +1344,10 @@ class PrintModuleService:
             for index, row in enumerate(order.materials)
         ]
         repair_order_payload = _print_safe_repair_order_dict(order)
-        line_items = [{**item, "index": index + 1} for index, item in enumerate(works + materials)]
+        base_line_items = [
+            {**item, "index": index + 1} for index, item in enumerate(works + materials)
+        ]
+        invoice_line_items = [_invoice_line_item_dict(item) for item in base_line_items]
         inspection_form = self._load_inspection_sheet_form(card, order)
         findings = self._bullet_points(order.note, fallback_source=order.comment)
         recommendations = self._bullet_points(order.comment)
@@ -1362,14 +1382,23 @@ class PrintModuleService:
         payment_summary_display = {
             f"{key}_display": _money_display(value) for key, value in payment_summary.items()
         }
+        invoice_cashless_total = _round_money(
+            sum(
+                (_parse_decimal(item.get("total")) or Decimal("0") for item in invoice_line_items),
+                Decimal("0"),
+            )
+        )
         invoice_base_total = payment_summary["base_total"]
-        invoice_tax_rate = Decimal("0.05")
-        invoice_tax_amount = (
-            invoice_base_total * invoice_tax_rate / (Decimal("1") + invoice_tax_rate)
+        invoice_total = invoice_cashless_total if document.id == "invoice" else invoice_base_total
+        invoice_line_items_for_document = (
+            invoice_line_items if document.id == "invoice" else base_line_items
+        )
+        invoice_tax_amount = _round_money(
+            invoice_total * _INVOICE_VAT_RATE / (Decimal("1") + _INVOICE_VAT_RATE)
         )
         invoice_tax_display = _money_display(invoice_tax_amount)
-        invoice_total_display = _money_display(invoice_base_total)
-        invoice_total_words_display = _money_words_display(invoice_base_total)
+        invoice_total_display = _money_display(invoice_total)
+        invoice_total_words_display = _money_words_display(invoice_total)
         cash_total = payment_summary["base_total"]
         noncash_total = payment_summary["base_total"] * (
             Decimal("1") + REPAIR_ORDER_PAYMENT_TAX_RATE
@@ -1398,7 +1427,7 @@ class PrintModuleService:
         )
         if missing_fields:
             warnings.append("Часть полей не заполнена, проверьте документ перед печатью.")
-        if not line_items:
+        if not base_line_items:
             warnings.append("В документе нет работ и материалов.")
         return {
             "service": {
@@ -1477,7 +1506,7 @@ class PrintModuleService:
             },
             "works": works,
             "materials": materials,
-            "line_items": line_items,
+            "line_items": invoice_line_items_for_document,
             "parts_sale_items": materials,
             "issue_points": issue_points,
             "findings": findings,
@@ -1554,13 +1583,14 @@ class PrintModuleService:
                 "has_payment_summary": True,
             },
             "invoice": {
+                "line_items": invoice_line_items_for_document,
                 "tax_label": "НДС (5%)",
                 "tax_rate_display": "5%",
-                "subtotal": invoice_base_total,
+                "subtotal": invoice_total,
                 "subtotal_display": invoice_total_display,
                 "vat": invoice_tax_amount,
                 "vat_display": invoice_tax_display,
-                "total": invoice_base_total,
+                "total": invoice_total,
                 "total_display": invoice_total_display,
                 "total_words_display": invoice_total_words_display,
                 "has_vat": invoice_tax_amount != Decimal("0"),

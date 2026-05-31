@@ -659,9 +659,9 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   <section class="doc-section">
     <h2 class="doc-section__title">Позиции счета</h2>
     <table class="doc-table"><colgroup><col style="width: 7%"><col><col style="width: 12%"><col style="width: 12%"><col style="width: 15%"><col style="width: 16%"></colgroup><thead><tr><th class="doc-table__narrow">№</th><th>Наименование товара, работ, услуг</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__narrow">Ед. изм.</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
-      {{#line_items}}<tr><td class="doc-table__narrow">{{index}}</td><td>{{section_label}}: {{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__narrow">{{unit_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}</td></tr>{{/line_items}}
-      {{^line_items}}<tr><td class="doc-table__empty" colspan="6">Нет строк для счета</td></tr>{{/line_items}}
-    </tbody><tfoot><tr><td colspan="5">Итого</td><td class="doc-table__sum">{{totals.subtotal_display}}</td></tr></tfoot></table>
+      {{#invoice.line_items}}<tr><td class="doc-table__narrow">{{index}}</td><td>{{section_label}}: {{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__narrow">{{unit_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}</td></tr>{{/invoice.line_items}}
+      {{^invoice.line_items}}<tr><td class="doc-table__empty" colspan="6">Нет строк для счета</td></tr>{{/invoice.line_items}}
+    </tbody><tfoot><tr><td colspan="5">Итого</td><td class="doc-table__sum">{{invoice.subtotal_display}}</td></tr></tfoot></table>
   </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Назначение платежа</h2>

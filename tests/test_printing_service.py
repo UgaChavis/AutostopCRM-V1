@@ -278,11 +278,43 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("В том числе НДС (5%)", html)
         self.assertIn("Сумма прописью", html)
         self.assertIn("Всего к оплате", html)
+        self.assertIn("2 875,00", html)
+        self.assertIn("15 870,00", html)
+        self.assertIn("755,71", html)
+        self.assertNotIn("13 800,00", html)
         self.assertIn("Руководитель", html)
         self.assertIn("Бухгалтер", html)
         self.assertNotIn("Предоплата", html)
         self.assertNotIn("undefined", html)
         self.assertNotIn("NaN", html)
+
+    def test_invoice_context_uses_cashless_prices_and_included_vat(self) -> None:
+        context = self.service._build_document_context(
+            self.card,
+            self.card.repair_order,
+            document=self.service._document_definition("invoice"),
+            settings=self.service._read_settings(),
+        )
+
+        invoice = context["invoice"]
+        invoice_items = invoice["line_items"]
+
+        self.assertEqual(invoice["total"], Decimal("15870.00"))
+        self.assertEqual(invoice["total_display"], "15 870,00")
+        self.assertEqual(invoice["vat"], Decimal("755.71"))
+        self.assertEqual(invoice["vat_display"], "755,71")
+        self.assertEqual(invoice["subtotal"], Decimal("15870.00"))
+        self.assertEqual(context["line_items"], invoice_items)
+        self.assertEqual(invoice_items[0]["name"], "Диагностика АКПП")
+        self.assertEqual(invoice_items[0]["price"], Decimal("2875.00"))
+        self.assertEqual(invoice_items[0]["total"], Decimal("2875.00"))
+        self.assertEqual(invoice_items[0]["price_display"], "2 875,00")
+        self.assertEqual(invoice_items[0]["total_display"], "2 875,00")
+        self.assertEqual(invoice_items[2]["name"], "ATF")
+        self.assertEqual(invoice_items[2]["price"], Decimal("1092.50"))
+        self.assertEqual(invoice_items[2]["total"], Decimal("6555.00"))
+        self.assertEqual(invoice_items[2]["price_display"], "1 092,50")
+        self.assertEqual(invoice_items[2]["total_display"], "6 555,00")
 
     def test_invoice_template_renders_linked_client_requisites(self) -> None:
         preview = self.service.preview_documents(
@@ -323,6 +355,10 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("ОГРН", html)
         self.assertIn("Налоговый режим", html)
         self.assertIn("НДС (5%)", html)
+        self.assertIn("13 800,00", html)
+        self.assertIn("2 500,00", html)
+        self.assertNotIn("15 870,00", html)
+        self.assertNotIn("2 875,00", html)
         self.assertIn("Подписи", html)
         self.assertNotIn("undefined", html)
         self.assertNotIn("NaN", html)
