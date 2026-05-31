@@ -210,6 +210,11 @@
       font-size: 11px;
       line-height: 1.15;
     }
+    .topbar-search__input::-webkit-search-cancel-button {
+      -webkit-appearance: none;
+      appearance: none;
+      display: none;
+    }
     .topbar-search__box:focus-within {
       border-color: var(--accent);
       box-shadow:
@@ -219,10 +224,10 @@
     }
     .topbar-search__clear {
       position: absolute;
-      right: 3px;
-      top: 3px;
-      width: 21px;
-      height: 21px;
+      right: 2px;
+      top: 2px;
+      width: 23px;
+      height: 23px;
       padding: 0;
       display: grid;
       place-items: center;
@@ -230,7 +235,7 @@
       background: rgba(0,0,0,0.18);
       color: var(--text-soft);
       font-family: var(--mono);
-      font-size: 12px;
+      font-size: 13px;
       cursor: pointer;
     }
     .topbar-search__clear:hover {
@@ -1142,6 +1147,9 @@
       min-height: 0;
       overflow: auto;
       padding: 2px 3px 8px;
+    }
+    .dialog--card > .dialog__body-scroll[data-panel="overview"] {
+      overflow: hidden;
     }
     .dialog--card > .dialog__head--card {
       grid-row: 1;

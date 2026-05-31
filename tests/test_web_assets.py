@@ -231,6 +231,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("width: 220px;", BOARD_WEB_APP_HTML)
         self.assertIn("height: 27px;", BOARD_WEB_APP_HTML)
         self.assertIn('aria-label="Поиск по доске"', BOARD_WEB_APP_HTML)
+        self.assertIn('placeholder="VIN, госномер, клиент"', BOARD_WEB_APP_HTML)
         self.assertNotIn("topbar-search__label", BOARD_WEB_APP_HTML)
         self.assertNotIn("поиск по доске", BOARD_WEB_APP_HTML)
         self.assertNotIn("НАЙТИ КАРТОЧКУ", BOARD_WEB_APP_HTML)
@@ -243,18 +244,28 @@ class WebAssetsTests(unittest.TestCase):
             ".topbar-search .topbar-search__input {"
         )
         self.assertGreater(compact_search_input_index, generic_search_input_index)
+        self.assertIn(".topbar-search__input::-webkit-search-cancel-button", BOARD_WEB_APP_HTML)
         self.assertIn("min-height: 0;", BOARD_WEB_APP_HTML)
         self.assertIn(".topbar-search__clear[hidden]", BOARD_WEB_APP_HTML)
         self.assertIn(".topbar-search__results.is-open", BOARD_WEB_APP_HTML)
         self.assertIn("body.is-mobile-lite .topbar-search {", BOARD_WEB_APP_HTML)
         self.assertIn("flex: 1 0 100%;", BOARD_WEB_APP_HTML)
+        self.assertIn("body.is-mobile-lite .topbar-search__clear {", BOARD_WEB_APP_HTML)
+        self.assertIn("width: 34px;", BOARD_WEB_APP_HTML)
+        self.assertIn("height: 34px;", BOARD_WEB_APP_HTML)
         self.assertIn("body.is-mobile-lite .topbar__actions {", BOARD_WEB_APP_HTML)
         self.assertIn("order: 1;", BOARD_WEB_APP_HTML)
         self.assertIn("max-height: calc(100dvh - 180px);", BOARD_WEB_APP_HTML)
         self.assertIn("boardSearch: {", BOARD_WEB_APP_HTML)
         self.assertIn("function scheduleBoardSearch()", BOARD_WEB_APP_HTML)
         self.assertIn("function renderBoardSearchResults()", BOARD_WEB_APP_HTML)
+        self.assertIn("function openBoardSearchOnFocus()", BOARD_WEB_APP_HTML)
+        self.assertIn("scheduleBoardSearch();", BOARD_WEB_APP_HTML)
         self.assertIn("function handleBoardSearchKeydown(event)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.boardSearchInput.addEventListener('click', openBoardSearchOnFocus)",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("const BOARD_SEARCH_LIMIT = 8;", BOARD_WEB_APP_HTML)
         self.assertIn("const BOARD_SEARCH_DEBOUNCE_MS = 90;", BOARD_WEB_APP_HTML)
         self.assertIn("const BOARD_SEARCH_CACHE_TTL_MS = 20000;", BOARD_WEB_APP_HTML)
@@ -1263,6 +1274,22 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('class="dialog__foot-group dialog__foot-group--danger"', BOARD_WEB_APP_HTML)
         self.assertIn('class="dialog__foot-group dialog__foot-group--main"', BOARD_WEB_APP_HTML)
 
+    def test_card_vehicle_panel_stays_inside_overview_scrollport(self) -> None:
+        self.assertIn(
+            '.dialog--card > .dialog__body-scroll[data-panel="overview"] {',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("align-items: stretch;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            ".overview-main {\n      display: grid;\n      gap: 9px;\n      align-content: start;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("grid-template-rows: auto minmax(0, 1fr) auto auto;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            ".vehicle-panel__fields {\n      display: grid;\n      gap: 5px;", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("overflow-y: auto;", BOARD_WEB_APP_HTML)
+
     def test_long_modals_keep_action_buttons_outside_scroll_regions(self) -> None:
         self.assertIn('class="dialog dialog--card dialog--fixed-actions"', BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -1436,7 +1463,10 @@ class WebAssetsTests(unittest.TestCase):
     def test_vehicle_panel_collapses_cleanly_on_narrow_screens(self) -> None:
         self.assertIn("@media (max-width: 760px) {", BOARD_WEB_APP_HTML)
         self.assertIn(".vehicle-group__grid { grid-template-columns: 1fr; }", BOARD_WEB_APP_HTML)
-        self.assertIn(".vehicle-panel__fields { max-height: none; }", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            ".vehicle-panel__fields { max-height: none; overflow: visible; padding-right: 0; }",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(".vehicle-panel::before { display: none; }", BOARD_WEB_APP_HTML)
         self.assertIn(".dialog--card { width: min(1080px, 100%); }", BOARD_WEB_APP_HTML)
 

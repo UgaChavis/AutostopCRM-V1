@@ -8357,8 +8357,7 @@
       if (!query || query.length < 2) return;
       state.boardSearch.query = query;
       if (reuseBoardSearchCache(query)) return;
-      state.boardSearch.open = true;
-      renderBoardSearchResults();
+      scheduleBoardSearch();
     }
 
     async function openBoardSearchResult(index) {

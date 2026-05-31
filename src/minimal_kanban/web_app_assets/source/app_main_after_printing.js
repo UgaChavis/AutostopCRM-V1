@@ -525,6 +525,7 @@
     els.repairOrdersSortDir.addEventListener('change', handleRepairOrdersSortChange);
     els.boardSearchInput.addEventListener('input', scheduleBoardSearch);
     els.boardSearchInput.addEventListener('focus', openBoardSearchOnFocus);
+    els.boardSearchInput.addEventListener('click', openBoardSearchOnFocus);
     els.boardSearchInput.addEventListener('keydown', handleBoardSearchKeydown);
     els.boardSearchClearButton.addEventListener('click', () => {
       clearBoardSearchState();
