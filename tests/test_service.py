@@ -5317,6 +5317,42 @@ class CardServiceTests(unittest.TestCase):
             self.service.update_card({"card_id": card_id, "title": "Нельзя"})
         self.assertEqual(archived_error.exception.code, "archived_card")
 
+    def test_update_card_rejects_stale_expected_updated_at(self) -> None:
+        created = self.service.create_card(
+            {
+                "title": "Исходный заголовок",
+                "description": "Исходное описание",
+                "deadline": {"days": 1, "hours": 0},
+            }
+        )
+        card_id = created["card"]["id"]
+        stale_updated_at = created["card"]["updated_at"]
+
+        first = self.service.update_card(
+            {
+                "card_id": card_id,
+                "title": "Заголовок оператора 1",
+                "expected_updated_at": stale_updated_at,
+            }
+        )
+        self.assertEqual(first["card"]["title"], "Заголовок оператора 1")
+
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.update_card(
+                {
+                    "card_id": card_id,
+                    "title": "Исходный заголовок",
+                    "description": "Описание оператора 2",
+                    "expected_updated_at": stale_updated_at,
+                }
+            )
+
+        self.assertEqual(conflict.exception.status_code, 409)
+        self.assertEqual(conflict.exception.code, "card_update_conflict")
+        stored = self.service.get_card({"card_id": card_id})["card"]
+        self.assertEqual(stored["title"], "Заголовок оператора 1")
+        self.assertEqual(stored["description"], "Исходное описание")
+
     def test_deadline_survives_service_reload(self) -> None:
         base = datetime(2026, 3, 23, 12, 0, 0, tzinfo=timezone.utc)
         patches = self._patch_time(base)

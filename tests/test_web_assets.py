@@ -144,6 +144,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="sharedFilesDesktop"', BOARD_WEB_APP_HTML)
         self.assertIn("api('/api/list_shared_files'", BOARD_WEB_APP_HTML)
         self.assertIn("api('/api/upload_shared_file'", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const SHARED_FILE_UPLOAD_MAX_SIZE_BYTES = 25 * 1024 * 1024;", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("if (file.size > SHARED_FILE_UPLOAD_MAX_SIZE_BYTES)", BOARD_WEB_APP_HTML)
         self.assertIn("api('/api/rename_shared_file'", BOARD_WEB_APP_HTML)
         self.assertIn("api('/api/delete_shared_file'", BOARD_WEB_APP_HTML)
         self.assertIn("api('/api/paste_shared_file'", BOARD_WEB_APP_HTML)
@@ -1242,8 +1246,15 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function handleCardWorkspaceClick(target)", BOARD_WEB_APP_HTML)
         self.assertIn("applyCardModalState(card, { descriptionLoading", BOARD_WEB_APP_HTML)
         self.assertIn("resetCardModalState();", BOARD_WEB_APP_HTML)
+        self.assertIn("function cardModalHasUnsavedChanges()", BOARD_WEB_APP_HTML)
+        self.assertIn("Есть несохраненные изменения", BOARD_WEB_APP_HTML)
+        self.assertIn("function closeCardModal({ force = false } = {})", BOARD_WEB_APP_HTML)
         self.assertIn("const data = await persistCardPayload(payload);", BOARD_WEB_APP_HTML)
         self.assertIn("if (data?.card) applySavedCardLocalPatch(data.card);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "expected_updated_at: state.editingId ? String(state.activeCard?.updated_at || '') : undefined",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertNotIn(
             "scheduleBackgroundSnapshotRefresh({ showSuccess: false, delay: 900 });",
             BOARD_WEB_APP_HTML,
@@ -1489,6 +1500,19 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("body.is-mobile-lite .board {", BOARD_WEB_APP_HTML)
         self.assertIn("body.is-mobile-lite .column__head-actions {", BOARD_WEB_APP_HTML)
         self.assertIn("body.is-mobile-lite .dialog--card {", BOARD_WEB_APP_HTML)
+        self.assertNotIn(
+            "body.is-mobile-lite .topbar__actions .btn:not(#cardButton):not(#archiveButton) {\n      display: none;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertNotIn(
+            "body.is-mobile-lite .topbar__rare-actions .btn:not(#archiveButton) {\n      display: none;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "body.is-mobile-lite .topbar__rare-actions,\n    body.is-mobile-lite .topbar__actions {",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("overflow-x: auto;", BOARD_WEB_APP_HTML)
         self.assertIn(
             'body.is-mobile-lite .dialog__tabs--card .tab-btn[data-tab="journal"] {',
             BOARD_WEB_APP_HTML,
@@ -2284,6 +2308,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("height: 38px;", BOARD_WEB_APP_HTML)
         self.assertIn("min-height: 38px;", BOARD_WEB_APP_HTML)
         self.assertIn("font-size: 10.75px;", BOARD_WEB_APP_HTML)
+        self.assertIn("body.is-mobile-lite .repair-order-table {", BOARD_WEB_APP_HTML)
+        self.assertIn("min-width: 760px;", BOARD_WEB_APP_HTML)
+        self.assertIn("body.is-mobile-lite .repair-order-table__select {", BOARD_WEB_APP_HTML)
+        self.assertIn("min-width: 138px;", BOARD_WEB_APP_HTML)
         self.assertIn('data-add-repair-order-row="works"', BOARD_WEB_APP_HTML)
         self.assertIn('data-add-repair-order-row="materials"', BOARD_WEB_APP_HTML)
         self.assertIn("function currentRepairOrderDateTime()", BOARD_WEB_APP_HTML)
@@ -2707,6 +2735,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".repair-orders-search-label", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-search-spinner", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-search-scope", BOARD_WEB_APP_HTML)
+        self.assertIn("width: 28px;", BOARD_WEB_APP_HTML)
+        self.assertIn("height: 28px;", BOARD_WEB_APP_HTML)
+        self.assertIn("flex: 0 0 28px;", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-table-head__searchable", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-table-head__searchable-group", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-table-head__sum", BOARD_WEB_APP_HTML)

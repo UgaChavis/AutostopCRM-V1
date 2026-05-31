@@ -763,7 +763,7 @@
         try {
           const data = await persistCardPayload(payload);
           if (data?.card) applySavedCardLocalPatch(data.card);
-          closeCardModal();
+          closeCardModal({ force: true });
           setStatus('КАРТОЧКА СОХРАНЕНА.', false);
         } catch (error) {
           setStatus(error.message, true);

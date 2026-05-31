@@ -61,6 +61,10 @@ DEFAULT_STATE = {
 }
 
 
+class StateFileCorruptedError(RuntimeError):
+    """Raised when state.json cannot be decoded without silently resetting data."""
+
+
 class JsonStore:
     def __init__(self, state_file: Path | None = None, logger: Logger | None = None) -> None:
         self._state_file = state_file or get_state_file()
@@ -326,16 +330,26 @@ class JsonStore:
         try:
             return json.loads(self._state_file.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):
-            backup = self._state_file.with_suffix(".corrupted.json")
+            backup = self._corrupted_backup_path()
             self._log_warning(
                 "Файл состояния поврежден, выполняется резервное копирование: %s",
                 backup.name,
             )
-            if backup.exists():
-                backup.unlink()
             self._state_file.replace(backup)
-            self._write_state(DEFAULT_STATE)
-            return deepcopy(DEFAULT_STATE)
+            raise StateFileCorruptedError(
+                f"Файл состояния поврежден и сохранен как {backup.name}."
+            ) from None
+
+    def _corrupted_backup_path(self) -> Path:
+        backup = self._state_file.with_suffix(".corrupted.json")
+        if not backup.exists():
+            return backup
+        stem = self._state_file.with_suffix("").name
+        for index in range(2, 1000):
+            candidate = self._state_file.with_name(f"{stem}.corrupted-{index}.json")
+            if not candidate.exists():
+                return candidate
+        return self._state_file.with_name(f"{stem}.corrupted-{time.time_ns()}.json")
 
     def _write_state(self, state: dict) -> None:
         payload = json.dumps(state, ensure_ascii=False, separators=(",", ":"))

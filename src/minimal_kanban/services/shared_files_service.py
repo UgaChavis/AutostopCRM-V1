@@ -21,6 +21,7 @@ from ..storage.file_lock import ProcessFileLock
 from .errors import ServiceError
 
 SHARED_FILES_STORAGE_LIMIT_BYTES = 500 * 1024 * 1024
+SHARED_FILES_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 SHARED_FILES_INDEX_SCHEMA_VERSION = 1
 _FETCH_BASE64_DEFAULT_BYTES = 2 * 1024 * 1024
 _FETCH_BASE64_MAX_BYTES = 8 * 1024 * 1024
@@ -94,11 +95,13 @@ class SharedFilesService:
         index_file: Path | None = None,
         logger: Logger | None = None,
         storage_limit_bytes: int = SHARED_FILES_STORAGE_LIMIT_BYTES,
+        max_upload_bytes: int = SHARED_FILES_MAX_UPLOAD_BYTES,
     ) -> None:
         self._storage_dir = storage_dir or get_shared_files_dir()
         self._index_file = index_file or get_shared_files_index_file()
         self._logger = logger
         self._storage_limit_bytes = max(1, int(storage_limit_bytes))
+        self._max_upload_bytes = max(1, int(max_upload_bytes))
         self._lock = threading.RLock()
         self._process_lock = ProcessFileLock(self._index_file.with_suffix(".lock"))
         self._storage_dir.mkdir(parents=True, exist_ok=True)
@@ -402,14 +405,38 @@ class SharedFilesService:
                 "Нужно передать content_base64.",
                 details={"field": "content_base64"},
             )
+        raw_value = str(value).strip()
+        encoded_limit = ((self._max_upload_bytes + 2) // 3) * 4
+        if len(raw_value) > encoded_limit:
+            raise ServiceError(
+                "upload_too_large",
+                "Файл превышает лимит одной загрузки.",
+                status_code=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                details={
+                    "field": "content_base64",
+                    "max_size_bytes": self._max_upload_bytes,
+                },
+            )
         try:
-            return base64.b64decode(str(value), validate=True)
+            content = base64.b64decode(raw_value, validate=True)
         except (binascii.Error, ValueError):
             raise ServiceError(
                 "validation_error",
                 "content_base64 должен быть корректной base64-строкой.",
                 details={"field": "content_base64"},
             ) from None
+        if len(content) > self._max_upload_bytes:
+            raise ServiceError(
+                "upload_too_large",
+                "Файл превышает лимит одной загрузки.",
+                status_code=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                details={
+                    "field": "content_base64",
+                    "max_size_bytes": self._max_upload_bytes,
+                    "incoming_bytes": len(content),
+                },
+            )
+        return content
 
     def _ensure_storage_capacity(self, files: list[SharedFile], additional_bytes: int) -> None:
         used = self._used_bytes(files)

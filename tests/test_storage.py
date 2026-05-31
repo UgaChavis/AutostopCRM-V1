@@ -37,15 +37,20 @@ class JsonStoreTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def test_recovers_from_broken_json(self) -> None:
+    def test_rejects_broken_json_without_replacing_state_with_empty_board(self) -> None:
         self.state_file.write_text("{broken json", encoding="utf-8")
+        previous_backup = self.state_file.with_suffix(".corrupted.json")
+        previous_backup.write_text("previous corrupt backup", encoding="utf-8")
         store = JsonStore(state_file=self.state_file, logger=self.logger)
 
-        cards = store.read_cards()
+        with self.assertRaises(RuntimeError):
+            store.read_cards()
 
-        self.assertEqual(cards, [])
-        self.assertTrue(self.state_file.exists())
-        self.assertTrue(self.state_file.with_suffix(".corrupted.json").exists())
+        self.assertFalse(self.state_file.exists())
+        self.assertEqual(previous_backup.read_text(encoding="utf-8"), "previous corrupt backup")
+        backups = sorted(self.state_file.parent.glob("state.corrupted*.json"))
+        self.assertGreaterEqual(len(backups), 2)
+        self.assertTrue(any(path.read_text(encoding="utf-8") == "{broken json" for path in backups))
 
     def test_read_bundle_reuses_cached_state_until_file_changes(self) -> None:
         store = JsonStore(state_file=self.state_file, logger=self.logger)

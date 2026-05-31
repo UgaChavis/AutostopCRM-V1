@@ -30,6 +30,7 @@ from ..operator_auth import OperatorAuthService
 from ..services.card_service import CardService
 from ..services.errors import ServiceError
 from ..services.shared_files_service import SharedFilesService
+from ..storage.json_store import StateFileCorruptedError
 from ..system_clipboard import ClipboardUnavailableError, list_clipboard_file_paths
 from ..web_assets import BOARD_WEB_APP_HTML
 from .route_registry import (
@@ -53,6 +54,7 @@ QUIET_SUCCESS_ROUTES = frozenset(
 )
 
 JSON_GZIP_MIN_BYTES = 1024
+MAX_JSON_BODY_BYTES = 25 * 1024 * 1024
 
 
 def _json_response(
@@ -598,6 +600,19 @@ class ApiServer:
                         "Заголовок Content-Length имеет некорректное значение.",
                     )
                     return
+                if content_length > MAX_JSON_BODY_BYTES:
+                    self.close_connection = True
+                    self._send_error_response(
+                        request_id,
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                        "request_too_large",
+                        "Размер JSON-запроса превышает допустимый лимит.",
+                        {
+                            "max_size_bytes": MAX_JSON_BODY_BYTES,
+                            "content_length": content_length,
+                        },
+                    )
+                    return
                 if not self._authenticate(request_id):
                     self._drain_request_body(content_length)
                     return
@@ -827,6 +842,19 @@ class ApiServer:
                     )
                     self._send_error_response(
                         request_id, exc.status_code, exc.code, exc.message, exc.details
+                    )
+                except StateFileCorruptedError as exc:
+                    logger.error(
+                        "api_request route=%s request_id=%s status=error code=state_file_corrupted error=%s",
+                        route,
+                        request_id,
+                        exc,
+                    )
+                    self._send_error_response(
+                        request_id,
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        "state_file_corrupted",
+                        "Файл состояния поврежден. Автоматический сброс отключен; восстановите данные из резервной копии.",
                     )
                 except ValueError as exc:
                     logger.warning(

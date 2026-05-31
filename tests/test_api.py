@@ -7,6 +7,7 @@ import gzip
 import io
 import json
 import logging
+import os
 import socket
 import struct
 import sys
@@ -349,7 +350,7 @@ class ApiServerTests(unittest.TestCase):
 
         status, fetched = self.request(
             "/api/get_repair_order",
-            {"card_id": card_id},
+            {"card_id": card_id, "create_if_missing": True},
         )
         self.assertEqual(status, 200)
         self.assertTrue(fetched["data"]["meta"]["has_any_data"])
@@ -366,6 +367,30 @@ class ApiServerTests(unittest.TestCase):
         self.assertTrue(
             any(item["card_id"] == card_id for item in listed_after["data"]["repair_orders"])
         )
+
+    def test_get_repair_order_does_not_mutate_without_explicit_create_flag(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {
+                "vehicle": "KIA RIO",
+                "title": "Read-only заказ-наряд",
+                "description": "Открытие без создания",
+                "deadline": {"hours": 2},
+            },
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        status, fetched = self.request("/api/get_repair_order", {"card_id": card_id})
+
+        self.assertEqual(status, 200)
+        self.assertFalse(fetched["data"]["meta"]["has_any_data"])
+        self.assertFalse(fetched["data"]["meta"]["created"])
+        self.assertEqual(fetched["data"]["repair_order"]["number"], "")
+
+        status, listed = self.request("/api/list_repair_orders", method="GET")
+        self.assertEqual(status, 200)
+        self.assertEqual(listed["data"]["meta"]["total"], 0)
 
     def test_cleanup_card_content_route_runs_local_cleanup(self) -> None:
         status, created = self.request(
@@ -643,6 +668,44 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(deleted["data"]["deleted"])
 
+    def test_operator_auth_blocks_insecure_default_admin_bootstrap_on_default_users_file(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as auth_dir:
+            users_file = Path(auth_dir) / "users.json"
+            logger = logging.getLogger(f"test.api.{self._testMethodName}.operator_auth")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            with (
+                patch("minimal_kanban.operator_auth.get_app_data_dir", return_value=Path(auth_dir)),
+                patch("minimal_kanban.operator_auth.get_users_file", return_value=users_file),
+                patch.dict(
+                    os.environ,
+                    {
+                        "MINIMAL_KANBAN_DEFAULT_ADMIN_USERNAME": "admin",
+                        "MINIMAL_KANBAN_DEFAULT_ADMIN_PASSWORD": "admin",
+                    },
+                    clear=False,
+                ),
+            ):
+                operator_service = OperatorAuthService(
+                    self.store,
+                    self.service,
+                    activity_service=OperatorActivityService(
+                        activity_dir=Path(auth_dir) / "operator-activity",
+                        logger=logger,
+                    ),
+                    logger=logger,
+                )
+
+                with self.assertRaises(ServiceError) as denied:
+                    operator_service.login({"username": "admin", "password": "admin"})
+
+            self.assertEqual(denied.exception.status_code, 401)
+            self.assertEqual(denied.exception.code, "unauthorized")
+            self.assertTrue(users_file.exists())
+
     def test_operator_user_employee_binding_controls_material_default_executor(self) -> None:
         status, logged_in = self.request(
             "/api/login_operator",
@@ -799,6 +862,31 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 401)
         self.assertEqual(blocked_transfer["error"]["details"]["auth_type"], "operator_session")
 
+        status, blocked_employee_delete = self.request(
+            "/api/delete_employee",
+            {"employee_id": "employee-1", "actor_name": "AUDIT"},
+            headers=proxy_headers,
+        )
+        self.assertEqual(status, 401)
+        self.assertEqual(
+            blocked_employee_delete["error"]["details"]["auth_type"], "operator_session"
+        )
+
+        status, card = self.request(
+            "/api/create_card",
+            {"title": "Proxy order", "deadline": {"hours": 1}},
+        )
+        self.assertEqual(status, 200)
+        status, blocked_repair_order_open = self.request(
+            "/api/get_repair_order",
+            {"card_id": card["data"]["card"]["id"], "create_if_missing": True},
+            headers=proxy_headers,
+        )
+        self.assertEqual(status, 401)
+        self.assertEqual(
+            blocked_repair_order_open["error"]["details"]["auth_type"], "operator_session"
+        )
+
         status, logged_in = self.request(
             "/api/login_operator",
             {"username": "admin", "password": "admin"},
@@ -818,6 +906,17 @@ class ApiServerTests(unittest.TestCase):
         status, response = self.request("/api/update_board_settings?board_scale=1.25", method="GET")
         self.assertEqual(status, 404)
         self.assertEqual(response["error"]["code"], "not_found")
+
+    def test_post_request_rejects_oversized_json_body_before_dispatch(self) -> None:
+        with patch("minimal_kanban.api.server.MAX_JSON_BODY_BYTES", 32, create=True):
+            status, response = self.request(
+                "/api/get_board_revision",
+                {"padding": "x" * 80},
+            )
+
+        self.assertEqual(status, 413)
+        self.assertEqual(response["error"]["code"], "request_too_large")
+        self.assertEqual(response["error"]["details"]["max_size_bytes"], 32)
 
     def test_open_card_updates_operator_opened_counter(self) -> None:
         status, created = self.request(
@@ -3055,7 +3154,9 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(works["data"]["repair_order"]["works_total"], "2000")
 
-        status, order = self.request("/api/get_repair_order", {"card_id": card_id})
+        status, order = self.request(
+            "/api/get_repair_order", {"card_id": card_id, "create_if_missing": True}
+        )
         self.assertEqual(status, 200)
         self.assertEqual(order["data"]["repair_order"]["license_plate"], "в003нк124")
         self.assertEqual(
@@ -3090,7 +3191,9 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         card_id = created["data"]["card"]["id"]
 
-        status, order = self.request("/api/get_repair_order", {"card_id": card_id})
+        status, order = self.request(
+            "/api/get_repair_order", {"card_id": card_id, "create_if_missing": True}
+        )
         self.assertEqual(status, 200)
         self.assertEqual(order["data"]["repair_order"]["number"], "1")
 

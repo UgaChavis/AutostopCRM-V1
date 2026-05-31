@@ -1612,6 +1612,9 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
     def get_repair_order(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
+            create_if_missing = self._validated_optional_bool(
+                payload, "create_if_missing", default=True
+            )
             bundle = self._store.read_bundle()
             cards = bundle["cards"]
             events = bundle["events"]
@@ -1619,40 +1622,44 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_repair_order_state_supported(card)
             actor_name, source = self._audit_identity(payload, default_source="ui")
-            created = self._ensure_repair_order_exists(
-                card,
-                cards,
-                events,
-                actor_name,
-                source,
-                cashboxes=bundle["cashboxes"],
-                cash_transactions=bundle["cash_transactions"],
-                settings=bundle["settings"],
-            )
-            synced_fields = self._fill_missing_repair_order_fields_from_card(card)
-            if synced_fields:
-                self._append_event(
+            created = False
+            synced_fields: list[str] = []
+            numbering_changed = False
+            if create_if_missing:
+                created = self._ensure_repair_order_exists(
+                    card,
+                    cards,
                     events,
-                    actor_name=actor_name,
-                    source=source,
-                    action="repair_order_vehicle_fields_synced",
-                    message=f"{actor_name} дополнил заказ-наряд данными паспорта автомобиля",
-                    card_id=card.id,
-                    details={"fields": synced_fields},
-                )
-            numbering_changed = self._synchronize_repair_order_numbers(cards)
-            if created or numbering_changed or synced_fields:
-                if synced_fields:
-                    self._touch_card(card, actor_name)
-                    self._ensure_repair_order_text_file(card, force=True)
-                self._save_bundle(
-                    bundle,
-                    columns=columns,
-                    cards=cards,
+                    actor_name,
+                    source,
                     cashboxes=bundle["cashboxes"],
                     cash_transactions=bundle["cash_transactions"],
-                    events=events,
+                    settings=bundle["settings"],
                 )
+                synced_fields = self._fill_missing_repair_order_fields_from_card(card)
+                if synced_fields:
+                    self._append_event(
+                        events,
+                        actor_name=actor_name,
+                        source=source,
+                        action="repair_order_vehicle_fields_synced",
+                        message=f"{actor_name} дополнил заказ-наряд данными паспорта автомобиля",
+                        card_id=card.id,
+                        details={"fields": synced_fields},
+                    )
+                numbering_changed = self._synchronize_repair_order_numbers(cards)
+                if created or numbering_changed or synced_fields:
+                    if synced_fields:
+                        self._touch_card(card, actor_name)
+                        self._ensure_repair_order_text_file(card, force=True)
+                    self._save_bundle(
+                        bundle,
+                        columns=columns,
+                        cards=cards,
+                        cashboxes=bundle["cashboxes"],
+                        cash_transactions=bundle["cash_transactions"],
+                        events=events,
+                    )
             return {
                 "card_id": card.id,
                 "heading": card.heading(),
@@ -1676,6 +1683,20 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
             columns = bundle["columns"]
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_not_archived(card)
+            expected_updated_at = normalize_text(
+                payload.get("expected_updated_at"), default="", limit=80
+            )
+            if expected_updated_at and expected_updated_at != card.updated_at:
+                self._fail(
+                    "card_update_conflict",
+                    "Карточка уже изменена другим оператором. Обновите карточку и повторите правку.",
+                    status_code=409,
+                    details={
+                        "card_id": card.id,
+                        "expected_updated_at": expected_updated_at,
+                        "current_updated_at": card.updated_at,
+                    },
+                )
             actor_name, source = self._audit_identity(payload, default_source="api")
             next_payload = self._merged_repair_order_storage(
                 card.repair_order.to_storage_dict(), patch
@@ -2435,6 +2456,20 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_not_archived(card)
+            expected_updated_at = normalize_text(
+                payload.get("expected_updated_at"), default="", limit=80
+            )
+            if expected_updated_at and expected_updated_at != card.updated_at:
+                self._fail(
+                    "card_update_conflict",
+                    "Карточка уже изменена другим оператором. Обновите карточку и повторите правку.",
+                    status_code=409,
+                    details={
+                        "card_id": card.id,
+                        "expected_updated_at": expected_updated_at,
+                        "current_updated_at": card.updated_at,
+                    },
+                )
             actor_name, source = self._audit_identity(payload, default_source="api")
             ready_column_id, ready_column_changed = self._ensure_ready_column_for_bundle(
                 bundle, actor_name=actor_name, source=source
@@ -4133,7 +4168,11 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
         self._cleanup_attachment_directories(cards)
 
     def _touch_card(self, card: Card, actor_name: str | None = None) -> str:
-        updated_at = utc_now_iso()
+        next_updated_at = utc_now()
+        previous_updated_at = parse_datetime(card.updated_at)
+        if previous_updated_at is not None and next_updated_at <= previous_updated_at:
+            next_updated_at = previous_updated_at + timedelta(microseconds=1)
+        updated_at = next_updated_at.isoformat()
         card.updated_at = updated_at
         card.mark_seen(actor_name, seen_at=updated_at)
         return updated_at

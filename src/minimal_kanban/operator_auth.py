@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import secrets
 import threading
 from copy import deepcopy
@@ -40,6 +41,7 @@ OPEN_COUNT_KEY = "cards_opened"
 ACTION_HISTORY_KEY = "action_history"
 ACTION_HISTORY_RETENTION_DAYS = 15
 LEGACY_DEFAULT_ADMIN_PASSWORDS = ("admin123",)
+INSECURE_DEFAULT_ADMIN_PASSWORDS = ("admin", *LEGACY_DEFAULT_ADMIN_PASSWORDS)
 ACTION_TO_STAT_KEY = {
     "card_created": "cards_created",
     "card_archived": "cards_archived",
@@ -83,6 +85,10 @@ def _verify_password(password: str, password_hash: str) -> bool:
     return hmac.compare_digest(actual, expected)
 
 
+def _truthy_env(name: str) -> bool:
+    return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 class OperatorAuthService:
     def __init__(
         self,
@@ -96,6 +102,7 @@ class OperatorAuthService:
         self._state_store = state_store
         self._card_service = card_service
         self._activity_service = activity_service
+        self._uses_default_users_file = users_file is None
         self._users_file = users_file or get_users_file()
         self._logger = logger
         self._lock = threading.RLock()
@@ -104,7 +111,7 @@ class OperatorAuthService:
         self._users_file.parent.mkdir(parents=True, exist_ok=True)
         if not self._users_file.exists():
             with self._process_lock.acquire():
-                self._write_state(self._default_state())
+                self._write_state(self._bootstrap_state())
 
     def login(self, payload: dict | None = None) -> dict:
         payload = payload or {}
@@ -1051,20 +1058,51 @@ class OperatorAuthService:
             "sessions": [],
         }
 
+    def _empty_bootstrap_state(self) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "users": [],
+            "sessions": [],
+            "bootstrap_required": True,
+        }
+
+    def _bootstrap_state(self) -> dict[str, Any]:
+        if self._can_bootstrap_default_admin():
+            return self._default_state()
+        return self._empty_bootstrap_state()
+
+    def _can_bootstrap_default_admin(self) -> bool:
+        if not self._uses_default_users_file:
+            return True
+        if _truthy_env("MINIMAL_KANBAN_ALLOW_INSECURE_DEFAULT_ADMIN"):
+            return True
+        return get_default_admin_password() not in INSECURE_DEFAULT_ADMIN_PASSWORDS
+
+    def _corrupted_users_backup_path(self) -> Path:
+        backup = self._users_file.with_suffix(".corrupted.json")
+        if not backup.exists():
+            return backup
+        stem = self._users_file.with_suffix("").name
+        for index in range(2, 1000):
+            candidate = self._users_file.with_name(f"{stem}.corrupted-{index}.json")
+            if not candidate.exists():
+                return candidate
+        return self._users_file.with_name(
+            f"{stem}.corrupted-{utc_now().strftime('%Y%m%d%H%M%S%f')}.json"
+        )
+
     def _read_normalized_state(self) -> dict[str, Any]:
         if not self._users_file.exists():
-            state = self._default_state()
+            state = self._bootstrap_state()
             self._write_state(state)
             return state
         changed = False
         try:
             payload = json.loads(self._users_file.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError, UnicodeDecodeError):
-            backup = self._users_file.with_suffix(".corrupted.json")
-            if backup.exists():
-                backup.unlink()
+            backup = self._corrupted_users_backup_path()
             self._users_file.replace(backup)
-            state = self._default_state()
+            state = self._bootstrap_state()
             self._write_state(state)
             return state
         if not isinstance(payload, dict):
@@ -1079,7 +1117,10 @@ class OperatorAuthService:
             changed = True
         if not isinstance(raw_sessions, list) or len(sessions) != len(raw_sessions):
             changed = True
-        if not any(user["role"] == "admin" for user in users):
+        if (
+            not any(user["role"] == "admin" for user in users)
+            and self._can_bootstrap_default_admin()
+        ):
             default_admin = self._default_state()["users"][0]
             users.insert(0, default_admin)
             user_names.add(default_admin["username"])

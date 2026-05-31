@@ -125,6 +125,27 @@ class SharedFilesServiceTests(unittest.TestCase):
             self.service.paste_shared_file({"source_id": uploaded["file"]["id"]})
         self.assertEqual(copy_limit_error.exception.code, "storage_limit_exceeded")
 
+    def test_upload_rejects_files_larger_than_single_upload_limit_before_store_capacity(
+        self,
+    ) -> None:
+        limited = SharedFilesService(
+            storage_dir=self.base_dir / "limited-shared-files",
+            index_file=self.base_dir / "limited_shared_files_index.json",
+            logger=self.logger,
+            storage_limit_bytes=128,
+            max_upload_bytes=4,
+        )
+
+        with self.assertRaises(ServiceError) as oversized:
+            limited.upload_shared_file(
+                {"file_name": "too-large.txt", "content_base64": b64(b"12345")}
+            )
+
+        self.assertEqual(oversized.exception.status_code, 413)
+        self.assertEqual(oversized.exception.code, "upload_too_large")
+        self.assertEqual(oversized.exception.details["max_size_bytes"], 4)
+        self.assertEqual(limited.list_shared_files({})["files"], [])
+
     def test_upload_shared_file_from_local_path_uses_existing_storage_rules(self) -> None:
         source = self.base_dir / "Clipboard Invoice.pdf"
         source.write_bytes(b"clipboard invoice body")

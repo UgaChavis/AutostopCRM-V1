@@ -71,6 +71,7 @@
       editingId: null,
       cardCreateColumnId: '',
       cardSaveInFlight: false,
+      cardInitialPayloadKey: '',
       cardDescriptionLoading: false,
       cardHydratingId: '',
       cardHydrationSeq: 0,
@@ -9071,6 +9072,7 @@
     const ATTACHMENT_PREVIEWABLE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
     const ATTACHMENT_ALLOWED_LABEL = 'PNG, JPG, JPEG, WEBP, GIF, DOC, DOCX, XLS, XLSX, TXT, PDF';
     const ATTACHMENT_MAX_SIZE_BYTES = 15 * 1024 * 1024;
+    const SHARED_FILE_UPLOAD_MAX_SIZE_BYTES = 25 * 1024 * 1024;
     const ATTACHMENT_EXTENSION_TO_MIME = {
       '.png': 'image/png',
       '.jpg': 'image/jpeg',
@@ -9813,6 +9815,7 @@
       return {
         actor_name: state.actor,
         source: 'ui',
+        expected_updated_at: state.editingId ? String(state.activeCard?.updated_at || '') : undefined,
         vehicle: els.cardVehicle.value.trim(),
         title: els.cardTitle.value.trim(),
         description: getCardDescriptionValue(),
@@ -9821,6 +9824,33 @@
         deadline: deadlineInput(),
         vehicle_profile: vehicleProfile,
       };
+    }
+
+    function cardDirtyComparisonPayload(payload = currentCardPayload()) {
+      return {
+        vehicle: payload.vehicle || '',
+        title: payload.title || '',
+        description: payload.description || '',
+        column: payload.column || '',
+        tags: Array.isArray(payload.tags) ? payload.tags : [],
+        deadline: payload.deadline || {},
+        vehicle_profile: payload.vehicle_profile || {},
+      };
+    }
+
+    function cardModalPayloadKey(payload = currentCardPayload()) {
+      return JSON.stringify(cardDirtyComparisonPayload(payload));
+    }
+
+    function rememberCardModalCleanState(payload = currentCardPayload()) {
+      state.cardInitialPayloadKey = cardModalPayloadKey(payload);
+    }
+
+    function cardModalHasUnsavedChanges() {
+      if (!els.cardModal?.classList.contains('is-open')) return false;
+      if (state.cardSaveInFlight || state.cardDescriptionLoading) return false;
+      const initialKey = String(state.cardInitialPayloadKey || '');
+      return Boolean(initialKey && initialKey !== cardModalPayloadKey());
     }
 
     function emptyRepairOrderRow(overrides = {}) {
@@ -11085,6 +11115,7 @@
             card_id: cardId,
             actor_name: state.actor,
             source: 'ui',
+            create_if_missing: true,
           },
         })
         : Promise.resolve(null);
@@ -11402,6 +11433,7 @@
       if (els.cardModal?.classList.contains('is-open')) {
         requestAnimationFrame(() => syncCardDescriptionHeight());
       }
+      rememberCardModalCleanState();
       perfEnd(perfToken, { card_id: nextCardId, full: state.activeCardIsFull, description_loading: Boolean(descriptionLoading) });
     }
 
@@ -11411,6 +11443,7 @@
       state.editingId = null;
       state.cardCreateColumnId = '';
       state.cardSaveInFlight = false;
+      state.cardInitialPayloadKey = '';
       state.cardDescriptionLoading = false;
       state.cardHydratingId = '';
       state.cardJournalLoadedFor = '';
@@ -12387,6 +12420,7 @@
             card_id: normalizedCardId,
             actor_name: state.actor,
             source: 'ui',
+            create_if_missing: true,
           },
         });
         const updatedCard = repairOrderResponseCard(data, data?.repair_order || {});
@@ -12939,13 +12973,18 @@
       });
     }
 
-    function closeCardModal() {
+    function closeCardModal({ force = false } = {}) {
+      if (!force && cardModalHasUnsavedChanges()) {
+        const confirmed = window.confirm('Есть несохраненные изменения. Закрыть карточку без сохранения?');
+        if (!confirmed) return false;
+      }
       closeCardClientCreateModal();
       closeRepairOrderModal();
       clearFilePreview({ sync: false });
       popModal('card');
       resetCardModalState();
       stopCardCleanupPolling();
+      return true;
     }
     window.__closeCardModal = closeCardModal;
 
@@ -15649,7 +15688,7 @@
       if (!state.editingId) return;
       try {
         const data = await api('/api/archive_card', { method: 'POST', body: { card_id: state.editingId, actor_name: state.actor, source: 'ui' } });
-        closeCardModal();
+        closeCardModal({ force: true });
         if (data?.card && applyArchivedCardPatch(data.card)) return;
         await refreshSnapshot(true);
       } catch (error) {
@@ -15669,7 +15708,7 @@
     async function restoreActiveCard() {
       if (!state.editingId) return;
       await restoreCard(state.editingId);
-      closeCardModal();
+      closeCardModal({ force: true });
     }
 
     function openStickyModal(sticky = null) {
@@ -16357,6 +16396,9 @@
         const normalizedDropPoint = normalizeSharedFilesDropPoint(dropPoint);
         for (let index = 0; index < selectedFiles.length; index += 1) {
           const file = selectedFiles[index];
+          if (file.size > SHARED_FILE_UPLOAD_MAX_SIZE_BYTES) {
+            throw new Error('ФАЙЛ СЛИШКОМ БОЛЬШОЙ. ЛИМИТ: 25 МБ.');
+          }
           const buffer = await file.arrayBuffer();
           const fileName = sharedFilesFileNameForUpload(file, index);
           const extension = attachmentExtension(fileName);

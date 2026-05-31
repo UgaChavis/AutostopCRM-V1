@@ -209,6 +209,8 @@ class ContractSnapshotTests(unittest.TestCase):
 
     def test_auth_route_sets_keep_critical_routes(self) -> None:
         self.assertIn("/api/update_card", PROXIED_WRITE_ROUTES)
+        self.assertIn("/api/delete_employee", PROXIED_WRITE_ROUTES)
+        self.assertIn("/api/get_repair_order", PROXIED_WRITE_ROUTES)
         self.assertIn("/api/finance_audit/apply_safe_fixes", ADMIN_ONLY_ROUTES)
         self.assertIn("/api/get_operator_profile", OPERATOR_SESSION_ROUTES)
 

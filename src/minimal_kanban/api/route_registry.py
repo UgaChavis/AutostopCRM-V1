@@ -17,6 +17,7 @@ PROXIED_WRITE_ROUTES = {
     "/api/create_cashbox_transfer",
     "/api/save_employee",
     "/api/toggle_employee",
+    "/api/delete_employee",
     "/api/create_client",
     "/api/update_client",
     "/api/delete_client",
@@ -42,6 +43,7 @@ PROXIED_WRITE_ROUTES = {
     "/api/run_full_card_enrichment",
     "/api/cleanup_card_content",
     "/api/update_board_settings",
+    "/api/get_repair_order",
     "/api/update_repair_order",
     "/api/correct_repair_order_number",
     "/api/set_repair_order_status",
@@ -103,6 +105,11 @@ def build_service_routes(
     *,
     paste_shared_files_from_clipboard: RouteHandler,
 ) -> dict[str, RouteHandler]:
+    def get_repair_order(payload: dict[str, Any] | None) -> dict[str, Any]:
+        request_payload = dict(payload or {})
+        request_payload.setdefault("create_if_missing", False)
+        return service.get_repair_order(request_payload)
+
     return {
         "/api/create_card": service.create_card,
         "/api/create_column": service.create_column,
@@ -172,7 +179,7 @@ def build_service_routes(
         "/api/get_card_log": service.get_card_log,
         "/api/search_cards": service.search_cards,
         "/api/list_repair_orders": service.list_repair_orders,
-        "/api/get_repair_order": service.get_repair_order,
+        "/api/get_repair_order": get_repair_order,
         "/api/update_repair_order": service.update_repair_order,
         "/api/correct_repair_order_number": service.correct_repair_order_number,
         "/api/set_repair_order_status": service.set_repair_order_status,
