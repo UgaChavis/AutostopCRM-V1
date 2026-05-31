@@ -12908,12 +12908,22 @@
       loadActiveCardTab(nextName);
     }
 
+    function focusCardModalInitialControl() {
+      if (!els.cardModal?.classList.contains('is-open')) return;
+      if (state.currentTab !== 'overview') return;
+      if (els.cardModal.contains(document.activeElement) && document.activeElement !== document.body) return;
+      els.cardVehicle?.focus({ preventScroll: true });
+    }
+
     function openCardModal(card, { descriptionLoading = false, cardIsFull = true, preserveTab = false } = {}) {
       applyCardModalState(card, { descriptionLoading, cardIsFull, preserveLazyPanels: preserveTab });
       if (!preserveTab) setTab('overview');
       else loadActiveCardTab(state.currentTab);
       pushModal('card', els.cardModal);
-      requestAnimationFrame(() => syncCardDescriptionHeight());
+      requestAnimationFrame(() => {
+        syncCardDescriptionHeight();
+        focusCardModalInitialControl();
+      });
     }
 
     function closeCardModal() {

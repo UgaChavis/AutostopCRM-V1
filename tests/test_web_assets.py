@@ -1233,6 +1233,8 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("function openNewCardInColumn(columnId)", BOARD_WEB_APP_HTML)
         self.assertIn("function openDefaultNewCard()", BOARD_WEB_APP_HTML)
+        self.assertIn("function focusCardModalInitialControl()", BOARD_WEB_APP_HTML)
+        self.assertIn("focusCardModalInitialControl();", BOARD_WEB_APP_HTML)
         self.assertIn("async function archiveActiveCard()", BOARD_WEB_APP_HTML)
         self.assertIn("setStatus(archiveBlockedMessage(message), true);", BOARD_WEB_APP_HTML)
         self.assertNotIn("window.alert(", BOARD_WEB_APP_HTML)
