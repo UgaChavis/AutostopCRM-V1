@@ -11,6 +11,7 @@ import socket
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -57,6 +58,14 @@ SMOKE_SCENARIOS = (
     "mobile_board_load",
 )
 
+BROWSER_READ_RETRY_LIMIT = 1
+BROWSER_READ_RETRY_DELAY_SECONDS = 0.15
+CASHBOX_JOURNAL_FIRST_RENDER_BUDGET_MS = 2500
+DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS = 240.0
+PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS = 10.0
+SMOKE_ACTION_TIMEOUT_MS = 10000
+SMOKE_NAVIGATION_TIMEOUT_MS = 15000
+
 
 @dataclass
 class TempRuntime:
@@ -89,16 +98,43 @@ def _logger() -> logging.Logger:
     return logger
 
 
+def configure_stdout_utf8() -> None:
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        reconfigure(encoding="utf-8")
+
+
+def _is_transient_read_error(exc: BaseException) -> bool:
+    reason = getattr(exc, "reason", None)
+    transient_types = (TimeoutError, ConnectionAbortedError, ConnectionResetError)
+    return isinstance(exc, transient_types) or isinstance(reason, transient_types)
+
+
+def _read_bytes(url: str, *, accept: str, timeout: float) -> bytes:
+    request = urllib.request.Request(url, headers={"Accept": accept}, method="GET")
+    for attempt in range(BROWSER_READ_RETRY_LIMIT + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.read()
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            ConnectionAbortedError,
+            ConnectionResetError,
+        ) as exc:
+            if attempt < BROWSER_READ_RETRY_LIMIT and _is_transient_read_error(exc):
+                time.sleep(BROWSER_READ_RETRY_DELAY_SECONDS * (attempt + 1))
+                continue
+            raise
+    raise RuntimeError("Не удалось прочитать локальный smoke URL.")
+
+
 def _read_json(url: str, *, timeout: float = 8.0) -> dict[str, Any]:
-    request = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    return json.loads(_read_bytes(url, accept="application/json", timeout=timeout).decode("utf-8"))
 
 
 def _read_text(url: str, *, timeout: float = 8.0) -> str:
-    request = urllib.request.Request(url, headers={"Accept": "text/html"}, method="GET")
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.read().decode("utf-8")
+    return _read_bytes(url, accept="text/html", timeout=timeout).decode("utf-8")
 
 
 def _port_has_listener(host: str, port: int) -> bool:
@@ -363,6 +399,19 @@ def summarize_browser_events(
     }
 
 
+def _request_failure_text(request: Any) -> str:
+    failure = getattr(request, "failure", None)
+    if callable(failure):
+        failure = failure()
+    if isinstance(failure, dict):
+        return str(failure.get("errorText") or "").strip()
+    return str(failure or "").strip()
+
+
+def format_failed_request(request: Any) -> str:
+    return f"{request.method} {request.url} {_request_failure_text(request)}".strip()
+
+
 async def _wait_modal_open(page: Any, selector: str) -> None:
     await page.wait_for_function(
         "(selector) => document.querySelector(selector)?.classList.contains('is-open')",
@@ -562,7 +611,9 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     await page.wait_for_selector(".cashbox-journal-operation-head")
     await page.wait_for_selector(".cashbox-journal-operation-row")
     journal_first_rows_ms = (time.perf_counter() - journal_open_started) * 1000
-    scenarios["cashbox_journal_first_render_budget"] = journal_first_rows_ms <= 2000
+    scenarios["cashbox_journal_first_render_budget"] = (
+        journal_first_rows_ms <= CASHBOX_JOURNAL_FIRST_RENDER_BUDGET_MS
+    )
     scenarios["cashbox_journal_compact_cleanup"] = bool(
         await page.evaluate(
             """() => {
@@ -961,14 +1012,42 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
 async def _mobile_scenario(browser: Any, base_url: str) -> bool:
     context = await browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True)
     page = await context.new_page()
+    _set_page_timeouts(page)
     try:
-        await page.goto(base_url, wait_until="domcontentloaded")
+        await _goto_with_retry(page, base_url)
         await _login(page)
         await page.wait_for_selector("#board")
         await page.wait_for_function("() => document.body.classList.contains('is-mobile-lite')")
         return True
     finally:
-        await context.close()
+        await _close_with_timeout(context.close())
+
+
+async def _goto_with_retry(page: Any, url: str) -> None:
+    for attempt in range(2):
+        try:
+            await page.goto(url, wait_until="domcontentloaded")
+            return
+        except Exception as exc:
+            if attempt == 0 and any(
+                marker in str(exc)
+                for marker in ("ERR_CONNECTION_RESET", "ERR_CONNECTION_TIMED_OUT")
+            ):
+                await asyncio.sleep(0.2)
+                continue
+            raise
+
+
+def _set_page_timeouts(page: Any) -> None:
+    page.set_default_timeout(SMOKE_ACTION_TIMEOUT_MS)
+    page.set_default_navigation_timeout(SMOKE_NAVIGATION_TIMEOUT_MS)
+
+
+async def _close_with_timeout(awaitable: Any) -> None:
+    try:
+        await asyncio.wait_for(awaitable, timeout=PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS)
+    except Exception:
+        pass
 
 
 async def _launch_chromium(playwright: Any, *, headless: bool) -> Any:
@@ -1000,6 +1079,7 @@ async def run_browser_smoke(runtime: TempRuntime, *, headless: bool = True) -> d
         browser = await _launch_chromium(playwright, headless=headless)
         context = await browser.new_context(viewport={"width": 1440, "height": 960})
         page = await context.new_page()
+        _set_page_timeouts(page)
         page.on(
             "console",
             lambda msg: console_errors.append(msg.text) if msg.type == "error" else None,
@@ -1007,13 +1087,11 @@ async def run_browser_smoke(runtime: TempRuntime, *, headless: bool = True) -> d
         page.on("pageerror", lambda exc: page_errors.append(str(exc)))
         page.on(
             "requestfailed",
-            lambda request: failed_requests.append(
-                f"{request.method} {request.url} {request.failure.get('errorText') if request.failure else ''}"
-            ),
+            lambda request: failed_requests.append(format_failed_request(request)),
         )
         try:
             started_at = time.perf_counter()
-            await page.goto(runtime.base_url, wait_until="domcontentloaded")
+            await _goto_with_retry(page, runtime.base_url)
             scenarios[
                 "login_gate_hides_board_until_operator_login"
             ] = await _login_gate_hides_board(page)
@@ -1023,8 +1101,8 @@ async def run_browser_smoke(runtime: TempRuntime, *, headless: bool = True) -> d
             scenarios.update(await _desktop_scenarios(page, runtime))
             scenarios["mobile_board_load"] = await _mobile_scenario(browser, runtime.base_url)
         finally:
-            await context.close()
-            await browser.close()
+            await _close_with_timeout(context.close())
+            await _close_with_timeout(browser.close())
 
     events = summarize_browser_events(
         console_errors=console_errors,
@@ -1049,12 +1127,37 @@ async def run_temp_smoke(*, headless: bool = True, start_port: int = 42731) -> d
 
 
 def main() -> int:
+    configure_stdout_utf8()
     parser = argparse.ArgumentParser(description="Run AutoStop CRM browser smoke on temp data.")
     parser.add_argument("--headed", action="store_true", help="Run Chromium with a visible window.")
     parser.add_argument("--start-port", type=int, default=42731)
+    parser.add_argument(
+        "--browser-timeout-seconds",
+        type=float,
+        default=DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS,
+    )
     args = parser.parse_args()
 
-    result = asyncio.run(run_temp_smoke(headless=not args.headed, start_port=args.start_port))
+    try:
+        result = asyncio.run(
+            asyncio.wait_for(
+                run_temp_smoke(headless=not args.headed, start_port=args.start_port),
+                timeout=max(30.0, float(args.browser_timeout_seconds or 0.0)),
+            )
+        )
+    except Exception as exc:
+        result = {
+            "ok": False,
+            "error": "browser_smoke_failed",
+            "message": str(exc),
+            "scenarios": {},
+            "events": {
+                "ok": False,
+                "console_errors": [],
+                "page_errors": [],
+                "failed_requests": [],
+            },
+        }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result.get("error") == "playwright_missing":
         return 2

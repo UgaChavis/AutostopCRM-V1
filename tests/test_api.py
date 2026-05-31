@@ -40,6 +40,7 @@ from attachment_samples import (
     minimal_xlsx_bytes,
 )
 from minimal_kanban.api.server import ApiServer
+from minimal_kanban.api.server import ReusableThreadingHTTPServer
 from minimal_kanban.api.server import _success_log_level
 from minimal_kanban.models import AuditEvent, utc_now
 from minimal_kanban.operator_activity import OperatorActivityService
@@ -47,6 +48,15 @@ from minimal_kanban.operator_auth import OperatorAuthService, _password_hash
 from minimal_kanban.services.card_service import CardService, ServiceError
 from minimal_kanban.storage.json_store import JsonStore
 from minimal_kanban.web_assets import BOARD_WEB_APP_HTML
+
+TEST_API_PORT_START = 0
+TEST_API_PORT_FALLBACK_LIMIT = 25
+
+
+def is_transient_request_error(exc: BaseException) -> bool:
+    reason = getattr(exc, "reason", None)
+    transient_types = (TimeoutError, ConnectionAbortedError, ConnectionResetError)
+    return isinstance(exc, transient_types) or isinstance(reason, transient_types)
 
 
 def reserve_port() -> int:
@@ -56,6 +66,35 @@ def reserve_port() -> int:
 
 
 class ApiServerTests(unittest.TestCase):
+    def test_threaded_api_server_shutdown_does_not_wait_forever_on_client_threads(self) -> None:
+        self.assertTrue(ReusableThreadingHTTPServer.daemon_threads)
+        self.assertFalse(ReusableThreadingHTTPServer.block_on_close)
+        self.assertGreaterEqual(ReusableThreadingHTTPServer.request_queue_size, 64)
+
+    def test_api_server_supports_os_assigned_port(self) -> None:
+        logger = logging.getLogger(f"test.api.os_port.{self._testMethodName}")
+        server = ApiServer(self.service, logger, start_port=0, fallback_limit=25)
+        try:
+            server.start()
+            self.assertGreater(server.port, 0)
+            self.assertIn(f":{server.port}", server.base_url)
+            with urllib.request.urlopen(server.base_url + "/api/health", timeout=5) as response:
+                self.assertEqual(response.status, 200)
+        finally:
+            server.stop()
+
+    def test_api_responses_close_local_http_connections(self) -> None:
+        self.assertEqual(self.request("/api/health", method="GET")[0], 200)
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            connection.request("GET", "/api/health")
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.getheader("Connection"), "close")
+            response.read()
+        finally:
+            connection.close()
+
     def test_snapshot_success_route_uses_debug_log_level(self) -> None:
         self.assertEqual(_success_log_level("/api/get_board_snapshot"), logging.DEBUG)
         self.assertEqual(_success_log_level("/api/get_board_revision"), logging.DEBUG)
@@ -95,15 +134,16 @@ class ApiServerTests(unittest.TestCase):
             ),
             logger=logger,
         )
-        self.port = reserve_port()
+        self.port = TEST_API_PORT_START
         self.server = ApiServer(
             self.service,
             logger,
             operator_service=self.operator_service,
             start_port=self.port,
-            fallback_limit=1,
+            fallback_limit=TEST_API_PORT_FALLBACK_LIMIT,
         )
         self.server.start()
+        self.port = self.server.port
         self.base_url = self.server.base_url
 
     def tearDown(self) -> None:
@@ -131,14 +171,27 @@ class ApiServerTests(unittest.TestCase):
             headers=merged_headers,
             method=method,
         )
-        try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                return response.status, json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
+        attempts = 2 if method.upper() == "GET" else 1
+        for attempt in range(attempts):
             try:
-                return exc.code, json.loads(exc.read().decode("utf-8"))
-            finally:
-                exc.close()
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    return response.status, json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                try:
+                    return exc.code, json.loads(exc.read().decode("utf-8"))
+                finally:
+                    exc.close()
+            except (
+                urllib.error.URLError,
+                TimeoutError,
+                ConnectionAbortedError,
+                ConnectionResetError,
+            ) as exc:
+                if attempt + 1 < attempts and is_transient_request_error(exc):
+                    time.sleep(0.05)
+                    continue
+                raise
+        raise AssertionError("unreachable request retry state")
 
     def raw_request(
         self,
@@ -4366,15 +4419,16 @@ class ApiServerAuthTests(unittest.TestCase):
             attachments_dir=Path(self.temp_dir.name) / "attachments",
             repair_orders_dir=Path(self.temp_dir.name) / "repair-orders",
         )
-        self.port = reserve_port()
+        self.port = TEST_API_PORT_START
         self.server = ApiServer(
             self.service,
             logger,
             start_port=self.port,
-            fallback_limit=1,
+            fallback_limit=TEST_API_PORT_FALLBACK_LIMIT,
             bearer_token="secret-token",
         )
         self.server.start()
+        self.port = self.server.port
         self.base_url = self.server.base_url
 
     def tearDown(self) -> None:
@@ -4398,14 +4452,27 @@ class ApiServerAuthTests(unittest.TestCase):
         request = urllib.request.Request(
             f"{self.base_url}{path}", data=data, headers=headers, method=method
         )
-        try:
-            with urllib.request.urlopen(request, timeout=5) as response:
-                return response.status, json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
+        attempts = 2 if method.upper() == "GET" else 1
+        for attempt in range(attempts):
             try:
-                return exc.code, json.loads(exc.read().decode("utf-8"))
-            finally:
-                exc.close()
+                with urllib.request.urlopen(request, timeout=5) as response:
+                    return response.status, json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                try:
+                    return exc.code, json.loads(exc.read().decode("utf-8"))
+                finally:
+                    exc.close()
+            except (
+                urllib.error.URLError,
+                TimeoutError,
+                ConnectionAbortedError,
+                ConnectionResetError,
+            ) as exc:
+                if attempt + 1 < attempts and is_transient_request_error(exc):
+                    time.sleep(0.05)
+                    continue
+                raise
+        raise AssertionError("unreachable request retry state")
 
     def test_mutating_routes_require_bearer_token(self) -> None:
         status, health = self.request("/api/health", method="GET")

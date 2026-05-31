@@ -49,6 +49,22 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertTrue(callable(module.start_temp_runtime))
         self.assertTrue(callable(module.run_temp_smoke))
         self.assertTrue(callable(module._first_free_port))
+        self.assertIn("BROWSER_READ_RETRY_LIMIT", script)
+        self.assertIn("_is_transient_read_error", script)
+        self.assertIn("async def _goto_with_retry(", script)
+        self.assertIn("ERR_CONNECTION_RESET", script)
+        self.assertIn("DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS", script)
+        self.assertIn("PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS", script)
+        self.assertIn("SMOKE_ACTION_TIMEOUT_MS = 10000", script)
+        self.assertIn("SMOKE_NAVIGATION_TIMEOUT_MS = 15000", script)
+        self.assertIn("def _set_page_timeouts(page: Any) -> None:", script)
+        self.assertIn('reconfigure(encoding="utf-8")', script)
+        self.assertIn("await _close_with_timeout(context.close())", script)
+        self.assertIn("--browser-timeout-seconds", script)
+        self.assertIn("asyncio.wait_for(\n                run_temp_smoke", script)
+        self.assertIn("await _goto_with_retry(page, runtime.base_url)", script)
+        self.assertIn("await _goto_with_retry(page, base_url)", script)
+        self.assertIn("CASHBOX_JOURNAL_FIRST_RENDER_BUDGET_MS", script)
         self.assertIn("start_port = _first_free_port(start_port)", script)
 
     def test_temp_runtime_seeds_modal_ladder_data(self) -> None:
@@ -100,6 +116,19 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertEqual(summary["console_errors"], ["console failed"])
         self.assertEqual(summary["page_errors"], ["page failed"])
         self.assertEqual(summary["failed_requests"], ["POST /api/save_card 500"])
+
+    def test_failed_request_formatter_accepts_playwright_string_failure(self) -> None:
+        module = load_browser_smoke_module()
+
+        class Request:
+            method = "GET"
+            url = "http://127.0.0.1:42731/api/poll"
+            failure = "net::ERR_ABORTED"
+
+        self.assertEqual(
+            module.format_failed_request(Request()),
+            "GET http://127.0.0.1:42731/api/poll net::ERR_ABORTED",
+        )
 
 
 if __name__ == "__main__":

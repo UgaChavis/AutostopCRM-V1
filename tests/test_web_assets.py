@@ -431,6 +431,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("scheduleNextSnapshotPoll();", BOARD_WEB_APP_HTML)
         self.assertIn("const SNAPSHOT_POLL_MODAL_INTERVAL_MS = 15000;", BOARD_WEB_APP_HTML)
         self.assertIn("function hasOpenWorkspaceModal()", BOARD_WEB_APP_HTML)
+        self.assertIn("if (perfEnabled()) {\n        stopSnapshotPolling();", BOARD_WEB_APP_HTML)
 
     def test_perf_instrumentation_is_wired_for_slow_paths(self) -> None:
         self.assertIn("const PERF_STORAGE_KEY = 'autostop-perf';", BOARD_WEB_APP_HTML)
@@ -446,6 +447,28 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("perfStart('renderBoard')", BOARD_WEB_APP_HTML)
         self.assertIn("perfStart('renderFiles')", BOARD_WEB_APP_HTML)
         self.assertIn("perfMeasureAsync('saveCard'", BOARD_WEB_APP_HTML)
+
+    def test_api_retries_readonly_network_errors_without_repeating_writes(self) -> None:
+        self.assertIn("const API_READ_RETRY_LIMIT = 1;", BOARD_WEB_APP_HTML)
+        self.assertIn("const API_PERF_READ_TIMEOUT_MS = 6000;", BOARD_WEB_APP_HTML)
+        self.assertIn("function apiReadTimeoutMs()", BOARD_WEB_APP_HTML)
+        self.assertIn("function delay(ms)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const retryLimit = request.method === 'GET' ? API_READ_RETRY_LIMIT : 0;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("const requestAttempt = { ...request };", BOARD_WEB_APP_HTML)
+        self.assertIn("timedOut = true;", BOARD_WEB_APP_HTML)
+        self.assertIn("controller.abort();", BOARD_WEB_APP_HTML)
+        self.assertIn("if (timedOut && attempt < retryLimit) {", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "for (let attempt = 0; attempt <= retryLimit; attempt += 1)",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "await delay(API_READ_RETRY_BASE_DELAY_MS * (attempt + 1));",
+            BOARD_WEB_APP_HTML,
+        )
 
     def test_archive_modal_uses_last_30_compact_rows(self) -> None:
         self.assertIn("АРХИВ / ПОСЛЕДНИЕ 30", BOARD_WEB_APP_HTML)
@@ -692,6 +715,15 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("state.employeesLoadedMonth = month;", BOARD_WEB_APP_HTML)
         self.assertIn("await loadPayrollReport();", BOARD_WEB_APP_HTML)
         self.assertIn("renderEmployeesWorkspace();", BOARD_WEB_APP_HTML)
+        shift_handler = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "async function handleEmployeeShiftAccrualConfirm()"
+            ) : BOARD_WEB_APP_HTML.index("function renderEmployeesWorkspace()")
+        ]
+        self.assertLess(
+            shift_handler.index("renderEmployeesWorkspace();"),
+            shift_handler.index("await loadPayrollReport();"),
+        )
         self.assertIn(
             "employee.balance_total ?? summary?.balance_total ?? summary?.total_salary",
             BOARD_WEB_APP_HTML,
@@ -1206,6 +1238,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "async function fetchFullCard(cardId, expectedUpdatedAt = '')", BOARD_WEB_APP_HTML
         )
+        self.assertIn(
+            "api('/api/get_card?card_id=' + encodeURIComponent(normalizedCardId))",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("const cachedCard = snapshotCardById(normalizedCardId);", BOARD_WEB_APP_HTML)
         self.assertIn(
             "openCardModal(cachedCard, { descriptionLoading: true, cardIsFull: false });",
@@ -1217,6 +1253,12 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function recordCardOpenSideEffects(cardId)", BOARD_WEB_APP_HTML)
         self.assertIn("CARD_OPEN_SIDE_EFFECT_DELAY_MS = 700", BOARD_WEB_APP_HTML)
         self.assertIn("api('/api/open_card'", BOARD_WEB_APP_HTML)
+        save_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index("async function saveCard()") : BOARD_WEB_APP_HTML.index(
+                "configureCardFieldSemantics();"
+            )
+        ]
+        self.assertIn("clearCardOpenSideEffectTimer();", save_fragment)
         self.assertIn("return_card: false", BOARD_WEB_APP_HTML)
         self.assertIn("mark_seen: false", BOARD_WEB_APP_HTML)
         self.assertIn("function loadActiveCardTab(tabName)", BOARD_WEB_APP_HTML)
@@ -1551,6 +1593,13 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("const CARD_CLIENT_SUGGESTION_LIMIT = 6;", BOARD_WEB_APP_HTML)
         self.assertIn("clientsRequestSeq", BOARD_WEB_APP_HTML)
         self.assertIn("clientsMetaState", BOARD_WEB_APP_HTML)
+        self.assertIn("clientsLoaded: false,", BOARD_WEB_APP_HTML)
+        self.assertIn("state.clientsLoaded = true;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (state.clientsLoaded && !String(state.clientsQuery || '').trim()) {",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("maybeOpenModal(els.clientsModal, true);", BOARD_WEB_APP_HTML)
         self.assertIn("ПОИСК ПО ВСЕМ КЛИЕНТАМ", BOARD_WEB_APP_HTML)
         self.assertIn(
             "'/api/list_clients?limit=' + CLIENTS_INITIAL_LIMIT + '&include_stats=false'",
@@ -1902,6 +1951,12 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("before_card_id: beforeCardId || undefined,", BOARD_WEB_APP_HTML)
         self.assertIn("await moveCard(cardId, columnId, beforeCardId);", BOARD_WEB_APP_HTML)
+        move_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "async function moveCard(cardId, columnId, beforeCardId = '')"
+            ) : BOARD_WEB_APP_HTML.index("async function moveColumn")
+        ]
+        self.assertIn("clearCardOpenSideEffectTimer();", move_fragment)
         self.assertIn(
             "document.addEventListener('dragstart', handleBoardCardDragStart);", BOARD_WEB_APP_HTML
         )
@@ -2660,8 +2715,15 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="repairOrdersSortBy"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrdersSortDir"', BOARD_WEB_APP_HTML)
         self.assertIn("function openRepairOrdersModal()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function handleRepairOrdersListClick(event)", BOARD_WEB_APP_HTML)
         self.assertIn("async function handleRepairOrdersListKeydown(event)", BOARD_WEB_APP_HTML)
         self.assertIn("loadRepairOrders = async function(openModal = false)", BOARD_WEB_APP_HTML)
+        self.assertIn("function repairOrdersHasReusableOpenList()", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const canReuseOpenList = repairOrdersHasReusableOpenList();", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("if (canReuseOpenList) {", BOARD_WEB_APP_HTML)
+        self.assertIn("maybeOpenModal(els.repairOrdersModal, true);", BOARD_WEB_APP_HTML)
         self.assertIn(
             "async function openRepairOrderCard(cardId, { parentLayer = 'repair-orders' } = {})",
             BOARD_WEB_APP_HTML,
@@ -2787,6 +2849,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("item.grand_total, item.works_total", BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.repairOrdersButton.addEventListener('click', openRepairOrdersModal);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.repairOrdersList.addEventListener('click', handleRepairOrdersListClick);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
@@ -3026,6 +3092,22 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("function ensureCashboxesUi()", BOARD_WEB_APP_HTML)
         self.assertIn("function openCashboxesModal()", BOARD_WEB_APP_HTML)
+        self.assertIn("cashboxesLoadController: null", BOARD_WEB_APP_HTML)
+        self.assertIn("function abortCashboxesLoad()", BOARD_WEB_APP_HTML)
+        self.assertIn("state.cashboxesLoadController.abort();", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "abortCashboxesLoad();\n          closeCashboxTransferModal();", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("signal: loadContext.controller.signal", BOARD_WEB_APP_HTML)
+        self.assertIn("if (!isCurrentCashboxesLoad(loadContext)) return null;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.cashboxDetailTitle.textContent = 'ЗАГРУЖАЮ КАССЫ...';", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("els.cashboxStats.innerHTML = '';", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.cashboxTransactions.innerHTML = '<div class=\"cashboxes-empty\">ЗАГРУЖАЮ ДВИЖЕНИЯ...</div>';",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "async function loadCashJournalData({ includeMarkdown = false } = {})",
             BOARD_WEB_APP_HTML,
@@ -3174,9 +3256,21 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("async function cancelLastCashboxTransaction()", BOARD_WEB_APP_HTML)
-        self.assertIn("async function loadCashboxes(openModal = false)", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "async function loadCashboxDetail(cashboxId, { openModal = false, offset = 0, append = false } = {})",
+            "async function loadCashboxes(openModal = false, { deferDetail = false } = {})",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("const CASHBOX_DETAIL_DEFER_DELAY_MS = 120;", BOARD_WEB_APP_HTML)
+        self.assertIn("cashboxesLoaded: false,", BOARD_WEB_APP_HTML)
+        self.assertIn("function scheduleCashboxDetailLoad(", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (!els.cashboxesModal?.classList.contains('is-open')) return;", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("if (state.cashboxesLoaded) {", BOARD_WEB_APP_HTML)
+        self.assertIn("loadCashboxes(false, { deferDetail: true });", BOARD_WEB_APP_HTML)
+        self.assertIn("scheduleCashboxDetailLoad(nextId, { openModal });", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "async function loadCashboxDetail(cashboxId, { openModal = false, offset = 0, append = false, loadContext = null } = {})",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(

@@ -667,6 +667,7 @@
     els.fileDropzone.addEventListener('paste', handleFileDropzonePaste);
     document.addEventListener('keydown', handleFilePreviewKeydown);
     document.addEventListener('error', handleAttachmentThumbnailError, true);
+    els.repairOrdersList.addEventListener('click', handleRepairOrdersListClick);
     els.repairOrdersList.addEventListener('keydown', handleRepairOrdersListKeydown);
     els.stickyModal.addEventListener('click', handleStickyModalOverlayClick);
     els.repairOrderModal.addEventListener('click', handleRepairOrderModalOverlayClick);
@@ -757,6 +758,7 @@
       if (state.editingId && !state.activeCardIsFull) return setStatus('ДОЖДИТЕСЬ ЗАГРУЗКИ КАРТОЧКИ.', true);
       const payload = currentCardPayload();
       if (!payload.title) return setStatus(CARD_TITLE_REQUIRED_MESSAGE, true);
+      clearCardOpenSideEffectTimer();
       state.cardSaveInFlight = true;
       if (els.saveCardButton) els.saveCardButton.disabled = true;
       return perfMeasureAsync('saveCard', async () => {

@@ -5,6 +5,7 @@ import html
 import json
 import logging
 import re
+import socket
 import sys
 import threading
 import unicodedata
@@ -16,7 +17,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from logging import Logger
 from pathlib import Path, PurePath
-from time import perf_counter
+from time import perf_counter, sleep
 from urllib.parse import parse_qs, quote, urlsplit
 
 from ..config import (
@@ -55,6 +56,7 @@ QUIET_SUCCESS_ROUTES = frozenset(
 
 JSON_GZIP_MIN_BYTES = 1024
 MAX_JSON_BODY_BYTES = 25 * 1024 * 1024
+OVERSIZED_JSON_DRAIN_BYTES = 1024 * 1024
 
 
 def _json_response(
@@ -297,27 +299,44 @@ class ApiServer:
         if self._server is not None:
             return
         handler = self._make_handler()
-        for candidate_port in range(self._start_port, self._start_port + self._fallback_limit):
+        candidate_ports = (
+            range(self._start_port, self._start_port + self._fallback_limit)
+            if self._start_port > 0
+            else [0] * max(1, self._fallback_limit)
+        )
+        last_error: BaseException | None = None
+        for candidate_port in candidate_ports:
             try:
                 server = ReusableThreadingHTTPServer((self.host, candidate_port), handler)
-                server.api_logger = self._logger
-                self._server = server
-                self.port = candidate_port
-                break
-            except OSError:
+            except OSError as exc:
+                last_error = exc
                 continue
-        if self._server is None:
-            raise RuntimeError("Не удалось запустить локальный API.")
-        self._thread = threading.Thread(
-            target=self._server.serve_forever, name="minimal-kanban-api", daemon=True
-        )
-        self._thread.start()
-        self._logger.info(
-            "api_server_started bind_host=%s url=%s auth=%s",
-            self.host,
-            self.base_url,
-            bool(self._bearer_token),
-        )
+            server.api_logger = self._logger
+            thread = threading.Thread(
+                target=server.serve_forever, name="minimal-kanban-api", daemon=True
+            )
+            self._server = server
+            self._thread = thread
+            self.port = int(server.server_address[1])
+            thread.start()
+            try:
+                self._wait_until_accepting()
+            except RuntimeError as exc:
+                last_error = exc
+                self._server = None
+                self._thread = None
+                server.shutdown()
+                thread.join(timeout=1)
+                server.server_close()
+                continue
+            self._logger.info(
+                "api_server_started bind_host=%s url=%s auth=%s",
+                self.host,
+                self.base_url,
+                bool(self._bearer_token),
+            )
+            return
+        raise RuntimeError("Не удалось запустить локальный API.") from last_error
 
     def stop(self) -> None:
         if self._server is None:
@@ -330,6 +349,25 @@ class ApiServer:
             self._thread = None
         server.server_close()
         self._logger.info("api_server_stopped")
+
+    def _wait_until_accepting(self, *, timeout_seconds: float = 2.0) -> None:
+        deadline = perf_counter() + timeout_seconds
+        last_error: OSError | None = None
+        connect_host = self.host
+        if connect_host in {"0.0.0.0", "::", "[::]"}:
+            connect_host = "127.0.0.1"
+        elif connect_host.startswith("[") and connect_host.endswith("]"):
+            connect_host = connect_host[1:-1]
+        while perf_counter() < deadline:
+            try:
+                with socket.create_connection((connect_host, self.port), timeout=0.2):
+                    return
+            except OSError as exc:
+                last_error = exc
+                sleep(0.02)
+        raise RuntimeError(
+            "Локальный API запущен, но порт не принимает соединения."
+        ) from last_error
 
     def _build_shared_files_service(self, service: CardService) -> SharedFilesService:
         store = getattr(service, "_store", None)
@@ -351,7 +389,7 @@ class ApiServer:
         logger = self._logger
         bearer_token = self._bearer_token
         operator_service = self._operator_service
-        base_url = self.base_url
+        api_server = self
 
         def paste_shared_files_from_clipboard(payload: dict | None = None) -> dict:
             payload = payload or {}
@@ -453,7 +491,7 @@ class ApiServer:
                         ok=True,
                         data={
                             "status": "ok",
-                            "base_url": base_url,
+                            "base_url": api_server.base_url,
                             "bind_host": self.server.server_address[0],
                             "auth_required": bool(bearer_token),
                         },
@@ -498,7 +536,7 @@ class ApiServer:
                         ok=True,
                         data={
                             "status": "ok",
-                            "base_url": base_url,
+                            "base_url": api_server.base_url,
                             "bind_host": self.server.server_address[0],
                             "auth_required": bool(bearer_token),
                         },
@@ -601,6 +639,7 @@ class ApiServer:
                     )
                     return
                 if content_length > MAX_JSON_BODY_BYTES:
+                    self._drain_request_body(min(content_length, OVERSIZED_JSON_DRAIN_BYTES))
                     self.close_connection = True
                     self._send_error_response(
                         request_id,
@@ -1020,6 +1059,8 @@ class ApiServer:
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(content_length))
                 self.send_header("Cache-Control", cache_control)
+                self.send_header("Connection", "close")
+                self.close_connection = True
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.send_header(
                     "Access-Control-Allow-Headers",
@@ -1152,8 +1193,9 @@ class ApiServer:
 
 class ReusableThreadingHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
-    daemon_threads = False
-    block_on_close = True
+    daemon_threads = True
+    block_on_close = False
+    request_queue_size = 64
     api_logger: Logger | None = None
 
     def handle_error(self, request, client_address) -> None:

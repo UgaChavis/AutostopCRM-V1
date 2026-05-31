@@ -13,6 +13,7 @@
     const CASH_JOURNAL_FILTER_DEBOUNCE_MS = 80;
     const CASH_JOURNAL_RENDER_BATCH_SIZE = 250;
     const CASHBOX_TRANSACTION_PAGE_SIZE = 100;
+    const CASHBOX_DETAIL_DEFER_DELAY_MS = 120;
     const CASHBOX_EXPENSE_NOTE_MIN_LENGTH = 10;
     const BOARD_SEARCH_CACHE_TTL_MS = 20000;
     const PERF_STORAGE_KEY = 'autostop-perf';
@@ -129,6 +130,7 @@
         controller: null,
       },
       clients: [],
+      clientsLoaded: false,
       clientsQuery: '',
       clientsActiveId: '',
       clientsActiveProfile: null,
@@ -147,8 +149,11 @@
       clientSuggestions: [],
       clientSuggestionProfiles: {},
       cashboxes: [],
+      cashboxesLoaded: false,
       activeCashboxId: '',
       activeCashbox: null,
+      cashboxesLoadController: null,
+      cashboxesRequestSeq: 0,
       cashboxJournalData: null,
       cashboxJournalView: 'journal',
       cashboxJournalFilters: { query: '', cashbox: '', type: 'all', period: 'all', periodKind: '', periodKey: '', periodLabel: '' },
@@ -228,6 +233,10 @@
     const SNAPSHOT_POLL_INTERVAL_MS = 8000;
     const SNAPSHOT_POLL_MODAL_INTERVAL_MS = 15000;
     const SNAPSHOT_POLL_HIDDEN_INTERVAL_MS = 120000;
+    const API_READ_RETRY_LIMIT = 1;
+    const API_READ_RETRY_BASE_DELAY_MS = 150;
+    const API_READ_TIMEOUT_MS = 10000;
+    const API_PERF_READ_TIMEOUT_MS = 6000;
     const CARD_UNREAD_HOVER_DELAY_MS = 260;
     const CARD_UPDATED_HOVER_DELAY_MS = 80;
 
@@ -967,12 +976,20 @@
 
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
 
+    function delay(ms) {
+      return new Promise((resolve) => window.setTimeout(resolve, ms));
+    }
+
     function perfEnabled() {
       try {
         return localStorage.getItem(PERF_STORAGE_KEY) === '1';
       } catch (_) {
         return false;
       }
+    }
+
+    function apiReadTimeoutMs() {
+      return perfEnabled() ? API_PERF_READ_TIMEOUT_MS : API_READ_TIMEOUT_MS;
     }
 
     function perfNow() {
@@ -2604,12 +2621,42 @@
       if (state.apiToken) request.headers['Authorization'] = 'Bearer ' + state.apiToken;
       if (state.operatorSessionToken) request.headers['X-Operator-Session'] = state.operatorSessionToken;
       let response;
-      try {
-        response = await fetch(path, request);
-      } catch (error) {
-        perfEnd(perfToken, { error: error?.name || 'network' });
-        if (error?.name === 'AbortError') throw error;
-        throw new Error('НЕТ СВЯЗИ С ДОСКОЙ. ПРОВЕРЬ СЕТЬ ИЛИ ПУБЛИЧНЫЙ АДРЕС.');
+      const retryLimit = request.method === 'GET' ? API_READ_RETRY_LIMIT : 0;
+      for (let attempt = 0; attempt <= retryLimit; attempt += 1) {
+        const requestAttempt = { ...request };
+        let timeoutId = null;
+        let timedOut = false;
+        if (!options.signal && requestAttempt.method === 'GET') {
+          const controller = new AbortController();
+          requestAttempt.signal = controller.signal;
+          timeoutId = window.setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+          }, apiReadTimeoutMs());
+        }
+        try {
+          response = await fetch(path, requestAttempt);
+          break;
+        } catch (error) {
+          if (error?.name === 'AbortError') {
+            if (timedOut && attempt < retryLimit) {
+              continue;
+            }
+            perfEnd(perfToken, { error: timedOut ? 'timeout' : error.name });
+            if (timedOut) {
+              throw new Error('НЕТ ОТВЕТА ОТ ДОСКИ. ПРОВЕРЬ СЕТЬ ИЛИ ПУБЛИЧНЫЙ АДРЕС.');
+            }
+            throw error;
+          }
+          if (attempt < retryLimit) {
+            await delay(API_READ_RETRY_BASE_DELAY_MS * (attempt + 1));
+            continue;
+          }
+          perfEnd(perfToken, { error: error?.name || 'network' });
+          throw new Error('НЕТ СВЯЗИ С ДОСКОЙ. ПРОВЕРЬ СЕТЬ ИЛИ ПУБЛИЧНЫЙ АДРЕС.');
+        } finally {
+          if (timeoutId) window.clearTimeout(timeoutId);
+        }
       }
       const rawText = await response.text();
       let payload = null;
@@ -3636,6 +3683,7 @@
           popModal('shared-files');
         },
         cashboxes: () => {
+          abortCashboxesLoad();
           closeCashboxTransferModal();
           closeCashJournalModal();
           popModal('cashboxes');
@@ -4122,6 +4170,7 @@
           const clients = Array.isArray(payload?.clients) ? payload.clients : [];
           state.clientsMetaState = payload?.meta || null;
           state.clients = clients;
+          state.clientsLoaded = true;
           if (state.clientsActiveId && !state.clients.some((client) => client.id === state.clientsActiveId)) {
             state.clientsActiveId = '';
           } else if (!state.clients.length) {
@@ -4237,6 +4286,12 @@
     async function openClientsModal() {
       if (!requireOperatorSession()) return;
       bindClientsUiEvents();
+      if (state.clientsLoaded && !String(state.clientsQuery || '').trim()) {
+        maybeOpenModal(els.clientsModal, true);
+        renderClientsList();
+        if (!state.clients.length && !state.clientsActiveProfile) renderClientProfileEmptyState();
+        return;
+      }
       await loadClients({ openModal: true });
       if (!state.clients.length && !state.clientsActiveProfile) renderClientProfileEmptyState();
     }
@@ -5913,8 +5968,13 @@
         closeEmployeeShiftAccrualDialog();
         state.employeesLoadedMonth = '';
         await loadEmployeesReference();
-        await loadPayrollReport();
         renderEmployeesWorkspace();
+        try {
+          await loadPayrollReport();
+          renderEmployeesWorkspace();
+        } catch (reportError) {
+          setStatus(reportError.message, true);
+        }
         if (String(state.activeEmployeeSalaryId || '') === employeeId) {
           await loadEmployeeSalarySheet(employeeId, { openModal: true });
         }
@@ -12593,6 +12653,16 @@
       await openRepairOrderCard(row.dataset.openRepairOrderCard, { parentLayer: 'repair-orders' });
     }
 
+    async function handleRepairOrdersListClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const row = target.closest('[data-open-repair-order-card]');
+      if (!(row instanceof HTMLElement)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      await openRepairOrderCard(row.dataset.openRepairOrderCard, { parentLayer: 'repair-orders' });
+    }
+
     function renderGptWall(data) {
       state.gptWall = data;
       renderGptWallView();
@@ -12786,6 +12856,18 @@
       updateRepairOrdersTabs();
       setRepairOrdersSearchLoading(false);
       renderRepairOrdersView();
+    }
+
+    function repairOrdersHasReusableOpenList() {
+      const meta = state.repairOrdersMetaState || {};
+      return Boolean(
+        Array.isArray(state.repairOrdersItems)
+        && state.repairOrdersItems.length
+        && normalizeRepairOrderStatus(meta.status || state.repairOrdersFilter) === 'open'
+        && normalizeRepairOrdersSortBy(meta.sort_by || state.repairOrdersSortBy) === 'opened_at'
+        && normalizeRepairOrdersSortDir(meta.sort_dir || state.repairOrdersSortDir) === 'desc'
+        && !String(state.repairOrdersRemoteQuery || '').trim()
+      );
     }
 
     loadRepairOrders = async function(openModal = false) {
@@ -13090,7 +13172,7 @@
       if (cachedCard && (!normalizedExpectedUpdatedAt || String(cachedCard.updated_at || '').trim() === normalizedExpectedUpdatedAt)) return cachedCard;
       const pending = state.cardFetchInFlight.get(normalizedCardId);
       if (pending) return pending;
-      const request = api('/api/get_card', { method: 'POST', body: { card_id: normalizedCardId } })
+      const request = api('/api/get_card?card_id=' + encodeURIComponent(normalizedCardId))
         .then((data) => cacheFullCard(data?.card))
         .finally(() => state.cardFetchInFlight.delete(normalizedCardId));
       state.cardFetchInFlight.set(normalizedCardId, request);
@@ -13390,6 +13472,10 @@
 
     function scheduleNextSnapshotPoll() {
       stopSnapshotPolling();
+      if (perfEnabled()) {
+        stopSnapshotPolling();
+        return;
+      }
       state.pollHandle = window.setTimeout(async () => {
         state.pollHandle = null;
         await refreshSnapshotRevision();
@@ -13402,6 +13488,10 @@
     }
 
     function handleSnapshotVisibilityChange() {
+      if (perfEnabled()) {
+        stopSnapshotPolling();
+        return;
+      }
       startSnapshotPolling();
       if (!document.hidden) refreshSnapshotRevision();
     }
@@ -13573,6 +13663,7 @@
     async function moveCard(cardId, columnId, beforeCardId = '') {
       return perfMeasureAsync('moveCard', async () => {
         try {
+          clearCardOpenSideEffectTimer();
           const data = await api('/api/move_card', {
             method: 'POST',
             body: {
@@ -13833,12 +13924,11 @@
     }
 
     function openRepairOrdersModal() {
+      const canReuseOpenList = repairOrdersHasReusableOpenList();
       state.repairOrdersFilter = 'open';
       state.repairOrdersQuery = '';
       state.repairOrdersRemoteQuery = '';
       state.repairOrdersSearchField = 'summary';
-      state.repairOrdersItems = [];
-      state.repairOrdersMetaState = null;
       state.repairOrdersSortBy = 'opened_at';
       state.repairOrdersSortDir = 'desc';
       if (state.repairOrdersLoadTimer) {
@@ -13848,6 +13938,13 @@
       setRepairOrdersSearchLoading(false);
       updateRepairOrdersTabs();
       syncRepairOrdersControls();
+      if (canReuseOpenList) {
+        renderRepairOrdersView();
+        maybeOpenModal(els.repairOrdersModal, true);
+        return;
+      }
+      state.repairOrdersItems = [];
+      state.repairOrdersMetaState = null;
       loadRepairOrders(true);
     }
 
@@ -14106,12 +14203,51 @@
       renderCashboxTransactions();
     }
 
-    async function loadCashboxDetail(cashboxId, { openModal = false, offset = 0, append = false } = {}) {
+    function abortCashboxesLoad() {
+      if (state.cashboxesLoadController) {
+        state.cashboxesLoadController.abort();
+      }
+      state.cashboxesLoadController = null;
+      state.cashboxesRequestSeq += 1;
+    }
+
+    function beginCashboxesLoad() {
+      if (state.cashboxesLoadController) {
+        state.cashboxesLoadController.abort();
+      }
+      const controller = new AbortController();
+      state.cashboxesLoadController = controller;
+      state.cashboxesRequestSeq += 1;
+      return { controller, seq: state.cashboxesRequestSeq };
+    }
+
+    function isCurrentCashboxesLoad(loadContext) {
+      return Boolean(
+        loadContext
+        && state.cashboxesLoadController === loadContext.controller
+        && state.cashboxesRequestSeq === loadContext.seq
+        && els.cashboxesModal?.classList.contains('is-open')
+      );
+    }
+
+    function finishCashboxesLoad(loadContext) {
+      if (state.cashboxesLoadController === loadContext?.controller) {
+        state.cashboxesLoadController = null;
+      }
+    }
+
+    async function loadCashboxDetail(cashboxId, { openModal = false, offset = 0, append = false, loadContext = null } = {}) {
       const normalizedId = String(cashboxId || '').trim();
       if (!normalizedId) return null;
+      if (openModal) maybeOpenModal(els.cashboxesModal, true);
+      const ownsLoadContext = !loadContext;
+      if (!loadContext) loadContext = beginCashboxesLoad();
       try {
         const transactionOffset = Math.max(0, Number(offset || 0));
-        const data = await api('/api/get_cashbox?cashbox_id=' + encodeURIComponent(normalizedId) + '&transaction_limit=' + CASHBOX_TRANSACTION_PAGE_SIZE + '&transaction_offset=' + transactionOffset + '&compact=true');
+        const data = await api('/api/get_cashbox?cashbox_id=' + encodeURIComponent(normalizedId) + '&transaction_limit=' + CASHBOX_TRANSACTION_PAGE_SIZE + '&transaction_offset=' + transactionOffset + '&compact=true', {
+          signal: loadContext.controller.signal,
+        });
+        if (!isCurrentCashboxesLoad(loadContext)) return null;
         const nextTransactions = Array.isArray(data?.transactions) ? data.transactions : [];
         const canAppend = append && state.activeCashbox?.cashbox?.id === (data?.cashbox?.id || normalizedId);
         const transactions = canAppend
@@ -14130,12 +14266,15 @@
         maybeOpenModal(els.cashboxesModal, openModal);
         return data;
       } catch (error) {
+        if (error?.name === 'AbortError' || !isCurrentCashboxesLoad(loadContext)) return null;
         els.cashboxDetailTitle.textContent = 'ОШИБКА ЗАГРУЗКИ';
         els.cashboxDetailMeta.textContent = error.message;
         els.cashboxTransactions.innerHTML = '<div class="cashboxes-empty">' + escapeHtml(error.message) + '</div>';
         maybeOpenModal(els.cashboxesModal, openModal);
         setStatus(error.message, true);
         return null;
+      } finally {
+        if (ownsLoadContext) finishCashboxesLoad(loadContext);
       }
     }
 
@@ -14149,11 +14288,27 @@
       });
     }
 
-    async function loadCashboxes(openModal = false) {
+    function scheduleCashboxDetailLoad(cashboxId, { openModal = false } = {}) {
+      const normalizedId = String(cashboxId || '').trim();
+      if (!normalizedId) return;
+      window.setTimeout(() => {
+        if (!els.cashboxesModal?.classList.contains('is-open')) return;
+        if (String(state.activeCashboxId || '').trim() !== normalizedId) return;
+        loadCashboxDetail(normalizedId, { openModal });
+      }, CASHBOX_DETAIL_DEFER_DELAY_MS);
+    }
+
+    async function loadCashboxes(openModal = false, { deferDetail = false } = {}) {
+      if (openModal) maybeOpenModal(els.cashboxesModal, true);
+      const loadContext = beginCashboxesLoad();
       try {
         resetCashboxDragState();
-        const data = await api('/api/list_cashboxes?limit=200');
+        const data = await api('/api/list_cashboxes?limit=200', {
+          signal: loadContext.controller.signal,
+        });
+        if (!isCurrentCashboxesLoad(loadContext)) return null;
         state.cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
+        state.cashboxesLoaded = true;
         const total = Number(data?.meta?.total || state.cashboxes.length);
         els.cashboxCreateButton.disabled = total >= 6;
         els.cashboxCreateButton.title = '';
@@ -14162,32 +14317,79 @@
           : (state.cashboxes[0]?.id || '');
         renderCashboxesList();
         if (nextId) {
-          await loadCashboxDetail(nextId, { openModal });
-          return;
+          if (deferDetail) {
+            const summaryCashbox = state.cashboxes.find((item) => item.id === nextId) || null;
+            state.activeCashboxId = nextId;
+            state.activeCashbox = {
+              cashbox: summaryCashbox,
+              transactions: [],
+              meta: summaryCashbox?.statistics || {},
+              statistics: summaryCashbox?.statistics || {},
+            };
+            renderCashboxesList();
+            renderCashboxDetail();
+            els.cashboxTransactions.innerHTML = '<div class="cashboxes-empty">ЗАГРУЖАЮ ДВИЖЕНИЯ...</div>';
+            maybeOpenModal(els.cashboxesModal, openModal);
+            scheduleCashboxDetailLoad(nextId, { openModal });
+            return data;
+          }
+          await loadCashboxDetail(nextId, { openModal, loadContext });
+          return data;
         }
         state.activeCashboxId = '';
         state.activeCashbox = null;
+        state.cashboxesLoaded = true;
         renderCashboxDetail();
         maybeOpenModal(els.cashboxesModal, openModal);
+        return data;
       } catch (error) {
+        if (error?.name === 'AbortError' || !isCurrentCashboxesLoad(loadContext)) return null;
+        state.cashboxesLoaded = false;
         els.cashboxesList.innerHTML = '<div class="cashboxes-empty">' + escapeHtml(error.message) + '</div>';
         state.activeCashboxId = '';
         state.activeCashbox = null;
         renderCashboxDetail();
         maybeOpenModal(els.cashboxesModal, openModal);
         setStatus(error.message, true);
+        return null;
+      } finally {
+        finishCashboxesLoad(loadContext);
       }
     }
 
     function openCashboxesModal() {
       maybeOpenModal(els.cashboxesModal, true);
+      els.cashboxDetailTitle.textContent = 'ЗАГРУЖАЮ КАССЫ...';
+      els.cashboxDetailMeta.textContent = '';
+      els.cashboxStats.innerHTML = '';
+      els.cashboxTransactions.innerHTML = '<div class="cashboxes-empty">ЗАГРУЖАЮ ДВИЖЕНИЯ...</div>';
       if (!Array.isArray(state.cashboxes) || !state.cashboxes.length) {
         els.cashboxesList.innerHTML = '<div class="cashboxes-empty">ЗАГРУЖАЮ КАССЫ...</div>';
       }
       if (!state.activeCashbox) {
         renderCashboxDetail();
       }
-      loadCashboxes(false);
+      if (state.cashboxesLoaded) {
+        const cachedId = String(state.activeCashboxId || state.cashboxes[0]?.id || '').trim();
+        if (!state.activeCashbox && cachedId) {
+          const summaryCashbox = state.cashboxes.find((item) => item.id === cachedId) || null;
+          state.activeCashboxId = cachedId;
+          state.activeCashbox = {
+            cashbox: summaryCashbox,
+            transactions: [],
+            meta: summaryCashbox?.statistics || {},
+            statistics: summaryCashbox?.statistics || {},
+          };
+        }
+        renderCashboxesList();
+        renderCashboxDetail();
+        if (cachedId && !filteredCashboxTransactions().length) {
+          els.cashboxTransactions.innerHTML = '<div class="cashboxes-empty">ЗАГРУЖАЮ ДВИЖЕНИЯ...</div>';
+          scheduleCashboxDetailLoad(cachedId, { openModal: false });
+        }
+        return;
+      }
+      loadCashboxes(false, { deferDetail: true });
     }
 
     async function loadCashJournalData({ includeMarkdown = false } = {}) {

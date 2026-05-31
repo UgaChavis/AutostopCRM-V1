@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
 import shutil
@@ -33,18 +34,46 @@ TARGETS_MS = {
     "backend_write": 1200.0,
 }
 
+DEFAULT_BROWSER_TIMEOUT_SECONDS = 240.0
+PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS = 10.0
+
 MODAL_WORKFLOWS = (
-    ("open_modal.clients", "#clientsButton", "#clientsModal", "#clientNewButton"),
+    (
+        "open_modal.clients",
+        "#clientsButton",
+        "#clientsModal",
+        "#clientsList [data-client-id], #clientsList .empty",
+    ),
     (
         "open_modal.repair_orders",
         "#repairOrdersButton",
         "#repairOrdersModal",
-        "#repairOrdersList",
+        "#repairOrdersList [data-open-repair-order-card], #repairOrdersList .log-row__meta",
     ),
-    ("open_modal.cashboxes", "#cashboxesButton", "#cashboxesModal", "#cashboxJournalButton"),
-    ("open_modal.archive", "#archiveButton", "#archiveModal", "#archiveSearchInput"),
-    ("open_modal.shared_files", "#sharedFilesButton", "#sharedFilesModal", "#sharedFilesDesktop"),
-    ("open_modal.employees", "#employeesButton", "#employeesModal", "#employeesList"),
+    (
+        "open_modal.cashboxes",
+        "#cashboxesButton",
+        "#cashboxesModal",
+        "#cashboxesList [data-cashbox-id], #cashboxStats .cashbox-stat-grid, #cashboxesList .cashboxes-empty",
+    ),
+    (
+        "open_modal.archive",
+        "#archiveButton",
+        "#archiveModal",
+        "#archiveList .archive-row, #archiveList .log-row__meta",
+    ),
+    (
+        "open_modal.shared_files",
+        "#sharedFilesButton",
+        "#sharedFilesModal",
+        "#sharedFilesDesktop [data-shared-file-id], #sharedFilesDesktop .shared-files-empty",
+    ),
+    (
+        "open_modal.employees",
+        "#employeesButton",
+        "#employeesModal",
+        "#employeesList [data-employee-id], #employeesList .cashboxes-empty",
+    ),
 )
 
 
@@ -101,6 +130,19 @@ def summarize_samples(samples: list[dict[str, Any]], *, scenario: str) -> dict[s
     }
 
 
+def _request_failure_text(request: Any) -> str:
+    failure = getattr(request, "failure", None)
+    if callable(failure):
+        failure = failure()
+    if isinstance(failure, dict):
+        return str(failure.get("errorText") or "").strip()
+    return str(failure or "").strip()
+
+
+def format_failed_request(request: Any) -> str:
+    return f"{request.method} {request.url} {_request_failure_text(request)}".strip()
+
+
 def skipped_row(scenario: str, reason: str) -> dict[str, Any]:
     return {
         "scenario": scenario,
@@ -114,6 +156,55 @@ def skipped_row(scenario: str, reason: str) -> dict[str, Any]:
         "request_count": 0,
         "payload_bytes": 0,
         "ui_perf_entries": [],
+    }
+
+
+def failed_row(
+    scenario: str, error: BaseException, *, samples: list[dict[str, Any]]
+) -> dict[str, Any]:
+    row = summarize_samples(samples, scenario=scenario) if samples else skipped_row(scenario, "")
+    row.pop("skipped", None)
+    row.pop("reason", None)
+    row["failed"] = True
+    row["error_type"] = type(error).__name__
+    row["error"] = str(error)
+    row["iterations_completed"] = max(0, len(samples) - 1)
+    return row
+
+
+def configure_stdout_utf8() -> None:
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        reconfigure(encoding="utf-8")
+
+
+def browser_timeout_seconds(args: argparse.Namespace) -> float:
+    return max(30.0, float(args.browser_timeout_seconds or DEFAULT_BROWSER_TIMEOUT_SECONDS))
+
+
+async def close_with_timeout(awaitable: Awaitable[Any]) -> None:
+    with contextlib.suppress(Exception):
+        await asyncio.wait_for(awaitable, timeout=PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS)
+
+
+async def run_browser_workflows_with_timeout(args: argparse.Namespace) -> dict[str, Any]:
+    timeout = browser_timeout_seconds(args)
+    try:
+        return await asyncio.wait_for(run_browser_workflows(args), timeout=timeout)
+    except TimeoutError as exc:
+        raise TimeoutError(f"Browser workflows exceeded {timeout:.1f}s") from exc
+
+
+def browser_failure_result(args: argparse.Namespace, error: BaseException) -> dict[str, Any]:
+    return {
+        "base_url": args.base_url,
+        "local_temp_server": bool(args.local_temp_server),
+        "rows": [failed_row("browser_workflows", error, samples=[])],
+        "events": {
+            "console_errors": [],
+            "page_errors": [],
+            "failed_requests": [],
+        },
     }
 
 
@@ -184,6 +275,21 @@ def scenario_target(scenario: str) -> float:
 def ranked_findings(rows: list[dict[str, Any]], *, limit: int = 5) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     for row in rows:
+        scenario = str(row.get("scenario") or "")
+        if row.get("failed"):
+            findings.append(
+                {
+                    "scenario": scenario,
+                    "area": "workflow reliability",
+                    "avg_ms": float(row.get("avg_ms") or 0.0),
+                    "target_ms": scenario_target(scenario),
+                    "over_by_ms": 999999.0,
+                    "files": ["scripts/perf_workflows.py"],
+                    "next_step": "Reproduce the scenario failure and fix the app or audit wait condition.",
+                    "error": str(row.get("error") or ""),
+                }
+            )
+            continue
         if row.get("skipped"):
             continue
         target = scenario_target(str(row.get("scenario") or ""))
@@ -260,6 +366,81 @@ async def browser_perf_entries(page: Any) -> list[dict[str, Any]]:
     return [entry for entry in entries if isinstance(entry, dict)]
 
 
+async def wait_for_modal_ready(page: Any, modal: str, ready_selector: str) -> None:
+    await page.wait_for_function(
+        """({ modalSelector, readySelector }) => {
+          const root = document.querySelector(modalSelector);
+          if (!root?.classList?.contains('is-open')) return false;
+          const nodes = Array.from(root.querySelectorAll(readySelector));
+          return nodes.some((node) => {
+            const style = window.getComputedStyle(node);
+            const visible = style.display !== 'none'
+              && style.visibility !== 'hidden'
+              && node.getClientRects().length > 0;
+            if (!visible) return false;
+            const text = String(node.textContent || '').toUpperCase();
+            return !text.includes('ЗАГРУЗКА') && !text.includes('ЗАГРУЖАЮ');
+          });
+        }""",
+        arg={"modalSelector": modal, "readySelector": ready_selector},
+        timeout=10000,
+    )
+
+
+async def modal_ready_diagnostics(page: Any, modal: str, ready_selector: str) -> dict[str, Any]:
+    result = await page.evaluate(
+        """({ modalSelector, readySelector }) => {
+          const root = document.querySelector(modalSelector);
+          if (!root) return { missing_root: true };
+          const nodes = Array.from(root.querySelectorAll(readySelector)).map((node) => {
+            const style = window.getComputedStyle(node);
+            return {
+              tag: node.tagName,
+              class_name: String(node.className || ''),
+              text: String(node.textContent || '').slice(0, 240),
+              display: style.display,
+              visibility: style.visibility,
+              rects: node.getClientRects().length,
+            };
+          });
+          return {
+            open: root.classList.contains('is-open'),
+            text_sample: String(root.textContent || '').slice(0, 500),
+            nodes,
+            perf_entries: Array.isArray(window.__AUTOSTOP_PERF__)
+              ? window.__AUTOSTOP_PERF__.slice(-12)
+              : [],
+          };
+        }""",
+        arg={"modalSelector": modal, "readySelector": ready_selector},
+    )
+    return result if isinstance(result, dict) else {"value": result}
+
+
+async def force_close_open_modals(page: Any) -> None:
+    await page.evaluate(
+        """() => {
+          document.querySelectorAll('.modal.is-open').forEach((modal) => {
+            modal.classList.remove('is-open');
+            modal.setAttribute('aria-hidden', 'true');
+          });
+          document.body.classList.remove('modal-open');
+        }"""
+    )
+
+
+async def goto_with_retry(page: Any, url: str, *, wait_until: str = "domcontentloaded") -> None:
+    for attempt in range(2):
+        try:
+            await page.goto(url, wait_until=wait_until)
+            return
+        except Exception as exc:
+            if attempt == 0 and "ERR_CONNECTION_TIMED_OUT" in str(exc):
+                await asyncio.sleep(0.2)
+                continue
+            raise
+
+
 async def measure_browser_action(
     page: Any,
     *,
@@ -273,7 +454,32 @@ async def measure_browser_action(
         response_start = len(responses)
         perf_start = len(await browser_perf_entries(page))
         started_at = time.perf_counter()
-        await action(index)
+        try:
+            await action(index)
+        except Exception as exc:
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            try:
+                perf_delta = (await browser_perf_entries(page))[perf_start:]
+            except Exception:
+                perf_delta = []
+            with contextlib.suppress(Exception):
+                await force_close_open_modals(page)
+            response_delta = responses[response_start:]
+            samples.append(
+                {
+                    "duration_ms": duration_ms,
+                    "request_count": len(response_delta),
+                    "payload_bytes": sum(int(item.get("bytes") or 0) for item in response_delta),
+                    "server_timing": [
+                        str(item.get("server_timing") or "")
+                        for item in response_delta
+                        if str(item.get("server_timing") or "").strip()
+                    ],
+                    "ui_perf_entries": perf_delta,
+                    "error": str(exc),
+                }
+            )
+            return failed_row(scenario, exc, samples=samples)
         duration_ms = (time.perf_counter() - started_at) * 1000
         perf_delta = (await browser_perf_entries(page))[perf_start:]
         response_delta = responses[response_start:]
@@ -365,10 +571,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
             page.on("pageerror", lambda exc: page_errors.append(str(exc)))
             page.on(
                 "requestfailed",
-                lambda request: failed_requests.append(
-                    f"{request.method} {request.url} "
-                    f"{request.failure.get('errorText') if request.failure else ''}"
-                ),
+                lambda request: failed_requests.append(format_failed_request(request)),
             )
 
             def record_response(response: Any) -> None:
@@ -392,7 +595,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
 
             page.on("response", record_response)
             try:
-                await page.goto(runtime.base_url, wait_until="domcontentloaded")
+                await goto_with_retry(page, runtime.base_url, wait_until="domcontentloaded")
                 logged_in = await login_browser(page, args, runtime)
                 if not logged_in:
                     rows.append(
@@ -421,6 +624,23 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                     ):
                         await page.click("#cardModalCloseButtonTop")
                         await _wait_modal_closed(page, "#cardModal")
+
+                async def close_modal_best_effort(modal: str) -> None:
+                    is_open = await page.evaluate(
+                        "(selector) => document.querySelector(selector)?.classList.contains('is-open')",
+                        modal,
+                    )
+                    if not is_open:
+                        return
+                    close_button = await page.query_selector(f"{modal} [data-close]")
+                    if close_button:
+                        try:
+                            await close_button.click(timeout=3000)
+                            await asyncio.wait_for(_wait_modal_closed(page, modal), timeout=5)
+                        except Exception:
+                            await force_close_open_modals(page)
+                    else:
+                        await force_close_open_modals(page)
 
                 async def open_card_action(_: int) -> None:
                     await close_card_if_open()
@@ -523,20 +743,21 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                         )
                     )
 
-                async def modal_action(button: str, modal: str, ready_selector: str) -> None:
-                    if await page.evaluate(
-                        "(selector) => document.querySelector(selector)?.classList.contains('is-open')",
-                        modal,
-                    ):
-                        await page.click(f"{modal} [data-close]")
-                        await _wait_modal_closed(page, modal)
+                async def modal_action(
+                    scenario: str, button: str, modal: str, ready_selector: str
+                ) -> None:
+                    await close_modal_best_effort(modal)
                     await page.click(button)
                     await _wait_modal_open(page, modal)
-                    await page.wait_for_selector(ready_selector, timeout=10000)
-                    close_button = await page.query_selector(f"{modal} [data-close]")
-                    if close_button:
-                        await close_button.click()
-                        await _wait_modal_closed(page, modal)
+                    try:
+                        await wait_for_modal_ready(page, modal, ready_selector)
+                    except Exception as exc:
+                        diagnostics = await modal_ready_diagnostics(page, modal, ready_selector)
+                        encoded = json.dumps(diagnostics, ensure_ascii=False, sort_keys=True)
+                        raise RuntimeError(
+                            f"{scenario} modal did not become ready: {encoded}"
+                        ) from exc
+                    await close_modal_best_effort(modal)
 
                 for scenario, button, modal, ready_selector in MODAL_WORKFLOWS:
                     rows.append(
@@ -545,8 +766,8 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                             scenario=scenario,
                             iterations=args.iterations,
                             responses=responses,
-                            action=lambda _index, b=button, m=modal, r=ready_selector: modal_action(
-                                b, m, r
+                            action=lambda _index, s=scenario, b=button, m=modal, r=ready_selector: (
+                                modal_action(s, b, m, r)
                             ),
                         )
                     )
@@ -635,18 +856,13 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
 
                     async def open_employee_salary_reconciliation_print_action(_: int) -> None:
                         query = urllib.parse.urlencode({"employee_id": runtime.employee_id})
-                        print_page = await context.new_page()
-                        try:
-                            await print_page.goto(
-                                f"{runtime.base_url}/employee_salary_reconciliation_print?{query}",
-                                wait_until="domcontentloaded",
-                            )
-                            await print_page.wait_for_selector(
-                                "text=Акт сверки зарплаты", timeout=10000
-                            )
-                            await print_page.wait_for_selector("table")
-                        finally:
-                            await print_page.close()
+                        await goto_with_retry(
+                            page,
+                            f"{runtime.base_url}/employee_salary_reconciliation_print?{query}",
+                            wait_until="domcontentloaded",
+                        )
+                        await page.wait_for_selector("text=Акт сверки зарплаты", timeout=10000)
+                        await page.wait_for_selector("table")
 
                     rows.append(
                         await measure_browser_action(
@@ -671,8 +887,8 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                         )
                     )
             finally:
-                await context.close()
-                await browser.close()
+                await close_with_timeout(context.close())
+                await close_with_timeout(browser.close())
     finally:
         runtime.close()
 
@@ -875,9 +1091,19 @@ def evaluate_thresholds(
     }
     violations: list[dict[str, Any]] = []
     for row in rows:
+        scenario = str(row.get("scenario") or "")
+        if row.get("failed"):
+            violations.append(
+                {
+                    "scenario": scenario,
+                    "metric": "workflow_error",
+                    "actual": str(row.get("error") or row.get("error_type") or "failed"),
+                    "max": "no errors",
+                }
+            )
+            continue
         if row.get("skipped"):
             continue
-        scenario = str(row.get("scenario") or "")
         threshold = thresholds.get(scenario)
         if threshold is None and scenario.startswith("open_modal."):
             threshold = args.max_open_modal_ms
@@ -897,6 +1123,7 @@ def evaluate_thresholds(
 
 
 def main() -> int:
+    configure_stdout_utf8()
     parser = argparse.ArgumentParser(
         description="Run AutoStop CRM performance workflows and state-file benchmarks."
     )
@@ -917,6 +1144,9 @@ def main() -> int:
     parser.add_argument("--max-move-card-ms", type=float, default=0.0)
     parser.add_argument("--max-open-modal-ms", type=float, default=0.0)
     parser.add_argument("--max-backend-write-ms", type=float, default=0.0)
+    parser.add_argument(
+        "--browser-timeout-seconds", type=float, default=DEFAULT_BROWSER_TIMEOUT_SECONDS
+    )
     args = parser.parse_args()
 
     output: dict[str, Any] = {
@@ -933,7 +1163,10 @@ def main() -> int:
         "rows": [],
     }
     if not args.skip_browser:
-        browser_result = asyncio.run(run_browser_workflows(args))
+        try:
+            browser_result = asyncio.run(run_browser_workflows_with_timeout(args))
+        except Exception as exc:
+            browser_result = browser_failure_result(args, exc)
         output["browser"] = browser_result
         output["rows"].extend(browser_result.get("rows") or [])
     if args.state_file:
