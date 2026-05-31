@@ -19,7 +19,7 @@ from typing import Any
 
 from ..agent.knowledge import build_ai_chat_knowledge_packet
 from ..agent.openai_client import AgentModelError, OpenAIJsonAgentClient
-from ..config import get_attachments_dir
+from ..config import ATTACHMENTS_DIR_NAME
 from ..demo_seed import build_demo_board
 from ..models import (
     CARD_BOARD_SUMMARY_LIMIT,
@@ -484,7 +484,7 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
         self._client_search_index: dict[str, dict[str, Any]] = {}
         self._client_related_vehicle_fields_index_signature: tuple[Any, ...] | None = None
         self._client_related_vehicle_fields_index_cache: dict[str, list[str]] = {}
-        self._attachments_dir = attachments_dir or get_attachments_dir()
+        self._attachments_dir = attachments_dir or (self._store.base_dir / ATTACHMENTS_DIR_NAME)
         self._attachments_dir.mkdir(parents=True, exist_ok=True)
         self._repair_orders_dir = repair_orders_dir or (self._store.base_dir / "repair-orders")
         self._repair_orders_dir.mkdir(parents=True, exist_ok=True)

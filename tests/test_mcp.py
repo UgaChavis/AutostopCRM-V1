@@ -246,16 +246,16 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         self.logger.propagate = False
         self.store = JsonStore(state_file=state_file, logger=self.logger)
         self.service = CardService(self.store, self.logger)
-        self.api_port = reserve_port()
         self.mcp_port = reserve_port()
         self.api_server = ApiServer(
             self.service,
             self.logger,
-            start_port=self.api_port,
-            fallback_limit=1,
+            start_port=0,
+            fallback_limit=25,
             bearer_token="api-secret",
         )
         self.api_server.start()
+        self.api_port = self.api_server.port
         board_api = BoardApiClient(
             self.api_server.base_url, bearer_token="api-secret", logger=self.logger
         )

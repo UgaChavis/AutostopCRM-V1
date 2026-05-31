@@ -217,6 +217,12 @@ class CardServiceTests(unittest.TestCase):
             repair_orders_dir=Path(self.temp_dir.name) / "repair-orders",
         )
 
+    def test_default_runtime_directories_follow_store_base_dir(self) -> None:
+        self.assertEqual(self.service._attachments_dir, Path(self.temp_dir.name) / "attachments")
+        self.assertEqual(
+            self.service._repair_orders_dir, Path(self.temp_dir.name) / "repair-orders"
+        )
+
     def _patch_time(self, moment: datetime):
         return (
             patch("minimal_kanban.services.card_service.utc_now", return_value=moment),

@@ -3,7 +3,6 @@ from __future__ import annotations
 # ruff: noqa: E402
 import json
 import logging
-import socket
 import sys
 import tempfile
 import types
@@ -39,12 +38,6 @@ from minimal_kanban.telegram_ai.openai_client import TelegramAIModelError, Teleg
 from minimal_kanban.telegram_ai.orchestrator import TelegramAIOrchestrator
 from minimal_kanban.telegram_ai.response import build_execution_response
 from minimal_kanban.telegram_ai.worker import TelegramAIWorker
-
-
-def reserve_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 def build_config(
@@ -471,8 +464,7 @@ class TelegramAIOrchestratorTests(unittest.TestCase):
             logger.propagate = False
             store = JsonStore(state_file=Path(temp_dir) / "state.json", logger=logger)
             service = CardService(store, logger)
-            port = reserve_port()
-            server = ApiServer(service, logger, start_port=port, fallback_limit=1)
+            server = ApiServer(service, logger, start_port=0, fallback_limit=25)
             server.start()
             try:
                 client = BoardApiClient(
@@ -564,8 +556,7 @@ class TelegramAIOrchestratorTests(unittest.TestCase):
                 }
             )
             card_id = created["card"]["id"]
-            port = reserve_port()
-            server = ApiServer(service, logger, start_port=port, fallback_limit=1)
+            server = ApiServer(service, logger, start_port=0, fallback_limit=25)
             server.start()
             try:
                 client = BoardApiClient(
@@ -664,8 +655,7 @@ class TelegramAIOrchestratorTests(unittest.TestCase):
                     "requires_human_confirmation": False,
                 },
             ]
-            port = reserve_port()
-            server = ApiServer(service, logger, start_port=port, fallback_limit=1)
+            server = ApiServer(service, logger, start_port=0, fallback_limit=25)
             server.start()
             try:
                 client = BoardApiClient(
@@ -758,8 +748,7 @@ class TelegramAIOrchestratorTests(unittest.TestCase):
                     "requires_human_confirmation": False,
                 }
             ]
-            port = reserve_port()
-            server = ApiServer(service, logger, start_port=port, fallback_limit=1)
+            server = ApiServer(service, logger, start_port=0, fallback_limit=25)
             server.start()
             try:
                 client = BoardApiClient(
@@ -876,8 +865,7 @@ class TelegramAIOrchestratorTests(unittest.TestCase):
                 }
             )
             card_id = created["card"]["id"]
-            port = reserve_port()
-            server = ApiServer(service, logger, start_port=port, fallback_limit=1)
+            server = ApiServer(service, logger, start_port=0, fallback_limit=25)
             server.start()
             try:
                 client = BoardApiClient(
@@ -1884,9 +1872,9 @@ class TelegramAICRMToolTests(unittest.TestCase):
         logger.propagate = False
         self.store = JsonStore(state_file=Path(self.temp_dir.name) / "state.json", logger=logger)
         self.service = CardService(self.store, logger)
-        self.port = reserve_port()
-        self.server = ApiServer(self.service, logger, start_port=self.port, fallback_limit=1)
+        self.server = ApiServer(self.service, logger, start_port=0, fallback_limit=25)
         self.server.start()
+        self.port = self.server.port
         self.client = BoardApiClient(
             self.server.base_url, logger=logger, default_source="telegram_ai"
         )

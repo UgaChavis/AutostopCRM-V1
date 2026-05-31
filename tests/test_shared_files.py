@@ -5,7 +5,6 @@ import base64
 import http.client
 import json
 import logging
-import socket
 import sys
 import tempfile
 import unittest
@@ -22,12 +21,6 @@ from minimal_kanban.api.server import ApiServer
 from minimal_kanban.services.card_service import CardService, ServiceError
 from minimal_kanban.services.shared_files_service import SharedFilesService
 from minimal_kanban.storage.json_store import JsonStore
-
-
-def reserve_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 def b64(content: bytes) -> str:
@@ -193,17 +186,17 @@ class SharedFilesApiTests(unittest.TestCase):
             storage_limit_bytes=256,
         )
         self.clipboard_paths: list[Path] = []
-        self.port = reserve_port()
         self.server = ApiServer(
             self.card_service,
             self.logger,
             shared_files_service=self.shared_files,
-            start_port=self.port,
-            fallback_limit=1,
+            start_port=0,
+            fallback_limit=25,
             bearer_token="secret-token",
             clipboard_file_provider=lambda: list(self.clipboard_paths),
         )
         self.server.start()
+        self.port = self.server.port
         self.base_url = self.server.base_url
 
     def tearDown(self) -> None:
