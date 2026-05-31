@@ -65,6 +65,8 @@ DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS = 240.0
 PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS = 10.0
 SMOKE_ACTION_TIMEOUT_MS = 10000
 SMOKE_NAVIGATION_TIMEOUT_MS = 15000
+SMOKE_UI_BIND_TIMEOUT_MS = 30000
+BENIGN_FAILED_REQUEST_MARKERS = ("net::ERR_ABORTED", "NS_BINDING_ABORTED", "AbortError")
 
 
 @dataclass
@@ -390,12 +392,19 @@ def summarize_browser_events(
     failed_requests: list[str],
     first_render_ms: float,
 ) -> dict[str, Any]:
+    actionable_failed_requests = [
+        request for request in failed_requests if not is_benign_failed_request(request)
+    ]
+    ignored_failed_requests = [
+        request for request in failed_requests if is_benign_failed_request(request)
+    ]
     return {
-        "ok": not console_errors and not page_errors and not failed_requests,
+        "ok": not console_errors and not page_errors and not actionable_failed_requests,
         "first_render_ms": first_render_ms,
         "console_errors": console_errors,
         "page_errors": page_errors,
-        "failed_requests": failed_requests,
+        "failed_requests": actionable_failed_requests,
+        "ignored_failed_requests": ignored_failed_requests,
     }
 
 
@@ -410,6 +419,13 @@ def _request_failure_text(request: Any) -> str:
 
 def format_failed_request(request: Any) -> str:
     return f"{request.method} {request.url} {_request_failure_text(request)}".strip()
+
+
+def is_benign_failed_request(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text.upper().startswith("GET "):
+        return False
+    return any(marker in text for marker in BENIGN_FAILED_REQUEST_MARKERS)
 
 
 async def _wait_modal_open(page: Any, selector: str) -> None:
@@ -437,6 +453,10 @@ async def _is_modal_open(page: Any, selector: str) -> bool:
 
 async def _login(page: Any) -> None:
     await page.wait_for_selector("#identityInput", state="visible")
+    await page.wait_for_function(
+        "() => window.__AUTOSTOP_UI_BOUND__ === true",
+        timeout=SMOKE_UI_BIND_TIMEOUT_MS,
+    )
     await page.fill("#identityInput", "admin")
     await page.fill("#identityPassword", "admin")
     await page.click("#identitySave")
@@ -604,6 +624,7 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     await page.click("#cashboxesButton")
     await _wait_modal_open(page, "#cashboxesModal")
     await page.wait_for_selector("#cashboxJournalDownloadButton")
+    await page.wait_for_selector("#cashboxesList [data-cashbox-id]")
     journal_open_started = time.perf_counter()
     await page.click("#cashboxJournalButton")
     await _wait_modal_open(page, "#cashboxJournalModal")

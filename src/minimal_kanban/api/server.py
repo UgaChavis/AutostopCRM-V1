@@ -350,24 +350,32 @@ class ApiServer:
         server.server_close()
         self._logger.info("api_server_stopped")
 
-    def _wait_until_accepting(self, *, timeout_seconds: float = 2.0) -> None:
+    def _wait_until_accepting(self, *, timeout_seconds: float = 5.0) -> None:
         deadline = perf_counter() + timeout_seconds
-        last_error: OSError | None = None
+        last_error: BaseException | None = None
         connect_host = self.host
         if connect_host in {"0.0.0.0", "::", "[::]"}:
             connect_host = "127.0.0.1"
         elif connect_host.startswith("[") and connect_host.endswith("]"):
             connect_host = connect_host[1:-1]
+        request = (
+            f"GET /api/health HTTP/1.1\r\nHost: {connect_host}\r\nConnection: close\r\n\r\n"
+        ).encode("ascii")
         while perf_counter() < deadline:
             try:
-                with socket.create_connection((connect_host, self.port), timeout=0.2):
-                    return
-            except OSError as exc:
+                with socket.create_connection((connect_host, self.port), timeout=0.2) as sock:
+                    sock.settimeout(0.5)
+                    sock.sendall(request)
+                    status_line = sock.recv(64).split(b"\r\n", 1)[0]
+                    if status_line.startswith(b"HTTP/") and b" 200 " in status_line:
+                        return
+                    last_error = RuntimeError(
+                        f"Локальный API вернул неожиданный health status: {status_line!r}"
+                    )
+            except (OSError, TimeoutError) as exc:
                 last_error = exc
-                sleep(0.02)
-        raise RuntimeError(
-            "Локальный API запущен, но порт не принимает соединения."
-        ) from last_error
+            sleep(0.02)
+        raise RuntimeError("Локальный API запущен, но health endpoint не отвечает.") from last_error
 
     def _build_shared_files_service(self, service: CardService) -> SharedFilesService:
         store = getattr(service, "_store", None)

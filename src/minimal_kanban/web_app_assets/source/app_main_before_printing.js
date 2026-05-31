@@ -2671,6 +2671,14 @@
         server_timing: response.headers.get('Server-Timing') || '',
         ...extra,
       });
+      if (!payload || typeof payload !== 'object') {
+        const error = new Error(response.ok
+          ? 'СЕРВЕР ВЕРНУЛ НЕКОРРЕКТНЫЙ ОТВЕТ API.'
+          : ('HTTP ' + response.status));
+        error.code = 'invalid_json';
+        finishApiPerf({ error: error.code });
+        throw error;
+      }
       if (payload?.error?.details?.auth_type === 'operator_session') {
         if (response.status === 401) {
           clearOperatorSession({ openLogin: true, preserveStatus: true });
@@ -13683,8 +13691,10 @@
           } else {
             setStatus('ДОСКА ОБНОВЛЕНА · ' + new Date().toLocaleTimeString('ru-RU'), false);
           }
+          return true;
         } catch (error) {
           setStatus(error.message, true);
+          return false;
         } finally {
           finishCardDrag();
         }

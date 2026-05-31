@@ -175,7 +175,8 @@ Useful deploy variables:
   `.autostop-deploy.lock`.
 - `AUTOSTOP_INSTALL_WATCHDOG=0` - skip watchdog install.
 
-`deploy.sh` fetches and resets tracked files, builds containers, waits for
+`deploy.sh` loads server-local `.env` before resolving smoke credentials,
+then fetches and resets tracked files, builds containers, waits for
 health, runs local connector smoke, optionally runs public HTTPS smoke, copies
 the short server instruction, and installs the watchdog timer on systemd hosts.
 

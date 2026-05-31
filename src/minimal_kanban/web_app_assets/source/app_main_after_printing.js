@@ -493,6 +493,7 @@
     if (els.identityPassword) {
       els.identityPassword.addEventListener('keydown', handleIdentityPasswordKeydown);
     }
+    window.__AUTOSTOP_UI_BOUND__ = true;
     els.operatorButton.addEventListener('click', openOperatorWorkspace);
     els.operatorLogoutButton.addEventListener('click', logoutOperator);
     els.operatorAdminButton.addEventListener('click', openOperatorAdminModal);

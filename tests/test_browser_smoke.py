@@ -55,15 +55,19 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("ERR_CONNECTION_RESET", script)
         self.assertIn("DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS", script)
         self.assertIn("PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS", script)
+        self.assertIn("BENIGN_FAILED_REQUEST_MARKERS", script)
         self.assertIn("SMOKE_ACTION_TIMEOUT_MS = 10000", script)
         self.assertIn("SMOKE_NAVIGATION_TIMEOUT_MS = 15000", script)
+        self.assertIn("SMOKE_UI_BIND_TIMEOUT_MS = 30000", script)
         self.assertIn("def _set_page_timeouts(page: Any) -> None:", script)
+        self.assertIn("window.__AUTOSTOP_UI_BOUND__ === true", script)
         self.assertIn('reconfigure(encoding="utf-8")', script)
         self.assertIn("await _close_with_timeout(context.close())", script)
         self.assertIn("--browser-timeout-seconds", script)
         self.assertIn("asyncio.wait_for(\n                run_temp_smoke", script)
         self.assertIn("await _goto_with_retry(page, runtime.base_url)", script)
         self.assertIn("await _goto_with_retry(page, base_url)", script)
+        self.assertIn('await page.wait_for_selector("#cashboxesList [data-cashbox-id]")', script)
         self.assertIn("CASHBOX_JOURNAL_FIRST_RENDER_BUDGET_MS", script)
         self.assertIn("start_port = _first_free_port(start_port)", script)
 
@@ -116,6 +120,30 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertEqual(summary["console_errors"], ["console failed"])
         self.assertEqual(summary["page_errors"], ["page failed"])
         self.assertEqual(summary["failed_requests"], ["POST /api/save_card 500"])
+        self.assertEqual(summary["ignored_failed_requests"], [])
+
+    def test_summarize_browser_events_ignores_benign_get_aborts(self) -> None:
+        module = load_browser_smoke_module()
+
+        summary = module.summarize_browser_events(
+            console_errors=[],
+            page_errors=[],
+            failed_requests=[
+                "GET http://127.0.0.1:42731/api/get_cashbox net::ERR_ABORTED",
+                "POST http://127.0.0.1:42731/api/save_card net::ERR_ABORTED",
+            ],
+            first_render_ms=1.0,
+        )
+
+        self.assertFalse(summary["ok"])
+        self.assertEqual(
+            summary["ignored_failed_requests"],
+            ["GET http://127.0.0.1:42731/api/get_cashbox net::ERR_ABORTED"],
+        )
+        self.assertEqual(
+            summary["failed_requests"],
+            ["POST http://127.0.0.1:42731/api/save_card net::ERR_ABORTED"],
+        )
 
     def test_failed_request_formatter_accepts_playwright_string_failure(self) -> None:
         module = load_browser_smoke_module()

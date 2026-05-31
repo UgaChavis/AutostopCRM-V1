@@ -36,6 +36,7 @@ TARGETS_MS = {
 
 DEFAULT_BROWSER_TIMEOUT_SECONDS = 240.0
 PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS = 10.0
+BENIGN_UI_PERF_ERRORS = {"AbortError"}
 
 MODAL_WORKFLOWS = (
     (
@@ -128,6 +129,22 @@ def summarize_samples(samples: list[dict[str, Any]], *, scenario: str) -> dict[s
         "payload_bytes": round(statistics.mean(payload_sizes)) if payload_sizes else 0,
         "ui_perf_entries": ui_entries[-20:],
     }
+
+
+def row_ui_perf_errors(row: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    for entry in row.get("ui_perf_entries") or []:
+        if not isinstance(entry, dict):
+            continue
+        detail = entry.get("detail")
+        if not isinstance(detail, dict):
+            continue
+        error = str(detail.get("error") or "").strip()
+        if not error or error in BENIGN_UI_PERF_ERRORS:
+            continue
+        name = str(entry.get("name") or "ui_perf")
+        errors.append(f"{name}: {error}")
+    return errors
 
 
 def _request_failure_text(request: Any) -> str:
@@ -287,6 +304,24 @@ def ranked_findings(rows: list[dict[str, Any]], *, limit: int = 5) -> list[dict[
                     "files": ["scripts/perf_workflows.py"],
                     "next_step": "Reproduce the scenario failure and fix the app or audit wait condition.",
                     "error": str(row.get("error") or ""),
+                }
+            )
+            continue
+        ui_errors = row_ui_perf_errors(row)
+        if ui_errors:
+            findings.append(
+                {
+                    "scenario": scenario,
+                    "area": "workflow reliability",
+                    "avg_ms": float(row.get("avg_ms") or 0.0),
+                    "target_ms": scenario_target(scenario),
+                    "over_by_ms": 999999.0,
+                    "files": [
+                        "scripts/perf_workflows.py",
+                        "src/minimal_kanban/web_app_assets/source/",
+                    ],
+                    "next_step": "Reproduce the browser workflow and fix the app error hidden inside perf entries.",
+                    "error": "; ".join(ui_errors[:3]),
                 }
             )
             continue
@@ -714,7 +749,15 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                               if (!targetColumn || typeof window.moveCard !== 'function') {
                                 throw new Error('moveCard workflow is not available');
                               }
-                              await window.moveCard(cardId, targetColumn, '');
+                              const moved = await window.moveCard(cardId, targetColumn, '');
+                              if (!moved) {
+                                throw new Error('moveCard workflow failed');
+                              }
+                              const nextColumn = document.querySelector('[data-card-id="' + CSS.escape(cardId) + '"]')
+                                ?.closest('.column')?.dataset?.columnId || '';
+                              if (targetColumn !== currentColumn && nextColumn !== targetColumn) {
+                                throw new Error('moveCard workflow did not update the board column');
+                              }
                             }""",
                             runtime.card_id,
                         )
@@ -1099,6 +1142,17 @@ def evaluate_thresholds(
                     "metric": "workflow_error",
                     "actual": str(row.get("error") or row.get("error_type") or "failed"),
                     "max": "no errors",
+                }
+            )
+            continue
+        ui_errors = row_ui_perf_errors(row)
+        if ui_errors:
+            violations.append(
+                {
+                    "scenario": scenario,
+                    "metric": "ui_perf_error",
+                    "actual": "; ".join(ui_errors[:3]),
+                    "max": "no app perf errors",
                 }
             )
             continue

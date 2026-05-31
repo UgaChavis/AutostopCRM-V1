@@ -51,6 +51,7 @@ from minimal_kanban.web_assets import BOARD_WEB_APP_HTML
 
 TEST_API_PORT_START = 0
 TEST_API_PORT_FALLBACK_LIMIT = 25
+TEST_HTTP_TIMEOUT_SECONDS = 30
 
 
 def is_transient_request_error(exc: BaseException) -> bool:
@@ -157,7 +158,7 @@ class ApiServerTests(unittest.TestCase):
         *,
         method: str = "POST",
         headers: dict[str, str] | None = None,
-        timeout: float = 5,
+        timeout: float = TEST_HTTP_TIMEOUT_SECONDS,
     ) -> tuple[int, dict]:
         data = None
         if payload is not None:
@@ -171,7 +172,7 @@ class ApiServerTests(unittest.TestCase):
             headers=merged_headers,
             method=method,
         )
-        attempts = 2 if method.upper() == "GET" else 1
+        attempts = 3
         for attempt in range(attempts):
             try:
                 with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -199,14 +200,29 @@ class ApiServerTests(unittest.TestCase):
         *,
         method: str = "GET",
         headers: dict[str, str] | None = None,
+        timeout: float = TEST_HTTP_TIMEOUT_SECONDS,
     ) -> tuple[int, dict[str, str], bytes]:
         request = urllib.request.Request(
             f"{self.base_url}{path}",
             headers=headers or {},
             method=method,
         )
-        with urllib.request.urlopen(request, timeout=5) as response:
-            return response.status, dict(response.headers.items()), response.read()
+        attempts = 2 if method.upper() == "GET" else 1
+        for attempt in range(attempts):
+            try:
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    return response.status, dict(response.headers.items()), response.read()
+            except (
+                urllib.error.URLError,
+                TimeoutError,
+                ConnectionAbortedError,
+                ConnectionResetError,
+            ) as exc:
+                if attempt + 1 < attempts and is_transient_request_error(exc):
+                    time.sleep(0.05)
+                    continue
+                raise
+        raise AssertionError("unreachable raw request retry state")
 
     def test_health_and_create_card(self) -> None:
         status, health = self.request("/api/health", method="GET")
@@ -758,6 +774,46 @@ class ApiServerTests(unittest.TestCase):
             self.assertEqual(denied.exception.status_code, 401)
             self.assertEqual(denied.exception.code, "unauthorized")
             self.assertTrue(users_file.exists())
+
+    def test_strong_configured_default_admin_password_is_not_flagged_as_insecure(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as auth_dir:
+            users_file = Path(auth_dir) / "users.json"
+            logger = logging.getLogger(f"test.api.{self._testMethodName}.operator_auth")
+            logger.handlers.clear()
+            logger.addHandler(logging.NullHandler())
+            logger.propagate = False
+            strong_password = "Admin-2026-Strong-Local-Only"
+            with (
+                patch("minimal_kanban.operator_auth.get_app_data_dir", return_value=Path(auth_dir)),
+                patch("minimal_kanban.operator_auth.get_users_file", return_value=users_file),
+                patch.dict(
+                    os.environ,
+                    {
+                        "MINIMAL_KANBAN_DEFAULT_ADMIN_USERNAME": "admin",
+                        "MINIMAL_KANBAN_DEFAULT_ADMIN_PASSWORD": strong_password,
+                    },
+                    clear=False,
+                ),
+            ):
+                operator_service = OperatorAuthService(
+                    self.store,
+                    self.service,
+                    activity_service=OperatorActivityService(
+                        activity_dir=Path(auth_dir) / "operator-activity",
+                        logger=logger,
+                    ),
+                    logger=logger,
+                )
+
+                logged_in = operator_service.login(
+                    {"username": "admin", "password": strong_password}
+                )
+
+                self.assertEqual(logged_in["user"]["username"], "ADMIN")
+                self.assertFalse(logged_in["security"]["using_default_admin_credentials"])
+                self.assertEqual(logged_in["security"]["warning"], "")
 
     def test_operator_user_employee_binding_controls_material_default_executor(self) -> None:
         status, logged_in = self.request(

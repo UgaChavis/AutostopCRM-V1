@@ -15,6 +15,7 @@ from mcp.server.fastmcp import FastMCP
 from ..logging_setup import configure_mcp_startup_logger
 
 _READY_HTTP_STATUSES = {200, 204, 307, 308, 400, 401, 403, 405, 406}
+_STARTUP_TIMEOUT_SECONDS = 30.0
 
 
 class McpRuntimeStartupError(RuntimeError):
@@ -124,7 +125,7 @@ class McpServerRuntime:
             loop.run_until_complete(loop.shutdown_default_executor())
             loop.close()
 
-    def _wait_until_port_is_bound(self, timeout_seconds: float = 10.0) -> None:
+    def _wait_until_port_is_bound(self, timeout_seconds: float = _STARTUP_TIMEOUT_SECONDS) -> None:
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
             self._raise_if_start_failed()
@@ -143,7 +144,9 @@ class McpServerRuntime:
             f"MCP runtime не открыл порт {self.host}:{self.port} за {timeout_seconds:.1f} сек.",
         )
 
-    def _wait_until_endpoint_is_ready(self, timeout_seconds: float = 10.0) -> None:
+    def _wait_until_endpoint_is_ready(
+        self, timeout_seconds: float = _STARTUP_TIMEOUT_SECONDS
+    ) -> None:
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
             self._raise_if_start_failed()

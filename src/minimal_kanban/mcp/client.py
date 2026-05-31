@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from logging import Logger
 
@@ -328,22 +329,22 @@ class BoardApiClient:
         payload: dict[str, object] = {"include_stats": include_stats}
         if limit is not None:
             payload["limit"] = limit
-        return self._request("/api/list_clients", payload)
+        return self._request_readonly_query("/api/list_clients", payload)
 
     def search_clients(self, *, query: str = "", limit: int | None = None) -> dict:
         payload: dict[str, object] = {"query": query}
         if limit is not None:
             payload["limit"] = limit
-        return self._request("/api/search_clients", payload)
+        return self._request_readonly_query("/api/search_clients", payload)
 
     def get_client(self, client_id: str, *, order_limit: int | None = None) -> dict:
         payload: dict[str, object] = {"client_id": client_id}
         if order_limit is not None:
             payload["order_limit"] = order_limit
-        return self._request("/api/get_client", payload)
+        return self._request_readonly_query("/api/get_client", payload)
 
     def get_client_stats(self, client_id: str) -> dict:
-        return self._request("/api/get_client_stats", {"client_id": client_id})
+        return self._request_readonly_query("/api/get_client_stats", {"client_id": client_id})
 
     def create_client(self, client: dict[str, object], *, actor_name: str | None = None) -> dict:
         return self._request_with_identity("/api/create_client", client, actor_name=actor_name)
@@ -878,6 +879,16 @@ class BoardApiClient:
         if value is None:
             return self._request(path, method="GET")
         return self._request(path, {key: value}, method="POST")
+
+    def _request_readonly_query(self, path: str, payload: dict[str, object]) -> dict:
+        query = urllib.parse.urlencode(
+            {
+                key: str(value).lower() if isinstance(value, bool) else value
+                for key, value in payload.items()
+                if value is not None
+            }
+        )
+        return self._request(f"{path}?{query}" if query else path, method="GET")
 
     def _request_with_identity(
         self, path: str, payload: dict[str, object], *, actor_name: str | None = None

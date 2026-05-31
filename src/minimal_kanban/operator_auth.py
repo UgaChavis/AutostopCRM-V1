@@ -658,7 +658,7 @@ class OperatorAuthService:
         warning = ""
         if using_default_admin_credentials:
             warning = (
-                "Используется дефолтный админ-доступ. Перед постоянной публикацией CRM "
+                "Используется небезопасный дефолтный админ-доступ. Перед постоянной публикацией CRM "
                 "смените MINIMAL_KANBAN_DEFAULT_ADMIN_USERNAME и "
                 "MINIMAL_KANBAN_DEFAULT_ADMIN_PASSWORD, затем выполните deploy."
             )
@@ -675,7 +675,10 @@ class OperatorAuthService:
         password_hash = str(user.get("password_hash") or "")
         if not password_hash:
             return False
-        if _verify_password(get_default_admin_password(), password_hash):
+        default_password = get_default_admin_password()
+        if default_password in INSECURE_DEFAULT_ADMIN_PASSWORDS and _verify_password(
+            default_password, password_hash
+        ):
             return True
         return any(
             _verify_password(legacy_password, password_hash)

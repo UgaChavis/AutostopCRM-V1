@@ -469,6 +469,11 @@ class WebAssetsTests(unittest.TestCase):
             "await delay(API_READ_RETRY_BASE_DELAY_MS * (attempt + 1));",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn("if (!payload || typeof payload !== 'object')", BOARD_WEB_APP_HTML)
+        self.assertIn("error.code = 'invalid_json';", BOARD_WEB_APP_HTML)
+        self.assertIn("finishApiPerf({ error: error.code });", BOARD_WEB_APP_HTML)
+        self.assertIn("return true;", BOARD_WEB_APP_HTML)
+        self.assertIn("return false;", BOARD_WEB_APP_HTML)
 
     def test_archive_modal_uses_last_30_compact_rows(self) -> None:
         self.assertIn("АРХИВ / ПОСЛЕДНИЕ 30", BOARD_WEB_APP_HTML)
@@ -513,6 +518,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("#identityModal.operator-login-gate", BOARD_WEB_APP_HTML)
         self.assertIn("setOperatorLoginGateOpen(false);", BOARD_WEB_APP_HTML)
         self.assertIn("setOperatorLoginGateOpen(true);", BOARD_WEB_APP_HTML)
+        self.assertIn("window.__AUTOSTOP_UI_BOUND__ = true;", BOARD_WEB_APP_HTML)
 
         ensure_fragment = BOARD_WEB_APP_HTML[
             BOARD_WEB_APP_HTML.index("function ensureActor()") : BOARD_WEB_APP_HTML.index(

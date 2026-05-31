@@ -13,6 +13,15 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn('git fetch "$DEPLOY_REMOTE" "$DEPLOY_BRANCH"', script)
         self.assertIn("git reset --hard FETCH_HEAD", script)
 
+    def test_deploy_loads_server_local_env_before_smoke_credentials(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+
+        self.assertIn('if [[ -f "$ROOT_DIR/.env" ]]; then', script)
+        self.assertLess(
+            script.index('if [[ -f "$ROOT_DIR/.env" ]]; then'),
+            script.index('SMOKE_OPERATOR_USERNAME="${AUTOSTOP_SMOKE_OPERATOR_USERNAME'),
+        )
+
     def test_compose_declares_telegram_ai_worker(self) -> None:
         compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 

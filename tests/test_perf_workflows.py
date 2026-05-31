@@ -179,6 +179,31 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         self.assertEqual(findings[0]["area"], "workflow reliability")
         self.assertEqual(violations[0]["metric"], "workflow_error")
 
+    def test_ui_perf_errors_are_reported_as_findings_and_violations(self) -> None:
+        row = {
+            "scenario": "move_card",
+            "avg_ms": 90,
+            "ui_perf_entries": [
+                {"name": "api:/api/get_cashbox", "detail": {"error": "AbortError"}},
+                {"name": "api:/api/move_card", "detail": {"error": "TypeError"}},
+            ],
+        }
+        args = SimpleNamespace(
+            max_open_card_ms=0,
+            max_save_card_ms=0,
+            max_move_card_ms=0,
+            max_open_modal_ms=0,
+            max_backend_write_ms=0,
+        )
+
+        findings = self.module.ranked_findings([row])
+        violations = self.module.evaluate_thresholds([row], args)
+
+        self.assertEqual(findings[0]["area"], "workflow reliability")
+        self.assertIn("api:/api/move_card: TypeError", findings[0]["error"])
+        self.assertEqual(violations[0]["metric"], "ui_perf_error")
+        self.assertIn("api:/api/move_card: TypeError", violations[0]["actual"])
+
     def test_browser_timeout_failure_becomes_reportable_workflow_error(self) -> None:
         args = SimpleNamespace(
             base_url="http://127.0.0.1:42999",

@@ -11,6 +11,7 @@ import re
 import socket
 import sys
 import tempfile
+import time
 import types
 import unittest
 import urllib.error
@@ -24,6 +25,61 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp import ClientSession
+from mcp.shared._httpx_utils import create_mcp_http_client
+
+if sys.platform == "win32" and hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+def _install_windows_socketpair_timeout_shim() -> None:
+    if sys.platform != "win32":
+        return
+    if socket.socketpair is not getattr(socket, "_fallback_socketpair", None):
+        return
+
+    def socketpair(
+        family: socket.AddressFamily = socket.AF_INET,
+        type: socket.SocketKind = socket.SOCK_STREAM,
+        proto: int = 0,
+    ) -> tuple[socket.socket, socket.socket]:
+        if family not in {socket.AF_INET, socket.AF_INET6}:
+            raise ValueError("Only AF_INET and AF_INET6 socket address families are supported")
+        if type != socket.SOCK_STREAM:
+            raise ValueError("Only SOCK_STREAM socket type is supported")
+        if proto != 0:
+            raise ValueError("Only protocol zero is supported")
+        host = "127.0.0.1" if family == socket.AF_INET else "::1"
+        last_error: OSError | None = None
+        for _ in range(5):
+            with socket.socket(family, type, proto) as listener:
+                listener.settimeout(5.0)
+                listener.bind((host, 0))
+                listener.listen(1)
+                addr, port = listener.getsockname()[:2]
+                client = socket.socket(family, type, proto)
+                try:
+                    client.setblocking(False)
+                    try:
+                        client.connect((addr, port))
+                    except (BlockingIOError, InterruptedError):
+                        pass
+                    client.setblocking(True)
+                    server, _ = listener.accept()
+                except OSError as exc:
+                    client.close()
+                    last_error = exc
+                    time.sleep(0.05)
+                    continue
+            client.setblocking(True)
+            server.setblocking(True)
+            return server, client
+        assert last_error is not None
+        raise last_error
+
+    socket.socketpair = socketpair
+
+
+_install_windows_socketpair_timeout_shim()
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -32,7 +88,7 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.api.server import ApiServer
 from minimal_kanban.mcp.client import BoardApiClient, BoardApiTransportError
-from minimal_kanban.mcp.runtime import McpServerRuntime
+from minimal_kanban.mcp.runtime import McpRuntimeStartupError, McpServerRuntime
 from minimal_kanban.mcp.server import (
     RepairOrderPatchPayload,
     _normalize_tool_path_alias,
@@ -214,25 +270,65 @@ async def close_lingering_memory_streams(*, max_passes: int = 3) -> int:
     return total_closed
 
 
+MCP_TEST_HTTP_TIMEOUT = httpx.Timeout(30.0, connect=10.0, write=10.0, pool=10.0)
+MCP_SESSION_OPEN_RETRY_LIMIT = 2
+
+
+def create_test_mcp_http_client(*, headers: dict[str, str] | None = None) -> httpx.AsyncClient:
+    return create_mcp_http_client(headers=headers, timeout=MCP_TEST_HTTP_TIMEOUT)
+
+
+def is_transient_mcp_session_error(exc: BaseException) -> bool:
+    if isinstance(exc, BaseExceptionGroup):
+        return any(is_transient_mcp_session_error(item) for item in exc.exceptions)
+    if isinstance(
+        exc,
+        (
+            httpx.ConnectError,
+            httpx.ConnectTimeout,
+            httpx.ReadError,
+            httpx.ReadTimeout,
+            httpx.RemoteProtocolError,
+        ),
+    ):
+        return True
+    cause = exc.__cause__
+    return bool(cause is not None and is_transient_mcp_session_error(cause))
+
+
 @asynccontextmanager
 async def open_mcp_session(url: str, *, http_client: httpx.AsyncClient | None = None):
-    async with managed_streamable_http_client(url, http_client=http_client) as (
-        read_stream,
-        write_stream,
-        _get_session_id,
-    ):
+    last_error: BaseException | None = None
+    for attempt in range(MCP_SESSION_OPEN_RETRY_LIMIT + 1):
+        yielded = False
         try:
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
-                yield session
-        finally:
-            with suppress(Exception):
-                await read_stream.aclose()
-            with suppress(Exception):
-                await write_stream.aclose()
+            async with managed_streamable_http_client(url, http_client=http_client) as (
+                read_stream,
+                write_stream,
+                _get_session_id,
+            ):
+                try:
+                    async with ClientSession(read_stream, write_stream) as session:
+                        await session.initialize()
+                        yielded = True
+                        yield session
+                        return
+                finally:
+                    with suppress(Exception):
+                        await read_stream.aclose()
+                    with suppress(Exception):
+                        await write_stream.aclose()
+        except BaseException as exc:
+            if yielded or not is_transient_mcp_session_error(exc):
+                raise
+            last_error = exc
+            if attempt >= MCP_SESSION_OPEN_RETRY_LIMIT:
+                raise
             await close_lingering_memory_streams()
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.2 * (attempt + 1))
             gc.collect()
+    assert last_error is not None
+    raise last_error
 
 
 class McpServerTests(unittest.IsolatedAsyncioTestCase):
@@ -259,18 +355,40 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         board_api = BoardApiClient(
             self.api_server.base_url, bearer_token="api-secret", logger=self.logger
         )
-        mcp_server = create_mcp_server(
-            board_api,
-            self.logger,
-            host="127.0.0.1",
-            port=self.mcp_port,
-            path="/bridge",
-            bearer_token="mcp-secret",
-            public_endpoint_url="https://agent.example/bridge",
-            oauth_state_file=self.oauth_state_file,
-        )
-        self.runtime = McpServerRuntime(mcp_server, self.logger)
-        self.runtime.start()
+        try:
+            self.runtime = self._start_runtime_with_retries(board_api)
+        except Exception:
+            self.api_server.stop()
+            self.temp_dir.cleanup()
+            raise
+
+    def _start_runtime_with_retries(self, board_api: BoardApiClient) -> McpServerRuntime:
+        last_error: McpRuntimeStartupError | None = None
+        for _ in range(3):
+            self.mcp_port = reserve_port()
+            mcp_server = create_mcp_server(
+                board_api,
+                self.logger,
+                host="127.0.0.1",
+                port=self.mcp_port,
+                path="/bridge",
+                bearer_token="mcp-secret",
+                public_endpoint_url="https://agent.example/bridge",
+                oauth_state_file=self.oauth_state_file,
+            )
+            runtime = McpServerRuntime(mcp_server, self.logger)
+            try:
+                runtime.start()
+            except McpRuntimeStartupError as exc:
+                runtime.stop()
+                last_error = exc
+                if "Порт не начал слушать" not in exc.user_message:
+                    raise
+                time.sleep(0.2)
+                continue
+            return runtime
+        assert last_error is not None
+        raise last_error
 
     async def asyncSetUp(self) -> None:
         loop = asyncio.get_running_loop()
@@ -299,7 +417,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         self.temp_dir.cleanup()
 
     async def test_mcp_tools_reach_backend(self) -> None:
-        async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
+        async with create_test_mcp_http_client(
+            headers={"Authorization": "Bearer mcp-secret"}
+        ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
@@ -1412,7 +1532,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(restored.structuredContent["data"]["card"]["archived"])
 
     async def test_mcp_get_cards_defaults_to_compact_payload(self) -> None:
-        async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
+        async with create_test_mcp_http_client(
+            headers={"Authorization": "Bearer mcp-secret"}
+        ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 created_card = await session.call_tool(
                     "create_card",
@@ -1458,7 +1580,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("attachments", full_card)
 
     async def test_mcp_attachment_read_tools_reach_backend(self) -> None:
-        async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
+        async with create_test_mcp_http_client(
+            headers={"Authorization": "Bearer mcp-secret"}
+        ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 created_card = await session.call_tool(
                     "create_card",
@@ -1523,7 +1647,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
 
     async def test_mcp_shared_file_tools_reach_backend(self) -> None:
-        async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
+        async with create_test_mcp_http_client(
+            headers={"Authorization": "Bearer mcp-secret"}
+        ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 uploaded = await session.call_tool(
                     "upload_shared_file",
@@ -1566,7 +1692,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(deleted.structuredContent["data"]["deleted"])
 
     async def test_mcp_cleanup_tool_reaches_backend(self) -> None:
-        async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
+        async with create_test_mcp_http_client(
+            headers={"Authorization": "Bearer mcp-secret"}
+        ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 created = await session.call_tool(
                     "create_card",
@@ -1585,7 +1713,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn("cleanup_card_content", tool_names)
 
     async def test_mcp_returns_structured_validation_errors(self) -> None:
-        async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
+        async with create_test_mcp_http_client(
+            headers={"Authorization": "Bearer mcp-secret"}
+        ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 invalid = await session.call_tool("get_card", {"card_id": "missing-card"})
                 self.assertFalse(invalid.isError)
@@ -1617,7 +1747,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(EXPECTED_MCP_TOOLS - called_tools, set())
 
     async def test_mcp_client_tools_reach_backend(self) -> None:
-        async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
+        async with create_test_mcp_http_client(
+            headers={"Authorization": "Bearer mcp-secret"}
+        ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 created_client = await session.call_tool(
                     "create_client",
@@ -1802,7 +1934,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(tools["curate_memory"].annotations.destructiveHint)
 
     async def test_mcp_move_card_supports_before_card_id_reordering(self) -> None:
-        async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
+        async with create_test_mcp_http_client(
+            headers={"Authorization": "Bearer mcp-secret"}
+        ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 created_column = await session.call_tool(
                     "create_column",
@@ -1910,7 +2044,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
             runtime = McpServerRuntime(mcp_server, self.logger, auth_mode="none")
             runtime.start()
 
-            async with httpx.AsyncClient() as http_client:
+            async with create_test_mcp_http_client() as http_client:
                 async with open_mcp_session(runtime.base_url, http_client=http_client) as session:
                     runtime_status = await session.call_tool("get_runtime_status", {})
                     self.assertFalse(runtime_status.isError)
@@ -2073,7 +2207,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(token_data["access_token"])
             self.assertTrue(token_data["refresh_token"])
 
-        async with httpx.AsyncClient(
+        async with create_test_mcp_http_client(
             headers={"Authorization": f"Bearer {token_data['access_token']}"}
         ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
@@ -2104,7 +2238,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 response = await client.get(runtime.base_url, follow_redirects=False, timeout=1.0)
             self.assertNotEqual(response.status_code, 421)
 
-            async with httpx.AsyncClient(headers={"Host": "demo.ngrok-free.app"}) as http_client:
+            async with create_test_mcp_http_client(
+                headers={"Host": "demo.ngrok-free.app"}
+            ) as http_client:
                 async with open_mcp_session(runtime.base_url, http_client=http_client) as session:
                     tools = await session.list_tools()
                     self.assertTrue(any(tool.name == "list_columns" for tool in tools.tools))
@@ -2149,7 +2285,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
             runtime = McpServerRuntime(mcp_server, self.logger, auth_mode="none")
             runtime.start()
 
-            async with httpx.AsyncClient() as http_client:
+            async with create_test_mcp_http_client() as http_client:
                 async with open_mcp_session(runtime.base_url, http_client=http_client) as session:
                     bootstrap = await session.call_tool("bootstrap_context", {})
                     self.assertFalse(bootstrap.isError)
@@ -2195,7 +2331,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
             runtime = McpServerRuntime(mcp_server, self.logger, auth_mode="none")
             runtime.start()
 
-            async with httpx.AsyncClient() as http_client:
+            async with create_test_mcp_http_client() as http_client:
                 async with open_mcp_session(runtime.base_url, http_client=http_client) as session:
                     columns = await session.call_tool("list_columns", {})
                     self.assertFalse(columns.isError)
@@ -2242,7 +2378,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
             runtime = McpServerRuntime(mcp_server, self.logger, auth_mode="none")
             runtime.start()
 
-            async with httpx.AsyncClient() as http_client:
+            async with create_test_mcp_http_client() as http_client:
                 async with open_mcp_session(runtime.base_url, http_client=http_client) as session:
                     wall = await session.call_tool("get_gpt_wall", {})
                     self.assertFalse(wall.isError)
@@ -2256,7 +2392,9 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 runtime.stop()
 
     async def test_mcp_sticky_deadline_total_seconds_and_short_id_delete_work(self) -> None:
-        async with httpx.AsyncClient(headers={"Authorization": "Bearer mcp-secret"}) as http_client:
+        async with create_test_mcp_http_client(
+            headers={"Authorization": "Bearer mcp-secret"}
+        ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 created_sticky = await session.call_tool(
                     "create_sticky",
@@ -2440,6 +2578,30 @@ class BoardApiClientTests(unittest.TestCase):
                     {"include_archived": False, "event_limit": 15},
                     method="POST",
                 ),
+            ],
+        )
+
+    def test_client_read_helpers_use_get_queries_for_retryable_reads(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.list_clients(limit=10, include_stats=False)
+            client.search_clients(query="Петров", limit=5)
+            client.get_client("client-1", order_limit=3)
+            client.get_client_stats("client-1")
+
+        self.assertEqual(
+            request.call_args_list,
+            [
+                unittest.mock.call("/api/list_clients?include_stats=false&limit=10", method="GET"),
+                unittest.mock.call(
+                    "/api/search_clients?query=%D0%9F%D0%B5%D1%82%D1%80%D0%BE%D0%B2&limit=5",
+                    method="GET",
+                ),
+                unittest.mock.call(
+                    "/api/get_client?client_id=client-1&order_limit=3", method="GET"
+                ),
+                unittest.mock.call("/api/get_client_stats?client_id=client-1", method="GET"),
             ],
         )
 
