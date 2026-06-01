@@ -592,7 +592,7 @@ def normalize_file_name(value) -> str:
     raw_name = normalize_text(value)
     if not raw_name:
         return ""
-    safe_name = PurePath(raw_name).name
+    safe_name = re.split(r"[\\/]+", raw_name)[-1]
     safe_name = safe_name.replace("\x00", "")
     safe_name = re.sub(r'[<>:"/\\\\|?*]+', "_", safe_name)
     safe_name = re.sub(r"\s+", " ", safe_name).strip(" .")

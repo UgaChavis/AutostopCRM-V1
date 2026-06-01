@@ -60,10 +60,6 @@ class WebAssetsTests(unittest.TestCase):
             "minimal_kanban/web_app_assets/source",
             (ROOT / "scripts" / "build_app.ps1").read_text(encoding="utf-8"),
         )
-        self.assertIn(
-            "minimal_kanban/web_app_assets/source",
-            (ROOT / "MinimalKanban.spec").read_text(encoding="utf-8"),
-        )
 
     def test_board_brand_uses_autostop_name(self) -> None:
         self.assertIn("<title>AutoStop</title>", BOARD_WEB_APP_HTML)

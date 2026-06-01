@@ -25,10 +25,16 @@ class AppStartupTests(unittest.TestCase):
             with patch.dict(os.environ, {"APPDATA": temp_dir}, clear=False):
                 first = _acquire_instance_guard()
                 first.__enter__()
+                second = None
+                second_entered = False
                 try:
                     with self.assertRaises(TimeoutError):
-                        _acquire_instance_guard()
+                        second = _acquire_instance_guard()
+                        second.__enter__()
+                        second_entered = True
                 finally:
+                    if second is not None and second_entered:
+                        second.__exit__(None, None, None)
                     first.__exit__(None, None, None)
 
     def test_reset_runtime_publication_state_clears_stale_tunnel_url(self) -> None:

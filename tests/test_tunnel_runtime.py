@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import signal
 import sys
 import tempfile
 import unittest
@@ -79,6 +81,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
     def test_start_reuses_existing_https_tunnel_when_ngrok_is_selected(self) -> None:
         with (
             patch.dict("os.environ", {"MINIMAL_KANBAN_TUNNEL_PROVIDER": "ngrok"}),
+            patch.object(self.controller, "_find_ngrok_executable", return_value="ngrok"),
             patch.object(
                 self.controller,
                 "_fetch_tunnels_payload",
@@ -216,15 +219,23 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
             self.controller._provider = "cloudflared"
             self.controller._persisted_pid = 6262
 
-            with (
-                patch.object(self.controller, "_is_pid_alive", return_value=True),
-                patch("minimal_kanban.tunnel_runtime.subprocess.run") as run_mock,
-            ):
-                state = self.controller.stop()
+            if os.name == "nt":
+                with (
+                    patch.object(self.controller, "_is_pid_alive", return_value=True),
+                    patch("minimal_kanban.tunnel_runtime.subprocess.run") as terminate_mock,
+                ):
+                    state = self.controller.stop()
+                terminate_mock.assert_called_once()
+            else:
+                with (
+                    patch.object(self.controller, "_is_pid_alive", return_value=True),
+                    patch("minimal_kanban.tunnel_runtime.os.kill") as terminate_mock,
+                ):
+                    state = self.controller.stop()
+                terminate_mock.assert_called_once_with(6262, signal.SIGTERM)
 
         self.assertFalse(state.running)
         self.assertFalse(state_path.exists())
-        run_mock.assert_called_once()
 
 
 if __name__ == "__main__":
