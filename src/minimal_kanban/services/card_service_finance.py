@@ -89,79 +89,12 @@ class CardServiceFinanceMixin:
             transactions_by_id = {
                 transaction.id: transaction for transaction in bundle["cash_transactions"]
             }
-            cards_by_id = {card.id: card for card in bundle["cards"]}
-            cashboxes_by_id = {cashbox.id: cashbox for cashbox in bundle["cashboxes"]}
             payment_links = self._finance_payment_links(bundle["cards"])
             applied: list[dict[str, object]] = []
             for fix in planned_fixes:
                 if not isinstance(fix, dict):
                     continue
                 kind = normalize_text(fix.get("kind"), default="", limit=64)
-                if kind == "create_missing_payment_cash_transaction":
-                    card_id = normalize_text(fix.get("card_id"), default="", limit=128)
-                    payment_id = normalize_text(
-                        fix.get("repair_order_payment_id"), default="", limit=128
-                    )
-                    card = cards_by_id.get(card_id)
-                    if card is None or not payment_id:
-                        continue
-                    payment = next(
-                        (item for item in card.repair_order.payments if item.id == payment_id),
-                        None,
-                    )
-                    if payment is None or payment.cash_transaction_id:
-                        continue
-                    cashbox = cashboxes_by_id.get(payment.cashbox_id)
-                    amount_minor = normalize_money_minor(payment.amount, default=0)
-                    paid_at = parse_business_datetime(payment.paid_at)
-                    if cashbox is None or amount_minor <= 0 or paid_at is None:
-                        continue
-                    created_at = self._repair_order_payment_transaction_created_at(payment.paid_at)
-                    if self._has_possible_repair_order_payment_cash_transaction(
-                        bundle["cash_transactions"],
-                        payment,
-                        amount_minor=amount_minor,
-                        created_at=created_at,
-                    ):
-                        continue
-                    transaction = CashTransaction(
-                        id=str(uuid.uuid4()),
-                        cashbox_id=cashbox.id,
-                        direction="income",
-                        amount_minor=amount_minor,
-                        note=self._validated_cash_transaction_note(
-                            payment.note
-                            or self._repair_order_cash_transaction_note(card.repair_order.number)
-                        ),
-                        created_at=created_at,
-                        actor_name=payment.actor_name or actor_name,
-                        source=source,
-                        transaction_kind="repair_order_payment",
-                    )
-                    bundle["cash_transactions"].append(transaction)
-                    bundle["cash_transactions"].sort(
-                        key=lambda item: (
-                            self._cash_transaction_sortable_datetime(item.created_at),
-                            item.id,
-                        )
-                    )
-                    transactions_by_id[transaction.id] = transaction
-                    payment.cash_transaction_id = transaction.id
-                    payment.cashbox_id = cashbox.id
-                    payment.cashbox_name = cashbox.name
-                    self._refresh_cashbox_updated_at(cashbox, bundle["cash_transactions"])
-                    applied.append(
-                        {
-                            "kind": kind,
-                            "card_id": card.id,
-                            "repair_order_number": card.repair_order.number,
-                            "repair_order_payment_id": payment.id,
-                            "cash_transaction_id": transaction.id,
-                            "cashbox_id": cashbox.id,
-                            "amount_minor": amount_minor,
-                        }
-                    )
-                    continue
                 if kind == "restore_missing_employee":
                     employee_id = normalize_text(fix.get("employee_id"), default="", limit=64)
                     employee_name = normalize_text(fix.get("employee_name"), default="", limit=80)
@@ -1223,59 +1156,6 @@ class CardServiceFinanceMixin:
             "data": data or {},
         }
 
-    def _finance_missing_payment_cash_transaction_safe_fix(
-        self,
-        card: Card,
-        payment: RepairOrderPayment,
-        transactions: list[CashTransaction],
-        cashboxes_by_id: dict[str, CashBox],
-    ) -> dict[str, object] | None:
-        if payment.cashbox_id not in cashboxes_by_id:
-            return None
-        amount_minor = normalize_money_minor(payment.amount, default=0)
-        if amount_minor <= 0 or parse_business_datetime(payment.paid_at) is None:
-            return None
-        created_at = self._repair_order_payment_transaction_created_at(payment.paid_at)
-        if self._has_possible_repair_order_payment_cash_transaction(
-            transactions,
-            payment,
-            amount_minor=amount_minor,
-            created_at=created_at,
-        ):
-            return None
-        return {
-            "kind": "create_missing_payment_cash_transaction",
-            "card_id": card.id,
-            "repair_order_number": card.repair_order.number,
-            "repair_order_payment_id": payment.id,
-            "cashbox_id": payment.cashbox_id,
-            "amount_minor": amount_minor,
-            "created_at": created_at,
-        }
-
-    def _has_possible_repair_order_payment_cash_transaction(
-        self,
-        transactions: list[CashTransaction],
-        payment: RepairOrderPayment,
-        *,
-        amount_minor: int,
-        created_at: str,
-    ) -> bool:
-        payment_day = self._cash_transaction_business_sortable_datetime(created_at).date()
-        for transaction in transactions:
-            if (
-                transaction.cashbox_id != payment.cashbox_id
-                or transaction.direction != "income"
-                or transaction.amount_minor != amount_minor
-            ):
-                continue
-            transaction_day = self._cash_transaction_business_sortable_datetime(
-                transaction.created_at
-            ).date()
-            if transaction_day == payment_day:
-                return True
-        return False
-
     def _build_finance_audit(self, bundle: dict[str, Any]) -> dict:
         cards = bundle["cards"]
         transactions = bundle["cash_transactions"]
@@ -1306,12 +1186,6 @@ class CardServiceFinanceMixin:
             for payment in order.payments:
                 transaction_id = normalize_text(payment.cash_transaction_id, default="", limit=128)
                 if not transaction_id:
-                    safe_fix = self._finance_missing_payment_cash_transaction_safe_fix(
-                        card,
-                        payment,
-                        transactions,
-                        cashboxes_by_id,
-                    )
                     issues.append(
                         self._finance_audit_issue(
                             code="payment_without_cash_transaction_id",
@@ -1319,7 +1193,6 @@ class CardServiceFinanceMixin:
                             message="Оплата заказ-наряда не связана с движением кассы.",
                             card=card,
                             payment=payment,
-                            safe_fix=safe_fix,
                         )
                     )
                     continue
@@ -1781,6 +1654,8 @@ class CardServiceFinanceMixin:
             return "зарплата"
         if normalized == "salary_advance":
             return "аванс"
+        if normalized == "cashbox_normalization":
+            return "нормализация"
         return ""
 
     def _normalize_salary_transaction_kind(self, value: Any) -> str:

@@ -4561,6 +4561,30 @@ class CardServiceTests(unittest.TestCase):
 
         self.assertEqual(blocked.exception.code, "manual_repair_order_cash_note_blocked")
 
+    def test_cashbox_normalization_transaction_is_manual_expense(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+
+        self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "expense",
+                "amount": "30855",
+                "note": "Нормализация кассы: откат ошибочного автопереноса оплат ЗН 29.05.2026",
+                "actor_name": "CODEX",
+                "source": "api",
+                "transaction_kind": "cashbox_normalization",
+            }
+        )
+
+        details = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
+        transaction = details["transactions"][0]
+        self.assertEqual(details["cashbox"]["statistics"]["balance_minor"], -3085500)
+        self.assertEqual(transaction["transaction_kind"], "cashbox_normalization")
+        self.assertEqual(transaction["source_label"], "нормализация")
+        self.assertEqual(transaction["direction"], "expense")
+
     def test_cancel_last_cash_transaction_removes_latest_manual_movement(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"
@@ -8018,7 +8042,7 @@ class CardServiceTests(unittest.TestCase):
             "stale_default_repair_order_note", {issue["code"] for issue in applied["issues"]}
         )
 
-    def test_finance_audit_safe_fix_creates_missing_payment_cash_transaction(self) -> None:
+    def test_finance_audit_does_not_safe_fix_missing_payment_cash_transaction(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"
         ]
@@ -8069,12 +8093,12 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(issue["repair_order_payment_id"], payment_id)
         self.assertEqual(issue["cashbox_id"], cashbox["id"])
         self.assertEqual(issue["amount_minor"], 400000)
-        self.assertTrue(issue["safe_fix_available"])
-        self.assertEqual(issue["safe_fix"]["kind"], "create_missing_payment_cash_transaction")
+        self.assertFalse(issue["safe_fix_available"])
+        self.assertEqual(issue["safe_fix"], {})
 
         dry_run = self.service.apply_finance_audit_safe_fixes()
         self.assertTrue(dry_run["meta"]["dry_run"])
-        self.assertEqual(dry_run["meta"]["planned"], 1)
+        self.assertEqual(dry_run["meta"]["planned"], 0)
         self.assertEqual(
             self.service.get_cashbox({"cashbox_id": cashbox["id"]})["transactions"], []
         )
@@ -8082,30 +8106,23 @@ class CardServiceTests(unittest.TestCase):
         applied = self.service.apply_finance_audit_safe_fixes(
             {"dry_run": False, "actor_name": "ADMIN"}
         )
-        self.assertEqual(applied["meta"]["applied"], 1)
+        self.assertEqual(applied["meta"]["applied"], 0)
 
         refreshed_order = self.service.get_repair_order({"card_id": card["id"]})["repair_order"]
         refreshed_payment = refreshed_order["payments"][0]
-        cashbox_details = self.service.get_cashbox(
-            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        self.assertEqual(refreshed_payment["cash_transaction_id"], "")
+        self.assertEqual(
+            self.service.get_cashbox({"cashbox_id": cashbox["id"]})["transactions"], []
         )
-        transaction = cashbox_details["transactions"][0]
-
-        self.assertEqual(refreshed_payment["cash_transaction_id"], transaction["id"])
-        self.assertEqual(transaction["transaction_kind"], "repair_order_payment")
-        self.assertEqual(transaction["amount_minor"], 400000)
-        self.assertEqual(transaction["note"], "Заказ-наряд №305")
-        self.assertTrue(transaction["created_at"].startswith("2026-05-18T12:39:00"))
 
         next_audit = self.service.get_finance_audit()
-        self.assertNotIn(
-            payment_id,
-            {
-                item["repair_order_payment_id"]
-                for item in next_audit["issues"]
-                if item["code"] == "payment_without_cash_transaction_id"
-            },
+        next_issue = next(
+            issue
+            for issue in next_audit["issues"]
+            if issue["code"] == "payment_without_cash_transaction_id"
+            and issue["repair_order_payment_id"] == payment_id
         )
+        self.assertFalse(next_issue["safe_fix_available"])
 
     def test_finance_audit_does_not_safe_fix_ambiguous_missing_payment_link(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
