@@ -65,6 +65,13 @@ Required local tools for fast maintenance are `git`, Python `.venv`, `gh`,
 AutostopCRM MCP connector. `gh auth status` may warn until the operator runs
 `gh auth login`; do not store GitHub tokens in the repository.
 
+Expected current workstation status after bootstrap:
+
+- `toolchain_doctor.ps1 -SkipServer -Strict` exits cleanly;
+- `github:auth` is `PASS` for account `UgaChavis`;
+- `docker` may be `SKIP` locally because server-side Docker Compose is the
+  production deploy path.
+
 Docker Desktop is optional locally. The normal production deploy path uses
 server-side Docker Compose in `/opt/autostopcrm`. Install Docker Desktop only
 with an explicit local-container need:
@@ -74,9 +81,18 @@ with an explicit local-container need:
 ```
 
 Server tooling stays minimal. Do not install `gh`, Node/npm, or archive tools on
-the server unless a concrete maintenance task needs them. Treat untracked VPN or
-server-local files in `/opt/autostopcrm` as preservation candidates: classify
-and move or split them into a separate repository only after review.
+the server unless a concrete maintenance task needs them.
+
+Server checkout hygiene:
+
+- `/opt/autostopcrm` should contain tracked CRM files plus required untracked
+  runtime files only, such as `.env`, `telegram-ai.env`, data, and backups.
+- AutostopVPN source copies and duplicate VPN docs do not belong in the CRM
+  checkout. If they reappear, first confirm active services reference
+  `/usr/local/bin`, `/usr/local/sbin`, or `/etc/systemd/system`, then archive
+  the untracked copies outside `/opt/autostopcrm` before deleting them.
+- Never delete server-local credentials, production data, audit archives,
+  operator activity, or compose env files during checkout cleanup.
 
 ## Release Checklist
 
@@ -286,6 +302,9 @@ server-local `telegram-ai.env`. Never remove or commit `telegram-ai.env`.
 - GitHub branch `autostopcrm-v1` is the tracked production source of truth.
 - Server mirror is disposable for tracked files but may contain required
   untracked runtime/local files.
+- Untracked AutostopVPN source/docs under `/opt/autostopcrm` are not required
+  CRM runtime files after they have been archived and active service paths have
+  been checked.
 - Do not delete server-local `.env`, `telegram-ai.env`, data, or secret files.
 - Do not edit production state, audit archives, operator activity, or cashbox
   data manually.

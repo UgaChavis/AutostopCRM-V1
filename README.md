@@ -108,7 +108,8 @@ python scripts\browser_smoke.py
 ```
 
 Use [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md) for deploy,
-production verification, performance baselines, and maintenance procedures.
+production verification, toolchain bootstrap, performance baselines, and
+maintenance procedures.
 
 ## Current Endpoints
 
@@ -129,3 +130,5 @@ Route and tool lists are dynamic. Verify with code, `tools/list`, tests, and
 - Finance audit and repair-order number correction are maintenance flows, not
   normal UI/MCP actions.
 - Historical plans and one-off reports stay outside active docs.
+- Server-local AutostopVPN copies do not belong in this CRM checkout; archive
+  them outside `/opt/autostopcrm` before cleanup if they ever reappear.

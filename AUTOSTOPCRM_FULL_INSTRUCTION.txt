@@ -35,6 +35,7 @@ python scripts/compact_audit_events.py --dry-run --json
 Safety:
 - GitHub branch autostopcrm-v1 is production source of truth
 - verify local, GitHub, and server HEAD before and after deploy
+- keep /opt/autostopcrm free of duplicate AutostopVPN source/docs; archive exact untracked copies before cleanup
 - do not edit JSON state, audit-archive, operator-activity, or cashbox data manually
 - run compact_audit_events with --dry-run first; use --apply --backup only after review
 - keep server-local .env and telegram-ai.env
