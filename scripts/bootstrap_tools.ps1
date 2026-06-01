@@ -34,6 +34,38 @@ function Add-UserPathEntry {
     }
 }
 
+function Add-CurrentSessionShim {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CommandName,
+        [Parameter(Mandatory = $true)]
+        [string]$TargetExe
+    )
+
+    $shimDir = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps"
+    if (-not (Test-Path -LiteralPath $shimDir)) {
+        return
+    }
+
+    if (($env:Path -split ";") -notcontains $shimDir) {
+        return
+    }
+
+    $shimPath = Join-Path $shimDir "$CommandName.cmd"
+    $content = "@echo off`r`n`"$TargetExe`" %*`r`n"
+    Set-Content -LiteralPath $shimPath -Value $content -Encoding ASCII -NoNewline
+    Write-Host "Created command shim: $shimPath"
+}
+
+function Add-ToolShims {
+    foreach ($tool in @("gh", "jq", "7z")) {
+        $target = Join-Path $bin "$tool.exe"
+        if (Test-Path -LiteralPath $target) {
+            Add-CurrentSessionShim -CommandName $tool -TargetExe $target
+        }
+    }
+}
+
 function Get-LatestGithubAsset {
     param(
         [Parameter(Mandatory = $true)]
@@ -122,6 +154,7 @@ Install-PortableGh
 Install-PortableJq
 Install-Portable7z
 Add-UserPathEntry -PathEntry $bin
+Add-ToolShims
 Set-AutostopSshKey
 
 if (-not $SkipProjectSetup) {

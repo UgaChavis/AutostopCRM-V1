@@ -47,7 +47,8 @@ Windows workstation bootstrap:
 
 The bootstrap installs missing user-level CLI tools into
 `%LOCALAPPDATA%\Programs\AutostopCRMTools\bin`, adds that directory to the user
-`PATH`, sets `AUTOSTOPCRM_SSH_KEY` when
+`PATH`, creates lightweight command shims in `%LOCALAPPDATA%\Microsoft\WindowsApps`
+for already-running shells, sets `AUTOSTOPCRM_SSH_KEY` when
 `%USERPROFILE%\.ssh\autostopcrm_server_ed25519` exists, installs Python
 dependencies, installs the git `pre-commit` hook, and verifies Playwright
 Chromium.
