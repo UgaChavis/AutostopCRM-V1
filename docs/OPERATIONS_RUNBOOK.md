@@ -37,6 +37,46 @@ ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.
 If the key is missing, use the local secret bundle. Do not try stale identity
 names, password auth, or ad-hoc keys.
 
+## Toolchain Baseline
+
+Windows workstation bootstrap:
+
+```powershell
+.\scripts\bootstrap_tools.ps1
+```
+
+The bootstrap installs missing user-level CLI tools into
+`%LOCALAPPDATA%\Programs\AutostopCRMTools\bin`, adds that directory to the user
+`PATH`, sets `AUTOSTOPCRM_SSH_KEY` when
+`%USERPROFILE%\.ssh\autostopcrm_server_ed25519` exists, installs Python
+dependencies, installs the git `pre-commit` hook, and verifies Playwright
+Chromium.
+
+Read-only toolchain audit:
+
+```powershell
+.\scripts\toolchain_doctor.ps1
+.\scripts\toolchain_doctor.ps1 -Format json
+```
+
+Required local tools for fast maintenance are `git`, Python `.venv`, `gh`,
+`jq`, `7z`, PowerShell 7, Node/npm, SSH, Playwright Chromium, and the
+AutostopCRM MCP connector. `gh auth status` may warn until the operator runs
+`gh auth login`; do not store GitHub tokens in the repository.
+
+Docker Desktop is optional locally. The normal production deploy path uses
+server-side Docker Compose in `/opt/autostopcrm`. Install Docker Desktop only
+with an explicit local-container need:
+
+```powershell
+.\scripts\bootstrap_tools.ps1 -InstallDockerDesktop
+```
+
+Server tooling stays minimal. Do not install `gh`, Node/npm, or archive tools on
+the server unless a concrete maintenance task needs them. Treat untracked VPN or
+server-local files in `/opt/autostopcrm` as preservation candidates: classify
+and move or split them into a separate repository only after review.
+
 ## Release Checklist
 
 Before pushing code or docs that affect runtime, deploy, contracts, UI, or
@@ -44,6 +84,7 @@ operator instructions:
 
 ```powershell
 .\scripts\doctor.ps1
+.\scripts\toolchain_doctor.ps1
 .\scripts\run_checks.ps1
 .\.venv\Scripts\python.exe -m ruff format --check .
 .\.venv\Scripts\python.exe -m ruff check .

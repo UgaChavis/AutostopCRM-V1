@@ -80,6 +80,7 @@ operator documentation.
 ```powershell
 .\scripts\setup_dev.ps1 -InstallGitHooks
 .\scripts\doctor.ps1
+.\scripts\toolchain_doctor.ps1
 .\scripts\run_checks.ps1
 .\scripts\run_dev.ps1
 ```
@@ -94,6 +95,7 @@ Minimum local gate before release:
 
 ```powershell
 .\scripts\doctor.ps1
+.\scripts\toolchain_doctor.ps1
 .\scripts\run_checks.ps1
 .\.venv\Scripts\python.exe -m ruff format --check .
 .\.venv\Scripts\python.exe -m ruff check .
