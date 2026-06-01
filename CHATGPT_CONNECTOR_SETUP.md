@@ -1,6 +1,6 @@
 # AutoStop CRM ChatGPT Connector Setup
 
-This is the current role-specific setup note for the ChatGPT connector. The
+This is the single role-specific setup note for the ChatGPT connector. The MCP
 tool contract remains in `MCP_GUIDE.md`; route behavior remains in
 `API_GUIDE.md` and the application code.
 

@@ -89,6 +89,7 @@ class DeployScriptTests(unittest.TestCase):
 
         self.assertIn("ruff format --check .", workflow)
         self.assertIn("ruff check .", workflow)
+        self.assertIn("python scripts/docs_audit.py --format text", workflow)
         self.assertIn("python -m unittest discover -s tests -v", workflow)
         self.assertIn("python scripts/code_health_audit.py --format text", workflow)
         self.assertIn("python scripts/audit_localization.py", workflow)

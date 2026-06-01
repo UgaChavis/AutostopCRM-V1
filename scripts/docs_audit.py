@@ -39,6 +39,14 @@ SCRIPT_INSTRUCTION_SKIP_FILES = {
     "scripts/docs_audit.py",
 }
 
+SCRIPT_INSTRUCTION_FILES = {
+    ".dockerignore",
+    ".github/workflows/quality.yml",
+    ".pre-commit-config.yaml",
+    "Dockerfile",
+    "docker-compose.yml",
+}
+
 MANAGER_CANONICAL_DOCS = (
     "README.md",
     "docs/agent/autostop_manager_skill.md",
@@ -217,6 +225,14 @@ CHATGPT_CONNECTOR_REQUIRED_TEXT = (
 
 RUNBOOK_REQUIRED_TEXT = (
     (
+        "bootstrap_tools.ps1",
+        "toolchain bootstrap script is not documented",
+    ),
+    (
+        "toolchain_doctor.ps1",
+        "toolchain audit script is not documented",
+    ),
+    (
         "state_size_report.py",
         "state size diagnostics script is not documented",
     ),
@@ -255,6 +271,17 @@ RUNBOOK_REQUIRED_TEXT = (
     (
         "employee_shift_accrual_manual_salary",
         "manual shift salary accrual browser-smoke scenario is not documented",
+    ),
+    (
+        "Documentation cleanup loop",
+        "documentation cleanup loop is not documented",
+    ),
+)
+
+QUALITY_WORKFLOW_REQUIRED_TEXT = (
+    (
+        "python scripts/docs_audit.py --format text",
+        "GitHub quality workflow does not run docs audit",
     ),
 )
 
@@ -339,9 +366,13 @@ def _iter_script_instruction_files(root: Path) -> list[Path]:
         relative_path = _display_path(path, root)
         if relative_path in SCRIPT_INSTRUCTION_SKIP_FILES:
             continue
-        if relative_path == "deploy.sh" or (
-            relative_path.startswith("scripts/")
-            and any(relative_path.endswith(suffix) for suffix in SCRIPT_INSTRUCTION_SUFFIXES)
+        if (
+            relative_path in SCRIPT_INSTRUCTION_FILES
+            or relative_path == "deploy.sh"
+            or (
+                relative_path.startswith("scripts/")
+                and any(relative_path.endswith(suffix) for suffix in SCRIPT_INSTRUCTION_SUFFIXES)
+            )
         ):
             instruction_files.append(path)
     return sorted(instruction_files)
@@ -442,6 +473,31 @@ def _check_api_guide_required_routes(root: Path) -> list[Issue]:
                         f"{detail}: {required_text}",
                     )
                 )
+    return issues
+
+
+def _check_quality_workflow_required_gates(root: Path) -> list[Issue]:
+    path = root / ".github" / "workflows" / "quality.yml"
+    if not path.exists():
+        return [
+            Issue(
+                "missing_quality_workflow",
+                _display_path(path, root),
+                "GitHub quality workflow is missing",
+            )
+        ]
+
+    text = _read_text(path)
+    issues: list[Issue] = []
+    for required_text, detail in QUALITY_WORKFLOW_REQUIRED_TEXT:
+        if required_text not in text:
+            issues.append(
+                Issue(
+                    "quality_workflow_missing_gate",
+                    _display_path(path, root),
+                    f"{detail}: {required_text}",
+                )
+            )
     return issues
 
 
@@ -698,6 +754,7 @@ def audit(
 
     issues.extend(_check_script_instruction_text(root))
     issues.extend(_check_api_guide_required_routes(root))
+    issues.extend(_check_quality_workflow_required_gates(root))
 
     for retired_path in _iter_retired_candidates(root):
         issues.append(

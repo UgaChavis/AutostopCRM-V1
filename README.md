@@ -82,34 +82,18 @@ operator documentation.
 .\scripts\doctor.ps1
 .\scripts\toolchain_doctor.ps1
 .\scripts\run_checks.ps1
+```
+
+Run the desktop app or headless API/MCP:
+
+```powershell
 .\scripts\run_dev.ps1
-```
-
-Headless API/MCP:
-
-```powershell
 .\scripts\run_mcp_server.ps1
-```
-
-Minimum local gate before release:
-
-```powershell
-.\scripts\doctor.ps1
-.\scripts\toolchain_doctor.ps1
-.\scripts\run_checks.ps1
-.\.venv\Scripts\python.exe -m ruff format --check .
-.\.venv\Scripts\python.exe -m ruff check .
-.\.venv\Scripts\python.exe -m unittest discover -s .\tests -v
-python scripts\docs_audit.py --format text
-python scripts\code_health_audit.py --format text
-python scripts\audit_localization.py
-python scripts\check_web_assets_js.py
-python scripts\browser_smoke.py
 ```
 
 Use [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md) for deploy,
 production verification, toolchain bootstrap, performance baselines, and
-maintenance procedures.
+release gates.
 
 ## Current Endpoints
 

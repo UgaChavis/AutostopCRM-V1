@@ -57,21 +57,10 @@ ChatGPT connects to the production MCP endpoint:
 https://crm.autostopcrm.ru/mcp
 ```
 
-Use `CHATGPT_CONNECTOR_SETUP.md` for the short role-specific setup checklist.
-Connector scope is exactly one current AutoStop CRM board. In CRM integration
-settings, enable integration, local API, MCP, public HTTPS base/full MCP URL,
-and MCP auth mode/token when the endpoint is protected. The final connector URL
-must start with `https://` and end with `/mcp`.
-
-ChatGPT Apps & Connectors setup:
-
-1. Create a new MCP connector.
-2. Name: `AutoStop CRM`.
-3. Description: `Автосервисная CRM с доской, клиентами, заказ-нарядами, кассами и файлами`.
-4. URL: `https://crm.autostopcrm.ru/mcp`.
-5. If ChatGPT asks for linking, complete the embedded OAuth flow.
-6. First calls: `ping_connector`, then `bootstrap_context(compact=true)`.
-7. If tunnel/auth/runtime is unclear, call `get_runtime_status`.
+Use `CHATGPT_CONNECTOR_SETUP.md` as the single ChatGPT Apps & Connectors setup
+checklist. This guide only defines the MCP transport and tool contract.
+Connector scope is exactly one current AutoStop CRM board. The final connector
+URL must start with `https://` and end with `/mcp`.
 
 Responses API clients use the same `server_url`. Do not rely on a static JSON
 tool list; fetch live tools or use connector discovery. In bearer mode, pass

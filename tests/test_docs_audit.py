@@ -163,6 +163,8 @@ class DocsAuditTests(unittest.TestCase):
                 "read-only repair-order number audit API route is not documented: /api/repair_order_number_audit",
                 "repair-order number maintenance route is not documented: /api/correct_repair_order_number",
                 "manual employee shift accrual route is not documented: /api/create_employee_shift_accrual",
+                "toolchain bootstrap script is not documented: bootstrap_tools.ps1",
+                "toolchain audit script is not documented: toolchain_doctor.ps1",
                 "card log archive hydration option is not documented: include_full_details",
                 "cashbox transaction pagination offset is not documented: transaction_offset",
                 "state size diagnostics script is not documented: state_size_report.py",
@@ -175,8 +177,28 @@ class DocsAuditTests(unittest.TestCase):
                 "deploy smoke retry count env var is not documented: AUTOSTOP_SMOKE_ATTEMPTS",
                 "deploy smoke retry delay env var is not documented: AUTOSTOP_SMOKE_DELAY_SECONDS",
                 "manual shift salary accrual browser-smoke scenario is not documented: employee_shift_accrual_manual_salary",
+                "documentation cleanup loop is not documented: Documentation cleanup loop",
             },
             {issue.detail for issue in issues},
+        )
+
+    def test_quality_workflow_runs_docs_audit(self) -> None:
+        module = load_docs_audit_module()
+
+        self.assertEqual([], module._check_quality_workflow_required_gates(ROOT))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            workflow = temp_root / ".github" / "workflows" / "quality.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text("name: quality\n", encoding="utf-8")
+
+            issues = module._check_quality_workflow_required_gates(temp_root)
+
+        self.assertEqual(["quality_workflow_missing_gate"], [issue.code for issue in issues])
+        self.assertEqual(
+            "GitHub quality workflow does not run docs audit: python scripts/docs_audit.py --format text",
+            issues[0].detail,
         )
 
     def test_mcp_guide_mentions_transport_security_allowlist_overrides(self) -> None:
