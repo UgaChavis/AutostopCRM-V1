@@ -2688,6 +2688,12 @@
         finishApiPerf({ error: error.code || 'operator_session' });
         throw error;
       }
+      if ((response.status === 401 || payload?.error?.code === 'unauthorized') && String(path || '').split('?')[0] === '/api/login_operator') {
+        const error = new Error(payload?.error?.message || 'Неверный логин или пароль.');
+        error.code = payload?.error?.code || 'unauthorized';
+        finishApiPerf({ error: error.code });
+        throw error;
+      }
       if (response.status === 401 || payload?.error?.code === 'unauthorized') {
         const error = new Error(accessDeniedMessage());
         error.code = payload?.error?.code || 'unauthorized';
@@ -2874,7 +2880,24 @@
         );
         els.identityMeta = document.getElementById('identityMeta');
       }
+      if (els.identityMeta) {
+        els.identityMeta.setAttribute('role', 'status');
+        els.identityMeta.setAttribute('aria-live', 'polite');
+      }
       if (els.identitySave) els.identitySave.textContent = 'ВОЙТИ';
+    }
+
+    function setOperatorLoginFeedback(message = 'Логин определяет профиль и статистику действий на доске.', { tone = 'normal' } = {}) {
+      if (!els.identityMeta) return;
+      els.identityMeta.textContent = String(message || '').trim() || 'Логин определяет профиль и статистику действий на доске.';
+      els.identityMeta.dataset.tone = tone;
+    }
+
+    function setOperatorLoginBusy(isBusy) {
+      if (!els.identitySave) return;
+      const busy = Boolean(isBusy);
+      els.identitySave.disabled = busy;
+      els.identitySave.textContent = busy ? 'ВХОД...' : 'ВОЙТИ';
     }
 
     function setOperatorSessionToken(token, { persist = true } = {}) {
@@ -2895,6 +2918,8 @@
     function openOperatorLoginModal() {
       els.identityInput.value = '';
       if (els.identityPassword) els.identityPassword.value = '';
+      setOperatorLoginBusy(false);
+      setOperatorLoginFeedback();
       setOperatorLoginGateOpen(true);
       els.identityModal.classList.add('is-open');
       requestAnimationFrame(() => els.identityInput.focus());
@@ -2984,18 +3009,40 @@
     }
 
     async function loginOperator() {
+      const username = String(els.identityInput?.value || '').trim();
+      const password = String(els.identityPassword?.value || '');
+      if (!username || !password) {
+        setOperatorLoginFeedback('Введите логин и пароль.', { tone: 'error' });
+        if (!username) els.identityInput?.focus();
+        else els.identityPassword?.focus();
+        return;
+      }
+      setOperatorLoginBusy(true);
+      setOperatorLoginFeedback('Проверяю вход...');
       try {
         const data = await api('/api/login_operator', {
           method: 'POST',
           body: {
-            username: els.identityInput.value,
-            password: els.identityPassword ? els.identityPassword.value : '',
+            username,
+            password,
           },
         });
         renderOperatorProfile(data, { openModal: true });
       } catch (error) {
-        setStatus(error.message, true);
+        const message = error.message || 'Не удалось выполнить вход.';
+        setOperatorLoginFeedback(message, { tone: 'error' });
+        setStatus(message, true);
+        if (els.identityPassword) {
+          els.identityPassword.focus();
+          els.identityPassword.select();
+        }
+      } finally {
+        if (els.identityModal?.classList.contains('is-open')) setOperatorLoginBusy(false);
       }
+    }
+
+    function handleIdentityCredentialInput() {
+      if (els.identityMeta?.dataset.tone === 'error') setOperatorLoginFeedback();
     }
 
     function handleIdentityInputKeydown(event) {

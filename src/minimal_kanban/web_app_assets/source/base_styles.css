@@ -3178,6 +3178,12 @@
       font-family: var(--mono);
     }
     .log-row__meta { font-size: 11px; }
+    #identityMeta[data-tone="error"] {
+      padding: 5px 7px;
+      border: 1px solid rgba(207, 91, 75, 0.54);
+      background: rgba(83, 22, 17, 0.24);
+      color: #ffd1ca;
+    }
     .log-view {
       display: block;
       padding: 0;

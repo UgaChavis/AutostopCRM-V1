@@ -490,8 +490,10 @@
 
     els.identitySave.addEventListener('click', loginOperator);
     els.identityInput.addEventListener('keydown', handleIdentityInputKeydown);
+    els.identityInput.addEventListener('input', handleIdentityCredentialInput);
     if (els.identityPassword) {
       els.identityPassword.addEventListener('keydown', handleIdentityPasswordKeydown);
+      els.identityPassword.addEventListener('input', handleIdentityCredentialInput);
     }
     window.__AUTOSTOP_UI_BOUND__ = true;
     els.operatorButton.addEventListener('click', openOperatorWorkspace);

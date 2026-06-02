@@ -515,6 +515,19 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("setOperatorLoginGateOpen(false);", BOARD_WEB_APP_HTML)
         self.assertIn("setOperatorLoginGateOpen(true);", BOARD_WEB_APP_HTML)
         self.assertIn("window.__AUTOSTOP_UI_BOUND__ = true;", BOARD_WEB_APP_HTML)
+        self.assertIn('#identityMeta[data-tone="error"]', BOARD_WEB_APP_HTML)
+        self.assertIn("function setOperatorLoginFeedback(", BOARD_WEB_APP_HTML)
+        self.assertIn("function setOperatorLoginBusy(isBusy)", BOARD_WEB_APP_HTML)
+        self.assertIn("setOperatorLoginFeedback(message, { tone: 'error' });", BOARD_WEB_APP_HTML)
+        self.assertIn("els.identitySave.disabled = busy;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "String(path || '').split('?')[0] === '/api/login_operator'",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "payload?.error?.message || 'Неверный логин или пароль.'",
+            BOARD_WEB_APP_HTML,
+        )
 
         ensure_fragment = BOARD_WEB_APP_HTML[
             BOARD_WEB_APP_HTML.index("function ensureActor()") : BOARD_WEB_APP_HTML.index(
@@ -2141,6 +2154,14 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn(
             "els.identityInput.addEventListener('keydown', handleIdentityInputKeydown);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.identityInput.addEventListener('input', handleIdentityCredentialInput);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.identityPassword.addEventListener('input', handleIdentityCredentialInput);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(

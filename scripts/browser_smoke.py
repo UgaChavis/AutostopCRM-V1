@@ -458,6 +458,41 @@ async def _login(page: Any) -> None:
         "() => window.__AUTOSTOP_UI_BOUND__ === true",
         timeout=SMOKE_UI_BIND_TIMEOUT_MS,
     )
+    await page.evaluate(
+        """() => {
+          const originalFetch = window.fetch.bind(window);
+          let mockedLoginFailureUsed = false;
+          window.fetch = (input, init) => {
+            const url = typeof input === 'string' ? input : String(input?.url || '');
+            if (!mockedLoginFailureUsed && url.split('?')[0] === '/api/login_operator') {
+              mockedLoginFailureUsed = true;
+              return Promise.resolve(new Response(JSON.stringify({
+                ok: false,
+                data: null,
+                error: { code: 'unauthorized', message: 'Неверный логин или пароль.', details: {} },
+                meta: { request_id: 'browser-smoke-login-failure' },
+              }), {
+                status: 401,
+                headers: { 'Content-Type': 'application/json' },
+              }));
+            }
+            return originalFetch(input, init);
+          };
+        }"""
+    )
+    await page.fill("#identityInput", "admin")
+    await page.fill("#identityPassword", "wrong-password")
+    await page.click("#identitySave")
+    await page.wait_for_function(
+        """() => {
+          const meta = document.querySelector('#identityMeta');
+          return (
+            document.querySelector('#identityModal')?.classList.contains('is-open') &&
+            meta?.dataset.tone === 'error' &&
+            meta?.textContent.includes('Неверный логин или пароль')
+          );
+        }"""
+    )
     await page.fill("#identityInput", "admin")
     await page.fill("#identityPassword", "admin")
     await page.click("#identitySave")
