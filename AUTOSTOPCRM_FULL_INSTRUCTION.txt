@@ -7,7 +7,7 @@ Keep it short. The canonical runbook is docs/OPERATIONS_RUNBOOK.md.
 Current:
 - repo: /opt/autostopcrm
 - branch: autostopcrm-v1
-- services: autostopcrm, autostopcrm-telegram-ai
+- service: autostopcrm
 - data: /root/.minimal-kanban
 - CRM: https://crm.autostopcrm.ru
 - MCP: https://crm.autostopcrm.ru/mcp
@@ -27,7 +27,6 @@ git status --short --branch
 git rev-parse --short HEAD
 git rev-parse --short origin/autostopcrm-v1
 docker compose logs --tail=200 autostopcrm
-docker compose logs --tail=100 autostopcrm-telegram-ai
 curl -sS http://127.0.0.1:41731/api/health
 python scripts/state_size_report.py --benchmark-iterations 3 --json
 python scripts/compact_audit_events.py --dry-run --json
@@ -38,7 +37,7 @@ Safety:
 - keep /opt/autostopcrm free of duplicate AutostopVPN source/docs; archive exact untracked copies before cleanup
 - do not edit JSON state, audit-archive, operator-activity, or cashbox data manually
 - run compact_audit_events with --dry-run first; use --apply --backup only after review
-- keep server-local .env and telegram-ai.env
+- keep server-local .env
 - do not commit credentials
 - public anonymous writes must stay blocked
 - before release from a workstation, run browser_smoke.py and perf_workflows.py --local-temp-server --iterations 3

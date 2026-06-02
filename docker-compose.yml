@@ -35,16 +35,3 @@ services:
       retries: 6
       start_period: 20s
 
-  autostopcrm-telegram-ai:
-    container_name: autostopcrm-telegram-ai
-    build: .
-    restart: always
-    command: ["sh", "-lc", "set -a; . /run/telegram-ai.env; exec python main_telegram_ai.py"]
-    depends_on:
-      autostopcrm:
-        condition: service_healthy
-    volumes:
-      - "./telegram-ai.env:/run/telegram-ai.env:ro"
-      - "${AUTOSTOP_DATA_DIR:-./data}:/root/.minimal-kanban"
-    environment:
-      AUTOSTOP_CRM_API_BASE_URL: "http://autostopcrm:41731"

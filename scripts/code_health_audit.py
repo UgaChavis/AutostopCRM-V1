@@ -82,7 +82,11 @@ def _tracked_python_files(root: Path, *, include_untracked: bool = False) -> lis
             for path in root.rglob("*.py")
             if not any(part in SKIP_DIRS for part in path.relative_to(root).parts)
         )
-    return [root / line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return [
+        path
+        for line in result.stdout.splitlines()
+        if line.strip() and (path := root / line.strip()).exists()
+    ]
 
 
 def _relative(path: Path, root: Path) -> str:

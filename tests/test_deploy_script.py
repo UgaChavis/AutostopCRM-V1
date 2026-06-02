@@ -22,17 +22,16 @@ class DeployScriptTests(unittest.TestCase):
             script.index('SMOKE_OPERATOR_USERNAME="${AUTOSTOP_SMOKE_OPERATOR_USERNAME'),
         )
 
-    def test_compose_declares_telegram_ai_worker(self) -> None:
+    def test_compose_declares_only_primary_crm_service(self) -> None:
         compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        retired_service = "autostopcrm-" + "tele" + "gram-ai"
+        retired_entrypoint = "main_" + "tele" + "gram_ai.py"
+        retired_env = "tele" + "gram-ai.env"
 
-        self.assertIn("autostopcrm-telegram-ai:", compose)
-        self.assertIn(
-            'command: ["sh", "-lc", "set -a; . /run/telegram-ai.env; exec python main_telegram_ai.py"]',
-            compose,
-        )
-        self.assertIn('AUTOSTOP_CRM_API_BASE_URL: "http://autostopcrm:41731"', compose)
-        self.assertIn("telegram-ai.env:/run/telegram-ai.env:ro", compose)
-        self.assertIn("telegram-ai.env", compose)
+        self.assertIn("autostopcrm:", compose)
+        self.assertNotIn(retired_service, compose)
+        self.assertNotIn(retired_entrypoint, compose)
+        self.assertNotIn(retired_env, compose)
 
     def test_deploy_installs_production_watchdog_timer_by_default(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")

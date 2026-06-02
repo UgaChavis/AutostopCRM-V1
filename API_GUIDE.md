@@ -1,7 +1,7 @@
 # AutoStop CRM API Guide
 
-The local HTTP API serves the browser UI, MCP adapter, Telegram AI worker,
-smoke scripts, and local integrations. Source of truth:
+The local HTTP API serves the browser UI, MCP adapter, smoke scripts, and local
+integrations. Source of truth:
 `src/minimal_kanban/api/server.py`. This guide lists route groups and
 safety-critical contracts only.
 
@@ -184,7 +184,7 @@ backup flow.
 Compatibility routes include `agent_status`, `agent_tasks`, `agent_actions`,
 `agent_scheduled_tasks`, scheduled task writes, `run_full_card_enrichment`,
 `cleanup_card_content`, `autofill_vehicle_data`, and `autofill_repair_order`.
-The current owner-facing AI path is Telegram AI and MCP/local API tools.
+The current owner-facing AI path is MCP/local API tools.
 
 ## Settings And Verification
 

@@ -10,7 +10,7 @@ safety.
 - MCP: `https://crm.autostopcrm.ru/mcp`
 - production repo: `/opt/autostopcrm`
 - branch: `autostopcrm-v1`
-- compose services: `autostopcrm`, `autostopcrm-telegram-ai`
+- compose service: `autostopcrm`
 - canonical SSH identity: `autostopcrm_server_ed25519`
 
 VPN monitoring files are not the active CRM deployment source of truth.
@@ -86,7 +86,7 @@ the server unless a concrete maintenance task needs them.
 Server checkout hygiene:
 
 - `/opt/autostopcrm` should contain tracked CRM files plus required untracked
-  runtime files only, such as `.env`, `telegram-ai.env`, data, and backups.
+  runtime files only, such as `.env`, data, and backups.
 - AutostopVPN source copies and duplicate VPN docs do not belong in the CRM
   checkout. If they reappear, first confirm active services reference
   `/usr/local/bin`, `/usr/local/sbin`, or `/etc/systemd/system`, then archive
@@ -277,7 +277,7 @@ The automated `browser_smoke.py` includes
 `employee_shift_accrual_manual_salary`, operator-to-employee material executor
 defaults, modal ladder checks, and payroll report/reconciliation coverage.
 
-## Watchdog And Telegram AI
+## Watchdog
 
 `deploy.sh` installs `autostopcrm-watchdog.timer` by default. It checks:
 
@@ -293,10 +293,6 @@ systemctl status autostopcrm-watchdog.service
 journalctl -u autostopcrm-watchdog.service -n 100 --no-pager
 ```
 
-Telegram AI service: `autostopcrm-telegram-ai`. It uses long polling, opens no
-public port, talks to `http://autostopcrm:41731`, and keeps secrets in
-server-local `telegram-ai.env`. Never remove or commit `telegram-ai.env`.
-
 ## Production Cautions
 
 - GitHub branch `autostopcrm-v1` is the tracked production source of truth.
@@ -305,7 +301,7 @@ server-local `telegram-ai.env`. Never remove or commit `telegram-ai.env`.
 - Untracked AutostopVPN source/docs under `/opt/autostopcrm` are not required
   CRM runtime files after they have been archived and active service paths have
   been checked.
-- Do not delete server-local `.env`, `telegram-ai.env`, data, or secret files.
+- Do not delete server-local `.env`, data, or secret files.
 - Do not edit production state, audit archives, operator activity, or cashbox
   data manually.
 - Do not trust stale docs over code, tests, or live `HEAD`.

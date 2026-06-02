@@ -119,7 +119,7 @@ ONBOARDING_PAGES = [
     (
         "Интеграции",
         "Вместе с интерфейсом программа поднимает локальный API по адресу {api_url}. "
-        "Через тот же backend работают browser UI, MCP и Telegram AI.",
+        "Через тот же backend работают browser UI, MCP и локальные интеграции.",
     ),
 ]
 

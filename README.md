@@ -2,7 +2,7 @@
 
 AutoStop CRM is the active workshop CRM on branch `autostopcrm-v1`. It includes
 the board, clients, vehicles, repair orders, cashboxes, employee payroll,
-shared files, MCP access, and Telegram AI owner workflows.
+shared files, MCP access, and ChatGPT/Responses API integrations.
 
 Historical names such as `minimal_kanban`, `%APPDATA%\Minimal Kanban`, and
 `Start Kanban.exe` are compatibility names, not a separate product.
@@ -30,25 +30,24 @@ so.
 - Cashboxes/payroll: money movements, transfers, journal, employee salary
   ledger, reports, and reconciliation print.
 - Integrations: local HTTP API, MCP endpoint, ChatGPT/Responses API clients,
-  and Telegram AI worker.
+  and operator-facing browser tools.
 
 ## Runtime Architecture
 
 ```text
-UI / MCP / Telegram AI
+UI / MCP / API clients
   -> local HTTP API
   -> CardService and domain services
   -> JsonStore
 ```
 
-Business logic belongs in services. UI, MCP, Telegram AI, and compatibility
+Business logic belongs in services. UI, MCP, API clients, and compatibility
 routes call the same backend API and storage.
 
 ## Code Map
 
 - `main.py` - desktop runtime.
 - `main_mcp.py` - API + MCP production/runtime entrypoint.
-- `main_telegram_ai.py` - Telegram AI worker.
 - `src/minimal_kanban/api/server.py` - HTTP API routes.
 - `src/minimal_kanban/services/card_service.py` - main business service.
 - `src/minimal_kanban/services/card_service_*.py` - domain mixins for clients,
@@ -108,7 +107,7 @@ Route and tool lists are dynamic. Verify with code, `tools/list`, tests, and
 ## Safety
 
 - Never commit runtime state, production snapshots, attachments, cashbox data,
-  logs, tokens, `.env`, `telegram-ai.env`, or secret-bundle contents.
+  logs, tokens, `.env`, or secret-bundle contents.
 - Do not edit production `state.json`, `audit-archive`, operator activity, or
   cashbox ledgers manually.
 - Finance audit and repair-order number correction are maintenance flows, not

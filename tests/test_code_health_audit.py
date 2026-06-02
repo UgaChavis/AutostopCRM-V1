@@ -71,6 +71,21 @@ class CodeHealthAuditTests(unittest.TestCase):
         self.assertEqual([], default_issues)
         self.assertEqual(["large_module"], [issue.code for issue in opt_in_issues])
 
+    def test_deleted_tracked_files_are_ignored_in_dirty_tree(self) -> None:
+        module = load_code_health_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            subprocess.run(["git", "init"], cwd=temp_root, check=True, capture_output=True)
+            tracked = temp_root / "removed.py"
+            tracked.write_text("x = 1\n", encoding="utf-8")
+            subprocess.run(["git", "add", "removed.py"], cwd=temp_root, check=True)
+            tracked.unlink()
+
+            issues = module.audit(temp_root)
+
+        self.assertEqual([], issues)
+
 
 if __name__ == "__main__":
     unittest.main()
