@@ -22,9 +22,9 @@ RUN apt-get update && \
         libxtst6 && \
     rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt ./
+COPY requirements-runtime.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements-runtime.txt
 
 COPY . .
 

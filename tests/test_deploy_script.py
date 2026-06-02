@@ -74,6 +74,15 @@ class DeployScriptTests(unittest.TestCase):
             with self.subTest(package=package):
                 self.assertIn(package, dockerfile)
 
+    def test_dockerfile_installs_runtime_requirements_only(self) -> None:
+        dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        runtime_requirements = (PROJECT_ROOT / "requirements-runtime.txt").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("requirements-runtime.txt", dockerfile)
+        self.assertNotIn("pyinstaller", runtime_requirements.lower())
+
     def test_dockerignore_excludes_server_local_vpn_artifacts(self) -> None:
         dockerignore = (PROJECT_ROOT / ".dockerignore").read_text(encoding="utf-8")
 

@@ -63,6 +63,8 @@ routes call the same backend API and storage.
 - `README.md` - short project map and contributor entrypoint.
 - `docs/OPERATIONS_RUNBOOK.md` - release gates, GitHub/server sync, deploy,
   production smoke, performance checks, watchdog, and maintenance safety.
+- `docs/SERVER_MAP.md` - active server paths, Docker services, ports,
+  watchdogs, cleanup automation, backup boundaries, and verification commands.
 - `API_GUIDE.md` - HTTP API route groups and safety-critical contracts.
 - `MCP_GUIDE.md` - MCP runtime, tool groups, optional manager layer, and write
   rules.
