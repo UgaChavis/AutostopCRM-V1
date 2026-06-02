@@ -161,6 +161,7 @@
       display: grid;
       gap: 9px;
       align-content: start;
+      --card-meta-panel-height: 94px;
       min-height: 0;
       min-width: 0;
       max-width: 756px;
@@ -171,7 +172,8 @@
       display: grid;
       grid-template-columns: minmax(168px, 184px) minmax(0, 1fr);
       gap: 8px;
-      align-items: start;
+      align-items: stretch;
+      min-height: var(--card-meta-panel-height);
     }
     .dialog__tabs--card {
       align-items: flex-end;
@@ -757,6 +759,108 @@
       display: grid;
       gap: 10px;
       background: rgba(0,0,0,0.14);
+    }
+    .overview-main__meta > .subpanel {
+      height: var(--card-meta-panel-height);
+      min-height: var(--card-meta-panel-height);
+      padding: 6px;
+      gap: 4px;
+      overflow: hidden;
+      align-content: start;
+      box-sizing: border-box;
+    }
+    .overview-main__meta .signal-panel {
+      grid-template-rows: auto 24px minmax(0, 31px);
+    }
+    .overview-main__meta .signal-preview {
+      min-height: 24px;
+      padding: 2px 6px;
+      font-size: 11.5px;
+      line-height: 1.1;
+    }
+    .overview-main__meta .signal-preview .time-readout {
+      gap: 5px;
+    }
+    .overview-main__meta .signal-preview .time-readout__num {
+      font-size: 1.18em;
+    }
+    .overview-main__meta .signal-grid--timer {
+      gap: 5px;
+      align-items: start;
+    }
+    .overview-main__meta .signal-cell--timer {
+      gap: 2px;
+      min-width: 0;
+    }
+    .overview-main__meta .signal-cell__label {
+      font-size: 7.5px;
+      line-height: 1;
+    }
+    .overview-main__meta .signal-stepper {
+      min-height: 26px;
+    }
+    .overview-main__meta .signal-stepper__button {
+      min-height: 24px;
+      font-size: 13px;
+    }
+    .overview-main__meta .tags-panel {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .overview-main__meta .tags-panel .field--tags {
+      gap: 3px;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .overview-main__meta .tags-panel__head {
+      min-height: 14px;
+    }
+    .overview-main__meta .tag-list,
+    .overview-main__meta .tag-suggestions {
+      flex-wrap: nowrap;
+      align-items: center;
+      align-content: center;
+      min-height: 18px;
+      max-height: 18px;
+      overflow: hidden;
+    }
+    .overview-main__meta .tag-list .tag,
+    .overview-main__meta .tag-suggestion {
+      flex: 0 0 auto;
+      max-width: 140px;
+      min-height: 18px;
+      padding: 1px 5px;
+      font-size: 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .overview-main__meta .tag-list .tag--muted {
+      min-width: 76px;
+    }
+    .overview-main__meta .tag-controls {
+      gap: 4px;
+    }
+    .overview-main__meta .tag-color-picker {
+      min-height: 22px;
+      gap: 3px;
+    }
+    .overview-main__meta .tag-color-option {
+      width: 16px;
+      height: 16px;
+    }
+    .overview-main__meta .tag-entry {
+      grid-template-columns: minmax(0, 1fr) 22px;
+      gap: 3px;
+    }
+    .overview-main__meta .tag-entry input[type="text"] {
+      height: 22px;
+      min-height: 22px;
+      padding: 2px 6px;
+      font-size: 9px;
+    }
+    .overview-main__meta .tag-entry .btn {
+      min-width: 22px;
+      min-height: 22px;
     }
     .vehicle-panel {
       gap: 6px;
@@ -3636,7 +3740,24 @@
     @media (max-width: 760px) {
       .grid { grid-template-columns: 1fr; }
       .overview-layout { grid-template-columns: 1fr; }
-      .overview-main__meta { grid-template-columns: 1fr; }
+      .overview-main {
+        --card-meta-panel-height: auto;
+      }
+      .overview-main__meta {
+        grid-template-columns: 1fr;
+        min-height: 0;
+      }
+      .overview-main__meta > .subpanel {
+        height: auto;
+        min-height: 0;
+        overflow: visible;
+      }
+      .overview-main__meta .tag-list,
+      .overview-main__meta .tag-suggestions {
+        flex-wrap: wrap;
+        max-height: none;
+        overflow: visible;
+      }
       .operator-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .operator-admin-layout { grid-template-columns: 1fr; }
       .operator-activity-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -4038,12 +4159,25 @@
     }
     body.is-mobile-lite .overview-main {
       max-width: none;
+      --card-meta-panel-height: auto;
     }
     body.is-mobile-lite .grid--overview {
       grid-template-columns: 1fr;
     }
     body.is-mobile-lite .overview-main__meta {
       grid-template-columns: 1fr;
+      min-height: 0;
+    }
+    body.is-mobile-lite .overview-main__meta > .subpanel {
+      height: auto;
+      min-height: 0;
+      overflow: visible;
+    }
+    body.is-mobile-lite .overview-main__meta .tag-list,
+    body.is-mobile-lite .overview-main__meta .tag-suggestions {
+      flex-wrap: wrap;
+      max-height: none;
+      overflow: visible;
     }
     body.is-mobile-lite .vehicle-panel {
       max-width: none;

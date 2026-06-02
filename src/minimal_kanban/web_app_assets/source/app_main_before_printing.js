@@ -8938,9 +8938,13 @@
       const descriptionHead = editor.closest('.field--description')?.querySelector('.description-field-head');
       const mainStyle = overviewMain ? window.getComputedStyle(overviewMain) : null;
       const mainGap = mainStyle ? parseFloat(mainStyle.rowGap || mainStyle.gap || '0') || 0 : 0;
+      const metaStyle = overviewMeta ? window.getComputedStyle(overviewMeta) : null;
+      const configuredMetaReserve = metaStyle ? parseFloat(metaStyle.getPropertyValue('--card-meta-panel-height')) || 0 : 0;
+      const measuredMetaReserve = overviewMeta?.getBoundingClientRect().height || 0;
+      const metaReserveHeight = configuredMetaReserve > 0 ? configuredMetaReserve : measuredMetaReserve;
       const reserveHeight =
         (overviewGrid?.getBoundingClientRect().height || 0) +
-        (overviewMeta?.getBoundingClientRect().height || 0) +
+        metaReserveHeight +
         (descriptionHead?.getBoundingClientRect().height || 0) +
         mainGap * 3 +
         18;

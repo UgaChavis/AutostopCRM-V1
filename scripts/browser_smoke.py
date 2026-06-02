@@ -663,11 +663,17 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
               const overview = document.querySelector('#cardModal [data-panel="overview"]');
               const editor = document.querySelector('#cardDescriptionEditor');
               const tagInput = document.querySelector('#tagInput');
+              const tagAddButton = document.querySelector('#tagAddButton');
+              const tagsPanel = document.querySelector('.tags-panel');
               const signalPanel = document.querySelector('.signal-panel');
+              const signalDaysDecrement = document.querySelector('#signalDaysDecrementButton');
+              const signalDaysIncrement = document.querySelector('#signalDaysIncrementButton');
+              const signalHoursDecrement = document.querySelector('#signalHoursDecrementButton');
+              const signalHoursIncrement = document.querySelector('#signalHoursIncrementButton');
               const repairOrderButton = document.querySelector('#repairOrderButton');
               const bottomClose = document.querySelector('#cardModalCloseButtonBottom');
               const saveButton = document.querySelector('#saveCardButton');
-              if (!overview || !editor || !tagInput || !signalPanel || !repairOrderButton || !bottomClose || !saveButton) return false;
+              if (!overview || !editor || !tagInput || !tagAddButton || !tagsPanel || !signalPanel || !signalDaysDecrement || !signalDaysIncrement || !signalHoursDecrement || !signalHoursIncrement || !repairOrderButton || !bottomClose || !saveButton) return false;
               const visibleInOverview = (node) => {
                 const viewport = overview.getBoundingClientRect();
                 const rect = node.getBoundingClientRect();
@@ -678,10 +684,19 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
                 return rect.top >= 0 && rect.bottom <= window.innerHeight && rect.left >= 0 && rect.right <= window.innerWidth;
               };
               tagInput.scrollIntoView({ block: 'center', inline: 'nearest' });
+              const signalHeight = signalPanel.getBoundingClientRect().height;
+              const tagsHeight = tagsPanel.getBoundingClientRect().height;
               return (
                 editor.scrollHeight > editor.clientHeight &&
+                Math.abs(signalHeight - tagsHeight) <= 2 &&
                 visibleInOverview(tagInput) &&
+                visibleInOverview(tagAddButton) &&
+                visibleInOverview(tagsPanel) &&
                 visibleInOverview(signalPanel) &&
+                visibleInOverview(signalDaysDecrement) &&
+                visibleInOverview(signalDaysIncrement) &&
+                visibleInOverview(signalHoursDecrement) &&
+                visibleInOverview(signalHoursIncrement) &&
                 visibleInOverview(repairOrderButton) &&
                 visibleInWindow(bottomClose) &&
                 visibleInWindow(saveButton)

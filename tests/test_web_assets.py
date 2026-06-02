@@ -314,6 +314,15 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".tag-limit {", BOARD_WEB_APP_HTML)
         self.assertIn(".tag-controls {", BOARD_WEB_APP_HTML)
         self.assertIn(".tag-list .tag {", BOARD_WEB_APP_HTML)
+        self.assertIn("--card-meta-panel-height: 94px;", BOARD_WEB_APP_HTML)
+        self.assertIn(".overview-main__meta > .subpanel {", BOARD_WEB_APP_HTML)
+        self.assertIn("height: var(--card-meta-panel-height);", BOARD_WEB_APP_HTML)
+        self.assertIn("min-height: var(--card-meta-panel-height);", BOARD_WEB_APP_HTML)
+        self.assertIn(".overview-main__meta .tag-list,", BOARD_WEB_APP_HTML)
+        self.assertIn("max-height: 18px;", BOARD_WEB_APP_HTML)
+        self.assertIn("text-overflow: ellipsis;", BOARD_WEB_APP_HTML)
+        self.assertIn(".overview-main__meta .signal-stepper__button {", BOARD_WEB_APP_HTML)
+        self.assertIn("min-height: 24px;", BOARD_WEB_APP_HTML)
         self.assertIn('class="tag-suggestions" id="tagSuggestions"', BOARD_WEB_APP_HTML)
         self.assertIn('class="tag-entry"', BOARD_WEB_APP_HTML)
         self.assertIn('class="tag-controls"', BOARD_WEB_APP_HTML)
@@ -1225,6 +1234,14 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function limitCardModalHeading(value, maxLength = 92)", BOARD_WEB_APP_HTML)
         self.assertIn(
             "grid-template-columns: minmax(648px, 756px) minmax(264px, 308px);", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "const configuredMetaReserve = metaStyle ? parseFloat(metaStyle.getPropertyValue('--card-meta-panel-height')) || 0 : 0;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "const metaReserveHeight = configuredMetaReserve > 0 ? configuredMetaReserve : measuredMetaReserve;",
+            BOARD_WEB_APP_HTML,
         )
         self.assertIn('class="subpanel vehicle-panel"', BOARD_WEB_APP_HTML)
         self.assertIn("z-index: 2;", BOARD_WEB_APP_HTML)
