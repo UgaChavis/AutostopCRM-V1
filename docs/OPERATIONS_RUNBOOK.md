@@ -15,6 +15,64 @@ safety.
 
 VPN monitoring files are not the active CRM deployment source of truth.
 
+## Production Server Map
+
+Active checkouts and services on `crm.autostopcrm.ru`:
+
+- `/opt/autostopcrm` - production AutoStop CRM checkout on branch
+  `autostopcrm-v1`. Docker Compose project `autostopcrm` runs container
+  `autostopcrm` from image `autostopcrm-autostopcrm`. Host ports are
+  `127.0.0.1:8000 -> 41731/tcp` for the API/UI and
+  `127.0.0.1:8001 -> 41831/tcp` for MCP. Nginx routes
+  `crm.autostopcrm.ru` to this project, including `/mcp`.
+- `/opt/autostop-app` - active public app/storefront checkout. Docker Compose
+  project `autostop-app` runs `autostop-app` and `autostop-db`; the app is
+  published as `127.0.0.1:8010 -> 8000/tcp`. Nginx routes
+  `autostop24.shop`, `autostop24.pro`, and the server `:8080` listener to
+  this app. Its active Docker volumes are `autostop-app_postgres_data` and
+  `autostop-app_uploads_data`.
+- `/opt/AutostopManager` - separate manager checkout. It is not the active CRM
+  production source and no active Docker container was tied to it in the
+  2026-06-02 server inventory. Treat local modifications there as parallel
+  work: inspect, document, or ask before reset/delete.
+- `/opt/crm-2.0` - separate development checkout. It is not the active CRM
+  production source and no active Docker container was tied to it in the
+  2026-06-02 server inventory.
+- `amnezia-awg2` - active Amnezia/WireGuard Docker container. It listens on
+  UDP `47895`; `autostopvpn-udp443-forward.service` is an active systemd
+  helper. Do not remove VPN containers, configs, or systemd units during CRM
+  cleanup.
+
+Expected active systemd services/timers:
+
+- `docker.service`, `nginx.service`, `autostopcrm-watchdog.timer`,
+  `autostopvpn-udp443-forward.service`, and `autostop-gmail-relay.service`
+  are active.
+- `autostopcrm-watchdog.service` is usually inactive/static between timer
+  runs.
+- Disabled Amnezia dashboard or traffic-collector units are not CRM runtime
+  blockers, but do not delete their files without a separate VPN maintenance
+  task.
+
+Server filesystem cleanup boundaries:
+
+- Safe candidates after read-only verification: Docker build cache, stopped
+  orphan containers, inactive volumes with obsolete compose project names,
+  old root-level release tarballs, old `/opt/autostop-app.previous-*` and
+  `/opt/autostop-app.backup-*` directories when a newer control copy remains,
+  old `/opt/autostop-app-backups` tar/dump copies beyond the retained recent
+  set, empty accidental files, and data directories from integrations that
+  have already been removed from compose, code, tests, and docs.
+- Always keep: `.env` files, credentials, production state, Postgres/upload
+  volumes, `/root/autostopcrm-backups`, audit archives, operator activity,
+  active nginx configs, active systemd files, active VPN configs, and dirty
+  checkouts belonging to parallel work.
+- Before cleanup, capture `df -hT /`, `du -hxd1 /opt /root /var`,
+  `docker system df`, `docker ps -a`, `docker volume ls`, `docker compose ls`,
+  nginx routes, systemd statuses, and git status for each checkout.
+- After cleanup, rerun the same disk/Docker checks plus `nginx -t`, CRM
+  health, MCP smoke, and VPN listener checks.
+
 ## Begin And Parity
 
 ```powershell

@@ -78,7 +78,8 @@ class DeployScriptTests(unittest.TestCase):
         dockerignore = (PROJECT_ROOT / ".dockerignore").read_text(encoding="utf-8")
 
         self.assertIn("amnezia*", dockerignore)
-        self.assertIn("apply_telegram_*.ps1", dockerignore)
+        self.assertIn("audit_autostopvpn.ps1", dockerignore)
+        self.assertIn("remove_autostopvpn.ps1", dockerignore)
 
     def test_github_actions_quality_workflow_runs_release_gates(self) -> None:
         workflow = (PROJECT_ROOT / ".github" / "workflows" / "quality.yml").read_text(

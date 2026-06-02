@@ -11,6 +11,11 @@ Current:
 - data: /root/.minimal-kanban
 - CRM: https://crm.autostopcrm.ru
 - MCP: https://crm.autostopcrm.ru/mcp
+- active server projects:
+  - /opt/autostopcrm -> autostopcrm container, 127.0.0.1:8000/8001
+  - /opt/autostop-app -> autostop-app + autostop-db, 127.0.0.1:8010
+  - /opt/AutostopManager and /opt/crm-2.0 are separate checkouts; do not reset/delete dirty work without review
+  - amnezia-awg2 is active VPN, UDP 47895
 
 Deploy:
 cd /opt/autostopcrm
@@ -35,6 +40,8 @@ Safety:
 - GitHub branch autostopcrm-v1 is production source of truth
 - verify local, GitHub, and server HEAD before and after deploy
 - keep /opt/autostopcrm free of duplicate AutostopVPN source/docs; archive exact untracked copies before cleanup
+- safe cleanup candidates are verified Docker build cache, inactive obsolete volumes, old release tarballs, old superseded app rollback backups, and data directories from removed integrations
+- keep /root/autostopcrm-backups, /opt/autostop-app-backups recent control copies, active Docker volumes, active nginx/systemd/VPN files, and dirty parallel checkouts
 - do not edit JSON state, audit-archive, operator-activity, or cashbox data manually
 - run compact_audit_events with --dry-run first; use --apply --backup only after review
 - keep server-local .env
