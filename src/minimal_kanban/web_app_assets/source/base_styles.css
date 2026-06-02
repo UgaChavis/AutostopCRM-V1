@@ -328,7 +328,7 @@
     .field--description .description-editor {
       min-height: 180px;
       height: 180px;
-      max-height: clamp(480px, 62vh, 760px);
+      max-height: clamp(220px, 42vh, 520px);
       padding: 10px 12px;
       line-height: 1.54;
       overflow-y: auto;

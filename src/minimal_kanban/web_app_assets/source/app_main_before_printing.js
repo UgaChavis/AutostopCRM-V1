@@ -8882,11 +8882,27 @@
       const chromeHeight = paddingTop + paddingBottom + borderTop + borderBottom;
       const text = String(els.cardDescription?.value || editor.innerText || '').trim();
       const lineCount = text ? text.split(/\r?\n/).length : 0;
-      const minRows = text ? Math.max(8, Math.min(18, lineCount + 2)) : 7;
-      const minHeight = Math.round(minRows * lineHeight + chromeHeight);
-      const maxHeight = Math.max(minHeight, Math.min(window.innerHeight * 0.62, 760));
+      const preferredRows = text ? Math.max(8, Math.min(12, lineCount + 2)) : 7;
+      const preferredHeight = Math.round(preferredRows * lineHeight + chromeHeight);
+      const overviewPanel = editor.closest('[data-panel="overview"]');
+      const overviewMain = editor.closest('.overview-main');
+      const overviewGrid = overviewMain?.querySelector('.grid--overview');
+      const overviewMeta = overviewMain?.querySelector('.overview-main__meta');
+      const descriptionHead = editor.closest('.field--description')?.querySelector('.description-field-head');
+      const mainStyle = overviewMain ? window.getComputedStyle(overviewMain) : null;
+      const mainGap = mainStyle ? parseFloat(mainStyle.rowGap || mainStyle.gap || '0') || 0 : 0;
+      const reserveHeight =
+        (overviewGrid?.getBoundingClientRect().height || 0) +
+        (overviewMeta?.getBoundingClientRect().height || 0) +
+        (descriptionHead?.getBoundingClientRect().height || 0) +
+        mainGap * 3 +
+        18;
+      const overviewHeight = overviewPanel?.clientHeight || 0;
+      const reservedMaxHeight = overviewHeight > reserveHeight ? overviewHeight - reserveHeight : Infinity;
+      const viewportMaxHeight = Math.min(window.innerHeight * 0.42, 520);
+      const maxHeight = Math.max(preferredHeight, Math.min(viewportMaxHeight, reservedMaxHeight));
       editor.style.height = 'auto';
-      editor.style.height = Math.max(minHeight, Math.min(editor.scrollHeight, maxHeight)) + 'px';
+      editor.style.height = Math.max(preferredHeight, Math.min(editor.scrollHeight, maxHeight)) + 'px';
     }
 
     function stickyPayload() {

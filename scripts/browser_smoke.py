@@ -34,6 +34,7 @@ from minimal_kanban.storage.json_store import JsonStore
 SMOKE_SCENARIOS = (
     "login_gate_hides_board_until_operator_login",
     "desktop_board_card_roundtrip",
+    "card_long_description_controls_reachable",
     "cashbox_journal_workspace",
     "cashbox_journal_filters_and_no_audit",
     "cashbox_journal_compact_cleanup",
@@ -610,6 +611,48 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
           const saveButton = document.querySelector('#saveCardButton');
           return !editor?.classList.contains('is-loading') && !saveButton?.disabled;
         }"""
+    )
+    long_description = "\n".join(
+        f"Long description regression line {index:03d}" for index in range(1, 101)
+    )
+    await page.fill("#cardDescriptionEditor", long_description)
+    await page.wait_for_function(
+        """() => {
+          const editor = document.querySelector('#cardDescriptionEditor');
+          return editor && editor.scrollHeight > editor.clientHeight;
+        }"""
+    )
+    scenarios["card_long_description_controls_reachable"] = bool(
+        await page.evaluate(
+            """() => {
+              const overview = document.querySelector('#cardModal [data-panel="overview"]');
+              const editor = document.querySelector('#cardDescriptionEditor');
+              const tagInput = document.querySelector('#tagInput');
+              const signalPanel = document.querySelector('.signal-panel');
+              const repairOrderButton = document.querySelector('#repairOrderButton');
+              const bottomClose = document.querySelector('#cardModalCloseButtonBottom');
+              const saveButton = document.querySelector('#saveCardButton');
+              if (!overview || !editor || !tagInput || !signalPanel || !repairOrderButton || !bottomClose || !saveButton) return false;
+              const visibleInOverview = (node) => {
+                const viewport = overview.getBoundingClientRect();
+                const rect = node.getBoundingClientRect();
+                return rect.top >= viewport.top && rect.bottom <= viewport.bottom && rect.left >= viewport.left && rect.right <= viewport.right;
+              };
+              const visibleInWindow = (node) => {
+                const rect = node.getBoundingClientRect();
+                return rect.top >= 0 && rect.bottom <= window.innerHeight && rect.left >= 0 && rect.right <= window.innerWidth;
+              };
+              tagInput.scrollIntoView({ block: 'center', inline: 'nearest' });
+              return (
+                editor.scrollHeight > editor.clientHeight &&
+                visibleInOverview(tagInput) &&
+                visibleInOverview(signalPanel) &&
+                visibleInOverview(repairOrderButton) &&
+                visibleInWindow(bottomClose) &&
+                visibleInWindow(saveButton)
+              );
+            }"""
+        )
     )
     await page.fill("#cardTitle", "Browser smoke saved")
     await page.click("#saveCardButton")

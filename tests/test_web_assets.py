@@ -1105,13 +1105,17 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".field--description .description-editor {", BOARD_WEB_APP_HTML)
         self.assertIn("min-height: 180px;", BOARD_WEB_APP_HTML)
         self.assertIn("height: 180px;", BOARD_WEB_APP_HTML)
-        self.assertIn("max-height: clamp(480px, 62vh, 760px);", BOARD_WEB_APP_HTML)
+        self.assertIn("max-height: clamp(220px, 42vh, 520px);", BOARD_WEB_APP_HTML)
         self.assertIn("function syncCardDescriptionHeight()", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "const minRows = text ? Math.max(8, Math.min(18, lineCount + 2)) : 7;",
+            "const preferredRows = text ? Math.max(8, Math.min(12, lineCount + 2)) : 7;",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("window.innerHeight * 0.62", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const reservedMaxHeight = overviewHeight > reserveHeight ? overviewHeight - reserveHeight : Infinity;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("window.innerHeight * 0.42", BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.cardDescriptionEditor.addEventListener('input', handleCardDescriptionInput);",
             BOARD_WEB_APP_HTML,
@@ -1334,6 +1338,10 @@ class WebAssetsTests(unittest.TestCase):
     def test_card_vehicle_panel_stays_inside_overview_scrollport(self) -> None:
         self.assertIn(
             '.dialog--card > .dialog__body-scroll[data-panel="overview"] {',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            '.dialog--card > .dialog__body-scroll[data-panel="overview"] {\n      overflow: auto;\n    }',
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("align-items: stretch;", BOARD_WEB_APP_HTML)

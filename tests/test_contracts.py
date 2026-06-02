@@ -168,6 +168,7 @@ EXPECTED_OPERATOR_ROUTES = {
 EXPECTED_SMOKE_SCENARIOS = (
     "login_gate_hides_board_until_operator_login",
     "desktop_board_card_roundtrip",
+    "card_long_description_controls_reachable",
     "cashbox_journal_workspace",
     "cashbox_journal_filters_and_no_audit",
     "cashbox_journal_compact_cleanup",
