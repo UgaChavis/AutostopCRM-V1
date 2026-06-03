@@ -39,6 +39,7 @@ class DocsAuditTests(unittest.TestCase):
         self.assertIn("!API_GUIDE.md", rules)
         self.assertIn("!MCP_GUIDE.md", rules)
         self.assertIn("!CHATGPT_CONNECTOR_SETUP.md", rules)
+        self.assertIn("!docs/SERVER_MAP.md", rules)
 
     def test_scan_forbidden_text_detects_stale_references(self) -> None:
         module = load_docs_audit_module()
@@ -102,10 +103,23 @@ class DocsAuditTests(unittest.TestCase):
             temp_root = Path(temp_dir)
             (temp_root / "README.md").write_text("canonical\n", encoding="utf-8")
             (temp_root / "requirements.txt").write_text("manifest\n", encoding="utf-8")
+            (temp_root / "requirements-runtime.txt").write_text(
+                "runtime manifest\n", encoding="utf-8"
+            )
+            (temp_root / "docs").mkdir()
+            (temp_root / "docs" / "SERVER_MAP.md").write_text("server map\n", encoding="utf-8")
             (temp_root / "notes.md").write_text("unclassified\n", encoding="utf-8")
             subprocess.run(["git", "init"], cwd=temp_root, check=True, capture_output=True)
             subprocess.run(
-                ["git", "add", "README.md", "requirements.txt", "notes.md"],
+                [
+                    "git",
+                    "add",
+                    "README.md",
+                    "requirements.txt",
+                    "requirements-runtime.txt",
+                    "docs/SERVER_MAP.md",
+                    "notes.md",
+                ],
                 cwd=temp_root,
                 check=True,
                 capture_output=True,

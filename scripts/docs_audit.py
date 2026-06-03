@@ -19,11 +19,13 @@ CRM_CANONICAL_DOCS = (
     "MCP_GUIDE.md",
     "README.md",
     "docs/OPERATIONS_RUNBOOK.md",
+    "docs/SERVER_MAP.md",
 )
 
 CRM_DOCUMENTATION_MANIFESTS = (
     "requirements.txt",
     "requirements-dev.txt",
+    "requirements-runtime.txt",
 )
 
 DOCUMENTATION_SUFFIXES = (".md", ".txt", ".rst", ".adoc")
