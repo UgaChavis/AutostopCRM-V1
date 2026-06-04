@@ -191,6 +191,13 @@ EXPECTED_SMOKE_SCENARIOS = (
     "escape_closes_top_modal_only",
     "operator_admin_employee_binding_returns_to_users",
     "mobile_board_load",
+    "mobile_card_detail",
+    "mobile_cashboxes_workspace",
+    "mobile_repair_orders_workspace",
+    "mobile_clients_panel",
+    "mobile_employees_panel",
+    "mobile_archive_panel",
+    "mobile_files_panel",
 )
 
 

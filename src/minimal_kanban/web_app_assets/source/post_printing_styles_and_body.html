@@ -2533,6 +2533,440 @@
   </style>
 </head>
 <body>
+  <div class="mobile-shell" id="mobileAppShell" aria-label="Мобильная AutoStop CRM">
+    <header class="mobile-shell__top">
+      <div class="mobile-shell__brand">
+        <div class="mobile-shell__title">AUTOSTOP</div>
+        <div class="mobile-shell__status" id="mobileStatusLine">СОЕДИНЕНИЕ...</div>
+      </div>
+      <button class="mobile-shell__operator" id="mobileOperatorButton" type="button">ОПЕРАТОР</button>
+    </header>
+    <main class="mobile-shell__main" id="mobileShellMain">
+      <section class="mobile-workspace is-active" data-mobile-panel="board" aria-label="Доска">
+        <div class="mobile-workspace__head">
+          <div>
+            <div class="mobile-kicker">ДОСКА</div>
+            <h2>Колонки</h2>
+          </div>
+          <div class="mobile-workspace__actions">
+            <button class="mobile-action mobile-action--primary" id="mobileCardCreateButton" type="button">НОВАЯ</button>
+            <button class="mobile-action mobile-action--ghost" id="mobileBoardRefreshButton" type="button">ОБНОВИТЬ</button>
+          </div>
+        </div>
+        <div class="mobile-column-strip" id="mobileBoardColumns"></div>
+        <div class="mobile-card-detail" id="mobileCardDetail" hidden>
+          <div class="mobile-card-detail__sticky">
+            <div class="mobile-card-detail__head">
+              <button class="mobile-action mobile-action--ghost" id="mobileCardBackButton" type="button">НАЗАД</button>
+              <div class="mobile-card-detail__title">
+                <div class="mobile-kicker">КАРТОЧКА</div>
+                <h3 id="mobileCardTitleLine">КАРТОЧКА</h3>
+              </div>
+              <button class="mobile-action mobile-action--primary" id="mobileCardSaveButton" type="button">СОХР.</button>
+            </div>
+            <nav class="mobile-card-tabs" id="mobileCardTabs" aria-label="Разделы карточки">
+              <button class="mobile-card-tab is-active" type="button" data-mobile-card-tab="overview">Общее</button>
+              <button class="mobile-card-tab" type="button" data-mobile-card-tab="vehicle">Авто</button>
+              <button class="mobile-card-tab" type="button" data-mobile-card-tab="files">Файлы</button>
+              <button class="mobile-card-tab" type="button" data-mobile-card-tab="journal">История</button>
+            </nav>
+          </div>
+          <div class="mobile-card-editor">
+            <section class="mobile-card-page is-active" data-mobile-card-page="overview" aria-label="Основные данные карточки">
+              <label class="mobile-field" for="mobileCardVehicleInput">
+                <span>МАРКА / МОДЕЛЬ</span>
+                <input id="mobileCardVehicleInput" type="text" maxlength="180" data-mobile-card-field="vehicle">
+              </label>
+              <label class="mobile-field" for="mobileCardTitleInput">
+                <span>КРАТКАЯ СУТЬ</span>
+                <input id="mobileCardTitleInput" type="text" maxlength="220" data-mobile-card-field="title">
+              </label>
+              <label class="mobile-field" for="mobileCardColumnSelect">
+                <span>КОЛОНКА</span>
+                <select id="mobileCardColumnSelect" data-mobile-card-field="column"></select>
+              </label>
+              <section class="mobile-card-section mobile-card-deadline" aria-label="Срок карточки">
+                <div class="mobile-card-section__head">
+                  <div>
+                    <div class="mobile-kicker">СРОК</div>
+                    <h4>Таймер</h4>
+                  </div>
+                  <div class="mobile-card-deadline__preview" id="mobileCardDeadlinePreview">01Д 00Ч</div>
+                </div>
+                <div class="mobile-card-deadline__grid">
+                  <label class="mobile-field" for="mobileCardDeadlineDays">
+                    <span>ДНЕЙ</span>
+                    <input id="mobileCardDeadlineDays" type="number" inputmode="numeric" min="0" max="365" data-mobile-card-deadline-field="days">
+                  </label>
+                  <label class="mobile-field" for="mobileCardDeadlineHours">
+                    <span>ЧАСОВ</span>
+                    <input id="mobileCardDeadlineHours" type="number" inputmode="numeric" min="0" max="23" data-mobile-card-deadline-field="hours">
+                  </label>
+                </div>
+              </section>
+              <label class="mobile-field" for="mobileCardDescriptionInput">
+                <span>ОПИСАНИЕ</span>
+                <textarea id="mobileCardDescriptionInput" maxlength="12000" rows="6" data-mobile-card-field="description"></textarea>
+              </label>
+              <section class="mobile-card-section mobile-card-tags" aria-label="Метки карточки">
+                <div class="mobile-card-section__head">
+                  <div>
+                    <div class="mobile-kicker">МЕТКИ</div>
+                    <h4>Сигналы</h4>
+                  </div>
+                  <div class="mobile-card-tags__limit" id="mobileCardTagsLimit">0 / 3</div>
+                </div>
+                <div class="mobile-card-tags__list" id="mobileCardTags"></div>
+                <div class="mobile-card-tags__entry">
+                  <select id="mobileCardTagColor" aria-label="Цвет метки">
+                    <option value="green">Зелёная</option>
+                    <option value="yellow">Жёлтая</option>
+                    <option value="red">Красная</option>
+                  </select>
+                  <input id="mobileCardTagInput" type="text" maxlength="24" placeholder="Метка">
+                  <button class="mobile-action mobile-action--ghost" id="mobileCardTagAddButton" type="button">+</button>
+                </div>
+              </section>
+              <button class="mobile-action mobile-action--ghost" id="mobileCardRepairOrderButton" type="button">ЗАКАЗ-НАРЯД</button>
+            </section>
+            <section class="mobile-card-page" data-mobile-card-page="vehicle" aria-label="Автомобиль и клиент">
+              <section class="mobile-card-section mobile-card-vehicle" id="mobileCardVehicleProfile" aria-label="Паспорт автомобиля и клиент">
+                <div class="mobile-card-section__head">
+                  <div>
+                    <div class="mobile-kicker">ТЕХКАРТА</div>
+                    <h4>Авто и клиент</h4>
+                  </div>
+                </div>
+                <div class="mobile-card-vehicle__grid">
+                  <label class="mobile-field mobile-field--wide" for="mobileCardVehicleDisplayName">
+                    <span>МАРКА / МОДЕЛЬ</span>
+                    <input id="mobileCardVehicleDisplayName" type="text" maxlength="180" data-mobile-vehicle-field="display_name">
+                  </label>
+                  <label class="mobile-field" for="mobileCardVehiclePlate">
+                    <span>ГОСНОМЕР</span>
+                    <input id="mobileCardVehiclePlate" type="text" maxlength="40" data-mobile-vehicle-field="registration_plate">
+                  </label>
+                  <label class="mobile-field" for="mobileCardVehicleYear">
+                    <span>ГОД</span>
+                    <input id="mobileCardVehicleYear" type="number" inputmode="numeric" min="1900" max="2100" data-mobile-vehicle-field="production_year">
+                  </label>
+                  <label class="mobile-field" for="mobileCardVehicleMileage">
+                    <span>ПРОБЕГ</span>
+                    <input id="mobileCardVehicleMileage" type="number" inputmode="numeric" min="0" data-mobile-vehicle-field="mileage">
+                  </label>
+                  <label class="mobile-field" for="mobileCardVehicleCustomerPhone">
+                    <span>ТЕЛЕФОН</span>
+                    <input id="mobileCardVehicleCustomerPhone" type="tel" maxlength="80" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" data-mobile-vehicle-field="customer_phone">
+                  </label>
+                  <label class="mobile-field mobile-field--wide" for="mobileCardVehicleCustomerName">
+                    <span>КЛИЕНТ</span>
+                    <input id="mobileCardVehicleCustomerName" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" data-mobile-vehicle-field="customer_name">
+                  </label>
+                  <label class="mobile-field mobile-field--wide" for="mobileCardVehicleVin">
+                    <span>VIN</span>
+                    <input id="mobileCardVehicleVin" class="vehicle-control--mono" type="text" maxlength="17" data-mobile-vehicle-field="vin">
+                  </label>
+                  <label class="mobile-field mobile-field--wide" for="mobileCardVehicleEngine">
+                    <span>ДВИГАТЕЛЬ</span>
+                    <input id="mobileCardVehicleEngine" type="text" maxlength="120" data-mobile-vehicle-field="engine_model">
+                  </label>
+                  <label class="mobile-field mobile-field--wide" for="mobileCardVehicleGearbox">
+                    <span>КПП</span>
+                    <input id="mobileCardVehicleGearbox" type="text" maxlength="120" data-mobile-vehicle-field="gearbox_model">
+                  </label>
+                  <label class="mobile-field mobile-field--wide" for="mobileCardVehicleDrivetrain">
+                    <span>ПРИВОД</span>
+                    <input id="mobileCardVehicleDrivetrain" type="text" maxlength="120" data-mobile-vehicle-field="drivetrain">
+                  </label>
+                </div>
+              </section>
+            </section>
+            <section class="mobile-card-page" data-mobile-card-page="files" aria-label="Файлы карточки">
+              <section class="mobile-card-section mobile-card-files" aria-label="Вложения карточки">
+                <div class="mobile-card-section__head">
+                  <div>
+                    <div class="mobile-kicker">ФАЙЛЫ</div>
+                    <h4>Вложения</h4>
+                  </div>
+                  <div class="mobile-card-files__meta" id="mobileCardFileMeta">0</div>
+                </div>
+                <input id="mobileCardFileInput" type="file" multiple hidden accept=".png,.jpg,.jpeg,.webp,.gif,.txt,.pdf,.doc,.docx,.xls,.xlsx,image/png,image/jpeg,image/webp,image/gif,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+                <button class="mobile-action mobile-action--ghost" id="mobileCardFileAddButton" type="button">ДОБАВИТЬ ФАЙЛ</button>
+                <div class="mobile-card-files__list" id="mobileCardFiles"></div>
+              </section>
+            </section>
+            <section class="mobile-card-page" data-mobile-card-page="journal" aria-label="История карточки">
+              <section class="mobile-card-section mobile-card-journal" aria-label="Журнал карточки">
+                <div class="mobile-card-section__head">
+                  <div>
+                    <div class="mobile-kicker">ЖУРНАЛ</div>
+                    <h4>История</h4>
+                  </div>
+                  <div class="mobile-card-journal__head-actions">
+                    <div class="mobile-card-journal__meta" id="mobileCardJournalMeta">0</div>
+                    <button class="mobile-action mobile-action--ghost" id="mobileCardJournalRefreshButton" type="button">ОБН.</button>
+                  </div>
+                </div>
+                <div class="mobile-card-journal__list" id="mobileCardJournal"></div>
+              </section>
+            </section>
+          </div>
+        </div>
+      </section>
+      <section class="mobile-workspace" data-mobile-panel="cashboxes" aria-label="Кассы">
+        <div class="mobile-workspace__head">
+          <div>
+            <div class="mobile-kicker">КАССЫ</div>
+            <h2>Деньги</h2>
+          </div>
+          <button class="mobile-action mobile-action--ghost" id="mobileCashboxRefreshButton" type="button">ОБНОВИТЬ</button>
+        </div>
+        <div class="mobile-cashbox-list" id="mobileCashboxList"></div>
+        <div class="mobile-cashbox-detail" id="mobileCashboxDetail"></div>
+        <div class="mobile-cashbox-actions" aria-label="Операции с кассой">
+          <button class="mobile-action mobile-action--income" id="mobileCashboxIncomeButton" type="button">ПРИХОД</button>
+          <button class="mobile-action mobile-action--expense" id="mobileCashboxExpenseButton" type="button">СПИСАНИЕ</button>
+          <button class="mobile-action mobile-action--transfer" id="mobileCashboxTransferButton" type="button">ПЕРЕВОД</button>
+        </div>
+        <div class="mobile-cashbox-action-sheet" id="mobileCashboxActionPanel" hidden>
+          <div class="mobile-cashbox-action-sheet__head">
+            <div class="mobile-kicker" id="mobileCashboxActionTitle">ОПЕРАЦИЯ</div>
+            <button class="mobile-action mobile-action--ghost" id="mobileCashboxActionCancelButton" type="button">ОТМЕНА</button>
+          </div>
+          <label class="mobile-field" for="mobileCashboxAmountInput">
+            <span>СУММА</span>
+            <input id="mobileCashboxAmountInput" type="text" inputmode="decimal" maxlength="40" placeholder="0">
+          </label>
+          <label class="mobile-field" id="mobileCashboxTargetField" for="mobileCashboxTargetSelect" hidden>
+            <span>КУДА</span>
+            <select id="mobileCashboxTargetSelect"></select>
+          </label>
+          <label class="mobile-field" for="mobileCashboxNoteInput">
+            <span>КОММЕНТАРИЙ</span>
+            <textarea id="mobileCashboxNoteInput" maxlength="400" rows="3" placeholder="Основание операции"></textarea>
+          </label>
+          <button class="mobile-action mobile-action--primary" id="mobileCashboxSubmitButton" type="button">ПРОВЕСТИ</button>
+        </div>
+      </section>
+      <section class="mobile-workspace" data-mobile-panel="repair-orders" aria-label="Заказ-наряды">
+        <div class="mobile-workspace__head">
+          <div>
+            <div class="mobile-kicker">ЗН</div>
+            <h2>Заказ-наряды</h2>
+          </div>
+          <button class="mobile-action mobile-action--ghost" id="mobileRepairOrdersRefreshButton" type="button">ОБНОВИТЬ</button>
+        </div>
+        <div class="mobile-repair-order-list" id="mobileRepairOrdersList"></div>
+        <div class="mobile-repair-order-detail" id="mobileRepairOrderDetail" hidden>
+          <div class="mobile-repair-order-detail__sticky">
+            <div class="mobile-repair-order-detail__head">
+              <button class="mobile-action mobile-action--ghost" id="mobileRepairOrderBackButton" type="button">НАЗАД</button>
+              <div class="mobile-repair-order-detail__title">
+                <div class="mobile-kicker" id="mobileRepairOrderStatus">ОТКРЫТ</div>
+                <h3 id="mobileRepairOrderNumber">ЗАКАЗ-НАРЯД</h3>
+              </div>
+              <button class="mobile-action mobile-action--primary" id="mobileRepairOrderSaveButton" type="button">СОХР.</button>
+            </div>
+            <nav class="mobile-repair-order-tabs" id="mobileRepairOrderTabs" aria-label="Разделы заказ-наряда">
+              <button class="mobile-repair-order-tab is-active" type="button" data-mobile-repair-order-tab="client" aria-selected="true">Клиент</button>
+              <button class="mobile-repair-order-tab" type="button" data-mobile-repair-order-tab="works" aria-selected="false">Работы</button>
+              <button class="mobile-repair-order-tab" type="button" data-mobile-repair-order-tab="materials" aria-selected="false">Мат.</button>
+              <button class="mobile-repair-order-tab" type="button" data-mobile-repair-order-tab="payments" aria-selected="false">Опл.</button>
+              <button class="mobile-repair-order-tab" type="button" data-mobile-repair-order-tab="totals" aria-selected="false">Итоги</button>
+            </nav>
+          </div>
+          <section class="mobile-repair-order-page is-active" data-mobile-repair-order-page="client">
+            <div class="mobile-repair-order-editor">
+              <label class="mobile-field" for="mobileRepairOrderStatusSelect">
+                <span>СТАТУС</span>
+                <select id="mobileRepairOrderStatusSelect" data-mobile-repair-order-field="status">
+                  <option value="open">Открыт</option>
+                  <option value="ready">Готов</option>
+                  <option value="closed">Закрыт</option>
+                </select>
+              </label>
+              <label class="mobile-field" for="mobileRepairOrderClient">
+                <span>КЛИЕНТ</span>
+                <input id="mobileRepairOrderClient" type="text" maxlength="180" data-mobile-repair-order-field="client">
+              </label>
+              <label class="mobile-field" for="mobileRepairOrderPhone">
+                <span>ТЕЛЕФОН</span>
+                <input id="mobileRepairOrderPhone" type="tel" maxlength="80" data-mobile-repair-order-field="phone">
+              </label>
+              <label class="mobile-field" for="mobileRepairOrderVehicle">
+                <span>АВТОМОБИЛЬ</span>
+                <input id="mobileRepairOrderVehicle" type="text" maxlength="180" data-mobile-repair-order-field="vehicle">
+              </label>
+              <div class="mobile-repair-order-grid">
+                <label class="mobile-field" for="mobileRepairOrderPlate">
+                  <span>ГОСНОМЕР</span>
+                  <input id="mobileRepairOrderPlate" type="text" maxlength="40" data-mobile-repair-order-field="license_plate">
+                </label>
+                <label class="mobile-field" for="mobileRepairOrderMileage">
+                  <span>ПРОБЕГ</span>
+                  <input id="mobileRepairOrderMileage" type="text" inputmode="numeric" maxlength="40" data-mobile-repair-order-field="mileage">
+                </label>
+              </div>
+              <label class="mobile-field" for="mobileRepairOrderVin">
+                <span>VIN</span>
+                <input id="mobileRepairOrderVin" type="text" maxlength="80" data-mobile-repair-order-field="vin">
+              </label>
+              <label class="mobile-field" for="mobileRepairOrderComment">
+                <span>ОПИСАНИЕ</span>
+                <textarea id="mobileRepairOrderComment" maxlength="2000" rows="4" data-mobile-repair-order-field="comment"></textarea>
+              </label>
+            </div>
+          </section>
+          <section class="mobile-repair-order-page" data-mobile-repair-order-page="works">
+            <section class="mobile-repair-order-section">
+              <div class="mobile-repair-order-section__head">
+                <div>
+                  <div class="mobile-kicker">РАБОТЫ</div>
+                  <h4>Услуги</h4>
+                </div>
+                <button class="mobile-action mobile-action--ghost" type="button" data-mobile-repair-order-add-row="works">ДОБАВИТЬ</button>
+              </div>
+              <div class="mobile-repair-order-lines" id="mobileRepairOrderWorks"></div>
+            </section>
+          </section>
+          <section class="mobile-repair-order-page" data-mobile-repair-order-page="materials">
+            <section class="mobile-repair-order-section">
+              <div class="mobile-repair-order-section__head">
+                <div>
+                  <div class="mobile-kicker">МАТЕРИАЛЫ</div>
+                  <h4>Запчасти и жидкости</h4>
+                </div>
+                <button class="mobile-action mobile-action--ghost" type="button" data-mobile-repair-order-add-row="materials">ДОБАВИТЬ</button>
+              </div>
+              <div class="mobile-repair-order-lines" id="mobileRepairOrderMaterials"></div>
+            </section>
+          </section>
+          <section class="mobile-repair-order-page" data-mobile-repair-order-page="payments">
+            <section class="mobile-repair-order-section mobile-repair-order-section--payments">
+              <div class="mobile-repair-order-section__head">
+                <div>
+                  <div class="mobile-kicker">ОПЛАТЫ</div>
+                  <h4>Поступления</h4>
+                </div>
+                <button class="mobile-action mobile-action--ghost" id="mobileRepairOrderAddPaymentButton" type="button">ДОБАВИТЬ</button>
+              </div>
+              <div class="mobile-repair-order-payment-form">
+                <label class="mobile-field" for="mobileRepairOrderPaymentCashbox">
+                  <span>КАССА</span>
+                  <select id="mobileRepairOrderPaymentCashbox" data-mobile-repair-payment-field="cashbox_id">
+                    <option value="">Выберите кассу</option>
+                  </select>
+                </label>
+                <label class="mobile-field" for="mobileRepairOrderPaymentAmount">
+                  <span>СУММА</span>
+                  <input id="mobileRepairOrderPaymentAmount" type="text" inputmode="decimal" maxlength="40" data-mobile-repair-payment-field="amount" placeholder="0">
+                </label>
+                <label class="mobile-field mobile-field--wide" for="mobileRepairOrderPaymentNote">
+                  <span>КОММЕНТАРИЙ</span>
+                  <input id="mobileRepairOrderPaymentNote" type="text" maxlength="240" data-mobile-repair-payment-field="note" placeholder="Оплата по заказ-наряду">
+                </label>
+              </div>
+              <div class="mobile-repair-order-payments" id="mobileRepairOrderPayments"></div>
+            </section>
+          </section>
+          <section class="mobile-repair-order-page" data-mobile-repair-order-page="totals">
+            <div class="mobile-repair-order-totals" id="mobileRepairOrderTotals"></div>
+          </section>
+        </div>
+      </section>
+      <section class="mobile-workspace" data-mobile-panel="more" aria-label="Еще">
+        <div class="mobile-workspace__head">
+          <div>
+            <div class="mobile-kicker">ЕЩЕ</div>
+            <h2>Модули</h2>
+          </div>
+          <button class="mobile-action mobile-action--ghost" id="mobileMoreRefreshButton" type="button">ОБНОВИТЬ</button>
+        </div>
+        <div class="mobile-more-grid" id="mobileMoreGrid">
+          <button class="mobile-module-button" type="button" data-mobile-open="clients">КЛИЕНТЫ</button>
+          <button class="mobile-module-button" type="button" data-mobile-open="employees">СОТРУДНИКИ</button>
+          <button class="mobile-module-button" type="button" data-mobile-open="archive">АРХИВ</button>
+          <button class="mobile-module-button" type="button" data-mobile-open="files">ФАЙЛЫ</button>
+        </div>
+        <section class="mobile-clients-panel" id="mobileClientsPanel" hidden aria-label="Клиенты">
+          <div class="mobile-clients-panel__sticky">
+            <div class="mobile-clients-panel__head">
+              <button class="mobile-action mobile-action--ghost" id="mobileClientsBackButton" type="button">НАЗАД</button>
+              <div>
+                <div class="mobile-kicker">КЛИЕНТЫ</div>
+                <h3>База</h3>
+              </div>
+            </div>
+            <label class="mobile-field" for="mobileClientsSearchInput">
+              <span>ПОИСК</span>
+              <input id="mobileClientsSearchInput" type="search" maxlength="160" autocomplete="off" placeholder="ФИО, телефон, госномер, авто">
+            </label>
+            <div class="mobile-clients-meta" id="mobileClientsMeta">ЗАГРУЗКА...</div>
+          </div>
+          <div class="mobile-clients-layout">
+            <div class="mobile-clients-list" id="mobileClientsList"></div>
+            <div class="mobile-client-detail" id="mobileClientDetail"></div>
+          </div>
+        </section>
+        <section class="mobile-employees-panel" id="mobileEmployeesPanel" hidden aria-label="Сотрудники">
+          <div class="mobile-employees-panel__sticky">
+            <div class="mobile-employees-panel__head">
+              <button class="mobile-action mobile-action--ghost" id="mobileEmployeesBackButton" type="button">НАЗАД</button>
+              <div>
+                <div class="mobile-kicker">СОТРУДНИКИ</div>
+                <h3>Команда</h3>
+              </div>
+            </div>
+            <div class="mobile-employees-meta" id="mobileEmployeesMeta">ЗАГРУЗКА...</div>
+          </div>
+          <div class="mobile-employees-layout">
+            <div class="mobile-employees-list" id="mobileEmployeesList"></div>
+            <div class="mobile-employee-detail" id="mobileEmployeeDetail"></div>
+          </div>
+        </section>
+        <section class="mobile-archive-panel" id="mobileArchivePanel" hidden aria-label="Архив">
+          <div class="mobile-archive-panel__sticky">
+            <div class="mobile-archive-panel__head">
+              <button class="mobile-action mobile-action--ghost" id="mobileArchiveBackButton" type="button">НАЗАД</button>
+              <div>
+                <div class="mobile-kicker">АРХИВ</div>
+                <h3>Закрытые карточки</h3>
+              </div>
+            </div>
+            <label class="mobile-field" for="mobileArchiveSearchInput">
+              <span>ПОИСК</span>
+              <input id="mobileArchiveSearchInput" type="search" maxlength="160" autocomplete="off" placeholder="Клиент, авто, описание">
+            </label>
+            <div class="mobile-archive-meta" id="mobileArchiveMeta">ЗАГРУЗКА...</div>
+          </div>
+          <div class="mobile-archive-list" id="mobileArchiveList"></div>
+        </section>
+        <section class="mobile-shared-files-panel" id="mobileSharedFilesPanel" hidden aria-label="Файлы">
+          <div class="mobile-shared-files-panel__sticky">
+            <div class="mobile-shared-files-panel__head">
+              <button class="mobile-action mobile-action--ghost" id="mobileSharedFilesBackButton" type="button">НАЗАД</button>
+              <div>
+                <div class="mobile-kicker">ФАЙЛЫ</div>
+                <h3>Общие файлы</h3>
+              </div>
+            </div>
+            <div class="mobile-shared-files-actions">
+              <button class="mobile-action mobile-action--primary" id="mobileSharedFilesUploadButton" type="button">ЗАГРУЗИТЬ</button>
+              <input id="mobileSharedFilesInput" type="file" multiple hidden>
+            </div>
+            <div class="mobile-shared-files-meta" id="mobileSharedFilesMeta">ЗАГРУЗКА...</div>
+          </div>
+          <div class="mobile-shared-files-list" id="mobileSharedFilesList"></div>
+        </section>
+      </section>
+    </main>
+    <nav class="mobile-bottom-nav" aria-label="Мобильная навигация">
+      <button class="mobile-bottom-nav__item is-active" type="button" data-mobile-view="board">Доска</button>
+      <button class="mobile-bottom-nav__item" type="button" data-mobile-view="cashboxes">Кассы</button>
+      <button class="mobile-bottom-nav__item" type="button" data-mobile-view="repair-orders">ЗН</button>
+      <button class="mobile-bottom-nav__item" type="button" data-mobile-view="more">Еще</button>
+    </nav>
+  </div>
   <div class="shell">
     <header class="topbar">
       <div class="topbar__left">

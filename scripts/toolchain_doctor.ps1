@@ -218,6 +218,7 @@ docker compose ps || true
 echo "__UNTRACKED__"
 git status --short --untracked-files=all | awk '/^\?\?/ {print}'
 "@
+    $remoteScript = ($remoteScript -replace "`r`n", "`n").Trim() + "`n"
     $serverResult = Invoke-CapturedCommand -Command "ssh" -Arguments @(
         "-i", $sshKey,
         "-o", "IdentitiesOnly=yes",

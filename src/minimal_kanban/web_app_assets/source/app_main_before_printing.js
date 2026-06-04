@@ -21,6 +21,10 @@
     const CARD_JOURNAL_LIMIT_STEP = 50;
     const CARD_JOURNAL_MAX_LIMIT = 1000;
     const CARD_OPEN_SIDE_EFFECT_DELAY_MS = 700;
+    const MOBILE_VIEW_ORDER = ['board', 'cashboxes', 'repair-orders', 'more'];
+    const MOBILE_CARD_TABS = ['overview', 'vehicle', 'files', 'journal'];
+    const MOBILE_REPAIR_ORDER_TABS = ['client', 'works', 'materials', 'payments', 'totals'];
+    const MOBILE_CARD_TITLE_REQUIRED_MESSAGE = 'УКАЖИ КРАТКУЮ СУТЬ КАРТОЧКИ.';
 
     const state = {
       actor: '',
@@ -48,6 +52,41 @@
       },
       boardViewportPrimed: false,
       mobileLite: false,
+      mobileView: 'board',
+      mobileSwipe: {
+        active: false,
+        startX: 0,
+        startY: 0,
+      },
+      mobileExpandedColumns: new Set(),
+      mobileCardId: '',
+      mobileCard: null,
+      mobileCardTab: 'overview',
+      mobileCardCreating: false,
+      mobileCardLoading: false,
+      mobileCardSaving: false,
+      mobileCardFilesBusy: false,
+      mobileCardJournalPayload: null,
+      mobileCardJournalLoadedFor: '',
+      mobileCardJournalLimit: CARD_JOURNAL_INITIAL_LIMIT,
+      mobileCardJournalLoading: false,
+      mobileCashboxAction: '',
+      mobileRepairOrderCardId: '',
+      mobileRepairOrderCard: null,
+      mobileRepairOrderTab: 'client',
+      mobileRepairOrderSaving: false,
+      mobileMoreLoaded: false,
+      mobileMoreLoading: false,
+      mobileMoreError: '',
+      mobileMorePanel: '',
+      mobileClientsLoading: false,
+      mobileClientProfileLoading: false,
+      mobileClientsSearchTimer: null,
+      mobileEmployeesLoading: false,
+      mobileArchiveLoading: false,
+      mobileArchiveSearchTimer: null,
+      mobileSharedFilesLoading: false,
+      mobileSharedFileRenamingId: '',
       stickyDraft: null,
       stickyDrag: {
         active: false,
@@ -623,6 +662,92 @@
       boardScroll: document.querySelector('.board-scroll'),
       board: document.getElementById('board'),
       statusLine: document.getElementById('statusLine'),
+      mobileAppShell: document.getElementById('mobileAppShell'),
+      mobileShellMain: document.getElementById('mobileShellMain'),
+      mobileStatusLine: document.getElementById('mobileStatusLine'),
+      mobileOperatorButton: document.getElementById('mobileOperatorButton'),
+      mobileCardCreateButton: document.getElementById('mobileCardCreateButton'),
+      mobileBoardRefreshButton: document.getElementById('mobileBoardRefreshButton'),
+      mobileBoardColumns: document.getElementById('mobileBoardColumns'),
+      mobileCardDetail: document.getElementById('mobileCardDetail'),
+      mobileCardTabs: document.getElementById('mobileCardTabs'),
+      mobileCardBackButton: document.getElementById('mobileCardBackButton'),
+      mobileCardSaveButton: document.getElementById('mobileCardSaveButton'),
+      mobileCardTitleLine: document.getElementById('mobileCardTitleLine'),
+      mobileCardTitleInput: document.getElementById('mobileCardTitleInput'),
+      mobileCardColumnSelect: document.getElementById('mobileCardColumnSelect'),
+      mobileCardDeadlineDays: document.getElementById('mobileCardDeadlineDays'),
+      mobileCardDeadlineHours: document.getElementById('mobileCardDeadlineHours'),
+      mobileCardDeadlinePreview: document.getElementById('mobileCardDeadlinePreview'),
+      mobileCardTags: document.getElementById('mobileCardTags'),
+      mobileCardTagsLimit: document.getElementById('mobileCardTagsLimit'),
+      mobileCardTagInput: document.getElementById('mobileCardTagInput'),
+      mobileCardTagColor: document.getElementById('mobileCardTagColor'),
+      mobileCardTagAddButton: document.getElementById('mobileCardTagAddButton'),
+      mobileCardVehicleProfile: document.getElementById('mobileCardVehicleProfile'),
+      mobileCardFiles: document.getElementById('mobileCardFiles'),
+      mobileCardFileInput: document.getElementById('mobileCardFileInput'),
+      mobileCardFileAddButton: document.getElementById('mobileCardFileAddButton'),
+      mobileCardFileMeta: document.getElementById('mobileCardFileMeta'),
+      mobileCardJournal: document.getElementById('mobileCardJournal'),
+      mobileCardJournalMeta: document.getElementById('mobileCardJournalMeta'),
+      mobileCardJournalRefreshButton: document.getElementById('mobileCardJournalRefreshButton'),
+      mobileCardRepairOrderButton: document.getElementById('mobileCardRepairOrderButton'),
+      mobileCashboxRefreshButton: document.getElementById('mobileCashboxRefreshButton'),
+      mobileCashboxList: document.getElementById('mobileCashboxList'),
+      mobileCashboxDetail: document.getElementById('mobileCashboxDetail'),
+      mobileCashboxIncomeButton: document.getElementById('mobileCashboxIncomeButton'),
+      mobileCashboxExpenseButton: document.getElementById('mobileCashboxExpenseButton'),
+      mobileCashboxTransferButton: document.getElementById('mobileCashboxTransferButton'),
+      mobileCashboxActionPanel: document.getElementById('mobileCashboxActionPanel'),
+      mobileCashboxActionTitle: document.getElementById('mobileCashboxActionTitle'),
+      mobileCashboxAmountInput: document.getElementById('mobileCashboxAmountInput'),
+      mobileCashboxTargetField: document.getElementById('mobileCashboxTargetField'),
+      mobileCashboxTargetSelect: document.getElementById('mobileCashboxTargetSelect'),
+      mobileCashboxNoteInput: document.getElementById('mobileCashboxNoteInput'),
+      mobileCashboxSubmitButton: document.getElementById('mobileCashboxSubmitButton'),
+      mobileCashboxActionCancelButton: document.getElementById('mobileCashboxActionCancelButton'),
+      mobileRepairOrdersRefreshButton: document.getElementById('mobileRepairOrdersRefreshButton'),
+      mobileRepairOrdersList: document.getElementById('mobileRepairOrdersList'),
+      mobileRepairOrderDetail: document.getElementById('mobileRepairOrderDetail'),
+      mobileRepairOrderTabs: document.getElementById('mobileRepairOrderTabs'),
+      mobileRepairOrderBackButton: document.getElementById('mobileRepairOrderBackButton'),
+      mobileRepairOrderSaveButton: document.getElementById('mobileRepairOrderSaveButton'),
+      mobileRepairOrderNumber: document.getElementById('mobileRepairOrderNumber'),
+      mobileRepairOrderStatus: document.getElementById('mobileRepairOrderStatus'),
+      mobileRepairOrderStatusSelect: document.getElementById('mobileRepairOrderStatusSelect'),
+      mobileRepairOrderWorks: document.getElementById('mobileRepairOrderWorks'),
+      mobileRepairOrderMaterials: document.getElementById('mobileRepairOrderMaterials'),
+      mobileRepairOrderPayments: document.getElementById('mobileRepairOrderPayments'),
+      mobileRepairOrderPaymentCashbox: document.getElementById('mobileRepairOrderPaymentCashbox'),
+      mobileRepairOrderPaymentAmount: document.getElementById('mobileRepairOrderPaymentAmount'),
+      mobileRepairOrderPaymentNote: document.getElementById('mobileRepairOrderPaymentNote'),
+      mobileRepairOrderAddPaymentButton: document.getElementById('mobileRepairOrderAddPaymentButton'),
+      mobileRepairOrderTotals: document.getElementById('mobileRepairOrderTotals'),
+      mobileMoreRefreshButton: document.getElementById('mobileMoreRefreshButton'),
+      mobileMoreGrid: document.getElementById('mobileMoreGrid'),
+      mobileClientsPanel: document.getElementById('mobileClientsPanel'),
+      mobileClientsBackButton: document.getElementById('mobileClientsBackButton'),
+      mobileClientsSearchInput: document.getElementById('mobileClientsSearchInput'),
+      mobileClientsMeta: document.getElementById('mobileClientsMeta'),
+      mobileClientsList: document.getElementById('mobileClientsList'),
+      mobileClientDetail: document.getElementById('mobileClientDetail'),
+      mobileEmployeesPanel: document.getElementById('mobileEmployeesPanel'),
+      mobileEmployeesBackButton: document.getElementById('mobileEmployeesBackButton'),
+      mobileEmployeesMeta: document.getElementById('mobileEmployeesMeta'),
+      mobileEmployeesList: document.getElementById('mobileEmployeesList'),
+      mobileEmployeeDetail: document.getElementById('mobileEmployeeDetail'),
+      mobileArchivePanel: document.getElementById('mobileArchivePanel'),
+      mobileArchiveBackButton: document.getElementById('mobileArchiveBackButton'),
+      mobileArchiveSearchInput: document.getElementById('mobileArchiveSearchInput'),
+      mobileArchiveMeta: document.getElementById('mobileArchiveMeta'),
+      mobileArchiveList: document.getElementById('mobileArchiveList'),
+      mobileSharedFilesPanel: document.getElementById('mobileSharedFilesPanel'),
+      mobileSharedFilesBackButton: document.getElementById('mobileSharedFilesBackButton'),
+      mobileSharedFilesUploadButton: document.getElementById('mobileSharedFilesUploadButton'),
+      mobileSharedFilesInput: document.getElementById('mobileSharedFilesInput'),
+      mobileSharedFilesMeta: document.getElementById('mobileSharedFilesMeta'),
+      mobileSharedFilesList: document.getElementById('mobileSharedFilesList'),
       boardSettingsButton: document.getElementById('boardSettingsButton'),
       topbarStatusHost: document.getElementById('topbarStatusHost'),
       stickyDockButton: document.getElementById('stickyDockButton'),
@@ -2928,10 +3053,12 @@
     function updateOperatorButton() {
       if (!state.actor) {
         els.operatorButton.textContent = 'ОПЕРАТОР';
+        renderMobileStatus();
         return;
       }
       const rolePrefix = state.operatorProfile?.user?.is_admin ? 'АДМИН' : 'ОПЕРАТОР';
       els.operatorButton.textContent = rolePrefix + ': ' + state.actor;
+      renderMobileStatus();
     }
 
     function clearOperatorSession({ openLogin = false, preserveStatus = false } = {}) {
@@ -8229,10 +8356,2427 @@
       els.statusLine.textContent = text;
       els.statusLine.dataset.connection = nextConnectionState;
       els.statusLine.dataset.tone = isError ? 'error' : 'normal';
+      renderMobileStatus();
     }
 
     function showConnectionPendingStatus() {
       setStatus('СОЕДИНЕНИЕ С ДОСКОЙ...', false, 'pending');
+    }
+
+    function normalizeMobileView(view) {
+      const normalized = String(view || '').trim();
+      return MOBILE_VIEW_ORDER.includes(normalized) ? normalized : MOBILE_VIEW_ORDER[0];
+    }
+
+    function mobileViewIndex(view) {
+      const index = MOBILE_VIEW_ORDER.indexOf(normalizeMobileView(view));
+      return index >= 0 ? index : 0;
+    }
+
+    function shiftMobileView(direction) {
+      const delta = Number(direction || 0);
+      if (!delta) return;
+      const currentIndex = mobileViewIndex(state.mobileView);
+      const nextIndex = Math.max(0, Math.min(MOBILE_VIEW_ORDER.length - 1, currentIndex + (delta > 0 ? 1 : -1)));
+      if (nextIndex === currentIndex) return;
+      setMobileView(MOBILE_VIEW_ORDER[nextIndex]);
+    }
+
+    function mobileSwipeIgnoredTarget(target) {
+      if (!(target instanceof HTMLElement)) return true;
+      return Boolean(target.closest('input, textarea, select, button, a, [contenteditable="true"], .mobile-column-strip'));
+    }
+
+    function handleMobileShellTouchStart(event) {
+      if (!state.mobileLite || !event?.touches || event.touches.length !== 1) return;
+      if (mobileSwipeIgnoredTarget(event.target)) return;
+      const touch = event.touches[0];
+      state.mobileSwipe.active = true;
+      state.mobileSwipe.startX = Number(touch.clientX || 0);
+      state.mobileSwipe.startY = Number(touch.clientY || 0);
+    }
+
+    function handleMobileShellTouchEnd(event) {
+      if (!state.mobileSwipe.active) return;
+      state.mobileSwipe.active = false;
+      const touch = event?.changedTouches?.[0];
+      if (!touch) return;
+      const deltaX = Number(touch.clientX || 0) - Number(state.mobileSwipe.startX || 0);
+      const deltaY = Number(touch.clientY || 0) - Number(state.mobileSwipe.startY || 0);
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+      if (absX < 72 || absX < absY * 1.2) return;
+      shiftMobileView(deltaX < 0 ? 1 : -1);
+    }
+
+    function renderMobileStatus() {
+      if (!els.mobileStatusLine) return;
+      const statusText = String(els.statusLine?.textContent || '').trim();
+      const actorText = String(state.actor || '').trim();
+      els.mobileStatusLine.textContent = statusText || (actorText ? 'ОПЕРАТОР: ' + actorText : 'СОЕДИНЕНИЕ...');
+      if (els.mobileOperatorButton) {
+        els.mobileOperatorButton.textContent = actorText || 'ОПЕРАТОР';
+      }
+    }
+
+    function mobileCardTitle(card) {
+      return String(card?.vehicle || card?.title || card?.heading || 'Карточка без названия').trim();
+    }
+
+    function emptyMobileCardDraft() {
+      const columnId = String(state.snapshot?.columns?.[0]?.id || '').trim();
+      return {
+        id: '',
+        vehicle: '',
+        title: '',
+        description: '',
+        column: columnId,
+        tags: [],
+        tag_items: [],
+        attachments: [],
+        deadline: { days: 1, hours: 0, minutes: 0, seconds: 0 },
+        remaining_seconds: 86400,
+        deadline_total_seconds: 86400,
+        vehicle_profile: emptyVehicleProfile(),
+      };
+    }
+
+    function currentMobileCard() {
+      if (state.mobileCardCreating) return state.mobileCard || emptyMobileCardDraft();
+      const cardId = String(state.mobileCardId || '').trim();
+      if (!cardId) return null;
+      if (state.mobileCard?.id === cardId) return state.mobileCard;
+      return snapshotCardById(cardId) || state.mobileCard || null;
+    }
+
+    function mobileCardColumnOptionsHtml(selectedColumnId) {
+      const columns = Array.isArray(state.snapshot?.columns) ? state.snapshot.columns : [];
+      if (!columns.length) return '<option value="">НЕТ КОЛОНОК</option>';
+      const normalizedSelectedColumnId = String(selectedColumnId || '').trim();
+      return columns.map((column) => {
+        const columnId = String(column?.id || '').trim();
+        const selected = columnId === normalizedSelectedColumnId ? ' selected' : '';
+        return '<option value="' + escapeHtml(columnId) + '"' + selected + '>' + escapeHtml(column?.label || column?.title || 'Колонка') + '</option>';
+      }).join('');
+    }
+
+    function normalizeMobileCardTab(tab) {
+      const normalized = String(tab || '').trim();
+      return MOBILE_CARD_TABS.includes(normalized) ? normalized : 'overview';
+    }
+
+    function renderMobileCardTabs() {
+      const activeTab = normalizeMobileCardTab(state.mobileCardTab);
+      state.mobileCardTab = activeTab;
+      els.mobileCardTabs?.querySelectorAll('[data-mobile-card-tab]').forEach((button) => {
+        const selected = button.getAttribute('data-mobile-card-tab') === activeTab;
+        button.classList.toggle('is-active', selected);
+        button.setAttribute('aria-selected', selected ? 'true' : 'false');
+      });
+      els.mobileCardDetail?.querySelectorAll('[data-mobile-card-page]').forEach((page) => {
+        page.classList.toggle('is-active', page.getAttribute('data-mobile-card-page') === activeTab);
+      });
+    }
+
+    function setMobileCardTab(tab) {
+      state.mobileCardTab = normalizeMobileCardTab(tab);
+      renderMobileCardTabs();
+      if (state.mobileCardTab === 'journal' && state.mobileCardId) {
+        loadMobileCardJournal();
+      }
+    }
+
+    function handleMobileCardTabsClick(event) {
+      const button = event.target instanceof HTMLElement ? event.target.closest('[data-mobile-card-tab]') : null;
+      if (!button || !els.mobileCardTabs?.contains(button)) return;
+      event.preventDefault();
+      setMobileCardTab(button.getAttribute('data-mobile-card-tab'));
+    }
+
+    function renderMobileCardDetail() {
+      if (!els.mobileCardDetail) return;
+      const detailOpen = state.mobileCardCreating || Boolean(state.mobileCardId);
+      els.mobileCardDetail.hidden = !detailOpen;
+      if (els.mobileBoardColumns) els.mobileBoardColumns.hidden = detailOpen;
+      if (!detailOpen) return;
+      renderMobileCardTabs();
+      const card = currentMobileCard() || {};
+      const titleText = mobileCardTitle(card);
+      if (els.mobileCardTitleLine) {
+        els.mobileCardTitleLine.textContent = state.mobileCardLoading
+          ? 'ЗАГРУЗКА...'
+          : (state.mobileCardCreating && !String(card.vehicle || card.title || '').trim() ? 'НОВАЯ КАРТОЧКА' : titleText);
+      }
+      els.mobileCardDetail.querySelectorAll('[data-mobile-card-field]').forEach((field) => {
+        const fieldName = field.getAttribute('data-mobile-card-field');
+        if (fieldName === 'column') return;
+        field.value = String(card?.[fieldName] || '');
+      });
+      const selectedColumnId = String(card?.column || state.snapshot?.columns?.[0]?.id || '').trim();
+      if (els.mobileCardColumnSelect) {
+        els.mobileCardColumnSelect.innerHTML = mobileCardColumnOptionsHtml(selectedColumnId);
+        els.mobileCardColumnSelect.value = selectedColumnId;
+      }
+      renderMobileCardDeadline(card);
+      renderMobileCardTags(card);
+      renderMobileCardVehicleProfile(card);
+      renderMobileCardFiles(card);
+      renderMobileCardJournal();
+      if (els.mobileCardSaveButton) {
+        els.mobileCardSaveButton.disabled = state.mobileCardSaving || state.mobileCardLoading;
+        els.mobileCardSaveButton.textContent = state.mobileCardSaving || state.mobileCardLoading ? '...' : 'СОХР.';
+      }
+    }
+
+    function mobileCardDeadlineInput(card) {
+      const directDeadline = card?.deadline && typeof card.deadline === 'object' ? card.deadline : null;
+      if (directDeadline) {
+        const days = Number(directDeadline.days || 0);
+        const hours = Number(directDeadline.hours || 0);
+        const minutes = Number(directDeadline.minutes || 0);
+        const seconds = Number(directDeadline.seconds || 0);
+        if ((days * 86400) + (hours * 3600) + (minutes * 60) + seconds > 0) {
+          return { days, hours, minutes, seconds };
+        }
+      }
+      const totalSeconds = Number(card.deadline_total_seconds ?? card.remaining_seconds ?? 86400);
+      return secondsToParts(totalSeconds > 0 ? totalSeconds : 86400);
+    }
+
+    function renderMobileCardDeadline(card) {
+      const parts = mobileCardDeadlineInput(card || {});
+      if (els.mobileCardDeadlineDays) els.mobileCardDeadlineDays.value = String(clampSignalPart('days', parts.days));
+      if (els.mobileCardDeadlineHours) els.mobileCardDeadlineHours.value = String(clampSignalPart('hours', parts.hours));
+      syncMobileCardDeadlinePreview();
+    }
+
+    function mobileCardDeadlineFromUi(card) {
+      const fallback = mobileCardDeadlineInput(card || {});
+      const fallbackTotal = (fallback.days * 86400) + (fallback.hours * 3600) + (fallback.minutes * 60) + fallback.seconds;
+      const days = clampSignalPart('days', Number(els.mobileCardDeadlineDays?.value || 0));
+      const hours = clampSignalPart('hours', Number(els.mobileCardDeadlineHours?.value || 0));
+      const total = (days * 86400) + (hours * 3600);
+      if (total > 0) return { days, hours, minutes: 0, seconds: 0 };
+      if (fallbackTotal > 0) return fallback;
+      return { days: 0, hours: 1, minutes: 0, seconds: 0 };
+    }
+
+    function syncMobileCardDeadlinePreview() {
+      if (!els.mobileCardDeadlinePreview) return;
+      const draft = mobileCardDeadlineFromUi(currentMobileCard() || {});
+      const total = (draft.days * 86400) + (draft.hours * 3600) + (draft.minutes * 60) + draft.seconds;
+      els.mobileCardDeadlinePreview.innerHTML = durationToMarkup(total, true);
+    }
+
+    function mobileCardTagColorOptionsHtml(selectedColor = 'green') {
+      const normalizedColor = normalizeTagColor(selectedColor);
+      return TAG_COLOR_OPTIONS.map((option) => {
+        const selected = option.value === normalizedColor ? ' selected' : '';
+        return '<option value="' + escapeHtml(option.value) + '"' + selected + '>' + escapeHtml(option.label) + '</option>';
+      }).join('');
+    }
+
+    function renderMobileCardTags(card) {
+      if (!els.mobileCardTags) return;
+      const tags = normalizeDraftTags(card?.tag_items || card?.tags || []);
+      const atLimit = tags.length >= CARD_TAG_LIMIT;
+      els.mobileCardTags.innerHTML = tags.length
+        ? tags.map((tag) => '<button class="mobile-card-tag" type="button" data-tag-color="' + escapeHtml(tag.color) + '" data-mobile-card-remove-tag="' + escapeHtml(tag.label) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + ' ×</button>').join('')
+        : '<div class="tag tag--muted">МЕТОК НЕТ</div>';
+      if (els.mobileCardTagsLimit) {
+        els.mobileCardTagsLimit.textContent = tags.length + ' / ' + CARD_TAG_LIMIT;
+        els.mobileCardTagsLimit.dataset.limitState = atLimit ? 'full' : 'open';
+      }
+      if (els.mobileCardTagColor) {
+        els.mobileCardTagColor.innerHTML = mobileCardTagColorOptionsHtml(els.mobileCardTagColor.value || state.draftTagColor || 'green');
+      }
+      if (els.mobileCardTagInput) {
+        els.mobileCardTagInput.disabled = atLimit;
+        els.mobileCardTagInput.placeholder = atLimit ? 'ЛИМИТ 3 / 3' : 'Метка';
+      }
+      if (els.mobileCardTagAddButton) els.mobileCardTagAddButton.disabled = atLimit;
+    }
+
+    function readMobileCardTags() {
+      if (!els.mobileCardTags) return normalizeDraftTags(currentMobileCard()?.tag_items || currentMobileCard()?.tags || []);
+      const tags = Array.from(els.mobileCardTags.querySelectorAll('[data-mobile-card-remove-tag]')).map((button) => ({
+        label: button.getAttribute('data-mobile-card-remove-tag') || '',
+        color: button.getAttribute('data-tag-color') || 'green',
+      }));
+      return normalizeDraftTags(tags);
+    }
+
+    function addMobileCardTag() {
+      const tag = normalizeDraftTag({
+        label: els.mobileCardTagInput?.value || '',
+        color: els.mobileCardTagColor?.value || 'green',
+      }, els.mobileCardTagColor?.value || 'green');
+      if (!tag) return;
+      const tags = readMobileCardTags();
+      const exists = tags.some((item) => item.label === tag.label);
+      if (!exists && tags.length >= CARD_TAG_LIMIT) {
+        setStatus('НА КАРТОЧКЕ МОЖЕТ БЫТЬ НЕ БОЛЕЕ 3 МЕТОК.', true);
+        return;
+      }
+      const nextTags = normalizeDraftTags(tags.concat([tag]), tag.color);
+      if (els.mobileCardTagInput) els.mobileCardTagInput.value = '';
+      renderMobileCardTags({ tags: nextTags });
+    }
+
+    function removeMobileCardTag(label) {
+      const normalizedLabel = String(label || '').trim().toUpperCase();
+      if (!normalizedLabel) return;
+      const nextTags = readMobileCardTags().filter((tag) => tag.label !== normalizedLabel);
+      renderMobileCardTags({ tags: nextTags });
+    }
+
+    function mobileVehicleNumberFieldValue(fieldName, value) {
+      if (fieldName === 'production_year') return normalizeVehicleNumber(value, { integer: true });
+      if (fieldName === 'mileage') return normalizeVehicleNumber(value, { integer: true });
+      return value === null || value === undefined ? '' : String(value).trim();
+    }
+
+    function renderMobileCardVehicleProfile(card) {
+      if (!els.mobileCardVehicleProfile) return;
+      const profile = cloneVehicleProfile(card?.vehicle_profile || {});
+      els.mobileCardVehicleProfile.querySelectorAll('[data-mobile-vehicle-field]').forEach((field) => {
+        const fieldName = field.getAttribute('data-mobile-vehicle-field');
+        const value = fieldName === 'customer_phone' ? profile.customer_phone : profile[fieldName];
+        field.value = value === null || value === undefined ? '' : String(value);
+      });
+    }
+
+    function readMobileCardVehicleProfile(card) {
+      const profile = cloneVehicleProfile(card?.vehicle_profile || {});
+      const baseProfile = cloneVehicleProfile(card?.vehicle_profile || {});
+      const manualFields = new Set(profile.manual_fields || []);
+      const autofilledFields = new Set(profile.autofilled_fields || []);
+      const tentativeFields = new Set(profile.tentative_fields || []);
+      const fieldSources = profile.field_sources && typeof profile.field_sources === 'object' ? profile.field_sources : {};
+      els.mobileCardVehicleProfile?.querySelectorAll('[data-mobile-vehicle-field]').forEach((field) => {
+        const fieldName = field.getAttribute('data-mobile-vehicle-field');
+        const rawValue = field.value;
+        const nextValue = mobileVehicleNumberFieldValue(fieldName, rawValue);
+        const previousValue = fieldName === 'customer_phone' ? baseProfile.customer_phone : baseProfile[fieldName];
+        profile[fieldName] = nextValue;
+        if (String(nextValue ?? '') !== String(previousValue ?? '')) {
+          manualFields.add(fieldName);
+          autofilledFields.delete(fieldName);
+          tentativeFields.delete(fieldName);
+          fieldSources[fieldName] = 'mobile_ui';
+        }
+      });
+      profile.customer_phones = normalizePhoneList([profile.customer_phone]);
+      profile.customer_phone = profile.customer_phones[0] || '';
+      const displayName = String(profile.display_name || '').trim();
+      if (displayName) {
+        const displayParts = splitVehicleDisplayName(displayName, profile.production_year);
+        profile.make_display = displayParts.make_display;
+        profile.model_display = displayParts.model_display;
+        if (manualFields.has('display_name')) {
+          manualFields.add('make_display');
+          manualFields.add('model_display');
+          fieldSources.make_display = fieldSources.display_name || 'mobile_ui';
+          fieldSources.model_display = fieldSources.display_name || 'mobile_ui';
+        }
+      }
+      profile.manual_fields = Array.from(manualFields).sort();
+      profile.autofilled_fields = Array.from(autofilledFields).sort();
+      profile.tentative_fields = Array.from(tentativeFields).sort();
+      profile.field_sources = fieldSources;
+      const warnings = Array.isArray(profile.warnings) ? profile.warnings.filter((item) => item !== 'VIN требует ручной проверки.') : [];
+      if (vinLooksSuspicious(profile.vin)) warnings.push('VIN требует ручной проверки.');
+      profile.warnings = warnings;
+      return cloneVehicleProfile(profile);
+    }
+
+    function mobileCardAttachmentDownloadPath(cardId, attachmentId) {
+      return attachmentDownloadPath(cardId, attachmentId);
+    }
+
+    function mobileCardAttachmentRows(card) {
+      const cardId = String(card?.id || state.mobileCardId || '').trim();
+      if (!cardId) {
+        return '<div class="mobile-empty">СНАЧАЛА СОХРАНИТЕ КАРТОЧКУ.</div>';
+      }
+      if (state.mobileCardLoading) {
+        return '<div class="mobile-empty">ФАЙЛЫ ЗАГРУЖАЮТСЯ...</div>';
+      }
+      const attachments = Array.isArray(card?.attachments) ? card.attachments.filter((item) => !item?.removed) : [];
+      if (!attachments.length) {
+        return '<div class="mobile-empty">ФАЙЛОВ НЕТ.</div>';
+      }
+      return attachments.map((item) => {
+        const attachmentId = String(item?.id || '').trim();
+        const fileName = String(item?.file_name || item?.name || 'Вложение').trim() || 'Вложение';
+        const existsOnDisk = attachmentExistsOnDisk(item);
+        const metaParts = [];
+        if (item?.created_at) metaParts.push(formatDate(item.created_at));
+        if (item?.size_bytes !== undefined) metaParts.push(formatBytes(item.size_bytes || 0));
+        const metaText = metaParts.join(' · ') || 'ФАЙЛ КАРТОЧКИ';
+        const removeDisabledAttr = state.mobileCardFilesBusy ? ' disabled' : '';
+        const downloadUrl = withAccessToken(mobileCardAttachmentDownloadPath(cardId, attachmentId));
+        const downloadControl = existsOnDisk
+          ? '<a class="mobile-action mobile-action--ghost" href="' + escapeHtml(downloadUrl) + '" data-mobile-card-file-id="' + escapeHtml(attachmentId) + '">СКАЧАТЬ</a>'
+          : '<button class="mobile-action mobile-action--ghost" type="button" disabled>СКАЧАТЬ</button>';
+        const missingNote = existsOnDisk
+          ? ''
+          : '<div class="mobile-card-file-row__missing">Файл отсутствует на диске сервера.</div>';
+        return '<div class="mobile-card-file-row' + (existsOnDisk ? '' : ' is-missing') + '" data-mobile-card-file-id="' + escapeHtml(attachmentId) + '">'
+          + '<div class="mobile-card-file-row__top"><strong>' + escapeHtml(fileName) + '</strong><span>' + escapeHtml(metaText) + '</span></div>'
+          + missingNote
+          + '<div class="mobile-card-file-row__actions">'
+            + downloadControl
+            + '<button class="mobile-action mobile-action--expense" type="button" data-mobile-card-remove-file="' + escapeHtml(attachmentId) + '"' + removeDisabledAttr + '>УДАЛИТЬ</button>'
+          + '</div>'
+        + '</div>';
+      }).join('');
+    }
+
+    function renderMobileCardFiles(card) {
+      if (!els.mobileCardFiles) return;
+      const attachments = Array.isArray(card?.attachments) ? card.attachments.filter((item) => !item?.removed) : [];
+      const canUpload = Boolean(card?.id) && !state.mobileCardLoading && !state.mobileCardFilesBusy;
+      els.mobileCardFiles.innerHTML = mobileCardAttachmentRows(card || {});
+      if (els.mobileCardFileMeta) {
+        els.mobileCardFileMeta.textContent = state.mobileCardFilesBusy
+          ? '...'
+          : String(attachments.length);
+      }
+      if (els.mobileCardFileInput) {
+        els.mobileCardFileInput.disabled = !canUpload;
+      }
+      if (els.mobileCardFileAddButton) {
+        els.mobileCardFileAddButton.disabled = !canUpload;
+        els.mobileCardFileAddButton.textContent = state.mobileCardFilesBusy ? 'ЗАГРУЗКА...' : 'ДОБАВИТЬ ФАЙЛ';
+      }
+    }
+
+    function applyMobileCardFromFullCard(card, fallbackCardId = '') {
+      const cardId = String(card?.id || fallbackCardId || state.mobileCardId || '').trim();
+      if (!cardId || !card) return null;
+      state.mobileCard = card;
+      state.mobileCardId = cardId;
+      state.activeCard = card;
+      state.activeCardIsFull = true;
+      state.editingId = cardId;
+      state.pendingCardClientId = card?.client_id || '';
+      cacheFullCard(card);
+      applySavedCardLocalPatch(card);
+      refreshRepairOrderEntry(card);
+      return card;
+    }
+
+    async function refreshMobileCardFiles() {
+      const cardId = String(state.mobileCardId || '').trim();
+      if (!cardId) return null;
+      state.fullCardCache.delete(cardId);
+      const data = await api('/api/get_card?card_id=' + encodeURIComponent(cardId));
+      const card = data?.card || currentMobileCard();
+      const updatedCard = applyMobileCardFromFullCard(card, cardId);
+      renderMobileCardFiles(updatedCard || currentMobileCard() || {});
+      return updatedCard;
+    }
+
+    function openMobileCardFilePicker() {
+      const cardId = String(state.mobileCardId || '').trim();
+      if (!cardId) return setStatus('СНАЧАЛА СОХРАНИТЕ КАРТОЧКУ.', true);
+      if (state.mobileCardLoading) return setStatus('ДОЖДИТЕСЬ ЗАГРУЗКИ КАРТОЧКИ.', true);
+      if (state.mobileCardFilesBusy) return;
+      els.mobileCardFileInput?.click();
+    }
+
+    async function uploadMobileCardFiles() {
+      const cardId = String(state.mobileCardId || '').trim();
+      const selectedFiles = Array.from(els.mobileCardFileInput?.files || []).filter(Boolean);
+      if (!selectedFiles.length) return;
+      if (!cardId) {
+        if (els.mobileCardFileInput) els.mobileCardFileInput.value = '';
+        return setStatus('СНАЧАЛА СОХРАНИТЕ КАРТОЧКУ.', true);
+      }
+      state.mobileCardFilesBusy = true;
+      renderMobileCardFiles(currentMobileCard() || {});
+      try {
+        const normalizedFiles = selectedFiles.map((file) => normalizeUploadableAttachmentFile(file));
+        for (const file of normalizedFiles) {
+          const buffer = await file.arrayBuffer();
+          const base64 = arrayBufferToBase64(buffer);
+          await api('/api/add_card_attachment', {
+            method: 'POST',
+            body: {
+              card_id: cardId,
+              actor_name: state.actor,
+              source: 'mobile-ui',
+              file_name: file.name,
+              mime_type: normalizeAttachmentMimeType(file.type) || attachmentMimeTypeFromExtension(attachmentExtension(file.name)) || 'application/octet-stream',
+              content_base64: base64,
+            },
+          });
+        }
+        await refreshMobileCardFiles();
+        await refreshSnapshot(true);
+        setStatus(normalizedFiles.length > 1 ? 'ФАЙЛЫ ЗАГРУЖЕНЫ.' : 'ФАЙЛ ЗАГРУЖЕН.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        state.mobileCardFilesBusy = false;
+        if (els.mobileCardFileInput) els.mobileCardFileInput.value = '';
+        renderMobileCardFiles(currentMobileCard() || {});
+      }
+    }
+
+    async function removeMobileCardFile(attachmentId) {
+      const cardId = String(state.mobileCardId || '').trim();
+      const normalizedAttachmentId = String(attachmentId || '').trim();
+      if (!cardId || !normalizedAttachmentId || state.mobileCardFilesBusy) return;
+      state.mobileCardFilesBusy = true;
+      renderMobileCardFiles(currentMobileCard() || {});
+      try {
+        await api('/api/remove_card_attachment', {
+          method: 'POST',
+          body: { card_id: cardId, attachment_id: normalizedAttachmentId, actor_name: state.actor, source: 'mobile-ui' },
+        });
+        await refreshMobileCardFiles();
+        await refreshSnapshot(true);
+        setStatus('ФАЙЛ УДАЛЁН.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        state.mobileCardFilesBusy = false;
+        renderMobileCardFiles(currentMobileCard() || {});
+      }
+    }
+
+    function resetMobileCardJournal() {
+      state.mobileCardJournalPayload = null;
+      state.mobileCardJournalLoadedFor = '';
+      state.mobileCardJournalLimit = CARD_JOURNAL_INITIAL_LIMIT;
+      state.mobileCardJournalLoading = false;
+    }
+
+    function mobileCardJournalLoadKey(cardId, limit = state.mobileCardJournalLimit) {
+      return String(cardId || '').trim() + ':' + Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(limit || CARD_JOURNAL_INITIAL_LIMIT)));
+    }
+
+    function mobileCardJournalRequestUrl(cardId, limit = state.mobileCardJournalLimit) {
+      const safeLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(limit || CARD_JOURNAL_INITIAL_LIMIT)));
+      return '/api/get_card_log?card_id=' + encodeURIComponent(cardId) + '&compact=1&limit=' + safeLimit;
+    }
+
+    function mobileCardJournalEntryHtml(entry) {
+      const details = renderCardJournalDetails(entry);
+      const detailHtml = details.inlineHtml || details.blockHtml
+        ? '<div class="mobile-card-journal-row__details">' + details.inlineHtml + details.blockHtml + '</div>'
+        : '';
+      const sourceLabel = String(entry?.source_label || '').trim();
+      const actorParts = [
+        cardJournalActorName(entry),
+        sourceLabel,
+      ].filter(Boolean);
+      return '<article class="mobile-card-journal-row' + (entry?.has_deletion ? ' mobile-card-journal-row--deletion' : '') + '" data-mobile-card-journal-row="' + escapeHtml(entry?.id || entry?.event_id || entry?.timestamp || '') + '">'
+        + '<div class="mobile-card-journal-row__top">'
+          + '<span class="mobile-card-journal-row__time">' + escapeHtml(entry?.time_short || formatJournalTime(entry?.business_timestamp || entry?.timestamp) || '—') + '</span>'
+          + '<div class="mobile-card-journal-row__action">' + escapeHtml(cardJournalActionLabel(entry)) + '</div>'
+        + '</div>'
+        + '<div class="mobile-card-journal-row__actor">' + escapeHtml(actorParts.join(' · ') || 'СИСТЕМА') + '</div>'
+        + detailHtml
+      + '</article>';
+    }
+
+    function mobileCardJournalRows(payload) {
+      const data = payload || {};
+      const entries = cardJournalEntriesFromPayload(data);
+      const payloadDays = Array.isArray(data.days) ? data.days : [];
+      const days = payloadDays.some((day) => Array.isArray(day?.entries) && day.entries.length)
+        ? payloadDays
+        : buildCardJournalDays(entries);
+      if (!entries.length && !days.length) return '<div class="mobile-empty">ЖУРНАЛ ПУСТ.</div>';
+      return days.map((day) => {
+        const dayEntries = Array.isArray(day?.entries) ? day.entries : [];
+        return '<section class="mobile-card-journal-day" data-mobile-card-journal-day="' + escapeHtml(day?.key || '') + '">'
+          + '<div class="mobile-card-journal-day__label">' + escapeHtml(day?.label || day?.key || 'без даты') + '</div>'
+          + dayEntries.map(mobileCardJournalEntryHtml).join('')
+        + '</section>';
+      }).join('');
+    }
+
+    function mobileCardJournalMetaText(payload) {
+      if (state.mobileCardJournalLoading) return '...';
+      const data = payload || {};
+      const entries = cardJournalEntriesFromPayload(data);
+      const meta = data.meta || {};
+      const totals = data.totals || {};
+      const returned = Number(totals.count ?? meta.events_returned ?? entries.length ?? 0);
+      const total = Number(meta.events_total ?? returned);
+      return returned === total ? String(total) : (returned + '/' + total);
+    }
+
+    function renderMobileCardJournal() {
+      if (!els.mobileCardJournal) return;
+      const payload = state.mobileCardJournalPayload || { entries: [], meta: {} };
+      const meta = payload.meta || {};
+      const entries = cardJournalEntriesFromPayload(payload);
+      const total = Number(meta.events_total ?? entries.length ?? 0);
+      const currentLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(meta.limit || state.mobileCardJournalLimit || CARD_JOURNAL_INITIAL_LIMIT)));
+      const nextLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, total || CARD_JOURNAL_MAX_LIMIT, currentLimit + CARD_JOURNAL_LIMIT_STEP);
+      const hasMore = Boolean(meta.has_more) && nextLimit > currentLimit;
+      els.mobileCardJournal.innerHTML = state.mobileCardJournalLoading
+        ? '<div class="mobile-empty">ЖУРНАЛ ЗАГРУЖАЕТСЯ...</div>'
+        : (mobileCardJournalRows(payload)
+          + (hasMore ? '<button class="mobile-action mobile-action--ghost mobile-card-journal__more" type="button" data-mobile-card-journal-more="' + nextLimit + '">ПОКАЗАТЬ ЕЩЁ</button>' : ''));
+      if (els.mobileCardJournalMeta) {
+        els.mobileCardJournalMeta.textContent = mobileCardJournalMetaText(payload);
+      }
+      if (els.mobileCardJournalRefreshButton) {
+        els.mobileCardJournalRefreshButton.disabled = state.mobileCardJournalLoading || !state.mobileCardId;
+      }
+    }
+
+    async function loadMobileCardJournal({ force = false, limit = state.mobileCardJournalLimit } = {}) {
+      const cardId = String(state.mobileCardId || '').trim();
+      if (!cardId) {
+        renderMobileCardJournal();
+        return null;
+      }
+      const normalizedLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(limit || CARD_JOURNAL_INITIAL_LIMIT)));
+      const loadKey = mobileCardJournalLoadKey(cardId, normalizedLimit);
+      if (!force && state.mobileCardJournalLoadedFor === loadKey) return state.mobileCardJournalPayload;
+      state.mobileCardJournalLimit = normalizedLimit;
+      state.mobileCardJournalLoading = true;
+      renderMobileCardJournal();
+      try {
+        const data = await api(mobileCardJournalRequestUrl(cardId, normalizedLimit));
+        if (String(state.mobileCardId || '').trim() !== cardId) return data;
+        state.mobileCardJournalPayload = data || { entries: [], meta: {} };
+        state.mobileCardJournalLoadedFor = loadKey;
+        return state.mobileCardJournalPayload;
+      } catch (error) {
+        if (state.mobileCardJournalLoadedFor === loadKey) state.mobileCardJournalLoadedFor = '';
+        state.mobileCardJournalPayload = {
+          entries: [{
+            action_label: 'Ошибка журнала',
+            actor_name: 'СИСТЕМА',
+            timestamp: new Date().toISOString(),
+            source_label: 'mobile',
+            journal_blocks: [{ title: 'Ошибка', text: error.message }],
+          }],
+          meta: { events_total: 1, events_returned: 1, card_heading: 'Журнал карточки' },
+        };
+        setStatus(error.message, true);
+        return state.mobileCardJournalPayload;
+      } finally {
+        state.mobileCardJournalLoading = false;
+        renderMobileCardJournal();
+      }
+    }
+
+    function readMobileCardDraft() {
+      const card = currentMobileCard() || {};
+      const values = {};
+      els.mobileCardDetail?.querySelectorAll('[data-mobile-card-field]').forEach((field) => {
+        values[field.getAttribute('data-mobile-card-field')] = field.value;
+      });
+      return {
+        actor_name: state.actor,
+        source: 'mobile-ui',
+        expected_updated_at: String(card.updated_at || ''),
+        vehicle: String(values.vehicle ?? card.vehicle ?? '').trim(),
+        title: String(values.title ?? card.title ?? '').trim(),
+        description: String(values.description ?? card.description ?? '').trim(),
+        column: String(values.column || card.column || state.snapshot?.columns?.[0]?.id || '').trim(),
+        tags: readMobileCardTags(),
+        deadline: mobileCardDeadlineFromUi(card),
+        vehicle_profile: readMobileCardVehicleProfile(card),
+      };
+    }
+
+    function closeMobileCardDetail() {
+      state.mobileCardId = '';
+      state.mobileCard = null;
+      state.mobileCardTab = 'overview';
+      state.mobileCardCreating = false;
+      state.mobileCardLoading = false;
+      state.mobileCardSaving = false;
+      state.mobileCardFilesBusy = false;
+      resetMobileCardJournal();
+      renderMobileShell();
+    }
+
+    function openMobileNewCard() {
+      state.mobileCardId = '';
+      state.mobileCard = emptyMobileCardDraft();
+      state.mobileCardTab = 'overview';
+      state.mobileCardCreating = true;
+      state.mobileCardLoading = false;
+      state.mobileCardSaving = false;
+      state.mobileCardFilesBusy = false;
+      state.activeCard = null;
+      state.activeCardIsFull = false;
+      state.editingId = '';
+      state.pendingCardClientId = '';
+      resetMobileCardJournal();
+      renderMobileShell();
+      requestAnimationFrame(() => els.mobileCardTitleInput?.focus({ preventScroll: true }));
+      setStatus('НОВАЯ КАРТОЧКА ГОТОВА К ЗАПОЛНЕНИЮ.', false);
+    }
+
+    async function openMobileCardDetail(cardId) {
+      const normalizedCardId = String(cardId || '').trim();
+      if (!normalizedCardId) return;
+      const snapshotCard = snapshotCardById(normalizedCardId);
+      state.mobileCardId = normalizedCardId;
+      state.mobileCard = snapshotCard || null;
+      state.mobileCardTab = 'overview';
+      state.mobileCardCreating = false;
+      state.mobileCardLoading = true;
+      resetMobileCardJournal();
+      renderMobileShell();
+      try {
+        const fullCard = await fetchFullCard(normalizedCardId, snapshotCard?.updated_at || '');
+        state.mobileCard = fullCard || snapshotCard || state.mobileCard;
+        state.mobileCardId = state.mobileCard?.id || normalizedCardId;
+        state.activeCard = state.mobileCard;
+        state.activeCardIsFull = Boolean(fullCard);
+        state.editingId = state.mobileCardId;
+        state.pendingCardClientId = state.mobileCard?.client_id || '';
+        state.mobileCardLoading = false;
+        if (state.mobileCard) cacheFullCard(state.mobileCard);
+        recordCardOpenSideEffects(state.mobileCardId);
+        renderMobileShell();
+        loadMobileCardJournal({ force: true });
+        setStatus('КАРТОЧКА ЗАГРУЖЕНА.', false);
+      } catch (error) {
+        state.mobileCardLoading = false;
+        renderMobileCardDetail();
+        setStatus(error.message, true);
+      }
+    }
+
+    async function saveMobileCardDetail() {
+      const cardId = String(state.mobileCardId || '').trim();
+      const isNewCard = state.mobileCardCreating;
+      if (state.mobileCardSaving || (!isNewCard && !cardId)) return;
+      if (state.mobileCardLoading) return setStatus('ДОЖДИТЕСЬ ЗАГРУЗКИ КАРТОЧКИ.', true);
+      const payload = readMobileCardDraft();
+      if (!payload.title) return setStatus(MOBILE_CARD_TITLE_REQUIRED_MESSAGE, true);
+      state.mobileCardSaving = true;
+      if (els.mobileCardSaveButton) {
+        els.mobileCardSaveButton.disabled = true;
+        els.mobileCardSaveButton.textContent = '...';
+      }
+      try {
+        const data = isNewCard
+          ? await api('/api/create_card', {
+            method: 'POST',
+            body: {
+              actor_name: payload.actor_name,
+              source: payload.source,
+              vehicle: payload.vehicle,
+              title: payload.title,
+              description: payload.description,
+              column: payload.column,
+              tags: payload.tags,
+              deadline: payload.deadline,
+              vehicle_profile: payload.vehicle_profile,
+            },
+          })
+          : await api('/api/update_card', { method: 'POST', body: { card_id: cardId, ...payload } });
+        const updatedCard = data?.card || { ...currentMobileCard(), ...payload, id: cardId };
+        state.mobileCard = updatedCard;
+        state.mobileCardId = updatedCard?.id || cardId;
+        state.mobileCardCreating = false;
+        state.activeCard = updatedCard;
+        state.activeCardIsFull = true;
+        state.editingId = state.mobileCardId;
+        state.pendingCardClientId = updatedCard?.client_id || '';
+        if (updatedCard) {
+          cacheFullCard(updatedCard);
+          applySavedCardLocalPatch(updatedCard);
+          refreshRepairOrderEntry(updatedCard);
+        }
+        renderMobileCardDetail();
+        setStatus(isNewCard ? 'КАРТОЧКА СОЗДАНА.' : 'КАРТОЧКА СОХРАНЕНА.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        state.mobileCardSaving = false;
+        renderMobileCardDetail();
+      }
+    }
+
+    function handleMobileBoardClick(event) {
+      const target = event.target;
+      const toggleButton = target instanceof HTMLElement ? target.closest('[data-mobile-column-toggle]') : null;
+      if (toggleButton && els.mobileBoardColumns?.contains(toggleButton)) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleMobileColumnExpanded(toggleButton.getAttribute('data-mobile-column-toggle'));
+        return;
+      }
+      const button = target instanceof HTMLElement ? target.closest('[data-mobile-card-id]') : null;
+      const cardId = String(button?.getAttribute('data-mobile-card-id') || '').trim();
+      if (!cardId || !els.mobileBoardColumns?.contains(button)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openMobileCardDetail(cardId);
+    }
+
+    function handleMobileCardDetailInput(event) {
+      const target = event?.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.matches('[data-mobile-card-deadline-field]')) {
+        const fieldName = target.getAttribute('data-mobile-card-deadline-field');
+        if (fieldName === 'days' || fieldName === 'hours') {
+          target.value = String(clampSignalPart(fieldName, Number(target.value || 0)));
+        }
+        syncMobileCardDeadlinePreview();
+        return;
+      }
+      if (target.matches('[data-mobile-card-field]')) {
+        const draft = readMobileCardDraft();
+        if (els.mobileCardTitleLine) els.mobileCardTitleLine.textContent = mobileCardTitle(draft);
+      }
+    }
+
+    function handleMobileCardDetailClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const journalMoreButton = target.closest('[data-mobile-card-journal-more]');
+      if (journalMoreButton && els.mobileCardDetail?.contains(journalMoreButton)) {
+        event.preventDefault();
+        const nextLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(journalMoreButton.getAttribute('data-mobile-card-journal-more') || 0)));
+        if (nextLimit > state.mobileCardJournalLimit) {
+          state.mobileCardJournalLoadedFor = '';
+          loadMobileCardJournal({ force: true, limit: nextLimit });
+        }
+        return;
+      }
+      const removeFileButton = target.closest('[data-mobile-card-remove-file]');
+      if (removeFileButton && els.mobileCardDetail?.contains(removeFileButton)) {
+        event.preventDefault();
+        removeMobileCardFile(removeFileButton.getAttribute('data-mobile-card-remove-file'));
+        return;
+      }
+      const removeButton = target.closest('[data-mobile-card-remove-tag]');
+      if (removeButton && els.mobileCardDetail?.contains(removeButton)) {
+        event.preventDefault();
+        removeMobileCardTag(removeButton.getAttribute('data-mobile-card-remove-tag'));
+      }
+    }
+
+    function handleMobileCardTagInputKeydown(event) {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      addMobileCardTag();
+    }
+
+    function openMobileCardRepairOrder() {
+      const cardId = String(state.mobileCardId || '').trim();
+      if (!cardId) return;
+      setMobileView('repair-orders');
+      openMobileRepairOrderDetail(cardId);
+    }
+
+    function mobileColumnIsExpanded(columnId) {
+      const normalizedColumnId = String(columnId || '').trim();
+      return Boolean(normalizedColumnId && state.mobileExpandedColumns?.has(normalizedColumnId));
+    }
+
+    function toggleMobileColumnExpanded(columnId) {
+      const normalizedColumnId = String(columnId || '').trim();
+      if (!normalizedColumnId) return;
+      if (!(state.mobileExpandedColumns instanceof Set)) state.mobileExpandedColumns = new Set();
+      if (state.mobileExpandedColumns.has(normalizedColumnId)) {
+        state.mobileExpandedColumns.delete(normalizedColumnId);
+      } else {
+        state.mobileExpandedColumns.add(normalizedColumnId);
+      }
+      renderMobileBoard();
+    }
+
+    function renderMobileBoard() {
+      if (!els.mobileBoardColumns) return;
+      renderMobileCardDetail();
+      if (state.mobileCardId) return;
+      const snapshot = state.snapshot || {};
+      const columns = Array.isArray(snapshot.columns) ? snapshot.columns : [];
+      const cards = Array.isArray(snapshot.cards) ? snapshot.cards : [];
+      if (!columns.length) {
+        els.mobileBoardColumns.innerHTML = '<div class="mobile-empty">ДОСКА ЗАГРУЖАЕТСЯ...</div>';
+        return;
+      }
+      els.mobileBoardColumns.innerHTML = columns.map((column) => {
+        const columnId = String(column?.id || '').trim();
+        const columnCards = cards.filter((card) => String(card?.column || '') === columnId);
+        const expanded = mobileColumnIsExpanded(columnId);
+        const previewCards = expanded ? columnCards : columnCards.slice(0, 4);
+        const hiddenCount = Math.max(0, columnCards.length - previewCards.length);
+        const toggleHtml = columnCards.length > 4
+          ? '<button class="mobile-action mobile-action--ghost mobile-column-card__more" type="button" data-mobile-column-toggle="' + escapeHtml(columnId) + '">' + (expanded ? 'СВЕРНУТЬ' : 'ЕЩЁ ' + hiddenCount) + '</button>'
+          : '';
+        const cardsHtml = previewCards.length
+          ? '<div class="mobile-column-card__cards">' + previewCards.map((card) => {
+              const due = String(card?.deadline_label || card?.remaining_label || '').trim();
+              return '<button class="mobile-card-mini" type="button" data-mobile-card-id="' + escapeHtml(card?.id || '') + '"><span>' + escapeHtml(mobileCardTitle(card)) + '</span><strong>' + escapeHtml(due) + '</strong></button>';
+            }).join('') + '</div>' + toggleHtml
+          : '<div class="mobile-card-mini mobile-card-mini--empty"><span>Карточек нет</span></div>';
+        return '<section class="mobile-column-card" data-mobile-column-id="' + escapeHtml(columnId) + '">'
+          + '<div class="mobile-column-card__top">'
+            + '<div class="mobile-column-card__title">' + escapeHtml(column?.label || column?.title || 'Колонка') + '</div>'
+            + '<div class="mobile-column-card__count">' + escapeHtml(String(columnCards.length)) + '</div>'
+          + '</div>'
+          + cardsHtml
+        + '</section>';
+      }).join('');
+    }
+
+    function renderMobileCashboxAction() {
+      if (!els.mobileCashboxActionPanel) return;
+      const action = String(state.mobileCashboxAction || '');
+      const isOpen = ['income', 'expense', 'transfer'].includes(action);
+      els.mobileCashboxActionPanel.hidden = !isOpen;
+      if (!isOpen) return;
+      const titleMap = {
+        income: 'ПРИХОД В КАССУ',
+        expense: 'СПИСАНИЕ ИЗ КАССЫ',
+        transfer: 'ПЕРЕМЕЩЕНИЕ МЕЖДУ КАССАМИ',
+      };
+      if (els.mobileCashboxActionTitle) els.mobileCashboxActionTitle.textContent = titleMap[action] || 'ОПЕРАЦИЯ';
+      const activeId = String(state.activeCashboxId || state.activeCashbox?.cashbox?.id || '').trim();
+      const targets = (Array.isArray(state.cashboxes) ? state.cashboxes : []).filter((item) => String(item?.id || '') !== activeId);
+      const needsTarget = action === 'transfer';
+      if (els.mobileCashboxTargetField) els.mobileCashboxTargetField.hidden = !needsTarget;
+      if (els.mobileCashboxTargetSelect) {
+        els.mobileCashboxTargetSelect.disabled = !needsTarget || !targets.length;
+        els.mobileCashboxTargetSelect.innerHTML = targets.length
+          ? targets.map((item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(String(item.name || 'Касса') + ' · ' + cashboxBalanceDisplay(item)) + '</option>').join('')
+          : '<option value="">НЕТ ДРУГОЙ КАССЫ</option>';
+      }
+      if (els.mobileCashboxSubmitButton) {
+        els.mobileCashboxSubmitButton.textContent = needsTarget ? 'ПЕРЕМЕСТИТЬ' : 'ПРОВЕСТИ';
+      }
+    }
+
+    function renderMobileCashboxes() {
+      if (!els.mobileCashboxList || !els.mobileCashboxDetail) return;
+      const items = Array.isArray(state.cashboxes) ? state.cashboxes : [];
+      if (!items.length && !state.cashboxesLoaded) {
+        els.mobileCashboxList.innerHTML = '<div class="mobile-empty">КАССЫ ЗАГРУЖАЮТСЯ...</div>';
+      } else if (!items.length) {
+        els.mobileCashboxList.innerHTML = '<div class="mobile-empty">КАСС ПОКА НЕТ.</div>';
+      } else {
+        els.mobileCashboxList.innerHTML = items.map((item) => {
+          const balanceMinor = cashboxBalanceMinor(item);
+          const sign = cashboxBalanceSign(balanceMinor);
+          const activeClass = item.id === state.activeCashboxId ? ' is-active' : '';
+          return '<button class="mobile-cashbox-row' + activeClass + '" type="button" data-mobile-cashbox-id="' + escapeHtml(item.id) + '">'
+            + '<div class="mobile-cashbox-row__top">'
+              + '<div class="mobile-cashbox-row__name">' + escapeHtml(item.name || 'Касса') + '</div>'
+              + '<div class="mobile-cashbox-row__balance" data-balance-sign="' + escapeHtml(sign) + '">' + escapeHtml(cashboxBalanceDisplay(item)) + '</div>'
+            + '</div>'
+          + '</button>';
+        }).join('');
+      }
+      const activeCashbox = state.activeCashbox?.cashbox
+        || items.find((item) => item.id === state.activeCashboxId)
+        || items[0]
+        || null;
+      const hasCashbox = Boolean(activeCashbox?.id);
+      if (!hasCashbox) {
+        els.mobileCashboxDetail.innerHTML = '<div class="mobile-empty">ВЫБЕРИТЕ ИЛИ СОЗДАЙТЕ КАССУ.</div>';
+      } else {
+        const stats = state.activeCashbox?.statistics || activeCashbox.statistics || {};
+        const balanceMinor = Number(stats.balance_minor ?? activeCashbox?.statistics?.balance_minor ?? 0);
+        const transactions = filteredCashboxTransactions().slice(0, 5);
+        const transactionHtml = transactions.length
+          ? '<div class="mobile-cashbox-transactions">' + transactions.map((item) => {
+              const direction = item?.direction === 'expense' ? 'expense' : 'income';
+              const note = String(item?.note || '').trim() || 'Без комментария';
+              const amount = cashboxFormatMinorAmount(item?.amount_minor || 0).replace(/^-/, '');
+              return '<div class="mobile-cashbox-transaction">'
+                + '<span>' + escapeHtml(note) + '</span>'
+                + '<strong class="mobile-cashbox-transaction__amount" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(direction === 'expense' ? '-' : '+') + escapeHtml(amount) + '</strong>'
+              + '</div>';
+            }).join('') + '</div>'
+          : '<div class="mobile-empty">ДВИЖЕНИЙ ПОКА НЕТ.</div>';
+        els.mobileCashboxDetail.innerHTML = '<div class="mobile-cashbox-detail__head">'
+            + '<div><div class="mobile-kicker">ВЫБРАНА</div><div class="mobile-cashbox-detail__title">' + escapeHtml(activeCashbox.name || 'Касса') + '</div></div>'
+            + '<div class="mobile-cashbox-detail__balance" data-balance-sign="' + escapeHtml(cashboxBalanceSign(balanceMinor)) + '">' + escapeHtml(stats.balance_display || cashboxFormatMinorAmount(balanceMinor)) + '</div>'
+          + '</div>'
+          + '<div class="mobile-cashbox-detail__stats">'
+            + '<div class="mobile-cashbox-stat"><span>Приход</span><strong>' + escapeHtml(stats.income_total_display || cashboxFormatMinorAmount(stats.income_total_minor || 0)) + '</strong></div>'
+            + '<div class="mobile-cashbox-stat"><span>Списание</span><strong>' + escapeHtml(stats.expense_total_display || cashboxFormatMinorAmount(stats.expense_total_minor || 0)) + '</strong></div>'
+            + '<div class="mobile-cashbox-stat"><span>Операции</span><strong>' + escapeHtml(String(stats.transactions_total ?? transactions.length ?? 0)) + '</strong></div>'
+          + '</div>'
+          + transactionHtml;
+      }
+      [els.mobileCashboxIncomeButton, els.mobileCashboxExpenseButton, els.mobileCashboxTransferButton].forEach((button) => {
+        if (button) button.disabled = !hasCashbox;
+      });
+      if (els.mobileCashboxTransferButton) {
+        els.mobileCashboxTransferButton.disabled = !hasCashbox || items.length < 2;
+      }
+      renderMobileCashboxAction();
+    }
+
+    function renderMobileRepairOrders() {
+      if (!els.mobileRepairOrdersList) return;
+      renderMobileRepairOrderDetail();
+      if (state.mobileRepairOrderCardId) return;
+      const items = filterRepairOrdersItems(state.repairOrdersItems).slice(0, 40);
+      if (!items.length && !state.repairOrdersMetaState) {
+        els.mobileRepairOrdersList.innerHTML = '<div class="mobile-empty">ЗАКАЗ-НАРЯДЫ ЗАГРУЖАЮТСЯ...</div>';
+        return;
+      }
+      if (!items.length) {
+        els.mobileRepairOrdersList.innerHTML = '<div class="mobile-empty">' + repairOrdersEmptyStateText() + '</div>';
+        return;
+      }
+      els.mobileRepairOrdersList.innerHTML = items.map((item) => {
+        const status = normalizeRepairOrderStatus(item.status || state.repairOrdersFilter);
+        const number = String(item.number || '').replace(/\D+/g, '') || '-';
+        const vehicle = String(item.vehicle || '').trim() || 'Автомобиль не указан';
+        const client = String(item.client || '').trim() || 'Клиент не указан';
+        const heading = String(item.summary || item.reason || item.heading || '').trim() || 'Без описания';
+        const total = repairOrderListTotalText(item.grand_total, item.works_total);
+        return '<button class="mobile-repair-order-row" type="button" data-status="' + escapeHtml(status) + '" data-open-repair-order-card="' + escapeHtml(item.card_id || '') + '">'
+          + '<div class="mobile-repair-order-row__top">'
+            + '<div class="mobile-repair-order-row__title">ЗН ' + escapeHtml(number) + ' · ' + escapeHtml(vehicle) + '</div>'
+            + '<div class="mobile-repair-order-row__sum">' + escapeHtml(total) + '</div>'
+          + '</div>'
+          + '<div class="mobile-repair-order-row__meta">'
+            + '<span>' + escapeHtml(client) + '</span>'
+            + '<span>' + escapeHtml(heading) + '</span>'
+          + '</div>'
+        + '</button>';
+      }).join('');
+    }
+
+    function mobileRepairOrderSummaryCard(cardId) {
+      const normalizedCardId = String(cardId || '').trim();
+      const item = (Array.isArray(state.repairOrdersItems) ? state.repairOrdersItems : [])
+        .find((entry) => String(entry?.card_id || entry?.id || '') === normalizedCardId) || {};
+      const snapshotCard = snapshotCardById(normalizedCardId) || {};
+      const repairOrder = normalizeRepairOrder({
+        ...(snapshotCard.repair_order || {}),
+        number: item.number ?? snapshotCard.repair_order?.number ?? '',
+        status: item.status ?? snapshotCard.repair_order?.status ?? state.repairOrdersFilter,
+        client: item.client ?? snapshotCard.repair_order?.client ?? '',
+        phone: item.phone ?? snapshotCard.repair_order?.phone ?? '',
+        vehicle: item.vehicle ?? snapshotCard.repair_order?.vehicle ?? snapshotCard.vehicle ?? '',
+        license_plate: item.license_plate ?? snapshotCard.repair_order?.license_plate ?? '',
+        vin: item.vin ?? snapshotCard.repair_order?.vin ?? '',
+        mileage: item.mileage ?? snapshotCard.repair_order?.mileage ?? '',
+        reason: item.reason ?? item.summary ?? item.heading ?? snapshotCard.title ?? '',
+        comment: item.comment ?? snapshotCard.description ?? '',
+        works: snapshotCard.repair_order?.works || [],
+        materials: snapshotCard.repair_order?.materials || [],
+        payments: snapshotCard.repair_order?.payments || [],
+      });
+      return {
+        ...snapshotCard,
+        id: normalizedCardId,
+        title: snapshotCard.title || item.summary || item.reason || item.heading || repairOrder.reason || 'Заказ-наряд',
+        vehicle: snapshotCard.vehicle || repairOrder.vehicle,
+        repair_order: repairOrder,
+      };
+    }
+
+    function currentMobileRepairOrderDraft() {
+      const card = state.mobileRepairOrderCard || mobileRepairOrderSummaryCard(state.mobileRepairOrderCardId);
+      return repairOrderCardDraft(card, card?.repair_order || {});
+    }
+
+    function mobileRepairOrderRowInputHtml(fieldName, label, value, { inputmode = '', placeholder = '' } = {}) {
+      return '<label class="mobile-field">'
+        + '<span>' + escapeHtml(label) + '</span>'
+        + '<input type="text"'
+          + (inputmode ? ' inputmode="' + escapeHtml(inputmode) + '"' : '')
+          + ' maxlength="220" autocomplete="off"'
+          + ' data-mobile-repair-row-field="' + escapeHtml(fieldName) + '"'
+          + ' placeholder="' + escapeHtml(placeholder) + '"'
+          + ' value="' + escapeHtml(value) + '">'
+      + '</label>';
+    }
+
+    function mobileRepairOrderLineHtml(section, row, index) {
+      const normalized = normalizeRepairOrderRow(row);
+      const isMaterials = section === 'materials';
+      const totalValue = repairOrderResolvedRowTotalValue(normalized);
+      const totalText = repairOrderFormatRubles(totalValue ?? 0);
+      const label = (isMaterials ? 'МАТЕРИАЛ ' : 'РАБОТА ') + String(index + 1);
+      const materialsFields = isMaterials
+        ? '<div class="mobile-repair-order-line__fields mobile-repair-order-line__fields--materials">'
+            + mobileRepairOrderRowInputHtml('catalog_number', 'Артикул', normalized.catalog_number, { placeholder: 'Номер' })
+            + mobileRepairOrderRowInputHtml('cost_price', 'Закуп', normalized.cost_price, { inputmode: 'decimal', placeholder: '0' })
+          + '</div>'
+        : '';
+      return '<div class="mobile-repair-order-line" data-mobile-repair-order-row data-mobile-repair-order-section="' + escapeHtml(section) + '" data-mobile-repair-order-index="' + escapeHtml(String(index)) + '">'
+        + '<div class="mobile-repair-order-line__top">'
+          + '<div class="mobile-repair-order-line__label">' + escapeHtml(label) + '</div>'
+          + '<button class="mobile-action mobile-action--ghost mobile-repair-order-remove" type="button" title="Удалить строку" data-mobile-repair-order-remove="' + escapeHtml(section) + '">×</button>'
+        + '</div>'
+        + mobileRepairOrderRowInputHtml('name', isMaterials ? 'Наименование' : 'Работа', normalized.name, { placeholder: isMaterials ? 'Материал' : 'Услуга' })
+        + materialsFields
+        + '<div class="mobile-repair-order-line__fields">'
+          + mobileRepairOrderRowInputHtml('quantity', 'Кол-во', normalized.quantity, { inputmode: 'decimal', placeholder: '1' })
+          + mobileRepairOrderRowInputHtml('price', 'Цена', normalized.price, { inputmode: 'decimal', placeholder: '0' })
+          + mobileRepairOrderRowInputHtml('total', 'Итог', normalized.total, { inputmode: 'decimal', placeholder: 'Авто' })
+        + '</div>'
+        + '<div class="mobile-repair-order-line__total"><span>Расчет строки</span><strong data-mobile-repair-row-total>' + escapeHtml(totalText) + '</strong></div>'
+      + '</div>';
+    }
+
+    function renderMobileRepairOrderRows(section, rows) {
+      const root = section === 'materials' ? els.mobileRepairOrderMaterials : els.mobileRepairOrderWorks;
+      if (!root) return;
+      root.innerHTML = ensureRepairOrderRows(rows).map((row, index) => mobileRepairOrderLineHtml(section, row, index)).join('');
+    }
+
+    function readMobileRepairOrderRows(section) {
+      const root = section === 'materials' ? els.mobileRepairOrderMaterials : els.mobileRepairOrderWorks;
+      if (!root) return [];
+      return Array.from(root.querySelectorAll('[data-mobile-repair-order-row]')).map((rowElement) => {
+        const row = {};
+        rowElement.querySelectorAll('[data-mobile-repair-row-field]').forEach((field) => {
+          row[field.getAttribute('data-mobile-repair-row-field')] = field.value;
+        });
+        return normalizeRepairOrderRow(row);
+      }).filter(repairOrderRowHasAnyData);
+    }
+
+    function syncMobileRepairOrderLineTotals() {
+      [els.mobileRepairOrderWorks, els.mobileRepairOrderMaterials].forEach((root) => {
+        if (!root) return;
+        root.querySelectorAll('[data-mobile-repair-order-row]').forEach((rowElement) => {
+          const row = {};
+          rowElement.querySelectorAll('[data-mobile-repair-row-field]').forEach((field) => {
+            row[field.getAttribute('data-mobile-repair-row-field')] = field.value;
+          });
+          const total = repairOrderResolvedRowTotalValue(row);
+          const totalElement = rowElement.querySelector('[data-mobile-repair-row-total]');
+          if (totalElement) totalElement.textContent = repairOrderFormatRubles(total ?? 0);
+        });
+      });
+    }
+
+    function mobileRepairOrderPaymentCashboxItems() {
+      return (Array.isArray(state.cashboxes) ? state.cashboxes : [])
+        .filter((item) => String(item?.id || '').trim())
+        .slice()
+        .sort((left, right) => String(left?.name || '').localeCompare(String(right?.name || ''), 'ru'));
+    }
+
+    function renderMobileRepairOrderPaymentCashboxes(selectedId = '') {
+      if (!els.mobileRepairOrderPaymentCashbox) return;
+      const normalizedSelectedId = String(selectedId || els.mobileRepairOrderPaymentCashbox.value || '').trim();
+      const items = mobileRepairOrderPaymentCashboxItems();
+      els.mobileRepairOrderPaymentCashbox.innerHTML = items.length
+        ? '<option value="">Выберите кассу</option>' + items.map((item) => {
+            const itemId = String(item?.id || '').trim();
+            const selected = itemId === normalizedSelectedId ? ' selected' : '';
+            const balance = cashboxBalanceDisplay(item);
+            return '<option value="' + escapeHtml(itemId) + '"' + selected + '>' + escapeHtml(String(item?.name || 'Касса') + ' · ' + balance) + '</option>';
+          }).join('')
+        : '<option value="">Кассы не загружены</option>';
+      if (!normalizedSelectedId && items.length && !els.mobileRepairOrderPaymentCashbox.value) {
+        els.mobileRepairOrderPaymentCashbox.value = String(items[0]?.id || '').trim();
+      }
+    }
+
+    async function ensureMobileRepairOrderPaymentCashboxes() {
+      if (state.cashboxesLoaded || !els.mobileRepairOrderPaymentCashbox) {
+        renderMobileRepairOrderPaymentCashboxes();
+        return;
+      }
+      if (typeof loadCashboxes !== 'function') {
+        renderMobileRepairOrderPaymentCashboxes();
+        return;
+      }
+      try {
+        await loadCashboxes(false, { deferDetail: true });
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        renderMobileRepairOrderPaymentCashboxes();
+      }
+    }
+
+    function mobileRepairOrderPaymentCashboxById(cashboxId) {
+      const normalizedCashboxId = String(cashboxId || '').trim();
+      if (!normalizedCashboxId) return null;
+      return mobileRepairOrderPaymentCashboxItems().find((item) => String(item?.id || '').trim() === normalizedCashboxId) || null;
+    }
+
+    function mobileRepairOrderPaymentRowHtml(payment) {
+      const normalized = normalizeRepairOrderPayment(payment);
+      const paymentId = String(normalized.id || ('payment-' + Date.now())).trim();
+      const cashboxName = String(normalized.cashbox_name || '').trim() || 'Касса не указана';
+      const paidAt = String(normalized.paid_at || '').trim() || 'Дата не указана';
+      const note = String(normalized.note || '').trim() || 'Без комментария';
+      const method = repairOrderPaymentMethodLabel(normalized.payment_method || 'cash');
+      return '<div class="mobile-repair-order-payment-row" data-mobile-repair-order-payment-row'
+          + ' data-mobile-repair-order-payment-id="' + escapeHtml(paymentId) + '"'
+          + ' data-mobile-repair-order-payment-amount="' + escapeHtml(normalized.amount) + '"'
+          + ' data-mobile-repair-order-payment-paid-at="' + escapeHtml(normalized.paid_at) + '"'
+          + ' data-mobile-repair-order-payment-note="' + escapeHtml(normalized.note) + '"'
+          + ' data-mobile-repair-order-payment-method="' + escapeHtml(normalized.payment_method) + '"'
+          + ' data-mobile-repair-order-payment-actor="' + escapeHtml(normalized.actor_name) + '"'
+          + ' data-mobile-repair-order-payment-cashbox-id="' + escapeHtml(normalized.cashbox_id) + '"'
+          + ' data-mobile-repair-order-payment-cashbox-name="' + escapeHtml(normalized.cashbox_name) + '"'
+          + ' data-mobile-repair-order-payment-cash-transaction-id="' + escapeHtml(normalized.cash_transaction_id) + '">'
+        + '<div class="mobile-repair-order-payment-row__body">'
+          + '<div class="mobile-repair-order-payment-row__line"><span>' + escapeHtml(note) + '</span><strong>' + escapeHtml(repairOrderFormatRubles(normalized.amount || 0)) + '</strong></div>'
+          + '<div class="mobile-repair-order-payment-row__meta">' + escapeHtml(method + ' · ' + cashboxName + ' · ' + paidAt) + '</div>'
+        + '</div>'
+        + '<button class="mobile-action mobile-action--ghost mobile-repair-order-payment-remove" type="button" data-mobile-repair-order-payment-remove="' + escapeHtml(paymentId) + '" title="Удалить оплату">×</button>'
+      + '</div>';
+    }
+
+    function renderMobileRepairOrderPayments(payments) {
+      if (!els.mobileRepairOrderPayments) return;
+      const normalizedPayments = normalizeRepairOrderPayments(payments || [], '', '');
+      els.mobileRepairOrderPayments.innerHTML = normalizedPayments.length
+        ? normalizedPayments.map(mobileRepairOrderPaymentRowHtml).join('')
+        : '<div class="mobile-empty">ОПЛАТ ПОКА НЕТ.</div>';
+      renderMobileRepairOrderPaymentCashboxes();
+    }
+
+    function readMobileRepairOrderPayments() {
+      if (!els.mobileRepairOrderPayments) return [];
+      return Array.from(els.mobileRepairOrderPayments.querySelectorAll('[data-mobile-repair-order-payment-row]')).map((row) => {
+        return normalizeRepairOrderPayment({
+          id: row.getAttribute('data-mobile-repair-order-payment-id') || '',
+          amount: row.getAttribute('data-mobile-repair-order-payment-amount') || '',
+          paid_at: row.getAttribute('data-mobile-repair-order-payment-paid-at') || '',
+          note: row.getAttribute('data-mobile-repair-order-payment-note') || '',
+          payment_method: row.getAttribute('data-mobile-repair-order-payment-method') || 'cash',
+          actor_name: row.getAttribute('data-mobile-repair-order-payment-actor') || '',
+          cashbox_id: row.getAttribute('data-mobile-repair-order-payment-cashbox-id') || '',
+          cashbox_name: row.getAttribute('data-mobile-repair-order-payment-cashbox-name') || '',
+          cash_transaction_id: row.getAttribute('data-mobile-repair-order-payment-cash-transaction-id') || '',
+        });
+      }).filter((item) => item.amount || item.note || item.paid_at);
+    }
+
+    function addMobileRepairOrderPayment() {
+      const amount = String(els.mobileRepairOrderPaymentAmount?.value || '').trim();
+      const parsedAmount = repairOrderParseNumber(amount);
+      if (parsedAmount === null || parsedAmount <= 0) {
+        els.mobileRepairOrderPaymentAmount?.focus({ preventScroll: true });
+        setStatus('УКАЖИТЕ СУММУ ОПЛАТЫ.', true);
+        return;
+      }
+      const cashboxId = String(els.mobileRepairOrderPaymentCashbox?.value || '').trim();
+      const selectedCashbox = mobileRepairOrderPaymentCashboxById(cashboxId);
+      if (!cashboxId || !selectedCashbox) {
+        els.mobileRepairOrderPaymentCashbox?.focus({ preventScroll: true });
+        setStatus('ВЫБЕРИТЕ КАССУ ДЛЯ ОПЛАТЫ.', true);
+        return;
+      }
+      const paymentId = 'mobile-payment-' + Date.now();
+      const payment = normalizeRepairOrderPayment({
+        id: paymentId,
+        amount: repairOrderNumberToRaw(parsedAmount),
+        paid_at: currentRepairOrderDateTime(),
+        note: String(els.mobileRepairOrderPaymentNote?.value || '').trim(),
+        payment_method: repairOrderPaymentMethodFromCashboxName(selectedCashbox?.name || '', 'cash'),
+        actor_name: state.actor || '',
+        cashbox_id: cashboxId,
+        cashbox_name: selectedCashbox?.name || '',
+      }, paymentId);
+      renderMobileRepairOrderPayments(readMobileRepairOrderPayments().concat([payment]));
+      if (els.mobileRepairOrderPaymentAmount) els.mobileRepairOrderPaymentAmount.value = '';
+      if (els.mobileRepairOrderPaymentNote) els.mobileRepairOrderPaymentNote.value = '';
+      renderMobileRepairOrderTotals();
+      setStatus('ОПЛАТА ДОБАВЛЕНА В ЧЕРНОВИК ЗН.', false);
+    }
+
+    function removeMobileRepairOrderPayment(paymentId) {
+      const normalizedPaymentId = String(paymentId || '').trim();
+      if (!normalizedPaymentId) return;
+      renderMobileRepairOrderPayments(readMobileRepairOrderPayments().filter((item) => item.id !== normalizedPaymentId));
+      renderMobileRepairOrderTotals();
+    }
+
+    function renderMobileRepairOrderTotals() {
+      if (!els.mobileRepairOrderTotals) return;
+      syncMobileRepairOrderLineTotals();
+      const worksTotal = repairOrderRowsTotalValue(readMobileRepairOrderRows('works'));
+      const materialsTotal = repairOrderRowsTotalValue(readMobileRepairOrderRows('materials'));
+      const subtotal = repairOrderRoundMoney(worksTotal + materialsTotal);
+      const payments = readMobileRepairOrderPayments();
+      const summary = repairOrderSummaryValue(subtotal, payments);
+      els.mobileRepairOrderTotals.innerHTML = ''
+        + '<div class="mobile-repair-order-total"><span>Работы</span><strong>' + escapeHtml(repairOrderFormatRubles(worksTotal)) + '</strong></div>'
+        + '<div class="mobile-repair-order-total"><span>Материалы</span><strong>' + escapeHtml(repairOrderFormatRubles(materialsTotal)) + '</strong></div>'
+        + '<div class="mobile-repair-order-total"><span>Оплачено</span><strong>' + escapeHtml(repairOrderFormatRubles(summary.total_paid)) + '</strong></div>'
+        + '<div class="mobile-repair-order-total mobile-repair-order-total--grand"><span>К оплате</span><strong>' + escapeHtml(repairOrderFormatRubles(summary.due_total)) + '</strong></div>';
+    }
+
+    function normalizeMobileRepairOrderTab(tab) {
+      const normalized = String(tab || '').trim();
+      return MOBILE_REPAIR_ORDER_TABS.includes(normalized) ? normalized : 'client';
+    }
+
+    function renderMobileRepairOrderTabs() {
+      const activeTab = normalizeMobileRepairOrderTab(state.mobileRepairOrderTab);
+      state.mobileRepairOrderTab = activeTab;
+      els.mobileRepairOrderTabs?.querySelectorAll('[data-mobile-repair-order-tab]').forEach((button) => {
+        const selected = button.getAttribute('data-mobile-repair-order-tab') === activeTab;
+        button.classList.toggle('is-active', selected);
+        button.setAttribute('aria-selected', selected ? 'true' : 'false');
+      });
+      els.mobileRepairOrderDetail?.querySelectorAll('[data-mobile-repair-order-page]').forEach((page) => {
+        page.classList.toggle('is-active', page.getAttribute('data-mobile-repair-order-page') === activeTab);
+      });
+    }
+
+    function setMobileRepairOrderTab(tab) {
+      state.mobileRepairOrderTab = normalizeMobileRepairOrderTab(tab);
+      renderMobileRepairOrderTabs();
+    }
+
+    function handleMobileRepairOrderTabsClick(event) {
+      const button = event.target instanceof HTMLElement ? event.target.closest('[data-mobile-repair-order-tab]') : null;
+      if (!button || !els.mobileRepairOrderTabs?.contains(button)) return;
+      event.preventDefault();
+      setMobileRepairOrderTab(button.getAttribute('data-mobile-repair-order-tab'));
+    }
+
+    function renderMobileRepairOrderDetail() {
+      if (!els.mobileRepairOrderDetail) return;
+      const detailOpen = Boolean(state.mobileRepairOrderCardId);
+      els.mobileRepairOrderDetail.hidden = !detailOpen;
+      if (els.mobileRepairOrdersList) els.mobileRepairOrdersList.hidden = detailOpen;
+      if (!detailOpen) return;
+      renderMobileRepairOrderTabs();
+      const order = currentMobileRepairOrderDraft();
+      if (els.mobileRepairOrderNumber) {
+        els.mobileRepairOrderNumber.textContent = order.number ? ('ЗН №' + order.number) : 'ЗАКАЗ-НАРЯД';
+      }
+      if (els.mobileRepairOrderStatus) {
+        els.mobileRepairOrderStatus.textContent = repairOrderStatusLabel(order.status);
+      }
+      if (els.mobileRepairOrderStatusSelect) {
+        els.mobileRepairOrderStatusSelect.value = normalizeRepairOrderStatus(order.status);
+      }
+      els.mobileRepairOrderDetail.querySelectorAll('[data-mobile-repair-order-field]').forEach((field) => {
+        const fieldName = field.getAttribute('data-mobile-repair-order-field');
+        field.value = order[fieldName] || '';
+      });
+      renderMobileRepairOrderRows('works', order.works);
+      renderMobileRepairOrderRows('materials', order.materials);
+      renderMobileRepairOrderPayments(order.payments);
+      renderMobileRepairOrderTotals();
+      if (els.mobileRepairOrderSaveButton) {
+        els.mobileRepairOrderSaveButton.disabled = state.mobileRepairOrderSaving;
+        els.mobileRepairOrderSaveButton.textContent = state.mobileRepairOrderSaving ? '...' : 'СОХР.';
+      }
+    }
+
+    function readMobileRepairOrderDraft() {
+      const base = currentMobileRepairOrderDraft();
+      const values = {};
+      els.mobileRepairOrderDetail?.querySelectorAll('[data-mobile-repair-order-field]').forEach((field) => {
+        values[field.getAttribute('data-mobile-repair-order-field')] = field.value;
+      });
+      const payments = readMobileRepairOrderPayments();
+      return normalizeRepairOrder({
+        ...base,
+        ...values,
+        client_information: values.comment ?? base.comment,
+        payment_method: repairOrderPaymentMethodFromPayments(
+          payments,
+          values.payment_method || base.payment_method || 'cash'
+        ),
+        prepayment: repairOrderNumberToRaw(repairOrderPaymentsTotalValue(payments)),
+        payments: readMobileRepairOrderPayments(),
+        works: readMobileRepairOrderRows('works'),
+        materials: readMobileRepairOrderRows('materials'),
+      });
+    }
+
+    function closeMobileRepairOrderDetail() {
+      state.mobileRepairOrderCardId = '';
+      state.mobileRepairOrderCard = null;
+      state.mobileRepairOrderTab = 'client';
+      renderMobileShell();
+    }
+
+    async function openMobileRepairOrderDetail(cardId) {
+      const normalizedCardId = String(cardId || '').trim();
+      if (!normalizedCardId) return;
+      state.mobileRepairOrderCardId = normalizedCardId;
+      state.mobileRepairOrderCard = mobileRepairOrderSummaryCard(normalizedCardId);
+      state.mobileRepairOrderTab = 'client';
+      renderMobileShell();
+      try {
+        const data = await api('/api/get_repair_order', {
+          method: 'POST',
+          body: {
+            card_id: normalizedCardId,
+            actor_name: state.actor,
+            source: 'mobile-ui',
+            create_if_missing: true,
+          },
+        });
+        const updatedCard = data?.card || {
+          ...state.mobileRepairOrderCard,
+          id: normalizedCardId,
+          repair_order: data?.repair_order || state.mobileRepairOrderCard?.repair_order || {},
+        };
+        state.mobileRepairOrderCard = updatedCard;
+        state.mobileRepairOrderCardId = updatedCard?.id || normalizedCardId;
+        state.activeCard = updatedCard;
+        state.editingId = updatedCard?.id || normalizedCardId;
+        state.pendingCardClientId = updatedCard?.client_id || '';
+        cacheFullCard(updatedCard);
+        await ensureMobileRepairOrderPaymentCashboxes();
+        renderMobileShell();
+        setStatus('ЗАКАЗ-НАРЯД ЗАГРУЖЕН.', false);
+      } catch (error) {
+        closeMobileRepairOrderDetail();
+        setStatus(error.message, true);
+      }
+    }
+
+    async function saveMobileRepairOrder() {
+      const cardId = String(state.mobileRepairOrderCardId || '').trim();
+      if (!cardId || state.mobileRepairOrderSaving) return;
+      const repairOrder = readMobileRepairOrderDraft();
+      state.mobileRepairOrderSaving = true;
+      if (els.mobileRepairOrderSaveButton) {
+        els.mobileRepairOrderSaveButton.disabled = true;
+        els.mobileRepairOrderSaveButton.textContent = '...';
+      }
+      try {
+        const data = await api('/api/update_repair_order', {
+          method: 'POST',
+          body: {
+            card_id: cardId,
+            actor_name: state.actor,
+            source: 'mobile-ui',
+            repair_order: repairOrder,
+          },
+        });
+        const updatedCard = data?.card || {
+          ...state.mobileRepairOrderCard,
+          id: cardId,
+          repair_order: data?.repair_order || repairOrder,
+        };
+        state.mobileRepairOrderCard = updatedCard;
+        state.mobileRepairOrderCardId = updatedCard?.id || cardId;
+        state.activeCard = updatedCard;
+        state.editingId = updatedCard?.id || cardId;
+        cacheFullCard(updatedCard);
+        applySavedCardLocalPatch(updatedCard);
+        refreshRepairOrderEntry(updatedCard);
+        await loadRepairOrders(false);
+        renderMobileRepairOrderDetail();
+        setStatus('ЗАКАЗ-НАРЯД СОХРАНЕН.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        state.mobileRepairOrderSaving = false;
+        renderMobileRepairOrderDetail();
+      }
+    }
+
+    function handleMobileRepairOrdersListClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const row = target.closest('[data-open-repair-order-card]');
+      if (!(row instanceof HTMLElement)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openMobileRepairOrderDetail(row.dataset.openRepairOrderCard);
+    }
+
+    function handleMobileRepairOrdersListKeydown(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const row = target.closest('[data-open-repair-order-card]');
+      if (!row) return;
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openMobileRepairOrderDetail(row.dataset.openRepairOrderCard);
+    }
+
+    function handleMobileRepairOrderDetailClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.closest('#mobileRepairOrderAddPaymentButton')) {
+        addMobileRepairOrderPayment();
+        return;
+      }
+      const paymentRemoveButton = target.closest('[data-mobile-repair-order-payment-remove]');
+      if (paymentRemoveButton instanceof HTMLElement) {
+        removeMobileRepairOrderPayment(paymentRemoveButton.getAttribute('data-mobile-repair-order-payment-remove'));
+        return;
+      }
+      const addButton = target.closest('[data-mobile-repair-order-add-row]');
+      if (addButton instanceof HTMLElement) {
+        const section = addButton.getAttribute('data-mobile-repair-order-add-row') === 'materials' ? 'materials' : 'works';
+        const rows = readMobileRepairOrderRows(section);
+        rows.push(emptyRepairOrderRow());
+        renderMobileRepairOrderRows(section, rows);
+        renderMobileRepairOrderTotals();
+        const root = section === 'materials' ? els.mobileRepairOrderMaterials : els.mobileRepairOrderWorks;
+        root?.querySelector('[data-mobile-repair-order-row]:last-child [data-mobile-repair-row-field="name"]')?.focus({ preventScroll: true });
+        return;
+      }
+      const removeButton = target.closest('[data-mobile-repair-order-remove]');
+      if (removeButton instanceof HTMLElement) {
+        const section = removeButton.getAttribute('data-mobile-repair-order-remove') === 'materials' ? 'materials' : 'works';
+        const rowElement = removeButton.closest('[data-mobile-repair-order-row]');
+        if (rowElement) rowElement.remove();
+        const rows = readMobileRepairOrderRows(section);
+        renderMobileRepairOrderRows(section, rows);
+        renderMobileRepairOrderTotals();
+      }
+    }
+
+    function handleMobileRepairOrderDetailInput(event) {
+      const target = event?.target;
+      if (target === els.mobileRepairOrderStatusSelect && els.mobileRepairOrderStatus) {
+        els.mobileRepairOrderStatus.textContent = repairOrderStatusLabel(els.mobileRepairOrderStatusSelect.value);
+      }
+      renderMobileRepairOrderTotals();
+    }
+
+    function mobileClientPhoneLine(client) {
+      return compactPhoneLine(client, 'ТЕЛЕФОН НЕ УКАЗАН');
+    }
+
+    function mobileClientVehicleTitle(vehicle) {
+      return String(vehicle?.vehicle || [vehicle?.brand, vehicle?.model, vehicle?.year].filter(Boolean).join(' ') || 'Автомобиль').trim();
+    }
+
+    function mobileClientVehicleMeta(vehicle) {
+      return [vehicle?.license_plate, vehicle?.registration_plate, vehicle?.vin].filter(Boolean).join(' · ') || 'VIN / номер не указан';
+    }
+
+    function mobileClientOrderMeta(order) {
+      return [formatDate(order?.opened_at || order?.date), order?.vehicle].filter(Boolean).join(' · ') || 'ДАННЫЕ О ЗАКАЗ-НАРЯДЕ ОТСУТСТВУЮТ';
+    }
+
+    function renderMobileClientsList() {
+      if (!els.mobileClientsList) return;
+      const clients = Array.isArray(state.clients) ? state.clients : [];
+      if (state.mobileClientsLoading) {
+        els.mobileClientsList.innerHTML = '<div class="mobile-empty">ЗАГРУЗКА КЛИЕНТОВ...</div>';
+        return;
+      }
+      if (!clients.length) {
+        els.mobileClientsList.innerHTML = '<div class="mobile-empty">КЛИЕНТЫ НЕ НАЙДЕНЫ.</div>';
+        return;
+      }
+      els.mobileClientsList.innerHTML = clients.map((client) => {
+        const activeClass = client.id === state.clientsActiveId ? ' is-active' : '';
+        const displayName = clientDisplayName(client);
+        return '<button class="mobile-client-row' + activeClass + '" type="button" data-mobile-client-id="' + escapeHtml(client.id || '') + '">'
+          + '<div class="mobile-client-row__top">'
+            + '<span class="mobile-client-row__name">' + escapeHtml(displayName) + '</span>'
+            + '<span class="mobile-client-row__type">' + escapeHtml(client.type_label || client.client_type || 'ФЛ') + '</span>'
+          + '</div>'
+          + '<div class="mobile-client-row__meta">' + escapeHtml(mobileClientPhoneLine(client)) + '</div>'
+          + '<div class="mobile-client-row__meta">' + escapeHtml(clientMetaLine(client)) + '</div>'
+        + '</button>';
+      }).join('');
+    }
+
+    function renderMobileClientDetail() {
+      if (!els.mobileClientDetail) return;
+      if (state.mobileClientProfileLoading) {
+        els.mobileClientDetail.innerHTML = '<div class="mobile-client-detail__empty">ЗАГРУЗКА ПРОФИЛЯ...</div>';
+        return;
+      }
+      const profile = state.clientsActiveProfile || null;
+      const client = profile?.client || null;
+      if (!client) {
+        els.mobileClientDetail.innerHTML = '<div class="mobile-client-detail__empty">ВЫБЕРИТЕ КЛИЕНТА, ЧТОБЫ УВИДЕТЬ МАШИНЫ И ЗАКАЗ-НАРЯДЫ.</div>';
+        return;
+      }
+      const vehicles = Array.isArray(profile?.vehicles) ? profile.vehicles : [];
+      const orders = Array.isArray(profile?.repair_orders) ? profile.repair_orders : [];
+      const vehiclesHtml = vehicles.length
+        ? vehicles.slice(0, 4).map((vehicle) => {
+          return '<div class="mobile-client-mini">'
+            + '<strong>' + escapeHtml(mobileClientVehicleTitle(vehicle)) + '</strong>'
+            + '<span>' + escapeHtml(mobileClientVehicleMeta(vehicle)) + '</span>'
+          + '</div>';
+        }).join('')
+        : '<div class="mobile-client-detail__empty">МАШИН ПОКА НЕТ.</div>';
+      const ordersHtml = orders.length
+        ? orders.slice(0, 5).map((order) => {
+          const statusKey = normalizeRepairOrderStatus(order?.status);
+          const statusLabel = repairOrderStatusLabel(statusKey);
+          const cardId = String(order?.card_id || '').trim();
+          const tagName = cardId ? 'button' : 'div';
+          return '<' + tagName + ' class="mobile-client-mini" type="button" data-mobile-client-order-card="' + escapeHtml(cardId) + '">'
+            + '<strong>№ ' + escapeHtml(order?.number || '-') + ' · ' + escapeHtml(statusLabel) + '</strong>'
+            + '<span>' + escapeHtml(mobileClientOrderMeta(order)) + '</span>'
+            + '<span>' + escapeHtml(repairOrderFormatRubles(order?.grand_total || 0)) + '</span>'
+          + '</' + tagName + '>';
+        }).join('')
+        : '<div class="mobile-client-detail__empty">ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.</div>';
+      els.mobileClientDetail.innerHTML = '<div class="mobile-client-detail__head">'
+          + '<div>'
+            + '<div class="mobile-client-detail__name">' + escapeHtml(clientDisplayName(client)) + '</div>'
+            + '<div class="mobile-client-detail__meta">' + escapeHtml(mobileClientPhoneLine(client)) + '</div>'
+          + '</div>'
+          + '<div class="mobile-client-detail__debt">' + escapeHtml(clientDebtAmountText(orders)) + '</div>'
+        + '</div>'
+        + '<section class="mobile-client-detail__section"><h4>Машины</h4>' + vehiclesHtml + '</section>'
+        + '<section class="mobile-client-detail__section"><h4>Заказ-наряды</h4>' + ordersHtml + '</section>';
+    }
+
+    function syncMobileMorePanelChrome() {
+      const hasPanel = Boolean(String(state.mobileMorePanel || '').trim());
+      if (els.mobileMoreGrid) els.mobileMoreGrid.hidden = hasPanel;
+      if (els.mobileMoreRefreshButton) els.mobileMoreRefreshButton.hidden = hasPanel;
+    }
+
+    function renderMobileClientsPanel() {
+      const isOpen = state.mobileMorePanel === 'clients';
+      if (els.mobileClientsPanel) els.mobileClientsPanel.hidden = !isOpen;
+      syncMobileMorePanelChrome();
+      if (!isOpen) return;
+      if (els.mobileClientsSearchInput && els.mobileClientsSearchInput.value !== String(state.clientsQuery || '')) {
+        els.mobileClientsSearchInput.value = String(state.clientsQuery || '');
+      }
+      const clients = Array.isArray(state.clients) ? state.clients : [];
+      const meta = state.clientsMetaState || {};
+      const total = Number(meta.total);
+      const returned = Number(meta.returned);
+      if (els.mobileClientsMeta) {
+        if (state.mobileClientsLoading) {
+          els.mobileClientsMeta.textContent = 'ЗАГРУЗКА...';
+        } else if (Number.isFinite(total)) {
+          els.mobileClientsMeta.textContent = 'ПОКАЗАНО: ' + String(Number.isFinite(returned) ? returned : clients.length) + ' ИЗ ' + String(total);
+        } else {
+          els.mobileClientsMeta.textContent = clients.length ? ('КЛИЕНТОВ: ' + clients.length) : 'КЛИЕНТОВ ПОКА НЕТ';
+        }
+      }
+      renderMobileClientsList();
+      renderMobileClientDetail();
+    }
+
+    async function loadMobileClients({ force = false } = {}) {
+      const query = String(els.mobileClientsSearchInput?.value || state.clientsQuery || '').trim();
+      if (!force && state.clientsLoaded && query === String(state.clientsQuery || '').trim()) {
+        renderMobileClientsPanel();
+        return;
+      }
+      state.clientsQuery = query;
+      if (els.clientsSearchInput) els.clientsSearchInput.value = query;
+      state.mobileClientsLoading = true;
+      renderMobileClientsPanel();
+      try {
+        await loadClients({ openModal: false });
+      } finally {
+        state.mobileClientsLoading = false;
+        renderMobileClientsPanel();
+      }
+    }
+
+    async function loadMobileClientProfile(clientId) {
+      const normalizedId = String(clientId || '').trim();
+      if (!normalizedId) return;
+      state.clientsActiveId = normalizedId;
+      state.mobileClientProfileLoading = true;
+      renderMobileClientsPanel();
+      try {
+        const data = await api('/api/get_client?client_id=' + encodeURIComponent(normalizedId) + '&order_limit=8');
+        state.clientsActiveId = data?.client?.id || normalizedId;
+        state.clientsActiveProfile = data || null;
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        state.mobileClientProfileLoading = false;
+        renderMobileClientsPanel();
+      }
+    }
+
+    function openMobileClientsPanel() {
+      state.mobileMorePanel = 'clients';
+      renderMobileMore();
+      loadMobileClients();
+    }
+
+    function closeMobileMorePanel() {
+      state.mobileMorePanel = '';
+      renderMobileMore();
+    }
+
+    function handleMobileClientsInput() {
+      window.clearTimeout(state.mobileClientsSearchTimer);
+      state.mobileClientsSearchTimer = window.setTimeout(() => loadMobileClients({ force: true }), 180);
+    }
+
+    function handleMobileClientsClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const orderButton = target.closest('[data-mobile-client-order-card]');
+      if (orderButton && els.mobileClientsPanel?.contains(orderButton)) {
+        const cardId = String(orderButton.getAttribute('data-mobile-client-order-card') || '').trim();
+        if (!cardId) return;
+        event.preventDefault();
+        setMobileView('repair-orders');
+        openMobileRepairOrderDetail(cardId);
+        return;
+      }
+      const clientButton = target.closest('[data-mobile-client-id]');
+      if (clientButton && els.mobileClientsPanel?.contains(clientButton)) {
+        event.preventDefault();
+        loadMobileClientProfile(clientButton.getAttribute('data-mobile-client-id'));
+      }
+    }
+
+    function mobileEmployeeSummaryMap() {
+      return payrollSummaryMap();
+    }
+
+    function mobileEmployeeBalanceValue(employee, summary) {
+      return String(employee?.balance_total ?? summary?.balance_total ?? summary?.total_salary ?? '0');
+    }
+
+    function mobileEmployeeMoneyText(value) {
+      const raw = String(value ?? '').trim();
+      return raw ? repairOrderFormatRubles(raw) : repairOrderFormatRubles(0);
+    }
+
+    function mobileEmployeeDetailRows(employeeId) {
+      const normalizedId = String(employeeId || '').trim();
+      if (!normalizedId) return [];
+      return (Array.isArray(state.payrollReport?.detail_rows) ? state.payrollReport.detail_rows : [])
+        .filter((row) => String(row?.employee_id || '').trim() === normalizedId);
+    }
+
+    function mobileEmployeeAccrualTitle(row) {
+      const type = String(row?.type_label || row?.row_type || 'Начисление').trim();
+      const number = String(row?.repair_order_number || '').trim();
+      const vehicle = String(row?.vehicle || '').trim();
+      return [
+        type,
+        number ? ('№ ' + number) : '',
+        vehicle,
+      ].filter(Boolean).join(' · ') || 'Начисление';
+    }
+
+    function mobileEmployeeAccrualMeta(row) {
+      const parts = [];
+      if (row?.closed_at) parts.push(formatDate(row.closed_at));
+      const worksCount = Number(row?.works_count || 0);
+      const materialsCount = Number(row?.materials_count || 0);
+      if (worksCount > 0) parts.push('РАБОТ: ' + String(worksCount));
+      if (String(row?.work_total || '').trim() && String(row?.work_total || '0') !== '0') {
+        parts.push('РАБОТЫ ' + mobileEmployeeMoneyText(row.work_total));
+      }
+      if (materialsCount > 0) parts.push('МАТ.: ' + String(materialsCount));
+      if (String(row?.material_profit || '').trim() && String(row?.material_profit || '0') !== '0') {
+        parts.push('ПРИБЫЛЬ ' + mobileEmployeeMoneyText(row.material_profit));
+      }
+      return parts.join(' · ') || 'ДЕТАЛЕЙ НЕТ';
+    }
+
+    function renderMobileEmployeesList() {
+      if (!els.mobileEmployeesList) return;
+      const employees = filteredEmployeesList();
+      const summaryMap = mobileEmployeeSummaryMap();
+      if (state.mobileEmployeesLoading && !employees.length) {
+        els.mobileEmployeesList.innerHTML = '<div class="mobile-employee-detail__empty">ЗАГРУЗКА СОТРУДНИКОВ...</div>';
+        return;
+      }
+      if (!employees.length) {
+        els.mobileEmployeesList.innerHTML = '<div class="mobile-employee-detail__empty">СОТРУДНИКОВ ПОКА НЕТ.</div>';
+        return;
+      }
+      els.mobileEmployeesList.innerHTML = employees.map((employee) => {
+        const summary = summaryMap.get(String(employee.id || ''));
+        const balance = mobileEmployeeBalanceValue(employee, summary);
+        const isActive = String(employee.id || '') === String(state.activeEmployeeId || '');
+        return '<button class="mobile-employee-row' + (isActive ? ' is-active' : '') + '" type="button" data-mobile-employee-id="' + escapeHtml(employee.id || '') + '">'
+          + '<div class="mobile-employee-row__top">'
+            + '<div class="mobile-employee-row__name">' + escapeHtml(employee.name || 'Сотрудник') + '</div>'
+            + '<div class="mobile-employee-row__balance">' + escapeHtml(mobileEmployeeMoneyText(balance)) + '</div>'
+          + '</div>'
+          + '<div class="mobile-employee-row__meta">' + escapeHtml(employee.position || 'Без должности') + '</div>'
+          + '<div class="mobile-employee-row__meta">' + escapeHtml(employeeIncentiveSummaryLabel(employee)) + '</div>'
+        + '</button>';
+      }).join('');
+    }
+
+    function renderMobileEmployeeDetail() {
+      if (!els.mobileEmployeeDetail) return;
+      const employees = filteredEmployeesList();
+      let employee = selectedEmployeeRecord();
+      if (!employee && employees.length) {
+        employee = employees[0];
+        state.activeEmployeeId = employee.id || '';
+      }
+      if (state.mobileEmployeesLoading && !employee) {
+        els.mobileEmployeeDetail.innerHTML = '<div class="mobile-employee-detail__empty">ЗАГРУЗКА НАЧИСЛЕНИЙ...</div>';
+        return;
+      }
+      if (!employee) {
+        els.mobileEmployeeDetail.innerHTML = '<div class="mobile-employee-detail__empty">ВЫБЕРИТЕ СОТРУДНИКА, ЧТОБЫ УВИДЕТЬ НАЧИСЛЕНИЯ.</div>';
+        return;
+      }
+      const summary = mobileEmployeeSummaryMap().get(String(employee.id || '')) || {};
+      const balance = mobileEmployeeBalanceValue(employee, summary);
+      const details = mobileEmployeeDetailRows(employee.id);
+      const detailsHtml = details.length
+        ? details.slice(0, 5).map((row) => {
+          return '<div class="mobile-employee-accrual">'
+            + '<strong>' + escapeHtml(mobileEmployeeAccrualTitle(row)) + '</strong>'
+            + '<span>' + escapeHtml(mobileEmployeeAccrualMeta(row)) + '</span>'
+            + '<span>НАЧИСЛЕНО ' + escapeHtml(mobileEmployeeMoneyText(row?.salary_amount || 0)) + '</span>'
+          + '</div>';
+        }).join('')
+        : '<div class="mobile-employee-detail__empty">НАЧИСЛЕНИЙ ЗА МЕСЯЦ ПОКА НЕТ.</div>';
+      els.mobileEmployeeDetail.innerHTML = '<div class="mobile-employee-detail__head">'
+          + '<div>'
+            + '<div class="mobile-employee-detail__name">' + escapeHtml(employee.name || 'Сотрудник') + '</div>'
+            + '<div class="mobile-employee-detail__meta">' + escapeHtml(employee.position || 'Без должности') + ' · ' + escapeHtml(employeeIncentiveSummaryLabel(employee)) + '</div>'
+          + '</div>'
+          + '<div class="mobile-employee-detail__balance">' + escapeHtml(mobileEmployeeMoneyText(balance)) + '</div>'
+        + '</div>'
+        + '<div class="mobile-employee-kpis">'
+          + '<div class="mobile-employee-kpi"><span>К выплате</span><strong>' + escapeHtml(mobileEmployeeMoneyText(balance)) + '</strong></div>'
+          + '<div class="mobile-employee-kpi"><span>Начислено</span><strong>' + escapeHtml(mobileEmployeeMoneyText(summary.total_salary || summary.accrued_total || 0)) + '</strong></div>'
+          + '<div class="mobile-employee-kpi"><span>Работы</span><strong>' + escapeHtml(String(summary.works_count || 0)) + ' / ' + escapeHtml(mobileEmployeeMoneyText(summary.work_accrued_total || 0)) + '</strong></div>'
+          + '<div class="mobile-employee-kpi"><span>Материалы</span><strong>' + escapeHtml(String(summary.materials_count || 0)) + ' / ' + escapeHtml(mobileEmployeeMoneyText(summary.materials_accrued_total || 0)) + '</strong></div>'
+        + '</div>'
+        + '<section class="mobile-employee-detail__section"><h4>Последние начисления</h4>' + detailsHtml + '</section>';
+    }
+
+    function renderMobileEmployeesPanel() {
+      const isOpen = state.mobileMorePanel === 'employees';
+      if (els.mobileEmployeesPanel) els.mobileEmployeesPanel.hidden = !isOpen;
+      syncMobileMorePanelChrome();
+      if (!isOpen) return;
+      const employees = filteredEmployeesList();
+      if (!state.activeEmployeeId && employees.length) {
+        state.activeEmployeeId = employees[0].id || '';
+      }
+      if (els.mobileEmployeesMeta) {
+        const month = state.payrollMonth || currentPayrollMonthValue();
+        if (state.mobileEmployeesLoading) {
+          els.mobileEmployeesMeta.textContent = 'ЗАГРУЗКА...';
+        } else if (employees.length) {
+          els.mobileEmployeesMeta.textContent = 'МЕСЯЦ: ' + month + ' · АКТИВНЫХ: ' + String(employees.length);
+        } else {
+          els.mobileEmployeesMeta.textContent = 'СОТРУДНИКОВ ПОКА НЕТ';
+        }
+      }
+      renderMobileEmployeesList();
+      renderMobileEmployeeDetail();
+    }
+
+    async function loadMobileEmployees({ force = false } = {}) {
+      const month = state.payrollMonth || currentPayrollMonthValue();
+      if (!force && state.employeesLoadedMonth === month && Array.isArray(state.employees) && state.payrollReport) {
+        renderMobileEmployeesPanel();
+        return;
+      }
+      state.payrollMonth = month;
+      state.mobileEmployeesLoading = true;
+      renderMobileEmployeesPanel();
+      try {
+        await loadEmployeesReference();
+        await loadPayrollReport();
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        state.mobileEmployeesLoading = false;
+        renderMobileEmployeesPanel();
+      }
+    }
+
+    function openMobileEmployeesPanel() {
+      state.mobileMorePanel = 'employees';
+      renderMobileMore();
+      loadMobileEmployees();
+    }
+
+    function handleMobileEmployeesClick(event) {
+      const button = event.target instanceof HTMLElement ? event.target.closest('[data-mobile-employee-id]') : null;
+      if (!button || !els.mobileEmployeesPanel?.contains(button)) return;
+      const employeeId = String(button.getAttribute('data-mobile-employee-id') || '').trim();
+      if (!employeeId) return;
+      event.preventDefault();
+      state.activeEmployeeId = employeeId;
+      state.employeeCreateMode = false;
+      state.employeesReportDetailsOpen = true;
+      renderMobileEmployeesPanel();
+    }
+
+    function renderMobileArchiveRows(cards) {
+      return cards.map((card) => {
+        const heading = cardHeading(card);
+        const compactDescription = stripDescriptionFormatting(card?.description || card?.description_preview || 'Описание не указано').replace(/\s+/g, ' ').trim();
+        const summary = compactDescription.length > 160 ? compactDescription.slice(0, 157) + '...' : compactDescription;
+        const metaParts = [
+          card?.updated_at ? ('АРХИВ: ' + formatDate(card.updated_at)) : '',
+          card?.column ? ('КОЛОНКА: ' + columnLabelById(card.column)) : '',
+        ].filter(Boolean);
+        return '<article class="mobile-archive-row" data-mobile-archive-card="' + escapeHtml(card?.id || '') + '">'
+          + '<div class="mobile-archive-row__top">'
+            + '<div class="mobile-archive-row__title">' + escapeHtml(heading) + '</div>'
+          + '</div>'
+          + '<div class="mobile-archive-row__summary">' + escapeHtml(summary || 'Описание не указано') + '</div>'
+          + '<div class="mobile-archive-row__meta">' + escapeHtml(metaParts.join(' · ') || 'АРХИВНАЯ КАРТОЧКА') + '</div>'
+          + '<div class="mobile-archive-row__actions">'
+            + '<button class="mobile-action mobile-action--primary" type="button" data-mobile-archive-restore="' + escapeHtml(card?.id || '') + '">ВЕРНУТЬ</button>'
+          + '</div>'
+        + '</article>';
+      }).join('');
+    }
+
+    function renderMobileArchivePanel() {
+      const isOpen = state.mobileMorePanel === 'archive';
+      if (els.mobileArchivePanel) els.mobileArchivePanel.hidden = !isOpen;
+      syncMobileMorePanelChrome();
+      if (!isOpen) return;
+      if (els.mobileArchiveSearchInput && els.mobileArchiveSearchInput.value !== String(state.archiveQuery || '')) {
+        els.mobileArchiveSearchInput.value = String(state.archiveQuery || '');
+      }
+      const total = archivedCardsTotal();
+      const cards = filteredArchiveCards();
+      if (els.mobileArchiveMeta) {
+        if (state.mobileArchiveLoading || state.archiveLoading) {
+          els.mobileArchiveMeta.textContent = 'ЗАГРУЗКА...';
+        } else if (String(state.archiveQuery || '').trim()) {
+          els.mobileArchiveMeta.textContent = 'НАЙДЕНО: ' + String(cards.length) + ' ИЗ ' + String(total);
+        } else {
+          els.mobileArchiveMeta.textContent = cards.length ? ('ПОКАЗАНО: ' + String(cards.length) + ' ИЗ ' + String(total)) : 'АРХИВНЫХ КАРТОЧЕК ПОКА НЕТ';
+        }
+      }
+      if (!els.mobileArchiveList) return;
+      if (state.mobileArchiveLoading && !cards.length) {
+        els.mobileArchiveList.innerHTML = '<div class="mobile-archive-empty">ЗАГРУЗКА АРХИВА...</div>';
+      } else if (!cards.length) {
+        els.mobileArchiveList.innerHTML = '<div class="mobile-archive-empty">ПО ДАННОМУ ПОИСКУ НИЧЕГО НЕ НАЙДЕНО.</div>';
+      } else {
+        els.mobileArchiveList.innerHTML = renderMobileArchiveRows(cards);
+      }
+    }
+
+    async function loadMobileArchive({ force = false } = {}) {
+      if (!force && state.archiveLoaded) {
+        renderMobileArchivePanel();
+        return;
+      }
+      state.mobileArchiveLoading = true;
+      renderMobileArchivePanel();
+      try {
+        await loadArchive(false, { force });
+      } finally {
+        state.mobileArchiveLoading = false;
+        renderMobileArchivePanel();
+        renderMobileMoreModules();
+      }
+    }
+
+    function openMobileArchivePanel() {
+      state.mobileMorePanel = 'archive';
+      renderMobileMore();
+      loadMobileArchive();
+    }
+
+    function handleMobileArchiveInput() {
+      state.archiveQuery = String(els.mobileArchiveSearchInput?.value || '').trim();
+      window.clearTimeout(state.mobileArchiveSearchTimer);
+      state.mobileArchiveSearchTimer = window.setTimeout(() => renderMobileArchivePanel(), 80);
+      renderMobileArchivePanel();
+    }
+
+    async function restoreMobileArchiveCard(cardId) {
+      const normalizedId = String(cardId || '').trim();
+      if (!normalizedId) return;
+      state.mobileArchiveLoading = true;
+      renderMobileArchivePanel();
+      try {
+        const data = await api('/api/restore_card', {
+          method: 'POST',
+          body: { card_id: normalizedId, actor_name: state.actor, source: 'mobile-ui' },
+        });
+        const restoredId = String(data?.card?.id || normalizedId).trim();
+        const patched = data?.card ? applyArchivedCardPatch(data.card) : false;
+        if (!patched) {
+          state.archiveCards = (Array.isArray(state.archiveCards) ? state.archiveCards : []).filter((card) => String(card?.id || '') !== normalizedId);
+          await refreshSnapshot(true);
+        }
+        await loadArchive(false, { force: true });
+        state.mobileArchiveLoading = false;
+        renderMobileArchivePanel();
+        renderMobileMoreModules();
+        setStatus('КАРТОЧКА ВОССТАНОВЛЕНА.', false);
+        if (restoredId) {
+          state.mobileMorePanel = '';
+          setMobileView('board');
+          await openMobileCardDetail(restoredId);
+        }
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        state.mobileArchiveLoading = false;
+        renderMobileArchivePanel();
+        renderMobileMoreModules();
+      }
+    }
+
+    function handleMobileArchiveClick(event) {
+      const button = event.target instanceof HTMLElement ? event.target.closest('[data-mobile-archive-restore]') : null;
+      if (!button || !els.mobileArchivePanel?.contains(button)) return;
+      event.preventDefault();
+      restoreMobileArchiveCard(button.getAttribute('data-mobile-archive-restore'));
+    }
+
+    function mobileSharedFilesMetaText(files) {
+      const storage = state.sharedFilesStorage || {};
+      const total = Array.isArray(files) ? files.length : 0;
+      if (storage.limit_bytes) {
+        return formatBytes(storage.used_bytes || 0) + ' / ' + formatBytes(storage.limit_bytes || 0) + ' · ' + total + ' ФАЙЛ.';
+      }
+      return total ? (total + ' ФАЙЛ.') : 'ФАЙЛОВ ПОКА НЕТ';
+    }
+
+    function renderMobileSharedFilesRows(files) {
+      return files.map((file) => {
+        const fileId = String(file?.id || '').trim();
+        const isActive = fileId === String(state.sharedFilesActiveId || '');
+        const isRenaming = fileId === String(state.mobileSharedFileRenamingId || '');
+        const metaText = sharedFileMetaParts(file).join(' · ') || 'ФАЙЛ';
+        return '<article class="mobile-shared-file-row' + (isActive ? ' is-active' : '') + '" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">'
+          + '<div class="mobile-shared-file-row__top">'
+            + '<div class="mobile-shared-file-row__name">' + escapeHtml(file?.original_name || 'Файл') + '</div>'
+            + '<div class="mobile-shared-file-row__kind">' + escapeHtml(sharedFileKindLabel(file)) + '</div>'
+          + '</div>'
+          + '<div class="mobile-shared-file-row__meta">' + escapeHtml(metaText) + '</div>'
+          + '<div class="mobile-shared-file-row__actions">'
+            + '<button class="mobile-action mobile-action--ghost" type="button" data-mobile-shared-file-action="open" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">ОТКР.</button>'
+            + '<button class="mobile-action mobile-action--ghost" type="button" data-mobile-shared-file-action="download" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">СКАЧ.</button>'
+            + '<button class="mobile-action mobile-action--ghost" type="button" data-mobile-shared-file-action="rename" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">' + (isRenaming ? '...' : 'ИМЯ') + '</button>'
+            + '<button class="mobile-action mobile-action--expense" type="button" data-mobile-shared-file-action="delete" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">УДАЛ.</button>'
+          + '</div>'
+        + '</article>';
+      }).join('');
+    }
+
+    function renderMobileSharedFilesPanel() {
+      const isOpen = state.mobileMorePanel === 'files';
+      if (els.mobileSharedFilesPanel) els.mobileSharedFilesPanel.hidden = !isOpen;
+      syncMobileMorePanelChrome();
+      if (!isOpen) return;
+      const files = Array.isArray(state.sharedFiles) ? state.sharedFiles : [];
+      if (els.mobileSharedFilesUploadButton) {
+        els.mobileSharedFilesUploadButton.disabled = Boolean(state.mobileSharedFilesLoading);
+        els.mobileSharedFilesUploadButton.textContent = state.mobileSharedFilesLoading ? '...' : 'ЗАГРУЗИТЬ';
+      }
+      if (els.mobileSharedFilesMeta) {
+        els.mobileSharedFilesMeta.textContent = state.mobileSharedFilesLoading ? 'ЗАГРУЗКА...' : mobileSharedFilesMetaText(files);
+      }
+      if (!els.mobileSharedFilesList) return;
+      if (state.mobileSharedFilesLoading && !files.length) {
+        els.mobileSharedFilesList.innerHTML = '<div class="mobile-shared-file-empty">ЗАГРУЗКА ФАЙЛОВ...</div>';
+      } else if (!files.length) {
+        els.mobileSharedFilesList.innerHTML = '<div class="mobile-shared-file-empty">ОБЩИХ ФАЙЛОВ ПОКА НЕТ.</div>';
+      } else {
+        els.mobileSharedFilesList.innerHTML = renderMobileSharedFilesRows(files);
+      }
+    }
+
+    async function loadMobileSharedFiles({ force = false } = {}) {
+      void force;
+      state.mobileSharedFilesLoading = true;
+      renderMobileSharedFilesPanel();
+      try {
+        await loadSharedFiles({ openModal: false });
+      } finally {
+        state.mobileSharedFilesLoading = false;
+        renderMobileSharedFilesPanel();
+        renderMobileMoreModules();
+      }
+    }
+
+    function openMobileSharedFilesPanel() {
+      state.mobileMorePanel = 'files';
+      renderMobileMore();
+      loadMobileSharedFiles();
+    }
+
+    function selectMobileSharedFile(fileId) {
+      const normalizedId = String(fileId || '').trim();
+      if (!normalizedId) return null;
+      selectSharedFile(normalizedId);
+      renderMobileSharedFilesPanel();
+      return sharedFileById(normalizedId);
+    }
+
+    function openMobileSharedFile(fileId) {
+      const file = selectMobileSharedFile(fileId);
+      if (!file) return;
+      window.open(sharedFileDownloadUrl(file, { inline: true }), '_blank', 'noopener');
+    }
+
+    async function downloadMobileSharedFile(fileId) {
+      const file = selectMobileSharedFile(fileId);
+      if (!file) return;
+      await downloadActiveSharedFile();
+      renderMobileSharedFilesPanel();
+    }
+
+    async function renameMobileSharedFile(fileId) {
+      const file = selectMobileSharedFile(fileId);
+      if (!file) return;
+      state.mobileSharedFileRenamingId = file.id;
+      renderMobileSharedFilesPanel();
+      try {
+        await renameActiveSharedFile();
+      } finally {
+        state.mobileSharedFileRenamingId = '';
+        renderMobileSharedFilesPanel();
+        renderMobileMoreModules();
+      }
+    }
+
+    async function deleteMobileSharedFile(fileId) {
+      const file = selectMobileSharedFile(fileId);
+      if (!file) return;
+      try {
+        await deleteActiveSharedFile();
+      } finally {
+        renderMobileSharedFilesPanel();
+        renderMobileMoreModules();
+      }
+    }
+
+    async function uploadMobileSharedFiles() {
+      const files = Array.from(els.mobileSharedFilesInput?.files || []).filter(Boolean);
+      if (!files.length) return;
+      state.mobileSharedFilesLoading = true;
+      renderMobileSharedFilesPanel();
+      try {
+        await uploadSharedFiles(files, { dropPoint: null });
+      } finally {
+        if (els.mobileSharedFilesInput) els.mobileSharedFilesInput.value = '';
+        state.mobileSharedFilesLoading = false;
+        renderMobileSharedFilesPanel();
+        renderMobileMoreModules();
+      }
+    }
+
+    function handleMobileSharedFilesClick(event) {
+      const button = event.target instanceof HTMLElement ? event.target.closest('[data-mobile-shared-file-action]') : null;
+      if (!button || !els.mobileSharedFilesPanel?.contains(button)) return;
+      event.preventDefault();
+      const action = String(button.getAttribute('data-mobile-shared-file-action') || '').trim();
+      const fileId = String(button.getAttribute('data-mobile-shared-file-id') || button.closest('[data-mobile-shared-file-id]')?.getAttribute('data-mobile-shared-file-id') || '').trim();
+      if (action === 'open') return openMobileSharedFile(fileId);
+      if (action === 'download') return downloadMobileSharedFile(fileId);
+      if (action === 'rename') return renameMobileSharedFile(fileId);
+      if (action === 'delete') return deleteMobileSharedFile(fileId);
+      return null;
+    }
+
+    function mobileMoreClientsTotal() {
+      const metaTotal = Number(state.clientsMetaState?.total ?? NaN);
+      if (Number.isFinite(metaTotal) && metaTotal >= 0) return metaTotal;
+      return Array.isArray(state.clients) ? state.clients.length : 0;
+    }
+
+    function mobileMoreModuleRows() {
+      const clients = Array.isArray(state.clients) ? state.clients : [];
+      const employees = Array.isArray(state.employees) ? state.employees : [];
+      const activeEmployees = employees.filter((employee) => Boolean(employee?.is_active)).length;
+      const archiveCount = archivedCardsTotal();
+      const files = Array.isArray(state.sharedFiles) ? state.sharedFiles : [];
+      const storage = state.sharedFilesStorage || {};
+      const storageText = storage.limit_bytes
+        ? formatBytes(storage.used_bytes || 0) + ' / ' + formatBytes(storage.limit_bytes || 0)
+        : (files.length ? (String(files.length) + ' файл.') : 'Файлов пока нет');
+      const loadState = state.mobileMoreLoading
+        ? 'ОБНОВЛЯЕТСЯ'
+        : (state.mobileMoreLoaded ? 'ДАННЫЕ ГОТОВЫ' : 'ОТКРОЙТЕ ИЛИ ОБНОВИТЕ');
+      return [
+        {
+          id: 'clients',
+          title: 'Клиенты',
+          value: String(mobileMoreClientsTotal()),
+          status: loadState,
+          detail: clients.length
+            ? clients.slice(0, 2).map((client) => clientDisplayName(client)).join(' · ')
+            : 'База клиентов и машин',
+        },
+        {
+          id: 'employees',
+          title: 'Сотрудники',
+          value: String(activeEmployees || employees.length || 0),
+          status: loadState,
+          detail: employees.length
+            ? ('Активных: ' + activeEmployees + ' из ' + employees.length)
+            : 'Зарплата, смены и начисления',
+        },
+        {
+          id: 'archive',
+          title: 'Архив',
+          value: String(archiveCount),
+          status: loadState,
+          detail: state.archiveLoaded
+            ? ('Показано последних: ' + String((state.archiveCards || []).length))
+            : 'Закрытые и возвращаемые карточки',
+        },
+        {
+          id: 'files',
+          title: 'Файлы',
+          value: String(files.length),
+          status: loadState,
+          detail: storageText,
+        },
+      ];
+    }
+
+    function renderMobileMoreModules() {
+      if (!els.mobileMoreGrid) return;
+      if (els.mobileMoreRefreshButton) {
+        els.mobileMoreRefreshButton.disabled = Boolean(state.mobileMoreLoading);
+        els.mobileMoreRefreshButton.textContent = state.mobileMoreLoading ? 'ЗАГРУЗКА' : 'ОБНОВИТЬ';
+      }
+      const rows = mobileMoreModuleRows();
+      els.mobileMoreGrid.innerHTML = rows.map((item) => {
+        return '<button class="mobile-module-button mobile-module-card" type="button" data-mobile-open="' + escapeHtml(item.id) + '" data-mobile-more-module="' + escapeHtml(item.id) + '">'
+          + '<div class="mobile-module-card__top">'
+            + '<span class="mobile-module-card__title">' + escapeHtml(item.title) + '</span>'
+            + '<span class="mobile-module-card__value" data-mobile-more-value="' + escapeHtml(item.id) + '">' + escapeHtml(item.value) + '</span>'
+          + '</div>'
+          + '<div class="mobile-module-card__status">' + escapeHtml(item.status) + '</div>'
+          + '<div class="mobile-module-card__detail">' + escapeHtml(item.detail) + '</div>'
+        + '</button>';
+      }).join('');
+    }
+
+    async function loadMobileMoreModules({ force = false } = {}) {
+      if (state.mobileMoreLoading) return;
+      state.mobileMoreLoading = true;
+      state.mobileMoreError = '';
+      renderMobileMoreModules();
+      try {
+        const results = await Promise.allSettled([
+          loadClients({ openModal: false }),
+          loadEmployeesReference(),
+          loadArchive(false, { force }),
+          loadSharedFiles({ openModal: false }),
+        ]);
+        const failed = results.filter((item) => item.status === 'rejected');
+        state.mobileMoreLoaded = true;
+        if (failed.length) {
+          state.mobileMoreError = 'НЕ ВСЕ МОДУЛИ ОБНОВИЛИСЬ.';
+          setStatus(state.mobileMoreError, true);
+        }
+      } finally {
+        state.mobileMoreLoading = false;
+        renderMobileMoreModules();
+        renderMobileArchivePanel();
+        renderMobileSharedFilesPanel();
+      }
+    }
+
+    function renderMobileMore() {
+      renderMobileStatus();
+      renderMobileMoreModules();
+      renderMobileClientsPanel();
+      renderMobileEmployeesPanel();
+      renderMobileArchivePanel();
+      renderMobileSharedFilesPanel();
+      if (!state.mobileMoreLoaded && !state.mobileMoreLoading) {
+        loadMobileMoreModules();
+      }
+    }
+
+    function renderMobileShell() {
+      if (!els.mobileAppShell) return;
+      const view = normalizeMobileView(state.mobileView);
+      els.mobileAppShell.dataset.mobileActiveView = view;
+      document.querySelectorAll('[data-mobile-view]').forEach((button) => {
+        if (!els.mobileAppShell.contains(button)) return;
+        button.classList.toggle('is-active', button.dataset.mobileView === view);
+      });
+      document.querySelectorAll('[data-mobile-panel]').forEach((panel) => {
+        if (!els.mobileAppShell.contains(panel)) return;
+        panel.classList.toggle('is-active', panel.dataset.mobilePanel === view);
+      });
+      renderMobileStatus();
+      if (view === 'board') renderMobileBoard();
+      if (view === 'cashboxes') renderMobileCashboxes();
+      if (view === 'repair-orders') renderMobileRepairOrders();
+      if (view === 'more') renderMobileMore();
+    }
+
+    function setMobileView(view) {
+      state.mobileView = normalizeMobileView(view);
+      renderMobileShell();
+      if (state.mobileView === 'cashboxes' && !state.cashboxesLoaded) {
+        loadCashboxes(false, { deferDetail: true });
+      }
+      if (state.mobileView === 'repair-orders' && !state.repairOrdersMetaState && typeof loadRepairOrders === 'function') {
+        loadRepairOrders(false);
+      }
+    }
+
+    function setMobileCashboxAction(action) {
+      const normalized = ['income', 'expense', 'transfer'].includes(action) ? action : '';
+      state.mobileCashboxAction = normalized;
+      renderMobileCashboxAction();
+      if (normalized && els.mobileCashboxAmountInput) els.mobileCashboxAmountInput.focus({ preventScroll: true });
+    }
+
+    function handleMobileCashboxListClick(event) {
+      const button = event.target instanceof HTMLElement ? event.target.closest('[data-mobile-cashbox-id]') : null;
+      const cashboxId = String(button?.getAttribute('data-mobile-cashbox-id') || '').trim();
+      if (!cashboxId) return;
+      state.activeCashboxId = cashboxId;
+      const summaryCashbox = (Array.isArray(state.cashboxes) ? state.cashboxes : []).find((item) => item.id === cashboxId) || null;
+      state.activeCashbox = {
+        cashbox: summaryCashbox,
+        transactions: [],
+        meta: summaryCashbox?.statistics || {},
+        statistics: summaryCashbox?.statistics || {},
+      };
+      renderMobileCashboxes();
+      loadCashboxDetail(cashboxId, { openModal: false });
+    }
+
+    async function submitMobileCashboxAction() {
+      const action = String(state.mobileCashboxAction || '');
+      const cashbox = state.activeCashbox?.cashbox
+        || (Array.isArray(state.cashboxes) ? state.cashboxes.find((item) => item.id === state.activeCashboxId) : null)
+        || null;
+      if (!cashbox?.id) return setStatus('СНАЧАЛА ВЫБЕРИТЕ КАССУ.', true);
+      const amount = String(els.mobileCashboxAmountInput?.value || '').trim();
+      if (!amount || repairOrderParseNumber(amount) === null || repairOrderParseNumber(amount) <= 0) {
+        return setStatus('УКАЖИТЕ СУММУ.', true);
+      }
+      const note = String(els.mobileCashboxNoteInput?.value || '').trim();
+      if (action === 'expense' && !cashboxExpenseNoteIsValid(note)) {
+        els.mobileCashboxNoteInput?.focus({ preventScroll: true });
+        return setStatus('ДЛЯ СПИСАНИЯ УКАЖИТЕ КОММЕНТАРИЙ НЕ КОРОЧЕ 10 СИМВОЛОВ.', true);
+      }
+      try {
+        if (els.mobileCashboxSubmitButton) els.mobileCashboxSubmitButton.disabled = true;
+        if (action === 'transfer') {
+          const targetId = String(els.mobileCashboxTargetSelect?.value || '').trim();
+          if (!targetId || targetId === cashbox.id) return setStatus('УКАЖИТЕ КАССУ ДЛЯ ПЕРЕМЕЩЕНИЯ.', true);
+          await api('/api/create_cashbox_transfer', {
+            method: 'POST',
+            body: {
+              from_cashbox_id: cashbox.id,
+              to_cashbox_id: targetId,
+              amount,
+              note,
+              actor_name: state.actor,
+              source: 'mobile-ui',
+            },
+          });
+          setStatus('ПЕРЕМЕЩЕНИЕ СОХРАНЕНО.', false);
+        } else {
+          const direction = action === 'expense' ? 'expense' : 'income';
+          await api('/api/create_cash_transaction', {
+            method: 'POST',
+            body: {
+              cashbox_id: cashbox.id,
+              direction,
+              amount,
+              note,
+              actor_name: state.actor,
+              source: 'mobile-ui',
+            },
+          });
+          setStatus(direction === 'expense' ? 'СПИСАНИЕ СОХРАНЕНО.' : 'ПОСТУПЛЕНИЕ СОХРАНЕНО.', false);
+        }
+        if (els.mobileCashboxAmountInput) els.mobileCashboxAmountInput.value = '';
+        if (els.mobileCashboxNoteInput) els.mobileCashboxNoteInput.value = '';
+        state.mobileCashboxAction = '';
+        await loadCashboxes(false, { deferDetail: false });
+        renderMobileCashboxes();
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        if (els.mobileCashboxSubmitButton) els.mobileCashboxSubmitButton.disabled = false;
+      }
+    }
+
+    function handleMobileMoreClick(event) {
+      const button = event.target instanceof HTMLElement ? event.target.closest('[data-mobile-open]') : null;
+      const target = String(button?.getAttribute('data-mobile-open') || '').trim();
+      if (target === 'clients') return openMobileClientsPanel();
+      if (target === 'employees') return openMobileEmployeesPanel();
+      if (target === 'archive') return openMobileArchivePanel();
+      if (target === 'files') return openMobileSharedFilesPanel();
+      return null;
+    }
+
+    function bindMobileShellEvents() {
+      if (!els.mobileAppShell || els.mobileAppShell.dataset.bound === 'true') return;
+      els.mobileAppShell.dataset.bound = 'true';
+      els.mobileAppShell.addEventListener('click', (event) => {
+        const viewButton = event.target instanceof HTMLElement ? event.target.closest('[data-mobile-view]') : null;
+        if (viewButton && els.mobileAppShell.contains(viewButton)) {
+          setMobileView(viewButton.getAttribute('data-mobile-view'));
+        }
+      });
+      els.mobileShellMain?.addEventListener('touchstart', handleMobileShellTouchStart, { passive: true });
+      els.mobileShellMain?.addEventListener('touchend', handleMobileShellTouchEnd, { passive: true });
+      els.mobileOperatorButton?.addEventListener('click', openOperatorWorkspace);
+      els.mobileCardCreateButton?.addEventListener('click', openMobileNewCard);
+      els.mobileBoardRefreshButton?.addEventListener('click', () => refreshSnapshot(true));
+      els.mobileBoardColumns?.addEventListener('click', handleMobileBoardClick);
+      els.mobileCardBackButton?.addEventListener('click', closeMobileCardDetail);
+      els.mobileCardSaveButton?.addEventListener('click', () => saveMobileCardDetail());
+      els.mobileCardRepairOrderButton?.addEventListener('click', openMobileCardRepairOrder);
+      els.mobileCardTabs?.addEventListener('click', handleMobileCardTabsClick);
+      els.mobileCardTagAddButton?.addEventListener('click', addMobileCardTag);
+      els.mobileCardTagInput?.addEventListener('keydown', handleMobileCardTagInputKeydown);
+      els.mobileCardFileAddButton?.addEventListener('click', openMobileCardFilePicker);
+      els.mobileCardFileInput?.addEventListener('change', () => uploadMobileCardFiles());
+      els.mobileCardJournalRefreshButton?.addEventListener('click', () => loadMobileCardJournal({ force: true }));
+      els.mobileCardDetail?.addEventListener('click', handleMobileCardDetailClick);
+      els.mobileCardDetail?.addEventListener('input', handleMobileCardDetailInput);
+      els.mobileCardDetail?.addEventListener('change', handleMobileCardDetailInput);
+      els.mobileCashboxRefreshButton?.addEventListener('click', () => loadCashboxes(false, { deferDetail: true }));
+      els.mobileCashboxList?.addEventListener('click', handleMobileCashboxListClick);
+      els.mobileCashboxIncomeButton?.addEventListener('click', () => setMobileCashboxAction('income'));
+      els.mobileCashboxExpenseButton?.addEventListener('click', () => setMobileCashboxAction('expense'));
+      els.mobileCashboxTransferButton?.addEventListener('click', () => setMobileCashboxAction('transfer'));
+      els.mobileCashboxSubmitButton?.addEventListener('click', () => submitMobileCashboxAction());
+      els.mobileCashboxActionCancelButton?.addEventListener('click', () => setMobileCashboxAction(''));
+      els.mobileRepairOrdersRefreshButton?.addEventListener('click', () => {
+        if (typeof loadRepairOrders === 'function') loadRepairOrders(false);
+      });
+      els.mobileRepairOrdersList?.addEventListener('click', handleMobileRepairOrdersListClick);
+      els.mobileRepairOrdersList?.addEventListener('keydown', handleMobileRepairOrdersListKeydown);
+      els.mobileRepairOrderTabs?.addEventListener('click', handleMobileRepairOrderTabsClick);
+      els.mobileRepairOrderBackButton?.addEventListener('click', closeMobileRepairOrderDetail);
+      els.mobileRepairOrderSaveButton?.addEventListener('click', () => saveMobileRepairOrder());
+      els.mobileRepairOrderDetail?.addEventListener('click', handleMobileRepairOrderDetailClick);
+      els.mobileRepairOrderDetail?.addEventListener('input', handleMobileRepairOrderDetailInput);
+      els.mobileRepairOrderDetail?.addEventListener('change', handleMobileRepairOrderDetailInput);
+      els.mobileMoreRefreshButton?.addEventListener('click', () => loadMobileMoreModules({ force: true }));
+      els.mobileMoreGrid?.addEventListener('click', handleMobileMoreClick);
+      els.mobileClientsBackButton?.addEventListener('click', closeMobileMorePanel);
+      els.mobileClientsSearchInput?.addEventListener('input', handleMobileClientsInput);
+      els.mobileClientsPanel?.addEventListener('click', handleMobileClientsClick);
+      els.mobileEmployeesBackButton?.addEventListener('click', closeMobileMorePanel);
+      els.mobileEmployeesPanel?.addEventListener('click', handleMobileEmployeesClick);
+      els.mobileArchiveBackButton?.addEventListener('click', closeMobileMorePanel);
+      els.mobileArchiveSearchInput?.addEventListener('input', handleMobileArchiveInput);
+      els.mobileArchivePanel?.addEventListener('click', handleMobileArchiveClick);
+      els.mobileSharedFilesBackButton?.addEventListener('click', closeMobileMorePanel);
+      els.mobileSharedFilesUploadButton?.addEventListener('click', () => els.mobileSharedFilesInput?.click());
+      els.mobileSharedFilesInput?.addEventListener('change', uploadMobileSharedFiles);
+      els.mobileSharedFilesPanel?.addEventListener('click', handleMobileSharedFilesClick);
     }
 
     function formatDate(value) {
@@ -8634,6 +11178,7 @@
       } else if (els.board) {
         applyBoardScalePreference({ fallbackValue: state.snapshot?.settings?.board_scale ?? 1, syncInput: true, persistFallback: false });
       }
+      renderMobileShell();
       return enabled;
     }
 
@@ -12862,6 +15407,7 @@
       els.repairOrdersList.innerHTML = items.length
         ? renderRepairOrderListRows(items)
         : '<div class="log-row__meta">' + repairOrdersEmptyStateText() + '</div>';
+      renderMobileShell();
     }
 
     // СПИСОК: ДАТА / АВТО / СУТЬ / СУММА
@@ -13101,6 +15647,7 @@
       els.board.innerHTML = snapshot.columns.map((column, index) => renderBoardColumnHtml(column, index, snapshot, cardsByColumn)).join('') + '<div class="sticky-layer" id="stickyLayer"></div>';
       els.stickyLayer = document.getElementById('stickyLayer');
       renderStickies();
+      renderMobileShell();
       perfEnd(perfToken, { cards: snapshot.cards?.length || 0, columns: snapshot.columns?.length || 0 });
     }
 
@@ -14194,6 +16741,7 @@
           + '</div>';
       }).join('') : '<div class="cashboxes-empty">КАСС ПОКА НЕТ.</div>';
       syncCashboxDragClasses();
+      renderMobileShell();
     }
 
     function renderCashboxStats() {
@@ -14252,6 +16800,7 @@
         syncCashboxFiltersUi();
         els.cashboxStats.innerHTML = '';
         els.cashboxTransactions.innerHTML = '<div class="cashboxes-empty">НЕТ ДАННЫХ.</div>';
+        renderMobileShell();
         return;
       }
       const stats = activeCashboxStatistics();
@@ -14278,6 +16827,7 @@
       syncCashboxFiltersUi();
       renderCashboxStats();
       renderCashboxTransactions();
+      renderMobileShell();
     }
 
     function abortCashboxesLoad() {
@@ -14303,7 +16853,7 @@
         loadContext
         && state.cashboxesLoadController === loadContext.controller
         && state.cashboxesRequestSeq === loadContext.seq
-        && els.cashboxesModal?.classList.contains('is-open')
+        && (state.mobileLite || els.cashboxesModal?.classList.contains('is-open'))
       );
     }
 

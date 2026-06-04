@@ -223,6 +223,503 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("min-height: 27px;", BOARD_WEB_APP_HTML)
         self.assertIn("padding: 5px 8px;", BOARD_WEB_APP_HTML)
 
+    def test_mobile_product_shell_exposes_primary_workspaces(self) -> None:
+        self.assertIn('id="mobileAppShell"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="mobile-shell"', BOARD_WEB_APP_HTML)
+        for view in ("board", "cashboxes", "repair-orders", "more"):
+            self.assertIn(f'data-mobile-view="{view}"', BOARD_WEB_APP_HTML)
+        for panel in ("board", "cashboxes", "repair-orders", "more"):
+            self.assertIn(f'data-mobile-panel="{panel}"', BOARD_WEB_APP_HTML)
+        for element_id in (
+            "mobileStatusLine",
+            "mobileBoardColumns",
+            "mobileCashboxList",
+            "mobileCashboxDetail",
+            "mobileCashboxIncomeButton",
+            "mobileCashboxExpenseButton",
+            "mobileCashboxTransferButton",
+            "mobileRepairOrdersList",
+        ):
+            self.assertIn(f'id="{element_id}"', BOARD_WEB_APP_HTML)
+        self.assertIn("function setMobileView(view)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileShell()", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileCashboxes()", BOARD_WEB_APP_HTML)
+        self.assertIn("function bindMobileShellEvents()", BOARD_WEB_APP_HTML)
+        self.assertIn("body.is-mobile-lite .mobile-shell", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-bottom-nav", BOARD_WEB_APP_HTML)
+
+    def test_mobile_repair_order_detail_supports_core_fill_workflow(self) -> None:
+        for element_id in (
+            "mobileRepairOrderDetail",
+            "mobileRepairOrderBackButton",
+            "mobileRepairOrderSaveButton",
+            "mobileRepairOrderNumber",
+            "mobileRepairOrderStatus",
+            "mobileRepairOrderWorks",
+            "mobileRepairOrderMaterials",
+            "mobileRepairOrderTotals",
+        ):
+            self.assertIn(f'id="{element_id}"', BOARD_WEB_APP_HTML)
+        for field in (
+            "client",
+            "phone",
+            "vehicle",
+            "license_plate",
+            "vin",
+            "mileage",
+            "comment",
+        ):
+            self.assertIn(f'data-mobile-repair-order-field="{field}"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-mobile-repair-order-add-row="works"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-mobile-repair-order-add-row="materials"', BOARD_WEB_APP_HTML)
+        self.assertIn("function openMobileRepairOrderDetail(cardId)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileRepairOrderDetail()", BOARD_WEB_APP_HTML)
+        self.assertIn("function readMobileRepairOrderDraft()", BOARD_WEB_APP_HTML)
+        self.assertIn("function saveMobileRepairOrder()", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleMobileRepairOrdersListClick(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/update_repair_order'", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-repair-order-detail", BOARD_WEB_APP_HTML)
+
+    def test_mobile_repair_order_detail_supports_status_and_payments(self) -> None:
+        for element_id in (
+            "mobileRepairOrderStatusSelect",
+            "mobileRepairOrderPayments",
+            "mobileRepairOrderPaymentCashbox",
+            "mobileRepairOrderPaymentAmount",
+            "mobileRepairOrderPaymentNote",
+            "mobileRepairOrderAddPaymentButton",
+        ):
+            self.assertIn(f'id="{element_id}"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-mobile-repair-order-field="status"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-mobile-repair-payment-field="cashbox_id"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-mobile-repair-payment-field="amount"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-mobile-repair-payment-field="note"', BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-repair-order-payment-remove", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileRepairOrderPayments(payments)", BOARD_WEB_APP_HTML)
+        self.assertIn("function readMobileRepairOrderPayments()", BOARD_WEB_APP_HTML)
+        self.assertIn("function addMobileRepairOrderPayment()", BOARD_WEB_APP_HTML)
+        self.assertIn("function removeMobileRepairOrderPayment(paymentId)", BOARD_WEB_APP_HTML)
+        self.assertIn("payments: readMobileRepairOrderPayments()", BOARD_WEB_APP_HTML)
+        self.assertIn("payment_method: repairOrderPaymentMethodFromPayments(", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-repair-order-payment-row", BOARD_WEB_APP_HTML)
+
+    def test_mobile_repair_order_detail_uses_tabbed_sections_and_sticky_actions(self) -> None:
+        self.assertIn('class="mobile-repair-order-detail__sticky"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'class="mobile-repair-order-tabs" id="mobileRepairOrderTabs"', BOARD_WEB_APP_HTML
+        )
+        for tab in ("client", "works", "materials", "payments", "totals"):
+            self.assertIn(f'data-mobile-repair-order-tab="{tab}"', BOARD_WEB_APP_HTML)
+            self.assertIn(f'data-mobile-repair-order-page="{tab}"', BOARD_WEB_APP_HTML)
+        self.assertIn("mobileRepairOrderTab: 'client'", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "mobileRepairOrderTabs: document.getElementById('mobileRepairOrderTabs')",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("function normalizeMobileRepairOrderTab(tab)", BOARD_WEB_APP_HTML)
+        self.assertIn("function setMobileRepairOrderTab(tab)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileRepairOrderTabs()", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleMobileRepairOrderTabsClick(event)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.mobileRepairOrderTabs?.addEventListener('click', handleMobileRepairOrderTabsClick);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(".mobile-repair-order-page.is-active", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-repair-order-detail__sticky", BOARD_WEB_APP_HTML)
+        repair_order_tab_rule = re.search(
+            r"\.mobile-repair-order-tab\s*\{(?P<body>.*?)\n\s*\}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(repair_order_tab_rule)
+        repair_order_tab_body = repair_order_tab_rule.group("body")
+        self.assertIn("letter-spacing: 0;", repair_order_tab_body)
+        self.assertIn("white-space: nowrap;", repair_order_tab_body)
+        specific_repair_order_tab_rule = re.search(
+            r"\.mobile-shell \.mobile-repair-order-tab\s*\{(?P<body>.*?)\n\s*\}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(specific_repair_order_tab_rule)
+        self.assertIn("font-size: 10.5px;", specific_repair_order_tab_rule.group("body"))
+
+    def test_mobile_shell_supports_swipe_navigation_and_column_snap(self) -> None:
+        self.assertIn(
+            "const MOBILE_VIEW_ORDER = ['board', 'cashboxes', 'repair-orders', 'more'];",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("mobileSwipe:", BOARD_WEB_APP_HTML)
+        self.assertIn("function mobileViewIndex(view)", BOARD_WEB_APP_HTML)
+        self.assertIn("function shiftMobileView(direction)", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleMobileShellTouchStart(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleMobileShellTouchEnd(event)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "mobileShellMain: document.getElementById('mobileShellMain')", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "els.mobileShellMain?.addEventListener('touchstart', handleMobileShellTouchStart",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.mobileShellMain?.addEventListener('touchend', handleMobileShellTouchEnd",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("scroll-snap-type: x mandatory;", BOARD_WEB_APP_HTML)
+        self.assertIn("grid-auto-flow: column;", BOARD_WEB_APP_HTML)
+        self.assertIn("grid-auto-columns:", BOARD_WEB_APP_HTML)
+        self.assertIn("scroll-snap-align: start;", BOARD_WEB_APP_HTML)
+
+    def test_mobile_detail_screens_allow_long_form_scrolling(self) -> None:
+        for selector in (".mobile-card-detail", ".mobile-repair-order-detail"):
+            match = re.search(
+                rf"{re.escape(selector)}\s*\{{(?P<body>.*?)\n\s*\}}", BOARD_WEB_APP_HTML, re.S
+            )
+            self.assertIsNotNone(match, selector)
+            rule_body = match.group("body")
+            self.assertIn("overflow: visible;", rule_body)
+            self.assertNotIn("overflow: hidden;", rule_body)
+
+    def test_mobile_board_supports_card_detail_editing(self) -> None:
+        for element_id in (
+            "mobileCardCreateButton",
+            "mobileCardDetail",
+            "mobileCardTabs",
+            "mobileCardBackButton",
+            "mobileCardSaveButton",
+            "mobileCardTitleLine",
+            "mobileCardColumnSelect",
+            "mobileCardRepairOrderButton",
+        ):
+            self.assertIn(f'id="{element_id}"', BOARD_WEB_APP_HTML)
+        for field in ("vehicle", "title", "description", "column"):
+            self.assertIn(f'data-mobile-card-field="{field}"', BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-card-id", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileCardDetail()", BOARD_WEB_APP_HTML)
+        self.assertIn("function openMobileCardDetail(cardId)", BOARD_WEB_APP_HTML)
+        self.assertIn("function readMobileCardDraft()", BOARD_WEB_APP_HTML)
+        self.assertIn("function mobileCardDeadlineInput(card)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "card.deadline_total_seconds ?? card.remaining_seconds ?? 86400", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("function saveMobileCardDetail()", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleMobileBoardClick(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/update_card'", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-card-detail", BOARD_WEB_APP_HTML)
+
+    def test_mobile_board_supports_card_creation(self) -> None:
+        self.assertIn('id="mobileCardCreateButton"', BOARD_WEB_APP_HTML)
+        self.assertIn("mobileCardCreating: false", BOARD_WEB_APP_HTML)
+        self.assertIn("function emptyMobileCardDraft()", BOARD_WEB_APP_HTML)
+        self.assertIn("function openMobileNewCard()", BOARD_WEB_APP_HTML)
+        self.assertIn("state.mobileCardCreating = true;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const detailOpen = state.mobileCardCreating || Boolean(state.mobileCardId);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("const isNewCard = state.mobileCardCreating;", BOARD_WEB_APP_HTML)
+        self.assertIn("api('/api/create_card'", BOARD_WEB_APP_HTML)
+        self.assertIn("state.mobileCardCreating = false;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.mobileCardCreateButton?.addEventListener('click', openMobileNewCard);",
+            BOARD_WEB_APP_HTML,
+        )
+
+    def test_mobile_board_can_expand_columns_beyond_preview_limit(self) -> None:
+        self.assertIn("mobileExpandedColumns: new Set()", BOARD_WEB_APP_HTML)
+        self.assertIn("function mobileColumnIsExpanded(columnId)", BOARD_WEB_APP_HTML)
+        self.assertIn("function toggleMobileColumnExpanded(columnId)", BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-column-toggle", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const hiddenCount = Math.max(0, columnCards.length - previewCards.length);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("'ЕЩЁ ' + hiddenCount", BOARD_WEB_APP_HTML)
+        self.assertIn("'СВЕРНУТЬ'", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-column-card__more", BOARD_WEB_APP_HTML)
+
+    def test_mobile_more_workspace_shows_live_module_status_cards(self) -> None:
+        self.assertIn('id="mobileMoreRefreshButton"', BOARD_WEB_APP_HTML)
+        self.assertIn("mobileMoreLoaded: false", BOARD_WEB_APP_HTML)
+        self.assertIn("mobileMoreLoading: false", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "mobileMoreRefreshButton: document.getElementById('mobileMoreRefreshButton')",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("function renderMobileMoreModules()", BOARD_WEB_APP_HTML)
+        self.assertIn("function loadMobileMoreModules(", BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-more-module", BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-more-value", BOARD_WEB_APP_HTML)
+        self.assertIn("loadClients({ openModal: false })", BOARD_WEB_APP_HTML)
+        self.assertIn("loadEmployeesReference()", BOARD_WEB_APP_HTML)
+        self.assertIn("loadArchive(false, { force })", BOARD_WEB_APP_HTML)
+        self.assertIn("loadSharedFiles({ openModal: false })", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-module-card__value", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-module-card__detail", BOARD_WEB_APP_HTML)
+
+    def test_mobile_more_clients_module_has_native_drilldown(self) -> None:
+        self.assertIn("mobileMorePanel: ''", BOARD_WEB_APP_HTML)
+        for element_id in (
+            "mobileClientsPanel",
+            "mobileClientsBackButton",
+            "mobileClientsSearchInput",
+            "mobileClientsMeta",
+            "mobileClientsList",
+            "mobileClientDetail",
+        ):
+            self.assertIn(element_id, BOARD_WEB_APP_HTML)
+        self.assertIn("function openMobileClientsPanel()", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileClientsPanel()", BOARD_WEB_APP_HTML)
+        self.assertIn("function loadMobileClients(", BOARD_WEB_APP_HTML)
+        self.assertIn("function loadMobileClientProfile(clientId)", BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-client-id", BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-client-order-card", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (target === 'clients') return openMobileClientsPanel();", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("els.mobileClientsSearchInput?.addEventListener('input'", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-client-row", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-client-detail", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-more-grid[hidden]", BOARD_WEB_APP_HTML)
+
+    def test_mobile_more_employees_module_has_native_drilldown(self) -> None:
+        self.assertIn("mobileEmployeesLoading: false", BOARD_WEB_APP_HTML)
+        for element_id in (
+            "mobileEmployeesPanel",
+            "mobileEmployeesBackButton",
+            "mobileEmployeesMeta",
+            "mobileEmployeesList",
+            "mobileEmployeeDetail",
+        ):
+            self.assertIn(element_id, BOARD_WEB_APP_HTML)
+        self.assertIn("function openMobileEmployeesPanel()", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileEmployeesPanel()", BOARD_WEB_APP_HTML)
+        self.assertIn("function loadMobileEmployees(", BOARD_WEB_APP_HTML)
+        self.assertIn("function mobileEmployeeSummaryMap()", BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-employee-id", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (target === 'employees') return openMobileEmployeesPanel();", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(".mobile-employee-row", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-employee-detail", BOARD_WEB_APP_HTML)
+
+    def test_mobile_more_archive_module_has_native_drilldown(self) -> None:
+        self.assertIn("mobileArchiveLoading: false", BOARD_WEB_APP_HTML)
+        for element_id in (
+            "mobileArchivePanel",
+            "mobileArchiveBackButton",
+            "mobileArchiveSearchInput",
+            "mobileArchiveMeta",
+            "mobileArchiveList",
+        ):
+            self.assertIn(element_id, BOARD_WEB_APP_HTML)
+        self.assertIn("function openMobileArchivePanel()", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileArchivePanel()", BOARD_WEB_APP_HTML)
+        self.assertIn("function loadMobileArchive(", BOARD_WEB_APP_HTML)
+        self.assertIn("function restoreMobileArchiveCard(cardId)", BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-archive-card", BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-archive-restore", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (target === 'archive') return openMobileArchivePanel();", BOARD_WEB_APP_HTML
+        )
+        self.assertNotIn("if (target === 'archive') return openArchiveModal();", BOARD_WEB_APP_HTML)
+        self.assertIn("els.mobileArchiveSearchInput?.addEventListener('input'", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-archive-row", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-archive-panel", BOARD_WEB_APP_HTML)
+
+    def test_mobile_more_files_module_has_native_drilldown(self) -> None:
+        self.assertIn("mobileSharedFilesLoading: false", BOARD_WEB_APP_HTML)
+        self.assertIn("mobileSharedFileRenamingId: ''", BOARD_WEB_APP_HTML)
+        for element_id in (
+            "mobileSharedFilesPanel",
+            "mobileSharedFilesBackButton",
+            "mobileSharedFilesUploadButton",
+            "mobileSharedFilesInput",
+            "mobileSharedFilesMeta",
+            "mobileSharedFilesList",
+        ):
+            self.assertIn(element_id, BOARD_WEB_APP_HTML)
+        self.assertIn("function openMobileSharedFilesPanel()", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileSharedFilesPanel()", BOARD_WEB_APP_HTML)
+        self.assertIn("function loadMobileSharedFiles(", BOARD_WEB_APP_HTML)
+        self.assertIn("function renameMobileSharedFile(fileId)", BOARD_WEB_APP_HTML)
+        self.assertIn("function deleteMobileSharedFile(fileId)", BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-shared-file-id", BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-shared-file-action", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (target === 'files') return openMobileSharedFilesPanel();", BOARD_WEB_APP_HTML
+        )
+        self.assertNotIn(
+            "if (target === 'files') return openSharedFilesModal();", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("els.mobileSharedFilesInput?.addEventListener('change'", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-shared-file-row", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-shared-files-panel", BOARD_WEB_APP_HTML)
+
+    def test_mobile_card_detail_uses_tabbed_sections_and_sticky_actions(self) -> None:
+        self.assertIn('class="mobile-card-detail__sticky"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="mobile-card-tabs" id="mobileCardTabs"', BOARD_WEB_APP_HTML)
+        for tab in ("overview", "vehicle", "files", "journal"):
+            self.assertIn(f'data-mobile-card-tab="{tab}"', BOARD_WEB_APP_HTML)
+            self.assertIn(f'data-mobile-card-page="{tab}"', BOARD_WEB_APP_HTML)
+        self.assertIn("mobileCardTab: 'overview'", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "mobileCardTabs: document.getElementById('mobileCardTabs')", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("function normalizeMobileCardTab(tab)", BOARD_WEB_APP_HTML)
+        self.assertIn("function setMobileCardTab(tab)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileCardTabs()", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleMobileCardTabsClick(event)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.mobileCardTabs?.addEventListener('click', handleMobileCardTabsClick);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(".mobile-card-page.is-active", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-card-detail__sticky", BOARD_WEB_APP_HTML)
+
+    def test_mobile_card_detail_supports_deadline_and_tags(self) -> None:
+        for element_id in (
+            "mobileCardDeadlineDays",
+            "mobileCardDeadlineHours",
+            "mobileCardDeadlinePreview",
+            "mobileCardTags",
+            "mobileCardTagsLimit",
+            "mobileCardTagInput",
+            "mobileCardTagColor",
+            "mobileCardTagAddButton",
+        ):
+            self.assertIn(f'id="{element_id}"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-mobile-card-deadline-field="days"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-mobile-card-deadline-field="hours"', BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-card-remove-tag", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileCardDeadline(card)", BOARD_WEB_APP_HTML)
+        self.assertIn("function mobileCardDeadlineFromUi(card)", BOARD_WEB_APP_HTML)
+        self.assertIn("function syncMobileCardDeadlinePreview()", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileCardTags(card)", BOARD_WEB_APP_HTML)
+        self.assertIn("function readMobileCardTags()", BOARD_WEB_APP_HTML)
+        self.assertIn("function addMobileCardTag()", BOARD_WEB_APP_HTML)
+        self.assertIn("function removeMobileCardTag(label)", BOARD_WEB_APP_HTML)
+        self.assertIn("deadline: mobileCardDeadlineFromUi(card),", BOARD_WEB_APP_HTML)
+        self.assertIn("tags: readMobileCardTags(),", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-card-deadline", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-card-tags", BOARD_WEB_APP_HTML)
+
+    def test_mobile_card_detail_supports_vehicle_profile_and_client_fields(self) -> None:
+        for element_id in (
+            "mobileCardVehicleProfile",
+            "mobileCardVehicleDisplayName",
+            "mobileCardVehiclePlate",
+            "mobileCardVehicleYear",
+            "mobileCardVehicleMileage",
+            "mobileCardVehicleCustomerPhone",
+            "mobileCardVehicleCustomerName",
+            "mobileCardVehicleVin",
+            "mobileCardVehicleEngine",
+            "mobileCardVehicleGearbox",
+            "mobileCardVehicleDrivetrain",
+        ):
+            self.assertIn(f'id="{element_id}"', BOARD_WEB_APP_HTML)
+        for field in (
+            "display_name",
+            "registration_plate",
+            "production_year",
+            "mileage",
+            "customer_phone",
+            "customer_name",
+            "vin",
+            "engine_model",
+            "gearbox_model",
+            "drivetrain",
+        ):
+            self.assertIn(f'data-mobile-vehicle-field="{field}"', BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileCardVehicleProfile(card)", BOARD_WEB_APP_HTML)
+        self.assertIn("function readMobileCardVehicleProfile(card)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function mobileVehicleNumberFieldValue(fieldName, value)", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("vehicle_profile: readMobileCardVehicleProfile(card),", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "profile.customer_phones = normalizePhoneList([profile.customer_phone]);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("profile.make_display = displayParts.make_display;", BOARD_WEB_APP_HTML)
+        self.assertIn("profile.model_display = displayParts.model_display;", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-card-vehicle", BOARD_WEB_APP_HTML)
+
+    def test_mobile_card_detail_supports_files_and_attachments(self) -> None:
+        for element_id in (
+            "mobileCardFiles",
+            "mobileCardFileInput",
+            "mobileCardFileAddButton",
+            "mobileCardFileMeta",
+        ):
+            self.assertIn(f'id="{element_id}"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "mobileCardFiles: document.getElementById('mobileCardFiles')", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "mobileCardFileInput: document.getElementById('mobileCardFileInput')",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "mobileCardFileAddButton: document.getElementById('mobileCardFileAddButton')",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "mobileCardFileMeta: document.getElementById('mobileCardFileMeta')", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("data-mobile-card-file-id", BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-card-remove-file", BOARD_WEB_APP_HTML)
+        self.assertIn("function mobileCardAttachmentRows(card)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function mobileCardAttachmentDownloadPath(cardId, attachmentId)", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("function renderMobileCardFiles(card)", BOARD_WEB_APP_HTML)
+        self.assertIn("async function uploadMobileCardFiles()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function removeMobileCardFile(attachmentId)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const removeDisabledAttr = state.mobileCardFilesBusy ? ' disabled' : '';",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("'/api/add_card_attachment'", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/remove_card_attachment'", BOARD_WEB_APP_HTML)
+        self.assertIn("renderMobileCardFiles(card);", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-card-files", BOARD_WEB_APP_HTML)
+
+    def test_mobile_card_detail_supports_journal_events(self) -> None:
+        for element_id in (
+            "mobileCardJournal",
+            "mobileCardJournalMeta",
+            "mobileCardJournalRefreshButton",
+        ):
+            self.assertIn(f'id="{element_id}"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "mobileCardJournal: document.getElementById('mobileCardJournal')", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "mobileCardJournalMeta: document.getElementById('mobileCardJournalMeta')",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "mobileCardJournalRefreshButton: document.getElementById('mobileCardJournalRefreshButton')",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("mobileCardJournalPayload:", BOARD_WEB_APP_HTML)
+        self.assertIn("mobileCardJournalLoadedFor:", BOARD_WEB_APP_HTML)
+        self.assertIn("mobileCardJournalLimit:", BOARD_WEB_APP_HTML)
+        self.assertIn("mobileCardJournalLoading:", BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-card-journal-row", BOARD_WEB_APP_HTML)
+        self.assertIn("data-mobile-card-journal-more", BOARD_WEB_APP_HTML)
+        self.assertIn("function mobileCardJournalRequestUrl(cardId", BOARD_WEB_APP_HTML)
+        self.assertIn("function mobileCardJournalRows(payload)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileCardJournal()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function loadMobileCardJournal(", BOARD_WEB_APP_HTML)
+        self.assertIn("function resetMobileCardJournal()", BOARD_WEB_APP_HTML)
+        self.assertIn("cardJournalEntriesFromPayload(data)", BOARD_WEB_APP_HTML)
+        self.assertIn("renderCardJournalDetails(entry)", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/get_card_log?card_id='", BOARD_WEB_APP_HTML)
+        self.assertIn("renderMobileCardJournal();", BOARD_WEB_APP_HTML)
+        self.assertIn(".mobile-card-journal", BOARD_WEB_APP_HTML)
+
     def test_topbar_card_search_workspace_is_wired_to_search_cards(self) -> None:
         self.assertIn('class="topbar-search"', BOARD_WEB_APP_HTML)
         self.assertIn('id="boardSearchInput"', BOARD_WEB_APP_HTML)

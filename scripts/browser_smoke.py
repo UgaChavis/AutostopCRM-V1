@@ -56,8 +56,20 @@ SMOKE_SCENARIOS = (
     "cashboxes_journal_transfer_returns_to_cashbox",
     "escape_closes_top_modal_only",
     "operator_admin_employee_binding_returns_to_users",
-    "mobile_board_load",
 )
+
+MOBILE_SMOKE_SCENARIOS = (
+    "mobile_board_load",
+    "mobile_card_detail",
+    "mobile_cashboxes_workspace",
+    "mobile_repair_orders_workspace",
+    "mobile_clients_panel",
+    "mobile_employees_panel",
+    "mobile_archive_panel",
+    "mobile_files_panel",
+)
+
+SMOKE_SCENARIOS = SMOKE_SCENARIOS + MOBILE_SMOKE_SCENARIOS
 
 BROWSER_READ_RETRY_LIMIT = 1
 BROWSER_READ_RETRY_DELAY_SECONDS = 0.15
@@ -588,7 +600,7 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     scenarios = {
         name: False
         for name in SMOKE_SCENARIOS
-        if name not in {"mobile_board_load", "login_gate_hides_board_until_operator_login"}
+        if name not in set(MOBILE_SMOKE_SCENARIOS) | {"login_gate_hides_board_until_operator_login"}
     }
     await page.wait_for_selector("#board")
     scenarios["payroll_chain_reaches_reports_and_reconciliation"] = (
@@ -1123,16 +1135,149 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     return scenarios
 
 
-async def _mobile_scenario(browser: Any, base_url: str) -> bool:
+async def _mobile_has_no_horizontal_overflow(page: Any) -> bool:
+    return bool(
+        await page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth + 1")
+    )
+
+
+async def _mobile_select_view(page: Any, view: str) -> None:
+    await page.click(f'[data-mobile-view="{view}"]')
+    await page.wait_for_selector(f'[data-mobile-panel="{view}"].is-active')
+
+
+async def _mobile_open_more_module(page: Any, module_name: str, panel_selector: str) -> None:
+    await _mobile_select_view(page, "more")
+    if not await page.locator(f'[data-mobile-open="{module_name}"]').count():
+        for selector in (
+            "#mobileClientsBackButton",
+            "#mobileEmployeesBackButton",
+            "#mobileArchiveBackButton",
+            "#mobileSharedFilesBackButton",
+        ):
+            button = page.locator(selector)
+            if await button.count() and await button.first.is_visible():
+                await button.first.click()
+                break
+    await page.wait_for_selector(f'[data-mobile-open="{module_name}"]')
+    await page.click(f'[data-mobile-open="{module_name}"]')
+    await page.wait_for_selector(f"{panel_selector}:not([hidden])")
+
+
+async def _mobile_scenarios(
+    browser: Any,
+    runtime: TempRuntime,
+    *,
+    console_errors: list[str],
+    page_errors: list[str],
+    failed_requests: list[str],
+) -> dict[str, bool]:
+    base_url = runtime.base_url
     context = await browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True)
     page = await context.new_page()
     _set_page_timeouts(page)
+    page.on(
+        "console",
+        lambda msg: console_errors.append(msg.text) if msg.type == "error" else None,
+    )
+    page.on("pageerror", lambda exc: page_errors.append(str(exc)))
+    page.on(
+        "requestfailed",
+        lambda request: failed_requests.append(format_failed_request(request)),
+    )
+    scenarios = {name: False for name in MOBILE_SMOKE_SCENARIOS}
     try:
         await _goto_with_retry(page, base_url)
         await _login(page)
-        await page.wait_for_selector("#board")
+        await page.wait_for_selector("#board", state="attached")
+        await page.wait_for_selector("#mobileAppShell")
         await page.wait_for_function("() => document.body.classList.contains('is-mobile-lite')")
-        return True
+        await page.wait_for_selector('[data-mobile-panel="board"].is-active')
+        await page.wait_for_selector("#mobileBoardColumns .mobile-column-card")
+        scenarios["mobile_board_load"] = bool(
+            await page.locator("#mobileBoardColumns [data-mobile-card-id]").count()
+        ) and await _mobile_has_no_horizontal_overflow(page)
+
+        await page.locator("#mobileBoardColumns [data-mobile-card-id]").first.click()
+        await page.wait_for_selector("#mobileCardDetail:not([hidden])")
+        await page.wait_for_selector("#mobileCardTitleInput")
+        await page.click('[data-mobile-card-tab="vehicle"]')
+        await page.wait_for_selector('[data-mobile-card-page="vehicle"].is-active')
+        scenarios["mobile_card_detail"] = bool(
+            await page.locator("#mobileCardVehicleProfile [data-mobile-vehicle-field]").count()
+        ) and await _mobile_has_no_horizontal_overflow(page)
+        await page.click("#mobileCardBackButton")
+        await page.wait_for_selector("#mobileBoardColumns:not([hidden])")
+
+        await _mobile_select_view(page, "cashboxes")
+        await page.wait_for_selector("#mobileCashboxList [data-mobile-cashbox-id]")
+        await page.wait_for_selector("#mobileCashboxDetail .mobile-cashbox-detail__title")
+        await page.click("#mobileCashboxIncomeButton")
+        await page.wait_for_selector("#mobileCashboxActionPanel:not([hidden])")
+        scenarios["mobile_cashboxes_workspace"] = bool(
+            await page.locator("#mobileCashboxAmountInput").count()
+        ) and await _mobile_has_no_horizontal_overflow(page)
+        await page.click("#mobileCashboxActionCancelButton")
+
+        await _mobile_select_view(page, "repair-orders")
+        await page.wait_for_selector("#mobileRepairOrdersList [data-open-repair-order-card]")
+        await page.locator("#mobileRepairOrdersList [data-open-repair-order-card]").first.click()
+        await page.wait_for_selector("#mobileRepairOrderDetail:not([hidden])")
+        await page.click('[data-mobile-repair-order-tab="works"]')
+        await page.wait_for_selector('[data-mobile-repair-order-page="works"].is-active')
+        scenarios["mobile_repair_orders_workspace"] = bool(
+            await page.locator("#mobileRepairOrderWorks [data-mobile-repair-order-row]").count()
+        ) and await _mobile_has_no_horizontal_overflow(page)
+        await page.click("#mobileRepairOrderBackButton")
+        await page.wait_for_selector("#mobileRepairOrdersList:not([hidden])")
+
+        await _mobile_open_more_module(page, "clients", "#mobileClientsPanel")
+        await page.wait_for_selector("#mobileClientsSearchInput")
+        await page.fill("#mobileClientsSearchInput", "Smoke")
+        await page.wait_for_selector("#mobileClientsList [data-mobile-client-id]")
+        await page.locator("#mobileClientsList [data-mobile-client-id]").first.click()
+        await page.wait_for_selector("#mobileClientDetail .mobile-client-detail__name")
+        scenarios["mobile_clients_panel"] = bool(
+            await page.locator("#mobileClientDetail .mobile-client-mini").count()
+        ) and await _mobile_has_no_horizontal_overflow(page)
+        await page.click("#mobileClientsBackButton")
+        await page.wait_for_selector("#mobileMoreGrid:not([hidden])")
+
+        await _mobile_open_more_module(page, "employees", "#mobileEmployeesPanel")
+        await page.wait_for_selector("#mobileEmployeesList [data-mobile-employee-id]")
+        await page.locator("#mobileEmployeesList [data-mobile-employee-id]").first.click()
+        await page.wait_for_selector("#mobileEmployeeDetail .mobile-employee-detail__name")
+        scenarios["mobile_employees_panel"] = bool(
+            await page.locator("#mobileEmployeeDetail .mobile-employee-kpi").count()
+        ) and await _mobile_has_no_horizontal_overflow(page)
+        await page.click("#mobileEmployeesBackButton")
+        await page.wait_for_selector("#mobileMoreGrid:not([hidden])")
+
+        await _mobile_open_more_module(page, "archive", "#mobileArchivePanel")
+        await page.wait_for_selector("#mobileArchiveSearchInput")
+        await page.fill("#mobileArchiveSearchInput", "Archive Filter")
+        await page.wait_for_function(
+            """(cardId) => {
+              const rows = Array.from(document.querySelectorAll('#mobileArchiveList [data-mobile-archive-card]'));
+              return rows.length === 1 && rows.some((row) => row.getAttribute('data-mobile-archive-card') === cardId);
+            }""",
+            arg=runtime.archived_card_id,
+        )
+        scenarios["mobile_archive_panel"] = bool(
+            await page.locator("#mobileArchiveList [data-mobile-archive-restore]").count()
+        ) and await _mobile_has_no_horizontal_overflow(page)
+        await page.click("#mobileArchiveBackButton")
+        await page.wait_for_selector("#mobileMoreGrid:not([hidden])")
+
+        await _mobile_open_more_module(page, "files", "#mobileSharedFilesPanel")
+        await page.wait_for_selector("#mobileSharedFilesList [data-mobile-shared-file-id]")
+        scenarios["mobile_files_panel"] = bool(
+            await page.locator(
+                '#mobileSharedFilesList [data-mobile-shared-file-action="rename"]'
+            ).count()
+        ) and await _mobile_has_no_horizontal_overflow(page)
+        await page.click("#mobileSharedFilesBackButton")
+        return scenarios
     finally:
         await _close_with_timeout(context.close())
 
@@ -1191,31 +1336,41 @@ async def run_browser_smoke(runtime: TempRuntime, *, headless: bool = True) -> d
 
     async with async_playwright() as playwright:
         browser = await _launch_chromium(playwright, headless=headless)
-        context = await browser.new_context(viewport={"width": 1440, "height": 960})
-        page = await context.new_page()
-        _set_page_timeouts(page)
-        page.on(
-            "console",
-            lambda msg: console_errors.append(msg.text) if msg.type == "error" else None,
-        )
-        page.on("pageerror", lambda exc: page_errors.append(str(exc)))
-        page.on(
-            "requestfailed",
-            lambda request: failed_requests.append(format_failed_request(request)),
-        )
         try:
-            started_at = time.perf_counter()
-            await _goto_with_retry(page, runtime.base_url)
-            scenarios[
-                "login_gate_hides_board_until_operator_login"
-            ] = await _login_gate_hides_board(page)
-            await _login(page)
-            await page.wait_for_selector("#board")
-            first_render_ms = round((time.perf_counter() - started_at) * 1000, 1)
-            scenarios.update(await _desktop_scenarios(page, runtime))
-            scenarios["mobile_board_load"] = await _mobile_scenario(browser, runtime.base_url)
+            context = await browser.new_context(viewport={"width": 1440, "height": 960})
+            page = await context.new_page()
+            _set_page_timeouts(page)
+            page.on(
+                "console",
+                lambda msg: console_errors.append(msg.text) if msg.type == "error" else None,
+            )
+            page.on("pageerror", lambda exc: page_errors.append(str(exc)))
+            page.on(
+                "requestfailed",
+                lambda request: failed_requests.append(format_failed_request(request)),
+            )
+            try:
+                started_at = time.perf_counter()
+                await _goto_with_retry(page, runtime.base_url)
+                scenarios[
+                    "login_gate_hides_board_until_operator_login"
+                ] = await _login_gate_hides_board(page)
+                await _login(page)
+                await page.wait_for_selector("#board")
+                first_render_ms = round((time.perf_counter() - started_at) * 1000, 1)
+                scenarios.update(await _desktop_scenarios(page, runtime))
+            finally:
+                await _close_with_timeout(context.close())
+            scenarios.update(
+                await _mobile_scenarios(
+                    browser,
+                    runtime,
+                    console_errors=console_errors,
+                    page_errors=page_errors,
+                    failed_requests=failed_requests,
+                )
+            )
         finally:
-            await _close_with_timeout(context.close())
             await _close_with_timeout(browser.close())
 
     events = summarize_browser_events(

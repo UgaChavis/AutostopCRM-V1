@@ -788,8 +788,10 @@
     refreshRepairOrderEntry(null);
     renderCashboxDetail();
     bindDirectCardModalCloseButtons();
+    bindMobileShellEvents();
     mountStatusLine();
     applyMobileLiteMode(detectMobileLiteMode());
+    renderMobileShell();
     window.addEventListener('resize', syncMobileLiteMode);
     bootstrapOperatorSession();
     refreshSnapshot(true);
