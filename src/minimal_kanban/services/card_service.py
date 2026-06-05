@@ -2288,6 +2288,8 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
             return Card.from_dict(card.to_storage_dict())
         base_storage = card.repair_order.to_storage_dict()
         override_storage = RepairOrder.from_dict(repair_order_payload).to_storage_dict()
+        if not override_storage.get("number") and base_storage.get("number"):
+            override_storage.pop("number", None)
         merged_storage = {**base_storage, **override_storage}
         cloned_card = Card.from_dict(
             {

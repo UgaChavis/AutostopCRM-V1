@@ -5,6 +5,7 @@ import logging
 import sys
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,6 +17,7 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.agent.control import AgentControlService  # noqa: E402
 from minimal_kanban.agent.storage import AgentStorage  # noqa: E402
+from minimal_kanban.models import parse_datetime, utc_now  # noqa: E402
 
 
 def _load_script_module():
@@ -93,6 +95,65 @@ class CheckAgentRuntimeScriptTests(unittest.TestCase):
 
 
 class AgentControlServiceTests(unittest.TestCase):
+    def test_interval_schedule_reschedules_from_new_enqueue_time_after_overdue_tick(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = AgentStorage(base_dir=Path(temp_dir) / "agent")
+            control = AgentControlService(storage)
+            created = control.save_agent_scheduled_task(
+                {
+                    "name": "Interval check",
+                    "prompt": "Проверь доску",
+                    "scope_type": "all_cards",
+                    "schedule_type": "interval",
+                    "interval_value": 5,
+                    "interval_unit": "minute",
+                    "active": True,
+                }
+            )["task"]
+            schedule_id = created["id"]
+            overdue_at = (utc_now() - timedelta(hours=1)).isoformat()
+            storage.update_schedule(
+                schedule_id,
+                active=True,
+                last_enqueued_at=overdue_at,
+                next_run_at=overdue_at,
+            )
+
+            result = control.trigger_scheduled_tasks(force=True)
+
+            self.assertEqual(result["launched"], [schedule_id])
+            updated = storage.get_schedule(schedule_id)
+            self.assertIsNotNone(updated)
+            assert updated is not None
+            last_enqueued_at = parse_datetime(str(updated["last_enqueued_at"]))
+            next_run_at = parse_datetime(str(updated["next_run_at"]))
+            self.assertIsNotNone(last_enqueued_at)
+            self.assertIsNotNone(next_run_at)
+            assert last_enqueued_at is not None
+            assert next_run_at is not None
+            self.assertEqual(next_run_at - last_enqueued_at, timedelta(minutes=5))
+            self.assertGreater(next_run_at, utc_now())
+
+    def test_save_once_schedule_returns_paused_task_after_immediate_enqueue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = AgentStorage(base_dir=Path(temp_dir) / "agent")
+            control = AgentControlService(storage)
+
+            created = control.save_agent_scheduled_task(
+                {
+                    "name": "Once check",
+                    "prompt": "Проверь один раз",
+                    "scope_type": "all_cards",
+                    "schedule_type": "once",
+                    "active": True,
+                }
+            )["task"]
+
+            self.assertFalse(created["active"])
+            self.assertEqual(created["status"], "paused")
+            self.assertEqual(created["next_run_at"], "")
+            self.assertTrue(created["busy"])
+
     def test_start_worker_uses_configured_board_api_url_when_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = AgentStorage(base_dir=Path(temp_dir) / "agent")

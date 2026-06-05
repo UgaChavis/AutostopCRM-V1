@@ -971,6 +971,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".column__delete {", BOARD_WEB_APP_HTML)
         self.assertIn(".column:hover .column__delete,", BOARD_WEB_APP_HTML)
         self.assertIn("data-delete-column", BOARD_WEB_APP_HTML)
+        self.assertIn('&times;</button><div class="column__count">', BOARD_WEB_APP_HTML)
+        self.assertNotIn('>?</button><div class="column__count">', BOARD_WEB_APP_HTML)
         self.assertIn("async function deleteColumnFromButton(button)", BOARD_WEB_APP_HTML)
         self.assertIn("Удалить пустой столбец", BOARD_WEB_APP_HTML)
         self.assertIn("window.confirm('Удалить пустой столбец", BOARD_WEB_APP_HTML)
@@ -1324,6 +1326,16 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function loadEmployeeSalarySheet(", BOARD_WEB_APP_HTML)
         self.assertIn("function renderEmployeeSalaryModal()", BOARD_WEB_APP_HTML)
         self.assertIn("function handleEmployeeSalaryActionConfirm()", BOARD_WEB_APP_HTML)
+        salary_handler = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "async function handleEmployeeSalaryActionConfirm()"
+            ) : BOARD_WEB_APP_HTML.index("async function handleEmployeeShiftAccrualConfirm()")
+        ]
+        self.assertIn("state.employeesLoadedMonth = '';", salary_handler)
+        self.assertLess(
+            salary_handler.index("state.employeesLoadedMonth = '';"),
+            salary_handler.index("await loadEmployeesReference();"),
+        )
         self.assertIn("function handleEmployeeShiftAccrualConfirm()", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/create_employee_shift_accrual'", BOARD_WEB_APP_HTML)
         self.assertIn("note: 'Выплата за смены за текущую неделю'", BOARD_WEB_APP_HTML)
@@ -2121,6 +2133,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "function splitVehicleDisplayName(value, productionYear = null)", BOARD_WEB_APP_HTML
         )
+        self.assertIn("function vehicleDisplayNameInputValue(profile)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "normalized.display_name = vehicleDisplayNameInputValue(normalized);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("profile.make_display = displayParts.make_display;", BOARD_WEB_APP_HTML)
         self.assertIn("profile.model_display = displayParts.model_display;", BOARD_WEB_APP_HTML)
 
@@ -2678,6 +2695,18 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("await refreshActiveCardFiles();", BOARD_WEB_APP_HTML)
         self.assertIn(
+            "await refreshActiveCardFiles();\n"
+            "      state.cardJournalLoadedFor = '';\n"
+            "      await refreshSnapshot(true);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "await refreshActiveCardFiles();\n"
+            "        state.cardJournalLoadedFor = '';\n"
+            "        setStatus(normalizedFiles.length > 1 ? 'ФАЙЛЫ ЗАГРУЖЕНЫ.' : 'ФАЙЛ ЗАГРУЖЕН.', false);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
             "await previewActiveCardAttachment(previewFileTarget.dataset.previewFile);",
             BOARD_WEB_APP_HTML,
         )
@@ -2756,6 +2785,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function openOperatorAdminModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function saveOperatorUser()", BOARD_WEB_APP_HTML)
         self.assertIn("async function saveOperatorEmployeeBinding", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "closeOperatorEmployeeBinding();\n        await refreshOperatorAdminSurfaces({",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("function closeOperatorAdminChildView()", BOARD_WEB_APP_HTML)
         self.assertIn("async function deleteOperatorUser(username)", BOARD_WEB_APP_HTML)
         self.assertIn("async function openOperatorUserReport(username)", BOARD_WEB_APP_HTML)
@@ -2984,6 +3017,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('class="repair-order-hidden-fields"', BOARD_WEB_APP_HTML)
         self.assertIn("document.getElementById('repairOrderPaymentsButton')", BOARD_WEB_APP_HTML)
         self.assertIn("document.getElementById('repairOrderPaymentsModal')", BOARD_WEB_APP_HTML)
+        self.assertIn("document.getElementById('repairOrderPaymentsMeta')", BOARD_WEB_APP_HTML)
         self.assertIn("document.getElementById('repairOrderPaymentsList')", BOARD_WEB_APP_HTML)
         self.assertIn("button.textContent = '₽';", BOARD_WEB_APP_HTML)
         self.assertNotIn('id="repairOrderPaymentsMethod"', BOARD_WEB_APP_HTML)
@@ -3087,6 +3121,22 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("const due = summary.base_remaining;", BOARD_WEB_APP_HTML)
         self.assertIn("function openRepairOrderPaymentsModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function addRepairOrderPayment()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function deleteRepairOrderPayment(paymentId)", BOARD_WEB_APP_HTML)
+        delete_payment_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "async function deleteRepairOrderPayment(paymentId)"
+            ) : BOARD_WEB_APP_HTML.index("async function addRepairOrderPayment()")
+        ]
+        self.assertIn(
+            "const previousPayments = (state.repairOrderPayments || []).slice();",
+            delete_payment_fragment,
+        )
+        self.assertIn(
+            "const persisted = await persistRepairOrderRecord({ silent: true });",
+            delete_payment_fragment,
+        )
+        self.assertIn("applyRepairOrderToForm(persisted.repairOrder);", delete_payment_fragment)
+        self.assertIn("state.repairOrderPayments = previousPayments;", delete_payment_fragment)
         self.assertIn("сохранено в кассу", BOARD_WEB_APP_HTML)
         self.assertIn("legacy без движения", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -3518,6 +3568,24 @@ class WebAssetsTests(unittest.TestCase):
             "els.repairOrdersSortDir.addEventListener('change', handleRepairOrdersSortChange);",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn("function repairOrdersModalIsOpen()", BOARD_WEB_APP_HTML)
+        self.assertIn("function invalidateRepairOrdersListCache()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function refreshRepairOrdersListAfterMutation()", BOARD_WEB_APP_HTML)
+        self.assertIn("await refreshRepairOrdersListAfterMutation();", BOARD_WEB_APP_HTML)
+        refresh_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "async function refreshRepairOrdersListAfterMutation()"
+            ) : BOARD_WEB_APP_HTML.index("async function persistRepairOrderRecord")
+        ]
+        self.assertIn("if (repairOrdersModalIsOpen()) {", refresh_fragment)
+        self.assertIn("await loadRepairOrders(false);", refresh_fragment)
+        self.assertIn("invalidateRepairOrdersListCache();", refresh_fragment)
+        persist_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "async function persistRepairOrderRecord"
+            ) : BOARD_WEB_APP_HTML.index("async function autofillRepairOrder")
+        ]
+        self.assertIn("await refreshRepairOrdersListAfterMutation();", persist_fragment)
 
     def test_repair_order_modal_supports_status_and_extended_vehicle_fields(self) -> None:
         self.assertIn('id="repairOrderOpenedAt"', BOARD_WEB_APP_HTML)
@@ -3933,6 +4001,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("data-cashbox-transactions-load-more", BOARD_WEB_APP_HTML)
         self.assertIn("function activeCashboxLatestTransaction()", BOARD_WEB_APP_HTML)
         self.assertIn("function cashboxTransactionIsTransfer(item)", BOARD_WEB_APP_HTML)
+        self.assertIn("note.toLowerCase().startsWith('перемещение')", BOARD_WEB_APP_HTML)
+        self.assertNotIn("перемещение\x08", BOARD_WEB_APP_HTML)
         self.assertIn("function resetCashboxDragState()", BOARD_WEB_APP_HTML)
         self.assertIn("function syncCashboxDragClasses()", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -4287,6 +4357,14 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("await api('/api/update_board_settings'", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (!els.boardControlToggle && !els.boardControlIntervalInput && !els.boardControlCooldownInput) return null;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "if (aiBoardControl) body.ai_board_control = aiBoardControl;", BOARD_WEB_APP_HTML
+        )
+        self.assertNotIn("ai_board_control: aiBoardControl", BOARD_WEB_APP_HTML)
         self.assertNotIn('id="boardControlSettingsRow"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="boardControlToggle"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="boardControlIntervalInput"', BOARD_WEB_APP_HTML)

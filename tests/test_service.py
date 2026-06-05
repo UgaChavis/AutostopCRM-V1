@@ -9736,6 +9736,25 @@ class CardServiceTests(unittest.TestCase):
         )
         self.assertTrue(any(event.action == "board_ai_control_changed" for event in events))
 
+    def test_board_scale_update_preserves_board_control_settings(self) -> None:
+        expected = {"enabled": True, "interval_minutes": 30, "cooldown_minutes": 90}
+        self.service.update_board_settings(
+            {
+                "actor_name": "ОПЕРАТОР",
+                "ai_board_control": expected,
+            }
+        )
+
+        updated = self.service.update_board_settings(
+            {"board_scale": 1.15, "actor_name": "ОПЕРАТОР"}
+        )
+        snapshot = self.service.get_board_snapshot()
+
+        self.assertEqual(updated["settings"]["board_scale"], 1.15)
+        self.assertEqual(updated["settings"]["ai_board_control"], expected)
+        self.assertFalse(updated["meta"]["board_control_changed"])
+        self.assertEqual(snapshot["settings"]["ai_board_control"], expected)
+
     def test_rejects_invalid_board_scale(self) -> None:
         with self.assertRaises(ServiceError) as invalid_scale:
             self.service.update_board_settings({"board_scale": 2.0})

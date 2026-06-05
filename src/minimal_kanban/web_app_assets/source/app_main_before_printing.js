@@ -1458,6 +1458,7 @@
 
     function hydrateRepairOrderPaymentsUiRefs() {
       els.repairOrderPaymentsModal = document.getElementById('repairOrderPaymentsModal');
+      els.repairOrderPaymentsMeta = document.getElementById('repairOrderPaymentsMeta');
       els.repairOrderPaymentsList = document.getElementById('repairOrderPaymentsList');
       els.repairOrderPaymentCashbox = document.getElementById('repairOrderPaymentCashbox');
       els.repairOrderPaymentAmount = document.getElementById('repairOrderPaymentAmount');
@@ -3150,6 +3151,8 @@
           },
         });
         renderOperatorProfile(data, { openModal: true });
+        if (state.snapshot) updateSnapshotStatusLine();
+        else setStatus('СЕРВЕР АКТИВЕН', false);
       } catch (error) {
         const message = error.message || 'Не удалось выполнить вход.';
         setOperatorLoginFeedback(message, { tone: 'error' });
@@ -3314,6 +3317,7 @@
           },
         });
         setStatus(data?.meta?.bound ? 'СОТРУДНИК ПРИВЯЗАН.' : 'СОТРУДНИК ОТВЯЗАН.', false);
+        closeOperatorEmployeeBinding();
         await refreshOperatorAdminSurfaces({
           openAdminModal: true,
           refreshProfile: String(state.actor || '').trim().toUpperCase() === username,
@@ -6098,6 +6102,7 @@
         state.employeeSalaryActionDraft = '';
         closeEmployeeSalaryDialog();
         await loadEmployeeSalarySheet(employeeId, { openModal: true });
+        state.employeesLoadedMonth = '';
         await loadEmployeesReference();
         await loadPayrollReport();
         renderEmployeesWorkspace();
@@ -11887,6 +11892,13 @@
       return profile?.production_year ? (base + ' ' + profile.production_year) : base;
     }
 
+    function vehicleDisplayNameInputValue(profile) {
+      const displayName = String(profile?.display_name || '').trim();
+      if (!displayName) return '';
+      const displayParts = splitVehicleDisplayName(displayName, profile?.production_year);
+      return [displayParts.make_display, displayParts.model_display].filter(Boolean).join(' ').trim() || displayName;
+    }
+
     function splitVehicleDisplayName(value, productionYear = null) {
       let text = String(value || '').trim().replace(/\s+/g, ' ');
       const year = Number(productionYear || 0);
@@ -12100,6 +12112,7 @@
       if (!String(normalized.display_name || '').trim()) {
         normalized.display_name = vehicleDisplayFromProfile(normalized);
       }
+      normalized.display_name = vehicleDisplayNameInputValue(normalized);
       state.vehicleProfileDraft = normalized;
       VEHICLE_PRIMARY_FIELDS.forEach((fieldName) => setVehicleFieldValue(fieldName, normalized[fieldName]));
       renderVehicleCustomerPhoneFields(normalized.customer_phones.length ? normalized.customer_phones : [normalized.customer_phone]);
@@ -13546,9 +13559,28 @@
       if (els.repairOrderPaymentNote) els.repairOrderPaymentNote.value = '';
     }
 
-    function deleteRepairOrderPayment(paymentId) {
-      state.repairOrderPayments = (state.repairOrderPayments || []).filter((item) => item.id !== paymentId);
+    async function deleteRepairOrderPayment(paymentId) {
+      const normalizedPaymentId = String(paymentId || '').trim();
+      if (!normalizedPaymentId) return;
+      const previousPayments = (state.repairOrderPayments || []).slice();
+      const nextPayments = previousPayments.filter((item) => String(item?.id || '').trim() !== normalizedPaymentId);
+      if (nextPayments.length === previousPayments.length) return;
+      state.repairOrderPayments = nextPayments;
       renderRepairOrderPayments();
+      try {
+        const persisted = await persistRepairOrderRecord({ silent: true });
+        if (!persisted) {
+          state.repairOrderPayments = previousPayments;
+          renderRepairOrderPayments();
+          return;
+        }
+        applyRepairOrderToForm(persisted.repairOrder);
+        setStatus('Оплата удалена из заказ-наряда и кассы.', false);
+      } catch (error) {
+        state.repairOrderPayments = previousPayments;
+        renderRepairOrderPayments();
+        setStatus(String(error?.message || 'Не удалось удалить оплату из кассы.'), true);
+      }
     }
 
     async function addRepairOrderPayment() {
@@ -13670,6 +13702,7 @@
       const paymentMethod = repairOrderPaymentMethodFromPayments(state.repairOrderPayments, 'cash');
       syncRepairOrderPaymentMethod(paymentMethod);
       return normalizeRepairOrder({
+        number: state.activeCard?.repair_order?.number || '',
         date: repairOrderCanonicalDateValue(els.repairOrderDate.value),
         status: els.repairOrderStatus.dataset.status || 'open',
         opened_at: repairOrderCanonicalDateValue(els.repairOrderOpenedAt.value),
@@ -13772,6 +13805,28 @@
       renderRepairOrderRows(section, rows);
     }
 
+    function repairOrdersModalIsOpen() {
+      return Boolean(els.repairOrdersModal?.classList.contains('is-open'));
+    }
+
+    function invalidateRepairOrdersListCache() {
+      if (state.repairOrdersLoadTimer) {
+        window.clearTimeout(state.repairOrdersLoadTimer);
+        state.repairOrdersLoadTimer = null;
+      }
+      setRepairOrdersSearchLoading(false);
+      state.repairOrdersItems = [];
+      state.repairOrdersMetaState = null;
+    }
+
+    async function refreshRepairOrdersListAfterMutation() {
+      if (repairOrdersModalIsOpen()) {
+        await loadRepairOrders(false);
+        return;
+      }
+      invalidateRepairOrdersListCache();
+    }
+
     async function persistRepairOrderRecord({ statusMessage = '', silent = false } = {}) {
       const cardId = await requireRepairOrderCardId();
       if (!cardId) return null;
@@ -13787,6 +13842,7 @@
       });
       const updatedCard = repairOrderResponseCard(data, repairOrder);
       const nextOrder = applyRepairOrderCardUpdate(updatedCard, data?.repair_order || repairOrder);
+      await refreshRepairOrdersListAfterMutation();
       if (!silent && statusMessage) setStatus(statusMessage, false);
       return { cardId, repairOrder: nextOrder, card: updatedCard, data };
     }
@@ -14499,6 +14555,7 @@
         body: { card_id: state.editingId, attachment_id: attachmentId, actor_name: state.actor, source: 'ui' },
       });
       await refreshActiveCardFiles();
+      state.cardJournalLoadedFor = '';
       await refreshSnapshot(true);
     }
 
@@ -15544,7 +15601,7 @@
       const renameTitle = isReadyColumn ? 'Системную колонку готовых автомобилей нельзя переименовать' : 'Переименовать столбец';
       const deleteAttrs = isDeleteBlocked ? ' disabled' : '';
       const renameAttrs = isReadyColumn ? ' disabled data-system-column="ready"' : '';
-      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '" draggable="true"><div class="column__head" data-drag-column-handle="1"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '"' + renameAttrs + '>&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>?</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '<div class="empty">ЗДЕСЬ ПОКА ПУСТО.</div>') + '</div><button class="btn" type="button" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
+      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '" draggable="true"><div class="column__head" data-drag-column-handle="1"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '"' + renameAttrs + '>&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>&times;</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '<div class="empty">ЗДЕСЬ ПОКА ПУСТО.</div>') + '</div><button class="btn" type="button" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
     }
 
     function renderBoardColumnById(columnId, cardsByColumn = null) {
@@ -16441,6 +16498,7 @@
     }
 
     function readBoardControlSettingsForm() {
+      if (!els.boardControlToggle && !els.boardControlIntervalInput && !els.boardControlCooldownInput) return null;
       return {
         enabled: Boolean(els.boardControlToggle?.checked),
         interval_minutes: Math.max(5, Math.min(240, Number(els.boardControlIntervalInput?.value || 20) || 20)),
@@ -16567,7 +16625,7 @@
       if (transactionKind === 'salary_payout') return 'зарплата';
       if (transactionKind === 'salary_advance') return 'аванс';
       const note = String(item?.note || '').trim();
-      if (/^перемещение/i.test(note)) return 'перемещение';
+      if (note.toLowerCase().startsWith('перемещение')) return 'перемещение';
       if (/заказ-наряд\s*№/i.test(note)) return 'заказ-наряд';
       const source = String(item?.source || '').trim().toLowerCase();
       if (source === 'ui') return 'ручное';
@@ -18622,14 +18680,15 @@
       applyBoardScale(scale, { syncInput: true });
       persistStoredBoardScale(scale);
       const aiBoardControl = readBoardControlSettingsForm();
+      const body = {
+        board_scale: scale,
+        actor_name: state.actor,
+        source: 'ui',
+      };
+      if (aiBoardControl) body.ai_board_control = aiBoardControl;
       const data = await api('/api/update_board_settings', {
         method: 'POST',
-        body: {
-          board_scale: scale,
-          ai_board_control: aiBoardControl,
-          actor_name: state.actor,
-          source: 'ui',
-        },
+        body,
       });
       if (data?.settings && typeof data.settings === 'object') {
         state.snapshot = state.snapshot && typeof state.snapshot === 'object' ? state.snapshot : {};
@@ -18723,6 +18782,7 @@
           await api('/api/add_card_attachment', { method: 'POST', body: { card_id: state.editingId, actor_name: state.actor, source: 'ui', file_name: file.name, mime_type: normalizeAttachmentMimeType(file.type) || attachmentMimeTypeFromExtension(attachmentExtension(file.name)) || 'application/octet-stream', content_base64: base64 } });
         }
         await refreshActiveCardFiles();
+        state.cardJournalLoadedFor = '';
         setStatus(normalizedFiles.length > 1 ? 'ФАЙЛЫ ЗАГРУЖЕНЫ.' : 'ФАЙЛ ЗАГРУЖЕН.', false);
         await refreshSnapshot(true);
       } catch (error) {

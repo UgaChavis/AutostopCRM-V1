@@ -69,6 +69,7 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("SMOKE_UI_BIND_TIMEOUT_MS = 30000", script)
         self.assertIn("def _set_page_timeouts(page: Any) -> None:", script)
         self.assertIn("window.__AUTOSTOP_UI_BOUND__ === true", script)
+        self.assertIn("!statusText.includes('Неверный логин или пароль')", script)
         self.assertIn('reconfigure(encoding="utf-8")', script)
         self.assertIn("await _close_with_timeout(context.close())", script)
         self.assertIn("--browser-timeout-seconds", script)

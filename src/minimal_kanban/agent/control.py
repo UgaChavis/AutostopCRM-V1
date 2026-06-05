@@ -257,6 +257,7 @@ class AgentControlService:
         stored = self._storage.upsert_schedule(task)
         if stored.get("active"):
             self.trigger_scheduled_tasks(force=True)
+            stored = self._storage.get_schedule(str(stored.get("id", "") or "").strip()) or stored
         return {"task": self._serialize_schedule(stored)}
 
     def delete_agent_scheduled_task(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -273,6 +274,7 @@ class AgentControlService:
     def resume_agent_scheduled_task(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         task = self._set_schedule_active(payload, active=True)
         self.trigger_scheduled_tasks(force=True)
+        task = self._storage.get_schedule(str(task.get("id", "") or "").strip()) or task
         return {"task": self._serialize_schedule(task)}
 
     def run_agent_scheduled_task(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1261,12 +1263,15 @@ class AgentControlService:
             mode="scheduled",
             metadata=metadata,
         )
+        last_enqueued_at = str(task.get("created_at", "") or utc_now_iso()).strip()
         updates = {
             "updated_at": utc_now_iso(),
-            "last_enqueued_at": task["created_at"],
+            "last_enqueued_at": last_enqueued_at,
             "last_task_id": task["id"],
             "last_error": "",
-            "next_run_at": self._next_run_at(scheduled, from_now=False),
+            "next_run_at": self._next_run_at(
+                {**scheduled, "last_enqueued_at": last_enqueued_at}, from_now=False
+            ),
         }
         if str(scheduled.get("schedule_type", "once") or "once").strip().lower() not in {
             "interval",

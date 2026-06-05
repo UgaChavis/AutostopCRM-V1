@@ -1154,7 +1154,7 @@ class PrintModuleService:
                     {
                         "name": item["name"],
                         "quantity": ""
-                        if item["quantity_display"] == "вЂ”"
+                        if item["quantity_display"] == "—"
                         else item["quantity_display"],
                     }
                     for item in [
@@ -1166,7 +1166,7 @@ class PrintModuleService:
                     {
                         "name": item["name"],
                         "quantity": ""
-                        if item["quantity_display"] == "вЂ”"
+                        if item["quantity_display"] == "—"
                         else item["quantity_display"],
                     }
                     for item in [
@@ -1267,9 +1267,9 @@ class PrintModuleService:
         quantity = _normalize_text(row.get("quantity"), limit=40)
         return {
             "index": index + 1,
-            "name": name or "вЂ”",
+            "name": name or "—",
             "quantity": quantity,
-            "quantity_display": quantity or "вЂ”",
+            "quantity_display": quantity or "—",
         }
 
     def _inspection_sheet_table_rows(
@@ -1285,7 +1285,7 @@ class PrintModuleService:
                 if not isinstance(item, dict):
                     continue
                 row = self._inspection_sheet_table_row(item, index=index)
-                if row["name"] == "вЂ”" and row["quantity_display"] == "вЂ”":
+                if row["name"] == "—" and row["quantity_display"] == "—":
                     continue
                 normalized_rows.append(row)
         if normalized_rows:
@@ -1303,7 +1303,7 @@ class PrintModuleService:
                 {
                     "name": item.get("name", ""),
                     "quantity": ""
-                    if item.get("quantity_display") == "вЂ”"
+                    if item.get("quantity_display") == "—"
                     else item.get("quantity_display", ""),
                 },
                 index=index,

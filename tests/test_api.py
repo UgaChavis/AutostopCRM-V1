@@ -3338,7 +3338,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         card_id = created["data"]["card"]["id"]
 
-        status, _ = self.request(
+        status, updated_order = self.request(
             "/api/update_repair_order",
             {
                 "card_id": card_id,
@@ -3355,6 +3355,7 @@ class ApiServerTests(unittest.TestCase):
             },
         )
         self.assertEqual(status, 200)
+        order_number = updated_order["data"]["repair_order"]["number"]
 
         status, workspace = self.request(
             "/api/get_repair_order_print_workspace", {"card_id": card_id}
@@ -3374,6 +3375,24 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(preview["data"]["documents"][0]["id"], "repair_order")
         self.assertIn("Заказ-наряд", preview["data"]["documents"][0]["pages"][0]["html"])
+
+        status, draft_preview = self.request(
+            "/api/preview_repair_order_print_documents",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Черновик из формы",
+                    "vehicle": "Toyota Camry XV70",
+                    "works": [{"name": "Проверка перед печатью", "quantity": "1", "price": "500"}],
+                },
+                "selected_document_ids": ["repair_order"],
+                "active_document_id": "repair_order",
+            },
+        )
+        self.assertEqual(status, 200)
+        draft_html = draft_preview["data"]["documents"][0]["pages"][0]["html"]
+        self.assertIn(f"№ {order_number}", draft_html)
+        self.assertIn("Черновик из формы", draft_html)
 
         status, saved_template = self.request(
             "/api/save_print_template",
@@ -3623,7 +3642,7 @@ class ApiServerTests(unittest.TestCase):
                     "planned_materials": "Stabilizer link",
                     "planned_work_rows": [
                         {"name": "Replace stabilizer links", "quantity": "1"},
-                        {"name": "Check bushings", "quantity": "1"},
+                        {"name": "Check bushings", "quantity": ""},
                     ],
                     "planned_material_rows": [
                         {"name": "Stabilizer link", "quantity": "2"},
@@ -3651,6 +3670,8 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("Replace stabilizer links", html)
         self.assertIn("Check bushings", html)
         self.assertIn("Stabilizer link", html)
+        self.assertIn('<td class="doc-table__narrow">—</td>', html)
+        self.assertNotIn("вЂ”", html)
 
         with patch("minimal_kanban.services.card_service.OpenAIJsonAgentClient") as client_cls:
             client = client_cls.return_value

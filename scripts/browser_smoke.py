@@ -563,6 +563,12 @@ async def _login(page: Any) -> None:
     await page.fill("#identityPassword", "admin")
     await page.click("#identitySave")
     await _wait_modal_closed(page, "#identityModal")
+    await page.wait_for_function(
+        """() => {
+          const statusText = document.querySelector('#statusLine')?.textContent || '';
+          return !statusText.includes('Неверный логин или пароль');
+        }"""
+    )
     if await _is_modal_open(page, "#operatorProfileModal"):
         await page.click('[data-close="operator-profile"]')
         await _wait_modal_closed(page, "#operatorProfileModal")
