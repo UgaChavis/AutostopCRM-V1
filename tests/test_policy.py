@@ -211,7 +211,12 @@ class ToolPolicyEngineTests(unittest.TestCase):
             def create_cash_transaction(self, **kwargs) -> dict[str, object]:
                 return {"ok": True}
 
+        class _FakeAutomotiveLookup:
+            def decode_vin(self, vin: str) -> dict[str, object]:
+                return {"vin": str(vin).strip().upper(), "source": "fake"}
+
         executor = AgentToolExecutor(_FakeBoardApi())
+        executor._automotive = _FakeAutomotiveLookup()
         tool_names = {definition.name for definition in executor.definitions}
         self.assertNotIn("autofill_repair_order", tool_names)
         payload = executor.execute("DECODE_VIN", {"vin": "WBAPF71060A798127"})

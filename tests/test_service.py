@@ -2,6 +2,7 @@ from __future__ import annotations
 # ruff: noqa: I001,E402,F401,UP017,F841,UP012
 
 import base64
+from contextlib import contextmanager
 import json
 from datetime import datetime, timedelta, timezone
 import logging
@@ -45,6 +46,15 @@ from minimal_kanban.services.finance_read_core import FinanceReadCore
 from minimal_kanban.storage.financial_history_cleanup import sanitize_financial_history_state
 from minimal_kanban.storage.json_store import JsonStore
 from minimal_kanban.vehicle_profile import VehicleProfile
+
+
+@contextmanager
+def _patch_model_and_store_time(moment: datetime):
+    with (
+        patch("minimal_kanban.models.utc_now", return_value=moment),
+        patch("minimal_kanban.storage.json_store.utc_now", return_value=moment),
+    ):
+        yield
 
 
 class _FakeAgentControl:
@@ -229,7 +239,7 @@ class CardServiceTests(unittest.TestCase):
             patch(
                 "minimal_kanban.services.card_service.utc_now_iso", return_value=moment.isoformat()
             ),
-            patch("minimal_kanban.models.utc_now", return_value=moment),
+            _patch_model_and_store_time(moment),
         )
 
     def test_card_lifecycle_with_deadline(self) -> None:
