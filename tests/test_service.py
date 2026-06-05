@@ -5885,7 +5885,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(snapshot_service._event_counts.call_count, 0)
 
     def test_review_board_returns_operational_summary(self) -> None:
-        base = datetime(2026, 4, 5, 10, 0, 0, tzinfo=timezone.utc)
+        base = (utc_now() - timedelta(days=3)).replace(minute=0, second=0, microsecond=0)
         patches = self._patch_time(base)
         with patches[0], patches[1], patches[2]:
             overdue_card = self.service.create_card(

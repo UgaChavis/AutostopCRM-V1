@@ -115,6 +115,9 @@
       align-content: start;
       gap: 12px;
     }
+    .mobile-workspace.is-card-detail-open > .mobile-workspace__head {
+      display: none;
+    }
     .mobile-workspace__head {
       display: flex;
       align-items: end;
@@ -136,8 +139,8 @@
       min-width: 0;
     }
     .mobile-workspace__actions .mobile-action {
-      min-height: 38px;
-      padding: 8px 9px;
+      min-height: 42px;
+      padding: 10px 10px;
       font-size: 10px;
       line-height: 1.1;
     }
@@ -337,21 +340,21 @@
     .mobile-card-tabs {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 5px;
+      gap: 4px;
       min-width: 0;
     }
     .mobile-card-tab {
       min-width: 0;
-      min-height: 38px;
+      min-height: 42px;
       border: 1px solid rgba(167, 178, 132, 0.2);
       background: rgba(0, 0, 0, 0.18);
       color: rgba(200, 198, 187, 0.78);
       font-family: var(--mono);
-      font-size: 10px;
+      font-size: 9.5px;
       line-height: 1.1;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.02em;
       text-transform: uppercase;
-      padding: 8px 5px;
+      padding: 8px 3px;
     }
     .mobile-card-tab.is-active {
       border-color: rgba(167, 178, 132, 0.46);
@@ -421,6 +424,7 @@
     }
     .mobile-card-tag {
       min-width: 0;
+      min-height: 42px;
       border: 1px solid rgba(167, 178, 132, 0.2);
       background: rgba(255, 255, 255, 0.04);
       color: var(--text);
@@ -435,21 +439,22 @@
     }
     .mobile-card-tags__entry {
       display: grid;
-      grid-template-columns: minmax(84px, 0.7fr) minmax(0, 1fr) 38px;
+      grid-template-columns: minmax(84px, 0.7fr) minmax(0, 1fr) 42px;
       gap: 7px;
       min-width: 0;
     }
     .mobile-card-tags__entry input,
     .mobile-card-tags__entry select {
       min-width: 0;
+      min-height: 42px;
       border: 1px solid rgba(167, 178, 132, 0.3);
       background: rgba(0, 0, 0, 0.24);
       color: var(--text);
       padding: 9px 8px;
     }
     .mobile-card-tags__entry .mobile-action {
-      width: 38px;
-      min-height: 38px;
+      width: 42px;
+      min-height: 42px;
       padding: 0;
       display: grid;
       place-items: center;
@@ -513,8 +518,8 @@
     }
     .mobile-card-file-row__actions .mobile-action {
       width: 100%;
-      min-height: 34px;
-      padding: 8px 9px;
+      min-height: 40px;
+      padding: 9px 10px;
       text-align: center;
     }
     .mobile-card-journal__head-actions {
@@ -733,6 +738,7 @@
     .mobile-field textarea,
     .mobile-field select {
       width: 100%;
+      min-height: 42px;
       min-width: 0;
       border: 1px solid rgba(167, 178, 132, 0.3);
       background: rgba(0, 0, 0, 0.24);
@@ -825,7 +831,7 @@
     }
     .mobile-repair-order-tab {
       min-width: 0;
-      min-height: 38px;
+      min-height: 42px;
       border: 1px solid rgba(167, 178, 132, 0.2);
       background: rgba(0, 0, 0, 0.18);
       color: rgba(200, 198, 187, 0.78);
@@ -997,6 +1003,13 @@
       display: grid;
       place-items: center;
       font-size: 15px;
+    }
+    .mobile-repair-order-remove,
+    .mobile-repair-order-payment-remove {
+      width: 42px;
+      height: 42px;
+      min-height: 42px;
+      padding: 0;
     }
     .mobile-repair-order-line__total {
       display: flex;
@@ -1506,18 +1519,33 @@
       overflow-wrap: anywhere;
     }
     .mobile-archive-row__actions,
-    .mobile-shared-file-row__actions,
     .mobile-shared-files-actions {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
       min-width: 0;
     }
-    .mobile-archive-row__actions .mobile-action,
-    .mobile-shared-file-row__actions .mobile-action {
-      min-height: 34px;
-      padding: 7px 8px;
+    .mobile-shared-file-row__actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      min-width: 0;
+    }
+    .mobile-archive-row__actions .mobile-action {
+      min-height: 42px;
+      padding: 9px 10px;
       font-size: 10px;
+      line-height: 1.1;
+    }
+    .mobile-shared-files-actions .mobile-action {
+      min-width: 112px;
+      min-height: 42px;
+    }
+    .mobile-shared-file-row__actions .mobile-action {
+      width: 100%;
+      min-height: 42px;
+      padding: 10px 10px;
+      font-size: 10.5px;
       line-height: 1.1;
     }
     .mobile-bottom-nav {
@@ -1795,6 +1823,16 @@
       padding: 9px 10px;
       resize: vertical;
       min-height: 38px;
+    }
+    .is-mobile-lite .mobile-field input,
+    .is-mobile-lite .mobile-field select {
+      min-height: 44px;
+      padding: 10px 10px;
+      resize: none;
+    }
+    .is-mobile-lite .mobile-field textarea {
+      min-height: 128px;
+      padding: 10px 10px;
     }
     .topbar-search .topbar-search__input {
       height: 27px;

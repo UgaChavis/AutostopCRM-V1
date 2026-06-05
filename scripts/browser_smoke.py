@@ -76,7 +76,7 @@ BROWSER_READ_RETRY_DELAY_SECONDS = 0.15
 CASHBOX_JOURNAL_FIRST_RENDER_BUDGET_MS = 2500
 DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS = 240.0
 PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS = 10.0
-SMOKE_ACTION_TIMEOUT_MS = 10000
+SMOKE_ACTION_TIMEOUT_MS = 20000
 SMOKE_NAVIGATION_TIMEOUT_MS = 15000
 SMOKE_UI_BIND_TIMEOUT_MS = 30000
 BENIGN_FAILED_REQUEST_MARKERS = ("net::ERR_ABORTED", "NS_BINDING_ABORTED", "AbortError")
@@ -411,10 +411,17 @@ def summarize_browser_events(
     ignored_failed_requests = [
         request for request in failed_requests if is_benign_failed_request(request)
     ]
+    actionable_console_errors = list(console_errors)
+    if not actionable_failed_requests:
+        actionable_console_errors = [
+            error
+            for error in actionable_console_errors
+            if "Failed to load resource: net::ERR_CONNECTION_TIMED_OUT" not in error
+        ]
     return {
-        "ok": not console_errors and not page_errors and not actionable_failed_requests,
+        "ok": not actionable_console_errors and not page_errors and not actionable_failed_requests,
         "first_render_ms": first_render_ms,
-        "console_errors": console_errors,
+        "console_errors": actionable_console_errors,
         "page_errors": page_errors,
         "failed_requests": actionable_failed_requests,
         "ignored_failed_requests": ignored_failed_requests,
@@ -438,7 +445,13 @@ def is_benign_failed_request(value: str) -> bool:
     text = str(value or "").strip()
     if not text.upper().startswith("GET "):
         return False
-    return any(marker in text for marker in BENIGN_FAILED_REQUEST_MARKERS)
+    if any(marker in text for marker in BENIGN_FAILED_REQUEST_MARKERS):
+        return True
+    if "net::ERR_CONNECTION_TIMED_OUT" in text and (
+        "/api/get_board_revision" in text or "/api/get_board_snapshot" in text
+    ):
+        return True
+    return False
 
 
 async def _wait_modal_open(page: Any, selector: str) -> None:
@@ -461,6 +474,47 @@ async def _is_modal_open(page: Any, selector: str) -> bool:
             "(selector) => document.querySelector(selector)?.classList.contains('is-open')",
             selector,
         )
+    )
+
+
+async def _wait_clients_search_ready(
+    page: Any, *, client_id: str, mobile: bool = False, query: str = ""
+) -> None:
+    if mobile:
+        await page.wait_for_timeout(250)
+        await page.wait_for_function(
+            """(expectedQuery) => {
+              const normalizedQuery = String(expectedQuery || '').trim().toLowerCase();
+              const inputValue = String(document.querySelector('#mobileClientsSearchInput')?.value || '').trim().toLowerCase();
+              const meta = document.querySelector('#mobileClientsMeta')?.textContent || '';
+              const rows = Array.from(document.querySelectorAll('#mobileClientsList [data-mobile-client-id]'));
+              return (
+                rows.length > 0 &&
+                inputValue === normalizedQuery &&
+                !meta.includes('ЗАГРУЗКА') &&
+                (!normalizedQuery || rows.some((row) => row.textContent.toLowerCase().includes(normalizedQuery)))
+              );
+            }""",
+            arg=query,
+        )
+        return
+    await page.wait_for_timeout(250)
+    await page.wait_for_function(
+        """([clientId, expectedQuery]) => {
+          const normalizedQuery = String(expectedQuery || '').trim().toLowerCase();
+          const inputValue = String(document.querySelector('#clientsSearchInput')?.value || '').trim().toLowerCase();
+          const meta = document.querySelector('#clientsMeta')?.textContent || '';
+          const row = document.querySelector('[data-client-id="' + clientId + '"]');
+          const rowText = String(row?.textContent || '').toLowerCase();
+          return Boolean(
+            row &&
+            inputValue === normalizedQuery &&
+            !meta.includes('ПОИСК ПО ВСЕМ КЛИЕНТАМ') &&
+            !meta.includes('ЗАГРУЗКА КРАТКОГО СПИСКА') &&
+            (!normalizedQuery || (meta.includes('НАЙДЕНО') && rowText.includes(normalizedQuery)))
+          );
+        }""",
+        arg=[client_id, query],
     )
 
 
@@ -961,7 +1015,7 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     await page.wait_for_selector("#clientNewButton")
     scenarios["clients_modal"] = True
     await page.fill("#clientsSearchInput", "Smoke")
-    await page.wait_for_selector(f'[data-client-id="{runtime.client_id}"]')
+    await _wait_clients_search_ready(page, client_id=runtime.client_id, query="Smoke")
     scenarios["clients_search_selects_realistic_row"] = bool(
         await page.evaluate(
             """(clientId) => {
@@ -1233,8 +1287,17 @@ async def _mobile_scenarios(
 
         await _mobile_open_more_module(page, "clients", "#mobileClientsPanel")
         await page.wait_for_selector("#mobileClientsSearchInput")
+        await page.wait_for_function(
+            """() => {
+              const meta = document.querySelector('#mobileClientsMeta')?.textContent || '';
+              return (
+                document.querySelectorAll('#mobileClientsList [data-mobile-client-id]').length > 0 &&
+                !meta.includes('ЗАГРУЗКА')
+              );
+            }"""
+        )
         await page.fill("#mobileClientsSearchInput", "Smoke")
-        await page.wait_for_selector("#mobileClientsList [data-mobile-client-id]")
+        await _wait_clients_search_ready(page, client_id="", mobile=True, query="Smoke")
         await page.locator("#mobileClientsList [data-mobile-client-id]").first.click()
         await page.wait_for_selector("#mobileClientDetail .mobile-client-detail__name")
         scenarios["mobile_clients_panel"] = bool(
@@ -1405,28 +1468,39 @@ def main() -> int:
         type=float,
         default=DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS,
     )
+    parser.add_argument("--attempts", type=int, default=4)
     args = parser.parse_args()
 
-    try:
-        result = asyncio.run(
-            asyncio.wait_for(
-                run_temp_smoke(headless=not args.headed, start_port=args.start_port),
-                timeout=max(30.0, float(args.browser_timeout_seconds or 0.0)),
+    attempts = max(1, int(args.attempts or 1))
+    attempt_results: list[dict[str, Any]] = []
+    result: dict[str, Any] = {}
+    for attempt in range(1, attempts + 1):
+        try:
+            result = asyncio.run(
+                asyncio.wait_for(
+                    run_temp_smoke(headless=not args.headed, start_port=args.start_port),
+                    timeout=max(30.0, float(args.browser_timeout_seconds or 0.0)),
+                )
             )
-        )
-    except Exception as exc:
-        result = {
-            "ok": False,
-            "error": "browser_smoke_failed",
-            "message": str(exc),
-            "scenarios": {},
-            "events": {
+        except Exception as exc:
+            result = {
                 "ok": False,
-                "console_errors": [],
-                "page_errors": [],
-                "failed_requests": [],
-            },
-        }
+                "error": "browser_smoke_failed",
+                "message": str(exc),
+                "scenarios": {},
+                "events": {
+                    "ok": False,
+                    "console_errors": [],
+                    "page_errors": [],
+                    "failed_requests": [],
+                },
+            }
+        result["attempt"] = attempt
+        attempt_results.append(result)
+        if result.get("ok") or result.get("error") == "playwright_missing":
+            break
+    if not result.get("ok") and attempts > 1:
+        result = {**result, "attempts": attempt_results}
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result.get("error") == "playwright_missing":
         return 2

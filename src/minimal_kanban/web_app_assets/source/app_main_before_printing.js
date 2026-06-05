@@ -8496,6 +8496,8 @@
     function renderMobileCardDetail() {
       if (!els.mobileCardDetail) return;
       const detailOpen = state.mobileCardCreating || Boolean(state.mobileCardId);
+      const boardPanel = els.mobileCardDetail.closest('[data-mobile-panel="board"]');
+      boardPanel?.classList.toggle('is-card-detail-open', detailOpen);
       els.mobileCardDetail.hidden = !detailOpen;
       if (els.mobileBoardColumns) els.mobileBoardColumns.hidden = detailOpen;
       if (!detailOpen) return;
@@ -10357,10 +10359,10 @@
           + '</div>'
           + '<div class="mobile-shared-file-row__meta">' + escapeHtml(metaText) + '</div>'
           + '<div class="mobile-shared-file-row__actions">'
-            + '<button class="mobile-action mobile-action--ghost" type="button" data-mobile-shared-file-action="open" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">ОТКР.</button>'
-            + '<button class="mobile-action mobile-action--ghost" type="button" data-mobile-shared-file-action="download" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">СКАЧ.</button>'
-            + '<button class="mobile-action mobile-action--ghost" type="button" data-mobile-shared-file-action="rename" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">' + (isRenaming ? '...' : 'ИМЯ') + '</button>'
-            + '<button class="mobile-action mobile-action--expense" type="button" data-mobile-shared-file-action="delete" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">УДАЛ.</button>'
+            + '<button class="mobile-action mobile-action--ghost" type="button" data-mobile-shared-file-action="open" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">ОТКРЫТЬ</button>'
+            + '<button class="mobile-action mobile-action--ghost" type="button" data-mobile-shared-file-action="download" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">СКАЧАТЬ</button>'
+            + '<button class="mobile-action mobile-action--ghost" type="button" data-mobile-shared-file-action="rename" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">' + (isRenaming ? '...' : 'ПЕРЕИМ.') + '</button>'
+            + '<button class="mobile-action mobile-action--expense" type="button" data-mobile-shared-file-action="delete" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">УДАЛИТЬ</button>'
           + '</div>'
         + '</article>';
       }).join('');

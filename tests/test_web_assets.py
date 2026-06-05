@@ -555,6 +555,63 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".mobile-shared-file-row", BOARD_WEB_APP_HTML)
         self.assertIn(".mobile-shared-files-panel", BOARD_WEB_APP_HTML)
 
+    def test_mobile_more_files_actions_are_touch_sized_and_readable(self) -> None:
+        for label in ("ОТКРЫТЬ", "СКАЧАТЬ", "УДАЛИТЬ"):
+            self.assertIn(f">{label}</button>", BOARD_WEB_APP_HTML)
+        self.assertIn("'ПЕРЕИМ.'", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            ".mobile-shared-file-row__actions {\n      display: grid;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "grid-template-columns: repeat(2, minmax(0, 1fr));",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".mobile-shared-file-row__actions .mobile-action {\n      width: 100%;\n      min-height: 42px;",
+            BOARD_WEB_APP_HTML,
+        )
+
+    def test_mobile_navigation_uses_clear_repair_order_label(self) -> None:
+        self.assertIn(
+            'data-mobile-view="repair-orders">НАРЯДЫ</button>',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn('<div class="mobile-kicker">НАРЯДЫ</div>', BOARD_WEB_APP_HTML)
+        self.assertNotIn('data-mobile-view="repair-orders">ЗН</button>', BOARD_WEB_APP_HTML)
+        self.assertNotIn('<div class="mobile-kicker">ЗН</div>', BOARD_WEB_APP_HTML)
+
+    def test_mobile_touch_targets_survive_desktop_form_overrides(self) -> None:
+        self.assertIn(
+            ".is-mobile-lite .mobile-field input,\n    .is-mobile-lite .mobile-field select {\n      min-height: 44px;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".is-mobile-lite .mobile-field textarea {\n      min-height: 128px;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".mobile-card-tag {\n      min-width: 0;\n      min-height: 42px;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".mobile-repair-order-remove,\n    .mobile-repair-order-payment-remove {\n      width: 42px;\n      height: 42px;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".mobile-archive-row__actions .mobile-action {\n      min-height: 42px;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".mobile-shared-files-actions .mobile-action {\n      min-width: 112px;\n      min-height: 42px;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".mobile-card-tab {\n      min-width: 0;\n      min-height: 42px;\n      border: 1px solid rgba(167, 178, 132, 0.2);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("font-size: 9.5px;", BOARD_WEB_APP_HTML)
+
     def test_mobile_card_detail_uses_tabbed_sections_and_sticky_actions(self) -> None:
         self.assertIn('class="mobile-card-detail__sticky"', BOARD_WEB_APP_HTML)
         self.assertIn('class="mobile-card-tabs" id="mobileCardTabs"', BOARD_WEB_APP_HTML)
@@ -575,6 +632,32 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn(".mobile-card-page.is-active", BOARD_WEB_APP_HTML)
         self.assertIn(".mobile-card-detail__sticky", BOARD_WEB_APP_HTML)
+
+    def test_mobile_card_detail_hides_board_header_for_clean_context(self) -> None:
+        self.assertIn(
+            "boardPanel?.classList.toggle('is-card-detail-open', detailOpen);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".mobile-workspace.is-card-detail-open > .mobile-workspace__head {",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".mobile-workspace__actions .mobile-action {\n      min-height: 42px;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".mobile-card-tab {\n      min-width: 0;\n      min-height: 42px;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".mobile-repair-order-tab {\n      min-width: 0;\n      min-height: 42px;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".mobile-field input,\n    .mobile-field textarea,\n    .mobile-field select {\n      width: 100%;\n      min-height: 42px;",
+            BOARD_WEB_APP_HTML,
+        )
 
     def test_mobile_card_detail_supports_deadline_and_tags(self) -> None:
         for element_id in (

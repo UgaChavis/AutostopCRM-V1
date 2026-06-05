@@ -64,7 +64,7 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS", script)
         self.assertIn("PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS", script)
         self.assertIn("BENIGN_FAILED_REQUEST_MARKERS", script)
-        self.assertIn("SMOKE_ACTION_TIMEOUT_MS = 10000", script)
+        self.assertIn("SMOKE_ACTION_TIMEOUT_MS = 20000", script)
         self.assertIn("SMOKE_NAVIGATION_TIMEOUT_MS = 15000", script)
         self.assertIn("SMOKE_UI_BIND_TIMEOUT_MS = 30000", script)
         self.assertIn("def _set_page_timeouts(page: Any) -> None:", script)
@@ -72,7 +72,11 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn('reconfigure(encoding="utf-8")', script)
         self.assertIn("await _close_with_timeout(context.close())", script)
         self.assertIn("--browser-timeout-seconds", script)
-        self.assertIn("asyncio.wait_for(\n                run_temp_smoke", script)
+        self.assertIn("--attempts", script)
+        self.assertIn('parser.add_argument("--attempts", type=int, default=4)', script)
+        self.assertIn("asyncio.wait_for(", script)
+        self.assertIn("attempt_results", script)
+        self.assertIn('result["attempt"] = attempt', script)
         self.assertIn("await _goto_with_retry(page, runtime.base_url)", script)
         self.assertIn("await _goto_with_retry(page, base_url)", script)
         self.assertIn("async def _mobile_scenarios(", script)
@@ -87,6 +91,11 @@ class BrowserSmokeScriptTests(unittest.TestCase):
             script,
         )
         self.assertIn('await page.wait_for_selector("#cashboxesList [data-cashbox-id]")', script)
+        self.assertIn("#clientsMeta", script)
+        self.assertIn("#mobileClientsMeta", script)
+        self.assertIn("inputValue === normalizedQuery", script)
+        self.assertIn("meta.includes('НАЙДЕНО')", script)
+        self.assertIn("ПОИСК ПО ВСЕМ КЛИЕНТАМ", script)
         self.assertIn("CASHBOX_JOURNAL_FIRST_RENDER_BUDGET_MS", script)
         self.assertIn("start_port = _first_free_port(start_port)", script)
 
@@ -149,6 +158,7 @@ class BrowserSmokeScriptTests(unittest.TestCase):
             page_errors=[],
             failed_requests=[
                 "GET http://127.0.0.1:42731/api/get_cashbox net::ERR_ABORTED",
+                "GET http://127.0.0.1:42731/api/get_board_revision?compact=1&include_archive=0 net::ERR_CONNECTION_TIMED_OUT",
                 "POST http://127.0.0.1:42731/api/save_card net::ERR_ABORTED",
             ],
             first_render_ms=1.0,
@@ -157,12 +167,32 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertFalse(summary["ok"])
         self.assertEqual(
             summary["ignored_failed_requests"],
-            ["GET http://127.0.0.1:42731/api/get_cashbox net::ERR_ABORTED"],
+            [
+                "GET http://127.0.0.1:42731/api/get_cashbox net::ERR_ABORTED",
+                "GET http://127.0.0.1:42731/api/get_board_revision?compact=1&include_archive=0 net::ERR_CONNECTION_TIMED_OUT",
+            ],
         )
         self.assertEqual(
             summary["failed_requests"],
             ["POST http://127.0.0.1:42731/api/save_card net::ERR_ABORTED"],
         )
+
+    def test_summarize_browser_events_ignores_polling_timeout_noise(self) -> None:
+        module = load_browser_smoke_module()
+
+        summary = module.summarize_browser_events(
+            console_errors=["Failed to load resource: net::ERR_CONNECTION_TIMED_OUT"],
+            page_errors=[],
+            failed_requests=[
+                "GET http://127.0.0.1:42731/api/get_board_revision?compact=1&include_archive=0 net::ERR_CONNECTION_TIMED_OUT"
+            ],
+            first_render_ms=1.0,
+        )
+
+        self.assertTrue(summary["ok"])
+        self.assertEqual(summary["console_errors"], [])
+        self.assertEqual(summary["failed_requests"], [])
+        self.assertEqual(len(summary["ignored_failed_requests"]), 1)
 
     def test_failed_request_formatter_accepts_playwright_string_failure(self) -> None:
         module = load_browser_smoke_module()
