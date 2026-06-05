@@ -2581,52 +2581,10 @@
                 <span>КРАТКАЯ СУТЬ</span>
                 <input id="mobileCardTitleInput" type="text" maxlength="220" data-mobile-card-field="title">
               </label>
-              <label class="mobile-field" for="mobileCardColumnSelect">
-                <span>КОЛОНКА</span>
-                <select id="mobileCardColumnSelect" data-mobile-card-field="column"></select>
-              </label>
-              <section class="mobile-card-section mobile-card-deadline" aria-label="Срок карточки">
-                <div class="mobile-card-section__head">
-                  <div>
-                    <div class="mobile-kicker">СРОК</div>
-                    <h4>Таймер</h4>
-                  </div>
-                  <div class="mobile-card-deadline__preview" id="mobileCardDeadlinePreview">01Д 00Ч</div>
-                </div>
-                <div class="mobile-card-deadline__grid">
-                  <label class="mobile-field" for="mobileCardDeadlineDays">
-                    <span>ДНЕЙ</span>
-                    <input id="mobileCardDeadlineDays" type="number" inputmode="numeric" min="0" max="365" data-mobile-card-deadline-field="days">
-                  </label>
-                  <label class="mobile-field" for="mobileCardDeadlineHours">
-                    <span>ЧАСОВ</span>
-                    <input id="mobileCardDeadlineHours" type="number" inputmode="numeric" min="0" max="23" data-mobile-card-deadline-field="hours">
-                  </label>
-                </div>
-              </section>
               <label class="mobile-field" for="mobileCardDescriptionInput">
                 <span>ОПИСАНИЕ</span>
-                <textarea id="mobileCardDescriptionInput" maxlength="12000" rows="6" data-mobile-card-field="description"></textarea>
+                <textarea id="mobileCardDescriptionInput" maxlength="12000" rows="10" data-mobile-card-field="description"></textarea>
               </label>
-              <section class="mobile-card-section mobile-card-tags" aria-label="Метки карточки">
-                <div class="mobile-card-section__head">
-                  <div>
-                    <div class="mobile-kicker">МЕТКИ</div>
-                    <h4>Сигналы</h4>
-                  </div>
-                  <div class="mobile-card-tags__limit" id="mobileCardTagsLimit">0 / 3</div>
-                </div>
-                <div class="mobile-card-tags__list" id="mobileCardTags"></div>
-                <div class="mobile-card-tags__entry">
-                  <select id="mobileCardTagColor" aria-label="Цвет метки">
-                    <option value="green">Зелёная</option>
-                    <option value="yellow">Жёлтая</option>
-                    <option value="red">Красная</option>
-                  </select>
-                  <input id="mobileCardTagInput" type="text" maxlength="24" placeholder="Метка">
-                  <button class="mobile-action mobile-action--ghost" id="mobileCardTagAddButton" type="button">+</button>
-                </div>
-              </section>
               <button class="mobile-action mobile-action--ghost" id="mobileCardRepairOrderButton" type="button">ЗАКАЗ-НАРЯД</button>
             </section>
             <section class="mobile-card-page" data-mobile-card-page="vehicle" aria-label="Автомобиль и клиент">

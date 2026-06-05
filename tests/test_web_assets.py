@@ -387,12 +387,13 @@ class WebAssetsTests(unittest.TestCase):
             "mobileCardBackButton",
             "mobileCardSaveButton",
             "mobileCardTitleLine",
-            "mobileCardColumnSelect",
             "mobileCardRepairOrderButton",
         ):
             self.assertIn(f'id="{element_id}"', BOARD_WEB_APP_HTML)
-        for field in ("vehicle", "title", "description", "column"):
+        for field in ("vehicle", "title", "description"):
             self.assertIn(f'data-mobile-card-field="{field}"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="mobileCardColumnSelect"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('data-mobile-card-field="column"', BOARD_WEB_APP_HTML)
         self.assertIn("data-mobile-card-id", BOARD_WEB_APP_HTML)
         self.assertIn("function renderMobileCardDetail()", BOARD_WEB_APP_HTML)
         self.assertIn("function openMobileCardDetail(cardId)", BOARD_WEB_APP_HTML)
@@ -405,6 +406,30 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function handleMobileBoardClick(event)", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/update_card'", BOARD_WEB_APP_HTML)
         self.assertIn(".mobile-card-detail", BOARD_WEB_APP_HTML)
+
+    def test_mobile_card_overview_omits_column_timer_and_tag_controls(self) -> None:
+        self.assertNotIn('id="mobileCardColumnSelect"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="mobileCardDeadlineDays"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="mobileCardDeadlineHours"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="mobileCardDeadlinePreview"', BOARD_WEB_APP_HTML)
+        self.assertNotIn("data-mobile-card-deadline-field=", BOARD_WEB_APP_HTML)
+        self.assertNotIn('class="mobile-card-section mobile-card-deadline"', BOARD_WEB_APP_HTML)
+        for element_id in (
+            "mobileCardTags",
+            "mobileCardTagsLimit",
+            "mobileCardTagInput",
+            "mobileCardTagColor",
+            "mobileCardTagAddButton",
+        ):
+            self.assertNotIn(f'id="{element_id}"', BOARD_WEB_APP_HTML)
+        self.assertNotIn("data-mobile-card-remove-tag", BOARD_WEB_APP_HTML)
+        self.assertNotIn('class="mobile-card-section mobile-card-tags"', BOARD_WEB_APP_HTML)
+        self.assertNotIn(".mobile-card-tags", BOARD_WEB_APP_HTML)
+        self.assertNotIn(".mobile-card-tag", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            '<textarea id="mobileCardDescriptionInput" maxlength="12000" rows="10"',
+            BOARD_WEB_APP_HTML,
+        )
 
     def test_mobile_board_supports_card_creation(self) -> None:
         self.assertIn('id="mobileCardCreateButton"', BOARD_WEB_APP_HTML)
@@ -591,10 +616,6 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            ".mobile-card-tag {\n      min-width: 0;\n      min-height: 42px;",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn(
             ".mobile-repair-order-remove,\n    .mobile-repair-order-payment-remove {\n      width: 42px;\n      height: 42px;",
             BOARD_WEB_APP_HTML,
         )
@@ -659,32 +680,26 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
 
-    def test_mobile_card_detail_supports_deadline_and_tags(self) -> None:
-        for element_id in (
-            "mobileCardDeadlineDays",
-            "mobileCardDeadlineHours",
-            "mobileCardDeadlinePreview",
-            "mobileCardTags",
-            "mobileCardTagsLimit",
-            "mobileCardTagInput",
-            "mobileCardTagColor",
-            "mobileCardTagAddButton",
-        ):
-            self.assertIn(f'id="{element_id}"', BOARD_WEB_APP_HTML)
-        self.assertIn('data-mobile-card-deadline-field="days"', BOARD_WEB_APP_HTML)
-        self.assertIn('data-mobile-card-deadline-field="hours"', BOARD_WEB_APP_HTML)
-        self.assertIn("data-mobile-card-remove-tag", BOARD_WEB_APP_HTML)
+    def test_mobile_card_detail_preserves_hidden_deadline_and_tags(self) -> None:
         self.assertIn("function renderMobileCardDeadline(card)", BOARD_WEB_APP_HTML)
         self.assertIn("function mobileCardDeadlineFromUi(card)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (!els.mobileCardDeadlineDays || !els.mobileCardDeadlineHours)", BOARD_WEB_APP_HTML
+        )
         self.assertIn("function syncMobileCardDeadlinePreview()", BOARD_WEB_APP_HTML)
-        self.assertIn("function renderMobileCardTags(card)", BOARD_WEB_APP_HTML)
         self.assertIn("function readMobileCardTags()", BOARD_WEB_APP_HTML)
-        self.assertIn("function addMobileCardTag()", BOARD_WEB_APP_HTML)
-        self.assertIn("function removeMobileCardTag(label)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "return normalizeDraftTags(currentMobileCard()?.tag_items || currentMobileCard()?.tags || []);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertNotIn("function renderMobileCardTags(card)", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function addMobileCardTag()", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function removeMobileCardTag(label)", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function handleMobileCardTagInputKeydown(event)", BOARD_WEB_APP_HTML)
+        self.assertNotIn("els.mobileCardTagAddButton?.addEventListener", BOARD_WEB_APP_HTML)
+        self.assertNotIn("els.mobileCardTagInput?.addEventListener", BOARD_WEB_APP_HTML)
         self.assertIn("deadline: mobileCardDeadlineFromUi(card),", BOARD_WEB_APP_HTML)
         self.assertIn("tags: readMobileCardTags(),", BOARD_WEB_APP_HTML)
-        self.assertIn(".mobile-card-deadline", BOARD_WEB_APP_HTML)
-        self.assertIn(".mobile-card-tags", BOARD_WEB_APP_HTML)
 
     def test_mobile_card_detail_supports_vehicle_profile_and_client_fields(self) -> None:
         for element_id in (

@@ -679,11 +679,6 @@
       mobileCardDeadlineDays: document.getElementById('mobileCardDeadlineDays'),
       mobileCardDeadlineHours: document.getElementById('mobileCardDeadlineHours'),
       mobileCardDeadlinePreview: document.getElementById('mobileCardDeadlinePreview'),
-      mobileCardTags: document.getElementById('mobileCardTags'),
-      mobileCardTagsLimit: document.getElementById('mobileCardTagsLimit'),
-      mobileCardTagInput: document.getElementById('mobileCardTagInput'),
-      mobileCardTagColor: document.getElementById('mobileCardTagColor'),
-      mobileCardTagAddButton: document.getElementById('mobileCardTagAddButton'),
       mobileCardVehicleProfile: document.getElementById('mobileCardVehicleProfile'),
       mobileCardFiles: document.getElementById('mobileCardFiles'),
       mobileCardFileInput: document.getElementById('mobileCardFileInput'),
@@ -8520,7 +8515,6 @@
         els.mobileCardColumnSelect.value = selectedColumnId;
       }
       renderMobileCardDeadline(card);
-      renderMobileCardTags(card);
       renderMobileCardVehicleProfile(card);
       renderMobileCardFiles(card);
       renderMobileCardJournal();
@@ -8554,6 +8548,7 @@
 
     function mobileCardDeadlineFromUi(card) {
       const fallback = mobileCardDeadlineInput(card || {});
+      if (!els.mobileCardDeadlineDays || !els.mobileCardDeadlineHours) return fallback;
       const fallbackTotal = (fallback.days * 86400) + (fallback.hours * 3600) + (fallback.minutes * 60) + fallback.seconds;
       const days = clampSignalPart('days', Number(els.mobileCardDeadlineDays?.value || 0));
       const hours = clampSignalPart('hours', Number(els.mobileCardDeadlineHours?.value || 0));
@@ -8570,66 +8565,8 @@
       els.mobileCardDeadlinePreview.innerHTML = durationToMarkup(total, true);
     }
 
-    function mobileCardTagColorOptionsHtml(selectedColor = 'green') {
-      const normalizedColor = normalizeTagColor(selectedColor);
-      return TAG_COLOR_OPTIONS.map((option) => {
-        const selected = option.value === normalizedColor ? ' selected' : '';
-        return '<option value="' + escapeHtml(option.value) + '"' + selected + '>' + escapeHtml(option.label) + '</option>';
-      }).join('');
-    }
-
-    function renderMobileCardTags(card) {
-      if (!els.mobileCardTags) return;
-      const tags = normalizeDraftTags(card?.tag_items || card?.tags || []);
-      const atLimit = tags.length >= CARD_TAG_LIMIT;
-      els.mobileCardTags.innerHTML = tags.length
-        ? tags.map((tag) => '<button class="mobile-card-tag" type="button" data-tag-color="' + escapeHtml(tag.color) + '" data-mobile-card-remove-tag="' + escapeHtml(tag.label) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + ' ×</button>').join('')
-        : '<div class="tag tag--muted">МЕТОК НЕТ</div>';
-      if (els.mobileCardTagsLimit) {
-        els.mobileCardTagsLimit.textContent = tags.length + ' / ' + CARD_TAG_LIMIT;
-        els.mobileCardTagsLimit.dataset.limitState = atLimit ? 'full' : 'open';
-      }
-      if (els.mobileCardTagColor) {
-        els.mobileCardTagColor.innerHTML = mobileCardTagColorOptionsHtml(els.mobileCardTagColor.value || state.draftTagColor || 'green');
-      }
-      if (els.mobileCardTagInput) {
-        els.mobileCardTagInput.disabled = atLimit;
-        els.mobileCardTagInput.placeholder = atLimit ? 'ЛИМИТ 3 / 3' : 'Метка';
-      }
-      if (els.mobileCardTagAddButton) els.mobileCardTagAddButton.disabled = atLimit;
-    }
-
     function readMobileCardTags() {
-      if (!els.mobileCardTags) return normalizeDraftTags(currentMobileCard()?.tag_items || currentMobileCard()?.tags || []);
-      const tags = Array.from(els.mobileCardTags.querySelectorAll('[data-mobile-card-remove-tag]')).map((button) => ({
-        label: button.getAttribute('data-mobile-card-remove-tag') || '',
-        color: button.getAttribute('data-tag-color') || 'green',
-      }));
-      return normalizeDraftTags(tags);
-    }
-
-    function addMobileCardTag() {
-      const tag = normalizeDraftTag({
-        label: els.mobileCardTagInput?.value || '',
-        color: els.mobileCardTagColor?.value || 'green',
-      }, els.mobileCardTagColor?.value || 'green');
-      if (!tag) return;
-      const tags = readMobileCardTags();
-      const exists = tags.some((item) => item.label === tag.label);
-      if (!exists && tags.length >= CARD_TAG_LIMIT) {
-        setStatus('НА КАРТОЧКЕ МОЖЕТ БЫТЬ НЕ БОЛЕЕ 3 МЕТОК.', true);
-        return;
-      }
-      const nextTags = normalizeDraftTags(tags.concat([tag]), tag.color);
-      if (els.mobileCardTagInput) els.mobileCardTagInput.value = '';
-      renderMobileCardTags({ tags: nextTags });
-    }
-
-    function removeMobileCardTag(label) {
-      const normalizedLabel = String(label || '').trim().toUpperCase();
-      if (!normalizedLabel) return;
-      const nextTags = readMobileCardTags().filter((tag) => tag.label !== normalizedLabel);
-      renderMobileCardTags({ tags: nextTags });
+      return normalizeDraftTags(currentMobileCard()?.tag_items || currentMobileCard()?.tags || []);
     }
 
     function mobileVehicleNumberFieldValue(fieldName, value) {
@@ -9159,17 +9096,6 @@
         removeMobileCardFile(removeFileButton.getAttribute('data-mobile-card-remove-file'));
         return;
       }
-      const removeButton = target.closest('[data-mobile-card-remove-tag]');
-      if (removeButton && els.mobileCardDetail?.contains(removeButton)) {
-        event.preventDefault();
-        removeMobileCardTag(removeButton.getAttribute('data-mobile-card-remove-tag'));
-      }
-    }
-
-    function handleMobileCardTagInputKeydown(event) {
-      if (event.key !== 'Enter') return;
-      event.preventDefault();
-      addMobileCardTag();
     }
 
     function openMobileCardRepairOrder() {
@@ -10739,8 +10665,6 @@
       els.mobileCardSaveButton?.addEventListener('click', () => saveMobileCardDetail());
       els.mobileCardRepairOrderButton?.addEventListener('click', openMobileCardRepairOrder);
       els.mobileCardTabs?.addEventListener('click', handleMobileCardTabsClick);
-      els.mobileCardTagAddButton?.addEventListener('click', addMobileCardTag);
-      els.mobileCardTagInput?.addEventListener('keydown', handleMobileCardTagInputKeydown);
       els.mobileCardFileAddButton?.addEventListener('click', openMobileCardFilePicker);
       els.mobileCardFileInput?.addEventListener('change', () => uploadMobileCardFiles());
       els.mobileCardJournalRefreshButton?.addEventListener('click', () => loadMobileCardJournal({ force: true }));
