@@ -626,6 +626,8 @@ class BoardApiClient:
         query: str | None = None,
         sort_by: str | None = None,
         sort_dir: str | None = None,
+        compact: bool | None = None,
+        redact_private: bool | None = None,
     ) -> dict:
         payload: dict[str, object] = {}
         if limit is not None:
@@ -638,9 +640,75 @@ class BoardApiClient:
             payload["sort_by"] = sort_by
         if sort_dir:
             payload["sort_dir"] = sort_dir
+        if compact is not None:
+            payload["compact"] = compact
+        if redact_private is not None:
+            payload["redact_private"] = redact_private
         if not payload:
             return self._request("/api/list_repair_orders", method="GET")
         return self._request("/api/list_repair_orders", payload, method="POST")
+
+    def manager_board_scan(self, *, limit: int | None = None) -> dict:
+        payload: dict[str, object] = {}
+        if limit is not None:
+            payload["limit"] = limit
+        if not payload:
+            return self._request("/api/manager_board_scan", method="GET")
+        return self._request("/api/manager_board_scan", payload, method="POST")
+
+    def list_ready_unpaid_cards(self, *, limit: int | None = None) -> dict:
+        payload: dict[str, object] = {}
+        if limit is not None:
+            payload["limit"] = limit
+        if not payload:
+            return self._request("/api/list_ready_unpaid_cards", method="GET")
+        return self._request("/api/list_ready_unpaid_cards", payload, method="POST")
+
+    def triage_inbox_cards(self, *, limit: int | None = None) -> dict:
+        payload: dict[str, object] = {}
+        if limit is not None:
+            payload["limit"] = limit
+        if not payload:
+            return self._request("/api/triage_inbox_cards", method="GET")
+        return self._request("/api/triage_inbox_cards", payload, method="POST")
+
+    def list_cards_missing_manager_data(
+        self, *, limit: int | None = None, kinds: list[str] | None = None
+    ) -> dict:
+        payload: dict[str, object] = {}
+        if limit is not None:
+            payload["limit"] = limit
+        if kinds is not None:
+            payload["kinds"] = kinds
+        if not payload:
+            return self._request("/api/list_cards_missing_manager_data", method="GET")
+        return self._request("/api/list_cards_missing_manager_data", payload, method="POST")
+
+    def audit_repair_order_consistency(self, *, limit: int | None = None) -> dict:
+        payload: dict[str, object] = {}
+        if limit is not None:
+            payload["limit"] = limit
+        if not payload:
+            return self._request("/api/audit_repair_order_consistency", method="GET")
+        return self._request("/api/audit_repair_order_consistency", payload, method="POST")
+
+    def audit_client_links(
+        self,
+        *,
+        limit: int | None = None,
+        candidate_limit: int | None = None,
+        redact_private: bool | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {}
+        if limit is not None:
+            payload["limit"] = limit
+        if candidate_limit is not None:
+            payload["candidate_limit"] = candidate_limit
+        if redact_private is not None:
+            payload["redact_private"] = redact_private
+        if not payload:
+            return self._request("/api/audit_client_links", method="GET")
+        return self._request("/api/audit_client_links", payload, method="POST")
 
     def search_cards(
         self,
@@ -705,6 +773,8 @@ class BoardApiClient:
         deadline: dict | None = None,
         vehicle_profile: dict[str, object] | None = None,
         actor_name: str | None = None,
+        expected_updated_at: str | None = None,
+        response_mode: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {"card_id": card_id}
         if vehicle is not None:
@@ -719,6 +789,10 @@ class BoardApiClient:
             payload["deadline"] = deadline
         if vehicle_profile is not None:
             payload["vehicle_profile"] = vehicle_profile
+        if expected_updated_at:
+            payload["expected_updated_at"] = expected_updated_at
+        if response_mode:
+            payload["response_mode"] = response_mode
         return self._request_with_identity("/api/update_card", payload, actor_name=actor_name)
 
     def set_card_board_summary(
@@ -727,8 +801,11 @@ class BoardApiClient:
         card_id: str,
         summary: str,
         actor_name: str | None = None,
+        response_mode: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {"card_id": card_id, "summary": summary}
+        if response_mode:
+            payload["response_mode"] = response_mode
         return self._request_with_identity(
             "/api/set_card_board_summary", payload, actor_name=actor_name
         )
@@ -816,15 +893,29 @@ class BoardApiClient:
         )
 
     def set_card_deadline(
-        self, *, card_id: str, deadline: dict, actor_name: str | None = None
+        self,
+        *,
+        card_id: str,
+        deadline: dict,
+        actor_name: str | None = None,
+        response_mode: str | None = None,
     ) -> dict:
         payload = {"card_id": card_id, "deadline": deadline}
+        if response_mode:
+            payload["response_mode"] = response_mode
         return self._request_with_identity("/api/set_card_deadline", payload, actor_name=actor_name)
 
     def set_card_indicator(
-        self, *, card_id: str, indicator: str, actor_name: str | None = None
+        self,
+        *,
+        card_id: str,
+        indicator: str,
+        actor_name: str | None = None,
+        response_mode: str | None = None,
     ) -> dict:
         payload = {"card_id": card_id, "indicator": indicator}
+        if response_mode:
+            payload["response_mode"] = response_mode
         return self._request_with_identity(
             "/api/set_card_indicator", payload, actor_name=actor_name
         )
@@ -843,10 +934,163 @@ class BoardApiClient:
         return self._request_with_identity("/api/move_card", payload, actor_name=actor_name)
 
     def bulk_move_cards(
-        self, *, card_ids: list[str], column: str, actor_name: str | None = None
+        self,
+        *,
+        card_ids: list[str],
+        column: str,
+        actor_name: str | None = None,
+        response_mode: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {"card_ids": card_ids, "column": column}
+        if response_mode:
+            payload["response_mode"] = response_mode
         return self._request_with_identity("/api/bulk_move_cards", payload, actor_name=actor_name)
+
+    def bulk_set_deadline_if_below(
+        self,
+        *,
+        mode: str | None = None,
+        min_total_seconds: int | None = None,
+        target_total_seconds: int | None = None,
+        limit: int | None = None,
+        include_archived: bool | None = None,
+        card_ids: list[str] | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {}
+        if mode:
+            payload["mode"] = mode
+        if min_total_seconds is not None:
+            payload["min_total_seconds"] = min_total_seconds
+        if target_total_seconds is not None:
+            payload["target_total_seconds"] = target_total_seconds
+        if limit is not None:
+            payload["limit"] = limit
+        if include_archived is not None:
+            payload["include_archived"] = include_archived
+        if card_ids is not None:
+            payload["card_ids"] = card_ids
+        return self._request_with_identity(
+            "/api/bulk_set_deadline_if_below", payload, actor_name=actor_name
+        )
+
+    def bulk_refresh_board_summaries(
+        self,
+        *,
+        mode: str | None = None,
+        limit: int | None = None,
+        only_missing: bool | None = None,
+        only_stale: bool | None = None,
+        card_ids: list[str] | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {}
+        if mode:
+            payload["mode"] = mode
+        if limit is not None:
+            payload["limit"] = limit
+        if only_missing is not None:
+            payload["only_missing"] = only_missing
+        if only_stale is not None:
+            payload["only_stale"] = only_stale
+        if card_ids is not None:
+            payload["card_ids"] = card_ids
+        return self._request_with_identity(
+            "/api/bulk_refresh_board_summaries", payload, actor_name=actor_name
+        )
+
+    def cleanup_card(
+        self,
+        *,
+        card_id: str,
+        mode: str | None = None,
+        actor_name: str | None = None,
+        expected_updated_at: str | None = None,
+        response_mode: str | None = None,
+        refresh_summary: bool | None = None,
+        summary: str | None = None,
+        vehicle: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        tags: list[str | dict[str, object]] | None = None,
+        deadline: dict | None = None,
+        vehicle_profile: dict[str, object] | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {"card_id": card_id}
+        for key, value in {
+            "mode": mode,
+            "expected_updated_at": expected_updated_at,
+            "response_mode": response_mode,
+            "refresh_summary": refresh_summary,
+            "summary": summary,
+            "vehicle": vehicle,
+            "title": title,
+            "description": description,
+            "tags": tags,
+            "deadline": deadline,
+            "vehicle_profile": vehicle_profile,
+        }.items():
+            if value is not None:
+                payload[key] = value
+        return self._request_with_identity("/api/cleanup_card", payload, actor_name=actor_name)
+
+    def apply_ready_unpaid_followups(
+        self,
+        *,
+        mode: str | None = None,
+        target_total_seconds: int | None = None,
+        limit: int | None = None,
+        refresh_summary: bool | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {}
+        if mode:
+            payload["mode"] = mode
+        if target_total_seconds is not None:
+            payload["target_total_seconds"] = target_total_seconds
+        if limit is not None:
+            payload["limit"] = limit
+        if refresh_summary is not None:
+            payload["refresh_summary"] = refresh_summary
+        return self._request_with_identity(
+            "/api/apply_ready_unpaid_followups", payload, actor_name=actor_name
+        )
+
+    def run_manager_operation(
+        self,
+        *,
+        operation: str,
+        payload: dict[str, object] | None = None,
+        mode: str | None = None,
+        actor_name: str | None = None,
+        limit: int | None = None,
+    ) -> dict:
+        request_payload: dict[str, object] = {"operation": operation}
+        if payload is not None:
+            request_payload["payload"] = payload
+        if mode:
+            request_payload["mode"] = mode
+        if limit is not None:
+            request_payload["limit"] = limit
+        return self._request_with_identity(
+            "/api/run_manager_operation", request_payload, actor_name=actor_name
+        )
+
+    def rollback_manager_run(
+        self,
+        *,
+        mode: str | None = None,
+        rollback_actions: list[dict[str, object]] | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {}
+        if mode:
+            payload["mode"] = mode
+        if rollback_actions is not None:
+            payload["rollback_actions"] = rollback_actions
+        return self._request_with_identity(
+            "/api/rollback_manager_run", payload, actor_name=actor_name
+        )
 
     def archive_card(self, *, card_id: str, actor_name: str | None = None) -> dict:
         return self._request_with_identity(

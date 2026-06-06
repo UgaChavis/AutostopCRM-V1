@@ -127,6 +127,9 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertIn("- get_board_content", text)
         self.assertIn("- get_board_events", text)
         self.assertIn("- get_gpt_wall", text)
+        self.assertIn("- manager_board_scan", text)
+        self.assertIn("- bulk_set_deadline_if_below", text)
+        self.assertIn("- apply_ready_unpaid_followups", text)
         self.assertNotIn("- cleanup_card_content", text)
         self.assertIn("- get_card_context", text)
         self.assertIn("- list_columns", text)
@@ -146,6 +149,7 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertIn("get_board_content(view_mode=agent)", text)
         self.assertIn("get_board_events(event_limit=100)", text)
         self.assertIn("get_board_snapshot(compact=true)", text)
+        self.assertIn("call manager_board_scan before reading the full wall", text)
         self.assertIn(
             "make_display, model_display, production_year, vin, engine_model, gearbox_model, drivetrain, and oem_notes",
             text,
@@ -232,6 +236,10 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertTrue(any("link_card_to_client" in note for note in connector_data["notes"]))
         self.assertTrue(any("delete_column" in note for note in connector_data["notes"]))
         self.assertTrue(any("bulk_move_cards" in note for note in connector_data["notes"]))
+        self.assertTrue(any("manager_board_scan" in note for note in connector_data["notes"]))
+        self.assertTrue(
+            any("apply requires actor_name" in note for note in connector_data["notes"])
+        )
         self.assertTrue(any("card_content_first" in note for note in connector_data["notes"]))
         self.assertTrue(any("oem_notes" in note for note in connector_data["notes"]))
         self.assertTrue(any("delete and recreate" in note for note in connector_data["notes"]))
@@ -242,9 +250,12 @@ class ConnectionCardTests(unittest.TestCase):
                 for note in connector_data["notes"]
             )
         )
-        self.assertEqual(len(MCP_TOOL_NAMES), 71)
+        self.assertEqual(len(MCP_TOOL_NAMES), 83)
         self.assertIn("get_board_content", MCP_TOOL_NAMES)
         self.assertIn("get_board_events", MCP_TOOL_NAMES)
+        self.assertIn("manager_board_scan", MCP_TOOL_NAMES)
+        self.assertIn("bulk_set_deadline_if_below", MCP_TOOL_NAMES)
+        self.assertIn("apply_ready_unpaid_followups", MCP_TOOL_NAMES)
         self.assertNotIn("cleanup_card_content", MCP_TOOL_NAMES)
         self.assertNotIn("autofill_repair_order", MCP_TOOL_NAMES)
         self.assertNotIn("autofill_vehicle_data", MCP_TOOL_NAMES)

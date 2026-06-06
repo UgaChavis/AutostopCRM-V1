@@ -98,7 +98,12 @@ from .card_service_payroll import CardServicePayrollMixin
 from .column_service import ColumnService
 from .errors import ServiceError
 from .finance_read_core import FinanceReadCore
-from .ready_column import READY_CARD_TAG_COLOR, READY_CARD_TAG_LABEL, ensure_ready_column
+from .ready_column import (
+    READY_CARD_TAG_COLOR,
+    READY_CARD_TAG_LABEL,
+    READY_COLUMN_LABEL,
+    ensure_ready_column,
+)
 from .repair_order_number_audit import build_repair_order_number_audit
 from .snapshot_service import SnapshotService
 from .vehicle_profile_service import VehicleProfileService
@@ -109,6 +114,19 @@ _CARD_AI_VIN_PATTERN = re.compile(r"\b[A-HJ-NPR-Z0-9]{17}\b")
 _CARD_AI_DTC_PATTERN = re.compile(r"\b[PBCU][0-9]{4}\b", re.IGNORECASE)
 _READY_CARD_TAG_NORMALIZED = normalize_tag_label(READY_CARD_TAG_LABEL)
 _CASH_EXPENSE_NOTE_MIN_CHARS = 10
+_MANAGER_DEFAULT_MIN_DEADLINE_SECONDS = 2 * 24 * 60 * 60
+_MANAGER_DEFAULT_LIMIT = 50
+_MANAGER_WAIT_PAYMENT_TAG_LABEL = "ЖДЕТ ОПЛАТЫ"
+_MANAGER_WAIT_PAYMENT_TAG_ALIASES = {
+    normalize_tag_label(value)
+    for value in (
+        "ЖДЕТ ОПЛАТЫ",
+        "ЖДЁТ ОПЛАТЫ",
+        "ЖДЕМ ОПЛАТЫ",
+        "ЖДЁМ ОПЛАТЫ",
+        "ОПЛАТА",
+    )
+}
 
 
 _SEARCH_SEPARATOR_PATTERN = re.compile(r"[\W_]+", re.UNICODE)
@@ -755,50 +773,38 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
             self._ensure_not_archived(card)
             actor_name, source = self._audit_identity(payload, default_source="mcp")
             summary = self._validated_board_summary(payload.get("summary"))
-            previous = card.board_summary
-            previous_fingerprint = card.board_summary_card_fingerprint
-            stale_refresh = bool(summary and card.board_summary_stale())
-            changed = summary != previous or stale_refresh
+            response_mode = self._validated_response_mode(payload, default="full")
+            changed = self._manager_set_board_summary(card, summary, events, actor_name, source)
             if changed:
-                now_iso = self._touch_card(card, actor_name)
-                card.board_summary = summary
-                card.board_summary_updated_at = now_iso if summary else ""
-                card.board_summary_source = source if summary else ""
-                card.board_summary_card_fingerprint = (
-                    card.board_summary_content_fingerprint() if summary else ""
-                )
-                self._append_event(
-                    events,
-                    actor_name=actor_name,
-                    source=source,
-                    action="board_summary_changed",
-                    message=f"{actor_name} обновил краткую суть для доски",
-                    card_id=card.id,
-                    details={
-                        "before": previous,
-                        "after": summary,
-                        "before_fingerprint": previous_fingerprint,
-                        "after_fingerprint": card.board_summary_card_fingerprint,
-                        "stale_refresh": stale_refresh,
-                    },
-                )
                 self._save_bundle(
                     bundle,
                     columns=bundle["columns"],
                     cards=cards,
                     events=events,
                 )
-            return {
-                "card": self._serialize_card(
+            column_labels = self._column_labels(bundle["columns"])
+            card_payload = (
+                self._manager_card_item(card, column_labels, now=utc_now())
+                if response_mode == "compact"
+                else self._serialize_card(
                     card,
                     events,
-                    column_labels=self._column_labels(bundle["columns"]),
+                    column_labels=column_labels,
                     include_removed_attachments=True,
-                ),
+                )
+            )
+            return {
+                "card": card_payload,
                 "meta": {
                     "changed": changed,
                     "summary_lines": len([line for line in summary.splitlines() if line.strip()]),
                     "board_summary_stale": card.board_summary_stale(),
+                    "response_mode": response_mode,
+                    "verification": {
+                        "passed": card.board_summary == summary,
+                        "card_id": card.id,
+                        "updated_at": card.updated_at,
+                    },
                 },
             }
 
@@ -1411,6 +1417,8 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
             query = normalize_text(payload.get("query"), default="", limit=240)
             sort_by = self._validated_repair_order_sort_by(payload.get("sort_by"))
             sort_dir = self._validated_repair_order_sort_direction(payload.get("sort_dir"))
+            compact = self._validated_optional_bool(payload, "compact", default=False)
+            redact_private = self._validated_optional_bool(payload, "redact_private", default=False)
             bundle = self._store.read_bundle()
             cards = bundle["cards"]
             if self._synchronize_repair_order_numbers(cards):
@@ -1462,10 +1470,16 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                 key=lambda card: self._repair_order_list_sort_key(card, sort_by=sort_by),
                 reverse=(sort_dir == "desc"),
             )
+
+            def serializer(card: Card) -> dict[str, object]:
+                if compact:
+                    return self._serialize_repair_order_compact_item(
+                        card, redact_private=redact_private
+                    )
+                return self._serialize_repair_order_list_item(card)
+
             return {
-                "repair_orders": [
-                    self._serialize_repair_order_list_item(card) for card in sorted_cards[:limit]
-                ],
+                "repair_orders": [serializer(card) for card in sorted_cards[:limit]],
                 "meta": {
                     "limit": limit,
                     "total": len(sorted_cards),
@@ -1480,9 +1494,803 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                     "ready_total": len(ready_cards),
                     "archived_total": len(archived_cards),
                     "inconsistent_total": len(inconsistent_cards),
+                    "compact": compact,
+                    "redact_private": redact_private,
                     "directory": str(self._repair_orders_dir),
                 },
             }
+
+    def manager_board_scan(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            limit = self._validated_limit(
+                payload.get("limit"), default=_MANAGER_DEFAULT_LIMIT, maximum=200
+            )
+            bundle = self._store.read_bundle()
+            columns = bundle["columns"]
+            cards = bundle["cards"]
+            column_labels = self._column_labels(columns)
+            ready_column_ids = self._manager_ready_column_ids(columns)
+            now = utc_now()
+            active_cards = [card for card in cards if not card.archived]
+            archived_cards = [card for card in cards if card.archived]
+            overdue_cards = [card for card in active_cards if card.remaining_seconds(now) <= 0]
+            critical_cards = [
+                card for card in active_cards if card.status(now) in {"critical", "expired"}
+            ]
+            stale_summary_cards = [card for card in active_cards if card.board_summary_stale()]
+            missing_cards = [card for card in active_cards if self._manager_missing_kinds(card)]
+            ready_unpaid_cards = self._manager_ready_unpaid_cards(
+                active_cards, ready_column_ids=ready_column_ids
+            )
+            inbox_cards = [
+                card
+                for card in active_cards
+                if self._manager_column_is_inbox(card.column, column_labels)
+            ]
+            repair_order_issues = self._manager_repair_order_issue_items(
+                cards,
+                columns,
+                limit=limit,
+            )
+            column_counts: dict[str, int] = {}
+            for card in active_cards:
+                column_counts[card.column] = column_counts.get(card.column, 0) + 1
+            overloaded_columns = [
+                {
+                    "column": column.id,
+                    "column_label": column.label,
+                    "active_cards": column_counts.get(column.id, 0),
+                }
+                for column in columns
+                if column_counts.get(column.id, 0) >= 12
+            ]
+            return {
+                "summary": {
+                    "active_cards": len(active_cards),
+                    "archived_cards": len(archived_cards),
+                    "overdue_cards": len(overdue_cards),
+                    "critical_cards": len(critical_cards),
+                    "stale_board_summaries": len(stale_summary_cards),
+                    "missing_manager_data": len(missing_cards),
+                    "ready_unpaid_cards": len(ready_unpaid_cards),
+                    "inbox_cards": len(inbox_cards),
+                    "repair_order_issues": len(repair_order_issues["items"]),
+                },
+                "sections": {
+                    "overdue": [
+                        self._manager_card_item(card, column_labels, now=now)
+                        for card in overdue_cards[:limit]
+                    ],
+                    "critical": [
+                        self._manager_card_item(card, column_labels, now=now)
+                        for card in critical_cards[:limit]
+                    ],
+                    "missing_manager_data": [
+                        self._manager_card_item(card, column_labels, now=now)
+                        for card in missing_cards[:limit]
+                    ],
+                    "ready_unpaid": [
+                        self._manager_ready_unpaid_item(card, column_labels, now=now)
+                        for card in ready_unpaid_cards[:limit]
+                    ],
+                    "inbox": [
+                        self._manager_card_item(card, column_labels, now=now)
+                        for card in inbox_cards[:limit]
+                    ],
+                    "repair_order_consistency": repair_order_issues["items"],
+                    "overloaded_columns": overloaded_columns,
+                },
+                "meta": {
+                    "limit": limit,
+                    "response_mode": "manager_board_scan",
+                    "view_mode": "compact",
+                },
+            }
+
+    def list_ready_unpaid_cards(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            limit = self._validated_limit(
+                payload.get("limit"), default=_MANAGER_DEFAULT_LIMIT, maximum=200
+            )
+            bundle = self._store.read_bundle()
+            columns = bundle["columns"]
+            column_labels = self._column_labels(columns)
+            ready_column_ids = self._manager_ready_column_ids(columns)
+            active_cards = [card for card in bundle["cards"] if not card.archived]
+            now = utc_now()
+            cards = self._manager_ready_unpaid_cards(
+                active_cards, ready_column_ids=ready_column_ids
+            )
+            return {
+                "cards": [
+                    self._manager_ready_unpaid_item(card, column_labels, now=now)
+                    for card in cards[:limit]
+                ],
+                "meta": {
+                    "limit": limit,
+                    "total": len(cards),
+                    "returned": min(limit, len(cards)),
+                    "has_more": len(cards) > limit,
+                    "response_mode": "ready_unpaid_cards",
+                    "view_mode": "compact",
+                },
+            }
+
+    def triage_inbox_cards(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            limit = self._validated_limit(
+                payload.get("limit"), default=_MANAGER_DEFAULT_LIMIT, maximum=200
+            )
+            bundle = self._store.read_bundle()
+            column_labels = self._column_labels(bundle["columns"])
+            now = utc_now()
+            inbox_cards = [
+                card
+                for card in bundle["cards"]
+                if not card.archived and self._manager_column_is_inbox(card.column, column_labels)
+            ]
+            items = [
+                self._manager_inbox_triage_item(card, column_labels, now=now)
+                for card in inbox_cards[:limit]
+            ]
+            return {
+                "cards": items,
+                "summary": self._manager_bucket_counts(item.get("triage_bucket") for item in items),
+                "meta": {
+                    "limit": limit,
+                    "total": len(inbox_cards),
+                    "returned": len(items),
+                    "has_more": len(inbox_cards) > limit,
+                    "response_mode": "inbox_triage",
+                    "view_mode": "compact",
+                },
+            }
+
+    def list_cards_missing_manager_data(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            limit = self._validated_limit(
+                payload.get("limit"), default=_MANAGER_DEFAULT_LIMIT, maximum=200
+            )
+            raw_kinds = payload.get("kinds")
+            requested_kinds = (
+                {
+                    normalize_text(kind, default="", limit=80)
+                    for kind in raw_kinds
+                    if normalize_text(kind, default="", limit=80)
+                }
+                if isinstance(raw_kinds, list)
+                else set()
+            )
+            bundle = self._store.read_bundle()
+            column_labels = self._column_labels(bundle["columns"])
+            now = utc_now()
+            items = []
+            for card in bundle["cards"]:
+                if card.archived:
+                    continue
+                missing = self._manager_missing_kinds(card)
+                if not missing:
+                    continue
+                if requested_kinds and not requested_kinds.intersection(missing):
+                    continue
+                item = self._manager_card_item(card, column_labels, now=now)
+                item["missing"] = missing
+                items.append(item)
+            return {
+                "cards": items[:limit],
+                "summary": self._manager_bucket_counts(
+                    kind for item in items for kind in item.get("missing", [])
+                ),
+                "meta": {
+                    "limit": limit,
+                    "total": len(items),
+                    "returned": min(limit, len(items)),
+                    "has_more": len(items) > limit,
+                    "kinds": sorted(requested_kinds),
+                    "response_mode": "missing_manager_data",
+                    "view_mode": "compact",
+                },
+            }
+
+    def audit_repair_order_consistency(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            limit = self._validated_limit(
+                payload.get("limit"), default=_MANAGER_DEFAULT_LIMIT, maximum=200
+            )
+            bundle = self._store.read_bundle()
+            return self._manager_repair_order_issue_items(
+                bundle["cards"],
+                bundle["columns"],
+                limit=limit,
+            )
+
+    def audit_client_links(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            limit = self._validated_limit(
+                payload.get("limit"), default=_MANAGER_DEFAULT_LIMIT, maximum=200
+            )
+            candidate_limit = self._validated_numeric_limit(
+                payload.get("candidate_limit"),
+                field="candidate_limit",
+                default=3,
+                maximum=10,
+            )
+            redact_private = self._validated_optional_bool(payload, "redact_private", default=True)
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            clients = bundle["clients"]
+            column_labels = self._column_labels(bundle["columns"])
+            now = utc_now()
+            items = []
+            for card in cards:
+                if card.archived or card.client_id:
+                    continue
+                query = self._manager_client_link_query(card)
+                if not query:
+                    continue
+                matches = [
+                    {
+                        "score": score,
+                        "client": self._manager_client_candidate_item(
+                            client, redact_private=redact_private
+                        ),
+                    }
+                    for score, client in self._rank_client_matches(clients, query, cards)[
+                        :candidate_limit
+                    ]
+                    if score > 1
+                ]
+                if not matches:
+                    continue
+                item = self._manager_card_item(card, column_labels, now=now)
+                item["client_link_query"] = self._manager_redact_private_text(query)
+                item["candidates"] = matches
+                items.append(item)
+            return {
+                "cards": items[:limit],
+                "meta": {
+                    "limit": limit,
+                    "candidate_limit": candidate_limit,
+                    "total": len(items),
+                    "returned": min(limit, len(items)),
+                    "has_more": len(items) > limit,
+                    "redact_private": redact_private,
+                    "response_mode": "client_link_audit",
+                    "view_mode": "compact",
+                },
+            }
+
+    def bulk_set_deadline_if_below(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            mode = self._manager_operation_mode(payload)
+            actor_name, source = self._manager_actor_identity(payload, mode=mode)
+            minimum_seconds = self._validated_numeric_limit(
+                payload.get(
+                    "min_total_seconds",
+                    payload.get("minimum_seconds", payload.get("minimum_total_seconds")),
+                ),
+                field="min_total_seconds",
+                default=_MANAGER_DEFAULT_MIN_DEADLINE_SECONDS,
+                maximum=31_536_000,
+            )
+            target_seconds = self._validated_numeric_limit(
+                payload.get("target_total_seconds", payload.get("target_seconds")),
+                field="target_total_seconds",
+                default=minimum_seconds,
+                maximum=31_536_000,
+            )
+            target_seconds = max(target_seconds, minimum_seconds)
+            limit = self._validated_limit(payload.get("limit"), default=200, maximum=1000)
+            include_archived = self._validated_optional_bool(
+                payload, "include_archived", default=False
+            )
+            target_ids = self._manager_card_id_filter(payload)
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            events = bundle["events"]
+            column_labels = self._column_labels(bundle["columns"])
+            now = utc_now()
+            scanned_cards = [
+                card
+                for card in cards
+                if (include_archived or not card.archived)
+                and (not target_ids or card.id in target_ids)
+            ]
+            eligible_cards = [
+                card for card in scanned_cards if card.remaining_seconds(now) < minimum_seconds
+            ][:limit]
+            changed_cards: list[Card] = []
+            items = []
+            for card in eligible_cards:
+                before_remaining = card.remaining_seconds(now)
+                item = self._manager_card_item(card, column_labels, now=now)
+                item["planned_changes"] = {
+                    "deadline": {
+                        "before_remaining_seconds": before_remaining,
+                        "target_total_seconds": target_seconds,
+                    }
+                }
+                if mode == "apply":
+                    changed = self._update_deadline(
+                        card,
+                        {"total_seconds": target_seconds},
+                        events,
+                        actor_name,
+                        source,
+                    )
+                    if changed:
+                        self._touch_card(card, actor_name)
+                        changed_cards.append(card)
+                        item["changed"] = True
+                    else:
+                        item["changed"] = False
+                items.append(item)
+            if changed_cards:
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=cards,
+                    events=events,
+                )
+            verification = self._manager_deadline_verification(
+                eligible_cards,
+                minimum_seconds=minimum_seconds,
+                mode=mode,
+            )
+            return self._manager_operation_result(
+                "bulk_set_deadline_if_below",
+                mode,
+                actor_name=actor_name,
+                scanned=len(scanned_cards),
+                eligible=len(eligible_cards),
+                changed=len(changed_cards),
+                skipped=max(len(scanned_cards) - len(eligible_cards), 0),
+                errors=[],
+                items=items,
+                verification=verification,
+                extra_meta={
+                    "minimum_seconds": minimum_seconds,
+                    "target_seconds": target_seconds,
+                    "include_archived": include_archived,
+                },
+            )
+
+    def bulk_refresh_board_summaries(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            mode = self._manager_operation_mode(payload)
+            actor_name, source = self._manager_actor_identity(payload, mode=mode)
+            limit = self._validated_limit(payload.get("limit"), default=100, maximum=500)
+            only_missing = self._validated_optional_bool(payload, "only_missing", default=False)
+            only_stale = self._validated_optional_bool(payload, "only_stale", default=False)
+            target_ids = self._manager_card_id_filter(payload)
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            events = bundle["events"]
+            column_labels = self._column_labels(bundle["columns"])
+            now = utc_now()
+            scanned_cards = [
+                card
+                for card in cards
+                if not card.archived and (not target_ids or card.id in target_ids)
+            ]
+            eligible_cards = []
+            for card in scanned_cards:
+                missing = not bool(card.board_summary)
+                stale = card.board_summary_stale()
+                if only_missing and not missing:
+                    continue
+                if only_stale and not stale:
+                    continue
+                if not only_missing and not only_stale and not (missing or stale):
+                    continue
+                eligible_cards.append(card)
+            eligible_cards = eligible_cards[:limit]
+            changed_cards: list[Card] = []
+            items = []
+            for card in eligible_cards:
+                summary = self._manager_generated_board_summary(card, column_labels)
+                item = self._manager_card_item(card, column_labels, now=now)
+                item["planned_changes"] = {"board_summary": summary}
+                if mode == "apply":
+                    if self._manager_set_board_summary(
+                        card,
+                        summary,
+                        events,
+                        actor_name,
+                        source,
+                    ):
+                        changed_cards.append(card)
+                        item["changed"] = True
+                    else:
+                        item["changed"] = False
+                items.append(item)
+            if changed_cards:
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=cards,
+                    events=events,
+                )
+            verification = {
+                "mode": mode,
+                "checked": len(eligible_cards),
+                "passed": mode == "dry_run"
+                or all(
+                    card.board_summary and not card.board_summary_stale() for card in changed_cards
+                ),
+            }
+            return self._manager_operation_result(
+                "bulk_refresh_board_summaries",
+                mode,
+                actor_name=actor_name,
+                scanned=len(scanned_cards),
+                eligible=len(eligible_cards),
+                changed=len(changed_cards),
+                skipped=max(len(scanned_cards) - len(eligible_cards), 0),
+                errors=[],
+                items=items,
+                verification=verification,
+                extra_meta={"only_missing": only_missing, "only_stale": only_stale},
+            )
+
+    def cleanup_card(self, payload: dict | None = None) -> dict:
+        payload = payload or {}
+        mode = self._manager_operation_mode(payload)
+        actor_name, _source = self._manager_actor_identity(payload, mode=mode)
+        card_id = normalize_text(payload.get("card_id"), default="", limit=128)
+        if not card_id:
+            self._fail(
+                "validation_error",
+                "Для cleanup_card нужно передать card_id.",
+                details={"field": "card_id"},
+            )
+        response_mode = self._validated_response_mode(payload, default="compact")
+        patch: dict[str, Any] = {"card_id": card_id, "response_mode": response_mode}
+        for field in ("vehicle", "title", "description", "deadline", "tags", "vehicle_profile"):
+            if field in payload:
+                patch[field] = payload[field]
+        if "expected_updated_at" in payload:
+            patch["expected_updated_at"] = payload.get("expected_updated_at")
+        refresh_summary = self._validated_optional_bool(payload, "refresh_summary", default=False)
+        explicit_summary = normalize_text(
+            payload.get("summary", payload.get("board_summary")),
+            default="",
+            limit=CARD_BOARD_SUMMARY_LIMIT,
+        )
+        with self._lock:
+            bundle = self._store.read_bundle()
+            card = self._find_card(bundle["cards"], card_id)
+            self._ensure_not_archived(card)
+            column_labels = self._column_labels(bundle["columns"])
+            generated_summary = explicit_summary or (
+                self._manager_generated_board_summary(card, column_labels)
+                if refresh_summary
+                else ""
+            )
+            planned_fields = [field for field in patch if field not in {"card_id", "response_mode"}]
+            if generated_summary:
+                planned_fields.append("board_summary")
+            dry_run_item = self._manager_card_item(card, column_labels, now=utc_now())
+            dry_run_item["planned_fields"] = planned_fields
+            if mode == "dry_run":
+                return self._manager_operation_result(
+                    "cleanup_card",
+                    mode,
+                    actor_name=actor_name,
+                    scanned=1,
+                    eligible=1 if planned_fields else 0,
+                    changed=0,
+                    skipped=0 if planned_fields else 1,
+                    errors=[],
+                    items=[dry_run_item],
+                    verification={"mode": mode, "passed": True},
+                    extra_meta={"response_mode": response_mode},
+                )
+        changed = 0
+        errors: list[dict[str, Any]] = []
+        result_card: dict[str, Any] | None = None
+        if any(
+            field in patch
+            for field in ("vehicle", "title", "description", "deadline", "tags", "vehicle_profile")
+        ):
+            patch["actor_name"] = actor_name
+            updated = self.update_card(patch)
+            result_card = updated.get("card")
+            if (updated.get("meta") or {}).get("changed"):
+                changed += 1
+        if generated_summary:
+            summary_result = self.set_card_board_summary(
+                {
+                    "card_id": card_id,
+                    "summary": generated_summary,
+                    "actor_name": actor_name,
+                    "response_mode": response_mode,
+                }
+            )
+            result_card = summary_result.get("card")
+            if (summary_result.get("meta") or {}).get("changed"):
+                changed += 1
+        return self._manager_operation_result(
+            "cleanup_card",
+            mode,
+            actor_name=actor_name,
+            scanned=1,
+            eligible=1,
+            changed=changed,
+            skipped=0 if changed else 1,
+            errors=errors,
+            items=[{"card_id": card_id, "card": result_card, "changed": bool(changed)}],
+            verification={"mode": mode, "passed": bool(result_card)},
+            extra_meta={"response_mode": response_mode},
+        )
+
+    def apply_ready_unpaid_followups(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            mode = self._manager_operation_mode(payload)
+            actor_name, source = self._manager_actor_identity(payload, mode=mode)
+            limit = self._validated_limit(
+                payload.get("limit"), default=_MANAGER_DEFAULT_LIMIT, maximum=200
+            )
+            target_seconds = self._validated_numeric_limit(
+                payload.get("target_total_seconds", payload.get("target_seconds")),
+                field="target_total_seconds",
+                default=_MANAGER_DEFAULT_MIN_DEADLINE_SECONDS,
+                maximum=31_536_000,
+            )
+            refresh_summary = self._validated_optional_bool(
+                payload, "refresh_summary", default=True
+            )
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            events = bundle["events"]
+            columns = bundle["columns"]
+            column_labels = self._column_labels(columns)
+            ready_column_ids = self._manager_ready_column_ids(columns)
+            now = utc_now()
+            eligible_cards = self._manager_ready_unpaid_cards(
+                [card for card in cards if not card.archived],
+                ready_column_ids=ready_column_ids,
+            )[:limit]
+            changed_cards: list[Card] = []
+            errors: list[dict[str, Any]] = []
+            items = []
+            for card in eligible_cards:
+                planned_changes: dict[str, Any] = {}
+                item = self._manager_ready_unpaid_item(card, column_labels, now=now)
+                if not self._manager_has_wait_payment_tag(card):
+                    planned_changes["tags"] = [
+                        *card.tag_items(),
+                        {"label": _MANAGER_WAIT_PAYMENT_TAG_LABEL, "color": "yellow"},
+                    ]
+                if card.remaining_seconds(now) < target_seconds:
+                    planned_changes["deadline"] = {"target_total_seconds": target_seconds}
+                if refresh_summary and (not card.board_summary or card.board_summary_stale()):
+                    planned_changes["board_summary"] = self._manager_generated_board_summary(
+                        card, column_labels
+                    )
+                item["planned_changes"] = planned_changes
+                if mode == "apply" and planned_changes:
+                    changed = False
+                    if "tags" in planned_changes:
+                        try:
+                            changed = (
+                                self._update_tags(
+                                    card,
+                                    planned_changes["tags"],
+                                    events,
+                                    actor_name,
+                                    source,
+                                )
+                                or changed
+                            )
+                        except ServiceError as exc:
+                            errors.append(
+                                {
+                                    "card_id": card.id,
+                                    "code": exc.code,
+                                    "message": exc.message,
+                                }
+                            )
+                    if "deadline" in planned_changes:
+                        changed = (
+                            self._update_deadline(
+                                card,
+                                {"total_seconds": target_seconds},
+                                events,
+                                actor_name,
+                                source,
+                            )
+                            or changed
+                        )
+                    if "board_summary" in planned_changes:
+                        changed = (
+                            self._manager_set_board_summary(
+                                card,
+                                planned_changes["board_summary"],
+                                events,
+                                actor_name,
+                                source,
+                            )
+                            or changed
+                        )
+                    if changed:
+                        if card not in changed_cards:
+                            self._touch_card(card, actor_name)
+                            changed_cards.append(card)
+                        item["changed"] = True
+                    else:
+                        item["changed"] = False
+                items.append(item)
+            if changed_cards:
+                self._save_bundle(
+                    bundle,
+                    columns=columns,
+                    cards=cards,
+                    events=events,
+                )
+            verification = {
+                "mode": mode,
+                "checked": len(eligible_cards),
+                "passed": mode == "dry_run"
+                or all(
+                    self._manager_has_wait_payment_tag(card)
+                    and card.remaining_seconds() >= max(0, target_seconds - 2)
+                    for card in changed_cards
+                ),
+            }
+            return self._manager_operation_result(
+                "apply_ready_unpaid_followups",
+                mode,
+                actor_name=actor_name,
+                scanned=len([card for card in cards if not card.archived]),
+                eligible=len(eligible_cards),
+                changed=len(changed_cards),
+                skipped=max(len(eligible_cards) - len(changed_cards), 0),
+                errors=errors,
+                items=items,
+                verification=verification,
+                extra_meta={"target_seconds": target_seconds, "refresh_summary": refresh_summary},
+            )
+
+    def run_manager_operation(self, payload: dict | None = None) -> dict:
+        payload = dict(payload or {})
+        operation = normalize_text(
+            payload.get("operation", payload.get("name")), default="", limit=120
+        )
+        if not operation:
+            self._fail(
+                "validation_error",
+                "Для run_manager_operation нужно передать operation.",
+                details={"field": "operation"},
+            )
+        operation_payload = payload.get("payload")
+        operation_payload = dict(operation_payload) if isinstance(operation_payload, dict) else {}
+        if "mode" in payload and "mode" not in operation_payload:
+            operation_payload["mode"] = payload.get("mode")
+        if "actor_name" in payload and "actor_name" not in operation_payload:
+            operation_payload["actor_name"] = payload.get("actor_name")
+        if "limit" in payload and "limit" not in operation_payload:
+            operation_payload["limit"] = payload.get("limit")
+        operations = {
+            "manager_board_scan": self.manager_board_scan,
+            "list_ready_unpaid_cards": self.list_ready_unpaid_cards,
+            "triage_inbox_cards": self.triage_inbox_cards,
+            "list_cards_missing_manager_data": self.list_cards_missing_manager_data,
+            "audit_repair_order_consistency": self.audit_repair_order_consistency,
+            "audit_client_links": self.audit_client_links,
+            "bulk_set_deadline_if_below": self.bulk_set_deadline_if_below,
+            "bulk_refresh_board_summaries": self.bulk_refresh_board_summaries,
+            "cleanup_card": self.cleanup_card,
+            "apply_ready_unpaid_followups": self.apply_ready_unpaid_followups,
+        }
+        handler = operations.get(operation)
+        if handler is None:
+            self._fail(
+                "validation_error",
+                "Неизвестная manager operation.",
+                details={"field": "operation", "operation": operation},
+            )
+        result = handler(operation_payload)
+        return {
+            "operation": operation,
+            "result": result,
+            "meta": {
+                "response_mode": "manager_operation",
+                "view_mode": "compact",
+            },
+        }
+
+    def rollback_manager_run(self, payload: dict | None = None) -> dict:
+        payload = dict(payload or {})
+        mode = self._manager_operation_mode(payload)
+        actor_name, _source = self._manager_actor_identity(payload, mode=mode)
+        actions = payload.get("rollback_actions")
+        if actions is None:
+            actions = payload.get("actions")
+        if not isinstance(actions, list) or not actions:
+            return self._manager_operation_result(
+                "rollback_manager_run",
+                mode,
+                actor_name=actor_name,
+                scanned=0,
+                eligible=0,
+                changed=0,
+                skipped=0,
+                errors=[
+                    {
+                        "code": "rollback_actions_required",
+                        "message": "Передайте rollback_actions из ответа предыдущей операции.",
+                    }
+                ],
+                items=[],
+                verification={"mode": mode, "passed": False},
+            )
+        changed = 0
+        items = []
+        errors: list[dict[str, Any]] = []
+        if mode == "dry_run":
+            return self._manager_operation_result(
+                "rollback_manager_run",
+                mode,
+                actor_name=actor_name,
+                scanned=len(actions),
+                eligible=len(actions),
+                changed=0,
+                skipped=0,
+                errors=[],
+                items=actions,
+                verification={"mode": mode, "passed": True},
+            )
+        for action in actions:
+            if not isinstance(action, dict):
+                errors.append(
+                    {"code": "invalid_rollback_action", "message": "Action must be object."}
+                )
+                continue
+            card_id = normalize_text(action.get("card_id"), default="", limit=128)
+            restore = action.get("restore")
+            if not card_id or not isinstance(restore, dict):
+                errors.append(
+                    {
+                        "code": "invalid_rollback_action",
+                        "message": "Action must contain card_id and restore object.",
+                    }
+                )
+                continue
+            patch = {"card_id": card_id, "actor_name": actor_name, "response_mode": "compact"}
+            for field in ("vehicle", "title", "description", "deadline", "tags", "vehicle_profile"):
+                if field in restore:
+                    patch[field] = restore[field]
+            try:
+                result = self.update_card(patch)
+                if (result.get("meta") or {}).get("changed"):
+                    changed += 1
+                items.append(
+                    {"card_id": card_id, "changed": bool((result.get("meta") or {}).get("changed"))}
+                )
+            except ServiceError as exc:
+                errors.append({"card_id": card_id, "code": exc.code, "message": exc.message})
+        return self._manager_operation_result(
+            "rollback_manager_run",
+            mode,
+            actor_name=actor_name,
+            scanned=len(actions),
+            eligible=len(actions),
+            changed=changed,
+            skipped=max(len(actions) - changed, 0),
+            errors=errors,
+            items=items,
+            verification={"mode": mode, "passed": not errors},
+        )
 
     def get_repair_order_number_audit(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -2472,6 +3280,7 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                         "current_updated_at": card.updated_at,
                     },
                 )
+            response_mode = self._validated_response_mode(payload, default="full")
             actor_name, source = self._audit_identity(payload, default_source="api")
             ready_column_id, ready_column_changed = self._ensure_ready_column_for_bundle(
                 bundle, actor_name=actor_name, source=source
@@ -2604,19 +3413,31 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                 actor_name,
                 source,
             )
-            return {
-                "card": self._serialize_card(
+            column_labels = self._column_labels(bundle["columns"])
+            card_payload = (
+                self._manager_card_item(card, column_labels, now=utc_now())
+                if response_mode == "compact"
+                else self._serialize_card(
                     card,
                     events,
-                    column_labels=self._column_labels(bundle["columns"]),
+                    column_labels=column_labels,
                     include_removed_attachments=True,
-                ),
+                )
+            )
+            return {
+                "card": card_payload,
                 "meta": {
                     "changed": changed
                     or numbering_changed
                     or ready_column_changed
                     or linked_vehicle_changed,
                     "changed_fields": changed_fields,
+                    "response_mode": response_mode,
+                    "verification": {
+                        "card_id": card.id,
+                        "updated_at": card.updated_at,
+                        "changed_fields": changed_fields,
+                    },
                 },
             }
 
@@ -2682,6 +3503,7 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
             self._ensure_not_archived(card)
             actor_name, source = self._audit_identity(payload, default_source="api")
             indicator = self._validated_indicator(payload.get("indicator"))
+            response_mode = self._validated_response_mode(payload, default="full")
             previous_indicator = card.indicator()
             self._apply_indicator(card, indicator)
             self._touch_card(card, actor_name)
@@ -2707,10 +3529,23 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                 actor_name,
                 source,
             )
+            column_labels = self._column_labels(bundle["columns"])
+            card_payload = (
+                self._manager_card_item(card, column_labels, now=utc_now())
+                if response_mode == "compact"
+                else self._serialize_card(card, events, column_labels=column_labels)
+            )
             return {
-                "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(bundle["columns"])
-                )
+                "card": card_payload,
+                "meta": {
+                    "changed": previous_indicator != indicator,
+                    "response_mode": response_mode,
+                    "verification": {
+                        "passed": card.indicator() == indicator,
+                        "card_id": card.id,
+                        "indicator": card.indicator(),
+                    },
+                },
             }
 
     def move_card(self, payload: dict) -> dict:
@@ -2849,6 +3684,7 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
             columns = bundle["columns"]
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
+            response_mode = self._validated_response_mode(payload, default="full")
             ready_column_id, ready_column_changed = self._ensure_ready_column_for_bundle(
                 bundle, actor_name=actor_name, source=source
             )
@@ -2927,7 +3763,11 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                         changed = True
                         changed_any = True
                     warnings.extend({"card_id": card.id, **warning} for warning in ready_warnings)
-                    serialized = self._serialize_card(card, events, column_labels=column_labels)
+                    serialized = (
+                        self._manager_card_item(card, column_labels, now=utc_now())
+                        if response_mode == "compact"
+                        else self._serialize_card(card, events, column_labels=column_labels)
+                    )
                     serialized["bulk_move"] = {
                         "before_column": previous_column,
                         "after_column": next_column,
@@ -2973,6 +3813,12 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
                     "errors": len(errors),
                     "partial_failure": bool(errors),
                     "warnings": warnings,
+                    "response_mode": response_mode,
+                    "verification": {
+                        "target_column": next_column,
+                        "moved_card_ids": [card["id"] for card in moved_cards],
+                        "errors": len(errors),
+                    },
                 },
             }
 
@@ -6724,6 +7570,533 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
             return (closed_value, opened_value, number_value, str(card.id or ""))
         return (opened_value, number_value, str(card.id or ""))
 
+    def _manager_operation_mode(self, payload: dict[str, Any]) -> str:
+        raw_mode = normalize_text(
+            payload.get("mode", payload.get("apply_mode")), default="dry_run", limit=40
+        )
+        mode = raw_mode.casefold().replace("-", "_")
+        if mode in {"dry_run", "dryrun", "preview", "plan"}:
+            return "dry_run"
+        if mode in {"apply", "write", "commit"}:
+            return "apply"
+        self._fail(
+            "validation_error",
+            "Поле mode должно быть dry_run или apply.",
+            details={"field": "mode"},
+        )
+
+    def _manager_actor_identity(self, payload: dict[str, Any], *, mode: str) -> tuple[str, str]:
+        raw_actor = normalize_actor_name(payload.get("actor_name"), default="")
+        if mode == "apply" and not raw_actor:
+            self._fail(
+                "validation_error",
+                "Для apply-операции нужно передать actor_name.",
+                details={"field": "actor_name"},
+            )
+        return self._audit_identity(payload, default_source="mcp")
+
+    def _manager_operation_result(
+        self,
+        operation: str,
+        mode: str,
+        *,
+        actor_name: str,
+        scanned: int,
+        eligible: int,
+        changed: int,
+        skipped: int,
+        errors: list[dict[str, Any]],
+        items: list[dict[str, Any]],
+        verification: dict[str, Any],
+        extra_meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        run = {
+            "run_id": uuid.uuid4().hex,
+            "operation": operation,
+            "mode": mode,
+            "actor_name": actor_name,
+            "created_at": utc_now_iso(),
+            "ledger": "compact_response",
+        }
+        meta = {
+            "response_mode": "manager_operation_result",
+            "view_mode": "compact",
+            "operation": operation,
+            "mode": mode,
+        }
+        if extra_meta:
+            meta.update(extra_meta)
+        return {
+            "run": run,
+            "scanned": int(scanned),
+            "eligible": int(eligible),
+            "changed": int(changed),
+            "skipped": int(skipped),
+            "errors": errors,
+            "items": items,
+            "verification": verification,
+            "meta": meta,
+        }
+
+    def _validated_response_mode(self, payload: dict[str, Any], *, default: str) -> str:
+        mode = normalize_text(payload.get("response_mode"), default=default, limit=40).casefold()
+        if mode not in {"full", "compact"}:
+            self._fail(
+                "validation_error",
+                "Поле response_mode должно быть full или compact.",
+                details={"field": "response_mode"},
+            )
+        return mode
+
+    def _manager_card_id_filter(self, payload: dict[str, Any]) -> set[str]:
+        raw_card_ids = payload.get("card_ids")
+        if raw_card_ids in (None, ""):
+            return set()
+        if not isinstance(raw_card_ids, list):
+            self._fail(
+                "validation_error",
+                "Поле card_ids должно быть массивом строк.",
+                details={"field": "card_ids"},
+            )
+        return {
+            card_id
+            for card_id in (normalize_text(value, default="", limit=128) for value in raw_card_ids)
+            if card_id
+        }
+
+    def _manager_ready_column_ids(self, columns: list[Column]) -> set[str]:
+        ready_label = READY_COLUMN_LABEL.casefold()
+        return {
+            column.id
+            for column in columns
+            if column.id == "done" or column.label.casefold() == ready_label
+        }
+
+    def _manager_column_is_inbox(self, column_id: str, column_labels: dict[str, str]) -> bool:
+        label = column_labels.get(column_id, column_id).casefold()
+        return column_id == "inbox" or "вход" in label or "inbox" in label
+
+    def _manager_has_ready_tag(self, card: Card) -> bool:
+        return _READY_CARD_TAG_NORMALIZED in set(card.tag_labels())
+
+    def _manager_has_wait_payment_tag(self, card: Card) -> bool:
+        return bool(_MANAGER_WAIT_PAYMENT_TAG_ALIASES.intersection(card.tag_labels()))
+
+    def _manager_card_is_ready(self, card: Card, *, ready_column_ids: set[str]) -> bool:
+        return (
+            card.column in ready_column_ids
+            or self._manager_has_ready_tag(card)
+            or (
+                self._card_has_repair_order(card)
+                and card.repair_order.status == REPAIR_ORDER_STATUS_READY
+            )
+        )
+
+    def _manager_card_is_unpaid(self, card: Card) -> bool:
+        if self._manager_has_wait_payment_tag(card):
+            return True
+        if not self._card_has_repair_order(card):
+            return False
+        order = card.repair_order
+        return (not order.is_paid()) and order.due_total_value() > 0
+
+    def _manager_ready_unpaid_cards(
+        self, cards: list[Card], *, ready_column_ids: set[str]
+    ) -> list[Card]:
+        selected = [
+            card
+            for card in cards
+            if self._manager_card_is_ready(card, ready_column_ids=ready_column_ids)
+            and self._manager_card_is_unpaid(card)
+        ]
+        return sorted(
+            selected,
+            key=lambda card: (
+                card.repair_order.due_total_value() if self._card_has_repair_order(card) else 0,
+                card.updated_at,
+                card.id,
+            ),
+            reverse=True,
+        )
+
+    def _manager_card_vin(self, card: Card) -> str:
+        vin = normalize_text(card.vehicle_profile.vin, default="", limit=32).upper()
+        if vin:
+            return vin
+        vin = normalize_text(card.repair_order.vin, default="", limit=32).upper()
+        if vin:
+            return vin
+        source_text = " ".join(
+            filter(
+                None,
+                [
+                    card.vehicle,
+                    card.title,
+                    card.description,
+                    card.repair_order.reason,
+                    card.repair_order.comment,
+                    card.vehicle_profile.raw_input_text,
+                ],
+            )
+        )
+        match = _VIN_PATTERN.search(source_text.upper())
+        return match.group(0) if match else ""
+
+    def _manager_missing_kinds(self, card: Card) -> list[str]:
+        missing: list[str] = []
+        if not card.board_summary:
+            missing.append("board_summary")
+        elif card.board_summary_stale():
+            missing.append("board_summary_stale")
+        if not self._manager_card_vin(card):
+            missing.append("vin")
+        if not card.client_id:
+            missing.append("client_link")
+        if not normalize_text(card.description, default="", limit=20):
+            missing.append("description")
+        return missing
+
+    def _manager_redact_private_text(self, value: str) -> str:
+        text = _PHONE_PATTERN.sub("[phone]", str(value or ""))
+        text = _VIN_PATTERN.sub("[vin]", text)
+        return " ".join(text.split())
+
+    def _manager_card_item(
+        self,
+        card: Card,
+        column_labels: dict[str, str],
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        now = now or utc_now()
+        return {
+            "id": card.id,
+            "short_id": short_entity_id(card.id, prefix="C"),
+            "heading": card.heading(),
+            "vehicle": card.vehicle_display(),
+            "title": card.title,
+            "column": card.column,
+            "column_label": column_labels.get(card.column, card.column),
+            "tags": card.tag_labels(),
+            "status": card.status(now),
+            "indicator": card.indicator(now),
+            "remaining_seconds": card.remaining_seconds(now),
+            "deadline_total_seconds": card.deadline_total_seconds,
+            "updated_at": card.updated_at,
+            "board_summary_present": bool(card.board_summary),
+            "board_summary_stale": card.board_summary_stale(),
+            "has_repair_order": self._card_has_repair_order(card),
+            "client_linked": bool(card.client_id),
+            "vin_present": bool(self._manager_card_vin(card)),
+            "missing": self._manager_missing_kinds(card),
+        }
+
+    def _manager_repair_order_snapshot(self, card: Card) -> dict[str, Any]:
+        if not self._card_has_repair_order(card):
+            return {
+                "present": False,
+                "status": "",
+                "payment_status": "",
+                "grand_total": "",
+                "due_total": "",
+            }
+        order = card.repair_order
+        return {
+            "present": True,
+            "number": order.number,
+            "status": order.status,
+            "status_label": self._repair_order_status_label(order.status),
+            "payment_status": order.payment_status(),
+            "payment_status_label": order.payment_status_label(),
+            "is_paid": order.is_paid(),
+            "grand_total": order.grand_total_amount(),
+            "due_total": order.due_total_amount(),
+            "paid_total": order.prepayment_amount(),
+        }
+
+    def _manager_ready_unpaid_item(
+        self,
+        card: Card,
+        column_labels: dict[str, str],
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        item = self._manager_card_item(card, column_labels, now=now)
+        item["repair_order"] = self._manager_repair_order_snapshot(card)
+        item["needs_payment_followup"] = True
+        item["recommended_actions"] = [
+            "confirm_payment_or_handoff_status",
+            "keep_deadline_at_least_two_days",
+            "add_wait_payment_tag_if_missing",
+        ]
+        return item
+
+    def _manager_inbox_triage_item(
+        self,
+        card: Card,
+        column_labels: dict[str, str],
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        item = self._manager_card_item(card, column_labels, now=now)
+        missing = item["missing"]
+        recommended = []
+        if "client_link" in missing:
+            recommended.append("audit_client_links")
+        if "board_summary" in missing or "board_summary_stale" in missing:
+            recommended.append("bulk_refresh_board_summaries")
+        if card.remaining_seconds(now or utc_now()) < _MANAGER_DEFAULT_MIN_DEADLINE_SECONDS:
+            recommended.append("bulk_set_deadline_if_below")
+        if "vin" in missing:
+            recommended.append("cleanup_card")
+        if not recommended:
+            recommended.append("review_card_context")
+        bucket = "needs_data" if missing else "ready_for_manager_review"
+        item["triage_bucket"] = bucket
+        item["recommended_tools"] = recommended
+        return item
+
+    def _manager_bucket_counts(self, values) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for value in values:
+            key = normalize_text(value, default="", limit=80)
+            if not key:
+                continue
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    def _manager_repair_order_issues(
+        self, card: Card, *, ready_column_ids: set[str]
+    ) -> list[dict[str, str]]:
+        issues: list[dict[str, str]] = []
+        has_order = self._card_has_repair_order(card)
+        is_ready_card = self._manager_card_is_ready(card, ready_column_ids=ready_column_ids)
+        if card.archived and self._card_has_open_repair_order(card):
+            issues.append(
+                {
+                    "code": "archived_card_has_open_repair_order",
+                    "severity": "high",
+                    "message": "Архивная карточка содержит открытый заказ-наряд.",
+                }
+            )
+        if not has_order:
+            if is_ready_card:
+                issues.append(
+                    {
+                        "code": "ready_card_missing_repair_order",
+                        "severity": "medium",
+                        "message": "Готовая карточка не содержит заказ-наряд.",
+                    }
+                )
+            return issues
+        order = card.repair_order
+        if not card.archived and order.status == REPAIR_ORDER_STATUS_CLOSED:
+            issues.append(
+                {
+                    "code": "active_card_has_closed_repair_order",
+                    "severity": "medium",
+                    "message": "Активная карточка содержит закрытый заказ-наряд.",
+                }
+            )
+        if order.status == REPAIR_ORDER_STATUS_READY and not is_ready_card:
+            issues.append(
+                {
+                    "code": "ready_repair_order_not_on_ready_card",
+                    "severity": "medium",
+                    "message": "Заказ-наряд готов, но карточка не в готовых.",
+                }
+            )
+        if is_ready_card and order.status == REPAIR_ORDER_STATUS_OPEN:
+            issues.append(
+                {
+                    "code": "ready_card_has_open_repair_order",
+                    "severity": "medium",
+                    "message": "Готовая карточка содержит открытый заказ-наряд.",
+                }
+            )
+        if (
+            is_ready_card
+            and order.due_total_value() > 0
+            and not self._manager_has_wait_payment_tag(card)
+        ):
+            issues.append(
+                {
+                    "code": "ready_unpaid_without_payment_tag",
+                    "severity": "low",
+                    "message": "Готовая неоплаченная карточка без метки ожидания оплаты.",
+                }
+            )
+        if order.is_paid() and self._manager_has_wait_payment_tag(card):
+            issues.append(
+                {
+                    "code": "paid_card_has_wait_payment_tag",
+                    "severity": "low",
+                    "message": "Оплаченная карточка всё ещё помечена как ожидающая оплату.",
+                }
+            )
+        return issues
+
+    def _manager_repair_order_issue_items(
+        self,
+        cards: list[Card],
+        columns: list[Column],
+        *,
+        limit: int,
+    ) -> dict[str, Any]:
+        column_labels = self._column_labels(columns)
+        ready_column_ids = self._manager_ready_column_ids(columns)
+        now = utc_now()
+        items: list[dict[str, Any]] = []
+        summary: dict[str, int] = {}
+        for card in cards:
+            issues = self._manager_repair_order_issues(card, ready_column_ids=ready_column_ids)
+            if not issues:
+                continue
+            for issue in issues:
+                summary[issue["code"]] = summary.get(issue["code"], 0) + 1
+            item = self._manager_card_item(card, column_labels, now=now)
+            item["repair_order"] = self._manager_repair_order_snapshot(card)
+            item["issues"] = issues
+            items.append(item)
+        return {
+            "issues": items[:limit],
+            "items": items[:limit],
+            "summary": summary,
+            "meta": {
+                "limit": limit,
+                "total": len(items),
+                "returned": min(limit, len(items)),
+                "has_more": len(items) > limit,
+                "response_mode": "repair_order_consistency_audit",
+                "view_mode": "compact",
+            },
+        }
+
+    def _manager_client_link_query(self, card: Card) -> str:
+        source_text = " ".join(
+            filter(
+                None,
+                [
+                    card.repair_order.phone,
+                    card.vehicle_profile.customer_phone,
+                    " ".join(card.vehicle_profile.customer_phones),
+                    card.repair_order.client,
+                    card.vehicle_profile.customer_name,
+                    card.repair_order.license_plate,
+                    card.vehicle_profile.registration_plate,
+                    card.vehicle,
+                    card.title,
+                    card.description,
+                ],
+            )
+        )
+        phone_match = _PHONE_PATTERN.search(source_text)
+        plate_match = _LICENSE_PLATE_PATTERN.search(source_text)
+        parts = [
+            phone_match.group(0) if phone_match else "",
+            plate_match.group(0) if plate_match else "",
+            card.repair_order.client,
+            card.vehicle_profile.customer_name,
+            card.vehicle_display(),
+        ]
+        return normalize_text(" ".join(part for part in parts if part), default="", limit=500)
+
+    def _manager_client_candidate_item(
+        self, client: ClientProfile, *, redact_private: bool
+    ) -> dict[str, Any]:
+        payload = {
+            "id": client.id,
+            "name": client.name(),
+            "vehicle_count": len(client.vehicles),
+            "updated_at": client.updated_at,
+        }
+        if redact_private:
+            payload["phone_present"] = bool(client.phone or client.phones)
+        else:
+            payload["phone"] = client.phone
+            payload["phones"] = list(client.phones)
+        return payload
+
+    def _manager_generated_board_summary(self, card: Card, column_labels: dict[str, str]) -> str:
+        lines = [self._manager_redact_private_text(card.heading())]
+        column_label = column_labels.get(card.column, card.column)
+        status_parts = [f"Статус: {column_label}"]
+        if self._card_has_repair_order(card):
+            status_parts.append(f"ЗН: {self._repair_order_status_label(card.repair_order.status)}")
+        lines.append("; ".join(status_parts))
+        if self._card_has_repair_order(card):
+            order = card.repair_order
+            if order.due_total_value() > 0:
+                lines.append(
+                    f"Оплата: долг {order.due_total_amount()} из {order.grand_total_amount()}"
+                )
+        missing = self._manager_missing_kinds(card)
+        if missing:
+            lines.append("Проверить: " + ", ".join(missing[:4]))
+        description = self._manager_redact_private_text(card.description)
+        if description:
+            lines.append("Заметка: " + description[:160].rstrip())
+        summary = "\n".join(lines[:CARD_BOARD_SUMMARY_LINE_LIMIT])
+        return self._validated_board_summary(self._manager_redact_private_text(summary))
+
+    def _manager_set_board_summary(
+        self,
+        card: Card,
+        summary: str,
+        events: list[AuditEvent],
+        actor_name: str,
+        source: str,
+    ) -> bool:
+        summary = self._validated_board_summary(summary)
+        previous = card.board_summary
+        previous_fingerprint = card.board_summary_card_fingerprint
+        stale_refresh = bool(summary and card.board_summary_stale())
+        changed = summary != previous or stale_refresh
+        if not changed:
+            return False
+        now_iso = self._touch_card(card, actor_name)
+        card.board_summary = summary
+        card.board_summary_updated_at = now_iso if summary else ""
+        card.board_summary_source = source if summary else ""
+        card.board_summary_card_fingerprint = (
+            card.board_summary_content_fingerprint() if summary else ""
+        )
+        self._append_event(
+            events,
+            actor_name=actor_name,
+            source=source,
+            action="board_summary_changed",
+            message=f"{actor_name} обновил краткую суть для доски",
+            card_id=card.id,
+            details={
+                "before": previous,
+                "after": summary,
+                "before_fingerprint": previous_fingerprint,
+                "after_fingerprint": card.board_summary_card_fingerprint,
+                "stale_refresh": stale_refresh,
+            },
+        )
+        return True
+
+    def _manager_deadline_verification(
+        self, cards: list[Card], *, minimum_seconds: int, mode: str
+    ) -> dict[str, Any]:
+        if mode == "dry_run":
+            return {"mode": mode, "checked": len(cards), "passed": True}
+        tolerance_seconds = 2
+        below = [
+            card.id
+            for card in cards
+            if card.remaining_seconds() < max(0, minimum_seconds - tolerance_seconds)
+        ]
+        return {
+            "mode": mode,
+            "checked": len(cards),
+            "passed": not below,
+            "below_minimum_card_ids": below,
+            "minimum_seconds": minimum_seconds,
+        }
+
     def _synchronize_repair_order_numbers(self, cards: list[Card]) -> bool:
         ordered_cards = sorted(
             (card for card in cards if self._card_has_repair_order(card)),
@@ -6812,6 +8185,49 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
             if all(token in haystack for token in tokens):
                 filtered.append(card)
         return filtered
+
+    def _serialize_repair_order_compact_item(
+        self, card: Card, *, redact_private: bool
+    ) -> dict[str, object]:
+        path = self._ensure_repair_order_text_file(card)
+        order = card.repair_order
+        item: dict[str, object] = {
+            "card_id": card.id,
+            "short_id": short_entity_id(card.id, prefix="C"),
+            "number": order.number,
+            "date": order.date,
+            "status": order.status,
+            "status_label": self._repair_order_status_label(order.status),
+            "heading": card.heading(),
+            "vehicle": order.vehicle or card.vehicle,
+            "payment_status": order.payment_status(),
+            "payment_status_label": order.payment_status_label(),
+            "is_paid": order.is_paid(),
+            "paid_total": order.prepayment_amount(),
+            "grand_total": order.grand_total_amount(),
+            "due_total": order.due_total_amount(),
+            "updated_at": card.updated_at,
+            "file_name": path.name,
+        }
+        if redact_private:
+            item.update(
+                {
+                    "client_present": bool(order.client),
+                    "phone_present": bool(order.phone),
+                    "vin_present": bool(order.vin),
+                    "license_plate_present": bool(order.license_plate),
+                }
+            )
+        else:
+            item.update(
+                {
+                    "client": order.client,
+                    "phone": order.phone,
+                    "vin": order.vin,
+                    "license_plate": order.license_plate,
+                }
+            )
+        return item
 
     def _serialize_repair_order_list_item(self, card: Card) -> dict[str, object]:
         path = self._ensure_repair_order_text_file(card)
@@ -7771,7 +9187,7 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
         if not isinstance(value, list):
             self._fail(
                 "validation_error",
-                "Поле tags должно быть массивом строк.",
+                "Поле tags должно быть массивом строк или объектов {label,color}.",
                 details={"field": "tags"},
             )
         unique_labels: set[str] = set()

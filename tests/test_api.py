@@ -3990,6 +3990,152 @@ class ApiServerTests(unittest.TestCase):
             any(item["card_id"] == card_id for item in active["data"]["repair_orders"])
         )
 
+    def test_manager_bulk_deadline_defaults_to_dry_run_and_apply_requires_actor(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"title": "Таймер менеджера", "deadline": {"minutes": 15}},
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        status, dry_run = self.request(
+            "/api/bulk_set_deadline_if_below",
+            {"card_ids": [card_id], "min_total_seconds": 172800, "target_total_seconds": 172800},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(dry_run["data"]["eligible"], 1)
+        self.assertEqual(dry_run["data"]["changed"], 0)
+        self.assertEqual(dry_run["data"]["run"]["mode"], "dry_run")
+
+        status, rejected = self.request(
+            "/api/bulk_set_deadline_if_below",
+            {
+                "mode": "apply",
+                "card_ids": [card_id],
+                "min_total_seconds": 172800,
+                "target_total_seconds": 172800,
+            },
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(rejected["error"]["code"], "validation_error")
+
+        status, applied = self.request(
+            "/api/bulk_set_deadline_if_below",
+            {
+                "mode": "apply",
+                "actor_name": "CODEX MCP QA",
+                "card_ids": [card_id],
+                "min_total_seconds": 172800,
+                "target_total_seconds": 172800,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(applied["data"]["changed"], 1)
+        self.assertTrue(applied["data"]["verification"]["passed"])
+
+        status, reread = self.request("/api/get_card", {"card_id": card_id})
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(reread["data"]["card"]["remaining_seconds"], 172798)
+
+    def test_manager_ready_unpaid_followups_and_compact_repair_orders(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"vehicle": "Skoda Octavia", "title": "Готов без оплаты", "deadline": {"hours": 4}},
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+        status, _patched = self.request(
+            "/api/update_repair_order",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Иван Проверочный",
+                    "phone": "+7 999 111 22 33",
+                    "vin": "WVWZZZ1JZXW000001",
+                    "works": [
+                        {"name": "Диагностика", "quantity": "1", "price": "2000", "total": ""}
+                    ],
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        status, _marked = self.request("/api/mark_card_ready", {"card_id": card_id})
+        self.assertEqual(status, 200)
+
+        status, ready_unpaid = self.request("/api/list_ready_unpaid_cards", {"limit": 10})
+        self.assertEqual(status, 200)
+        self.assertIn(card_id, [item["id"] for item in ready_unpaid["data"]["cards"]])
+
+        status, dry_run = self.request("/api/apply_ready_unpaid_followups", {"limit": 10})
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(dry_run["data"]["eligible"], 1)
+        self.assertEqual(dry_run["data"]["changed"], 0)
+
+        status, applied = self.request(
+            "/api/apply_ready_unpaid_followups",
+            {"mode": "apply", "actor_name": "CODEX MCP QA", "limit": 10},
+        )
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(applied["data"]["changed"], 1)
+
+        status, reread = self.request("/api/get_card", {"card_id": card_id})
+        self.assertEqual(status, 200)
+        self.assertIn("ЖДЕТ ОПЛАТЫ", reread["data"]["card"]["tags"])
+
+        status, compact = self.request(
+            "/api/list_repair_orders",
+            {"status": "ready", "compact": True, "redact_private": True},
+        )
+        self.assertEqual(status, 200)
+        item = next(item for item in compact["data"]["repair_orders"] if item["card_id"] == card_id)
+        self.assertTrue(item["client_present"])
+        self.assertTrue(item["phone_present"])
+        self.assertTrue(item["vin_present"])
+        self.assertNotIn("phone", item)
+        self.assertNotIn("vin", item)
+
+    def test_manager_missing_data_and_update_card_compact_conflict(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"title": "Неполные данные", "deadline": {"hours": 4}},
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+        updated_at = created["data"]["card"]["updated_at"]
+
+        status, missing = self.request(
+            "/api/list_cards_missing_manager_data",
+            {"kinds": ["vin", "client_link"], "limit": 10},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn(card_id, [item["id"] for item in missing["data"]["cards"]])
+
+        status, updated = self.request(
+            "/api/update_card",
+            {
+                "card_id": card_id,
+                "title": "Неполные данные обновлены",
+                "tags": ["СТАТУС", {"label": "ЖДЕМ", "color": "yellow"}],
+                "expected_updated_at": updated_at,
+                "response_mode": "compact",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["data"]["meta"]["response_mode"], "compact")
+        self.assertIn("СТАТУС", updated["data"]["card"]["tags"])
+        self.assertIn("ЖДЕМ", updated["data"]["card"]["tags"])
+
+        status, conflict = self.request(
+            "/api/update_card",
+            {
+                "card_id": card_id,
+                "title": "Старое ожидание",
+                "expected_updated_at": updated_at,
+            },
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(conflict["error"]["code"], "card_update_conflict")
+
     def test_repair_order_status_route_rejects_unpaid_close(self) -> None:
         status, created = self.request(
             "/api/create_card",

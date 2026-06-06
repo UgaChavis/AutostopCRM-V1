@@ -101,8 +101,14 @@ from minimal_kanban.storage.json_store import JsonStore
 
 EXPECTED_MCP_TOOLS = {
     "archive_card",
+    "apply_ready_unpaid_followups",
+    "audit_client_links",
+    "audit_repair_order_consistency",
     "bootstrap_context",
     "bulk_move_cards",
+    "bulk_refresh_board_summaries",
+    "bulk_set_deadline_if_below",
+    "cleanup_card",
     "create_card",
     "create_cash_transaction",
     "create_cashbox",
@@ -136,11 +142,14 @@ EXPECTED_MCP_TOOLS = {
     "get_shared_file_info",
     "list_archived_cards",
     "list_card_attachments",
+    "list_cards_missing_manager_data",
     "list_cashboxes",
     "list_clients",
     "list_columns",
     "list_overdue_cards",
     "list_repair_orders",
+    "list_ready_unpaid_cards",
+    "manager_board_scan",
     "mark_card_ready",
     "list_shared_files",
     "move_card",
@@ -152,6 +161,8 @@ EXPECTED_MCP_TOOLS = {
     "restore_card",
     "review_board",
     "read_card_attachment",
+    "rollback_manager_run",
+    "run_manager_operation",
     "search_cards",
     "search_clients",
     "set_card_deadline",
@@ -159,6 +170,7 @@ EXPECTED_MCP_TOOLS = {
     "set_card_indicator",
     "set_repair_order_status",
     "suggest_clients_for_card",
+    "triage_inbox_cards",
     "update_board_settings",
     "update_card",
     "update_client",
@@ -181,11 +193,12 @@ class McpRepairOrderPatchPayloadTests(unittest.TestCase):
 
         self.assertEqual(len(grouped_names), len(set(grouped_names)))
         self.assertEqual(PUBLIC_MCP_TOOL_NAMES, EXPECTED_MCP_TOOLS)
-        self.assertEqual(len(PUBLIC_MCP_TOOL_NAMES), 71)
+        self.assertEqual(len(PUBLIC_MCP_TOOL_NAMES), 83)
         self.assertEqual(
             set(MCP_TOOL_GROUPS),
             {
                 "diagnostics_bootstrap",
+                "manager_operations",
                 "board_cards",
                 "clients",
                 "repair_orders",
@@ -424,7 +437,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 71)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 83)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 legacy_descriptions = [
                     tool.name
@@ -1741,6 +1754,103 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(invalid_cashbox.structuredContent["ok"])
                 self.assertIn("code", invalid_cashbox.structuredContent["error"])
 
+    async def test_manager_operation_tools_reach_backend_in_dry_run(self) -> None:
+        async with create_test_mcp_http_client(
+            headers={"Authorization": "Bearer mcp-secret"}
+        ) as http_client:
+            async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
+                scan = await session.call_tool("manager_board_scan", {"limit": 5})
+                self.assertFalse(scan.isError)
+                self.assertTrue(scan.structuredContent["ok"])
+                self.assertIn("summary", scan.structuredContent["data"])
+
+                ready_unpaid = await session.call_tool("list_ready_unpaid_cards", {"limit": 5})
+                self.assertFalse(ready_unpaid.isError)
+                self.assertTrue(ready_unpaid.structuredContent["ok"])
+
+                inbox = await session.call_tool("triage_inbox_cards", {"limit": 5})
+                self.assertFalse(inbox.isError)
+                self.assertTrue(inbox.structuredContent["ok"])
+
+                missing = await session.call_tool("list_cards_missing_manager_data", {"limit": 5})
+                self.assertFalse(missing.isError)
+                self.assertTrue(missing.structuredContent["ok"])
+
+                consistency = await session.call_tool(
+                    "audit_repair_order_consistency", {"limit": 5}
+                )
+                self.assertFalse(consistency.isError)
+                self.assertTrue(consistency.structuredContent["ok"])
+
+                client_links = await session.call_tool("audit_client_links", {"limit": 5})
+                self.assertFalse(client_links.isError)
+                self.assertTrue(client_links.structuredContent["ok"])
+
+                deadline = await session.call_tool(
+                    "bulk_set_deadline_if_below",
+                    {
+                        "mode": "dry_run",
+                        "min_total_seconds": 172800,
+                        "target_total_seconds": 172800,
+                        "limit": 5,
+                    },
+                )
+                self.assertFalse(deadline.isError)
+                self.assertTrue(deadline.structuredContent["ok"])
+                self.assertEqual(deadline.structuredContent["data"]["run"]["mode"], "dry_run")
+
+                summaries = await session.call_tool(
+                    "bulk_refresh_board_summaries", {"mode": "dry_run", "limit": 5}
+                )
+                self.assertFalse(summaries.isError)
+                self.assertTrue(summaries.structuredContent["ok"])
+
+                followups = await session.call_tool(
+                    "apply_ready_unpaid_followups", {"mode": "dry_run", "limit": 5}
+                )
+                self.assertFalse(followups.isError)
+                self.assertTrue(followups.structuredContent["ok"])
+
+                created = await session.call_tool(
+                    "create_card",
+                    {
+                        "title": "Manager cleanup dry-run",
+                        "deadline": {"hours": 1},
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(created.isError)
+                card_id = created.structuredContent["data"]["card"]["id"]
+                cleanup = await session.call_tool(
+                    "cleanup_card",
+                    {
+                        "card_id": card_id,
+                        "mode": "dry_run",
+                        "title": "Manager cleanup planned",
+                    },
+                )
+                self.assertFalse(cleanup.isError)
+                self.assertTrue(cleanup.structuredContent["ok"])
+                self.assertEqual(cleanup.structuredContent["data"]["run"]["mode"], "dry_run")
+
+                dispatched = await session.call_tool(
+                    "run_manager_operation",
+                    {"operation": "manager_board_scan", "payload": {"limit": 5}},
+                )
+                self.assertFalse(dispatched.isError)
+                self.assertTrue(dispatched.structuredContent["ok"])
+                self.assertEqual(
+                    dispatched.structuredContent["data"]["operation"], "manager_board_scan"
+                )
+
+                rollback = await session.call_tool("rollback_manager_run", {"mode": "dry_run"})
+                self.assertFalse(rollback.isError)
+                self.assertTrue(rollback.structuredContent["ok"])
+                self.assertEqual(
+                    rollback.structuredContent["data"]["errors"][0]["code"],
+                    "rollback_actions_required",
+                )
+
     def test_mcp_declared_tools_have_direct_regression_calls(self) -> None:
         test_source = Path(__file__).read_text(encoding="utf-8-sig")
         called_tools = set(re.findall(r'call_tool\(\s*"([^"]+)"', test_source))
@@ -2472,6 +2582,8 @@ class BoardApiClientTests(unittest.TestCase):
                 query="срочно dsg",
                 sort_by="closed_at",
                 sort_dir="asc",
+                compact=True,
+                redact_private=True,
             )
 
         self.assertEqual(
@@ -2491,6 +2603,8 @@ class BoardApiClientTests(unittest.TestCase):
                         "query": "срочно dsg",
                         "sort_by": "closed_at",
                         "sort_dir": "asc",
+                        "compact": True,
+                        "redact_private": True,
                     },
                     method="POST",
                 ),
