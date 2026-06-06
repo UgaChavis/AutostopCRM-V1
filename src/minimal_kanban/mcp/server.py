@@ -443,6 +443,20 @@ def _compact_mapping_payload(payload: dict[str, Any] | BaseModel | None) -> dict
     return {str(key): value for key, value in dict(payload).items() if value is not None}
 
 
+def _tag_list_payload(tags: list[Any] | None) -> list[Any] | None:
+    if tags is None:
+        return None
+    payload: list[Any] = []
+    for tag in tags:
+        if isinstance(tag, BaseModel):
+            payload.append(tag.model_dump(exclude_none=True))
+        elif isinstance(tag, dict):
+            payload.append({str(key): value for key, value in tag.items() if value is not None})
+        else:
+            payload.append(str(tag))
+    return payload
+
+
 def _annotate_autostop_manager_tools(server: FastMCP, logger: Logger) -> None:
     tool_manager = getattr(server, "_tool_manager", None)
     tools = getattr(tool_manager, "_tools", None)
@@ -1759,6 +1773,141 @@ def create_mcp_server(
         )
 
     @server.tool(
+        name="manager_board_scan",
+        description=_scoped_description(
+            "Run a compact manager scan of the current AutoStop CRM board: active counts, overdue/critical cards, inbox, ready unpaid cards, missing manager data, overloaded columns, and repair-order consistency hints."
+        ),
+        annotations=_read_tool_annotations("Manager Board Scan"),
+        structured_output=True,
+    )
+    def manager_board_scan(limit: int = 50) -> JsonEnvelope:
+        return _relay_board_call(
+            "manager_board_scan",
+            lambda: board_api.manager_board_scan(limit=limit),
+            params={"limit": limit},
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="manager_board_scan",
+                view_mode="compact",
+            ),
+        )
+
+    @server.tool(
+        name="list_ready_unpaid_cards",
+        description=_scoped_description(
+            "List ready vehicles that still appear unpaid or tagged as waiting for payment, with compact card and repair-order payment state."
+        ),
+        annotations=_read_tool_annotations("Ready Unpaid Cards"),
+        structured_output=True,
+    )
+    def list_ready_unpaid_cards(limit: int = 50) -> JsonEnvelope:
+        return _relay_board_call(
+            "list_ready_unpaid_cards",
+            lambda: board_api.list_ready_unpaid_cards(limit=limit),
+            params={"limit": limit},
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="ready_unpaid_cards",
+                view_mode="compact",
+            ),
+        )
+
+    @server.tool(
+        name="triage_inbox_cards",
+        description=_scoped_description(
+            "Classify inbox cards into compact triage buckets and recommended next CRM tools without changing the board."
+        ),
+        annotations=_read_tool_annotations("Triage Inbox Cards"),
+        structured_output=True,
+    )
+    def triage_inbox_cards(limit: int = 50) -> JsonEnvelope:
+        return _relay_board_call(
+            "triage_inbox_cards",
+            lambda: board_api.triage_inbox_cards(limit=limit),
+            params={"limit": limit},
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="inbox_triage",
+                view_mode="compact",
+            ),
+        )
+
+    @server.tool(
+        name="list_cards_missing_manager_data",
+        description=_scoped_description(
+            "List active cards missing manager-critical data such as board summary, fresh summary, VIN, client link, or description."
+        ),
+        annotations=_read_tool_annotations("Missing Manager Data"),
+        structured_output=True,
+    )
+    def list_cards_missing_manager_data(
+        limit: int = 50, kinds: list[str] | None = None
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "list_cards_missing_manager_data",
+            lambda: board_api.list_cards_missing_manager_data(limit=limit, kinds=kinds),
+            params={"limit": limit, "kinds": kinds},
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="missing_manager_data",
+                view_mode="compact",
+            ),
+        )
+
+    @server.tool(
+        name="audit_repair_order_consistency",
+        description=_scoped_description(
+            "Audit consistency between card ready state, archive state, payment tags, and repair-order status without changing the board."
+        ),
+        annotations=_read_tool_annotations("Repair Order Consistency Audit"),
+        structured_output=True,
+    )
+    def audit_repair_order_consistency(limit: int = 50) -> JsonEnvelope:
+        return _relay_board_call(
+            "audit_repair_order_consistency",
+            lambda: board_api.audit_repair_order_consistency(limit=limit),
+            params={"limit": limit},
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="repair_order_consistency_audit",
+                view_mode="compact",
+            ),
+        )
+
+    @server.tool(
+        name="audit_client_links",
+        description=_scoped_description(
+            "Find active cards without a linked client and return compact candidate client matches. Defaults to redacted private fields."
+        ),
+        annotations=_read_tool_annotations("Client Links Audit"),
+        structured_output=True,
+    )
+    def audit_client_links(
+        limit: int = 50,
+        candidate_limit: int = 3,
+        redact_private: bool = True,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "audit_client_links",
+            lambda: board_api.audit_client_links(
+                limit=limit,
+                candidate_limit=candidate_limit,
+                redact_private=redact_private,
+            ),
+            params={
+                "limit": limit,
+                "candidate_limit": candidate_limit,
+                "redact_private": redact_private,
+            },
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="client_link_audit",
+                view_mode="compact",
+                redact_private=redact_private,
+            ),
+        )
+
+    @server.tool(
         name="list_cashboxes",
         description=_scoped_description(
             "List all cashboxes of the current AutoStop CRM board instance with compact balance statistics."
@@ -2331,6 +2480,8 @@ def create_mcp_server(
         query: str | None = None,
         sort_by: Literal["number", "opened_at", "closed_at"] | None = None,
         sort_dir: Literal["asc", "desc"] | None = None,
+        compact: bool = False,
+        redact_private: bool = False,
     ) -> JsonEnvelope:
         return _relay_board_call(
             "list_repair_orders",
@@ -2340,6 +2491,8 @@ def create_mcp_server(
                 query=query,
                 sort_by=sort_by,
                 sort_dir=sort_dir,
+                compact=compact,
+                redact_private=redact_private,
             ),
             params={
                 "limit": limit,
@@ -2347,11 +2500,15 @@ def create_mcp_server(
                 "query": query,
                 "sort_by": sort_by,
                 "sort_dir": sort_dir,
+                "compact": compact,
+                "redact_private": redact_private,
             },
             transform=lambda response: _with_data_meta(
                 response,
                 response_mode="list",
-                view_mode="compact",
+                view_mode="compact" if compact else "full",
+                compact=compact,
+                redact_private=redact_private,
             ),
         )
 
@@ -2509,7 +2666,7 @@ def create_mcp_server(
         vehicle: str = "",
         description: str = "",
         column: str | None = None,
-        tags: list[TagPayload] | None = None,
+        tags: list[TagPayload | str] | None = None,
         vehicle_profile: dict[str, Any] | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
@@ -2520,7 +2677,7 @@ def create_mcp_server(
                 title=title,
                 description=description,
                 column=column,
-                tags=[tag.model_dump() for tag in tags] if tags is not None else None,
+                tags=_tag_list_payload(tags),
                 deadline=_resolved_create_card_deadline(deadline),
                 vehicle_profile=_compact_mapping_payload(vehicle_profile),
                 actor_name=actor_name,
@@ -2542,10 +2699,12 @@ def create_mcp_server(
         vehicle: str | None = None,
         title: str | None = None,
         description: str | None = None,
-        tags: list[TagPayload] | None = None,
+        tags: list[TagPayload | str] | None = None,
         deadline: DeadlinePayload | None = None,
         vehicle_profile: dict[str, Any] | None = None,
         actor_name: str | None = None,
+        expected_updated_at: str | None = None,
+        response_mode: Literal["full", "compact"] = "full",
     ) -> JsonEnvelope:
         return _relay_board_call(
             "update_card",
@@ -2554,10 +2713,12 @@ def create_mcp_server(
                 vehicle=vehicle,
                 title=title,
                 description=description,
-                tags=[tag.model_dump() for tag in tags] if tags is not None else None,
+                tags=_tag_list_payload(tags),
                 deadline=deadline.model_dump() if deadline is not None else None,
                 vehicle_profile=_compact_mapping_payload(vehicle_profile),
                 actor_name=actor_name,
+                expected_updated_at=expected_updated_at,
+                response_mode=response_mode,
             ),
         )
 
@@ -2575,6 +2736,7 @@ def create_mcp_server(
         card_id: str,
         summary: str,
         actor_name: str | None = None,
+        response_mode: Literal["full", "compact"] = "full",
     ) -> JsonEnvelope:
         return _relay_board_call(
             "set_card_board_summary",
@@ -2582,6 +2744,240 @@ def create_mcp_server(
                 card_id=card_id,
                 summary=summary,
                 actor_name=actor_name,
+                response_mode=response_mode,
+            ),
+        )
+
+    @server.tool(
+        name="bulk_set_deadline_if_below",
+        description=_scoped_description(
+            "Set card timers in bulk only when remaining time is below a threshold. Defaults to dry_run; apply requires actor_name and returns compact verification."
+        ),
+        annotations=_write_tool_annotations("Bulk Set Deadline If Below", idempotent=True),
+        structured_output=True,
+    )
+    def bulk_set_deadline_if_below(
+        mode: Literal["dry_run", "apply"] = "dry_run",
+        min_total_seconds: int = 172800,
+        target_total_seconds: int = 172800,
+        limit: int = 200,
+        include_archived: bool = False,
+        card_ids: list[str] | None = None,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "bulk_set_deadline_if_below",
+            lambda: board_api.bulk_set_deadline_if_below(
+                mode=mode,
+                min_total_seconds=min_total_seconds,
+                target_total_seconds=target_total_seconds,
+                limit=limit,
+                include_archived=include_archived,
+                card_ids=card_ids,
+                actor_name=actor_name,
+            ),
+            params={
+                "mode": mode,
+                "min_total_seconds": min_total_seconds,
+                "target_total_seconds": target_total_seconds,
+                "limit": limit,
+                "include_archived": include_archived,
+                "card_ids": card_ids,
+            },
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="manager_operation_result",
+                view_mode="compact",
+            ),
+        )
+
+    @server.tool(
+        name="bulk_refresh_board_summaries",
+        description=_scoped_description(
+            "Refresh missing or stale hidden board summaries with deterministic compact summaries. Defaults to dry_run; apply requires actor_name."
+        ),
+        annotations=_write_tool_annotations("Bulk Refresh Board Summaries", idempotent=True),
+        structured_output=True,
+    )
+    def bulk_refresh_board_summaries(
+        mode: Literal["dry_run", "apply"] = "dry_run",
+        limit: int = 100,
+        only_missing: bool = False,
+        only_stale: bool = False,
+        card_ids: list[str] | None = None,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "bulk_refresh_board_summaries",
+            lambda: board_api.bulk_refresh_board_summaries(
+                mode=mode,
+                limit=limit,
+                only_missing=only_missing,
+                only_stale=only_stale,
+                card_ids=card_ids,
+                actor_name=actor_name,
+            ),
+            params={
+                "mode": mode,
+                "limit": limit,
+                "only_missing": only_missing,
+                "only_stale": only_stale,
+                "card_ids": card_ids,
+            },
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="manager_operation_result",
+                view_mode="compact",
+            ),
+        )
+
+    @server.tool(
+        name="cleanup_card",
+        description=_scoped_description(
+            "Apply or preview a compact card cleanup patch: title, vehicle, description, tags, deadline, vehicle_profile, and optional board summary refresh. Defaults to dry_run; apply requires actor_name."
+        ),
+        annotations=_write_tool_annotations("Cleanup Card", idempotent=True),
+        structured_output=True,
+    )
+    def cleanup_card(
+        card_id: str,
+        mode: Literal["dry_run", "apply"] = "dry_run",
+        actor_name: str | None = None,
+        expected_updated_at: str | None = None,
+        response_mode: Literal["full", "compact"] = "compact",
+        refresh_summary: bool = False,
+        summary: str | None = None,
+        vehicle: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        tags: list[TagPayload | str] | None = None,
+        deadline: DeadlinePayload | None = None,
+        vehicle_profile: dict[str, Any] | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "cleanup_card",
+            lambda: board_api.cleanup_card(
+                card_id=card_id,
+                mode=mode,
+                actor_name=actor_name,
+                expected_updated_at=expected_updated_at,
+                response_mode=response_mode,
+                refresh_summary=refresh_summary,
+                summary=summary,
+                vehicle=vehicle,
+                title=title,
+                description=description,
+                tags=_tag_list_payload(tags),
+                deadline=deadline.model_dump() if deadline is not None else None,
+                vehicle_profile=_compact_mapping_payload(vehicle_profile),
+            ),
+            params={
+                "card_id": card_id,
+                "mode": mode,
+                "response_mode": response_mode,
+                "refresh_summary": refresh_summary,
+            },
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="manager_operation_result",
+                view_mode="compact",
+            ),
+        )
+
+    @server.tool(
+        name="apply_ready_unpaid_followups",
+        description=_scoped_description(
+            "Preview or apply safe follow-ups for ready unpaid cards: waiting-payment tag, deadline floor, and compact board summary refresh. Defaults to dry_run; apply requires actor_name."
+        ),
+        annotations=_write_tool_annotations("Apply Ready Unpaid Followups", idempotent=True),
+        structured_output=True,
+    )
+    def apply_ready_unpaid_followups(
+        mode: Literal["dry_run", "apply"] = "dry_run",
+        target_total_seconds: int = 172800,
+        limit: int = 50,
+        refresh_summary: bool = True,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "apply_ready_unpaid_followups",
+            lambda: board_api.apply_ready_unpaid_followups(
+                mode=mode,
+                target_total_seconds=target_total_seconds,
+                limit=limit,
+                refresh_summary=refresh_summary,
+                actor_name=actor_name,
+            ),
+            params={
+                "mode": mode,
+                "target_total_seconds": target_total_seconds,
+                "limit": limit,
+                "refresh_summary": refresh_summary,
+            },
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="manager_operation_result",
+                view_mode="compact",
+            ),
+        )
+
+    @server.tool(
+        name="run_manager_operation",
+        description=_scoped_description(
+            "Dispatch one high-level manager operation by name with a nested payload. Defaults nested write operations to dry_run unless payload/mode asks for apply."
+        ),
+        annotations=_write_tool_annotations("Run Manager Operation", idempotent=True),
+        structured_output=True,
+    )
+    def run_manager_operation(
+        operation: str,
+        payload: dict[str, Any] | None = None,
+        mode: Literal["dry_run", "apply"] = "dry_run",
+        actor_name: str | None = None,
+        limit: int | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "run_manager_operation",
+            lambda: board_api.run_manager_operation(
+                operation=operation,
+                payload=payload,
+                mode=mode,
+                actor_name=actor_name,
+                limit=limit,
+            ),
+            params={"operation": operation, "mode": mode, "limit": limit},
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="manager_operation",
+                view_mode="compact",
+            ),
+        )
+
+    @server.tool(
+        name="rollback_manager_run",
+        description=_scoped_description(
+            "Preview or apply rollback actions emitted by a previous manager operation response. Rollback by run_id alone is intentionally not supported without explicit rollback_actions."
+        ),
+        annotations=_write_tool_annotations("Rollback Manager Run", idempotent=True),
+        structured_output=True,
+    )
+    def rollback_manager_run(
+        mode: Literal["dry_run", "apply"] = "dry_run",
+        rollback_actions: list[dict[str, Any]] | None = None,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "rollback_manager_run",
+            lambda: board_api.rollback_manager_run(
+                mode=mode,
+                rollback_actions=rollback_actions,
+                actor_name=actor_name,
+            ),
+            params={"mode": mode, "rollback_actions": rollback_actions},
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="manager_operation_result",
+                view_mode="compact",
             ),
         )
 
@@ -2753,12 +3149,18 @@ def create_mcp_server(
         structured_output=True,
     )
     def set_card_deadline(
-        card_id: str, deadline: DeadlinePayload, actor_name: str | None = None
+        card_id: str,
+        deadline: DeadlinePayload,
+        actor_name: str | None = None,
+        response_mode: Literal["full", "compact"] = "full",
     ) -> JsonEnvelope:
         return _relay_board_call(
             "set_card_deadline",
             lambda: board_api.set_card_deadline(
-                card_id=card_id, deadline=deadline.model_dump(), actor_name=actor_name
+                card_id=card_id,
+                deadline=deadline.model_dump(),
+                actor_name=actor_name,
+                response_mode=response_mode,
             ),
         )
 
@@ -2774,11 +3176,15 @@ def create_mcp_server(
         card_id: str,
         indicator: Literal["green", "yellow", "red"],
         actor_name: str | None = None,
+        response_mode: Literal["full", "compact"] = "full",
     ) -> JsonEnvelope:
         return _relay_board_call(
             "set_card_indicator",
             lambda: board_api.set_card_indicator(
-                card_id=card_id, indicator=indicator, actor_name=actor_name
+                card_id=card_id,
+                indicator=indicator,
+                actor_name=actor_name,
+                response_mode=response_mode,
             ),
         )
 
@@ -2816,12 +3222,18 @@ def create_mcp_server(
         structured_output=True,
     )
     def bulk_move_cards(
-        card_ids: list[str], column: str, actor_name: str | None = None
+        card_ids: list[str],
+        column: str,
+        actor_name: str | None = None,
+        response_mode: Literal["full", "compact"] = "full",
     ) -> JsonEnvelope:
         return _relay_board_call(
             "bulk_move_cards",
             lambda: board_api.bulk_move_cards(
-                card_ids=card_ids, column=column, actor_name=actor_name
+                card_ids=card_ids,
+                column=column,
+                actor_name=actor_name,
+                response_mode=response_mode,
             ),
         )
 

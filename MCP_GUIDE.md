@@ -85,12 +85,14 @@ Begin each connector session with short read calls:
 1. `ping_connector`
 2. `get_connector_identity`
 3. `bootstrap_context(compact=true)`
-4. `get_runtime_status` when auth, tunnel, or runtime is unclear
-5. focused search/read tools
-6. write only after target is identified
-7. read-back verification
+4. `manager_board_scan` for operational board triage
+5. `get_runtime_status` when auth, tunnel, or runtime is unclear
+6. focused search/read tools
+7. write only after target is identified
+8. read-back verification
 
-Prefer compact reads: `review_board`, `get_cards(compact=true)`,
+Prefer compact reads: `manager_board_scan`, `review_board`,
+`get_cards(compact=true)`,
 `search_cards`, `suggest_clients_for_card`, `get_card_context`, and
 `get_card_log(compact=true, limit=50)`. Use
 `get_card_log(include_full_details=true)` only for maintenance/debug recovery
@@ -106,11 +108,21 @@ Board/cards: column CRUD, `get_cards`, `get_card`, `get_card_context`,
 card search, overdue/archive reads, card create/update/move/bulk move,
 deadline/indicator, ready/archive/restore, and `set_card_board_summary`.
 
+Manager operations: `manager_board_scan`, `list_ready_unpaid_cards`,
+`triage_inbox_cards`, `list_cards_missing_manager_data`,
+`audit_repair_order_consistency`, `audit_client_links`,
+`bulk_set_deadline_if_below`, `bulk_refresh_board_summaries`, `cleanup_card`,
+`apply_ready_unpaid_followups`, `run_manager_operation`, and
+`rollback_manager_run`. Write-capable manager operations default to `dry_run`;
+`apply` requires `actor_name` and returns compact
+`scanned/eligible/changed/skipped/errors/verification`.
+
 Clients/vehicles: list/search/get/stats/suggest, client CRUD, card link/unlink,
 vehicle upsert/delete.
 
 Repair orders/PDF: list/get/text/PDF download, update, status change, replace
-works/materials.
+works/materials. `list_repair_orders` supports `compact=true` and
+`redact_private=true` for low-payload diagnostics.
 
 Cashboxes: list/get/journal, create/delete, and `create_cash_transaction`.
 Manual expense transactions require a `note` with at least 10 visible
@@ -130,6 +142,10 @@ Not normal MCP runtime tools: `autofill_vehicle_data`,
 - Read live context before every write.
 - Patch only confirmed fields.
 - Read back the target and verify the result.
+- Use `response_mode=compact` on high-traffic write calls when the caller only
+  needs changed ids, updated timestamps, and verification metadata.
+- Use manager write operations in `dry_run` first for board-wide work; only call
+  `apply` with `actor_name` when the dry-run plan is safe.
 - Do not move, archive, delete, or change money/client/file/order data without
   explicit owner intent.
 - For clients, search/suggest before create/link.

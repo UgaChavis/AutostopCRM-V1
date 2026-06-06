@@ -38,12 +38,19 @@ Read routes include `list_columns`, `get_cards`, `get_card`, `get_card_log`,
 `get_card_context`, `get_board_revision`, `get_board_snapshot`,
 `get_board_context`, `review_board`, `get_board_content`, `get_board_events`,
 `get_gpt_wall`, `search_cards`, `list_archived_cards`, and
-`list_overdue_cards`.
+`list_overdue_cards`. High-level manager read routes include
+`manager_board_scan`, `list_ready_unpaid_cards`, `triage_inbox_cards`,
+`list_cards_missing_manager_data`, `audit_repair_order_consistency`, and
+`audit_client_links`.
 
 Write routes include column CRUD/reorder, card create/update/move/archive,
 deadline/indicator changes, sticky CRUD, `mark_card_ready`, `mark_card_seen`,
 `bulk_move_cards`, `restore_card`, `update_board_settings`, and
-`set_card_board_summary`.
+`set_card_board_summary`. High-level manager write routes include
+`bulk_set_deadline_if_below`, `bulk_refresh_board_summaries`, `cleanup_card`,
+`apply_ready_unpaid_followups`, `run_manager_operation`, and
+`rollback_manager_run`; these default to `dry_run`, while `apply` requires
+`actor_name`.
 
 Use compact board reads for repeated UI/agent refreshes:
 `get_board_revision?compact=1&include_archive=0`,
@@ -57,6 +64,11 @@ values from `audit-archive` when active event details were compacted out.
 `set_card_board_summary` writes the short AI-managed board preview. It is capped
 at 5 non-empty lines and 560 characters and must not contain phone, VIN, full
 client name, raw diagnostic dump, or long complaint text.
+
+High-traffic write routes such as `update_card`, `set_card_deadline`,
+`set_card_board_summary`, `set_card_indicator`, and `bulk_move_cards` accept
+`response_mode=full|compact`. Compact mode returns changed ids, timestamps, and
+verification metadata instead of full card payloads.
 
 ## Clients And Vehicles
 
@@ -76,6 +88,8 @@ clients/vehicles and overwriting card fields require clear owner intent.
 Read: `list_repair_orders`, `get_repair_order`, `get_repair_order_text`,
 `get_repair_order_print_workspace`, `get_inspection_sheet_form`,
 `/api/repair_order_number_audit`, and `/api/repair_order_text?card_id=CARD_ID`.
+`list_repair_orders` accepts `compact=true` and `redact_private=true` for
+diagnostic runs that should not return phone/VIN/client fields.
 
 Write/generate: `update_repair_order`, `set_repair_order_status`,
 `replace_repair_order_works`, `replace_repair_order_materials`,

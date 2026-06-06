@@ -36,12 +36,18 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/agent_status",
     "/api/agent_tasks",
     "/api/archive_card",
+    "/api/apply_ready_unpaid_followups",
+    "/api/audit_client_links",
+    "/api/audit_repair_order_consistency",
     "/api/autofill_inspection_sheet_form",
     "/api/autofill_repair_order",
     "/api/autofill_vehicle_data",
     "/api/bulk_move_cards",
+    "/api/bulk_refresh_board_summaries",
+    "/api/bulk_set_deadline_if_below",
     "/api/cancel_last_cash_transaction",
     "/api/cleanup_card_content",
+    "/api/cleanup_card",
     "/api/copy_shared_file",
     "/api/correct_repair_order_number",
     "/api/create_card",
@@ -95,14 +101,17 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/link_card_to_client",
     "/api/list_archived_cards",
     "/api/list_card_attachments",
+    "/api/list_cards_missing_manager_data",
     "/api/list_cashboxes",
     "/api/list_clients",
     "/api/list_columns",
     "/api/list_employees",
     "/api/list_overdue_cards",
     "/api/list_repair_orders",
+    "/api/list_ready_unpaid_cards",
     "/api/list_shared_files",
     "/api/mark_card_ready",
+    "/api/manager_board_scan",
     "/api/mark_card_seen",
     "/api/move_card",
     "/api/move_column",
@@ -122,8 +131,10 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/restore_card",
     "/api/resume_agent_scheduled_task",
     "/api/review_board",
+    "/api/rollback_manager_run",
     "/api/run_agent_scheduled_task",
     "/api/run_full_card_enrichment",
+    "/api/run_manager_operation",
     "/api/save_agent_scheduled_task",
     "/api/save_employee",
     "/api/save_inspection_sheet_form",
@@ -138,6 +149,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/set_repair_order_status",
     "/api/suggest_clients_for_card",
     "/api/toggle_employee",
+    "/api/triage_inbox_cards",
     "/api/unlink_card_from_client",
     "/api/update_board_settings",
     "/api/update_card",
@@ -223,7 +235,7 @@ class ContractSnapshotTests(unittest.TestCase):
         self.assertIn("/api/get_operator_profile", OPERATOR_SESSION_ROUTES)
 
     def test_mcp_public_tool_snapshot_keeps_current_surface(self) -> None:
-        self.assertEqual(71, len(PUBLIC_MCP_TOOL_NAMES))
+        self.assertEqual(83, len(PUBLIC_MCP_TOOL_NAMES))
         self.assertIn("bootstrap_context", PUBLIC_MCP_TOOL_NAMES)
         self.assertIn("update_repair_order", PUBLIC_MCP_TOOL_NAMES)
         self.assertIn("download_shared_file", PUBLIC_MCP_TOOL_NAMES)
