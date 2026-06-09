@@ -213,6 +213,11 @@
       inventoryLoaded: false,
       inventoryQuery: '',
       inventoryActiveId: '',
+      inventoryView: 'positions',
+      inventoryStockFilter: 'all',
+      inventoryMovements: [],
+      inventoryMovementsLoaded: false,
+      inventoryMovementsLoading: false,
       inventorySearchTimer: null,
       inventorySaving: false,
       repairOrderInventoryOpen: false,
@@ -727,6 +732,7 @@
       mobileInventorySaveButton: document.getElementById('mobileInventorySaveButton'),
       mobileInventoryReplenishButton: document.getElementById('mobileInventoryReplenishButton'),
       mobileInventoryStatusLine: document.getElementById('mobileInventoryStatusLine'),
+      mobileInventoryRecentMovements: document.getElementById('mobileInventoryRecentMovements'),
       mobileRepairOrdersRefreshButton: document.getElementById('mobileRepairOrdersRefreshButton'),
       mobileRepairOrdersList: document.getElementById('mobileRepairOrdersList'),
       mobileRepairOrderDetail: document.getElementById('mobileRepairOrderDetail'),
@@ -895,10 +901,19 @@
       sharedFilesDeleteButton: document.getElementById('sharedFilesDeleteButton'),
       cashboxesModal: document.getElementById('cashboxesModal'),
       inventoryModal: document.getElementById('inventoryModal'),
+      inventoryPositionsTab: document.getElementById('inventoryPositionsTab'),
+      inventoryMovementsTab: document.getElementById('inventoryMovementsTab'),
+      inventoryStockFilter: document.getElementById('inventoryStockFilter'),
+      inventoryPositionsPanel: document.getElementById('inventoryPositionsPanel'),
+      inventoryMovementsPanel: document.getElementById('inventoryMovementsPanel'),
       inventorySearchInput: document.getElementById('inventorySearchInput'),
       inventoryItemsList: document.getElementById('inventoryItemsList'),
+      inventoryTableBody: document.getElementById('inventoryTableBody'),
+      inventoryMovementsBody: document.getElementById('inventoryMovementsBody'),
+      inventoryMovementsRefreshButton: document.getElementById('inventoryMovementsRefreshButton'),
       inventoryNewButton: document.getElementById('inventoryNewButton'),
       inventoryDetailTitle: document.getElementById('inventoryDetailTitle'),
+      inventoryQuickState: document.getElementById('inventoryQuickState'),
       inventoryNameInput: document.getElementById('inventoryNameInput'),
       inventoryCatalogInput: document.getElementById('inventoryCatalogInput'),
       inventoryUnitSelect: document.getElementById('inventoryUnitSelect'),
@@ -1111,6 +1126,7 @@
       repairOrderInventorySearchInput: document.getElementById('repairOrderInventorySearchInput'),
       repairOrderInventoryResults: document.getElementById('repairOrderInventoryResults'),
       repairOrderInventorySelected: document.getElementById('repairOrderInventorySelected'),
+      repairOrderInventoryStock: document.getElementById('repairOrderInventoryStock'),
       repairOrderInventoryQuantityInput: document.getElementById('repairOrderInventoryQuantityInput'),
       repairOrderInventoryFillButton: document.getElementById('repairOrderInventoryFillButton'),
       repairOrderInventoryIssueButton: document.getElementById('repairOrderInventoryIssueButton'),
@@ -10615,6 +10631,9 @@
       if (state.mobileView === 'inventory' && !state.inventoryLoaded) {
         loadInventoryItems(false);
       }
+      if (state.mobileView === 'inventory') {
+        loadInventoryMovements();
+      }
       if (state.mobileView === 'repair-orders' && !state.repairOrdersMetaState && typeof loadRepairOrders === 'function') {
         loadRepairOrders(false);
       }
@@ -10745,7 +10764,10 @@
       els.mobileCashboxSubmitButton?.addEventListener('click', () => submitMobileCashboxAction());
       els.mobileCashboxActionCancelButton?.addEventListener('click', () => setMobileCashboxAction(''));
       els.mobileInventoryNewButton?.addEventListener('click', resetInventoryForm);
-      els.mobileInventoryRefreshButton?.addEventListener('click', () => loadInventoryItems(false, { query: state.inventoryQuery }));
+      els.mobileInventoryRefreshButton?.addEventListener('click', () => {
+        loadInventoryItems(false, { query: state.inventoryQuery });
+        loadInventoryMovements({ force: true });
+      });
       els.mobileInventorySearchInput?.addEventListener('input', handleMobileInventorySearchInput);
       els.mobileInventoryItemsList?.addEventListener('click', handleMobileInventoryItemsClick);
       els.mobileInventorySaveButton?.addEventListener('click', saveInventoryItem);
@@ -16682,6 +16704,171 @@
       ].some((value) => String(value || '').toLowerCase().includes(needle));
     }
 
+    function inventoryItemQuantityNumber(item) {
+      const parsed = repairOrderParseNumber(item?.quantity);
+      return parsed === null ? 0 : parsed;
+    }
+
+    function inventoryFilteredItems() {
+      const query = String(state.inventoryQuery || '').trim();
+      const stockFilter = String(state.inventoryStockFilter || 'all');
+      return (Array.isArray(state.inventoryItems) ? state.inventoryItems : [])
+        .filter((item) => inventorySearchMatches(item, query))
+        .filter((item) => {
+          const quantity = inventoryItemQuantityNumber(item);
+          if (stockFilter === 'in_stock') return quantity > 0;
+          if (stockFilter === 'zero') return quantity <= 0;
+          return true;
+        });
+    }
+
+    function inventoryUpdatedText(item) {
+      const value = item?.updated_at || item?.created_at || '';
+      return value ? formatDate(value) : '-';
+    }
+
+    function inventoryTableRowHtml(item) {
+      const itemId = inventoryItemId(item);
+      const activeClass = itemId === String(state.inventoryActiveId || '').trim() ? ' is-active' : '';
+      const zeroClass = inventoryItemQuantityNumber(item) <= 0 ? ' is-zero' : '';
+      return '<tr class="inventory-table__row' + activeClass + zeroClass + '" data-inventory-item-id="' + escapeHtml(itemId) + '">'
+        + '<td><button class="inventory-table__select" type="button" data-inventory-item-id="' + escapeHtml(itemId) + '">' + escapeHtml(item?.name || 'Позиция без названия') + '</button></td>'
+        + '<td class="inventory-table__mono">' + escapeHtml(item?.catalog_number || '-') + '</td>'
+        + '<td class="inventory-table__number">' + escapeHtml(inventoryDisplayQuantity(item)) + '</td>'
+        + '<td class="inventory-table__number">' + escapeHtml(repairOrderFormatRubles(item?.cost_price || 0)) + '</td>'
+        + '<td class="inventory-table__number">' + escapeHtml(repairOrderFormatRubles(item?.sale_price || 0)) + '</td>'
+        + '<td class="inventory-table__mono">' + escapeHtml(inventoryUpdatedText(item)) + '</td>'
+      + '</tr>';
+    }
+
+    function inventoryMovementKindText(kind) {
+      const normalized = String(kind || '').trim();
+      if (normalized === 'incoming') return 'ПРИХОД';
+      if (normalized === 'write_off') return 'СПИСАНИЕ';
+      if (normalized === 'return') return 'ВОЗВРАТ';
+      if (normalized === 'adjustment') return 'КОРР.';
+      return normalized || '-';
+    }
+
+    function inventoryMovementItemName(movement) {
+      const item = inventoryItemById(movement?.item_id);
+      return item?.name || movement?.item_name || movement?.item_id || '-';
+    }
+
+    function inventoryMovementCardText(movement) {
+      const orderNumber = String(movement?.repair_order_number || '').trim();
+      if (orderNumber) return 'ЗН ' + orderNumber;
+      const cardId = String(movement?.card_id || '').trim();
+      return cardId ? ('КАРТА ' + cardId.slice(0, 8)) : '-';
+    }
+
+    function inventoryMovementPriceText(movement) {
+      const kind = String(movement?.kind || '');
+      const value = kind === 'incoming' ? movement?.cost_price : movement?.sale_price;
+      return repairOrderFormatRubles(value || 0);
+    }
+
+    function inventoryMovementQuantityText(movement) {
+      const quantity = inventoryDecimalText(movement?.quantity, '0') + ' ' + (movement?.unit || 'шт');
+      const delta = inventoryDecimalText(movement?.quantity_delta, '');
+      return delta && delta !== '0' ? quantity + ' (' + delta + ')' : quantity;
+    }
+
+    function inventoryMovementRowHtml(movement) {
+      return '<tr>'
+        + '<td class="inventory-table__mono">' + escapeHtml(formatDate(movement?.created_at || '')) + '</td>'
+        + '<td>' + escapeHtml(inventoryMovementKindText(movement?.kind)) + '</td>'
+        + '<td>' + escapeHtml(inventoryMovementItemName(movement)) + '</td>'
+        + '<td class="inventory-table__number">' + escapeHtml(inventoryMovementQuantityText(movement)) + '</td>'
+        + '<td class="inventory-table__number">' + escapeHtml(inventoryMovementPriceText(movement)) + '</td>'
+        + '<td class="inventory-table__mono">' + escapeHtml(inventoryMovementCardText(movement)) + '</td>'
+        + '<td class="inventory-table__mono">' + escapeHtml(movement?.actor_name || '-') + '</td>'
+      + '</tr>';
+    }
+
+    function renderInventoryWorkspace() {
+      const isMovements = state.inventoryView === 'movements';
+      if (els.inventoryPositionsTab) {
+        els.inventoryPositionsTab.classList.toggle('is-active', !isMovements);
+        els.inventoryPositionsTab.setAttribute('aria-selected', isMovements ? 'false' : 'true');
+      }
+      if (els.inventoryMovementsTab) {
+        els.inventoryMovementsTab.classList.toggle('is-active', isMovements);
+        els.inventoryMovementsTab.setAttribute('aria-selected', isMovements ? 'true' : 'false');
+      }
+      if (els.inventoryPositionsPanel) els.inventoryPositionsPanel.hidden = isMovements;
+      if (els.inventoryMovementsPanel) els.inventoryMovementsPanel.hidden = !isMovements;
+      if (els.inventoryStockFilter && els.inventoryStockFilter.value !== state.inventoryStockFilter) {
+        els.inventoryStockFilter.value = state.inventoryStockFilter;
+      }
+    }
+
+    function renderInventoryQuickState() {
+      if (!els.inventoryQuickState) return;
+      const item = activeInventoryItem();
+      const refs = inventoryFormRefs({ mobile: false });
+      let stateName = 'dirty';
+      let text = item ? 'ИЗМЕНЕНО' : 'НОВАЯ ПОЗИЦИЯ';
+      if (item?.id) {
+        const dirty = [
+          [refs.name?.value, item.name || ''],
+          [refs.catalog?.value, item.catalog_number || ''],
+          [refs.unit?.value, item.unit || 'шт'],
+          [refs.costPrice?.value, inventoryDecimalText(item.cost_price, '0')],
+          [refs.salePrice?.value, inventoryDecimalText(item.sale_price, '0')],
+        ].some(([left, right]) => String(left ?? '').trim() !== String(right ?? '').trim());
+        if (!dirty && inventoryItemQuantityNumber(item) <= 0) {
+          stateName = 'empty';
+          text = 'НЕТ ОСТАТКА';
+        } else if (!dirty) {
+          stateName = 'saved';
+          text = 'СОХРАНЕНО · ' + inventoryDisplayQuantity(item);
+        }
+      }
+      els.inventoryQuickState.dataset.state = stateName;
+      els.inventoryQuickState.textContent = text;
+    }
+
+    function renderInventoryMovements() {
+      if (!els.inventoryMovementsBody) return;
+      const movements = Array.isArray(state.inventoryMovements) ? state.inventoryMovements.slice().reverse() : [];
+      if (state.inventoryMovementsLoading && !movements.length) {
+        els.inventoryMovementsBody.innerHTML = '<tr><td colspan="7" class="cashboxes-empty">ЗАГРУЖАЮ ДВИЖЕНИЯ...</td></tr>';
+        return;
+      }
+      els.inventoryMovementsBody.innerHTML = movements.length
+        ? movements.map((movement) => inventoryMovementRowHtml(movement)).join('')
+        : '<tr><td colspan="7" class="cashboxes-empty">ДВИЖЕНИЙ ПОКА НЕТ.</td></tr>';
+    }
+
+    function renderMobileInventoryMovements() {
+      if (!els.mobileInventoryRecentMovements) return;
+      const item = activeInventoryItem();
+      if (!item?.id) {
+        els.mobileInventoryRecentMovements.innerHTML = '<div class="mobile-kicker">ДВИЖЕНИЯ</div><div class="mobile-empty">ВЫБЕРИТЕ ПОЗИЦИЮ.</div>';
+        return;
+      }
+      const itemId = inventoryItemId(item);
+      const movements = (Array.isArray(state.inventoryMovements) ? state.inventoryMovements : [])
+        .filter((movement) => String(movement?.item_id || '').trim() === itemId)
+        .slice()
+        .reverse()
+        .slice(0, 5);
+      if (!state.inventoryMovementsLoaded && !movements.length) {
+        els.mobileInventoryRecentMovements.innerHTML = '<div class="mobile-kicker">ДВИЖЕНИЯ</div><div class="mobile-empty">ДВИЖЕНИЯ ЗАГРУЖАЮТСЯ...</div>';
+        return;
+      }
+      els.mobileInventoryRecentMovements.innerHTML = '<div class="mobile-kicker">ПОСЛЕДНИЕ ДВИЖЕНИЯ</div>'
+        + (movements.length
+          ? movements.map((movement) => (
+            '<div class="mobile-inventory-movement">'
+              + '<span>' + escapeHtml(formatDate(movement?.created_at || '') + ' · ' + inventoryMovementKindText(movement?.kind)) + '</span>'
+              + '<strong>' + escapeHtml(inventoryMovementQuantityText(movement)) + '</strong>'
+            + '</div>'
+          )).join('')
+          : '<div class="mobile-empty">ДВИЖЕНИЙ ПО ЭТОЙ ПОЗИЦИИ НЕТ.</div>');
+    }
+
     function inventoryStatus(text, isError = false) {
       const statusText = String(text || '').trim();
       if (els.inventoryStatusLine) {
@@ -16714,17 +16901,25 @@
     }
 
     function renderInventoryItems() {
-      const items = Array.isArray(state.inventoryItems) ? state.inventoryItems : [];
+      const items = inventoryFilteredItems();
       if (els.inventorySearchInput && els.inventorySearchInput.value !== state.inventoryQuery) {
         els.inventorySearchInput.value = state.inventoryQuery;
       }
-      if (els.inventoryItemsList) {
+      renderInventoryWorkspace();
+      if (els.inventoryTableBody) {
+        els.inventoryTableBody.innerHTML = !state.inventoryLoaded && !items.length
+          ? '<tr><td colspan="6" class="cashboxes-empty">ЗАГРУЖАЮ СКЛАД...</td></tr>'
+          : (items.length
+            ? items.map((item) => inventoryTableRowHtml(item)).join('')
+            : '<tr><td colspan="6" class="cashboxes-empty">ПОЗИЦИЙ ПОКА НЕТ.</td></tr>');
+      } else if (els.inventoryItemsList) {
         els.inventoryItemsList.innerHTML = !state.inventoryLoaded && !items.length
           ? '<div class="cashboxes-empty">ЗАГРУЖАЮ СКЛАД...</div>'
           : (items.length
             ? items.map((item) => inventoryRowHtml(item)).join('')
             : '<div class="cashboxes-empty">ПОЗИЦИЙ ПОКА НЕТ.</div>');
       }
+      renderInventoryMovements();
       renderMobileInventory();
       renderRepairOrderInventoryPanel();
     }
@@ -16778,11 +16973,14 @@
       }
       syncInventoryForm(inventoryFormRefs({ mobile: false }), item);
       syncInventoryForm(inventoryFormRefs({ mobile: true }), item);
+      renderInventoryQuickState();
     }
 
     function renderInventory() {
       renderInventoryItems();
       renderInventoryForm();
+      renderInventoryMovements();
+      renderMobileInventoryMovements();
     }
 
     function upsertInventoryItem(item) {
@@ -16832,10 +17030,52 @@
       }
     }
 
+    async function loadInventoryMovements({ force = false } = {}) {
+      if (state.inventoryMovementsLoading) return null;
+      if (state.inventoryMovementsLoaded && !force) {
+        renderInventoryMovements();
+        renderMobileInventoryMovements();
+        return { movements: state.inventoryMovements };
+      }
+      state.inventoryMovementsLoading = true;
+      renderInventoryMovements();
+      renderMobileInventoryMovements();
+      try {
+        const data = await api('/api/list_inventory_movements?limit=200');
+        state.inventoryMovements = Array.isArray(data?.movements) ? data.movements : [];
+        state.inventoryMovementsLoaded = true;
+        renderInventoryMovements();
+        renderMobileInventoryMovements();
+        return data;
+      } catch (error) {
+        state.inventoryMovementsLoaded = false;
+        inventoryStatus(error.message, true);
+        setStatus(error.message, true);
+        renderInventoryMovements();
+        renderMobileInventoryMovements();
+        return null;
+      } finally {
+        state.inventoryMovementsLoading = false;
+        renderInventoryMovements();
+        renderMobileInventoryMovements();
+      }
+    }
+
+    function invalidateInventoryMovements() {
+      state.inventoryMovementsLoaded = false;
+      if (state.inventoryView === 'movements' || (state.mobileLite && state.mobileView === 'inventory')) {
+        loadInventoryMovements({ force: true });
+      } else {
+        renderInventoryMovements();
+        renderMobileInventoryMovements();
+      }
+    }
+
     function openInventoryModal() {
       maybeOpenModal(els.inventoryModal, true);
       renderInventory();
       loadInventoryItems(false);
+      if (state.inventoryView === 'movements') loadInventoryMovements();
     }
 
     function selectInventoryItem(itemId) {
@@ -16843,12 +17083,28 @@
       state.inventoryActiveId = normalizedId;
       if (normalizedId) state.repairOrderInventorySelectedId = normalizedId;
       renderInventory();
+      if (state.mobileLite && state.mobileView === 'inventory') loadInventoryMovements();
     }
 
     function resetInventoryForm() {
       state.inventoryActiveId = '';
       renderInventory();
       inventoryFormRefs().name?.focus({ preventScroll: true });
+    }
+
+    function setInventoryView(view) {
+      state.inventoryView = view === 'movements' ? 'movements' : 'positions';
+      renderInventory();
+      if (state.inventoryView === 'movements') loadInventoryMovements();
+    }
+
+    function handleInventoryStockFilterChange() {
+      state.inventoryStockFilter = String(els.inventoryStockFilter?.value || 'all');
+      renderInventoryItems();
+    }
+
+    function handleInventoryFormInput() {
+      renderInventoryQuickState();
     }
 
     function inventoryPayloadFromForm() {
@@ -16884,6 +17140,7 @@
           state.inventoryActiveId = inventoryItemId(data.item);
           state.repairOrderInventorySelectedId = inventoryItemId(data.item);
         }
+        if (data?.movement) invalidateInventoryMovements();
         await loadInventoryItems(false, { query: state.inventoryQuery });
         inventoryStatus(data?.meta?.created ? 'ПОЗИЦИЯ ДОБАВЛЕНА.' : 'ПОЗИЦИЯ СОХРАНЕНА.', false);
       } catch (error) {
@@ -16925,6 +17182,7 @@
           state.inventoryActiveId = inventoryItemId(data.item);
           state.repairOrderInventorySelectedId = inventoryItemId(data.item);
         }
+        invalidateInventoryMovements();
         await loadInventoryItems(false, { query: state.inventoryQuery });
         inventoryStatus('ОСТАТОК ПОПОЛНЕН.', false);
       } catch (error) {
@@ -16953,7 +17211,8 @@
 
     function renderMobileInventory() {
       if (!els.mobileInventoryItemsList) return;
-      const items = Array.isArray(state.inventoryItems) ? state.inventoryItems : [];
+      const items = (Array.isArray(state.inventoryItems) ? state.inventoryItems : [])
+        .filter((item) => inventorySearchMatches(item, state.inventoryQuery));
       if (els.mobileInventorySearchInput && els.mobileInventorySearchInput.value !== state.inventoryQuery) {
         els.mobileInventorySearchInput.value = state.inventoryQuery;
       }
@@ -16963,6 +17222,7 @@
           ? items.map((item) => inventoryRowHtml(item, { mobile: true })).join('')
           : '<div class="mobile-empty">ПОЗИЦИЙ ПОКА НЕТ.</div>');
       renderInventoryForm();
+      renderMobileInventoryMovements();
     }
 
     function handleMobileInventorySearchInput() {
@@ -17114,6 +17374,12 @@
         els.repairOrderInventoryQuantityInput?.focus({ preventScroll: true });
         return inventoryStatus('УКАЖИТЕ КОЛИЧЕСТВО БОЛЬШЕ НУЛЯ.', true);
       }
+      const available = inventoryItemQuantityNumber(item);
+      if (quantity.parsed > available) {
+        els.repairOrderInventoryQuantityInput?.focus({ preventScroll: true });
+        renderRepairOrderInventoryPanel();
+        return inventoryStatus('НЕЛЬЗЯ СПИСАТЬ БОЛЬШЕ ОСТАТКА: ' + inventoryDisplayQuantity(item) + '.', true);
+      }
       const cardId = await requireRepairOrderCardId();
       if (!cardId) return;
       const rowIndex = repairOrderInventoryTargetRowIndex();
@@ -17142,6 +17408,7 @@
           await refreshRepairOrdersListAfterMutation();
         }
         await loadInventoryItems(false, { query: state.repairOrderInventoryQuery || state.inventoryQuery });
+        invalidateInventoryMovements();
         inventoryStatus('МАТЕРИАЛ СПИСАН СО СКЛАДА.', false);
         setStatus('МАТЕРИАЛ СПИСАН СО СКЛАДА.', false);
       } catch (error) {
@@ -17179,6 +17446,7 @@
           await refreshRepairOrdersListAfterMutation();
         }
         await loadInventoryItems(false, { query: state.repairOrderInventoryQuery || state.inventoryQuery });
+        invalidateInventoryMovements();
         inventoryStatus('СПИСАНИЕ ВОЗВРАЩЕНО НА СКЛАД.', false);
         setStatus('СПИСАНИЕ ВОЗВРАЩЕНО НА СКЛАД.', false);
       } catch (error) {
@@ -17223,6 +17491,15 @@
         els.repairOrderInventoryQuantityInput.value = '1';
       }
       const hasQuantity = Boolean(repairOrderInventoryQuantity());
+      const requestedQuantity = repairOrderInventoryQuantity();
+      if (els.repairOrderInventoryStock) {
+        const stockText = selected ? ('ОСТАТОК: ' + inventoryDisplayQuantity(selected)) : 'ОСТАТОК: НЕ ВЫБРАНО';
+        const overLimit = selected && requestedQuantity && requestedQuantity.parsed > inventoryItemQuantityNumber(selected);
+        els.repairOrderInventoryStock.textContent = overLimit
+          ? stockText + ' · НЕДОСТАТОЧНО ДЛЯ СПИСАНИЯ'
+          : stockText;
+        els.repairOrderInventoryStock.dataset.tone = overLimit ? 'error' : 'normal';
+      }
       const hasMovement = Boolean(repairOrderInventorySelectedMovementId());
       if (els.repairOrderInventoryFillButton) els.repairOrderInventoryFillButton.disabled = !selected || !hasQuantity;
       if (els.repairOrderInventoryIssueButton) els.repairOrderInventoryIssueButton.disabled = !selected || !hasQuantity;

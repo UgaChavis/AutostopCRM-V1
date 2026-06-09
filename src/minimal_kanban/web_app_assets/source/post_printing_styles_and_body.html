@@ -8,17 +8,73 @@
     }
     #cashboxTransferModal .dialog { width: min(820px, 100%); }
     #inventoryModal .dialog { width: min(1040px, 100%); }
+    #inventoryModal .inventory-workspace-dialog {
+      width: min(1280px, calc(100vw - 28px));
+      height: min(900px, calc(100dvh - 34px));
+      max-height: calc(100dvh - 34px);
+      display: flex;
+      flex-direction: column;
+    }
+    .inventory-workspace {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 10px;
+      min-height: 0;
+    }
+    .inventory-workspace__bar {
+      display: grid;
+      grid-template-columns: auto auto minmax(220px, 1fr) auto;
+      gap: 8px;
+      align-items: end;
+    }
+    .inventory-tabs {
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(0,0,0,0.12);
+      padding: 3px;
+    }
+    .inventory-tab {
+      min-height: 30px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-soft);
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 6px 9px;
+      white-space: nowrap;
+    }
+    .inventory-tab.is-active {
+      border-color: rgba(167,178,132,0.55);
+      background: rgba(167,178,132,0.12);
+      color: var(--text);
+    }
+    .inventory-stock-filter {
+      min-width: 150px;
+    }
     .inventory-layout {
       display: grid;
-      grid-template-columns: minmax(240px, 310px) minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
       gap: 12px;
-      min-height: 480px;
+      min-height: 0;
+      height: 100%;
     }
     .inventory-pane {
       display: flex;
       flex-direction: column;
       gap: 8px;
       min-width: 0;
+      min-height: 0;
+    }
+    .inventory-main {
+      min-height: 0;
+    }
+    .inventory-detail {
+      overflow: auto;
     }
     .inventory-toolbar {
       display: grid;
@@ -33,7 +89,105 @@
       overflow: auto;
       padding-right: 3px;
     }
-    .inventory-list { max-height: 520px; }
+    .inventory-list {
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(0,0,0,0.08);
+    }
+    .inventory-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 11px;
+    }
+    .inventory-table th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: rgba(27,34,28,0.98);
+      color: var(--text-soft);
+      border-bottom: 1px solid rgba(167,178,132,0.22);
+      padding: 8px 9px;
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 700;
+      text-align: left;
+      text-transform: uppercase;
+    }
+    .inventory-table td {
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding: 7px 9px;
+      color: var(--text);
+      vertical-align: middle;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .inventory-table__row {
+      cursor: pointer;
+    }
+    .inventory-table__row:hover,
+    .inventory-table__row.is-active {
+      background: rgba(167,178,132,0.1);
+    }
+    .inventory-table__row.is-zero td {
+      color: rgba(242,240,230,0.58);
+    }
+    .inventory-table__select {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      padding: 0;
+      cursor: pointer;
+      text-align: left;
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .inventory-table__mono,
+    .inventory-table__number {
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+    .inventory-table__number {
+      text-align: right;
+    }
+    .inventory-movements-panel[hidden],
+    .inventory-positions-panel[hidden] {
+      display: none;
+    }
+    .inventory-movements-panel {
+      min-height: 0;
+    }
+    .inventory-movements-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .inventory-movements-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 11px;
+    }
+    .inventory-movements-table th,
+    .inventory-movements-table td {
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      padding: 7px 8px;
+      text-align: left;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .inventory-movements-table th {
+      color: var(--text-soft);
+      font-family: var(--mono);
+      font-size: 9px;
+      text-transform: uppercase;
+    }
     .inventory-row,
     .repair-order-inventory-result {
       width: 100%;
@@ -76,15 +230,25 @@
     }
     .inventory-row__meta,
     .repair-order-inventory-result__meta,
-    .inventory-status {
+    .inventory-status,
+    .inventory-quick-state {
       color: var(--text-soft);
       font-family: var(--mono);
       font-size: 9.5px;
       line-height: 1.25;
       text-transform: uppercase;
     }
+    .inventory-quick-state {
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(0,0,0,0.12);
+      padding: 7px 8px;
+    }
+    .inventory-quick-state[data-state="empty"] { color: #ffd1ca; }
+    .inventory-quick-state[data-state="saved"] { color: #dfe7bf; }
+    .inventory-quick-state[data-state="dirty"] { color: #f5df9b; }
     .mobile-inventory-list,
-    .mobile-inventory-editor {
+    .mobile-inventory-editor,
+    .mobile-inventory-movements {
       display: grid;
       gap: 8px;
     }
@@ -96,6 +260,29 @@
       border: 1px solid rgba(167,178,132,0.22);
       background: rgba(0,0,0,0.12);
       padding: 10px;
+    }
+    .mobile-inventory-actions {
+      position: sticky;
+      bottom: 0;
+      z-index: 2;
+      padding: 7px 0 0;
+      background: linear-gradient(180deg, rgba(23,29,24,0), rgba(23,29,24,0.96) 28%);
+    }
+    .mobile-inventory-movements {
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding-top: 9px;
+    }
+    .mobile-inventory-movement {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(0,0,0,0.1);
+      padding: 7px 8px;
+      font-family: var(--mono);
+      font-size: 9.5px;
+      color: var(--text-soft);
+      text-transform: uppercase;
     }
     .inventory-form-grid {
       display: grid;
@@ -138,12 +325,19 @@
       background: rgba(12,17,13,0.74);
       padding: 10px;
       display: grid;
+      grid-template-rows: auto minmax(120px, 1fr) auto auto;
       gap: 9px;
       min-height: 360px;
       max-height: 620px;
-      overflow: hidden;
+      overflow: auto;
     }
     .repair-order-inventory-panel[hidden] { display: none; }
+    .repair-order-inventory-search-zone,
+    .repair-order-inventory-selected-zone {
+      display: grid;
+      gap: 8px;
+      min-height: 0;
+    }
     .repair-order-inventory-selected {
       border: 1px solid rgba(255,255,255,0.1);
       background: rgba(0,0,0,0.14);
@@ -151,6 +345,21 @@
       display: grid;
       gap: 4px;
       min-height: 70px;
+    }
+    .repair-order-inventory-stock {
+      border: 1px solid rgba(167,178,132,0.2);
+      background: rgba(167,178,132,0.08);
+      color: #f5df9b;
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.25;
+      padding: 7px 8px;
+      text-transform: uppercase;
+    }
+    .repair-order-inventory-stock[data-tone="error"] {
+      border-color: rgba(207,91,75,0.5);
+      background: rgba(207,91,75,0.12);
+      color: #ffd1ca;
     }
     .repair-order-inventory-selected__title {
       color: var(--text);
@@ -170,8 +379,18 @@
       grid-template-columns: 1fr 1fr;
       gap: 6px;
     }
+    .repair-order-inventory-actions--sticky {
+      position: sticky;
+      bottom: -10px;
+      z-index: 2;
+      margin: 0 -10px -10px;
+      padding: 10px;
+      border-top: 1px solid rgba(167,178,132,0.2);
+      background: rgba(12,17,13,0.97);
+    }
     .repair-order-inventory-actions .btn { min-width: 0; }
     .repair-order-inventory-actions .btn--wide { grid-column: 1 / -1; }
+    .repair-order-inventory-actions .inventory-status { grid-column: 1 / -1; }
     @media (max-width: 980px) {
       .inventory-layout,
       .repair-order-table-card.is-inventory-open .repair-order-materials-layout {
@@ -2936,11 +3155,12 @@
               <input id="mobileInventorySalePriceInput" type="text" inputmode="decimal" maxlength="40" placeholder="0">
             </label>
           </div>
-          <div class="mobile-cashbox-actions">
+          <div class="mobile-cashbox-actions mobile-inventory-actions">
             <button class="mobile-action mobile-action--primary" id="mobileInventorySaveButton" type="button">СОХР.</button>
             <button class="mobile-action mobile-action--ghost" id="mobileInventoryReplenishButton" type="button">ПРИХОД</button>
           </div>
           <div class="inventory-status" id="mobileInventoryStatusLine"></div>
+          <div class="mobile-inventory-movements" id="mobileInventoryRecentMovements"></div>
         </section>
       </section>
       <section class="mobile-workspace" data-mobile-panel="repair-orders" aria-label="Заказ-наряды">
@@ -3626,27 +3846,77 @@
   </div>
 
   <div class="modal" id="inventoryModal">
-    <div class="dialog">
+    <div class="dialog inventory-workspace-dialog">
       <div class="dialog__head">
         <div class="dialog__title">СКЛАД</div>
         <button class="btn" data-close="inventory">ЗАКРЫТЬ</button>
       </div>
-      <div class="inventory-layout">
-        <div class="subpanel inventory-pane">
-          <div class="panel-title">ПОЗИЦИИ</div>
-          <div class="inventory-toolbar">
-            <div class="field field--compact">
-              <label for="inventorySearchInput">ПОИСК</label>
-              <input id="inventorySearchInput" type="search" autocomplete="off" spellcheck="false" placeholder="Название / артикул">
-            </div>
-            <button class="btn btn--accent" id="inventoryNewButton" type="button">+ ПОЗИЦИЯ</button>
+      <div class="inventory-workspace">
+        <div class="inventory-workspace__bar">
+          <div class="inventory-tabs" role="tablist" aria-label="Раздел склада">
+            <button class="inventory-tab is-active" id="inventoryPositionsTab" type="button" aria-selected="true">Позиции</button>
+            <button class="inventory-tab" id="inventoryMovementsTab" type="button" aria-selected="false">Движения</button>
           </div>
-          <div class="inventory-list" id="inventoryItemsList"></div>
+          <div class="field field--compact inventory-stock-filter">
+            <label for="inventoryStockFilter">ОСТАТОК</label>
+            <select id="inventoryStockFilter">
+              <option value="all">Все</option>
+              <option value="in_stock">Есть остаток</option>
+              <option value="zero">Нулевые</option>
+            </select>
+          </div>
+          <div class="field field--compact">
+            <label for="inventorySearchInput">ПОИСК</label>
+            <input id="inventorySearchInput" type="search" autocomplete="off" spellcheck="false" placeholder="Название / артикул">
+          </div>
+          <button class="btn btn--accent" id="inventoryNewButton" type="button">+ ПОЗИЦИЯ</button>
         </div>
-        <div class="subpanel inventory-pane">
-          <div class="panel-title" id="inventoryDetailTitle">ПОЗИЦИЯ</div>
-          <div class="inventory-form-grid">
-            <div class="field field--compact inventory-field--wide">
+        <div class="inventory-layout">
+          <div class="subpanel inventory-pane inventory-main">
+            <section class="inventory-positions-panel" id="inventoryPositionsPanel">
+              <div class="inventory-list" id="inventoryItemsList">
+                <table class="inventory-table">
+                  <thead>
+                    <tr>
+                      <th style="width:28%;">Название</th>
+                      <th style="width:16%;">Артикул</th>
+                      <th style="width:13%;">Остаток</th>
+                      <th style="width:13%;">Закуп</th>
+                      <th style="width:13%;">Продажа</th>
+                      <th style="width:17%;">Обновлено</th>
+                    </tr>
+                  </thead>
+                  <tbody id="inventoryTableBody"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="inventory-movements-panel" id="inventoryMovementsPanel" hidden>
+              <div class="inventory-movements-head">
+                <div class="panel-title">ДВИЖЕНИЯ</div>
+                <button class="btn btn--ghost" id="inventoryMovementsRefreshButton" type="button">ОБНОВИТЬ</button>
+              </div>
+              <div class="inventory-list">
+                <table class="inventory-movements-table">
+                  <thead>
+                    <tr>
+                      <th style="width:17%;">Дата</th>
+                      <th style="width:12%;">Тип</th>
+                      <th style="width:24%;">Позиция</th>
+                      <th style="width:11%;">Кол-во</th>
+                      <th style="width:12%;">Цена</th>
+                      <th style="width:14%;">ЗН/карта</th>
+                      <th style="width:10%;">Оператор</th>
+                    </tr>
+                  </thead>
+                  <tbody id="inventoryMovementsBody"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+          <div class="subpanel inventory-pane inventory-detail">
+            <div class="panel-title" id="inventoryDetailTitle">ПОЗИЦИЯ</div>
+            <div class="inventory-quick-state" id="inventoryQuickState" data-state="empty">НЕТ ОСТАТКА</div>
+            <div class="field field--compact">
               <label for="inventoryNameInput">НАЗВАНИЕ</label>
               <input id="inventoryNameInput" type="text" maxlength="180">
             </div>
@@ -3673,18 +3943,18 @@
               <label for="inventorySalePriceInput">ПРОДАЖА</label>
               <input id="inventorySalePriceInput" type="text" inputmode="decimal" maxlength="40" placeholder="0">
             </div>
-          </div>
-          <div class="inventory-actions">
-            <button class="btn btn--accent" id="inventorySaveButton" type="button">СОХРАНИТЬ</button>
-          </div>
-          <div class="inventory-replenish-row">
-            <div class="field field--compact">
-              <label for="inventoryReplenishQuantityInput">ПОПОЛНИТЬ</label>
-              <input id="inventoryReplenishQuantityInput" type="text" inputmode="decimal" maxlength="40" placeholder="0">
+            <div class="inventory-actions">
+              <button class="btn btn--accent" id="inventorySaveButton" type="button">СОХРАНИТЬ</button>
             </div>
-            <button class="btn btn--ghost" id="inventoryReplenishButton" type="button">ПРИХОД</button>
+            <div class="inventory-replenish-row">
+              <div class="field field--compact">
+                <label for="inventoryReplenishQuantityInput">ПРИХОД</label>
+                <input id="inventoryReplenishQuantityInput" type="text" inputmode="decimal" maxlength="40" placeholder="0">
+              </div>
+              <button class="btn btn--ghost" id="inventoryReplenishButton" type="button">ПРИХОД</button>
+            </div>
+            <div class="inventory-status" id="inventoryStatusLine"></div>
           </div>
-          <div class="inventory-status" id="inventoryStatusLine"></div>
         </div>
       </div>
     </div>
@@ -4176,25 +4446,30 @@
             </div>
             <aside class="repair-order-inventory-panel" id="repairOrderInventoryPanel" hidden aria-label="Склад для заказ-наряда">
               <div class="panel-title">СКЛАД</div>
-              <div class="field field--compact">
-                <label for="repairOrderInventorySearchInput">ПОИСК</label>
-                <input id="repairOrderInventorySearchInput" type="search" autocomplete="off" spellcheck="false" placeholder="Название / артикул">
+              <div class="repair-order-inventory-search-zone">
+                <div class="field field--compact">
+                  <label for="repairOrderInventorySearchInput">ПОИСК</label>
+                  <input id="repairOrderInventorySearchInput" type="search" autocomplete="off" spellcheck="false" placeholder="Название / артикул">
+                </div>
+                <div class="repair-order-inventory-results" id="repairOrderInventoryResults"></div>
               </div>
-              <div class="repair-order-inventory-results" id="repairOrderInventoryResults"></div>
-              <div class="repair-order-inventory-selected" id="repairOrderInventorySelected">
-                <div class="repair-order-inventory-selected__title">ПОЗИЦИЯ НЕ ВЫБРАНА</div>
-                <div class="repair-order-inventory-selected__meta"></div>
+              <div class="repair-order-inventory-selected-zone">
+                <div class="repair-order-inventory-selected" id="repairOrderInventorySelected">
+                  <div class="repair-order-inventory-selected__title">ПОЗИЦИЯ НЕ ВЫБРАНА</div>
+                  <div class="repair-order-inventory-selected__meta"></div>
+                </div>
+                <div class="repair-order-inventory-stock" id="repairOrderInventoryStock">ОСТАТОК: НЕ ВЫБРАНО</div>
+                <div class="field field--compact">
+                  <label for="repairOrderInventoryQuantityInput">КОЛ-ВО</label>
+                  <input id="repairOrderInventoryQuantityInput" type="text" inputmode="decimal" maxlength="40">
+                </div>
               </div>
-              <div class="field field--compact">
-                <label for="repairOrderInventoryQuantityInput">КОЛ-ВО</label>
-                <input id="repairOrderInventoryQuantityInput" type="text" inputmode="decimal" maxlength="40">
-              </div>
-              <div class="repair-order-inventory-actions">
+              <div class="repair-order-inventory-actions repair-order-inventory-actions--sticky">
                 <button class="btn btn--ghost" id="repairOrderInventoryFillButton" type="button">В СТРОКУ</button>
                 <button class="btn btn--accent" id="repairOrderInventoryIssueButton" type="button">СПИСАТЬ</button>
                 <button class="btn btn--ghost btn--wide" id="repairOrderInventoryReturnButton" type="button">ВЕРНУТЬ</button>
+                <div class="inventory-status" id="repairOrderInventoryStatus"></div>
               </div>
-              <div class="inventory-status" id="repairOrderInventoryStatus"></div>
             </aside>
           </div>
         </section>

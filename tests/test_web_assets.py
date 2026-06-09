@@ -4187,29 +4187,60 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="inventoryButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="inventoryModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="inventorySearchInput"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="inventoryPositionsTab"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="inventoryMovementsTab"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="inventoryStockFilter"', BOARD_WEB_APP_HTML)
         self.assertIn('id="inventoryItemsList"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="inventoryTableBody"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="inventoryMovementsBody"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="inventoryMovementsRefreshButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="inventorySaveButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="inventoryReplenishButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderInventoryToggleButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderInventoryPanel"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderInventorySearchInput"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="repairOrderInventoryStock"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderInventoryIssueButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderInventoryReturnButton"', BOARD_WEB_APP_HTML)
         self.assertIn('data-repair-order-row-field="inventory_item_id"', BOARD_WEB_APP_HTML)
         self.assertIn('data-repair-order-row-field="inventory_movement_id"', BOARD_WEB_APP_HTML)
         self.assertIn('data-repair-order-row-field="inventory_unit"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="inventory-workspace"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="inventory-table"', BOARD_WEB_APP_HTML)
         self.assertIn(".inventory-layout {", BOARD_WEB_APP_HTML)
+        self.assertIn(".inventory-movements-table {", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-inventory-panel {", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'class="repair-order-inventory-actions repair-order-inventory-actions--sticky"',
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("inventoryLoaded: false,", BOARD_WEB_APP_HTML)
+        self.assertIn("inventoryView: 'positions',", BOARD_WEB_APP_HTML)
+        self.assertIn("inventoryStockFilter: 'all',", BOARD_WEB_APP_HTML)
         self.assertIn("repairOrderInventoryOpen: false,", BOARD_WEB_APP_HTML)
         self.assertIn("async function loadInventoryItems", BOARD_WEB_APP_HTML)
+        self.assertIn("async function loadInventoryMovements", BOARD_WEB_APP_HTML)
         self.assertIn("async function saveInventoryItem", BOARD_WEB_APP_HTML)
         self.assertIn("async function replenishInventoryItem", BOARD_WEB_APP_HTML)
         self.assertIn("async function writeOffInventoryItem", BOARD_WEB_APP_HTML)
         self.assertIn("async function returnInventoryMovement", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderInventoryMovements", BOARD_WEB_APP_HTML)
         self.assertIn("function renderRepairOrderInventoryPanel", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.inventoryPositionsTab?.addEventListener('click'",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.inventoryMovementsTab?.addEventListener('click'",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.inventoryStockFilter?.addEventListener('change'",
+            BOARD_WEB_APP_HTML,
+        )
         for route in (
             "/api/list_inventory_items",
+            "/api/list_inventory_movements",
             "/api/search_inventory_items",
             "/api/save_inventory_item",
             "/api/replenish_inventory_item",
@@ -4224,6 +4255,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('data-mobile-view="inventory"', BOARD_WEB_APP_HTML)
         self.assertIn('id="mobileInventoryNewButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="mobileInventoryStatusLine"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="mobileInventoryRecentMovements"', BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.mobileInventoryNewButton?.addEventListener('click', resetInventoryForm);",
             BOARD_WEB_APP_HTML,

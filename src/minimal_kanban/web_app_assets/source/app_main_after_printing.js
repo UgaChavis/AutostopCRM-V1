@@ -476,6 +476,10 @@
     remountElement('sharedFilesContextMenu');
     remountElement('cashboxesButton');
     remountElement('inventoryButton');
+    remountElement('inventoryPositionsTab');
+    remountElement('inventoryMovementsTab');
+    remountElement('inventoryStockFilter');
+    remountElement('inventoryMovementsRefreshButton');
     remountElement('inventoryNewButton');
     remountElement('inventorySaveButton');
     remountElement('inventoryReplenishButton');
@@ -619,8 +623,22 @@
       }
     });
     els.inventoryNewButton?.addEventListener('click', resetInventoryForm);
+    els.inventoryPositionsTab?.addEventListener('click', () => setInventoryView('positions'));
+    els.inventoryMovementsTab?.addEventListener('click', () => setInventoryView('movements'));
+    els.inventoryStockFilter?.addEventListener('change', handleInventoryStockFilterChange);
+    els.inventoryMovementsRefreshButton?.addEventListener('click', () => loadInventoryMovements({ force: true }));
     els.inventorySearchInput?.addEventListener('input', handleInventorySearchInput);
     els.inventoryItemsList?.addEventListener('click', handleInventoryItemsClick);
+    [
+      els.inventoryNameInput,
+      els.inventoryCatalogInput,
+      els.inventoryUnitSelect,
+      els.inventoryCostPriceInput,
+      els.inventorySalePriceInput,
+    ].forEach((field) => {
+      field?.addEventListener('input', handleInventoryFormInput);
+      field?.addEventListener('change', handleInventoryFormInput);
+    });
     els.inventorySaveButton?.addEventListener('click', saveInventoryItem);
     els.inventoryReplenishButton?.addEventListener('click', replenishInventoryItem);
     els.gptWallBoardTab.addEventListener('click', () => setGptWallView('board_content'));
