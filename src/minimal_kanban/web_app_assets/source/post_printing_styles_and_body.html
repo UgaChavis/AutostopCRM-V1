@@ -1915,6 +1915,9 @@
       border: 1px solid rgba(164, 173, 138, 0.16);
       background: rgba(18, 24, 20, 0.32);
     }
+    .employees-report-period--dialog {
+      margin: 0;
+    }
     .employees-report-period__head,
     .employees-report-period__controls {
       display: flex;
@@ -1964,6 +1967,14 @@
       font-family: var(--mono);
       font-size: 11px;
       box-sizing: border-box;
+    }
+    .employees-report-period__actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding-top: 2px;
     }
     .employees-kpi {
       display: grid;
@@ -2174,6 +2185,9 @@
     }
     .dialog--salary-report {
       width: min(1120px, 100%);
+    }
+    .dialog--salary-report-period {
+      width: min(460px, calc(100vw - 28px));
     }
     .employee-salary-report {
       display: grid;

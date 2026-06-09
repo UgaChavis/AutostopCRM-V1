@@ -235,6 +235,7 @@
       payrollReport: null,
       activeEmployeeSalaryId: '',
       activeEmployeeSalaryReportId: '',
+      activeEmployeeSalaryReconciliationReportId: '',
       employeeSalarySheet: null,
       employeeSalaryReport: null,
       employeeSalaryReconciliationPeriodMode: 'days',
@@ -552,20 +553,6 @@
                     + '<div class="employees-panel-head">'
                       + '<div class="panel-title">СПИСОК СОТРУДНИКОВ</div>'
                       + '</div>'
-                    + '<div class="employees-report-period" id="employeeSalaryReconciliationPeriod">'
-                      + '<div class="employees-report-period__head">'
-                        + '<div class="panel-title">ПЕРИОД АКТА</div>'
-                        + '<select class="employees-report-period__mode" id="employeeSalaryReconciliationPeriodMode" aria-label="Режим периода акта сверки зарплаты">'
-                          + '<option value="days">ПОСЛЕДНИЕ ДНИ</option>'
-                          + '<option value="dates">ДАТЫ</option>'
-                        + '</select>'
-                      + '</div>'
-                      + '<div class="employees-report-period__controls">'
-                        + '<label class="employees-report-period__field" id="employeeSalaryReconciliationDaysField" for="employeeSalaryReconciliationDaysInput"><span>ДНЕЙ</span><input id="employeeSalaryReconciliationDaysInput" type="number" inputmode="numeric" min="1" max="366" step="1" value="30"></label>'
-                        + '<label class="employees-report-period__field employees-report-period__date" id="employeeSalaryReconciliationDateFromField" for="employeeSalaryReconciliationDateFromInput" hidden><span>С</span><input id="employeeSalaryReconciliationDateFromInput" type="date"></label>'
-                        + '<label class="employees-report-period__field employees-report-period__date" id="employeeSalaryReconciliationDateToField" for="employeeSalaryReconciliationDateToInput" hidden><span>ПО</span><input id="employeeSalaryReconciliationDateToInput" type="date"></label>'
-                      + '</div>'
-                    + '</div>'
                     + '</div>'
                     + '<div class="employees-list" id="employeesList"></div>'
                   + '</div>'
@@ -667,6 +654,32 @@
                   + '<div class="field employees-field--compact employees-field--salary"><label for="employeeSalaryAmountInput">СУММА</label><input id="employeeSalaryAmountInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
                   + '<div class="field employees-field--compact employees-field--salary"><label for="employeeSalaryCashboxSelect">КАССА</label><select id="employeeSalaryCashboxSelect"></select></div>'
                   + '<button class="btn btn--accent" id="employeeSalaryActionConfirmButton" type="button">ПРОВЕСТИ</button>'
+                + '</div>'
+              + '</div>'
+            + '</div>'
+          + '</div>'
+          + '<div class="modal" id="employeeSalaryReconciliationPeriodModal">'
+            + '<div class="dialog dialog--salary-report-period">'
+              + '<div class="dialog__head">'
+                + '<div class="dialog__title">ОТЧЕТ / <span id="employeeSalaryReconciliationPeriodTitle">СОТРУДНИК</span></div>'
+                + '<button class="btn" data-close="employee-salary-reconciliation-period">ЗАКРЫТЬ</button>'
+              + '</div>'
+              + '<div class="employees-report-period employees-report-period--dialog" id="employeeSalaryReconciliationPeriod">'
+                + '<div class="employees-report-period__head">'
+                  + '<div class="panel-title">ПЕРИОД АКТА</div>'
+                  + '<select class="employees-report-period__mode" id="employeeSalaryReconciliationPeriodMode" aria-label="Режим периода акта сверки зарплаты">'
+                    + '<option value="days">ПОСЛЕДНИЕ ДНИ</option>'
+                    + '<option value="dates">ДАТЫ</option>'
+                  + '</select>'
+                + '</div>'
+                + '<div class="employees-report-period__controls">'
+                  + '<label class="employees-report-period__field" id="employeeSalaryReconciliationDaysField" for="employeeSalaryReconciliationDaysInput"><span>ДНЕЙ</span><input id="employeeSalaryReconciliationDaysInput" type="number" inputmode="numeric" min="1" max="366" step="1" value="30"></label>'
+                  + '<label class="employees-report-period__field employees-report-period__date" id="employeeSalaryReconciliationDateFromField" for="employeeSalaryReconciliationDateFromInput" hidden><span>С</span><input id="employeeSalaryReconciliationDateFromInput" type="date"></label>'
+                  + '<label class="employees-report-period__field employees-report-period__date" id="employeeSalaryReconciliationDateToField" for="employeeSalaryReconciliationDateToInput" hidden><span>ПО</span><input id="employeeSalaryReconciliationDateToInput" type="date"></label>'
+                + '</div>'
+                + '<div class="employees-report-period__actions">'
+                  + '<button class="btn btn--accent" id="employeeSalaryReconciliationOpenButton" type="button">ОТКРЫТЬ ОТЧЕТ</button>'
+                  + '<button class="btn btn--ghost" id="employeeSalaryReconciliationCancelButton" type="button">ОТМЕНА</button>'
                 + '</div>'
               + '</div>'
             + '</div>'
@@ -946,6 +959,7 @@
       cashboxTransferModal: document.getElementById('cashboxTransferModal'),
       employeesModal: document.getElementById('employeesModal'),
       employeeSalaryModal: document.getElementById('employeeSalaryModal'),
+      employeeSalaryReconciliationPeriodModal: document.getElementById('employeeSalaryReconciliationPeriodModal'),
       employeeSalaryReportModal: document.getElementById('employeeSalaryReportModal'),
       employeesList: document.getElementById('employeesList'),
       employeesCardMode: document.getElementById('employeesCardMode'),
@@ -959,6 +973,9 @@
       employeeSalaryReconciliationDateToInput: document.getElementById('employeeSalaryReconciliationDateToInput'),
       employeeSalaryReconciliationDateFromField: document.getElementById('employeeSalaryReconciliationDateFromField'),
       employeeSalaryReconciliationDateToField: document.getElementById('employeeSalaryReconciliationDateToField'),
+      employeeSalaryReconciliationPeriodTitle: document.getElementById('employeeSalaryReconciliationPeriodTitle'),
+      employeeSalaryReconciliationOpenButton: document.getElementById('employeeSalaryReconciliationOpenButton'),
+      employeeSalaryReconciliationCancelButton: document.getElementById('employeeSalaryReconciliationCancelButton'),
       employeesMeta: document.getElementById('employeesMeta'),
       employeesReportMeta: document.getElementById('employeesReportMeta'),
       employeesDetailsMeta: document.getElementById('employeesDetailsMeta'),
@@ -1499,6 +1516,7 @@
     function hydrateEmployeesUiRefs() {
       els.employeesModal = document.getElementById('employeesModal');
       els.employeeSalaryModal = document.getElementById('employeeSalaryModal');
+      els.employeeSalaryReconciliationPeriodModal = document.getElementById('employeeSalaryReconciliationPeriodModal');
       els.employeeSalaryReportModal = document.getElementById('employeeSalaryReportModal');
       els.employeesList = document.getElementById('employeesList');
       els.employeesCardMode = document.getElementById('employeesCardMode');
@@ -1512,6 +1530,9 @@
       els.employeeSalaryReconciliationDateToInput = document.getElementById('employeeSalaryReconciliationDateToInput');
       els.employeeSalaryReconciliationDateFromField = document.getElementById('employeeSalaryReconciliationDateFromField');
       els.employeeSalaryReconciliationDateToField = document.getElementById('employeeSalaryReconciliationDateToField');
+      els.employeeSalaryReconciliationPeriodTitle = document.getElementById('employeeSalaryReconciliationPeriodTitle');
+      els.employeeSalaryReconciliationOpenButton = document.getElementById('employeeSalaryReconciliationOpenButton');
+      els.employeeSalaryReconciliationCancelButton = document.getElementById('employeeSalaryReconciliationCancelButton');
       els.employeesMeta = document.getElementById('employeesMeta');
       els.employeesReportMeta = document.getElementById('employeesReportMeta');
       els.employeesDetailsMeta = document.getElementById('employeesDetailsMeta');
@@ -2818,6 +2839,8 @@
       els.employeeSalaryReconciliationDaysInput?.addEventListener('change', handleEmployeeSalaryReconciliationPeriodChange);
       els.employeeSalaryReconciliationDateFromInput?.addEventListener('change', handleEmployeeSalaryReconciliationPeriodChange);
       els.employeeSalaryReconciliationDateToInput?.addEventListener('change', handleEmployeeSalaryReconciliationPeriodChange);
+      els.employeeSalaryReconciliationOpenButton?.addEventListener('click', openSelectedEmployeeSalaryReconciliationPrint);
+      els.employeeSalaryReconciliationCancelButton?.addEventListener('click', closeEmployeeSalaryReconciliationPeriodDialog);
       els.employeesList?.addEventListener('click', handleEmployeesListClick);
       els.employeesDetailTable?.addEventListener('click', handleEmployeesDetailClick);
       els.employeesModal?.addEventListener('input', handleEmployeesModalFormInput);
@@ -3790,6 +3813,7 @@
       cashboxTransferModal: 'cashbox-transfer',
       employeesModal: 'employees',
       employeeSalaryModal: 'employeeSalary',
+      employeeSalaryReconciliationPeriodModal: 'employee-salary-reconciliation-period',
       employeeSalaryReportModal: 'employee-salary-report',
       agentModal: 'agent',
       agentTasksModal: 'agent-tasks',
@@ -3822,6 +3846,7 @@
         'cashbox-transfer': els.cashboxTransferModal,
         employees: els.employeesModal,
         employeeSalary: els.employeeSalaryModal,
+        'employee-salary-reconciliation-period': els.employeeSalaryReconciliationPeriodModal,
         'employee-salary-report': els.employeeSalaryReportModal,
         agent: els.agentModal,
         'agent-tasks': els.agentTasksModal,
@@ -3979,11 +4004,13 @@
           if (!confirmDiscardEmployeeChanges()) return false;
           closeRepairOrderModal();
           closeEmployeeSalaryModal();
+          closeEmployeeSalaryReconciliationPeriodDialog();
           closeEmployeeSalaryReportModal();
           popModal('employees');
           return true;
         },
         employeeSalary: () => closeEmployeeSalaryModal(),
+        'employee-salary-reconciliation-period': () => closeEmployeeSalaryReconciliationPeriodDialog(),
         'employee-salary-report': () => closeEmployeeSalaryReportModal(),
         agent: () => {
           closeAgentTasksModal();
@@ -5708,7 +5735,6 @@
       state.employeeSalaryReconciliationDateFrom = String(els.employeeSalaryReconciliationDateFromInput?.value || state.employeeSalaryReconciliationDateFrom || '').trim();
       state.employeeSalaryReconciliationDateTo = String(els.employeeSalaryReconciliationDateToInput?.value || state.employeeSalaryReconciliationDateTo || '').trim();
       syncEmployeeSalaryReconciliationPeriodUi();
-      renderEmployeesListPanel();
     }
 
     function confirmDiscardEmployeeChanges() {
@@ -5830,8 +5856,6 @@
         const summaryLabel = 'К ВЫПЛАТЕ';
         const summaryValue = String(employee.balance_total ?? summary?.balance_total ?? summary?.total_salary ?? '0');
         const rowLabel = employeeRowAriaLabel(employee, summaryValue);
-        const printUrl = employeeSalaryReconciliationPrintUrl(employee.id);
-        const printPeriodLabel = employeeSalaryReconciliationPeriodLabel();
         return '<div class="employees-row' + (isActive ? ' is-active' : '') + '">'
           + '<button class="employees-row__body" type="button" data-employee-id="' + escapeHtml(employee.id) + '" aria-label="Сотрудник ' + escapeHtml(rowLabel) + '" title="' + escapeHtml(rowLabel) + '">'
             + '<div class="employees-row__top"><div class="employees-row__title">' + escapeHtml(employee.name) + '</div></div>'
@@ -5840,7 +5864,7 @@
           + '</button>'
           + '<div class="employees-row__actions">'
             + '<button class="btn btn--ghost employees-row__salary" type="button" data-employee-salary="' + escapeHtml(employee.id) + '">ЗАРПЛАТА</button>'
-            + '<a class="btn btn--ghost employees-row__report" href="' + escapeHtml(printUrl || '#') + '" target="_blank" rel="noopener" data-employee-report="' + escapeHtml(employee.id) + '" title="ОТКРЫТЬ ПЕЧАТНЫЙ АКТ СВЕРКИ ЗАРПЛАТЫ: ' + escapeHtml(printPeriodLabel) + '">ОТЧЕТ</a>'
+            + '<button class="btn btn--ghost employees-row__report" type="button" data-employee-report="' + escapeHtml(employee.id) + '" title="ВЫБРАТЬ ПЕРИОД И ОТКРЫТЬ ПЕЧАТНЫЙ АКТ СВЕРКИ ЗАРПЛАТЫ">ОТЧЕТ</button>'
           + '</div>'
           + '</div>';
       }).join('');
@@ -6051,6 +6075,10 @@
       return (Array.isArray(state.employees) ? state.employees : []).find((item) => item.id === state.activeEmployeeSalaryReportId) || null;
     }
 
+    function selectedEmployeeSalaryReconciliationReportRecord() {
+      return (Array.isArray(state.employees) ? state.employees : []).find((item) => item.id === state.activeEmployeeSalaryReconciliationReportId) || null;
+    }
+
     function currentEmployeeSalaryReportMonth() {
       const value = String(els.employeesMonthInput?.value || state.payrollMonth || currentPayrollMonthValue()).trim();
       return /^\d{4}-\d{2}$/.test(value) ? value : currentPayrollMonthValue();
@@ -6099,6 +6127,45 @@
       state.activeEmployeeSalaryReportId = '';
       state.employeeSalaryReport = null;
       renderEmployeeSalaryReportModal();
+    }
+
+    function renderEmployeeSalaryReconciliationPeriodDialog() {
+      const employee = selectedEmployeeSalaryReconciliationReportRecord();
+      if (els.employeeSalaryReconciliationPeriodTitle) {
+        els.employeeSalaryReconciliationPeriodTitle.textContent = employee ? String(employee.name || 'СОТРУДНИК').toUpperCase() : 'СОТРУДНИК';
+      }
+      syncEmployeeSalaryReconciliationPeriodUi();
+    }
+
+    function openEmployeeSalaryReconciliationPeriodDialog(employeeId) {
+      const requestedId = String(employeeId || '').trim();
+      if (!requestedId) return;
+      state.activeEmployeeSalaryReconciliationReportId = requestedId;
+      renderEmployeeSalaryReconciliationPeriodDialog();
+      pushModal('employee-salary-reconciliation-period', els.employeeSalaryReconciliationPeriodModal);
+      const focusTarget = state.employeeSalaryReconciliationPeriodMode === 'dates'
+        ? els.employeeSalaryReconciliationDateFromInput
+        : els.employeeSalaryReconciliationDaysInput;
+      if (focusTarget instanceof HTMLElement) {
+        window.setTimeout(() => focusTarget.focus({ preventScroll: true }), 0);
+      }
+    }
+
+    function closeEmployeeSalaryReconciliationPeriodDialog() {
+      popModal('employee-salary-reconciliation-period');
+      state.activeEmployeeSalaryReconciliationReportId = '';
+      renderEmployeeSalaryReconciliationPeriodDialog();
+    }
+
+    async function openSelectedEmployeeSalaryReconciliationPrint(event) {
+      if (event?.preventDefault) event.preventDefault();
+      const requestedId = String(state.activeEmployeeSalaryReconciliationReportId || '').trim();
+      if (!requestedId) {
+        setStatus('СНАЧАЛА ВЫБЕРИТЕ СОТРУДНИКА.', true);
+        return;
+      }
+      const opened = await openEmployeeSalaryReport(requestedId);
+      if (opened) closeEmployeeSalaryReconciliationPeriodDialog();
     }
 
     async function downloadEmployeeSalaryReport() {
@@ -6290,14 +6357,15 @@
 
     async function openEmployeeSalaryReport(employeeId) {
       const requestedId = String(employeeId || '').trim();
-      if (!requestedId) return;
-      if (!employeeSalaryReconciliationApiPath(requestedId, { strict: true })) return;
+      if (!requestedId) return false;
+      if (!employeeSalaryReconciliationApiPath(requestedId, { strict: true })) return false;
       const printWindow = createEmployeeSalaryReconciliationPrintWindow();
-      if (!printWindow) return;
+      if (!printWindow) return false;
       try {
         const report = await loadEmployeeSalaryReconciliation(requestedId);
         if (openEmployeeSalaryReconciliationPrint(report, printWindow)) {
           setStatus('АКТ СВЕРКИ ЗАРПЛАТЫ ОТКРЫТ.', false);
+          return true;
         }
       } catch (error) {
         try {
@@ -6306,6 +6374,7 @@
         }
         setStatus(error.message, true);
       }
+      return false;
     }
 
     async function handleEmployeeSalaryActionConfirm() {
@@ -6661,24 +6730,10 @@
       }
       const reportButton = target.closest('[data-employee-report]');
       if (reportButton instanceof HTMLElement) {
+        event.preventDefault();
         const employeeId = String(reportButton.dataset.employeeReport || '').trim();
         if (!employeeId) return;
-        const printUrl = employeeSalaryReconciliationPrintUrl(employeeId, { strict: true });
-        if (!printUrl) return;
-        if (reportButton instanceof HTMLAnchorElement) {
-          event.preventDefault();
-          reportButton.href = printUrl;
-          const printWindow = window.open(printUrl, '_blank', 'width=1200,height=800');
-          if (printWindow) {
-            printWindow.focus();
-            setStatus('АКТ СВЕРКИ ЗАРПЛАТЫ ОТКРЫТ.', false);
-          } else {
-            setStatus('ОТКРЫВАЮ АКТ СВЕРКИ ЗАРПЛАТЫ В ЭТОЙ ВКЛАДКЕ.', false);
-            window.location.href = printUrl;
-          }
-          return;
-        }
-        openEmployeeSalaryReport(employeeId);
+        openEmployeeSalaryReconciliationPeriodDialog(employeeId);
         return;
       }
       const row = target.closest('[data-employee-id]');
