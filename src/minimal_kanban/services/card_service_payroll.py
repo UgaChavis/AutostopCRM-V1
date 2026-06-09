@@ -44,6 +44,8 @@ EMPLOYEE_SHIFT_ACCRUALS_SETTING_KEY = "employee_shift_accruals"
 EMPLOYEES_MAX_COUNT = 15
 DEFAULT_MATERIAL_PERCENT = "10"
 PAYROLL_WEEKLY_BASE_SALARY_AT = {"weekday": 4, "hour": 20, "minute": 0}
+EMPLOYEE_SALARY_RECONCILIATION_DEFAULT_DAYS = 30
+EMPLOYEE_SALARY_RECONCILIATION_MAX_DAYS = 366
 
 
 class CardServicePayrollMixin:
@@ -619,6 +621,119 @@ class CardServicePayrollMixin:
             totals[f"{key}_display"] = money["display"]
         return {"rows": rows, "totals": totals}
 
+    def _employee_salary_reconciliation_date(self, value: object, *, field: str):
+        raw = normalize_text(value, default="", limit=32)
+        if not raw:
+            return None
+        try:
+            return datetime.strptime(raw, "%Y-%m-%d").date()
+        except ValueError:
+            self._fail(
+                "validation_error",
+                f"Поле {field} должно быть датой в формате YYYY-MM-DD.",
+                details={"field": field},
+            )
+
+    def _employee_salary_reconciliation_days(self, value: object) -> int:
+        if value is None or normalize_text(value, default="", limit=16) == "":
+            return EMPLOYEE_SALARY_RECONCILIATION_DEFAULT_DAYS
+        if isinstance(value, bool):
+            days = 1 if value else 0
+        else:
+            raw = normalize_text(value, default="", limit=16).replace(" ", "")
+            try:
+                days = int(raw)
+            except ValueError:
+                self._fail(
+                    "validation_error",
+                    "Поле days должно быть целым числом дней.",
+                    details={"field": "days"},
+                )
+        if days < 1 or days > EMPLOYEE_SALARY_RECONCILIATION_MAX_DAYS:
+            self._fail(
+                "validation_error",
+                (
+                    "Период акта сверки зарплаты должен быть от 1 до "
+                    f"{EMPLOYEE_SALARY_RECONCILIATION_MAX_DAYS} дней."
+                ),
+                details={
+                    "field": "days",
+                    "min": 1,
+                    "max": EMPLOYEE_SALARY_RECONCILIATION_MAX_DAYS,
+                },
+            )
+        return days
+
+    def _employee_salary_reconciliation_period(
+        self, payload: dict[str, Any], *, now: datetime
+    ) -> tuple[datetime, datetime, int, str, datetime]:
+        business_tz = business_timezone()
+        generated_at = now.astimezone(UTC)
+        date_from = self._employee_salary_reconciliation_date(
+            payload.get("date_from"), field="date_from"
+        )
+        date_to = self._employee_salary_reconciliation_date(payload.get("date_to"), field="date_to")
+        if date_from is not None or date_to is not None:
+            if date_from is None or date_to is None:
+                self._fail(
+                    "validation_error",
+                    "Для периода по датам нужно передать date_from и date_to.",
+                    details={"fields": ["date_from", "date_to"]},
+                )
+            if date_from > date_to:
+                self._fail(
+                    "validation_error",
+                    "Дата начала периода не должна быть позже даты окончания.",
+                    details={"fields": ["date_from", "date_to"]},
+                )
+            period_days = (date_to - date_from).days + 1
+            if period_days > EMPLOYEE_SALARY_RECONCILIATION_MAX_DAYS:
+                self._fail(
+                    "validation_error",
+                    (
+                        "Период акта сверки зарплаты должен быть не больше "
+                        f"{EMPLOYEE_SALARY_RECONCILIATION_MAX_DAYS} дней."
+                    ),
+                    details={
+                        "fields": ["date_from", "date_to"],
+                        "max": EMPLOYEE_SALARY_RECONCILIATION_MAX_DAYS,
+                    },
+                )
+            local_start = datetime(
+                date_from.year,
+                date_from.month,
+                date_from.day,
+                0,
+                0,
+                0,
+                0,
+                tzinfo=business_tz,
+            )
+            local_end = datetime(
+                date_to.year,
+                date_to.month,
+                date_to.day,
+                23,
+                59,
+                59,
+                999999,
+                tzinfo=business_tz,
+            )
+            return (
+                local_start.astimezone(UTC),
+                local_end.astimezone(UTC),
+                period_days,
+                "date_range",
+                generated_at,
+            )
+
+        period_days = self._employee_salary_reconciliation_days(
+            payload.get("days", payload.get("period_days"))
+        )
+        period_end = generated_at
+        period_start = period_end - timedelta(days=period_days)
+        return period_start, period_end, period_days, "last_days", generated_at
+
     def get_employee_salary_reconciliation(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
@@ -643,9 +758,12 @@ class CardServicePayrollMixin:
                     status_code=404,
                     details={"employee_id": employee_id},
                 )
-            period_days = 30
-            period_end = model_helpers.utc_now().astimezone(UTC)
-            period_start = period_end - timedelta(days=period_days)
+            period_start, period_end, period_days, period_mode, generated_at = (
+                self._employee_salary_reconciliation_period(
+                    payload,
+                    now=model_helpers.utc_now(),
+                )
+            )
             report = self._build_employee_salary_reconciliation(
                 bundle["cards"],
                 bundle["cashboxes"],
@@ -662,7 +780,8 @@ class CardServicePayrollMixin:
                 "date_to": business_end.date().isoformat(),
                 "label": f"{business_start.strftime('%d.%m.%Y')} - {business_end.strftime('%d.%m.%Y')}",
                 "days": period_days,
-                "generated_at": period_end.isoformat(),
+                "mode": period_mode,
+                "generated_at": generated_at.isoformat(),
             }
             return {
                 "employee": {
@@ -680,6 +799,7 @@ class CardServicePayrollMixin:
                 "meta": {
                     "schema_version": "employee_salary_reconciliation.v1",
                     "period_days": period_days,
+                    "period_mode": period_mode,
                     "row_count": len(report["rows"]),
                 },
             }

@@ -176,8 +176,11 @@ rows, salary cash transactions, or manual shift accruals. Use
 salary accruals, and manual shift accruals, not advances.
 
 `get_employee_salary_reconciliation` returns
-`employee_salary_reconciliation.v1` for the last 30 days. The print route uses
-the same salary reconciliation payload as clean HTML.
+`employee_salary_reconciliation.v1`. By default it covers the last 30 days.
+Pass `days=7` for a rolling period or `date_from=YYYY-MM-DD` plus
+`date_to=YYYY-MM-DD` for an exact business-date range. The print route accepts
+the same parameters and uses the same salary reconciliation payload as clean
+HTML.
 
 ## Files
 

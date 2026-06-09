@@ -2233,8 +2233,18 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(work_row["license_plate"], "т501тс124")
         self.assertEqual(work_row["accrued"], "2000")
 
+        status, days_report = self.request(
+            f"/api/get_employee_salary_reconciliation?employee_id={employee['id']}&days=7",
+            method="GET",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(days_report["data"]["period"]["days"], 7)
+        self.assertEqual(days_report["data"]["period"]["mode"], "last_days")
+        self.assertEqual(days_report["data"]["meta"]["period_days"], 7)
+        self.assertEqual(days_report["data"]["meta"]["period_mode"], "last_days")
+
         status, headers, body = self.raw_request(
-            f"/employee_salary_reconciliation_print?employee_id={employee['id']}"
+            f"/employee_salary_reconciliation_print?employee_id={employee['id']}&days=7"
         )
         self.assertEqual(status, 200)
         self.assertIn("text/html", headers["Content-Type"])
@@ -2243,6 +2253,18 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("Иван Мастер", html)
         self.assertIn("Toyota Camry", html)
         self.assertIn("т501тс124", html)
+        self.assertIn(days_report["data"]["period"]["label"], html)
+
+        status, headers, empty_body = self.raw_request(
+            f"/employee_salary_reconciliation_print?employee_id={employee['id']}"
+            "&date_from=2020-01-01&date_to=2020-01-02"
+        )
+        self.assertEqual(status, 200)
+        self.assertIn("text/html", headers["Content-Type"])
+        empty_html = empty_body.decode("utf-8")
+        self.assertIn("01.01.2020 - 02.01.2020", empty_html)
+        self.assertIn("За период 01.01.2020 - 02.01.2020 движений нет.", empty_html)
+        self.assertNotIn("За последние 30 дней движений нет.", empty_html)
         self.assertIn("Замена генератора", html)
         self.assertIn("Выплата за смены за текущую неделю", html)
         self.assertIn("ПЕЧАТЬ", html)

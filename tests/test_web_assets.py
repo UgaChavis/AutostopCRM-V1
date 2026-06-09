@@ -1532,10 +1532,26 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function downloadEmployeeSalaryReport()", BOARD_WEB_APP_HTML)
         self.assertIn("function loadEmployeeSalaryReconciliation(", BOARD_WEB_APP_HTML)
         self.assertIn("function employeeSalaryReconciliationPrintUrl(", BOARD_WEB_APP_HTML)
+        self.assertIn("function employeeSalaryReconciliationApiPath(", BOARD_WEB_APP_HTML)
+        self.assertIn("function employeeSalaryReconciliationQueryParams(", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function handleEmployeeSalaryReconciliationPeriodChange(", BOARD_WEB_APP_HTML
+        )
+        self.assertIn('id="employeeSalaryReconciliationPeriod"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeSalaryReconciliationPeriodMode"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeSalaryReconciliationDaysInput"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeSalaryReconciliationDateFromInput"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeSalaryReconciliationDateToInput"', BOARD_WEB_APP_HTML)
+        self.assertIn("ПЕРИОД АКТА", BOARD_WEB_APP_HTML)
+        self.assertIn("params.set('days', String(days));", BOARD_WEB_APP_HTML)
+        self.assertIn("params.set('date_from', dateFrom);", BOARD_WEB_APP_HTML)
+        self.assertIn("params.set('date_to', dateTo);", BOARD_WEB_APP_HTML)
         self.assertIn("/employee_salary_reconciliation_print?", BOARD_WEB_APP_HTML)
         self.assertIn('target="_blank"', BOARD_WEB_APP_HTML)
         self.assertIn('rel="noopener"', BOARD_WEB_APP_HTML)
         self.assertIn("function employeeSalaryReconciliationPrintDate(", BOARD_WEB_APP_HTML)
+        self.assertIn("function employeeSalaryReconciliationEmptyText(", BOARD_WEB_APP_HTML)
+        self.assertNotIn("За последние 30 дней движений нет.", BOARD_WEB_APP_HTML)
         self.assertIn(
             "function createEmployeeSalaryReconciliationPrintWindow(",
             BOARD_WEB_APP_HTML,
@@ -1543,7 +1559,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function buildEmployeeSalaryReconciliationPrintHtml(", BOARD_WEB_APP_HTML)
         self.assertIn("function openEmployeeSalaryReconciliationPrint(", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "'/api/get_employee_salary_reconciliation?employee_id='",
+            "'/api/get_employee_salary_reconciliation?'",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("Акт сверки зарплаты", BOARD_WEB_APP_HTML)
@@ -1576,8 +1592,8 @@ class WebAssetsTests(unittest.TestCase):
         )
         list_handler = BOARD_WEB_APP_HTML[list_handler_start:list_handler_end]
         self.assertIn("reportButton instanceof HTMLAnchorElement", list_handler)
-        self.assertIn("window.open(reportButton.href", list_handler)
-        self.assertIn("window.location.href = reportButton.href", list_handler)
+        self.assertIn("window.open(printUrl", list_handler)
+        self.assertIn("window.location.href = printUrl", list_handler)
         self.assertIn("ОТКРЫВАЮ АКТ СВЕРКИ ЗАРПЛАТЫ В ЭТОЙ ВКЛАДКЕ.", list_handler)
         self.assertNotIn('id="employeeSalaryReportSummary"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="employeeSalaryReportSections"', BOARD_WEB_APP_HTML)
@@ -1607,6 +1623,14 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn(
             "els.employeesMonthInput?.addEventListener('change', handleEmployeesMonthChange);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.employeeSalaryReconciliationPeriodMode?.addEventListener('change', handleEmployeeSalaryReconciliationPeriodChange);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.employeeSalaryReconciliationDaysInput?.addEventListener('input', handleEmployeeSalaryReconciliationPeriodChange);",
             BOARD_WEB_APP_HTML,
         )
         self.assertNotIn(

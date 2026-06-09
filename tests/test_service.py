@@ -3988,6 +3988,162 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(report["totals"]["advance_total"], "0")
         self.assertEqual(report["totals"]["amount_due_total"], "0")
 
+    def test_employee_salary_reconciliation_accepts_recent_days_period(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Период Мастер",
+                "position": "Мастер",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "10",
+            }
+        )["employee"]
+
+        def close_order(moment: datetime, number: str) -> None:
+            patches = self._patch_time(moment)
+            with patches[0], patches[1], patches[2]:
+                card = self.service.create_card(
+                    {
+                        "vehicle": f"Toyota {number}",
+                        "title": f"ЗН {number}",
+                        "deadline": {"hours": 2},
+                    }
+                )["card"]
+                self.service.update_card(
+                    {
+                        "card_id": card["id"],
+                        "repair_order": {
+                            "number": number,
+                            "status": "open",
+                            "vehicle": f"Toyota {number}",
+                            "payments": [
+                                {
+                                    "amount": "1000",
+                                    "paid_at": "27.05.2026 10:00",
+                                    "payment_method": "cash",
+                                }
+                            ],
+                            "works": [
+                                {
+                                    "name": f"Работа {number}",
+                                    "quantity": "1",
+                                    "price": "1000",
+                                    "executor_id": employee["id"],
+                                }
+                            ],
+                        },
+                    }
+                )
+                self.service.set_repair_order_status({"card_id": card["id"], "status": "closed"})
+
+        close_order(datetime(2026, 5, 10, 12, 0, 0, tzinfo=timezone.utc), "710")
+        close_order(datetime(2026, 5, 27, 12, 0, 0, tzinfo=timezone.utc), "727")
+
+        patches = self._patch_time(datetime(2026, 5, 28, 12, 0, 0, tzinfo=timezone.utc))
+        with patches[0], patches[1], patches[2]:
+            report = self.service.get_employee_salary_reconciliation(
+                {"employee_id": employee["id"], "days": "5"}
+            )
+
+        self.assertEqual(report["period"]["days"], 5)
+        self.assertEqual(report["period"]["mode"], "last_days")
+        self.assertEqual(report["meta"]["period_mode"], "last_days")
+        self.assertEqual([row["repair_order_number"] for row in report["rows"]], ["727"])
+        self.assertEqual(report["totals"]["accrued_total"], "100")
+
+    def test_employee_salary_reconciliation_accepts_exact_date_range(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Диапазон Мастер",
+                "position": "Мастер",
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "10",
+            }
+        )["employee"]
+
+        def close_order(moment: datetime, number: str) -> None:
+            patches = self._patch_time(moment)
+            with patches[0], patches[1], patches[2]:
+                card = self.service.create_card(
+                    {
+                        "vehicle": f"Nissan {number}",
+                        "title": f"ЗН {number}",
+                        "deadline": {"hours": 2},
+                    }
+                )["card"]
+                self.service.update_card(
+                    {
+                        "card_id": card["id"],
+                        "repair_order": {
+                            "number": number,
+                            "status": "open",
+                            "vehicle": f"Nissan {number}",
+                            "payments": [
+                                {
+                                    "amount": "2000",
+                                    "paid_at": "20.05.2026 10:00",
+                                    "payment_method": "cash",
+                                }
+                            ],
+                            "works": [
+                                {
+                                    "name": f"Работа {number}",
+                                    "quantity": "1",
+                                    "price": "2000",
+                                    "executor_id": employee["id"],
+                                }
+                            ],
+                        },
+                    }
+                )
+                self.service.set_repair_order_status({"card_id": card["id"], "status": "closed"})
+
+        close_order(datetime(2026, 5, 5, 12, 0, 0, tzinfo=timezone.utc), "805")
+        close_order(datetime(2026, 5, 20, 12, 0, 0, tzinfo=timezone.utc), "820")
+
+        patches = self._patch_time(datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc))
+        with patches[0], patches[1], patches[2]:
+            report = self.service.get_employee_salary_reconciliation(
+                {
+                    "employee_id": employee["id"],
+                    "date_from": "2026-05-19",
+                    "date_to": "2026-05-21",
+                }
+            )
+
+        self.assertEqual(report["period"]["date_from"], "2026-05-19")
+        self.assertEqual(report["period"]["date_to"], "2026-05-21")
+        self.assertEqual(report["period"]["days"], 3)
+        self.assertEqual(report["period"]["mode"], "date_range")
+        self.assertEqual([row["repair_order_number"] for row in report["rows"]], ["820"])
+        self.assertEqual(report["totals"]["accrued_total"], "200")
+
+    def test_employee_salary_reconciliation_rejects_invalid_period(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Ошибка Периода",
+                "position": "Мастер",
+                "salary_mode": "percent_only",
+            }
+        )["employee"]
+
+        with self.assertRaises(ServiceError) as days_error:
+            self.service.get_employee_salary_reconciliation(
+                {"employee_id": employee["id"], "days": "0"}
+            )
+        self.assertEqual(days_error.exception.code, "validation_error")
+
+        with self.assertRaises(ServiceError) as date_error:
+            self.service.get_employee_salary_reconciliation(
+                {
+                    "employee_id": employee["id"],
+                    "date_from": "2026-06-10",
+                    "date_to": "2026-06-01",
+                }
+            )
+        self.assertEqual(date_error.exception.code, "validation_error")
+
     def test_financial_history_cleanup_clears_balances_and_preserves_new_flows(self) -> None:
         employee = self.service.save_employee(
             {

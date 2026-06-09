@@ -141,7 +141,11 @@ def _employee_salary_reconciliation_vehicle_html(row: dict) -> str:
 def _employee_salary_reconciliation_rows_html(report: dict) -> str:
     rows = report.get("rows")
     if not isinstance(rows, list) or not rows:
-        return '<tr><td colspan="11" class="empty">За последние 30 дней движений нет.</td></tr>'
+        return (
+            '<tr><td colspan="11" class="empty">'
+            f"{_employee_salary_reconciliation_empty_text(report)}"
+            "</td></tr>"
+        )
     rendered: list[str] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -162,8 +166,19 @@ def _employee_salary_reconciliation_rows_html(report: dict) -> str:
             "</tr>"
         )
     return "".join(rendered) or (
-        '<tr><td colspan="11" class="empty">За последние 30 дней движений нет.</td></tr>'
+        '<tr><td colspan="11" class="empty">'
+        f"{_employee_salary_reconciliation_empty_text(report)}"
+        "</td></tr>"
     )
+
+
+def _employee_salary_reconciliation_empty_text(report: dict) -> str:
+    period = report.get("period")
+    if isinstance(period, dict):
+        label = str(period.get("label") or "").strip()
+        if label:
+            return _html_text(f"За период {label} движений нет.", fallback="")
+    return "За выбранный период движений нет."
 
 
 def _employee_salary_reconciliation_totals_html(report: dict) -> str:
