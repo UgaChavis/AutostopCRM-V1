@@ -90,6 +90,16 @@ MCP_TOOL_GROUPS: dict[str, tuple[str, ...]] = {
         "get_cashbox",
         "list_cashboxes",
     ),
+    "inventory": (
+        "get_inventory_item",
+        "list_inventory_items",
+        "list_inventory_movements",
+        "replenish_inventory_item",
+        "return_inventory_movement",
+        "save_inventory_item",
+        "search_inventory_items",
+        "write_off_inventory_item",
+    ),
     "files": (
         "delete_shared_file",
         "download_shared_file",

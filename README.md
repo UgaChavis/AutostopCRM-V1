@@ -1,7 +1,7 @@
 # AutoStop CRM
 
 AutoStop CRM is the active workshop CRM on branch `autostopcrm-v1`. It includes
-the board, clients, vehicles, repair orders, cashboxes, employee payroll,
+the board, clients, vehicles, repair orders, warehouse, cashboxes, employee payroll,
 shared files, MCP access, and ChatGPT/Responses API integrations.
 
 Historical names such as `minimal_kanban`, `%APPDATA%\Minimal Kanban`, and
@@ -27,6 +27,9 @@ so.
 - Clients: people, companies, phones, requisites, vehicles, and card links.
 - Repair orders: immutable numbers, works, materials, statuses, payments,
   print templates, and PDF export.
+- Warehouse: minimal stock positions, fractional oils, replenishment,
+  write-off into repair-order materials, return of write-offs, and technical
+  movement journal.
 - Cashboxes/payroll: money movements, transfers, journal, employee salary
   ledger, reports, and reconciliation print.
 - Integrations: local HTTP API, MCP endpoint, ChatGPT/Responses API clients,
@@ -51,7 +54,7 @@ routes call the same backend API and storage.
 - `src/minimal_kanban/api/server.py` - HTTP API routes.
 - `src/minimal_kanban/services/card_service.py` - main business service.
 - `src/minimal_kanban/services/card_service_*.py` - domain mixins for clients,
-  finance, and payroll.
+  finance, inventory, and payroll.
 - `src/minimal_kanban/storage/json_store.py` - JSON storage.
 - `src/minimal_kanban/mcp/server.py` - MCP tools and optional manager mount.
 - `src/minimal_kanban/web_app_assets/assembler.py` - browser UI chunk assembly.

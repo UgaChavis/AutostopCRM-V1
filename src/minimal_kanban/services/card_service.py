@@ -43,6 +43,8 @@ from ..models import (
     CashTransaction,
     ClientProfile,
     Column,
+    InventoryItem,
+    InventoryMovement,
     StickyNote,
     business_timezone,
     format_money_minor,
@@ -94,6 +96,7 @@ from ..vehicle_profile import (
 )
 from .card_service_clients import CardServiceClientsMixin
 from .card_service_finance import CardServiceFinanceMixin
+from .card_service_inventory import CardServiceInventoryMixin
 from .card_service_payroll import CardServicePayrollMixin
 from .column_service import ColumnService
 from .errors import ServiceError
@@ -486,7 +489,12 @@ _ATTACHMENT_BASE64_MAX_BYTES = 4_194_304
 _ATTACHMENT_XML_READ_MAX_BYTES = 5_000_000
 
 
-class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServicePayrollMixin):
+class CardService(
+    CardServiceFinanceMixin,
+    CardServiceInventoryMixin,
+    CardServiceClientsMixin,
+    CardServicePayrollMixin,
+):
     def __init__(
         self,
         store: JsonStore,
@@ -4984,6 +4992,8 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
         stickies: list[StickyNote] | None = None,
         cashboxes: list[CashBox] | None = None,
         cash_transactions: list[CashTransaction] | None = None,
+        inventory_items: list[InventoryItem] | None = None,
+        inventory_movements: list[InventoryMovement] | None = None,
         events: list[AuditEvent],
         settings: dict[str, Any] | None = None,
         force_cleanup: bool = False,
@@ -4997,6 +5007,12 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
             cash_transactions=bundle["cash_transactions"]
             if cash_transactions is None
             else cash_transactions,
+            inventory_items=bundle["inventory_items"]
+            if inventory_items is None
+            else inventory_items,
+            inventory_movements=bundle["inventory_movements"]
+            if inventory_movements is None
+            else inventory_movements,
             events=events,
             settings=bundle["settings"] if settings is None else settings,
         )
@@ -9037,7 +9053,9 @@ class CardService(CardServiceFinanceMixin, CardServiceClientsMixin, CardServiceP
         return title
 
     def _validated_description(self, value) -> str:
-        description = str(value or "").strip()
+        description = (
+            str(value if value is not None else "").replace("\r\n", "\n").replace("\r", "\n")
+        )
         if len(description) > CARD_DESCRIPTION_LIMIT:
             self._fail(
                 "validation_error",

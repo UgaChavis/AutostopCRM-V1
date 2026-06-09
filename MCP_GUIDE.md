@@ -76,7 +76,7 @@ such as `estimate_repair_work_cost`, `lookup_original_parts`, `today_context`,
 Release checks must compare actual tool names and explain optional manager-layer
 differences. Do not treat a raw tool count mismatch as a CRM regression until
 names are compared. CRM remains the source of truth for cards, clients,
-vehicles, repair orders, files, payments, and cashboxes.
+vehicles, repair orders, inventory, files, payments, and cashboxes.
 
 ## Recommended Call Order
 
@@ -123,6 +123,13 @@ vehicle upsert/delete.
 Repair orders/PDF: list/get/text/PDF download, update, status change, replace
 works/materials. `list_repair_orders` supports `compact=true` and
 `redact_private=true` for low-payload diagnostics.
+
+Inventory: `list_inventory_items`, `search_inventory_items`,
+`get_inventory_item`, `list_inventory_movements`, `save_inventory_item`,
+`replenish_inventory_item`, `write_off_inventory_item`, and
+`return_inventory_movement`. There are no visible warehouse documents or
+reserves. Write-off is explicit and creates a repair-order material row with
+snapshot prices; manual material edits do not affect stock.
 
 Cashboxes: list/get/journal, create/delete, and `create_cash_transaction`.
 Manual expense transactions require a `note` with at least 10 visible

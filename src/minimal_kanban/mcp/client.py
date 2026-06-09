@@ -315,6 +315,103 @@ class BoardApiClient:
     def list_cashboxes(self, *, limit: int | None = None) -> dict:
         return self._request_optional_scalar_filter("/api/list_cashboxes", key="limit", value=limit)
 
+    def list_inventory_items(self, *, query: str | None = None, limit: int | None = None) -> dict:
+        payload: dict[str, object] = {}
+        if query is not None:
+            payload["query"] = query
+        if limit is not None:
+            payload["limit"] = limit
+        if not payload:
+            return self._request("/api/list_inventory_items", method="GET")
+        return self._request("/api/list_inventory_items", payload, method="POST")
+
+    def search_inventory_items(self, *, query: str = "", limit: int | None = None) -> dict:
+        payload: dict[str, object] = {"query": query}
+        if limit is not None:
+            payload["limit"] = limit
+        return self._request("/api/search_inventory_items", payload, method="POST")
+
+    def get_inventory_item(self, item_id: str) -> dict:
+        return self._request("/api/get_inventory_item", {"item_id": item_id}, method="POST")
+
+    def list_inventory_movements(
+        self,
+        *,
+        item_id: str | None = None,
+        card_id: str | None = None,
+        limit: int | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {}
+        if item_id is not None:
+            payload["item_id"] = item_id
+        if card_id is not None:
+            payload["card_id"] = card_id
+        if limit is not None:
+            payload["limit"] = limit
+        if not payload:
+            return self._request("/api/list_inventory_movements", method="GET")
+        return self._request("/api/list_inventory_movements", payload, method="POST")
+
+    def save_inventory_item(
+        self, item: dict[str, object], *, actor_name: str | None = None
+    ) -> dict:
+        return self._request_with_identity("/api/save_inventory_item", item, actor_name=actor_name)
+
+    def replenish_inventory_item(
+        self,
+        item_id: str,
+        quantity: str,
+        *,
+        cost_price: str | None = None,
+        sale_price: str | None = None,
+        note: str | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {"item_id": item_id, "quantity": quantity}
+        if cost_price is not None:
+            payload["cost_price"] = cost_price
+        if sale_price is not None:
+            payload["sale_price"] = sale_price
+        if note is not None:
+            payload["note"] = note
+        return self._request_with_identity(
+            "/api/replenish_inventory_item", payload, actor_name=actor_name
+        )
+
+    def write_off_inventory_item(
+        self,
+        item_id: str,
+        *,
+        card_id: str,
+        quantity: str,
+        row_index: int | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {
+            "item_id": item_id,
+            "card_id": card_id,
+            "quantity": quantity,
+        }
+        if row_index is not None:
+            payload["row_index"] = row_index
+        return self._request_with_identity(
+            "/api/write_off_inventory_item", payload, actor_name=actor_name
+        )
+
+    def return_inventory_movement(
+        self,
+        movement_id: str,
+        *,
+        card_id: str | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {"movement_id": movement_id}
+        if card_id is not None:
+            payload["card_id"] = card_id
+        return self._request_with_identity(
+            "/api/return_inventory_movement", payload, actor_name=actor_name
+        )
+
     def get_cash_journal(self, *, months: int | None = None, limit: int | None = None) -> dict:
         payload: dict[str, object] = {}
         if months is not None:

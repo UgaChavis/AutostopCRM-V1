@@ -114,6 +114,25 @@ Repair-order work rows may include salary override fields:
 `work_salary_percent_override`, and `work_salary_note`. When enabled, payroll
 uses `guarantee + max(work total - guarantee, 0) * executor_percent / 100`.
 
+## Inventory
+
+Read: `list_inventory_items`, `search_inventory_items`,
+`get_inventory_item`, and `list_inventory_movements`.
+
+Write: `save_inventory_item`, `replenish_inventory_item`,
+`write_off_inventory_item`, and `return_inventory_movement`.
+
+Inventory positions are intentionally minimal: name, optional catalog number,
+unit (`шт` or `л`), quantity, cost price, sale price, and metadata. Liter
+positions support fractional quantities. There are no visible warehouse
+documents, reserves, suppliers, storage places, batches, FIFO, or transfers.
+
+Every stock-changing operation records an internal inventory movement. Manual
+repair-order material edits do not change stock. Only
+`write_off_inventory_item` decrements stock and writes a linked material row
+with snapshot cost/sale prices; `return_inventory_movement` restores stock and
+clears only the technical warehouse link on that material row.
+
 ## Cashboxes, Finance, Employees, Payroll
 
 Read: `list_cashboxes`, `get_cashbox`, `get_cash_journal`, `/api/finance_audit`,

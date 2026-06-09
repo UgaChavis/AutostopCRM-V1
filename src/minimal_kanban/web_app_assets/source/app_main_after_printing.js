@@ -475,6 +475,10 @@
     remountElement('sharedFilesDeleteButton');
     remountElement('sharedFilesContextMenu');
     remountElement('cashboxesButton');
+    remountElement('inventoryButton');
+    remountElement('inventoryNewButton');
+    remountElement('inventorySaveButton');
+    remountElement('inventoryReplenishButton');
     remountElement('employeesButton');
     remountElement('cashboxCreateButton');
     remountElement('cashboxJournalButton');
@@ -486,6 +490,10 @@
     remountElement('cashboxIncomeButton');
     remountElement('cashboxTransferButton');
     remountElement('cashboxExpenseButton');
+    remountElement('repairOrderInventoryToggleButton');
+    remountElement('repairOrderInventoryFillButton');
+    remountElement('repairOrderInventoryIssueButton');
+    remountElement('repairOrderInventoryReturnButton');
     configureOperatorIdentityUi();
 
     els.identitySave.addEventListener('click', loginOperator);
@@ -525,6 +533,7 @@
     els.sharedFilesButton.addEventListener('click', openSharedFilesModal);
     els.cardAgentButton.addEventListener('click', runFullCardEnrichment);
     els.cashboxesButton.addEventListener('click', openCashboxesModal);
+    els.inventoryButton?.addEventListener('click', openInventoryModal);
     els.employeesButton.addEventListener('click', openEmployeesModal);
     els.repairOrdersOpenTab.addEventListener('click', () => setRepairOrdersFilter('open'));
     els.repairOrdersReadyTab.addEventListener('click', () => setRepairOrdersFilter('ready'));
@@ -609,6 +618,11 @@
         createCashboxTransaction('income');
       }
     });
+    els.inventoryNewButton?.addEventListener('click', resetInventoryForm);
+    els.inventorySearchInput?.addEventListener('input', handleInventorySearchInput);
+    els.inventoryItemsList?.addEventListener('click', handleInventoryItemsClick);
+    els.inventorySaveButton?.addEventListener('click', saveInventoryItem);
+    els.inventoryReplenishButton?.addEventListener('click', replenishInventoryItem);
     els.gptWallBoardTab.addEventListener('click', () => setGptWallView('board_content'));
     els.gptWallEventsTab.addEventListener('click', () => setGptWallView('event_log'));
     els.gptWallRefresh.addEventListener('click', refreshGptWallView);
@@ -643,6 +657,15 @@
     });
     els.repairOrderModal.addEventListener('input', handleRepairOrderModalInput);
     els.repairOrderModal.addEventListener('change', handleRepairOrderModalInput);
+    els.repairOrderMaterialsBody?.addEventListener('click', rememberRepairOrderInventoryRow);
+    els.repairOrderMaterialsBody?.addEventListener('focusin', rememberRepairOrderInventoryRow);
+    els.repairOrderInventoryToggleButton?.addEventListener('click', toggleRepairOrderInventoryPanel);
+    els.repairOrderInventorySearchInput?.addEventListener('input', handleRepairOrderInventorySearchInput);
+    els.repairOrderInventoryQuantityInput?.addEventListener('input', renderRepairOrderInventoryPanel);
+    els.repairOrderInventoryResults?.addEventListener('click', handleRepairOrderInventoryResultsClick);
+    els.repairOrderInventoryFillButton?.addEventListener('click', fillRepairOrderInventoryRow);
+    els.repairOrderInventoryIssueButton?.addEventListener('click', writeOffInventoryItem);
+    els.repairOrderInventoryReturnButton?.addEventListener('click', returnInventoryMovement);
     els.repairOrderWorkSalaryPopover?.addEventListener('input', syncRepairOrderWorkSalaryPopoverPreview);
     els.repairOrderWorkSalaryPopover?.addEventListener('change', syncRepairOrderWorkSalaryPopoverPreview);
     els.repairOrderTagAddButton.addEventListener('click', addRepairOrderTag);

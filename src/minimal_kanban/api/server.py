@@ -622,6 +622,9 @@ class ApiServer:
                     "/api/export_operator_activity",
                     "/api/list_shared_files",
                     "/api/get_shared_file_info",
+                    "/api/list_inventory_items",
+                    "/api/get_inventory_item",
+                    "/api/list_inventory_movements",
                 }
                 if route in readonly_routes:
                     if not self._authenticate(request_id, query):

@@ -609,7 +609,7 @@ def _check_crm_mcp_surface(root: Path) -> list[Issue]:
         root / "src" / "minimal_kanban" / "mcp" / "server.py"
     )
 
-    expected_tool_count = 83
+    expected_tool_count = 91
     if len(registry_tools) != expected_tool_count:
         issues.append(
             Issue(

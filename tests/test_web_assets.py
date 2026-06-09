@@ -345,7 +345,7 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_mobile_shell_supports_swipe_navigation_and_column_snap(self) -> None:
         self.assertIn(
-            "const MOBILE_VIEW_ORDER = ['board', 'cashboxes', 'repair-orders', 'more'];",
+            "const MOBILE_VIEW_ORDER = ['board', 'cashboxes', 'inventory', 'repair-orders', 'more'];",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("mobileSwipe:", BOARD_WEB_APP_HTML)
@@ -428,6 +428,52 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn(".mobile-card-tag", BOARD_WEB_APP_HTML)
         self.assertIn(
             '<textarea id="mobileCardDescriptionInput" maxlength="12000" rows="10"',
+            BOARD_WEB_APP_HTML,
+        )
+
+    def test_mobile_card_description_uses_available_screen_height(self) -> None:
+        self.assertIn(
+            'class="mobile-field mobile-card-description-field"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".mobile-workspace.is-card-detail-open {\n"
+            "      align-content: stretch;\n"
+            "      overflow: hidden;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            '.mobile-card-page[data-mobile-card-page="overview"].is-active {\n'
+            "      grid-template-rows: auto auto minmax(260px, 1fr) auto;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".mobile-card-description-field {\n      min-height: 0;\n      height: 100%;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".mobile-card-description-field textarea {\n"
+            "      height: 100%;\n"
+            "      min-height: 260px;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".is-mobile-lite .mobile-card-description-field textarea {\n"
+            "      height: 100%;\n"
+            "      min-height: 260px;\n"
+            "      resize: none;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "@media (max-height: 760px) {\n"
+            '      .mobile-card-page[data-mobile-card-page="overview"].is-active {\n'
+            "        grid-template-rows: auto auto minmax(220px, 1fr) auto;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "@media (max-height: 760px) {\n"
+            "      .is-mobile-lite .mobile-card-description-field textarea {\n"
+            "        min-height: 220px;",
             BOARD_WEB_APP_HTML,
         )
 
@@ -3227,7 +3273,7 @@ class WebAssetsTests(unittest.TestCase):
     def test_repair_order_materials_executor_column_is_after_name(self) -> None:
         materials_table = BOARD_WEB_APP_HTML[
             BOARD_WEB_APP_HTML.index(
-                '<section class="repair-order-table-card" data-repair-order-section="materials">'
+                '<section class="repair-order-table-card repair-order-materials-card" data-repair-order-section="materials">'
             ) : BOARD_WEB_APP_HTML.index('<tbody id="repairOrderMaterialsBody"></tbody>')
         ]
         self.assertLess(materials_table.index(">Наименование<"), materials_table.index(">Списал<"))
@@ -4136,6 +4182,56 @@ class WebAssetsTests(unittest.TestCase):
             "return dd + '.' + mm + '.' + yy + ', ' + hh + ':' + min;", BOARD_WEB_APP_HTML
         )
         self.assertNotIn("window.prompt('Куда перевести деньги?", BOARD_WEB_APP_HTML)
+
+    def test_inventory_module_exposes_minimal_warehouse_workspace(self) -> None:
+        self.assertIn('id="inventoryButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="inventoryModal"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="inventorySearchInput"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="inventoryItemsList"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="inventorySaveButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="inventoryReplenishButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="repairOrderInventoryToggleButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="repairOrderInventoryPanel"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="repairOrderInventorySearchInput"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="repairOrderInventoryIssueButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="repairOrderInventoryReturnButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-repair-order-row-field="inventory_item_id"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-repair-order-row-field="inventory_movement_id"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-repair-order-row-field="inventory_unit"', BOARD_WEB_APP_HTML)
+        self.assertIn(".inventory-layout {", BOARD_WEB_APP_HTML)
+        self.assertIn(".repair-order-inventory-panel {", BOARD_WEB_APP_HTML)
+        self.assertIn("inventoryLoaded: false,", BOARD_WEB_APP_HTML)
+        self.assertIn("repairOrderInventoryOpen: false,", BOARD_WEB_APP_HTML)
+        self.assertIn("async function loadInventoryItems", BOARD_WEB_APP_HTML)
+        self.assertIn("async function saveInventoryItem", BOARD_WEB_APP_HTML)
+        self.assertIn("async function replenishInventoryItem", BOARD_WEB_APP_HTML)
+        self.assertIn("async function writeOffInventoryItem", BOARD_WEB_APP_HTML)
+        self.assertIn("async function returnInventoryMovement", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderRepairOrderInventoryPanel", BOARD_WEB_APP_HTML)
+        for route in (
+            "/api/list_inventory_items",
+            "/api/search_inventory_items",
+            "/api/save_inventory_item",
+            "/api/replenish_inventory_item",
+            "/api/write_off_inventory_item",
+            "/api/return_inventory_movement",
+        ):
+            self.assertIn(route, BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const MOBILE_VIEW_ORDER = ['board', 'cashboxes', 'inventory', 'repair-orders', 'more'];",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn('data-mobile-view="inventory"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="mobileInventoryNewButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="mobileInventoryStatusLine"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.mobileInventoryNewButton?.addEventListener('click', resetInventoryForm);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "function resetInventoryForm() {\n      state.inventoryActiveId = '';\n      renderInventory();",
+            BOARD_WEB_APP_HTML,
+        )
 
     def test_modal_data_loader_helpers_drive_active_archive_and_gpt_paths(self) -> None:
         self.assertIn("function maybeOpenModal(modalEl, openModal)", BOARD_WEB_APP_HTML)

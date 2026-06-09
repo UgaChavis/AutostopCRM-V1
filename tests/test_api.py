@@ -102,6 +102,88 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(_success_log_level("/api/health"), logging.DEBUG)
         self.assertEqual(_success_log_level("/api/create_card"), logging.INFO)
 
+    def test_inventory_routes_save_search_write_off_and_return_fractional_item(self) -> None:
+        status, created_card = self.request(
+            "/api/create_card",
+            {
+                "vehicle": "BMW X5",
+                "title": "Склад API",
+                "deadline": {"hours": 2},
+            },
+        )
+        self.assertEqual(status, 200)
+        card_id = created_card["data"]["card"]["id"]
+
+        status, saved = self.request(
+            "/api/save_inventory_item",
+            {
+                "name": "Масло 5W-30",
+                "catalog_number": "OIL-API",
+                "unit": "л",
+                "quantity": "5.5",
+                "cost_price": "500",
+                "sale_price": "800",
+                "actor_name": "ADMIN",
+            },
+        )
+        self.assertEqual(status, 200)
+        item = saved["data"]["item"]
+        self.assertEqual(item["quantity"], "5.5")
+
+        status, listed = self.request("/api/list_inventory_items?limit=200", method="GET")
+        self.assertEqual(status, 200)
+        self.assertEqual(listed["data"]["items"][0]["id"], item["id"])
+
+        status, searched = self.request(
+            "/api/search_inventory_items",
+            {"query": "oil-api", "limit": 10},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(searched["data"]["items"][0]["id"], item["id"])
+
+        status, written_off = self.request(
+            "/api/write_off_inventory_item",
+            {
+                "item_id": item["id"],
+                "card_id": card_id,
+                "quantity": "1.25",
+                "actor_name": "ADMIN",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(written_off["data"]["item"]["quantity"], "4.25")
+        self.assertEqual(written_off["data"]["repair_order"]["materials"][0]["price"], "800")
+
+        status, movements = self.request("/api/list_inventory_movements?limit=20", method="GET")
+        self.assertEqual(status, 200)
+        self.assertIn(
+            written_off["data"]["movement"]["id"],
+            {movement["id"] for movement in movements["data"]["movements"]},
+        )
+
+        status, rejected = self.request(
+            "/api/write_off_inventory_item",
+            {
+                "item_id": item["id"],
+                "card_id": card_id,
+                "quantity": "99",
+                "actor_name": "ADMIN",
+            },
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(rejected["error"]["code"], "validation_error")
+
+        status, returned = self.request(
+            "/api/return_inventory_movement",
+            {
+                "movement_id": written_off["data"]["movement"]["id"],
+                "card_id": card_id,
+                "actor_name": "ADMIN",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(returned["data"]["item"]["quantity"], "5.5")
+
     def test_api_base_url_normalizes_wildcard_and_formats_ipv6_hosts(self) -> None:
         logger = logging.getLogger(f"test.api.base_url.{self._testMethodName}")
         wildcard = ApiServer(Mock(), logger, host="0.0.0.0", start_port=41731, fallback_limit=1)

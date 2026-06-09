@@ -93,6 +93,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/get_employee_salary_report",
     "/api/get_gpt_wall",
     "/api/get_inspection_sheet_form",
+    "/api/get_inventory_item",
     "/api/get_payroll_report",
     "/api/get_repair_order",
     "/api/get_repair_order_print_workspace",
@@ -106,6 +107,8 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/list_clients",
     "/api/list_columns",
     "/api/list_employees",
+    "/api/list_inventory_items",
+    "/api/list_inventory_movements",
     "/api/list_overdue_cards",
     "/api/list_repair_orders",
     "/api/list_ready_unpaid_cards",
@@ -128,6 +131,8 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/reorder_cashboxes",
     "/api/replace_repair_order_materials",
     "/api/replace_repair_order_works",
+    "/api/replenish_inventory_item",
+    "/api/return_inventory_movement",
     "/api/restore_card",
     "/api/resume_agent_scheduled_task",
     "/api/review_board",
@@ -138,10 +143,12 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/save_agent_scheduled_task",
     "/api/save_employee",
     "/api/save_inspection_sheet_form",
+    "/api/save_inventory_item",
     "/api/save_print_module_settings",
     "/api/save_print_template",
     "/api/search_cards",
     "/api/search_clients",
+    "/api/search_inventory_items",
     "/api/set_card_board_summary",
     "/api/set_card_deadline",
     "/api/set_card_indicator",
@@ -159,6 +166,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/update_sticky",
     "/api/upload_shared_file",
     "/api/upsert_client_vehicle",
+    "/api/write_off_inventory_item",
 }
 
 EXPECTED_OPERATOR_ROUTES = {
@@ -235,7 +243,7 @@ class ContractSnapshotTests(unittest.TestCase):
         self.assertIn("/api/get_operator_profile", OPERATOR_SESSION_ROUTES)
 
     def test_mcp_public_tool_snapshot_keeps_current_surface(self) -> None:
-        self.assertEqual(83, len(PUBLIC_MCP_TOOL_NAMES))
+        self.assertEqual(91, len(PUBLIC_MCP_TOOL_NAMES))
         self.assertIn("bootstrap_context", PUBLIC_MCP_TOOL_NAMES)
         self.assertIn("update_repair_order", PUBLIC_MCP_TOOL_NAMES)
         self.assertIn("download_shared_file", PUBLIC_MCP_TOOL_NAMES)

@@ -21,7 +21,7 @@
     const CARD_JOURNAL_LIMIT_STEP = 50;
     const CARD_JOURNAL_MAX_LIMIT = 1000;
     const CARD_OPEN_SIDE_EFFECT_DELAY_MS = 700;
-    const MOBILE_VIEW_ORDER = ['board', 'cashboxes', 'repair-orders', 'more'];
+    const MOBILE_VIEW_ORDER = ['board', 'cashboxes', 'inventory', 'repair-orders', 'more'];
     const MOBILE_CARD_TABS = ['overview', 'vehicle', 'files', 'journal'];
     const MOBILE_REPAIR_ORDER_TABS = ['client', 'works', 'materials', 'payments', 'totals'];
     const MOBILE_CARD_TITLE_REQUIRED_MESSAGE = 'УКАЖИ КРАТКУЮ СУТЬ КАРТОЧКИ.';
@@ -71,6 +71,7 @@
       mobileCardJournalLimit: CARD_JOURNAL_INITIAL_LIMIT,
       mobileCardJournalLoading: false,
       mobileCashboxAction: '',
+      mobileInventorySearchTimer: null,
       mobileRepairOrderCardId: '',
       mobileRepairOrderCard: null,
       mobileRepairOrderTab: 'client',
@@ -208,6 +209,16 @@
         amount: '',
         note: '',
       },
+      inventoryItems: [],
+      inventoryLoaded: false,
+      inventoryQuery: '',
+      inventoryActiveId: '',
+      inventorySearchTimer: null,
+      inventorySaving: false,
+      repairOrderInventoryOpen: false,
+      repairOrderInventoryQuery: '',
+      repairOrderInventorySelectedId: '',
+      repairOrderInventoryRowIndex: '',
       employees: [],
       employeesLoadedMonth: '',
       employeesReferencePromise: null,
@@ -702,6 +713,20 @@
       mobileCashboxNoteInput: document.getElementById('mobileCashboxNoteInput'),
       mobileCashboxSubmitButton: document.getElementById('mobileCashboxSubmitButton'),
       mobileCashboxActionCancelButton: document.getElementById('mobileCashboxActionCancelButton'),
+      mobileInventoryNewButton: document.getElementById('mobileInventoryNewButton'),
+      mobileInventoryRefreshButton: document.getElementById('mobileInventoryRefreshButton'),
+      mobileInventorySearchInput: document.getElementById('mobileInventorySearchInput'),
+      mobileInventoryItemsList: document.getElementById('mobileInventoryItemsList'),
+      mobileInventoryNameInput: document.getElementById('mobileInventoryNameInput'),
+      mobileInventoryCatalogInput: document.getElementById('mobileInventoryCatalogInput'),
+      mobileInventoryUnitSelect: document.getElementById('mobileInventoryUnitSelect'),
+      mobileInventoryQuantityInput: document.getElementById('mobileInventoryQuantityInput'),
+      mobileInventoryReplenishQuantityInput: document.getElementById('mobileInventoryReplenishQuantityInput'),
+      mobileInventoryCostPriceInput: document.getElementById('mobileInventoryCostPriceInput'),
+      mobileInventorySalePriceInput: document.getElementById('mobileInventorySalePriceInput'),
+      mobileInventorySaveButton: document.getElementById('mobileInventorySaveButton'),
+      mobileInventoryReplenishButton: document.getElementById('mobileInventoryReplenishButton'),
+      mobileInventoryStatusLine: document.getElementById('mobileInventoryStatusLine'),
       mobileRepairOrdersRefreshButton: document.getElementById('mobileRepairOrdersRefreshButton'),
       mobileRepairOrdersList: document.getElementById('mobileRepairOrdersList'),
       mobileRepairOrderDetail: document.getElementById('mobileRepairOrderDetail'),
@@ -752,6 +777,7 @@
       clientsButton: document.getElementById('clientsButton'),
       sharedFilesButton: document.getElementById('sharedFilesButton'),
       cashboxesButton: document.getElementById('cashboxesButton'),
+      inventoryButton: document.getElementById('inventoryButton'),
       employeesButton: document.getElementById('employeesButton'),
       repairOrdersSearchInput: document.getElementById('repairOrdersSearchInput'),
       repairOrdersSearchSpinner: document.getElementById('repairOrdersSearchSpinner'),
@@ -868,6 +894,21 @@
       sharedFilesPasteButton: document.getElementById('sharedFilesPasteButton'),
       sharedFilesDeleteButton: document.getElementById('sharedFilesDeleteButton'),
       cashboxesModal: document.getElementById('cashboxesModal'),
+      inventoryModal: document.getElementById('inventoryModal'),
+      inventorySearchInput: document.getElementById('inventorySearchInput'),
+      inventoryItemsList: document.getElementById('inventoryItemsList'),
+      inventoryNewButton: document.getElementById('inventoryNewButton'),
+      inventoryDetailTitle: document.getElementById('inventoryDetailTitle'),
+      inventoryNameInput: document.getElementById('inventoryNameInput'),
+      inventoryCatalogInput: document.getElementById('inventoryCatalogInput'),
+      inventoryUnitSelect: document.getElementById('inventoryUnitSelect'),
+      inventoryQuantityInput: document.getElementById('inventoryQuantityInput'),
+      inventoryCostPriceInput: document.getElementById('inventoryCostPriceInput'),
+      inventorySalePriceInput: document.getElementById('inventorySalePriceInput'),
+      inventorySaveButton: document.getElementById('inventorySaveButton'),
+      inventoryReplenishQuantityInput: document.getElementById('inventoryReplenishQuantityInput'),
+      inventoryReplenishButton: document.getElementById('inventoryReplenishButton'),
+      inventoryStatusLine: document.getElementById('inventoryStatusLine'),
       cashboxJournalModal: document.getElementById('cashboxJournalModal'),
       cashboxTransferModal: document.getElementById('cashboxTransferModal'),
       employeesModal: document.getElementById('employeesModal'),
@@ -1065,6 +1106,16 @@
       repairOrderWorkSalaryAmount: document.getElementById('repairOrderWorkSalaryAmount'),
       repairOrderAddWorkRowButton: document.getElementById('repairOrderAddWorkRowButton'),
       repairOrderAddMaterialRowButton: document.getElementById('repairOrderAddMaterialRowButton'),
+      repairOrderInventoryToggleButton: document.getElementById('repairOrderInventoryToggleButton'),
+      repairOrderInventoryPanel: document.getElementById('repairOrderInventoryPanel'),
+      repairOrderInventorySearchInput: document.getElementById('repairOrderInventorySearchInput'),
+      repairOrderInventoryResults: document.getElementById('repairOrderInventoryResults'),
+      repairOrderInventorySelected: document.getElementById('repairOrderInventorySelected'),
+      repairOrderInventoryQuantityInput: document.getElementById('repairOrderInventoryQuantityInput'),
+      repairOrderInventoryFillButton: document.getElementById('repairOrderInventoryFillButton'),
+      repairOrderInventoryIssueButton: document.getElementById('repairOrderInventoryIssueButton'),
+      repairOrderInventoryReturnButton: document.getElementById('repairOrderInventoryReturnButton'),
+      repairOrderInventoryStatus: document.getElementById('repairOrderInventoryStatus'),
       repairOrderAutofillButton: document.getElementById('repairOrderAutofillButton'),
       repairOrderCloseButton: document.getElementById('repairOrderCloseButton'),
       repairOrderSaveButton: document.getElementById('repairOrderSaveButton'),
@@ -1230,9 +1281,7 @@
         .map(descriptionNodeToMarkdown)
         .join('')
         .replace(/\u00a0/g, ' ')
-        .replace(/\n{3,}/g, '\n\n')
-        .replace(/[ \t]+\n/g, '\n')
-        .replace(/\n+$/g, '');
+        .replace(/\n{3,}/g, '\n\n');
     }
 
     function syncCardDescriptionSourceFromEditor() {
@@ -1261,7 +1310,7 @@
 
     function getCardDescriptionValue() {
       syncCardDescriptionSourceFromEditor();
-      return String(els.cardDescription?.value || '').trim();
+      return String(els.cardDescription?.value || '');
     }
 
     function setCardDescriptionLoading(isLoading, message = 'Загрузка описания...') {
@@ -3683,6 +3732,7 @@
       clientsModal: 'clients',
       sharedFilesModal: 'shared-files',
       cashboxesModal: 'cashboxes',
+      inventoryModal: 'inventory',
       cashboxJournalModal: 'cashbox-journal',
       cashboxTransferModal: 'cashbox-transfer',
       employeesModal: 'employees',
@@ -3714,6 +3764,7 @@
         clients: els.clientsModal,
         'shared-files': els.sharedFilesModal,
         cashboxes: els.cashboxesModal,
+        inventory: els.inventoryModal,
         'cashbox-journal': els.cashboxJournalModal,
         'cashbox-transfer': els.cashboxTransferModal,
         employees: els.employeesModal,
@@ -8926,7 +8977,7 @@
         expected_updated_at: String(card.updated_at || ''),
         vehicle: String(values.vehicle ?? card.vehicle ?? '').trim(),
         title: String(values.title ?? card.title ?? '').trim(),
-        description: String(values.description ?? card.description ?? '').trim(),
+        description: String(values.description ?? card.description ?? ''),
         column: String(values.column || card.column || state.snapshot?.columns?.[0]?.id || '').trim(),
         tags: readMobileCardTags(),
         deadline: mobileCardDeadlineFromUi(card),
@@ -9344,11 +9395,17 @@
             + mobileRepairOrderRowInputHtml('cost_price', 'Закуп', normalized.cost_price, { inputmode: 'decimal', placeholder: '0' })
           + '</div>'
         : '';
+      const inventoryHiddenFields = isMaterials
+        ? '<input type="hidden" data-mobile-repair-row-field="inventory_item_id" value="' + escapeHtml(normalized.inventory_item_id) + '">'
+          + '<input type="hidden" data-mobile-repair-row-field="inventory_movement_id" value="' + escapeHtml(normalized.inventory_movement_id) + '">'
+          + '<input type="hidden" data-mobile-repair-row-field="inventory_unit" value="' + escapeHtml(normalized.inventory_unit) + '">'
+        : '';
       return '<div class="mobile-repair-order-line" data-mobile-repair-order-row data-mobile-repair-order-section="' + escapeHtml(section) + '" data-mobile-repair-order-index="' + escapeHtml(String(index)) + '">'
         + '<div class="mobile-repair-order-line__top">'
           + '<div class="mobile-repair-order-line__label">' + escapeHtml(label) + '</div>'
           + '<button class="mobile-action mobile-action--ghost mobile-repair-order-remove" type="button" title="Удалить строку" data-mobile-repair-order-remove="' + escapeHtml(section) + '">×</button>'
         + '</div>'
+        + inventoryHiddenFields
         + mobileRepairOrderRowInputHtml('name', isMaterials ? 'Наименование' : 'Работа', normalized.name, { placeholder: isMaterials ? 'Материал' : 'Услуга' })
         + materialsFields
         + '<div class="mobile-repair-order-line__fields">'
@@ -10544,6 +10601,7 @@
       renderMobileStatus();
       if (view === 'board') renderMobileBoard();
       if (view === 'cashboxes') renderMobileCashboxes();
+      if (view === 'inventory') renderMobileInventory();
       if (view === 'repair-orders') renderMobileRepairOrders();
       if (view === 'more') renderMobileMore();
     }
@@ -10553,6 +10611,9 @@
       renderMobileShell();
       if (state.mobileView === 'cashboxes' && !state.cashboxesLoaded) {
         loadCashboxes(false, { deferDetail: true });
+      }
+      if (state.mobileView === 'inventory' && !state.inventoryLoaded) {
+        loadInventoryItems(false);
       }
       if (state.mobileView === 'repair-orders' && !state.repairOrdersMetaState && typeof loadRepairOrders === 'function') {
         loadRepairOrders(false);
@@ -10683,6 +10744,12 @@
       els.mobileCashboxTransferButton?.addEventListener('click', () => setMobileCashboxAction('transfer'));
       els.mobileCashboxSubmitButton?.addEventListener('click', () => submitMobileCashboxAction());
       els.mobileCashboxActionCancelButton?.addEventListener('click', () => setMobileCashboxAction(''));
+      els.mobileInventoryNewButton?.addEventListener('click', resetInventoryForm);
+      els.mobileInventoryRefreshButton?.addEventListener('click', () => loadInventoryItems(false, { query: state.inventoryQuery }));
+      els.mobileInventorySearchInput?.addEventListener('input', handleMobileInventorySearchInput);
+      els.mobileInventoryItemsList?.addEventListener('click', handleMobileInventoryItemsClick);
+      els.mobileInventorySaveButton?.addEventListener('click', saveInventoryItem);
+      els.mobileInventoryReplenishButton?.addEventListener('click', replenishInventoryItem);
       els.mobileRepairOrdersRefreshButton?.addEventListener('click', () => {
         if (typeof loadRepairOrders === 'function') loadRepairOrders(false);
       });
@@ -12867,6 +12934,9 @@
         material_profit: String(source.material_profit ?? '').trim(),
         material_salary_amount: String(source.material_salary_amount ?? '').trim(),
         material_salary_accrued_at: String(source.material_salary_accrued_at ?? '').trim(),
+        inventory_item_id: String(source.inventory_item_id ?? source.inventoryItemId ?? '').trim(),
+        inventory_movement_id: String(source.inventory_movement_id ?? source.inventoryMovementId ?? '').trim(),
+        inventory_unit: String(source.inventory_unit ?? source.inventoryUnit ?? '').trim(),
       };
     }
 
@@ -13217,8 +13287,13 @@
       const materialExecutorCell = section === 'materials'
         ? '<td><select class="repair-order-table__select" data-repair-order-cell="executor_id">' + repairOrderExecutorOptionsHtml(normalized.executor_id, normalized.executor_name) + '</select></td>'
         : '';
+      const inventoryHiddenFields = section === 'materials'
+        ? '<input type="hidden" data-repair-order-row-field="inventory_item_id" value="' + escapeHtml(normalized.inventory_item_id) + '">'
+          + '<input type="hidden" data-repair-order-row-field="inventory_movement_id" value="' + escapeHtml(normalized.inventory_movement_id) + '">'
+          + '<input type="hidden" data-repair-order-row-field="inventory_unit" value="' + escapeHtml(normalized.inventory_unit) + '">'
+        : '';
       return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-work-executor-id="' + escapeHtml(normalized.work_executor_id_snapshot) + '" data-repair-order-work-executor-name="' + escapeHtml(normalized.work_executor_name_snapshot) + '" data-repair-order-work-quantity="' + escapeHtml(normalized.work_quantity_snapshot) + '" data-repair-order-work-price="' + escapeHtml(normalized.work_price_snapshot) + '" data-repair-order-work-total="' + escapeHtml(normalized.work_total_snapshot) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '" data-repair-order-work-salary-override-enabled="' + escapeHtml(normalized.work_salary_override_enabled) + '" data-repair-order-work-salary-guarantee="' + escapeHtml(normalized.work_salary_guarantee) + '" data-repair-order-work-salary-percent-override="' + escapeHtml(normalized.work_salary_percent_override) + '" data-repair-order-work-salary-cost-price="' + escapeHtml(normalized.work_salary_cost_price) + '" data-repair-order-work-salary-note="' + escapeHtml(normalized.work_salary_note) + '" data-repair-order-material-executor-id="' + escapeHtml(normalized.material_executor_id_snapshot) + '" data-repair-order-material-executor-name="' + escapeHtml(normalized.material_executor_name_snapshot) + '" data-repair-order-material-quantity="' + escapeHtml(normalized.material_quantity_snapshot) + '" data-repair-order-material-price="' + escapeHtml(normalized.material_price_snapshot) + '" data-repair-order-material-cost-price="' + escapeHtml(normalized.material_cost_price_snapshot) + '" data-repair-order-material-percent="' + escapeHtml(normalized.material_percent_snapshot) + '" data-repair-order-material-profit="' + escapeHtml(normalized.material_profit) + '" data-repair-order-material-salary-amount="' + escapeHtml(normalized.material_salary_amount) + '" data-repair-order-material-salary-accrued-at="' + escapeHtml(normalized.material_salary_accrued_at) + '">' +
-        '<td>' + repairOrderRowInputHtml('name', normalized.name, 'Наименование') + '</td>' +
+        '<td>' + inventoryHiddenFields + repairOrderRowInputHtml('name', normalized.name, 'Наименование') + '</td>' +
         materialExecutorCell +
         catalogCell +
         executorCell +
@@ -13274,6 +13349,9 @@
         material_profit: row.dataset.repairOrderMaterialProfit || '',
         material_salary_amount: row.dataset.repairOrderMaterialSalaryAmount || '',
         material_salary_accrued_at: row.dataset.repairOrderMaterialSalaryAccruedAt || '',
+        inventory_item_id: row.querySelector('[data-repair-order-row-field="inventory_item_id"]')?.value || '',
+        inventory_movement_id: row.querySelector('[data-repair-order-row-field="inventory_movement_id"]')?.value || '',
+        inventory_unit: row.querySelector('[data-repair-order-row-field="inventory_unit"]')?.value || '',
       });
     }
 
@@ -16554,6 +16632,636 @@
       state.repairOrdersItems = [];
       state.repairOrdersMetaState = null;
       loadRepairOrders(true);
+    }
+
+    function inventoryItemId(item) {
+      return String(item?.id || '').trim();
+    }
+
+    function inventoryItemById(itemId) {
+      const normalizedId = String(itemId || '').trim();
+      if (!normalizedId) return null;
+      return (Array.isArray(state.inventoryItems) ? state.inventoryItems : [])
+        .find((item) => inventoryItemId(item) === normalizedId) || null;
+    }
+
+    function activeInventoryItem() {
+      return inventoryItemById(state.inventoryActiveId);
+    }
+
+    function inventoryDecimalText(value, fallback = '0') {
+      const normalized = String(value ?? '').trim().replace(',', '.');
+      if (!normalized) return fallback;
+      const parsed = Number(normalized);
+      if (!Number.isFinite(parsed)) return fallback;
+      if (!String(normalized).includes('.')) return String(normalized);
+      return String(normalized).replace(/0+$/, '').replace(/\.$/, '') || '0';
+    }
+
+    function inventoryDisplayQuantity(item) {
+      return inventoryDecimalText(item?.quantity, '0') + ' ' + (item?.unit || 'шт');
+    }
+
+    function inventoryItemMeta(item) {
+      const parts = [];
+      const catalog = String(item?.catalog_number || '').trim();
+      if (catalog) parts.push(catalog);
+      parts.push(inventoryDisplayQuantity(item));
+      parts.push('закуп ' + repairOrderFormatRubles(item?.cost_price || 0));
+      parts.push('прод ' + repairOrderFormatRubles(item?.sale_price || 0));
+      return parts.join(' · ');
+    }
+
+    function inventorySearchMatches(item, query) {
+      const needle = String(query || '').trim().toLowerCase();
+      if (!needle) return true;
+      return [
+        item?.name,
+        item?.catalog_number,
+        item?.id,
+      ].some((value) => String(value || '').toLowerCase().includes(needle));
+    }
+
+    function inventoryStatus(text, isError = false) {
+      const statusText = String(text || '').trim();
+      if (els.inventoryStatusLine) {
+        els.inventoryStatusLine.textContent = statusText;
+        els.inventoryStatusLine.dataset.tone = isError ? 'error' : 'normal';
+      }
+      if (els.repairOrderInventoryStatus) {
+        els.repairOrderInventoryStatus.textContent = statusText;
+        els.repairOrderInventoryStatus.dataset.tone = isError ? 'error' : 'normal';
+      }
+      if (els.mobileInventoryStatusLine) {
+        els.mobileInventoryStatusLine.textContent = statusText;
+        els.mobileInventoryStatusLine.dataset.tone = isError ? 'error' : 'normal';
+      }
+    }
+
+    function inventoryRowHtml(item, { mobile = false, panel = false } = {}) {
+      const itemId = inventoryItemId(item);
+      const activeId = panel ? state.repairOrderInventorySelectedId : state.inventoryActiveId;
+      const activeClass = itemId === String(activeId || '').trim() ? ' is-active' : '';
+      const className = panel ? 'repair-order-inventory-result' : (mobile ? 'inventory-row mobile-inventory-row' : 'inventory-row');
+      const attr = panel ? 'data-repair-order-inventory-item-id' : (mobile ? 'data-mobile-inventory-item-id' : 'data-inventory-item-id');
+      return '<button class="' + className + activeClass + '" type="button" ' + attr + '="' + escapeHtml(itemId) + '">'
+        + '<div class="inventory-row__top">'
+          + '<span class="inventory-row__name">' + escapeHtml(item?.name || 'Позиция без названия') + '</span>'
+          + '<strong class="inventory-row__qty">' + escapeHtml(inventoryDisplayQuantity(item)) + '</strong>'
+        + '</div>'
+        + '<div class="inventory-row__meta">' + escapeHtml(inventoryItemMeta(item)) + '</div>'
+      + '</button>';
+    }
+
+    function renderInventoryItems() {
+      const items = Array.isArray(state.inventoryItems) ? state.inventoryItems : [];
+      if (els.inventorySearchInput && els.inventorySearchInput.value !== state.inventoryQuery) {
+        els.inventorySearchInput.value = state.inventoryQuery;
+      }
+      if (els.inventoryItemsList) {
+        els.inventoryItemsList.innerHTML = !state.inventoryLoaded && !items.length
+          ? '<div class="cashboxes-empty">ЗАГРУЖАЮ СКЛАД...</div>'
+          : (items.length
+            ? items.map((item) => inventoryRowHtml(item)).join('')
+            : '<div class="cashboxes-empty">ПОЗИЦИЙ ПОКА НЕТ.</div>');
+      }
+      renderMobileInventory();
+      renderRepairOrderInventoryPanel();
+    }
+
+    function inventoryFormRefs({ mobile = state.mobileLite && state.mobileView === 'inventory' } = {}) {
+      return mobile ? {
+        name: els.mobileInventoryNameInput,
+        catalog: els.mobileInventoryCatalogInput,
+        unit: els.mobileInventoryUnitSelect,
+        quantity: els.mobileInventoryQuantityInput,
+        replenishQuantity: els.mobileInventoryReplenishQuantityInput,
+        costPrice: els.mobileInventoryCostPriceInput,
+        salePrice: els.mobileInventorySalePriceInput,
+        saveButton: els.mobileInventorySaveButton,
+        replenishButton: els.mobileInventoryReplenishButton,
+      } : {
+        name: els.inventoryNameInput,
+        catalog: els.inventoryCatalogInput,
+        unit: els.inventoryUnitSelect,
+        quantity: els.inventoryQuantityInput,
+        replenishQuantity: els.inventoryReplenishQuantityInput,
+        costPrice: els.inventoryCostPriceInput,
+        salePrice: els.inventorySalePriceInput,
+        saveButton: els.inventorySaveButton,
+        replenishButton: els.inventoryReplenishButton,
+      };
+    }
+
+    function syncInventoryForm(refs, item) {
+      if (!refs?.name) return;
+      const hasItem = Boolean(item?.id);
+      refs.name.value = hasItem ? String(item.name || '') : '';
+      if (refs.catalog) refs.catalog.value = hasItem ? String(item.catalog_number || '') : '';
+      if (refs.unit) refs.unit.value = hasItem ? String(item.unit || 'шт') : 'шт';
+      if (refs.quantity) {
+        refs.quantity.value = hasItem ? inventoryDecimalText(item.quantity, '0') : '0';
+        refs.quantity.readOnly = hasItem;
+        refs.quantity.title = hasItem ? 'Остаток меняется через пополнение или списание.' : '';
+      }
+      if (refs.replenishQuantity) refs.replenishQuantity.value = '';
+      if (refs.costPrice) refs.costPrice.value = hasItem ? inventoryDecimalText(item.cost_price, '0') : '0';
+      if (refs.salePrice) refs.salePrice.value = hasItem ? inventoryDecimalText(item.sale_price, '0') : '0';
+      if (refs.saveButton) refs.saveButton.disabled = state.inventorySaving;
+      if (refs.replenishButton) refs.replenishButton.disabled = state.inventorySaving || !hasItem;
+    }
+
+    function renderInventoryForm() {
+      const item = activeInventoryItem();
+      if (els.inventoryDetailTitle) {
+        els.inventoryDetailTitle.textContent = item ? 'ПОЗИЦИЯ СКЛАДА' : 'НОВАЯ ПОЗИЦИЯ';
+      }
+      syncInventoryForm(inventoryFormRefs({ mobile: false }), item);
+      syncInventoryForm(inventoryFormRefs({ mobile: true }), item);
+    }
+
+    function renderInventory() {
+      renderInventoryItems();
+      renderInventoryForm();
+    }
+
+    function upsertInventoryItem(item) {
+      if (!item?.id) return;
+      const items = Array.isArray(state.inventoryItems) ? state.inventoryItems.slice() : [];
+      const index = items.findIndex((entry) => inventoryItemId(entry) === inventoryItemId(item));
+      if (index >= 0) items[index] = item;
+      else items.unshift(item);
+      state.inventoryItems = items;
+      state.inventoryLoaded = true;
+    }
+
+    async function loadInventoryItems(openModal = false, { query = null } = {}) {
+      const requestedQuery = query === null ? String(state.inventoryQuery || '').trim() : String(query || '').trim();
+      try {
+        if (!state.inventoryLoaded) renderInventoryItems();
+        const data = requestedQuery
+          ? await api('/api/search_inventory_items', {
+            method: 'POST',
+            body: { query: requestedQuery, limit: 200 },
+          })
+          : await api('/api/list_inventory_items?limit=200');
+        state.inventoryItems = Array.isArray(data?.items) ? data.items : [];
+        state.inventoryLoaded = true;
+        if (state.inventoryActiveId && !inventoryItemById(state.inventoryActiveId)) {
+          state.inventoryActiveId = '';
+        }
+        if (!state.inventoryActiveId && state.inventoryItems.length) {
+          state.inventoryActiveId = inventoryItemId(state.inventoryItems[0]);
+        }
+        if (state.repairOrderInventorySelectedId && !inventoryItemById(state.repairOrderInventorySelectedId)) {
+          state.repairOrderInventorySelectedId = '';
+        }
+        if (!state.repairOrderInventorySelectedId && state.inventoryItems.length) {
+          state.repairOrderInventorySelectedId = inventoryItemId(state.inventoryItems[0]);
+        }
+        renderInventory();
+        maybeOpenModal(els.inventoryModal, openModal);
+        return data;
+      } catch (error) {
+        state.inventoryLoaded = false;
+        renderInventory();
+        maybeOpenModal(els.inventoryModal, openModal);
+        inventoryStatus(error.message, true);
+        setStatus(error.message, true);
+        return null;
+      }
+    }
+
+    function openInventoryModal() {
+      maybeOpenModal(els.inventoryModal, true);
+      renderInventory();
+      loadInventoryItems(false);
+    }
+
+    function selectInventoryItem(itemId) {
+      const normalizedId = String(itemId || '').trim();
+      state.inventoryActiveId = normalizedId;
+      if (normalizedId) state.repairOrderInventorySelectedId = normalizedId;
+      renderInventory();
+    }
+
+    function resetInventoryForm() {
+      state.inventoryActiveId = '';
+      renderInventory();
+      inventoryFormRefs().name?.focus({ preventScroll: true });
+    }
+
+    function inventoryPayloadFromForm() {
+      const refs = inventoryFormRefs();
+      const itemId = String(state.inventoryActiveId || '').trim();
+      const payload = {
+        name: String(refs.name?.value || '').trim(),
+        catalog_number: String(refs.catalog?.value || '').trim(),
+        unit: String(refs.unit?.value || 'шт').trim() || 'шт',
+        cost_price: String(refs.costPrice?.value || '0').trim(),
+        sale_price: String(refs.salePrice?.value || '0').trim(),
+        actor_name: state.actor,
+        source: state.mobileLite && state.mobileView === 'inventory' ? 'mobile-ui' : 'ui',
+      };
+      if (itemId) payload.item_id = itemId;
+      else payload.quantity = String(refs.quantity?.value || '0').trim();
+      return payload;
+    }
+
+    async function saveInventoryItem() {
+      if (state.inventorySaving) return;
+      const payload = inventoryPayloadFromForm();
+      if (!payload.name) {
+        inventoryStatus('УКАЖИТЕ НАЗВАНИЕ ПОЗИЦИИ.', true);
+        return;
+      }
+      state.inventorySaving = true;
+      renderInventoryForm();
+      try {
+        const data = await api('/api/save_inventory_item', { method: 'POST', body: payload });
+        if (data?.item) {
+          upsertInventoryItem(data.item);
+          state.inventoryActiveId = inventoryItemId(data.item);
+          state.repairOrderInventorySelectedId = inventoryItemId(data.item);
+        }
+        await loadInventoryItems(false, { query: state.inventoryQuery });
+        inventoryStatus(data?.meta?.created ? 'ПОЗИЦИЯ ДОБАВЛЕНА.' : 'ПОЗИЦИЯ СОХРАНЕНА.', false);
+      } catch (error) {
+        inventoryStatus(error.message, true);
+        setStatus(error.message, true);
+      } finally {
+        state.inventorySaving = false;
+        renderInventory();
+      }
+    }
+
+    async function replenishInventoryItem() {
+      if (state.inventorySaving) return;
+      const item = activeInventoryItem();
+      if (!item?.id) return inventoryStatus('ВЫБЕРИТЕ ПОЗИЦИЮ ДЛЯ ПОПОЛНЕНИЯ.', true);
+      const refs = inventoryFormRefs();
+      const quantity = String(refs.replenishQuantity?.value || '').trim();
+      const parsed = repairOrderParseNumber(quantity);
+      if (parsed === null || parsed <= 0) {
+        refs.replenishQuantity?.focus({ preventScroll: true });
+        return inventoryStatus('УКАЖИТЕ КОЛИЧЕСТВО БОЛЬШЕ НУЛЯ.', true);
+      }
+      state.inventorySaving = true;
+      renderInventoryForm();
+      try {
+        const data = await api('/api/replenish_inventory_item', {
+          method: 'POST',
+          body: {
+            item_id: item.id,
+            quantity,
+            cost_price: String(refs.costPrice?.value || '').trim(),
+            sale_price: String(refs.salePrice?.value || '').trim(),
+            actor_name: state.actor,
+            source: state.mobileLite && state.mobileView === 'inventory' ? 'mobile-ui' : 'ui',
+          },
+        });
+        if (data?.item) {
+          upsertInventoryItem(data.item);
+          state.inventoryActiveId = inventoryItemId(data.item);
+          state.repairOrderInventorySelectedId = inventoryItemId(data.item);
+        }
+        await loadInventoryItems(false, { query: state.inventoryQuery });
+        inventoryStatus('ОСТАТОК ПОПОЛНЕН.', false);
+      } catch (error) {
+        inventoryStatus(error.message, true);
+        setStatus(error.message, true);
+      } finally {
+        state.inventorySaving = false;
+        renderInventory();
+      }
+    }
+
+    function handleInventorySearchInput() {
+      state.inventoryQuery = String(els.inventorySearchInput?.value || '').trim();
+      if (state.inventorySearchTimer) window.clearTimeout(state.inventorySearchTimer);
+      state.inventorySearchTimer = window.setTimeout(() => {
+        state.inventorySearchTimer = null;
+        loadInventoryItems(false, { query: state.inventoryQuery });
+      }, 250);
+    }
+
+    function handleInventoryItemsClick(event) {
+      const button = event.target instanceof HTMLElement ? event.target.closest('[data-inventory-item-id]') : null;
+      if (!button || !els.inventoryItemsList?.contains(button)) return;
+      selectInventoryItem(button.getAttribute('data-inventory-item-id'));
+    }
+
+    function renderMobileInventory() {
+      if (!els.mobileInventoryItemsList) return;
+      const items = Array.isArray(state.inventoryItems) ? state.inventoryItems : [];
+      if (els.mobileInventorySearchInput && els.mobileInventorySearchInput.value !== state.inventoryQuery) {
+        els.mobileInventorySearchInput.value = state.inventoryQuery;
+      }
+      els.mobileInventoryItemsList.innerHTML = !state.inventoryLoaded && !items.length
+        ? '<div class="mobile-empty">СКЛАД ЗАГРУЖАЕТСЯ...</div>'
+        : (items.length
+          ? items.map((item) => inventoryRowHtml(item, { mobile: true })).join('')
+          : '<div class="mobile-empty">ПОЗИЦИЙ ПОКА НЕТ.</div>');
+      renderInventoryForm();
+    }
+
+    function handleMobileInventorySearchInput() {
+      state.inventoryQuery = String(els.mobileInventorySearchInput?.value || '').trim();
+      if (state.mobileInventorySearchTimer) window.clearTimeout(state.mobileInventorySearchTimer);
+      state.mobileInventorySearchTimer = window.setTimeout(() => {
+        state.mobileInventorySearchTimer = null;
+        loadInventoryItems(false, { query: state.inventoryQuery });
+      }, 250);
+    }
+
+    function handleMobileInventoryItemsClick(event) {
+      const button = event.target instanceof HTMLElement ? event.target.closest('[data-mobile-inventory-item-id]') : null;
+      if (!button || !els.mobileInventoryItemsList?.contains(button)) return;
+      selectInventoryItem(button.getAttribute('data-mobile-inventory-item-id'));
+    }
+
+    function repairOrderMaterialRowElements() {
+      return Array.from(els.repairOrderMaterialsBody?.querySelectorAll('tr[data-repair-order-row="materials"]') || []);
+    }
+
+    function repairOrderInventoryRememberedRowIndex() {
+      const parsed = Number.parseInt(String(state.repairOrderInventoryRowIndex || ''), 10);
+      const rows = repairOrderMaterialRowElements();
+      return Number.isInteger(parsed) && parsed >= 0 && parsed < rows.length ? parsed : -1;
+    }
+
+    function rememberRepairOrderInventoryRow(event) {
+      const row = event?.target instanceof HTMLElement ? event.target.closest('tr[data-repair-order-row="materials"]') : null;
+      if (!row || !els.repairOrderMaterialsBody?.contains(row)) return;
+      const rows = repairOrderMaterialRowElements();
+      const index = rows.indexOf(row);
+      if (index < 0) return;
+      state.repairOrderInventoryRowIndex = String(index);
+      const rowData = readRepairOrderRowElement(row);
+      if (rowData.inventory_item_id) state.repairOrderInventorySelectedId = rowData.inventory_item_id;
+      renderRepairOrderInventoryPanel();
+    }
+
+    function repairOrderInventorySelectedRow() {
+      const rows = repairOrderMaterialRowElements();
+      if (!rows.length) return null;
+      const rememberedIndex = repairOrderInventoryRememberedRowIndex();
+      if (rememberedIndex >= 0) return rows[rememberedIndex];
+      const activeRow = document.activeElement instanceof HTMLElement
+        ? document.activeElement.closest('tr[data-repair-order-row="materials"]')
+        : null;
+      if (activeRow && els.repairOrderMaterialsBody?.contains(activeRow)) return activeRow;
+      const selectedItemId = String(state.repairOrderInventorySelectedId || '').trim();
+      if (selectedItemId) {
+        const linked = rows.find((row) => {
+          const rowData = readRepairOrderRowElement(row);
+          return rowData.inventory_item_id === selectedItemId && rowData.inventory_movement_id;
+        });
+        if (linked) return linked;
+      }
+      if (rows.length === 1 && !repairOrderRowHasAnyData(readRepairOrderRowElement(rows[0]))) return rows[0];
+      return null;
+    }
+
+    function repairOrderInventorySelectedMovementId() {
+      const selectedRow = repairOrderInventorySelectedRow();
+      const selectedData = selectedRow ? readRepairOrderRowElement(selectedRow) : null;
+      if (selectedData?.inventory_movement_id) return selectedData.inventory_movement_id;
+      const selectedItemId = String(state.repairOrderInventorySelectedId || '').trim();
+      if (!selectedItemId) return '';
+      const linked = repairOrderMaterialRowElements().find((row) => {
+        const rowData = readRepairOrderRowElement(row);
+        return rowData.inventory_item_id === selectedItemId && rowData.inventory_movement_id;
+      });
+      return linked ? readRepairOrderRowElement(linked).inventory_movement_id : '';
+    }
+
+    function repairOrderInventoryTargetRowIndex() {
+      const rows = repairOrderMaterialRowElements();
+      const rememberedIndex = repairOrderInventoryRememberedRowIndex();
+      if (rememberedIndex >= 0) return rememberedIndex;
+      const selectedRow = repairOrderInventorySelectedRow();
+      if (selectedRow) {
+        const index = rows.indexOf(selectedRow);
+        if (index >= 0) return index;
+      }
+      if (rows.length === 1 && !repairOrderRowHasAnyData(readRepairOrderRowElement(rows[0]))) return 0;
+      return rows.length;
+    }
+
+    function selectedRepairOrderInventoryItem() {
+      return inventoryItemById(state.repairOrderInventorySelectedId) || activeInventoryItem();
+    }
+
+    function repairOrderInventoryQuantity() {
+      const raw = String(els.repairOrderInventoryQuantityInput?.value || '').trim();
+      const parsed = repairOrderParseNumber(raw);
+      return parsed !== null && parsed > 0 ? { raw, parsed } : null;
+    }
+
+    function repairOrderInventoryResults() {
+      const query = String(state.repairOrderInventoryQuery || '').trim();
+      return (Array.isArray(state.inventoryItems) ? state.inventoryItems : [])
+        .filter((item) => inventorySearchMatches(item, query))
+        .slice(0, 80);
+    }
+
+    function repairOrderInventoryRowFromItem(item, quantity) {
+      const salePrice = repairOrderParseNumber(item?.sale_price || 0) ?? 0;
+      return normalizeRepairOrderRow({
+        name: item?.name || '',
+        catalog_number: item?.catalog_number || '',
+        quantity: quantity.raw,
+        cost_price: item?.cost_price || '0',
+        price: item?.sale_price || '0',
+        total: repairOrderNumberToRaw(repairOrderRoundMoney(quantity.parsed * salePrice)),
+        inventory_item_id: '',
+        inventory_movement_id: '',
+        inventory_unit: '',
+      });
+    }
+
+    function setRepairOrderMaterialRow(rowData, targetIndex) {
+      const rows = readRepairOrderRows('materials');
+      let index = Number.parseInt(String(targetIndex ?? rows.length), 10);
+      if (!Number.isInteger(index) || index < 0) index = rows.length;
+      if (index > rows.length) index = rows.length;
+      if (index === rows.length) rows.push(rowData);
+      else rows[index] = normalizeRepairOrderRow({ ...rows[index], ...rowData });
+      renderRepairOrderRows('materials', rows);
+      state.repairOrderInventoryRowIndex = String(Math.max(0, Math.min(index, rows.length - 1)));
+    }
+
+    function fillRepairOrderInventoryRow() {
+      const item = selectedRepairOrderInventoryItem();
+      if (!item?.id) return inventoryStatus('ВЫБЕРИТЕ ПОЗИЦИЮ СКЛАДА.', true);
+      const quantity = repairOrderInventoryQuantity();
+      if (!quantity) {
+        els.repairOrderInventoryQuantityInput?.focus({ preventScroll: true });
+        return inventoryStatus('УКАЖИТЕ КОЛИЧЕСТВО БОЛЬШЕ НУЛЯ.', true);
+      }
+      setRepairOrderMaterialRow(repairOrderInventoryRowFromItem(item, quantity), repairOrderInventoryTargetRowIndex());
+      syncRepairOrderTotals();
+      renderRepairOrderInventoryPanel();
+      inventoryStatus('СТРОКА МАТЕРИАЛА ЗАПОЛНЕНА БЕЗ СПИСАНИЯ.', false);
+    }
+
+    async function writeOffInventoryItem() {
+      const item = selectedRepairOrderInventoryItem();
+      if (!item?.id) return inventoryStatus('ВЫБЕРИТЕ ПОЗИЦИЮ СКЛАДА.', true);
+      const quantity = repairOrderInventoryQuantity();
+      if (!quantity) {
+        els.repairOrderInventoryQuantityInput?.focus({ preventScroll: true });
+        return inventoryStatus('УКАЖИТЕ КОЛИЧЕСТВО БОЛЬШЕ НУЛЯ.', true);
+      }
+      const cardId = await requireRepairOrderCardId();
+      if (!cardId) return;
+      const rowIndex = repairOrderInventoryTargetRowIndex();
+      try {
+        if (els.repairOrderInventoryIssueButton) els.repairOrderInventoryIssueButton.disabled = true;
+        const data = await api('/api/write_off_inventory_item', {
+          method: 'POST',
+          body: {
+            item_id: item.id,
+            card_id: cardId,
+            quantity: quantity.raw,
+            row_index: rowIndex,
+            actor_name: state.actor,
+            source: 'ui',
+          },
+        });
+        if (data?.item) {
+          upsertInventoryItem(data.item);
+          state.inventoryActiveId = inventoryItemId(data.item);
+          state.repairOrderInventorySelectedId = inventoryItemId(data.item);
+        }
+        state.repairOrderInventoryRowIndex = String(data?.meta?.row_index ?? rowIndex);
+        if (data?.card || data?.repair_order) {
+          const updatedCard = repairOrderResponseCard(data, data?.repair_order || readRepairOrderFromForm());
+          applyRepairOrderCardUpdate(updatedCard, data?.repair_order || {});
+          await refreshRepairOrdersListAfterMutation();
+        }
+        await loadInventoryItems(false, { query: state.repairOrderInventoryQuery || state.inventoryQuery });
+        inventoryStatus('МАТЕРИАЛ СПИСАН СО СКЛАДА.', false);
+        setStatus('МАТЕРИАЛ СПИСАН СО СКЛАДА.', false);
+      } catch (error) {
+        inventoryStatus(error.message, true);
+        setStatus(error.message, true);
+      } finally {
+        renderRepairOrderInventoryPanel();
+      }
+    }
+
+    async function returnInventoryMovement() {
+      const movementId = repairOrderInventorySelectedMovementId();
+      if (!movementId) return inventoryStatus('В СТРОКЕ НЕТ СКЛАДСКОГО СПИСАНИЯ.', true);
+      const cardId = await requireRepairOrderCardId();
+      if (!cardId) return;
+      try {
+        if (els.repairOrderInventoryReturnButton) els.repairOrderInventoryReturnButton.disabled = true;
+        const data = await api('/api/return_inventory_movement', {
+          method: 'POST',
+          body: {
+            movement_id: movementId,
+            card_id: cardId,
+            actor_name: state.actor,
+            source: 'ui',
+          },
+        });
+        if (data?.item) {
+          upsertInventoryItem(data.item);
+          state.inventoryActiveId = inventoryItemId(data.item);
+          state.repairOrderInventorySelectedId = inventoryItemId(data.item);
+        }
+        if (data?.card || data?.repair_order) {
+          const updatedCard = repairOrderResponseCard(data, data?.repair_order || readRepairOrderFromForm());
+          applyRepairOrderCardUpdate(updatedCard, data?.repair_order || {});
+          await refreshRepairOrdersListAfterMutation();
+        }
+        await loadInventoryItems(false, { query: state.repairOrderInventoryQuery || state.inventoryQuery });
+        inventoryStatus('СПИСАНИЕ ВОЗВРАЩЕНО НА СКЛАД.', false);
+        setStatus('СПИСАНИЕ ВОЗВРАЩЕНО НА СКЛАД.', false);
+      } catch (error) {
+        inventoryStatus(error.message, true);
+        setStatus(error.message, true);
+      } finally {
+        renderRepairOrderInventoryPanel();
+      }
+    }
+
+    function renderRepairOrderInventoryPanel() {
+      const panel = els.repairOrderInventoryPanel;
+      const isOpen = Boolean(state.repairOrderInventoryOpen);
+      const materialsCard = els.repairOrderMaterialsBody?.closest('.repair-order-table-card');
+      materialsCard?.classList.toggle('is-inventory-open', isOpen);
+      if (els.repairOrderInventoryToggleButton) {
+        els.repairOrderInventoryToggleButton.classList.toggle('is-active', isOpen);
+        els.repairOrderInventoryToggleButton.setAttribute('aria-pressed', isOpen ? 'true' : 'false');
+      }
+      if (!panel) return;
+      panel.hidden = !isOpen;
+      if (!isOpen) return;
+      if (els.repairOrderInventorySearchInput && els.repairOrderInventorySearchInput.value !== state.repairOrderInventoryQuery) {
+        els.repairOrderInventorySearchInput.value = state.repairOrderInventoryQuery;
+      }
+      const items = repairOrderInventoryResults();
+      if (els.repairOrderInventoryResults) {
+        els.repairOrderInventoryResults.innerHTML = !state.inventoryLoaded && !items.length
+          ? '<div class="cashboxes-empty">ЗАГРУЖАЮ СКЛАД...</div>'
+          : (items.length
+            ? items.map((item) => inventoryRowHtml(item, { panel: true })).join('')
+            : '<div class="cashboxes-empty">НИЧЕГО НЕ НАЙДЕНО.</div>');
+      }
+      const selected = selectedRepairOrderInventoryItem();
+      if (els.repairOrderInventorySelected) {
+        els.repairOrderInventorySelected.innerHTML = selected
+          ? '<div class="inventory-row__top"><span class="inventory-row__name">' + escapeHtml(selected.name || 'Позиция') + '</span><strong class="inventory-row__qty">' + escapeHtml(inventoryDisplayQuantity(selected)) + '</strong></div>'
+            + '<div class="inventory-row__meta">' + escapeHtml(inventoryItemMeta(selected)) + '</div>'
+          : '<div class="cashboxes-empty">ВЫБЕРИТЕ ПОЗИЦИЮ.</div>';
+      }
+      if (els.repairOrderInventoryQuantityInput && selected && !String(els.repairOrderInventoryQuantityInput.value || '').trim()) {
+        els.repairOrderInventoryQuantityInput.value = '1';
+      }
+      const hasQuantity = Boolean(repairOrderInventoryQuantity());
+      const hasMovement = Boolean(repairOrderInventorySelectedMovementId());
+      if (els.repairOrderInventoryFillButton) els.repairOrderInventoryFillButton.disabled = !selected || !hasQuantity;
+      if (els.repairOrderInventoryIssueButton) els.repairOrderInventoryIssueButton.disabled = !selected || !hasQuantity;
+      if (els.repairOrderInventoryReturnButton) els.repairOrderInventoryReturnButton.disabled = !hasMovement;
+    }
+
+    function toggleRepairOrderInventoryPanel() {
+      state.repairOrderInventoryOpen = !state.repairOrderInventoryOpen;
+      renderRepairOrderInventoryPanel();
+      if (state.repairOrderInventoryOpen) {
+        if (!state.inventoryLoaded) loadInventoryItems(false, { query: state.repairOrderInventoryQuery });
+        window.setTimeout(() => els.repairOrderInventorySearchInput?.focus({ preventScroll: true }), 0);
+      }
+    }
+
+    function selectRepairOrderInventoryItem(itemId) {
+      const normalizedId = String(itemId || '').trim();
+      state.repairOrderInventorySelectedId = normalizedId;
+      if (normalizedId) state.inventoryActiveId = normalizedId;
+      if (els.repairOrderInventoryQuantityInput && !String(els.repairOrderInventoryQuantityInput.value || '').trim()) {
+        els.repairOrderInventoryQuantityInput.value = '1';
+      }
+      renderRepairOrderInventoryPanel();
+    }
+
+    function handleRepairOrderInventorySearchInput() {
+      state.repairOrderInventoryQuery = String(els.repairOrderInventorySearchInput?.value || '').trim();
+      renderRepairOrderInventoryPanel();
+      if (state.inventorySearchTimer) window.clearTimeout(state.inventorySearchTimer);
+      state.inventorySearchTimer = window.setTimeout(() => {
+        state.inventorySearchTimer = null;
+        loadInventoryItems(false, { query: state.repairOrderInventoryQuery });
+      }, 250);
+    }
+
+    function handleRepairOrderInventoryResultsClick(event) {
+      const button = event.target instanceof HTMLElement ? event.target.closest('[data-repair-order-inventory-item-id]') : null;
+      if (!button || !els.repairOrderInventoryResults?.contains(button)) return;
+      selectRepairOrderInventoryItem(button.getAttribute('data-repair-order-inventory-item-id'));
     }
 
     function cashboxFormatMinorAmount(value) {

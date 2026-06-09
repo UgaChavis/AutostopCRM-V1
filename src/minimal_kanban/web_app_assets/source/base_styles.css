@@ -115,6 +115,11 @@
       align-content: start;
       gap: 12px;
     }
+    .mobile-workspace.is-card-detail-open {
+      align-content: stretch;
+      overflow: hidden;
+      grid-template-rows: minmax(0, 1fr);
+    }
     .mobile-workspace.is-card-detail-open > .mobile-workspace__head {
       display: none;
     }
@@ -376,6 +381,39 @@
     }
     .mobile-card-page.is-active {
       display: grid;
+    }
+    .mobile-workspace.is-card-detail-open .mobile-card-detail {
+      height: 100%;
+      min-height: 0;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+    .mobile-workspace.is-card-detail-open .mobile-card-editor {
+      height: 100%;
+      min-height: 0;
+    }
+    .mobile-card-page[data-mobile-card-page="overview"].is-active {
+      grid-template-rows: auto auto minmax(260px, 1fr) auto;
+      height: 100%;
+      min-height: 0;
+    }
+    .mobile-card-description-field {
+      min-height: 0;
+      height: 100%;
+    }
+    .mobile-card-description-field textarea {
+      height: 100%;
+      min-height: 260px;
+      overflow-y: auto;
+      resize: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    @media (max-height: 760px) {
+      .mobile-card-page[data-mobile-card-page="overview"].is-active {
+        grid-template-rows: auto auto minmax(220px, 1fr) auto;
+      }
+      .mobile-card-description-field textarea {
+        min-height: 220px;
+      }
     }
     .mobile-card-section {
       display: grid;
@@ -1781,6 +1819,16 @@
     .is-mobile-lite .mobile-field textarea {
       min-height: 128px;
       padding: 10px 10px;
+    }
+    .is-mobile-lite .mobile-card-description-field textarea {
+      height: 100%;
+      min-height: 260px;
+      resize: none;
+    }
+    @media (max-height: 760px) {
+      .is-mobile-lite .mobile-card-description-field textarea {
+        min-height: 220px;
+      }
     }
     .topbar-search .topbar-search__input {
       height: 27px;

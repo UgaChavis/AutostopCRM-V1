@@ -9,6 +9,7 @@ import uuid
 from collections.abc import Collection
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import PurePath
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -23,6 +24,8 @@ Status = Literal["ok", "warning", "critical", "expired"]
 AuditSource = Literal["ui", "api", "mcp", "system"]
 CashDirection = Literal["income", "expense"]
 ClientType = Literal["person", "ip", "ooo", "company"]
+InventoryUnit = Literal["шт", "л"]
+InventoryMovementKind = Literal["incoming", "adjustment", "write_off", "return"]
 
 DEFAULT_COLUMN_IDS: tuple[str, ...] = ("inbox", "in_progress", "control", "done")
 VALID_INDICATORS: tuple[Indicator, ...] = ("green", "yellow", "red")
@@ -31,6 +34,13 @@ VALID_STATUSES: tuple[Status, ...] = ("ok", "warning", "critical", "expired")
 VALID_AUDIT_SOURCES: tuple[AuditSource, ...] = ("ui", "api", "mcp", "system")
 VALID_CASH_DIRECTIONS: tuple[CashDirection, ...] = ("income", "expense")
 VALID_CLIENT_TYPES: tuple[ClientType, ...] = ("person", "ip", "ooo", "company")
+VALID_INVENTORY_UNITS: tuple[InventoryUnit, ...] = ("шт", "л")
+VALID_INVENTORY_MOVEMENT_KINDS: tuple[InventoryMovementKind, ...] = (
+    "incoming",
+    "adjustment",
+    "write_off",
+    "return",
+)
 DEFAULT_INDICATOR: Indicator = "green"
 DEFAULT_TAG_COLOR: TagColor = "green"
 DEFAULT_DEADLINE_TOTAL_SECONDS = 24 * 3600
@@ -56,6 +66,9 @@ ACTOR_NAME_LIMIT = 40
 ATTACHMENT_FILE_NAME_LIMIT = 240
 CASHBOX_NAME_LIMIT = 80
 CASHTRANSACTION_NOTE_LIMIT = 240
+INVENTORY_ITEM_NAME_LIMIT = 180
+INVENTORY_CATALOG_NUMBER_LIMIT = 120
+INVENTORY_MOVEMENT_NOTE_LIMIT = 240
 CLIENT_NAME_LIMIT = 120
 CLIENT_FIELD_LIMIT = 160
 CLIENT_NOTE_LIMIT = 2000
@@ -188,6 +201,83 @@ def normalize_cash_direction(value, *, default: CashDirection = "income") -> Cas
     if direction not in VALID_CASH_DIRECTIONS:
         return default
     return direction  # type: ignore[return-value]
+
+
+def normalize_inventory_unit(value, *, default: InventoryUnit = "шт") -> InventoryUnit:
+    raw = str(value or "").strip().lower().replace(".", "")
+    aliases = {
+        "шт": "шт",
+        "ш": "шт",
+        "pcs": "шт",
+        "piece": "шт",
+        "pieces": "шт",
+        "unit": "шт",
+        "units": "шт",
+        "л": "л",
+        "лt": "л",
+        "l": "л",
+        "liter": "л",
+        "litre": "л",
+        "liters": "л",
+        "litres": "л",
+        "литр": "л",
+        "литра": "л",
+        "литров": "л",
+    }
+    normalized = aliases.get(raw, raw)
+    if normalized not in VALID_INVENTORY_UNITS:
+        return default
+    return normalized  # type: ignore[return-value]
+
+
+def normalize_inventory_movement_kind(
+    value, *, default: InventoryMovementKind = "incoming"
+) -> InventoryMovementKind:
+    raw = str(value or "").strip().lower()
+    aliases = {
+        "приход": "incoming",
+        "in": "incoming",
+        "income": "incoming",
+        "корректировка": "adjustment",
+        "adjust": "adjustment",
+        "writeoff": "write_off",
+        "write-off": "write_off",
+        "списание": "write_off",
+        "списание_зн": "write_off",
+        "возврат": "return",
+        "back": "return",
+    }
+    normalized = aliases.get(raw, raw)
+    if normalized not in VALID_INVENTORY_MOVEMENT_KINDS:
+        return default
+    return normalized  # type: ignore[return-value]
+
+
+def normalize_decimal_text(
+    value,
+    *,
+    default: str = "0",
+    minimum: Decimal | None = None,
+    maximum: Decimal | None = None,
+) -> str:
+    raw = str(value if value is not None else "").strip().replace(",", ".")
+    if not raw:
+        raw = default
+    try:
+        parsed = Decimal(raw)
+    except (InvalidOperation, ValueError):
+        parsed = Decimal(default or "0")
+    if not parsed.is_finite():
+        parsed = Decimal(default)
+    if minimum is not None and parsed < minimum:
+        parsed = minimum
+    if maximum is not None and parsed > maximum:
+        parsed = maximum
+    if parsed == 0:
+        return "0"
+    normalized = parsed.normalize()
+    text = format(normalized, "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
 
 
 def normalize_client_type(value, *, default: ClientType = "person") -> ClientType:
@@ -1049,6 +1139,195 @@ class CashTransaction:
             ),
             related_transaction_id=normalize_text(
                 payload.get("related_transaction_id"), default="", limit=128
+            ),
+        )
+
+
+@dataclass(slots=True)
+class InventoryItem:
+    id: str
+    name: str
+    catalog_number: str
+    unit: InventoryUnit
+    quantity: str
+    cost_price: str
+    sale_price: str
+    created_at: str
+    updated_at: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "id": self.id,
+            "short_id": short_entity_id(self.id, prefix="WH"),
+            "name": self.name,
+            "catalog_number": self.catalog_number,
+            "unit": self.unit,
+            "quantity": self.quantity,
+            "quantity_display": f"{self.quantity} {self.unit}",
+            "cost_price": self.cost_price,
+            "sale_price": self.sale_price,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    def to_storage_dict(self) -> dict[str, str]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "catalog_number": self.catalog_number,
+            "unit": self.unit,
+            "quantity": self.quantity,
+            "cost_price": self.cost_price,
+            "sale_price": self.sale_price,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> InventoryItem:
+        if not isinstance(payload, dict):
+            raise TypeError("Inventory item payload must be a dictionary.")
+        created_at = parse_datetime(payload.get("created_at")) or utc_now()
+        updated_at = parse_datetime(payload.get("updated_at")) or created_at
+        name = normalize_text(payload.get("name"), limit=INVENTORY_ITEM_NAME_LIMIT)
+        if not name:
+            raise ValueError("Inventory item name is required.")
+        return cls(
+            id=normalize_entity_id(payload.get("id") or payload.get("item_id")),
+            name=name,
+            catalog_number=normalize_text(
+                payload.get("catalog_number", payload.get("catalogNumber", "")),
+                default="",
+                limit=INVENTORY_CATALOG_NUMBER_LIMIT,
+            ),
+            unit=normalize_inventory_unit(payload.get("unit")),
+            quantity=normalize_decimal_text(
+                payload.get("quantity"), default="0", minimum=Decimal("0")
+            ),
+            cost_price=normalize_decimal_text(
+                payload.get("cost_price", payload.get("costPrice", "")),
+                default="0",
+                minimum=Decimal("0"),
+            ),
+            sale_price=normalize_decimal_text(
+                payload.get("sale_price", payload.get("salePrice", payload.get("price", ""))),
+                default="0",
+                minimum=Decimal("0"),
+            ),
+            created_at=created_at.isoformat(),
+            updated_at=updated_at.isoformat(),
+        )
+
+
+@dataclass(slots=True)
+class InventoryMovement:
+    id: str
+    item_id: str
+    kind: InventoryMovementKind
+    quantity: str
+    quantity_delta: str
+    unit: InventoryUnit
+    cost_price: str
+    sale_price: str
+    created_at: str
+    actor_name: str
+    source: AuditSource
+    card_id: str = ""
+    repair_order_number: str = ""
+    repair_order_row_index: int = -1
+    related_movement_id: str = ""
+    note: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "short_id": short_entity_id(self.id, prefix="WM"),
+            "item_id": self.item_id,
+            "kind": self.kind,
+            "quantity": self.quantity,
+            "quantity_delta": self.quantity_delta,
+            "unit": self.unit,
+            "cost_price": self.cost_price,
+            "sale_price": self.sale_price,
+            "created_at": self.created_at,
+            "actor_name": self.actor_name,
+            "source": self.source,
+            "card_id": self.card_id,
+            "repair_order_number": self.repair_order_number,
+            "repair_order_row_index": self.repair_order_row_index,
+            "related_movement_id": self.related_movement_id,
+            "note": self.note,
+        }
+
+    def to_storage_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "item_id": self.item_id,
+            "kind": self.kind,
+            "quantity": self.quantity,
+            "quantity_delta": self.quantity_delta,
+            "unit": self.unit,
+            "cost_price": self.cost_price,
+            "sale_price": self.sale_price,
+            "created_at": self.created_at,
+            "actor_name": self.actor_name,
+            "source": self.source,
+            "card_id": self.card_id,
+            "repair_order_number": self.repair_order_number,
+            "repair_order_row_index": self.repair_order_row_index,
+            "related_movement_id": self.related_movement_id,
+            "note": self.note,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> InventoryMovement:
+        if not isinstance(payload, dict):
+            raise TypeError("Inventory movement payload must be a dictionary.")
+        item_id = normalize_text(payload.get("item_id", payload.get("inventory_item_id", "")))
+        if not item_id:
+            raise ValueError("Inventory movement item_id is required.")
+        created_at = parse_datetime(payload.get("created_at")) or utc_now()
+        quantity = normalize_decimal_text(
+            payload.get("quantity"), default="0", minimum=Decimal("0")
+        )
+        raw_quantity_delta = payload.get("quantity_delta")
+        kind = normalize_inventory_movement_kind(payload.get("kind"))
+        quantity_delta = normalize_decimal_text(raw_quantity_delta, default="0")
+        if raw_quantity_delta in (None, ""):
+            sign = Decimal("-1") if kind == "write_off" else Decimal("1")
+            quantity_delta = normalize_decimal_text(Decimal(quantity) * sign)
+        return cls(
+            id=normalize_entity_id(payload.get("id") or payload.get("movement_id")),
+            item_id=item_id,
+            kind=kind,
+            quantity=quantity,
+            quantity_delta=quantity_delta,
+            unit=normalize_inventory_unit(payload.get("unit")),
+            cost_price=normalize_decimal_text(
+                payload.get("cost_price", payload.get("costPrice", "")),
+                default="0",
+                minimum=Decimal("0"),
+            ),
+            sale_price=normalize_decimal_text(
+                payload.get("sale_price", payload.get("salePrice", payload.get("price", ""))),
+                default="0",
+                minimum=Decimal("0"),
+            ),
+            created_at=created_at.isoformat(),
+            actor_name=normalize_actor_name(payload.get("actor_name")),
+            source=normalize_source(payload.get("source"), default="api"),
+            card_id=normalize_text(payload.get("card_id"), default="", limit=128),
+            repair_order_number=normalize_text(
+                payload.get("repair_order_number"), default="", limit=40
+            ),
+            repair_order_row_index=normalize_int(
+                payload.get("repair_order_row_index"), default=-1, minimum=-1
+            ),
+            related_movement_id=normalize_text(
+                payload.get("related_movement_id"), default="", limit=128
+            ),
+            note=normalize_text(
+                payload.get("note"), default="", limit=INVENTORY_MOVEMENT_NOTE_LIMIT
             ),
         )
 

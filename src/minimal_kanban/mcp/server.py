@@ -2025,6 +2025,185 @@ def create_mcp_server(
         )
 
     @server.tool(
+        name="list_inventory_items",
+        description=_scoped_description(
+            "List minimal warehouse items with current quantity, unit, cost price, and sale price."
+        ),
+        annotations=_read_tool_annotations("List Inventory Items"),
+        structured_output=True,
+    )
+    def list_inventory_items(query: str | None = None, limit: int = 200) -> JsonEnvelope:
+        return _relay_board_call(
+            "list_inventory_items",
+            lambda: board_api.list_inventory_items(query=query, limit=limit),
+            error_code="inventory_unreachable",
+            params={"query": query, "limit": limit},
+        )
+
+    @server.tool(
+        name="search_inventory_items",
+        description=_scoped_description("Search warehouse items by name, catalog number, or id."),
+        annotations=_read_tool_annotations("Search Inventory Items"),
+        structured_output=True,
+    )
+    def search_inventory_items(query: str = "", limit: int = 50) -> JsonEnvelope:
+        return _relay_board_call(
+            "search_inventory_items",
+            lambda: board_api.search_inventory_items(query=query, limit=limit),
+            error_code="inventory_unreachable",
+            params={"query": query, "limit": limit},
+        )
+
+    @server.tool(
+        name="get_inventory_item",
+        description=_scoped_description(
+            "Return one warehouse item and its recent technical movements."
+        ),
+        annotations=_read_tool_annotations("Get Inventory Item"),
+        structured_output=True,
+    )
+    def get_inventory_item(item_id: str) -> JsonEnvelope:
+        return _relay_board_call(
+            "get_inventory_item",
+            lambda: board_api.get_inventory_item(item_id),
+            error_code="inventory_unreachable",
+        )
+
+    @server.tool(
+        name="list_inventory_movements",
+        description=_scoped_description(
+            "List technical warehouse movements, optionally filtered by item_id or card_id."
+        ),
+        annotations=_read_tool_annotations("List Inventory Movements"),
+        structured_output=True,
+    )
+    def list_inventory_movements(
+        item_id: str | None = None,
+        card_id: str | None = None,
+        limit: int = 200,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "list_inventory_movements",
+            lambda: board_api.list_inventory_movements(
+                item_id=item_id, card_id=card_id, limit=limit
+            ),
+            error_code="inventory_unreachable",
+            params={"item_id": item_id, "card_id": card_id, "limit": limit},
+        )
+
+    @server.tool(
+        name="save_inventory_item",
+        description=_scoped_description(
+            "Create or update a minimal warehouse item. New items may include an initial quantity."
+        ),
+        annotations=_write_tool_annotations("Save Inventory Item"),
+        structured_output=True,
+    )
+    def save_inventory_item(
+        name: str,
+        item_id: str | None = None,
+        catalog_number: str = "",
+        unit: Literal["шт", "л"] = "шт",
+        quantity: str = "0",
+        cost_price: str = "0",
+        sale_price: str = "0",
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        payload: dict[str, object] = {
+            "name": name,
+            "catalog_number": catalog_number,
+            "unit": unit,
+            "quantity": quantity,
+            "cost_price": cost_price,
+            "sale_price": sale_price,
+        }
+        if item_id:
+            payload["item_id"] = item_id
+        return _relay_board_call(
+            "save_inventory_item",
+            lambda: board_api.save_inventory_item(payload, actor_name=actor_name),
+            error_code="inventory_write_unreachable",
+        )
+
+    @server.tool(
+        name="replenish_inventory_item",
+        description=_scoped_description(
+            "Increase warehouse quantity for an existing item and optionally update prices."
+        ),
+        annotations=_write_tool_annotations("Replenish Inventory Item"),
+        structured_output=True,
+    )
+    def replenish_inventory_item(
+        item_id: str,
+        quantity: str,
+        cost_price: str | None = None,
+        sale_price: str | None = None,
+        note: str | None = None,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "replenish_inventory_item",
+            lambda: board_api.replenish_inventory_item(
+                item_id,
+                quantity,
+                cost_price=cost_price,
+                sale_price=sale_price,
+                note=note,
+                actor_name=actor_name,
+            ),
+            error_code="inventory_write_unreachable",
+        )
+
+    @server.tool(
+        name="write_off_inventory_item",
+        description=_scoped_description(
+            "Write off an item from warehouse into a repair-order material row. "
+            "This is the only operation that changes stock from a repair order."
+        ),
+        annotations=_write_tool_annotations("Write Off Inventory Item"),
+        structured_output=True,
+    )
+    def write_off_inventory_item(
+        item_id: str,
+        card_id: str,
+        quantity: str,
+        row_index: int | None = None,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "write_off_inventory_item",
+            lambda: board_api.write_off_inventory_item(
+                item_id,
+                card_id=card_id,
+                quantity=quantity,
+                row_index=row_index,
+                actor_name=actor_name,
+            ),
+            error_code="inventory_write_unreachable",
+        )
+
+    @server.tool(
+        name="return_inventory_movement",
+        description=_scoped_description(
+            "Return a previous warehouse write-off and unlink the material row from stock."
+        ),
+        annotations=_write_tool_annotations("Return Inventory Movement"),
+        structured_output=True,
+    )
+    def return_inventory_movement(
+        movement_id: str,
+        card_id: str | None = None,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "return_inventory_movement",
+            lambda: board_api.return_inventory_movement(
+                movement_id, card_id=card_id, actor_name=actor_name
+            ),
+            error_code="inventory_write_unreachable",
+        )
+
+    @server.tool(
         name="update_board_settings",
         description=_scoped_description(
             "Update board-wide settings for the current Minimal Kanban board. Currently supports board_scale."

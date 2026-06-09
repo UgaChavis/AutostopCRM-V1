@@ -2648,6 +2648,146 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(row["executor_name"], "")
         self.assertEqual(row["material_salary_amount"], "")
 
+    def test_inventory_write_off_supports_fractional_liters_and_price_snapshots(self) -> None:
+        created_card = self.service.create_card(
+            {
+                "vehicle": "BMW X5",
+                "title": "Замена масла",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created_card["card"]["id"]
+        saved_item = self.service.save_inventory_item(
+            {
+                "name": "Масло 5W-30",
+                "catalog_number": "OIL-5W30",
+                "unit": "л",
+                "quantity": "18,5",
+                "cost_price": "520",
+                "sale_price": "850",
+                "actor_name": "ADMIN",
+            }
+        )["item"]
+
+        written_off = self.service.write_off_inventory_item(
+            {
+                "item_id": saved_item["id"],
+                "card_id": card_id,
+                "quantity": "4.3",
+                "actor_name": "ADMIN",
+            }
+        )
+
+        self.assertEqual(written_off["item"]["quantity"], "14.2")
+        self.assertEqual(written_off["movement"]["kind"], "write_off")
+        self.assertEqual(written_off["movement"]["quantity"], "4.3")
+        row = written_off["repair_order"]["materials"][0]
+        self.assertEqual(row["name"], "Масло 5W-30")
+        self.assertEqual(row["catalog_number"], "OIL-5W30")
+        self.assertEqual(row["quantity"], "4.3")
+        self.assertEqual(row["cost_price"], "520")
+        self.assertEqual(row["price"], "850")
+        self.assertEqual(row["total"], "3655")
+        self.assertEqual(row["inventory_item_id"], saved_item["id"])
+        self.assertEqual(row["inventory_movement_id"], written_off["movement"]["id"])
+        self.assertEqual(row["inventory_unit"], "л")
+
+        self.service.save_inventory_item(
+            {
+                "item_id": saved_item["id"],
+                "name": "Масло 5W-30",
+                "cost_price": "610",
+                "sale_price": "990",
+                "actor_name": "ADMIN",
+            }
+        )
+        reread = self.service.get_repair_order({"card_id": card_id})["repair_order"]
+        self.assertEqual(reread["materials"][0]["cost_price"], "520")
+        self.assertEqual(reread["materials"][0]["price"], "850")
+
+    def test_inventory_rejects_write_off_above_available_quantity(self) -> None:
+        created_card = self.service.create_card(
+            {
+                "vehicle": "Toyota",
+                "title": "Фильтр",
+                "deadline": {"hours": 1},
+            }
+        )
+        saved_item = self.service.save_inventory_item(
+            {
+                "name": "Фильтр масляный",
+                "unit": "шт",
+                "quantity": "1",
+                "cost_price": "400",
+                "sale_price": "700",
+            }
+        )["item"]
+
+        with self.assertRaises(ServiceError) as ctx:
+            self.service.write_off_inventory_item(
+                {
+                    "item_id": saved_item["id"],
+                    "card_id": created_card["card"]["id"],
+                    "quantity": "2",
+                }
+            )
+
+        self.assertEqual(ctx.exception.code, "validation_error")
+        self.assertEqual(ctx.exception.details.get("field"), "quantity")
+        self.assertIn("остат", ctx.exception.message.casefold())
+        self.assertEqual(
+            self.service.get_inventory_item({"item_id": saved_item["id"]})["item"]["quantity"],
+            "1",
+        )
+
+    def test_inventory_return_restores_stock_and_clears_material_link(self) -> None:
+        created_card = self.service.create_card(
+            {
+                "vehicle": "Lexus",
+                "title": "Возврат материала",
+                "deadline": {"hours": 1},
+            }
+        )
+        saved_item = self.service.save_inventory_item(
+            {
+                "name": "Антифриз",
+                "catalog_number": "AF-G12",
+                "unit": "л",
+                "quantity": "10",
+                "cost_price": "250",
+                "sale_price": "420",
+            }
+        )["item"]
+        written_off = self.service.write_off_inventory_item(
+            {
+                "item_id": saved_item["id"],
+                "card_id": created_card["card"]["id"],
+                "quantity": "1.5",
+                "actor_name": "ADMIN",
+            }
+        )
+
+        returned = self.service.return_inventory_movement(
+            {
+                "movement_id": written_off["movement"]["id"],
+                "card_id": created_card["card"]["id"],
+                "actor_name": "ADMIN",
+            }
+        )
+
+        self.assertEqual(returned["item"]["quantity"], "10")
+        self.assertEqual(returned["movement"]["kind"], "return")
+        row = returned["repair_order"]["materials"][0]
+        self.assertEqual(row["name"], "Антифриз")
+        self.assertEqual(row["inventory_item_id"], "")
+        self.assertEqual(row["inventory_movement_id"], "")
+        movements = self.service.list_inventory_movements({"item_id": saved_item["id"]})[
+            "movements"
+        ]
+        self.assertEqual(
+            [movement["kind"] for movement in movements], ["incoming", "write_off", "return"]
+        )
+
     def test_closing_paid_repair_order_accrues_material_profit_salary(self) -> None:
         employee = self.service.save_employee(
             {
@@ -6384,7 +6524,7 @@ class CardServiceTests(unittest.TestCase):
         )
         full_entry = full_log["entries"][0]
         self.assertEqual(full_entry["details"]["before"], original_description.strip())
-        self.assertEqual(full_entry["details"]["after"], updated_description.strip())
+        self.assertEqual(full_entry["details"]["after"], updated_description)
         self.assertEqual(full_log["meta"]["include_full_details"], True)
 
     def test_get_card_log_exposes_full_before_after_changes(self) -> None:

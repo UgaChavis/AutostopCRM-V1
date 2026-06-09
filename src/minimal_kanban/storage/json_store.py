@@ -21,6 +21,8 @@ from ..models import (
     CashTransaction,
     ClientProfile,
     Column,
+    InventoryItem,
+    InventoryMovement,
     StickyNote,
     parse_datetime,
     utc_now,
@@ -47,6 +49,8 @@ DEFAULT_STATE = {
     "stickies": [],
     "cashboxes": [],
     "cash_transactions": [],
+    "inventory_items": [],
+    "inventory_movements": [],
     "events": [],
     "settings": {
         "has_seen_onboarding": False,
@@ -103,6 +107,11 @@ class JsonStore:
                 cash_transactions, cash_transactions_repaired = self._normalize_cash_transactions(
                     state, cashboxes
                 )
+                inventory_items, inventory_items_repaired = self._normalize_inventory_items(state)
+                (
+                    inventory_movements,
+                    inventory_movements_repaired,
+                ) = self._normalize_inventory_movements(state, inventory_items)
                 events, events_repaired = self._normalize_events(state)
                 settings, settings_repaired = self._normalize_settings(state)
                 ready_column_repaired = ensure_ready_column(columns, settings)[1]
@@ -113,6 +122,8 @@ class JsonStore:
                     or stickies_repaired
                     or cashboxes_repaired
                     or cash_transactions_repaired
+                    or inventory_items_repaired
+                    or inventory_movements_repaired
                     or events_repaired
                     or settings_repaired
                     or ready_column_repaired
@@ -127,6 +138,10 @@ class JsonStore:
                         "cash_transactions": [
                             transaction.to_storage_dict() for transaction in cash_transactions
                         ],
+                        "inventory_items": [item.to_storage_dict() for item in inventory_items],
+                        "inventory_movements": [
+                            movement.to_storage_dict() for movement in inventory_movements
+                        ],
                         "events": [event.to_dict() for event in events],
                         "settings": settings,
                     }
@@ -138,6 +153,8 @@ class JsonStore:
                     "stickies": stickies,
                     "cashboxes": cashboxes,
                     "cash_transactions": cash_transactions,
+                    "inventory_items": inventory_items,
+                    "inventory_movements": inventory_movements,
                     "events": events,
                     "settings": settings,
                 }
@@ -155,6 +172,8 @@ class JsonStore:
         stickies: list[StickyNote] | None = None,
         cashboxes: list[CashBox] | None = None,
         cash_transactions: list[CashTransaction] | None = None,
+        inventory_items: list[InventoryItem] | None = None,
+        inventory_movements: list[InventoryMovement] | None = None,
         events: list[AuditEvent],
         settings: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -168,6 +187,8 @@ class JsonStore:
                     or stickies is None
                     or cashboxes is None
                     or cash_transactions is None
+                    or inventory_items is None
+                    or inventory_movements is None
                 ):
                     current_state = self._read_state()
                 if clients is None:
@@ -187,6 +208,14 @@ class JsonStore:
                     cash_transactions, _ = self._normalize_cash_transactions(
                         current_state, cashboxes or []
                     )
+                if inventory_items is None:
+                    assert current_state is not None
+                    inventory_items, _ = self._normalize_inventory_items(current_state)
+                if inventory_movements is None:
+                    assert current_state is not None
+                    inventory_movements, _ = self._normalize_inventory_movements(
+                        current_state, inventory_items or []
+                    )
                 normalized_columns = self._normalize_columns_payload(columns)
                 normalized_cards = self._normalize_cards_payload(cards, normalized_columns)
                 normalized_clients = self._normalize_clients_payload(clients or [])
@@ -194,6 +223,12 @@ class JsonStore:
                 normalized_cashboxes = self._normalize_cashboxes_payload(cashboxes or [])
                 normalized_cash_transactions = self._normalize_cash_transactions_payload(
                     cash_transactions or [], normalized_cashboxes
+                )
+                normalized_inventory_items = self._normalize_inventory_items_payload(
+                    inventory_items or []
+                )
+                normalized_inventory_movements = self._normalize_inventory_movements_payload(
+                    inventory_movements or [], normalized_inventory_items
                 )
                 normalized_events = self._normalize_events_payload(events)
                 state = {
@@ -207,6 +242,12 @@ class JsonStore:
                         transaction.to_storage_dict()
                         for transaction in normalized_cash_transactions
                     ],
+                    "inventory_items": [
+                        item.to_storage_dict() for item in normalized_inventory_items
+                    ],
+                    "inventory_movements": [
+                        movement.to_storage_dict() for movement in normalized_inventory_movements
+                    ],
                     "events": [event.to_dict() for event in normalized_events],
                     "settings": settings
                     if isinstance(settings, dict)
@@ -219,6 +260,8 @@ class JsonStore:
                     "stickies": normalized_stickies,
                     "cashboxes": normalized_cashboxes,
                     "cash_transactions": normalized_cash_transactions,
+                    "inventory_items": normalized_inventory_items,
+                    "inventory_movements": normalized_inventory_movements,
                     "events": normalized_events,
                     "settings": state["settings"],
                 }
@@ -307,6 +350,12 @@ class JsonStore:
 
     def read_cash_transactions(self) -> list[CashTransaction]:
         return self.read_bundle()["cash_transactions"]
+
+    def read_inventory_items(self) -> list[InventoryItem]:
+        return self.read_bundle()["inventory_items"]
+
+    def read_inventory_movements(self) -> list[InventoryMovement]:
+        return self.read_bundle()["inventory_movements"]
 
     def read_clients(self) -> list[ClientProfile]:
         return self.read_bundle()["clients"]
@@ -670,6 +719,61 @@ class JsonStore:
         parsed_transactions.sort(key=lambda item: (item.created_at, item.id))
         return parsed_transactions, repaired
 
+    def _normalize_inventory_items(self, state: dict) -> tuple[list[InventoryItem], bool]:
+        raw_items = state.get("inventory_items", [])
+        repaired = False
+        if not isinstance(raw_items, list):
+            raw_items = []
+            repaired = True
+        parsed_items: list[InventoryItem] = []
+        seen_ids: set[str] = set()
+        for item in raw_items:
+            if not isinstance(item, dict):
+                repaired = True
+                continue
+            try:
+                inventory_item = InventoryItem.from_dict(item)
+            except (TypeError, ValueError):
+                repaired = True
+                continue
+            if inventory_item.id in seen_ids:
+                repaired = True
+                continue
+            seen_ids.add(inventory_item.id)
+            parsed_items.append(inventory_item)
+        parsed_items.sort(
+            key=lambda item: (item.name.casefold(), item.catalog_number.casefold(), item.id)
+        )
+        return parsed_items, repaired
+
+    def _normalize_inventory_movements(
+        self, state: dict, inventory_items: list[InventoryItem]
+    ) -> tuple[list[InventoryMovement], bool]:
+        raw_movements = state.get("inventory_movements", [])
+        repaired = False
+        if not isinstance(raw_movements, list):
+            raw_movements = []
+            repaired = True
+        valid_item_ids = {item.id for item in inventory_items}
+        parsed_movements: list[InventoryMovement] = []
+        seen_ids: set[str] = set()
+        for item in raw_movements:
+            if not isinstance(item, dict):
+                repaired = True
+                continue
+            try:
+                movement = InventoryMovement.from_dict(item)
+            except (TypeError, ValueError):
+                repaired = True
+                continue
+            if movement.id in seen_ids or movement.item_id not in valid_item_ids:
+                repaired = True
+                continue
+            seen_ids.add(movement.id)
+            parsed_movements.append(movement)
+        parsed_movements.sort(key=lambda item: (item.created_at, item.id))
+        return parsed_movements, repaired
+
     def _normalize_stickies_payload(self, stickies: list[StickyNote]) -> list[StickyNote]:
         normalized: list[StickyNote] = []
         seen_ids: set[str] = set()
@@ -754,6 +858,43 @@ class JsonStore:
                 continue
             seen_ids.add(item.id)
             normalized.append(item)
+        normalized.sort(key=lambda item: (item.created_at, item.id))
+        return normalized
+
+    def _normalize_inventory_items_payload(
+        self, inventory_items: list[InventoryItem]
+    ) -> list[InventoryItem]:
+        normalized: list[InventoryItem] = []
+        seen_ids: set[str] = set()
+        ordered_items = sorted(
+            inventory_items,
+            key=lambda item: (item.name.casefold(), item.catalog_number.casefold(), item.id),
+        )
+        for item in ordered_items:
+            if not isinstance(item, InventoryItem):
+                continue
+            candidate = InventoryItem.from_dict(item.to_storage_dict())
+            if candidate.id in seen_ids:
+                continue
+            seen_ids.add(candidate.id)
+            normalized.append(candidate)
+        return normalized
+
+    def _normalize_inventory_movements_payload(
+        self,
+        movements: list[InventoryMovement],
+        inventory_items: list[InventoryItem],
+    ) -> list[InventoryMovement]:
+        normalized: list[InventoryMovement] = []
+        valid_item_ids = {item.id for item in inventory_items}
+        seen_ids: set[str] = set()
+        for item in movements:
+            if not isinstance(item, InventoryMovement):
+                continue
+            if item.id in seen_ids or item.item_id not in valid_item_ids:
+                continue
+            seen_ids.add(item.id)
+            normalized.append(InventoryMovement.from_dict(item.to_storage_dict()))
         normalized.sort(key=lambda item: (item.created_at, item.id))
         return normalized
 

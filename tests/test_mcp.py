@@ -135,6 +135,7 @@ EXPECTED_MCP_TOOLS = {
     "get_client_stats",
     "get_connector_identity",
     "get_gpt_wall",
+    "get_inventory_item",
     "get_repair_order",
     "get_repair_order_text",
     "download_repair_order_print_pdf",
@@ -146,6 +147,8 @@ EXPECTED_MCP_TOOLS = {
     "list_cashboxes",
     "list_clients",
     "list_columns",
+    "list_inventory_items",
+    "list_inventory_movements",
     "list_overdue_cards",
     "list_repair_orders",
     "list_ready_unpaid_cards",
@@ -161,10 +164,12 @@ EXPECTED_MCP_TOOLS = {
     "restore_card",
     "review_board",
     "read_card_attachment",
+    "replenish_inventory_item",
     "rollback_manager_run",
     "run_manager_operation",
     "search_cards",
     "search_clients",
+    "search_inventory_items",
     "set_card_deadline",
     "set_card_board_summary",
     "set_card_indicator",
@@ -178,6 +183,9 @@ EXPECTED_MCP_TOOLS = {
     "update_shared_file_position",
     "update_sticky",
     "upload_shared_file",
+    "return_inventory_movement",
+    "save_inventory_item",
+    "write_off_inventory_item",
     "download_shared_file",
     "delete_shared_file",
     "link_card_to_client",
@@ -193,7 +201,7 @@ class McpRepairOrderPatchPayloadTests(unittest.TestCase):
 
         self.assertEqual(len(grouped_names), len(set(grouped_names)))
         self.assertEqual(PUBLIC_MCP_TOOL_NAMES, EXPECTED_MCP_TOOLS)
-        self.assertEqual(len(PUBLIC_MCP_TOOL_NAMES), 83)
+        self.assertEqual(len(PUBLIC_MCP_TOOL_NAMES), 91)
         self.assertEqual(
             set(MCP_TOOL_GROUPS),
             {
@@ -202,6 +210,7 @@ class McpRepairOrderPatchPayloadTests(unittest.TestCase):
                 "board_cards",
                 "clients",
                 "repair_orders",
+                "inventory",
                 "cashboxes",
                 "files",
             },
@@ -437,7 +446,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 83)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 91)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 legacy_descriptions = [
                     tool.name
@@ -1851,6 +1860,87 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     "rollback_actions_required",
                 )
 
+    async def test_mcp_inventory_tools_reach_backend(self) -> None:
+        async with create_test_mcp_http_client(
+            headers={"Authorization": "Bearer mcp-secret"}
+        ) as http_client:
+            async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
+                saved = await session.call_tool(
+                    "save_inventory_item",
+                    {
+                        "name": "Масло 5W-40",
+                        "unit": "л",
+                        "quantity": "5.5",
+                        "cost_price": "500",
+                        "sale_price": "800",
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                self.assertFalse(saved.isError)
+                item_id = saved.structuredContent["data"]["item"]["id"]
+
+                listed = await session.call_tool("list_inventory_items", {"limit": 20})
+                searched = await session.call_tool(
+                    "search_inventory_items", {"query": "5W-40", "limit": 10}
+                )
+                fetched = await session.call_tool("get_inventory_item", {"item_id": item_id})
+                movements = await session.call_tool(
+                    "list_inventory_movements", {"item_id": item_id, "limit": 20}
+                )
+                replenished = await session.call_tool(
+                    "replenish_inventory_item",
+                    {
+                        "item_id": item_id,
+                        "quantity": "2",
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                card = await session.call_tool(
+                    "create_card",
+                    {
+                        "vehicle": "Toyota",
+                        "title": "Складской ЗН",
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                card_id = card.structuredContent["data"]["card"]["id"]
+
+                written_off = await session.call_tool(
+                    "write_off_inventory_item",
+                    {
+                        "item_id": item_id,
+                        "card_id": card_id,
+                        "quantity": "1.25",
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                movement_id = written_off.structuredContent["data"]["movement"]["id"]
+
+                returned = await session.call_tool(
+                    "return_inventory_movement",
+                    {
+                        "movement_id": movement_id,
+                        "card_id": card_id,
+                        "actor_name": "ОПЕРАТОР",
+                    },
+                )
+                for result in (
+                    listed,
+                    searched,
+                    fetched,
+                    movements,
+                    replenished,
+                    card,
+                    written_off,
+                    returned,
+                ):
+                    self.assertFalse(result.isError)
+                self.assertEqual(fetched.structuredContent["data"]["item"]["id"], item_id)
+                self.assertEqual(
+                    written_off.structuredContent["data"]["material_row"]["quantity"], "1.25"
+                )
+                self.assertEqual(returned.structuredContent["data"]["item"]["quantity"], "7.5")
+
     def test_mcp_declared_tools_have_direct_regression_calls(self) -> None:
         test_source = Path(__file__).read_text(encoding="utf-8-sig")
         called_tools = set(re.findall(r'call_tool\(\s*"([^"]+)"', test_source))
@@ -2540,184 +2630,6 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                         for item in snapshot.structuredContent["data"]["stickies"]
                     )
                 )
-
-
-class BoardApiClientTests(unittest.TestCase):
-    def test_compose_url_does_not_duplicate_api_segment(self) -> None:
-        client = BoardApiClient("https://board.example/api", bearer_token="secret")
-
-        self.assertEqual(
-            client._compose_url("/api/get_board_snapshot"),
-            "https://board.example/api/get_board_snapshot",
-        )
-        self.assertEqual(
-            client._compose_url("api/get_cards"), "https://board.example/api/get_cards"
-        )
-
-    def test_optional_scalar_filter_uses_get_without_payload_and_post_with_payload(self) -> None:
-        client = BoardApiClient("https://board.example/api", bearer_token="secret")
-
-        with patch.object(client, "_request", return_value={"ok": True}) as request:
-            client.get_board_snapshot()
-            client.list_archived_cards()
-            client.list_repair_orders()
-
-        self.assertEqual(
-            request.call_args_list,
-            [
-                unittest.mock.call("/api/get_board_snapshot", method="GET"),
-                unittest.mock.call("/api/list_archived_cards", method="GET"),
-                unittest.mock.call("/api/list_repair_orders", method="GET"),
-            ],
-        )
-
-        with patch.object(client, "_request", return_value={"ok": True}) as request:
-            client.get_board_snapshot(archive_limit=5)
-            client.list_archived_cards(limit=10)
-            client.list_repair_orders(limit=300)
-            client.list_repair_orders(limit=25, status="closed")
-            client.list_repair_orders(
-                limit=20,
-                status="all",
-                query="срочно dsg",
-                sort_by="closed_at",
-                sort_dir="asc",
-                compact=True,
-                redact_private=True,
-            )
-
-        self.assertEqual(
-            request.call_args_list,
-            [
-                unittest.mock.call("/api/get_board_snapshot", {"archive_limit": 5}, method="POST"),
-                unittest.mock.call("/api/list_archived_cards", {"limit": 10}, method="POST"),
-                unittest.mock.call("/api/list_repair_orders", {"limit": 300}, method="POST"),
-                unittest.mock.call(
-                    "/api/list_repair_orders", {"limit": 25, "status": "closed"}, method="POST"
-                ),
-                unittest.mock.call(
-                    "/api/list_repair_orders",
-                    {
-                        "limit": 20,
-                        "status": "all",
-                        "query": "срочно dsg",
-                        "sort_by": "closed_at",
-                        "sort_dir": "asc",
-                        "compact": True,
-                        "redact_private": True,
-                    },
-                    method="POST",
-                ),
-            ],
-        )
-
-    def test_repair_order_pdf_export_uses_expected_api_payload(self) -> None:
-        client = BoardApiClient("https://board.example/api", bearer_token="secret")
-
-        with patch.object(client, "_request", return_value={"ok": True}) as request:
-            client.download_repair_order_print_pdf(
-                card_id="card-1",
-                selected_document_ids=["invoice", "completion_act"],
-                selected_template_ids={"invoice": "tpl-invoice"},
-                print_settings={"stamp_enabled": True},
-            )
-
-        request.assert_called_once_with(
-            "/api/export_repair_order_print_pdf",
-            {
-                "card_id": "card-1",
-                "selected_document_ids": ["invoice", "completion_act"],
-                "selected_template_ids": {"invoice": "tpl-invoice"},
-                "print_settings": {"stamp_enabled": True},
-            },
-        )
-
-    def test_get_card_log_can_request_compact_payload(self) -> None:
-        client = BoardApiClient("https://board.example/api", bearer_token="secret")
-
-        with patch.object(client, "_request", return_value={"ok": True}) as request:
-            client.get_card_log("card-1", compact=True, limit=50, include_full_details=True)
-
-        request.assert_called_once_with(
-            "/api/get_card_log",
-            {
-                "card_id": "card-1",
-                "limit": 50,
-                "compact": True,
-                "include_full_details": True,
-            },
-        )
-
-    def test_wall_helpers_call_expected_api_endpoints(self) -> None:
-        client = BoardApiClient("https://board.example/api", bearer_token="secret")
-
-        with patch.object(client, "_request", return_value={"ok": True}) as request:
-            client.get_board_content()
-            client.get_board_content(include_archived=False, view_mode="full")
-            client.get_board_events()
-            client.get_board_events(event_limit=25, include_archived=False)
-            client.get_gpt_wall()
-            client.get_gpt_wall(include_archived=False, event_limit=15)
-
-        self.assertEqual(
-            request.call_args_list,
-            [
-                unittest.mock.call(
-                    "/api/get_board_content",
-                    {"include_archived": True, "view_mode": "agent"},
-                    method="POST",
-                ),
-                unittest.mock.call(
-                    "/api/get_board_content",
-                    {"include_archived": False, "view_mode": "full"},
-                    method="POST",
-                ),
-                unittest.mock.call(
-                    "/api/get_board_events",
-                    {"event_limit": 100, "include_archived": True, "view_mode": "audit"},
-                    method="POST",
-                ),
-                unittest.mock.call(
-                    "/api/get_board_events",
-                    {"event_limit": 25, "include_archived": False, "view_mode": "audit"},
-                    method="POST",
-                ),
-                unittest.mock.call(
-                    "/api/get_gpt_wall",
-                    {"include_archived": True},
-                    method="POST",
-                ),
-                unittest.mock.call(
-                    "/api/get_gpt_wall",
-                    {"include_archived": False, "event_limit": 15},
-                    method="POST",
-                ),
-            ],
-        )
-
-    def test_client_read_helpers_use_get_queries_for_retryable_reads(self) -> None:
-        client = BoardApiClient("https://board.example/api", bearer_token="secret")
-
-        with patch.object(client, "_request", return_value={"ok": True}) as request:
-            client.list_clients(limit=10, include_stats=False)
-            client.search_clients(query="Петров", limit=5)
-            client.get_client("client-1", order_limit=3)
-            client.get_client_stats("client-1")
-
-        self.assertEqual(
-            request.call_args_list,
-            [
-                unittest.mock.call("/api/list_clients?include_stats=false&limit=10", method="GET"),
-                unittest.mock.call(
-                    "/api/search_clients?query=%D0%9F%D0%B5%D1%82%D1%80%D0%BE%D0%B2&limit=5",
-                    method="GET",
-                ),
-                unittest.mock.call(
-                    "/api/get_client?client_id=client-1&order_limit=3", method="GET"
-                ),
-                unittest.mock.call("/api/get_client_stats?client_id=client-1", method="GET"),
-            ],
-        )
 
 
 class McpServerRuntimeTests(unittest.TestCase):

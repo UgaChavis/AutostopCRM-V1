@@ -284,6 +284,9 @@ class RepairOrderRow:
     material_profit: str = ""
     material_salary_amount: str = ""
     material_salary_accrued_at: str = ""
+    inventory_item_id: str = ""
+    inventory_movement_id: str = ""
+    inventory_unit: str = ""
 
     def __post_init__(self) -> None:
         self.name = _normalize_single_line(self.name, limit=REPAIR_ORDER_ROW_NAME_LIMIT)
@@ -368,6 +371,9 @@ class RepairOrderRow:
         self.material_salary_accrued_at = _normalize_single_line(
             self.material_salary_accrued_at, limit=REPAIR_ORDER_DATE_LIMIT
         )
+        self.inventory_item_id = _normalize_single_line(self.inventory_item_id, limit=128)
+        self.inventory_movement_id = _normalize_single_line(self.inventory_movement_id, limit=128)
+        self.inventory_unit = _normalize_single_line(self.inventory_unit, limit=8)
 
     def is_empty(self) -> bool:
         return not any(
@@ -408,6 +414,9 @@ class RepairOrderRow:
             "material_profit": self.material_profit,
             "material_salary_amount": self.material_salary_amount,
             "material_salary_accrued_at": self.material_salary_accrued_at,
+            "inventory_item_id": self.inventory_item_id,
+            "inventory_movement_id": self.inventory_movement_id,
+            "inventory_unit": self.inventory_unit,
         }
 
     def total_value(self) -> Decimal:
@@ -474,6 +483,11 @@ class RepairOrderRow:
             material_profit=payload.get("material_profit", ""),
             material_salary_amount=payload.get("material_salary_amount", ""),
             material_salary_accrued_at=payload.get("material_salary_accrued_at", ""),
+            inventory_item_id=payload.get("inventory_item_id", payload.get("inventoryItemId", "")),
+            inventory_movement_id=payload.get(
+                "inventory_movement_id", payload.get("inventoryMovementId", "")
+            ),
+            inventory_unit=payload.get("inventory_unit", payload.get("inventoryUnit", "")),
         )
 
 

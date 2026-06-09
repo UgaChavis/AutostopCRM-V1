@@ -7,6 +7,181 @@
       flex-direction: column;
     }
     #cashboxTransferModal .dialog { width: min(820px, 100%); }
+    #inventoryModal .dialog { width: min(1040px, 100%); }
+    .inventory-layout {
+      display: grid;
+      grid-template-columns: minmax(240px, 310px) minmax(0, 1fr);
+      gap: 12px;
+      min-height: 480px;
+    }
+    .inventory-pane {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0;
+    }
+    .inventory-toolbar {
+      display: grid;
+      gap: 8px;
+    }
+    .inventory-list,
+    .repair-order-inventory-results {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 0;
+      overflow: auto;
+      padding-right: 3px;
+    }
+    .inventory-list { max-height: 520px; }
+    .inventory-row,
+    .repair-order-inventory-result {
+      width: 100%;
+      border: 1px solid var(--line-soft);
+      background: rgba(255,255,255,0.025);
+      color: var(--text);
+      padding: 9px 10px;
+      text-align: left;
+      cursor: pointer;
+      display: grid;
+      gap: 4px;
+    }
+    .inventory-row.is-active,
+    .repair-order-inventory-result.is-active {
+      border-color: rgba(167,178,132,0.78);
+      background: rgba(167,178,132,0.1);
+    }
+    .inventory-row__top,
+    .repair-order-inventory-result__top {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+    .inventory-row__name,
+    .repair-order-inventory-result__name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+    .inventory-row__qty,
+    .repair-order-inventory-result__qty {
+      color: #f5df9b;
+      font-family: var(--mono);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .inventory-row__meta,
+    .repair-order-inventory-result__meta,
+    .inventory-status {
+      color: var(--text-soft);
+      font-family: var(--mono);
+      font-size: 9.5px;
+      line-height: 1.25;
+      text-transform: uppercase;
+    }
+    .mobile-inventory-list,
+    .mobile-inventory-editor {
+      display: grid;
+      gap: 8px;
+    }
+    .mobile-inventory-list {
+      max-height: 34dvh;
+      overflow: auto;
+    }
+    .mobile-inventory-editor {
+      border: 1px solid rgba(167,178,132,0.22);
+      background: rgba(0,0,0,0.12);
+      padding: 10px;
+    }
+    .inventory-form-grid {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 8px;
+      align-items: end;
+    }
+    .inventory-field--wide { grid-column: span 3; }
+    .inventory-field--mid { grid-column: span 2; }
+    .inventory-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .repair-order-section-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .inventory-replenish-row {
+      display: grid;
+      grid-template-columns: minmax(110px, 160px) auto;
+      gap: 8px;
+      align-items: end;
+    }
+    .repair-order-materials-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 10px;
+    }
+    .repair-order-table-card.is-inventory-open .repair-order-materials-layout {
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+      align-items: start;
+    }
+    .repair-order-inventory-panel {
+      border: 1px solid rgba(167,178,132,0.32);
+      background: rgba(12,17,13,0.74);
+      padding: 10px;
+      display: grid;
+      gap: 9px;
+      min-height: 360px;
+      max-height: 620px;
+      overflow: hidden;
+    }
+    .repair-order-inventory-panel[hidden] { display: none; }
+    .repair-order-inventory-selected {
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(0,0,0,0.14);
+      padding: 9px;
+      display: grid;
+      gap: 4px;
+      min-height: 70px;
+    }
+    .repair-order-inventory-selected__title {
+      color: var(--text);
+      font-weight: 700;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+    }
+    .repair-order-inventory-selected__meta {
+      color: var(--text-soft);
+      font-family: var(--mono);
+      font-size: 9.5px;
+      line-height: 1.25;
+      text-transform: uppercase;
+    }
+    .repair-order-inventory-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .repair-order-inventory-actions .btn { min-width: 0; }
+    .repair-order-inventory-actions .btn--wide { grid-column: 1 / -1; }
+    @media (max-width: 980px) {
+      .inventory-layout,
+      .repair-order-table-card.is-inventory-open .repair-order-materials-layout {
+        grid-template-columns: 1fr;
+      }
+      .inventory-form-grid { grid-template-columns: 1fr; }
+      .inventory-field--wide,
+      .inventory-field--mid { grid-column: auto; }
+      .inventory-replenish-row { grid-template-columns: 1fr; }
+    }
     .cashboxes-layout {
       display: grid;
       grid-template-columns: minmax(214px, 244px) minmax(0, 1fr);
@@ -2581,7 +2756,7 @@
                 <span>КРАТКАЯ СУТЬ</span>
                 <input id="mobileCardTitleInput" type="text" maxlength="220" data-mobile-card-field="title">
               </label>
-              <label class="mobile-field" for="mobileCardDescriptionInput">
+              <label class="mobile-field mobile-card-description-field" for="mobileCardDescriptionInput">
                 <span>ОПИСАНИЕ</span>
                 <textarea id="mobileCardDescriptionInput" maxlength="12000" rows="10" data-mobile-card-field="description"></textarea>
               </label>
@@ -2705,6 +2880,68 @@
           </label>
           <button class="mobile-action mobile-action--primary" id="mobileCashboxSubmitButton" type="button">ПРОВЕСТИ</button>
         </div>
+      </section>
+      <section class="mobile-workspace" data-mobile-panel="inventory" aria-label="Склад">
+        <div class="mobile-workspace__head">
+          <div>
+            <div class="mobile-kicker">СКЛАД</div>
+            <h2>Остатки</h2>
+          </div>
+          <div class="mobile-cashbox-actions">
+            <button class="mobile-action mobile-action--ghost" id="mobileInventoryNewButton" type="button">+ ПОЗ.</button>
+            <button class="mobile-action mobile-action--ghost" id="mobileInventoryRefreshButton" type="button">ОБНОВИТЬ</button>
+          </div>
+        </div>
+        <label class="mobile-field" for="mobileInventorySearchInput">
+          <span>ПОИСК</span>
+          <input id="mobileInventorySearchInput" type="search" autocomplete="off" spellcheck="false" placeholder="Название или артикул">
+        </label>
+        <div class="mobile-inventory-list" id="mobileInventoryItemsList"></div>
+        <section class="mobile-inventory-editor" id="mobileInventoryEditor">
+          <div class="mobile-kicker">ПОЗИЦИЯ</div>
+          <label class="mobile-field" for="mobileInventoryNameInput">
+            <span>НАЗВАНИЕ</span>
+            <input id="mobileInventoryNameInput" type="text" maxlength="180">
+          </label>
+          <div class="mobile-repair-order-grid">
+            <label class="mobile-field" for="mobileInventoryCatalogInput">
+              <span>АРТИКУЛ</span>
+              <input id="mobileInventoryCatalogInput" type="text" maxlength="120">
+            </label>
+            <label class="mobile-field" for="mobileInventoryUnitSelect">
+              <span>ЕД.</span>
+              <select id="mobileInventoryUnitSelect">
+                <option value="шт">шт</option>
+                <option value="л">л</option>
+              </select>
+            </label>
+          </div>
+          <div class="mobile-repair-order-grid">
+            <label class="mobile-field" for="mobileInventoryQuantityInput">
+              <span>ОСТАТОК</span>
+              <input id="mobileInventoryQuantityInput" type="text" inputmode="decimal" maxlength="40" placeholder="0">
+            </label>
+            <label class="mobile-field" for="mobileInventoryReplenishQuantityInput">
+              <span>ПОПОЛНИТЬ</span>
+              <input id="mobileInventoryReplenishQuantityInput" type="text" inputmode="decimal" maxlength="40" placeholder="0">
+            </label>
+          </div>
+          <div class="mobile-repair-order-grid">
+            <label class="mobile-field" for="mobileInventoryCostPriceInput">
+              <span>ЗАКУП</span>
+              <input id="mobileInventoryCostPriceInput" type="text" inputmode="decimal" maxlength="40" placeholder="0">
+            </label>
+            <label class="mobile-field" for="mobileInventorySalePriceInput">
+              <span>ПРОДАЖА</span>
+              <input id="mobileInventorySalePriceInput" type="text" inputmode="decimal" maxlength="40" placeholder="0">
+            </label>
+          </div>
+          <div class="mobile-cashbox-actions">
+            <button class="mobile-action mobile-action--primary" id="mobileInventorySaveButton" type="button">СОХР.</button>
+            <button class="mobile-action mobile-action--ghost" id="mobileInventoryReplenishButton" type="button">ПРИХОД</button>
+          </div>
+          <div class="inventory-status" id="mobileInventoryStatusLine"></div>
+        </section>
       </section>
       <section class="mobile-workspace" data-mobile-panel="repair-orders" aria-label="Заказ-наряды">
         <div class="mobile-workspace__head">
@@ -2921,6 +3158,7 @@
     <nav class="mobile-bottom-nav" aria-label="Мобильная навигация">
       <button class="mobile-bottom-nav__item is-active" type="button" data-mobile-view="board">Доска</button>
       <button class="mobile-bottom-nav__item" type="button" data-mobile-view="cashboxes">Кассы</button>
+      <button class="mobile-bottom-nav__item" type="button" data-mobile-view="inventory">Склад</button>
       <button class="mobile-bottom-nav__item" type="button" data-mobile-view="repair-orders">НАРЯДЫ</button>
       <button class="mobile-bottom-nav__item" type="button" data-mobile-view="more">Еще</button>
     </nav>
@@ -2954,6 +3192,7 @@
         <button class="btn" id="repairOrdersButton">ЗАКАЗ-НАРЯДЫ</button>
         <button class="btn" id="clientsButton">КЛИЕНТЫ</button>
         <button class="btn" id="cashboxesButton">КАССЫ</button>
+        <button class="btn" id="inventoryButton">СКЛАД</button>
         <button class="btn" id="employeesButton">СОТРУДНИКИ</button>
         <button class="btn" id="columnButton">+ СТОЛБЕЦ</button>
           <button class="btn btn--accent" id="cardButton" type="button">+ КАРТОЧКА</button>
@@ -3381,6 +3620,71 @@
             </div>
             <div class="cashbox-transactions" id="cashboxTransactions"></div>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="inventoryModal">
+    <div class="dialog">
+      <div class="dialog__head">
+        <div class="dialog__title">СКЛАД</div>
+        <button class="btn" data-close="inventory">ЗАКРЫТЬ</button>
+      </div>
+      <div class="inventory-layout">
+        <div class="subpanel inventory-pane">
+          <div class="panel-title">ПОЗИЦИИ</div>
+          <div class="inventory-toolbar">
+            <div class="field field--compact">
+              <label for="inventorySearchInput">ПОИСК</label>
+              <input id="inventorySearchInput" type="search" autocomplete="off" spellcheck="false" placeholder="Название / артикул">
+            </div>
+            <button class="btn btn--accent" id="inventoryNewButton" type="button">+ ПОЗИЦИЯ</button>
+          </div>
+          <div class="inventory-list" id="inventoryItemsList"></div>
+        </div>
+        <div class="subpanel inventory-pane">
+          <div class="panel-title" id="inventoryDetailTitle">ПОЗИЦИЯ</div>
+          <div class="inventory-form-grid">
+            <div class="field field--compact inventory-field--wide">
+              <label for="inventoryNameInput">НАЗВАНИЕ</label>
+              <input id="inventoryNameInput" type="text" maxlength="180">
+            </div>
+            <div class="field field--compact inventory-field--mid">
+              <label for="inventoryCatalogInput">АРТИКУЛ</label>
+              <input id="inventoryCatalogInput" type="text" maxlength="120">
+            </div>
+            <div class="field field--compact">
+              <label for="inventoryUnitSelect">ЕД.</label>
+              <select id="inventoryUnitSelect">
+                <option value="шт">шт</option>
+                <option value="л">л</option>
+              </select>
+            </div>
+            <div class="field field--compact inventory-field--mid">
+              <label for="inventoryQuantityInput">ОСТАТОК</label>
+              <input id="inventoryQuantityInput" type="text" inputmode="decimal" maxlength="40" placeholder="0">
+            </div>
+            <div class="field field--compact inventory-field--mid">
+              <label for="inventoryCostPriceInput">ЗАКУПКА</label>
+              <input id="inventoryCostPriceInput" type="text" inputmode="decimal" maxlength="40" placeholder="0">
+            </div>
+            <div class="field field--compact inventory-field--mid">
+              <label for="inventorySalePriceInput">ПРОДАЖА</label>
+              <input id="inventorySalePriceInput" type="text" inputmode="decimal" maxlength="40" placeholder="0">
+            </div>
+          </div>
+          <div class="inventory-actions">
+            <button class="btn btn--accent" id="inventorySaveButton" type="button">СОХРАНИТЬ</button>
+          </div>
+          <div class="inventory-replenish-row">
+            <div class="field field--compact">
+              <label for="inventoryReplenishQuantityInput">ПОПОЛНИТЬ</label>
+              <input id="inventoryReplenishQuantityInput" type="text" inputmode="decimal" maxlength="40" placeholder="0">
+            </div>
+            <button class="btn btn--ghost" id="inventoryReplenishButton" type="button">ПРИХОД</button>
+          </div>
+          <div class="inventory-status" id="inventoryStatusLine"></div>
         </div>
       </div>
     </div>
@@ -3841,29 +4145,58 @@
             <button class="btn btn--accent" type="button" data-repair-order-work-salary-apply>ПРИМЕНИТЬ</button>
           </div>
         </div>
-        <section class="repair-order-table-card" data-repair-order-section="materials">
+        <section class="repair-order-table-card repair-order-materials-card" data-repair-order-section="materials">
           <div class="repair-order-section-bar">
             <div class="panel-title">МАТЕРИАЛЫ</div>
-            <button class="btn btn--ghost" id="repairOrderAddMaterialRowButton" type="button" data-add-repair-order-row="materials">+ СТРОКА</button>
+            <div class="repair-order-section-actions">
+              <button class="btn btn--ghost" id="repairOrderInventoryToggleButton" type="button">СКЛАД</button>
+              <button class="btn btn--ghost" id="repairOrderAddMaterialRowButton" type="button" data-add-repair-order-row="materials">+ СТРОКА</button>
+            </div>
           </div>
-          <div class="repair-order-table-wrap">
-            <table class="repair-order-table">
-              <thead>
-                <tr>
-                  <th style="width:27%;">Наименование</th>
-                  <th style="width:14%;">Списал</th>
-                  <th style="width:12%;">Кат. №</th>
-                  <th class="repair-order-table__numeric" style="width:8%;">Кол-во</th>
-                  <th class="repair-order-table__numeric" style="width:11%;">Закупка</th>
-                  <th class="repair-order-table__numeric" style="width:11%;">Цена</th>
-                  <th class="repair-order-table__numeric" style="width:13%;">Сумма</th>
-                  <th class="repair-order-table__action" style="width:4%;"></th>
-                </tr>
-              </thead>
-              <tbody id="repairOrderMaterialsBody"></tbody>
-            </table>
+          <div class="repair-order-materials-layout">
+            <div class="repair-order-materials-main">
+              <div class="repair-order-table-wrap">
+                <table class="repair-order-table">
+                  <thead>
+                    <tr>
+                      <th style="width:27%;">Наименование</th>
+                      <th style="width:14%;">Списал</th>
+                      <th style="width:12%;">Кат. №</th>
+                      <th class="repair-order-table__numeric" style="width:8%;">Кол-во</th>
+                      <th class="repair-order-table__numeric" style="width:11%;">Закупка</th>
+                      <th class="repair-order-table__numeric" style="width:11%;">Цена</th>
+                      <th class="repair-order-table__numeric" style="width:13%;">Сумма</th>
+                      <th class="repair-order-table__action" style="width:4%;"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="repairOrderMaterialsBody"></tbody>
+                </table>
+              </div>
+              <div class="repair-order-subtotal"><span>ИТОГО МАТЕРИАЛЫ</span><strong data-repair-order-total="materials">0,00</strong></div>
+            </div>
+            <aside class="repair-order-inventory-panel" id="repairOrderInventoryPanel" hidden aria-label="Склад для заказ-наряда">
+              <div class="panel-title">СКЛАД</div>
+              <div class="field field--compact">
+                <label for="repairOrderInventorySearchInput">ПОИСК</label>
+                <input id="repairOrderInventorySearchInput" type="search" autocomplete="off" spellcheck="false" placeholder="Название / артикул">
+              </div>
+              <div class="repair-order-inventory-results" id="repairOrderInventoryResults"></div>
+              <div class="repair-order-inventory-selected" id="repairOrderInventorySelected">
+                <div class="repair-order-inventory-selected__title">ПОЗИЦИЯ НЕ ВЫБРАНА</div>
+                <div class="repair-order-inventory-selected__meta"></div>
+              </div>
+              <div class="field field--compact">
+                <label for="repairOrderInventoryQuantityInput">КОЛ-ВО</label>
+                <input id="repairOrderInventoryQuantityInput" type="text" inputmode="decimal" maxlength="40">
+              </div>
+              <div class="repair-order-inventory-actions">
+                <button class="btn btn--ghost" id="repairOrderInventoryFillButton" type="button">В СТРОКУ</button>
+                <button class="btn btn--accent" id="repairOrderInventoryIssueButton" type="button">СПИСАТЬ</button>
+                <button class="btn btn--ghost btn--wide" id="repairOrderInventoryReturnButton" type="button">ВЕРНУТЬ</button>
+              </div>
+              <div class="inventory-status" id="repairOrderInventoryStatus"></div>
+            </aside>
           </div>
-          <div class="repair-order-subtotal"><span>ИТОГО МАТЕРИАЛЫ</span><strong data-repair-order-total="materials">0,00</strong></div>
         </section>
       </div>
         <div class="dialog__foot repair-order-footer dialog__floating-actions">
