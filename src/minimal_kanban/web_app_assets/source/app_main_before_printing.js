@@ -9051,7 +9051,7 @@
             body: {
               card_id: cardId,
               actor_name: state.actor,
-              source: 'mobile-ui',
+              source: 'ui',
               file_name: file.name,
               mime_type: normalizeAttachmentMimeType(file.type) || attachmentMimeTypeFromExtension(attachmentExtension(file.name)) || 'application/octet-stream',
               content_base64: base64,
@@ -9079,7 +9079,7 @@
       try {
         await api('/api/remove_card_attachment', {
           method: 'POST',
-          body: { card_id: cardId, attachment_id: normalizedAttachmentId, actor_name: state.actor, source: 'mobile-ui' },
+          body: { card_id: cardId, attachment_id: normalizedAttachmentId, actor_name: state.actor, source: 'ui' },
         });
         await refreshMobileCardFiles();
         await refreshSnapshot(true);
@@ -9223,7 +9223,7 @@
       });
       return {
         actor_name: state.actor,
-        source: 'mobile-ui',
+        source: 'ui',
         expected_updated_at: String(card.updated_at || ''),
         vehicle: String(values.vehicle ?? card.vehicle ?? '').trim(),
         title: String(values.title ?? card.title ?? '').trim(),
@@ -9957,7 +9957,7 @@
           body: {
             card_id: normalizedCardId,
             actor_name: state.actor,
-            source: 'mobile-ui',
+            source: 'ui',
             create_if_missing: true,
           },
         });
@@ -9996,7 +9996,7 @@
           body: {
             card_id: cardId,
             actor_name: state.actor,
-            source: 'mobile-ui',
+            source: 'ui',
             repair_order: repairOrder,
           },
         });
@@ -10541,7 +10541,7 @@
       try {
         const data = await api('/api/restore_card', {
           method: 'POST',
-          body: { card_id: normalizedId, actor_name: state.actor, source: 'mobile-ui' },
+          body: { card_id: normalizedId, actor_name: state.actor, source: 'ui' },
         });
         const restoredId = String(data?.card?.id || normalizedId).trim();
         const patched = data?.card ? applyArchivedCardPatch(data.card) : false;
@@ -10924,7 +10924,7 @@
               amount,
               note,
               actor_name: state.actor,
-              source: 'mobile-ui',
+              source: 'ui',
             },
           });
           setStatus('ПЕРЕМЕЩЕНИЕ СОХРАНЕНО.', false);
@@ -10938,7 +10938,7 @@
               amount,
               note,
               actor_name: state.actor,
-              source: 'mobile-ui',
+              source: 'ui',
             },
           });
           setStatus(direction === 'expense' ? 'СПИСАНИЕ СОХРАНЕНО.' : 'ПОСТУПЛЕНИЕ СОХРАНЕНО.', false);
@@ -17351,7 +17351,7 @@
         cost_price: String(refs.costPrice?.value || '0').trim(),
         sale_price: String(refs.salePrice?.value || '0').trim(),
         actor_name: state.actor,
-        source: state.mobileLite && state.mobileView === 'inventory' ? 'mobile-ui' : 'ui',
+        source: 'ui',
       };
       if (itemId) payload.item_id = itemId;
       else payload.quantity = String(refs.quantity?.value || '0').trim();
@@ -17408,7 +17408,7 @@
             cost_price: String(refs.costPrice?.value || '').trim(),
             sale_price: String(refs.salePrice?.value || '').trim(),
             actor_name: state.actor,
-            source: state.mobileLite && state.mobileView === 'inventory' ? 'mobile-ui' : 'ui',
+            source: 'ui',
           },
         });
         if (data?.item) {

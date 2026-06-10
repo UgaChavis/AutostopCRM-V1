@@ -2625,6 +2625,10 @@ class WebAssetsTests(unittest.TestCase):
             "document.addEventListener('pointerout', handleCardSeenPointerOut);", BOARD_WEB_APP_HTML
         )
 
+    def test_mobile_card_creation_uses_valid_ui_audit_source(self) -> None:
+        self.assertNotIn("mobile-ui", BOARD_WEB_APP_HTML)
+        self.assertIn("source: 'ui'", BOARD_WEB_APP_HTML)
+
     def test_web_assets_do_not_ship_dead_legacy_shadow_helpers(self) -> None:
         stale_helpers = [
             "legacyRenderRepairOrderRowsExpandedShadow",

@@ -806,7 +806,11 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(card["column_label"], "ChatGPT")
                 self.assertEqual(card["vehicle_profile"]["engine_code"], "G4FC")
                 self.assertEqual(card["vehicle_profile_compact"]["display_name"], "Kia Rio 2018")
-                self.assertTrue(card["is_unread"])
+                self.assertFalse(card["is_unread"])
+                other_view = self.service.get_card(
+                    {"card_id": card_id, "actor_name": "OTHER_USER"}
+                )["card"]
+                self.assertTrue(other_view["is_unread"])
                 self.assertEqual(card["tag_items"][0]["color"], "red")
                 self.assertEqual(card["tag_items"][1]["color"], "green")
 

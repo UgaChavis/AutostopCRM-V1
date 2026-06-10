@@ -691,7 +691,7 @@ class CardService(
             default_column_id = columns[0].id if columns else "inbox"
             column = self._validated_column(payload.get("column", default_column_id), columns)
             mark_unread = self._validated_optional_bool(
-                payload, "mark_unread", default=source == "mcp"
+                payload, "mark_unread", default=source in {"ui", "mcp"}
             )
             now = utc_now()
             now_iso = now.isoformat()
@@ -769,7 +769,14 @@ class CardService(
                 source,
             )
             self._notify_agent_card_created(card)
-            return {"card": self._serialize_card(card, events, column_labels=column_labels)}
+            return {
+                "card": self._serialize_card(
+                    card,
+                    events,
+                    column_labels=column_labels,
+                    viewer_username=actor_name,
+                )
+            }
 
     def set_card_board_summary(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -1271,7 +1278,7 @@ class CardService(
             card = self._find_card(cards, payload.get("card_id"))
             actor_name = normalize_actor_name(payload.get("actor_name"), default="")
             changed = False
-            if card.is_unread:
+            if card.is_unread and not actor_name:
                 card.is_unread = False
                 changed = True
             if actor_name:

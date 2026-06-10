@@ -1459,6 +1459,72 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertFalse(marked["data"]["card"]["has_unseen_update"])
 
+    def test_ui_created_card_is_unread_for_other_operator_sessions(self) -> None:
+        status, admin_login = self.request(
+            "/api/login_operator", {"username": "admin", "password": "admin"}
+        )
+        self.assertEqual(status, 200)
+        admin_headers = {"X-Operator-Session": admin_login["data"]["session"]["token"]}
+
+        status, _ = self.request(
+            "/api/save_operator_user",
+            {"username": "worker", "password": "1234"},
+            headers=admin_headers,
+        )
+        self.assertEqual(status, 200)
+
+        status, worker_login = self.request(
+            "/api/login_operator", {"username": "worker", "password": "1234"}
+        )
+        self.assertEqual(status, 200)
+        worker_headers = {"X-Operator-Session": worker_login["data"]["session"]["token"]}
+
+        status, created = self.request(
+            "/api/create_card",
+            {
+                "title": "UI unread",
+                "description": "Created by admin",
+                "deadline": {"hours": 1},
+                "source": "ui",
+            },
+            headers=admin_headers,
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+        self.assertFalse(created["data"]["card"]["is_unread"])
+
+        status, admin_snapshot = self.request(
+            "/api/get_board_snapshot", method="GET", headers=admin_headers
+        )
+        self.assertEqual(status, 200)
+        admin_card = next(card for card in admin_snapshot["data"]["cards"] if card["id"] == card_id)
+        self.assertFalse(admin_card["is_unread"])
+
+        status, worker_snapshot = self.request(
+            "/api/get_board_snapshot", method="GET", headers=worker_headers
+        )
+        self.assertEqual(status, 200)
+        worker_card = next(
+            card for card in worker_snapshot["data"]["cards"] if card["id"] == card_id
+        )
+        self.assertTrue(worker_card["is_unread"])
+
+        status, marked = self.request(
+            "/api/mark_card_seen", {"card_id": card_id}, headers=worker_headers
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(marked["data"]["meta"]["changed"])
+        self.assertFalse(marked["data"]["card"]["is_unread"])
+
+        status, worker_snapshot = self.request(
+            "/api/get_board_snapshot", method="GET", headers=worker_headers
+        )
+        self.assertEqual(status, 200)
+        worker_card = next(
+            card for card in worker_snapshot["data"]["cards"] if card["id"] == card_id
+        )
+        self.assertFalse(worker_card["is_unread"])
+
     def test_operator_user_listing_reads_board_bundle_once(self) -> None:
         logged_in = self.operator_service.login({"username": "admin", "password": "admin"})
         session = logged_in["session"]
@@ -3195,7 +3261,7 @@ class ApiServerTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         card = created["data"]["card"]
-        self.assertTrue(card["is_unread"])
+        self.assertFalse(card["is_unread"])
         card_id = card["id"]
         updated_at = card["updated_at"]
 

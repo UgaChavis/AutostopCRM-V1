@@ -1667,9 +1667,23 @@ class Card:
         self.seen_by_users[normalized_actor] = next_seen_at
         return True
 
+    def is_unread_for(self, actor_name: str | None) -> bool:
+        if not self.is_unread:
+            return False
+        normalized_actor = normalize_actor_name(actor_name, default="")
+        if not normalized_actor:
+            return True
+        seen_at = parse_datetime(self.seen_by_users.get(normalized_actor))
+        if seen_at is None:
+            return True
+        created_at = parse_datetime(self.created_at)
+        if created_at is None:
+            return False
+        return seen_at < created_at
+
     def has_unseen_update_for(self, actor_name: str | None) -> bool:
         normalized_actor = normalize_actor_name(actor_name, default="")
-        if not normalized_actor or self.is_unread:
+        if not normalized_actor or self.is_unread_for(normalized_actor):
             return False
         seen_at = parse_datetime(self.seen_by_users.get(normalized_actor))
         updated_at = parse_datetime(self.updated_at)
@@ -1780,7 +1794,7 @@ class Card:
             "tag_items": self.tag_items(),
             "attachment_count": len(self.active_attachments()),
             "events_count": max(0, int(events_count)),
-            "is_unread": self.is_unread,
+            "is_unread": self.is_unread_for(viewer_username),
             "has_unseen_update": self.has_unseen_update_for(viewer_username),
             "ai_autofill_active": self.ai_autofill_active,
             "ai_autofill_until": self.ai_autofill_until,

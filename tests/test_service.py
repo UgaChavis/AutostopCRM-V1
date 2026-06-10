@@ -5439,7 +5439,37 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(profile["model_display"], "320I")
         self.assertIsNone(profile["coolant_capacity_l"])
 
-    def test_mcp_created_card_is_unread_until_marked_seen(self) -> None:
+    def test_ui_created_card_is_unread_for_other_users_until_each_seen(self) -> None:
+        created = self.service.create_card(
+            {
+                "title": "Новая UI карточка",
+                "description": "Карточка от оператора",
+                "deadline": {"hours": 1},
+                "source": "ui",
+                "actor_name": "ALICE",
+            }
+        )
+        card = created["card"]
+        card_id = card["id"]
+        self.assertFalse(card["is_unread"])
+
+        alice_view = self.service.get_card({"card_id": card_id, "actor_name": "ALICE"})["card"]
+        bob_view = self.service.get_card({"card_id": card_id, "actor_name": "BOB"})["card"]
+        clara_view = self.service.get_card({"card_id": card_id, "actor_name": "CLARA"})["card"]
+        self.assertFalse(alice_view["is_unread"])
+        self.assertTrue(bob_view["is_unread"])
+        self.assertTrue(clara_view["is_unread"])
+
+        marked = self.service.mark_card_seen({"card_id": card_id, "actor_name": "BOB"})
+        self.assertTrue(marked["meta"]["changed"])
+        self.assertFalse(marked["card"]["is_unread"])
+
+        bob_view = self.service.get_card({"card_id": card_id, "actor_name": "BOB"})["card"]
+        clara_view = self.service.get_card({"card_id": card_id, "actor_name": "CLARA"})["card"]
+        self.assertFalse(bob_view["is_unread"])
+        self.assertTrue(clara_view["is_unread"])
+
+    def test_mcp_created_card_is_unread_for_humans_until_marked_seen(self) -> None:
         created = self.service.create_card(
             {
                 "title": "Через GPT",
@@ -5450,16 +5480,26 @@ class CardServiceTests(unittest.TestCase):
         )
         card = created["card"]
         card_id = card["id"]
-        self.assertTrue(card["is_unread"])
+        self.assertFalse(card["is_unread"])
         self.assertEqual(card["events_count"], 1)
         updated_at = card["updated_at"]
 
-        marked = self.service.mark_card_seen({"card_id": card_id})
+        alice_view = self.service.get_card({"card_id": card_id, "actor_name": "ALICE"})["card"]
+        self.assertTrue(alice_view["is_unread"])
+
+        marked = self.service.mark_card_seen({"card_id": card_id, "actor_name": "ALICE"})
         self.assertTrue(marked["meta"]["changed"])
         self.assertFalse(marked["card"]["is_unread"])
         self.assertEqual(marked["card"]["updated_at"], updated_at)
 
-        marked_again = self.service.mark_card_seen({"card_id": card_id})
+        bob_view = self.service.get_card({"card_id": card_id, "actor_name": "BOB"})["card"]
+        self.assertTrue(bob_view["is_unread"])
+
+        legacy_marked = self.service.mark_card_seen({"card_id": card_id})
+        self.assertTrue(legacy_marked["meta"]["changed"])
+        self.assertFalse(legacy_marked["card"]["is_unread"])
+
+        marked_again = self.service.mark_card_seen({"card_id": card_id, "actor_name": "ALICE"})
         self.assertFalse(marked_again["meta"]["changed"])
         self.assertFalse(marked_again["card"]["is_unread"])
 
@@ -5469,6 +5509,7 @@ class CardServiceTests(unittest.TestCase):
                 "title": "Seen card",
                 "description": "Initial",
                 "deadline": {"hours": 2},
+                "source": "ui",
                 "actor_name": "ALICE",
             }
         )
@@ -5489,9 +5530,12 @@ class CardServiceTests(unittest.TestCase):
 
         alice_view = self.service.get_card({"card_id": card_id, "actor_name": "ALICE"})["card"]
         bob_view = self.service.get_card({"card_id": card_id, "actor_name": "BOB"})["card"]
+        clara_view = self.service.get_card({"card_id": card_id, "actor_name": "CLARA"})["card"]
         self.assertTrue(alice_view["has_unseen_update"])
         self.assertFalse(alice_view["is_unread"])
         self.assertFalse(bob_view["has_unseen_update"])
+        self.assertTrue(clara_view["is_unread"])
+        self.assertFalse(clara_view["has_unseen_update"])
 
         marked = self.service.mark_card_seen({"card_id": card_id, "actor_name": "ALICE"})
         self.assertTrue(marked["meta"]["changed"])
