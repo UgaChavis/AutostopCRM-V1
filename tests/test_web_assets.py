@@ -1992,7 +1992,16 @@ class WebAssetsTests(unittest.TestCase):
             'class="dialog__head dialog__head--card dialog__floating-actions"',
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn('class="dialog__title-row dialog__title-row--card"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            '<div class="dialog__title dialog__title--card" id="cardModalTitle">РАБОЧАЯ КАРТОЧКА</div>\n'
+            '            <div class="dialog__tabs dialog__tabs--card">',
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn('class="dialog__tabs dialog__tabs--card"', BOARD_WEB_APP_HTML)
+        self.assertIn(".dialog__title-row--card {", BOARD_WEB_APP_HTML)
+        self.assertIn(".dialog__tabs--card .tab-btn {", BOARD_WEB_APP_HTML)
+        self.assertIn("grid-template-rows: auto minmax(0, 1fr) auto;", BOARD_WEB_APP_HTML)
         self.assertIn(".dialog__title--card {", BOARD_WEB_APP_HTML)
         self.assertIn("text-overflow: ellipsis;", BOARD_WEB_APP_HTML)
         self.assertIn("function limitCardModalHeading(value, maxLength = 92)", BOARD_WEB_APP_HTML)
@@ -2212,7 +2221,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "body.is-mobile-lite .dialog--card {\n      width: 100vw;\n"
             "      height: 100dvh;\n      max-height: 100dvh;\n"
-            "      padding: 10px;\n      grid-template-rows: auto auto minmax(0, 1fr) auto;",
+            "      padding: 10px;\n      grid-template-rows: auto minmax(0, 1fr) auto;",
             BOARD_WEB_APP_HTML,
         )
 

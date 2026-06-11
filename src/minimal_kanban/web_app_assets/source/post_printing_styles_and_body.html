@@ -4131,17 +4131,19 @@
       <div class="dialog__head dialog__head--card dialog__floating-actions">
         <div class="dialog__title-wrap">
           <div class="dialog__title-prefix">КАРТОЧКА</div>
-          <div class="dialog__title dialog__title--card" id="cardModalTitle">РАБОЧАЯ КАРТОЧКА</div>
+          <div class="dialog__title-row dialog__title-row--card">
+            <div class="dialog__title dialog__title--card" id="cardModalTitle">РАБОЧАЯ КАРТОЧКА</div>
+            <div class="dialog__tabs dialog__tabs--card">
+              <div>
+                <button class="tab-btn is-active" data-tab="overview">ОБЗОР</button>
+                <button class="tab-btn" data-tab="files">ФАЙЛЫ</button>
+                <button class="tab-btn" data-tab="journal">ЖУРНАЛ</button>
+              </div>
+              <div class="log-row__meta" id="cardMetaLine"></div>
+            </div>
+          </div>
         </div>
         <button class="btn" id="cardModalCloseButtonTop" data-close="card" onclick="window.__closeCardModal && window.__closeCardModal(); return false;">ЗАКРЫТЬ</button>
-      </div>
-      <div class="dialog__tabs dialog__tabs--card">
-        <div>
-          <button class="tab-btn is-active" data-tab="overview">ОБЗОР</button>
-          <button class="tab-btn" data-tab="files">ФАЙЛЫ</button>
-          <button class="tab-btn" data-tab="journal">ЖУРНАЛ</button>
-        </div>
-        <div class="log-row__meta" id="cardMetaLine"></div>
       </div>
       <section class="dialog__body-scroll" data-panel="overview">
         <div class="overview-layout">
