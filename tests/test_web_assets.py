@@ -3657,6 +3657,14 @@ class WebAssetsTests(unittest.TestCase):
             "if (state.repairOrdersRemoteQuery) params.set('query', state.repairOrdersRemoteQuery);",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn("repairOrdersSortBy: 'number'", BOARD_WEB_APP_HTML)
+        self.assertIn("repairOrdersSortDir: 'desc'", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "return REPAIR_ORDER_SORT_FIELDS.includes(normalized) ? normalized : 'number';",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("state.repairOrdersSortBy = 'number';", BOARD_WEB_APP_HTML)
+        self.assertIn('<option value="number" selected>Номер</option>', BOARD_WEB_APP_HTML)
         self.assertIn("'/api/open_card'", BOARD_WEB_APP_HTML)
         self.assertIn("data-open-repair-order-card", BOARD_WEB_APP_HTML)
         repair_order_card_fragment = BOARD_WEB_APP_HTML[

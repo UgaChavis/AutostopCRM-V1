@@ -147,7 +147,7 @@
       repairOrdersRemoteQuery: '',
       repairOrdersSearchField: 'summary',
       repairOrdersSearchLoading: false,
-      repairOrdersSortBy: 'opened_at',
+      repairOrdersSortBy: 'number',
       repairOrdersSortDir: 'desc',
       repairOrdersLoadTimer: null,
       repairOrdersItems: [],
@@ -15473,7 +15473,7 @@
 
     function normalizeRepairOrdersSortBy(value) {
       const normalized = String(value || '').trim().toLowerCase();
-      return REPAIR_ORDER_SORT_FIELDS.includes(normalized) ? normalized : 'opened_at';
+      return REPAIR_ORDER_SORT_FIELDS.includes(normalized) ? normalized : 'number';
     }
 
     function normalizeRepairOrdersSortDir(value) {
@@ -16871,7 +16871,7 @@
       state.repairOrdersQuery = '';
       state.repairOrdersRemoteQuery = '';
       state.repairOrdersSearchField = 'summary';
-      state.repairOrdersSortBy = 'opened_at';
+      state.repairOrdersSortBy = 'number';
       state.repairOrdersSortDir = 'desc';
       if (state.repairOrdersLoadTimer) {
         window.clearTimeout(state.repairOrdersLoadTimer);
