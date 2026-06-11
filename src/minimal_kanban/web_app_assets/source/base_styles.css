@@ -2548,32 +2548,6 @@
       border-color: rgba(209, 90, 76, 0.48);
       background: rgba(209, 90, 76, 0.1);
     }
-    .vehicle-autofill {
-      display: grid;
-      gap: 8px;
-      padding-top: 1px;
-    }
-    .vehicle-autofill__textarea {
-      min-height: 58px;
-      max-height: 116px;
-      font-family: var(--sans);
-      font-size: 13px;
-      line-height: 1.45;
-    }
-    .vehicle-autofill__hint {
-      display: none;
-    }
-    .vehicle-autofill__status {
-      display: none;
-    }
-    .vehicle-autofill__status.is-warning {
-      color: #ffd7d0;
-      border-color: rgba(209, 90, 76, 0.48);
-      background: rgba(99, 24, 18, 0.18);
-    }
-    .vehicle-autofill__status.is-empty {
-      color: var(--text-soft);
-    }
     .vehicle-panel__fields {
       display: grid;
       gap: 5px;
@@ -5832,7 +5806,6 @@
       align-items: center;
       gap: 8px;
     }
-    body.is-mobile-lite #vehicleAutofillButton,
     body.is-mobile-lite #cardAgentButton {
       display: none;
     }

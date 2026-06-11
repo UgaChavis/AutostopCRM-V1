@@ -127,7 +127,6 @@
       currentTab: 'overview',
       vehicleProfileDraft: null,
       vehicleProfileBaseline: null,
-      vehicleAutofillResult: null,
       draftTags: [],
       draftTagColor: 'green',
       pollHandle: null,
@@ -1116,7 +1115,6 @@
       cardClientCreateVehicleInput: document.getElementById('cardClientCreateVehicleInput'),
       cardClientCreateVehicleSummary: document.getElementById('cardClientCreateVehicleSummary'),
       cardClientCreateSaveButton: document.getElementById('cardClientCreateSaveButton'),
-      vehicleAutofillButton: document.getElementById('vehicleAutofillButton'),
       repairOrderButton: document.getElementById('repairOrderButton'),
       repairOrderModal: document.getElementById('repairOrderModal'),
       repairOrderModalTitle: document.getElementById('repairOrderModalTitle'),
@@ -1177,7 +1175,6 @@
       repairOrderCloseButton: document.getElementById('repairOrderCloseButton'),
       repairOrderSaveButton: document.getElementById('repairOrderSaveButton'),
       repairOrderPrintButton: document.getElementById('repairOrderPrintButton'),
-      vehicleAutofillStatus: document.getElementById('vehicleAutofillStatus'),
       tagList: document.getElementById('tagList'),
       tagMeta: document.getElementById('tagMeta'),
       tagSuggestions: document.getElementById('tagSuggestions'),
@@ -11694,10 +11691,6 @@
       return text.slice(0, Math.max(0, maxLength - 1)).trimEnd() + '…';
     }
 
-    function configureVehicleAutofillUi() {
-      return;
-    }
-
     function syncAgentTaskInputHeight() {
       const textarea = els.agentTaskInput;
       if (!textarea) return;
@@ -12409,31 +12402,7 @@
       });
     }
 
-    function defaultVehicleStatusText(profile) {
-      const lines = [];
-      if (profile?.source_summary) lines.push('Источник: ' + profile.source_summary);
-      if (profile?.source_confidence !== null && profile?.source_confidence !== undefined && profile.source_confidence !== '') {
-        lines.push('Confidence: ' + Math.round(Number(profile.source_confidence) * 100) + '%');
-      }
-      if (profile?.image_parse_status && profile.image_parse_status !== 'not_attempted') {
-        lines.push('OCR: ' + profile.image_parse_status);
-      }
-      if (Array.isArray(profile?.source_links_or_refs) && profile.source_links_or_refs.length) {
-        lines.push('Refs: ' + profile.source_links_or_refs.join(' | '));
-      }
-      (profile?.warnings || []).forEach((warning) => lines.push('! ' + warning));
-      return lines.length ? lines.join('\n') : 'Автозаполнение пока не запускалось.';
-    }
-
-    function renderVehicleAutofillStatus(message, isWarning = false) {
-      if (!els.vehicleAutofillStatus) return;
-      const text = String(message || '').trim() || 'Автозаполнение пока не запускалось.';
-      els.vehicleAutofillStatus.textContent = text;
-      els.vehicleAutofillStatus.classList.toggle('is-warning', isWarning);
-      els.vehicleAutofillStatus.classList.toggle('is-empty', !text || text === 'Автозаполнение пока не запускалось.');
-    }
-
-    function applyVehicleProfileToForm(profile, { preserveStatus = false } = {}) {
+    function applyVehicleProfileToForm(profile) {
       const normalized = cloneVehicleProfile(profile);
       if (!String(normalized.display_name || '').trim()) {
         normalized.display_name = vehicleDisplayFromProfile(normalized);
@@ -12444,7 +12413,6 @@
       renderVehicleCustomerPhoneFields(normalized.customer_phones.length ? normalized.customer_phones : [normalized.customer_phone]);
       syncVehicleCopyButtons();
       refreshVehiclePanel();
-      if (!preserveStatus) renderVehicleAutofillStatus(defaultVehicleStatusText(normalized), Boolean(normalized.warnings?.length || vinLooksSuspicious(normalized.vin)));
     }
 
     function handleVehicleFieldInput(fieldName) {
@@ -12466,7 +12434,6 @@
       profile.autofilled_fields = Array.from(autofilledFields).sort();
       profile.tentative_fields = Array.from(tentativeFields).sort();
       state.vehicleProfileDraft = profile;
-      state.vehicleAutofillResult = null;
       syncVehicleCopyButtons();
       refreshVehiclePanel();
       if (['customer_name', 'customer_phone', 'vin', 'registration_plate', 'body_number'].includes(fieldName)) {
@@ -12694,62 +12661,6 @@
         setStatus('СКОПИРОВАНО: ' + fieldName.toUpperCase(), false);
       } catch (_) {
         setStatus('НЕ УДАЛОСЬ СКОПИРОВАТЬ ПОЛЕ.', true);
-      }
-    }
-
-    function buildVehicleAutofillStatus(result) {
-      const profile = cloneVehicleProfile(result?.vehicle_profile || {});
-      const warnings = Array.from(new Set([...(result?.warnings || []), ...(profile.warnings || [])]));
-      const lines = [];
-      if (profile.source_summary) lines.push('Источник: ' + profile.source_summary);
-      if (result?.used_sources?.length) lines.push('Источники: ' + result.used_sources.join(' | '));
-      if (profile.source_confidence !== null && profile.source_confidence !== undefined && profile.source_confidence !== '') {
-        lines.push('Confidence: ' + Math.round(Number(profile.source_confidence) * 100) + '%');
-      }
-      if (result?.image_parse_status && result.image_parse_status !== 'not_attempted') {
-        lines.push('OCR: ' + result.image_parse_status);
-      }
-      warnings.forEach((warning) => lines.push('! ' + warning));
-      return {
-        text: lines.length ? lines.join('\n') : 'Автозаполнение отработало без замечаний.',
-        isWarning: warnings.length > 0 || vinLooksSuspicious(profile.vin),
-      };
-    }
-
-    async function autofillVehicleProfile() {
-      const rawText = buildVehicleAutofillRawText();
-      if (!rawText) {
-        renderVehicleAutofillStatus('НУЖНЫ ДАННЫЕ В ПОЛЯХ КАРТОЧКИ ИЛИ В ДОП. ЗАМЕТКЕ ДЛЯ АВТОЗАПОЛНЕНИЯ.', true);
-        return;
-      }
-      try {
-        els.vehicleAutofillButton.disabled = true;
-        renderVehicleAutofillStatus('АНАЛИЗИРУЮ МАРКУ, ЗАГОЛОВОК И ОПИСАНИЕ КАРТОЧКИ...', false);
-        const currentDescription = getCardDescriptionValue();
-        const payload = {
-          raw_text: rawText,
-          vehicle_profile: readVehicleProfileForm(),
-          vehicle: els.cardVehicle.value.trim(),
-          title: els.cardTitle.value.trim(),
-          description: currentDescription,
-        };
-        const result = await api('/api/autofill_vehicle_data', { method: 'POST', body: payload });
-        state.vehicleAutofillResult = result;
-        applyVehicleProfileToForm(result.vehicle_profile || {}, { preserveStatus: true });
-        if (!els.cardVehicle.value.trim() && result.card_draft?.vehicle) els.cardVehicle.value = result.card_draft.vehicle;
-        if (!els.cardTitle.value.trim() && result.card_draft?.title) els.cardTitle.value = result.card_draft.title;
-        if (!currentDescription && result.card_draft?.description) setCardDescriptionValue(result.card_draft.description);
-        syncCardDescriptionHeight();
-        scheduleCardSaveDirtyStateSync();
-        const status = buildVehicleAutofillStatus(result);
-        renderVehicleAutofillStatus(status.text, status.isWarning);
-        setStatus('ТЕХКАРТА ОБНОВЛЕНА АВТОЗАПОЛНЕНИЕМ.', false);
-      } catch (error) {
-        state.vehicleAutofillResult = null;
-        renderVehicleAutofillStatus(error.message || 'АВТОЗАПОЛНЕНИЕ НЕ УДАЛОСЬ.', true);
-        setStatus(error.message, true);
-      } finally {
-        els.vehicleAutofillButton.disabled = false;
       }
     }
 
@@ -14351,7 +14262,6 @@
         state.cardJournalLimit = CARD_JOURNAL_INITIAL_LIMIT;
         state.cardFilesRenderedFor = '';
       }
-      state.vehicleAutofillResult = null;
       state.pendingCardClientId = currentCard?.client_id || '';
       state.pendingCardClientVehicleId = currentCard?.client_vehicle_id || '';
       state.pendingCreateClientVehicleFromCard = false;
@@ -14418,7 +14328,6 @@
       clearCardOpenSideEffectTimer();
       state.vehicleProfileDraft = null;
       state.vehicleProfileBaseline = null;
-      state.vehicleAutofillResult = null;
       state.pendingCardClientId = '';
       state.pendingCardClientVehicleId = '';
       state.pendingCreateClientVehicleFromCard = false;

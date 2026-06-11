@@ -41,7 +41,6 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/audit_repair_order_consistency",
     "/api/autofill_inspection_sheet_form",
     "/api/autofill_repair_order",
-    "/api/autofill_vehicle_data",
     "/api/bulk_move_cards",
     "/api/bulk_refresh_board_summaries",
     "/api/bulk_set_deadline_if_below",

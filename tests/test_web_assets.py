@@ -1971,8 +1971,6 @@ class WebAssetsTests(unittest.TestCase):
             "els.cardTitle.placeholder = 'Краткая суть проблемы, задачи или результата';",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("parts.push(CARD_VEHICLE_FIELD_LABEL + ': ' + vehicle);", BOARD_WEB_APP_HTML)
-        self.assertIn("parts.push(CARD_TITLE_FIELD_LABEL + ': ' + title);", BOARD_WEB_APP_HTML)
         self.assertIn("configureCardFieldSemantics();", BOARD_WEB_APP_HTML)
 
     def test_board_cards_show_five_lines_of_description_preview(self) -> None:
@@ -2286,9 +2284,12 @@ class WebAssetsTests(unittest.TestCase):
         )
 
     def test_vehicle_panel_exposes_only_minimal_profile_fields(self) -> None:
-        self.assertIn('id="vehicleAutofillButton"', BOARD_WEB_APP_HTML)
-        self.assertIn("function configureVehicleAutofillUi()", BOARD_WEB_APP_HTML)
-        self.assertIn("function buildVehicleAutofillRawText()", BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="vehicleAutofillButton"', BOARD_WEB_APP_HTML)
+        self.assertNotIn("function configureVehicleAutofillUi()", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function buildVehicleAutofillRawText()", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function autofillVehicleProfile()", BOARD_WEB_APP_HTML)
+        self.assertNotIn("/api/autofill_vehicle_data", BOARD_WEB_APP_HTML)
+        self.assertNotIn("АВТОЗАПОЛНИТЬ", BOARD_WEB_APP_HTML)
         self.assertIn(
             "await copyVehicleFieldValue(target.dataset.copyVehicleField);", BOARD_WEB_APP_HTML
         )
@@ -2321,7 +2322,6 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("oem_notes', label: 'Короткая заметка'", BOARD_WEB_APP_HTML)
         self.assertNotIn("{ name: 'engine_code'", BOARD_WEB_APP_HTML)
         self.assertNotIn("{ name: 'generation_or_platform'", BOARD_WEB_APP_HTML)
-        self.assertIn("function autofillVehicleProfile()", BOARD_WEB_APP_HTML)
         self.assertIn("vehicle_profile: vehicleProfile,", BOARD_WEB_APP_HTML)
         self.assertIn(
             "function splitVehicleDisplayName(value, productionYear = null)", BOARD_WEB_APP_HTML
@@ -4714,7 +4714,7 @@ class WebAssetsTests(unittest.TestCase):
         duplicates = {name: count for name, count in sorted(counts.items()) if count > 1}
         self.assertEqual(duplicates, {})
 
-        self.assertEqual(BOARD_WEB_APP_HTML.count("function buildVehicleAutofillRawText()"), 1)
+        self.assertEqual(BOARD_WEB_APP_HTML.count("function buildVehicleAutofillRawText()"), 0)
         self.assertEqual(BOARD_WEB_APP_HTML.count("function refreshVehiclePanel()"), 1)
         self.assertEqual(BOARD_WEB_APP_HTML.count("async function saveCard()"), 1)
         self.assertEqual(

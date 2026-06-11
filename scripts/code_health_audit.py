@@ -31,6 +31,7 @@ SKIP_DIRS = {
 
 ALLOWED_LARGE_MODULES = {
     "src/minimal_kanban/services/card_service.py": "domain facade split target",
+    "src/minimal_kanban/services/card_service_payroll.py": "payroll domain split target",
     "src/minimal_kanban/services/snapshot_service.py": "snapshot serialization split target",
     "src/minimal_kanban/agent/runner.py": "agent orchestration split target",
     "src/minimal_kanban/mcp/server.py": "MCP registry split target",
@@ -41,6 +42,7 @@ ALLOWED_LARGE_MODULES = {
 
 ALLOWED_LARGE_CLASSES = {
     "src/minimal_kanban/services/card_service.py:CardService": "domain facade split target",
+    "src/minimal_kanban/services/card_service_payroll.py:CardServicePayrollMixin": "payroll domain split target",
     "src/minimal_kanban/agent/runner.py:AgentRunner": "agent orchestration split target",
     "tests/test_api.py:ApiServerTests": "legacy broad API coverage pending route split",
     "tests/test_service.py:CardServiceTests": "legacy broad service coverage pending domain split",

@@ -621,35 +621,6 @@ class BoardApiClient:
             "/api/cleanup_card_content", {"card_id": card_id}, actor_name=actor_name
         )
 
-    def autofill_vehicle_data(
-        self,
-        *,
-        raw_text: str = "",
-        image_base64: str | None = None,
-        image_filename: str | None = None,
-        image_mime_type: str | None = None,
-        vehicle_profile: dict[str, object] | None = None,
-        vehicle: str | None = None,
-        title: str | None = None,
-        description: str | None = None,
-    ) -> dict:
-        payload: dict[str, object] = {"raw_text": raw_text}
-        if image_base64 is not None:
-            payload["image_base64"] = image_base64
-        if image_filename is not None:
-            payload["image_filename"] = image_filename
-        if image_mime_type is not None:
-            payload["image_mime_type"] = image_mime_type
-        if vehicle_profile is not None:
-            payload["vehicle_profile"] = vehicle_profile
-        if vehicle is not None:
-            payload["vehicle"] = vehicle
-        if title is not None:
-            payload["title"] = title
-        if description is not None:
-            payload["description"] = description
-        return self._request("/api/autofill_vehicle_data", payload)
-
     def autofill_repair_order(
         self,
         *,

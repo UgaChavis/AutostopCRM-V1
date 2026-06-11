@@ -1032,14 +1032,6 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 401)
         self.assertEqual(blocked["error"]["details"]["auth_type"], "operator_session")
 
-        status, blocked_autofill = self.request(
-            "/api/autofill_vehicle_data",
-            {"raw_text": "VIN WBANV9C57AC136084", "actor_name": "AUDIT"},
-            headers=proxy_headers,
-        )
-        self.assertEqual(status, 401)
-        self.assertEqual(blocked_autofill["error"]["details"]["auth_type"], "operator_session")
-
         status, blocked_transfer = self.request(
             "/api/create_cashbox_transfer",
             {
@@ -4570,47 +4562,6 @@ class ApiServerTests(unittest.TestCase):
                 {"label": "DSG", "color": "green"},
             ],
         )
-
-    def test_autofill_vehicle_data_route_returns_card_draft_and_profile(self) -> None:
-        with patch.object(
-            self.service._vehicle_profiles, "_enrich_from_vin_decode", return_value=None
-        ):
-            status, autofilled = self.request(
-                "/api/autofill_vehicle_data",
-                {
-                    "raw_text": "Suzuki Swift 2014 VIN JSAZC72S001234567",
-                    "existing_profile": {
-                        "engine_code": "CUSTOM",
-                        "manual_fields": ["engine_code"],
-                    },
-                },
-            )
-        self.assertEqual(status, 200)
-        self.assertTrue(autofilled["ok"])
-        self.assertEqual(autofilled["data"]["vehicle_profile"]["make_display"], "Suzuki")
-        self.assertEqual(autofilled["data"]["vehicle_profile"]["model_display"], "Swift")
-        self.assertEqual(autofilled["data"]["vehicle_profile"]["engine_code"], "CUSTOM")
-        self.assertIn("vehicle", autofilled["data"]["card_draft"])
-
-    def test_autofill_vehicle_data_route_uses_card_fields_without_raw_text(self) -> None:
-        with patch.object(
-            self.service._vehicle_profiles, "_enrich_from_vin_decode", return_value=None
-        ):
-            status, autofilled = self.request(
-                "/api/autofill_vehicle_data",
-                {
-                    "vehicle": "Suzuki Swift 2014",
-                    "title": "Suzuki Swift 2014 / подбор запчастей",
-                    "description": "VIN JSAZC72S001234567\nДвигатель: K12B\nКоробка: Aisin\nПередний привод.",
-                },
-            )
-        self.assertEqual(status, 200)
-        self.assertTrue(autofilled["ok"])
-        self.assertEqual(autofilled["data"]["vehicle_profile"]["make_display"], "Suzuki")
-        self.assertEqual(autofilled["data"]["vehicle_profile"]["model_display"], "Swift")
-        self.assertEqual(autofilled["data"]["vehicle_profile"]["vin"], "JSAZC72S001234567")
-        self.assertEqual(autofilled["data"]["vehicle_profile"]["gearbox_model"], "Aisin")
-        self.assertEqual(autofilled["data"]["vehicle_profile"]["drivetrain"], "FWD")
 
     def test_rejects_invalid_json_and_payload_type(self) -> None:
         request = urllib.request.Request(

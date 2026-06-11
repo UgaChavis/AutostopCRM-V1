@@ -3232,56 +3232,6 @@ class CardService(
             {"name": line, "quantity": ""} for line in self._inspection_sheet_lines(fallback_text)
         ]
 
-    def autofill_vehicle_data(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            vehicle_profile_payload = payload.get("vehicle_profile")
-            if vehicle_profile_payload is None:
-                vehicle_profile_payload = payload.get("existing_profile")
-            vehicle_label = normalize_text(
-                payload.get("vehicle"), default="", limit=CARD_VEHICLE_LIMIT
-            )
-            if not vehicle_label:
-                vehicle_label = normalize_text(
-                    payload.get("explicit_vehicle"), default="", limit=CARD_VEHICLE_LIMIT
-                )
-            explicit_title = normalize_text(
-                payload.get("title"), default="", limit=CARD_TITLE_LIMIT
-            )
-            if not explicit_title:
-                explicit_title = normalize_text(
-                    payload.get("explicit_title"), default="", limit=CARD_TITLE_LIMIT
-                )
-            explicit_description = normalize_text(
-                payload.get("description"), default="", limit=CARD_DESCRIPTION_LIMIT
-            )
-            if not explicit_description:
-                explicit_description = normalize_text(
-                    payload.get("explicit_description"), default="", limit=CARD_DESCRIPTION_LIMIT
-                )
-            raw_text = normalize_text(payload.get("raw_text"), default="", limit=6000)
-            analysis_parts: list[str] = []
-            for part in (vehicle_label, explicit_title, explicit_description, raw_text):
-                cleaned = normalize_text(part, default="", limit=6000)
-                if cleaned and cleaned not in analysis_parts:
-                    analysis_parts.append(cleaned)
-            result = self._vehicle_profiles.autofill_preview(
-                raw_text="\n\n".join(analysis_parts),
-                image_base64=normalize_text(
-                    payload.get("image_base64"), default="", limit=16_000_000
-                )
-                or None,
-                image_filename=normalize_text(payload.get("image_filename"), default="", limit=240),
-                image_mime_type=normalize_text(
-                    payload.get("image_mime_type"), default="", limit=120
-                ),
-                existing_profile=vehicle_profile_payload,
-                explicit_vehicle=vehicle_label,
-                explicit_title=explicit_title,
-                explicit_description=explicit_description,
-            )
-            return result.to_dict()
-
     def update_card(self, payload: dict) -> dict:
         with self._lock:
             updated_fields = {

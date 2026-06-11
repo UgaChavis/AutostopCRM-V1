@@ -666,7 +666,6 @@
     });
     els.tagAddButton.addEventListener('click', addDraftTag);
     els.tagInput.addEventListener('keydown', handleTagInputKeydown);
-    configureVehicleAutofillUi();
     els.cardDescriptionEditor.addEventListener('beforeinput', handleDescriptionBeforeInput);
     els.cardDescriptionEditor.addEventListener('input', handleCardDescriptionInput);
     els.cardDescriptionEditor.addEventListener('keydown', handleDescriptionKeyboardShortcut);
@@ -680,7 +679,6 @@
         scheduleCardSaveDirtyStateSync();
       }
     });
-    els.vehicleAutofillButton.addEventListener('click', autofillVehicleProfile);
     els.repairOrderAddWorkRowButton.addEventListener('click', (event) => {
       addRepairOrderRowFromButton('works', event).catch((error) => setStatus(error.message, true));
     });
@@ -750,17 +748,6 @@
       }
     }
 
-    function buildVehicleAutofillRawText() {
-      const parts = [];
-      const vehicle = String(els.cardVehicle.value || '').trim();
-      const title = String(els.cardTitle.value || '').trim();
-      const description = getCardDescriptionValue();
-      if (vehicle) parts.push(CARD_VEHICLE_FIELD_LABEL + ': ' + vehicle);
-      if (title) parts.push(CARD_TITLE_FIELD_LABEL + ': ' + title);
-      if (description) parts.push('Описание:\n' + description);
-      return parts.join('\n\n').trim();
-    }
-
     function buildCardHeadingHtml(card) {
       const vehicle = String(card?.vehicle || '').trim();
       const title = String(card?.title || '').trim();
@@ -807,7 +794,6 @@
       const vinInput = getVehicleFieldInput('vin');
       if (vinInput) vinInput.classList.toggle('vehicle-suspect', vinLooksSuspicious(profile.vin));
 
-      if (!state.vehicleAutofillResult) renderVehicleAutofillStatus(defaultVehicleStatusText(profile), Boolean(profile?.warnings?.length || vinLooksSuspicious(profile.vin)));
     }
 
     async function saveCard() {

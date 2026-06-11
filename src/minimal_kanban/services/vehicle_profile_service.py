@@ -1,17 +1,13 @@
 from __future__ import annotations
 
-import json
 import re
-import subprocess
-import tempfile
 from copy import deepcopy
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 import httpx
 
-from ..models import CARD_DESCRIPTION_LIMIT, CARD_TITLE_LIMIT, CARD_VEHICLE_LIMIT, normalize_text
+from ..models import CARD_DESCRIPTION_LIMIT, CARD_TITLE_LIMIT, normalize_text
 from ..vehicle_profile import (
     VEHICLE_META_FIELDS,
     VEHICLE_PRIMARY_FIELDS,
@@ -132,7 +128,6 @@ _PROBLEM_MARKER_PATTERN = re.compile(
     r"(?:ПРОБЛЕМА|ЖАЛОБА|СИМПТОМ|НЕИСПРАВНОСТЬ|НУЖНО|ЗАДАЧА|РЕМОНТ|ПРОВЕРИТЬ)\s*[:\-]?\s*(.+)",
     re.IGNORECASE | re.DOTALL,
 )
-_VEHICLE_IMAGE_LIMIT_BYTES = 10 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,34 +144,6 @@ class VehicleCatalogEntry:
     engine_models: tuple[str, ...] = field(default_factory=tuple)
     displacements_l: tuple[float, ...] = field(default_factory=tuple)
     source_ref: str = ""
-
-
-@dataclass(slots=True)
-class ImageParseResult:
-    raw_text: str = ""
-    status: str = "not_attempted"
-    warnings: list[str] = field(default_factory=list)
-    debug_chunks: list[str] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class VehicleAutofillResult:
-    vehicle_profile: VehicleProfile
-    card_draft: dict[str, str]
-    warnings: list[str]
-    used_sources: list[str]
-    image_parse_status: str
-    image_debug_chunks: list[str]
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "vehicle_profile": self.vehicle_profile.to_dict(),
-            "card_draft": dict(self.card_draft),
-            "warnings": list(self.warnings),
-            "used_sources": list(self.used_sources),
-            "image_parse_status": self.image_parse_status,
-            "image_debug_chunks": list(self.image_debug_chunks),
-        }
 
 
 _CATALOG_ENTRIES: tuple[VehicleCatalogEntry, ...] = (
@@ -535,152 +502,6 @@ class VehicleProfileService:
         result.warnings = self._normalize_warnings(result.warnings)
         return result
 
-    def autofill_preview(
-        self,
-        *,
-        raw_text: str = "",
-        image_base64: str | None = None,
-        image_filename: str = "",
-        image_mime_type: str = "",
-        existing_profile: Any = None,
-        explicit_vehicle: str = "",
-        explicit_title: str = "",
-        explicit_description: str = "",
-    ) -> VehicleAutofillResult:
-        base_profile = VehicleProfile.from_dict(existing_profile)
-        base_profile.raw_input_text = str(raw_text or "").strip()[:6000]
-        warnings: list[str] = list(base_profile.warnings)
-        used_sources: list[str] = []
-
-        parsed_text_profile, parsed_card_draft, parse_warnings = self._parse_text_payload(
-            raw_text,
-            explicit_vehicle=explicit_vehicle,
-            explicit_title=explicit_title,
-            explicit_description=explicit_description,
-        )
-        for warning in parse_warnings:
-            if warning not in warnings:
-                warnings.append(warning)
-
-        image_result = self._parse_vehicle_image(
-            image_base64=image_base64,
-            image_filename=image_filename,
-            image_mime_type=image_mime_type,
-        )
-        for warning in image_result.warnings:
-            if warning not in warnings:
-                warnings.append(warning)
-
-        merged = deepcopy(base_profile)
-        parsed_primary = {
-            field_name
-            for field_name in VEHICLE_PRIMARY_FIELDS
-            if not self._is_empty_vehicle_value(getattr(parsed_text_profile, field_name))
-        }
-        merged, _ = self.merge_profile_patch(
-            merged,
-            parsed_text_profile,
-            present_primary=parsed_primary,
-            present_meta={"raw_input_text"} if parsed_text_profile.raw_input_text else set(),
-        )
-        if parsed_primary:
-            used_sources.append("user_text")
-
-        image_profile = VehicleProfile(
-            raw_image_text=image_result.raw_text, image_parse_status=image_result.status
-        )
-        image_primary: set[str] = set()
-        if image_result.raw_text:
-            image_profile, _, image_parse_warnings = self._parse_text_payload(image_result.raw_text)
-            image_profile.raw_image_text = image_result.raw_text
-            image_profile.image_parse_status = image_result.status
-            image_primary = {
-                field_name
-                for field_name in VEHICLE_PRIMARY_FIELDS
-                if not self._is_empty_vehicle_value(getattr(image_profile, field_name))
-            }
-            for warning in image_parse_warnings:
-                if warning not in warnings:
-                    warnings.append(warning)
-        if image_primary:
-            image_profile.autofilled_fields = sorted(image_primary)
-            image_profile.tentative_fields = sorted(image_primary)
-            image_profile.field_sources = {
-                field_name: "windows_ocr" for field_name in image_primary
-            }
-            image_profile.source_links_or_refs = ["ocr:windows-media-ocr"]
-            image_profile.source_summary = "OCR from provided vehicle image"
-            image_profile.source_confidence = 0.42
-            image_profile.data_completion_state = "partially_autofilled"
-            merged = self._merge_autofill_profile(merged, image_profile)
-            used_sources.append("vehicle_image_ocr")
-        else:
-            merged.raw_image_text = image_result.raw_text
-            merged.image_parse_status = image_result.status
-
-        catalog_profile = self._enrich_from_catalog(merged)
-        if catalog_profile is not None:
-            merged = self._merge_autofill_profile(merged, catalog_profile)
-            used_sources.append("reference_catalog")
-
-        # Keep preview autofill responsive: if card text + local catalog already
-        # identified the vehicle, skip the slower external VIN decode.
-        if merged.vin and self._should_enrich_from_vin_decode(base_profile, merged):
-            vin_profile = self._enrich_from_vin_decode(merged.vin)
-            if vin_profile is not None:
-                merged = self._merge_autofill_profile(merged, vin_profile)
-                used_sources.append("official_vin_decode")
-
-        merged.raw_input_text = parsed_text_profile.raw_input_text or merged.raw_input_text
-        merged.raw_image_text = image_result.raw_text or merged.raw_image_text
-        merged.image_parse_status = image_result.status
-        merged.warnings = self._normalize_warnings([*warnings, *merged.warnings])
-        merged.source_summary = self._build_source_summary(merged, used_sources)
-        merged.data_completion_state = self._derive_completion_state(merged)
-        merged.source_confidence = self._derive_confidence(merged)
-
-        card_draft = {
-            "vehicle": self._suggest_vehicle_label(explicit_vehicle, merged),
-            "title": self._suggest_title(
-                explicit_title, raw_text, parsed_card_draft.get("title", ""), merged
-            ),
-            "description": self._suggest_description(
-                explicit_description, raw_text, parsed_card_draft.get("description", "")
-            ),
-        }
-        return VehicleAutofillResult(
-            vehicle_profile=merged,
-            card_draft=card_draft,
-            warnings=list(merged.warnings),
-            used_sources=used_sources,
-            image_parse_status=image_result.status,
-            image_debug_chunks=image_result.debug_chunks,
-        )
-
-    def _should_enrich_from_vin_decode(
-        self, base_profile: VehicleProfile, profile: VehicleProfile
-    ) -> bool:
-        if any(
-            self._is_empty_vehicle_value(getattr(profile, field_name))
-            for field_name in ("make_display", "model_display", "production_year")
-        ):
-            return True
-        if base_profile.is_empty():
-            return False
-        return any(
-            self._is_empty_vehicle_value(getattr(profile, field_name))
-            for field_name in (
-                "engine_code",
-                "engine_model",
-                "engine_displacement_l",
-                "engine_power_hp",
-                "gearbox_type",
-                "gearbox_model",
-                "drivetrain",
-                "fuel_type",
-            )
-        )
-
     def _parse_text_payload(
         self,
         raw_text: str,
@@ -823,98 +644,6 @@ class VehicleProfileService:
 
         return profile, {"title": title_candidate, "description": description_candidate}, warnings
 
-    def _parse_vehicle_image(
-        self,
-        *,
-        image_base64: str | None,
-        image_filename: str,
-        image_mime_type: str,
-    ) -> ImageParseResult:
-        if not image_base64:
-            return ImageParseResult()
-        try:
-            image_bytes = self._decode_image_base64(image_base64)
-        except ValueError as exc:
-            return ImageParseResult(status="image_decode_error", warnings=[str(exc)])
-
-        if len(image_bytes) > _VEHICLE_IMAGE_LIMIT_BYTES:
-            return ImageParseResult(
-                status="image_too_large",
-                warnings=[
-                    f"Изображение слишком большое для локального OCR: более {_VEHICLE_IMAGE_LIMIT_BYTES // (1024 * 1024)} МБ."
-                ],
-            )
-
-        suffix = self._image_suffix(image_filename, image_mime_type)
-        with tempfile.TemporaryDirectory(prefix="minimal-kanban-vehicle-ocr-") as temp_dir:
-            image_path = Path(temp_dir) / f"vehicle-source{suffix}"
-            image_path.write_bytes(image_bytes)
-            try:
-                return self._run_windows_ocr(image_path)
-            except Exception as exc:  # pragma: no cover
-                return ImageParseResult(
-                    status="ocr_failed",
-                    warnings=[f"Локальный OCR изображения не удался: {exc}"],
-                )
-
-    def _run_windows_ocr(self, image_path: Path) -> ImageParseResult:
-        script = r"""
-$ErrorActionPreference = 'Stop'
-$imagePath = $args[-1]
-try {
-  Add-Type -AssemblyName System.Runtime.WindowsRuntime -ErrorAction Stop | Out-Null
-  $null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType=WindowsRuntime]
-  $file = [Windows.Storage.StorageFile]::GetFileFromPathAsync($imagePath).AsTask().GetAwaiter().GetResult()
-  $stream = $file.OpenAsync([Windows.Storage.FileAccessMode]::Read).AsTask().GetAwaiter().GetResult()
-  $decoder = [Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream).AsTask().GetAwaiter().GetResult()
-  $bitmap = $decoder.GetSoftwareBitmapAsync().AsTask().GetAwaiter().GetResult()
-  $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-  if ($null -eq $engine) { throw 'Windows OCR engine unavailable.' }
-  $result = $engine.RecognizeAsync($bitmap).AsTask().GetAwaiter().GetResult()
-  $payload = @{ ok = $true; text = $result.Text; lines = @($result.Lines | ForEach-Object { $_.Text }) }
-}
-catch {
-  $payload = @{ ok = $false; error = $_.Exception.Message }
-}
-$payload | ConvertTo-Json -Compress -Depth 6
-"""
-        completed = subprocess.run(
-            [
-                "powershell",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                "-",
-                "--",
-                str(image_path),
-            ],
-            input=script,
-            text=True,
-            capture_output=True,
-            timeout=max(10, int(self._timeout_seconds)),
-            check=False,
-        )
-        stdout = completed.stdout.strip()
-        if not stdout:
-            raise RuntimeError("Windows OCR не вернул ответ.")
-        payload = json.loads(stdout)
-        if not payload.get("ok"):
-            raise RuntimeError(str(payload.get("error") or "unknown OCR error"))
-        raw_text = normalize_text(payload.get("text"), default="", limit=6000)
-        lines = []
-        for raw_line in payload.get("lines", []) if isinstance(payload.get("lines"), list) else []:
-            line = normalize_text(raw_line, default="", limit=200)
-            if line:
-                lines.append(line)
-        warnings: list[str] = []
-        status = "parsed" if raw_text else "no_text_found"
-        if not raw_text:
-            warnings.append("На изображении не удалось уверенно распознать текст.")
-        return ImageParseResult(
-            raw_text=raw_text, status=status, warnings=warnings, debug_chunks=lines[:20]
-        )
-
     def _enrich_from_vin_decode(self, vin: str) -> VehicleProfile | None:
         normalized_vin = soft_normalize_vin(vin)
         if len(normalized_vin) != 17:
@@ -1034,62 +763,6 @@ $payload | ConvertTo-Json -Compress -Depth 6
         }
         return candidate if candidate.autofilled_fields else None
 
-    def _merge_autofill_profile(
-        self, base: VehicleProfile, incoming: VehicleProfile
-    ) -> VehicleProfile:
-        result = deepcopy(base)
-        manual_fields = set(result.manual_fields)
-        autofilled_fields = set(result.autofilled_fields)
-        tentative_fields = set(result.tentative_fields)
-        field_sources = dict(result.field_sources)
-        source_links = list(result.source_links_or_refs)
-        warnings = list(result.warnings)
-
-        for field_name in VEHICLE_PRIMARY_FIELDS:
-            next_value = getattr(incoming, field_name)
-            if self._is_empty_vehicle_value(next_value):
-                continue
-            if field_name in manual_fields:
-                continue
-            if (
-                not self._is_empty_vehicle_value(getattr(result, field_name))
-                and field_name not in autofilled_fields
-            ):
-                continue
-            setattr(result, field_name, deepcopy(next_value))
-            autofilled_fields.add(field_name)
-            if field_name in incoming.tentative_fields:
-                tentative_fields.add(field_name)
-            if field_name in incoming.field_sources:
-                field_sources[field_name] = incoming.field_sources[field_name]
-
-        for link in incoming.source_links_or_refs:
-            if link and link not in source_links:
-                source_links.append(link)
-        for warning in incoming.warnings:
-            if warning not in warnings:
-                warnings.append(warning)
-
-        result.source_links_or_refs = source_links[:12]
-        result.warnings = warnings
-        result.source_summary = self._join_non_empty(
-            [result.source_summary, incoming.source_summary], separator="; "
-        )
-        result.source_confidence = max(result.source_confidence, incoming.source_confidence)
-        result.autofilled_fields = sorted(
-            normalize_vehicle_field_names(list(autofilled_fields - manual_fields))
-        )
-        result.tentative_fields = sorted(
-            normalize_vehicle_field_names(list(tentative_fields & set(result.autofilled_fields)))
-        )
-        result.field_sources = field_sources
-        result.data_completion_state = self._derive_completion_state(result)
-        if incoming.raw_image_text:
-            result.raw_image_text = incoming.raw_image_text
-        if incoming.image_parse_status:
-            result.image_parse_status = incoming.image_parse_status
-        return result
-
     def _catalog_match_score(self, entry: VehicleCatalogEntry, profile: VehicleProfile) -> int:
         make_slug = self._slug(profile.make_display)
         model_slug = self._slug(profile.model_display)
@@ -1115,32 +788,6 @@ $payload | ConvertTo-Json -Compress -Depth 6
         ):
             score += 3
         return score
-
-    def _decode_image_base64(self, value: str) -> bytes:
-        raw = str(value or "").strip()
-        if "," in raw and raw.lower().startswith("data:"):
-            raw = raw.split(",", 1)[1]
-        import base64
-
-        try:
-            return base64.b64decode(raw, validate=True)
-        except Exception as exc:  # pragma: no cover
-            raise ValueError("Не удалось декодировать изображение для OCR.") from exc
-
-    def _image_suffix(self, image_filename: str, image_mime_type: str) -> str:
-        suffix = Path(str(image_filename or "")).suffix.lower()
-        if suffix in {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tiff", ".webp"}:
-            return suffix
-        mime = str(image_mime_type or "").lower()
-        return {
-            "image/png": ".png",
-            "image/jpeg": ".jpg",
-            "image/jpg": ".jpg",
-            "image/bmp": ".bmp",
-            "image/gif": ".gif",
-            "image/tiff": ".tiff",
-            "image/webp": ".webp",
-        }.get(mime, ".png")
 
     def _extract_capacity(self, pattern: re.Pattern[str], text: str) -> float | None:
         match = pattern.search(text)
@@ -1327,58 +974,6 @@ $payload | ConvertTo-Json -Compress -Depth 6
         if not candidate:
             return "НОВАЯ КАРТОЧКА ПО АВТО"
         return candidate[:CARD_TITLE_LIMIT].upper()
-
-    def _suggest_vehicle_label(self, explicit_vehicle: str, profile: VehicleProfile) -> str:
-        explicit = normalize_text(explicit_vehicle, default="", limit=CARD_VEHICLE_LIMIT)
-        if explicit:
-            return explicit
-        display = profile.display_name()
-        return normalize_text(display, default="", limit=CARD_VEHICLE_LIMIT)
-
-    def _suggest_title(
-        self, explicit_title: str, raw_text: str, parsed_title: str, profile: VehicleProfile
-    ) -> str:
-        explicit = normalize_text(explicit_title, default="", limit=CARD_TITLE_LIMIT)
-        if explicit:
-            return explicit
-        parsed = normalize_text(parsed_title, default="", limit=CARD_TITLE_LIMIT)
-        if parsed and parsed != "НОВАЯ КАРТОЧКА ПО АВТО":
-            return parsed
-        profile_label = profile.display_name()
-        if profile_label:
-            return f"ДИАГНОСТИКА / {profile_label}".upper()[:CARD_TITLE_LIMIT]
-        raw = normalize_text(raw_text, default="", limit=CARD_TITLE_LIMIT)
-        return raw.upper() if raw else "НОВАЯ КАРТОЧКА ПО АВТО"
-
-    def _suggest_description(
-        self, explicit_description: str, raw_text: str, parsed_description: str
-    ) -> str:
-        explicit = normalize_text(explicit_description, default="", limit=CARD_DESCRIPTION_LIMIT)
-        if explicit:
-            return explicit
-        parsed = normalize_text(parsed_description, default="", limit=CARD_DESCRIPTION_LIMIT)
-        if parsed:
-            return parsed
-        return normalize_text(raw_text, default="", limit=CARD_DESCRIPTION_LIMIT)
-
-    def _build_source_summary(self, profile: VehicleProfile, used_sources: list[str]) -> str:
-        labels = []
-        for source in used_sources:
-            if source == "user_text":
-                labels.append("user text")
-            elif source == "vehicle_image_ocr":
-                labels.append("image OCR")
-            elif source == "official_vin_decode":
-                labels.append("official VIN decode")
-            elif source == "reference_catalog":
-                labels.append("reference catalog")
-        if not labels:
-            return profile.source_summary or "manual entry"
-        unique_labels: list[str] = []
-        for label in labels:
-            if label not in unique_labels:
-                unique_labels.append(label)
-        return ", ".join(unique_labels)
 
     def _infer_source_summary(self, profile: VehicleProfile) -> str:
         source_values = {
