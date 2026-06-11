@@ -1399,6 +1399,7 @@
       if (state.cardDescriptionLoading) return;
       syncCardDescriptionSourceFromEditor();
       syncCardDescriptionHeight();
+      scheduleCardSaveDirtyStateSync();
     }
 
     function descriptionSelectionRange() {
@@ -11644,6 +11645,7 @@
     function adjustSignalPart(kind, delta) {
       setSignalPartValue(kind, signalPartValue(kind) + Number(delta || 0));
       renderSignalPreview();
+      scheduleCardSaveDirtyStateSync();
     }
 
     function stickyDeadlineInput() {
@@ -11912,6 +11914,7 @@
       if (!upsertDraftTag(tag)) return;
       els.tagInput.value = '';
       renderColorTags();
+      scheduleCardSaveDirtyStateSync();
     }
 
     function handleTagInputKeydown(event) {
@@ -11925,6 +11928,7 @@
       if (!normalized) return;
       if (!upsertDraftTag(normalized)) return;
       renderColorTags();
+      scheduleCardSaveDirtyStateSync();
     }
 
     function upsertRepairOrderTag(tag) {
@@ -12736,6 +12740,7 @@
         if (!els.cardTitle.value.trim() && result.card_draft?.title) els.cardTitle.value = result.card_draft.title;
         if (!currentDescription && result.card_draft?.description) setCardDescriptionValue(result.card_draft.description);
         syncCardDescriptionHeight();
+        scheduleCardSaveDirtyStateSync();
         const status = buildVehicleAutofillStatus(result);
         renderVehicleAutofillStatus(status.text, status.isWarning);
         setStatus('ТЕХКАРТА ОБНОВЛЕНА АВТОЗАПОЛНЕНИЕМ.', false);
@@ -12785,6 +12790,7 @@
 
     function rememberCardModalCleanState(payload = currentCardPayload()) {
       state.cardInitialPayloadKey = cardModalPayloadKey(payload);
+      syncCardSaveDirtyState();
     }
 
     function cardModalHasUnsavedChanges() {
@@ -12792,6 +12798,20 @@
       if (state.cardSaveInFlight || state.cardDescriptionLoading) return false;
       const initialKey = String(state.cardInitialPayloadKey || '');
       return Boolean(initialKey && initialKey !== cardModalPayloadKey());
+    }
+
+    function syncCardSaveDirtyState() {
+      const hasUnsavedChanges = cardModalHasUnsavedChanges();
+      if (!els.saveCardButton) return;
+      els.saveCardButton.classList.toggle('is-dirty', hasUnsavedChanges);
+      els.saveCardButton.setAttribute(
+        'aria-label',
+        hasUnsavedChanges ? 'Сохранить несохраненные изменения карточки' : 'Сохранить карточку'
+      );
+    }
+
+    function scheduleCardSaveDirtyStateSync() {
+      requestAnimationFrame(syncCardSaveDirtyState);
     }
 
     function emptyRepairOrderRow(overrides = {}) {
@@ -14379,6 +14399,7 @@
         requestAnimationFrame(() => syncCardDescriptionHeight());
       }
       rememberCardModalCleanState();
+      syncCardSaveDirtyState();
       perfEnd(perfToken, { card_id: nextCardId, full: state.activeCardIsFull, description_loading: Boolean(descriptionLoading) });
     }
 
@@ -14409,6 +14430,7 @@
       state.cardCleanupError = '';
       stopCardCleanupPolling();
       refreshRepairOrderEntry(null);
+      syncCardSaveDirtyState();
       els.fileInput.value = '';
       clearFilePreview({ sync: false });
       syncFileDropzone(null);
@@ -15926,6 +15948,7 @@
       else loadActiveCardTab(state.currentTab);
       pushModal('card', els.cardModal);
       requestAnimationFrame(() => {
+        syncCardSaveDirtyState();
         syncCardDescriptionHeight();
         focusCardModalInitialControl();
       });
@@ -16775,11 +16798,13 @@
       if (target.dataset.removeTag) {
         state.draftTags = state.draftTags.filter((tag) => tag.label !== target.dataset.removeTag);
         renderColorTags();
+        scheduleCardSaveDirtyStateSync();
         return true;
       }
       if (target.dataset.tagColorChoice) {
         state.draftTagColor = normalizeTagColor(target.dataset.tagColorChoice);
         renderColorTags();
+        scheduleCardSaveDirtyStateSync();
         return true;
       }
       if (target.dataset.suggestTag) {

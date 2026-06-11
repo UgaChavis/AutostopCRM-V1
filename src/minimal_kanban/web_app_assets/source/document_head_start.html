@@ -376,6 +376,20 @@
     }
     .btn:hover { background: var(--bg-panel-2); }
     .btn--accent { border-color: #8c976d; color: #edf0df; }
+    #saveCardButton {
+      transition: border-color 160ms ease, background 160ms ease, box-shadow 180ms ease, color 160ms ease;
+    }
+    #saveCardButton.is-dirty:not(:disabled) {
+      border-color: rgba(126, 190, 111, 0.62);
+      background:
+        linear-gradient(180deg, rgba(131, 190, 112, 0.11), rgba(71, 122, 65, 0.08)),
+        var(--bg-panel);
+      color: #effbe8;
+      box-shadow:
+        0 0 0 1px rgba(116, 185, 103, 0.1),
+        0 0 12px rgba(105, 196, 95, 0.16),
+        inset 0 0 16px rgba(97, 169, 85, 0.06);
+    }
     .btn--danger { border-color: var(--danger); color: #ffd2c9; }
     .btn--ghost {
       color: var(--text-soft);

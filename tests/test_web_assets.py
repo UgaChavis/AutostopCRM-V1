@@ -2101,10 +2101,29 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("applyCardModalState(card, { descriptionLoading", BOARD_WEB_APP_HTML)
         self.assertIn("resetCardModalState();", BOARD_WEB_APP_HTML)
         self.assertIn("function cardModalHasUnsavedChanges()", BOARD_WEB_APP_HTML)
+        self.assertIn("function syncCardSaveDirtyState()", BOARD_WEB_APP_HTML)
+        self.assertIn("function scheduleCardSaveDirtyStateSync()", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.saveCardButton.classList.toggle('is-dirty', hasUnsavedChanges);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cardModal.addEventListener('input', scheduleCardSaveDirtyStateSync);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cardModal.addEventListener('change', scheduleCardSaveDirtyStateSync);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("#saveCardButton.is-dirty:not(:disabled) {", BOARD_WEB_APP_HTML)
         self.assertIn("Есть несохраненные изменения", BOARD_WEB_APP_HTML)
         self.assertIn("function closeCardModal({ force = false } = {})", BOARD_WEB_APP_HTML)
         self.assertIn("const data = await persistCardPayload(payload);", BOARD_WEB_APP_HTML)
         self.assertIn("if (data?.card) applySavedCardLocalPatch(data.card);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "state.cardSaveInFlight = true;\n      if (els.saveCardButton) els.saveCardButton.disabled = true;\n      syncCardSaveDirtyState();",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "expected_updated_at: state.editingId ? String(state.activeCard?.updated_at || '') : undefined",
             BOARD_WEB_APP_HTML,

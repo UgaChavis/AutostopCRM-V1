@@ -660,7 +660,9 @@
     els.signalHoursDecrementButton.addEventListener('click', () => adjustSignalPart('hours', -1));
     [els.signalDays, els.signalHours].forEach((input) => {
       input.addEventListener('input', renderSignalPreview);
+      input.addEventListener('input', scheduleCardSaveDirtyStateSync);
       input.addEventListener('change', renderSignalPreview);
+      input.addEventListener('change', scheduleCardSaveDirtyStateSync);
     });
     els.tagAddButton.addEventListener('click', addDraftTag);
     els.tagInput.addEventListener('keydown', handleTagInputKeydown);
@@ -671,6 +673,13 @@
     els.cardDescriptionEditor.addEventListener('paste', handleDescriptionPaste);
     els.cardDescriptionToolbar.addEventListener('mousedown', handleDescriptionToolbarMouseDown);
     els.cardDescriptionToolbar.addEventListener('click', handleDescriptionFormatClick);
+    els.cardModal.addEventListener('input', scheduleCardSaveDirtyStateSync);
+    els.cardModal.addEventListener('change', scheduleCardSaveDirtyStateSync);
+    els.cardModal.addEventListener('click', (event) => {
+      if (event.target.closest('[data-remove-tag], [data-suggest-tag], [data-tag-color-choice], .signal-stepper__button')) {
+        scheduleCardSaveDirtyStateSync();
+      }
+    });
     els.vehicleAutofillButton.addEventListener('click', autofillVehicleProfile);
     els.repairOrderAddWorkRowButton.addEventListener('click', (event) => {
       addRepairOrderRowFromButton('works', event).catch((error) => setStatus(error.message, true));
@@ -809,6 +818,7 @@
       clearCardOpenSideEffectTimer();
       state.cardSaveInFlight = true;
       if (els.saveCardButton) els.saveCardButton.disabled = true;
+      syncCardSaveDirtyState();
       return perfMeasureAsync('saveCard', async () => {
         try {
           const data = await persistCardPayload(payload);
@@ -820,6 +830,7 @@
         } finally {
           state.cardSaveInFlight = false;
           if (els.saveCardButton) els.saveCardButton.disabled = false;
+          syncCardSaveDirtyState();
         }
       });
     }
