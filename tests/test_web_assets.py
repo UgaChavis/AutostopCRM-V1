@@ -2006,8 +2006,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("text-overflow: ellipsis;", BOARD_WEB_APP_HTML)
         self.assertIn("function limitCardModalHeading(value, maxLength = 92)", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "grid-template-columns: minmax(648px, 756px) minmax(264px, 308px);", BOARD_WEB_APP_HTML
+            "grid-template-columns: minmax(0, 1fr) minmax(246px, 284px);",
+            BOARD_WEB_APP_HTML,
         )
+        self.assertIn("justify-content: stretch;", BOARD_WEB_APP_HTML)
+        self.assertIn("max-width: none;", BOARD_WEB_APP_HTML)
         self.assertIn(
             "const configuredMetaReserve = metaStyle ? parseFloat(metaStyle.getPropertyValue('--card-meta-panel-height')) || 0 : 0;",
             BOARD_WEB_APP_HTML,
@@ -2141,6 +2144,11 @@ class WebAssetsTests(unittest.TestCase):
     def test_card_vehicle_panel_stays_inside_overview_scrollport(self) -> None:
         self.assertIn(
             '.dialog--card > .dialog__body-scroll[data-panel="overview"] {',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("grid-template-rows: auto minmax(0, 1fr) auto;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            ".dialog--card > .dialog__body-scroll {\n      grid-row: 2;",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(

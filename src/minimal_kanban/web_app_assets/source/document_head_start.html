@@ -1155,7 +1155,7 @@
       padding: 14px;
       transform: none;
       gap: 10px;
-      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      grid-template-rows: auto minmax(0, 1fr) auto;
     }
     #cardClientCreateModal {
       z-index: 24;
@@ -1172,7 +1172,7 @@
       resize: vertical;
     }
     .dialog--card > .dialog__body-scroll {
-      grid-row: 3;
+      grid-row: 2;
       min-height: 0;
       overflow: auto;
       padding: 2px 3px 8px;
@@ -1183,11 +1183,8 @@
     .dialog--card > .dialog__head--card {
       grid-row: 1;
     }
-    .dialog--card > .dialog__tabs--card {
-      grid-row: 2;
-    }
     .dialog--card > .dialog__foot--card {
-      grid-row: 4;
+      grid-row: 3;
     }
     .dialog__head, .dialog__foot, .dialog__tabs {
       display: flex;

@@ -1717,12 +1717,13 @@
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
     .overview-layout {
       display: grid;
-      grid-template-columns: minmax(648px, 756px) minmax(264px, 308px);
-      gap: 14px;
+      grid-template-columns: minmax(0, 1fr) minmax(246px, 284px);
+      gap: 10px;
       align-items: stretch;
-      justify-content: center;
+      justify-content: stretch;
       height: 100%;
       min-height: 0;
+      width: 100%;
     }
     .overview-main {
       display: grid;
@@ -1731,7 +1732,7 @@
       --card-meta-panel-height: 94px;
       min-height: 0;
       min-width: 0;
-      max-width: 756px;
+      max-width: none;
       position: relative;
       z-index: 1;
     }
@@ -2477,8 +2478,8 @@
     }
     .vehicle-panel {
       gap: 6px;
-      width: min(100%, 308px);
-      max-width: 308px;
+      width: min(100%, 284px);
+      max-width: 284px;
       max-height: 100%;
       min-height: 0;
       align-self: stretch;
