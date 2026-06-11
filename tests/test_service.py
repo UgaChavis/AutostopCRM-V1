@@ -9705,13 +9705,14 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(order["vehicle"], "Volkswagen Tiguan II")
         self.assertEqual(order["mileage"], "98000")
         self.assertEqual(order["license_plate"], "а123аа124")
-        self.assertIn("заявка принята", order["comment"].lower())
-        self.assertIn("автомобиль: volkswagen tiguan ii", order["comment"].lower())
+        self.assertEqual(order["comment"], "")
+        self.assertEqual(order["client_information"], "")
+        self.assertNotIn("comment", autofilled["meta"]["autofill_report"]["filled_fields"])
         self.assertEqual(order["works"], [])
         self.assertEqual(order["materials"][0]["name"], "ATF")
         self.assertEqual(order["materials"][0]["price"], "")
 
-    def test_autofill_repair_order_extracts_structured_rows_and_client_summary_from_text(
+    def test_autofill_repair_order_extracts_structured_fields_without_client_summary(
         self,
     ) -> None:
         created = self.service.create_card(
@@ -9748,9 +9749,8 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(order["vin"], "WVWZZZ1KZBP123456")
         self.assertEqual(order["mileage"], "145000")
         self.assertIn("пинки dsg", order["reason"].lower())
-        self.assertIn("Заявка принята", order["client_information"])
-        self.assertIn("клиент: Иван Иванов", order["client_information"])
-        self.assertIn("В ходе проверки выявлено", order["client_information"])
+        self.assertEqual(order["client_information"], "")
+        self.assertNotIn("comment", autofilled["meta"]["autofill_report"]["filled_fields"])
         self.assertIn("Технические замечания", order["note"])
         self.assertEqual(order["works"], [])
         self.assertEqual(order["materials"], [])

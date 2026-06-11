@@ -3475,7 +3475,7 @@
       </div>
       <div class="topbar-search" role="search" aria-label="Поиск по карточкам">
         <div class="topbar-search__box">
-          <input class="topbar-search__input" id="boardSearchInput" type="search" autocomplete="off" spellcheck="false" aria-label="Поиск по доске" aria-controls="boardSearchResults" aria-expanded="false" placeholder="VIN, госномер, клиент">
+          <input class="topbar-search__input" id="boardSearchInput" type="search" autocomplete="off" spellcheck="false" aria-label="Поиск по доске" aria-controls="boardSearchResults" aria-expanded="false" placeholder="поиск">
           <button class="topbar-search__clear" id="boardSearchClearButton" type="button" aria-label="Очистить поиск" hidden>×</button>
         </div>
         <div class="topbar-search__results" id="boardSearchResults" role="listbox" aria-label="Результаты поиска"></div>
@@ -3486,8 +3486,6 @@
         <button class="btn" id="cashboxesButton">КАССЫ</button>
         <button class="btn" id="inventoryButton">СКЛАД</button>
         <button class="btn" id="employeesButton">СОТРУДНИКИ</button>
-        <button class="btn" id="columnButton">+ СТОЛБЕЦ</button>
-          <button class="btn btn--accent" id="cardButton" type="button">+ КАРТОЧКА</button>
       </div>
     </header>
     <div class="board-scroll">
@@ -3696,31 +3694,33 @@
                 </div>
               </div>
             </div>
-            <button class="btn" data-close="repair-orders">ЗАКРЫТЬ</button>
+            <div class="dialog__head-actions dialog__head-actions--repair-orders">
+              <div class="repair-orders-controls repair-orders-controls--header">
+                <div class="field field--compact repair-orders-search-field">
+                  <label for="repairOrdersSearchInput" class="repair-orders-search-label"><span>ПОИСК</span><span class="repair-orders-search-spinner" id="repairOrdersSearchSpinner" aria-hidden="true"></span></label>
+                  <input id="repairOrdersSearchInput" type="text" maxlength="120" placeholder="номер, клиент, авто">
+                </div>
+                <div class="field field--compact repair-orders-sort-field">
+                  <label for="repairOrdersSortBy">СОРТИРОВКА</label>
+                  <select id="repairOrdersSortBy">
+                    <option value="opened_at">Дата открытия</option>
+                    <option value="closed_at">Дата закрытия</option>
+                    <option value="number">Номер</option>
+                  </select>
+                </div>
+                <div class="field field--compact repair-orders-sort-field">
+                  <label for="repairOrdersSortDir">ПОРЯДОК</label>
+                  <select id="repairOrdersSortDir">
+                    <option value="desc">Сначала новые</option>
+                    <option value="asc">Сначала старые</option>
+                  </select>
+                </div>
+              </div>
+              <button class="btn" data-close="repair-orders">ЗАКРЫТЬ</button>
+            </div>
           </div>
         </div>
-        <div class="repair-orders-controls">
-        <div class="field field--compact">
-          <label for="repairOrdersSearchInput" class="repair-orders-search-label"><span>ПОИСК</span><span class="repair-orders-search-spinner" id="repairOrdersSearchSpinner" aria-hidden="true"></span></label>
-          <input id="repairOrdersSearchInput" type="text" maxlength="120" placeholder="номер, владелец, телефон, авто, смысл">
-        </div>
-        <div class="field field--compact">
-          <label for="repairOrdersSortBy">СОРТИРОВКА</label>
-          <select id="repairOrdersSortBy">
-            <option value="opened_at">Дата открытия</option>
-            <option value="closed_at">Дата закрытия</option>
-            <option value="number">Номер</option>
-          </select>
-        </div>
-        <div class="field field--compact">
-          <label for="repairOrdersSortDir">ПОРЯДОК</label>
-          <select id="repairOrdersSortDir">
-            <option value="desc">Сначала новые</option>
-            <option value="asc">Сначала старые</option>
-          </select>
-        </div>
-      </div>
-      <div class="wall-meta" id="repairOrdersMeta">ЗАГРУЗКА СПИСКА...</div>
+      <div class="wall-meta repair-orders-meta" id="repairOrdersMeta" hidden aria-hidden="true"></div>
       <div class="repair-orders-table-head" id="repairOrdersTableHead">
         <div class="repair-orders-table-head__searchable"><span>№</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="number" aria-label="Искать по графе номер" title="Искать по графе номер"></button></div>
         <div class="repair-orders-table-head__searchable"><span>Даты</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="date" aria-label="Искать по графе даты" title="Искать по графе даты"></button></div>
@@ -4327,9 +4327,6 @@
               <div class="dialog__title dialog__title--card" id="repairOrderModalTitle">ЗАКАЗ-НАРЯД</div>
               <div class="repair-order-status" id="repairOrderStatus">Открыт</div>
             </div>
-          </div>
-          <div class="repair-order-headline-actions">
-            <button class="btn btn--ghost" id="repairOrderAutofillButton" type="button">АВТОЗАПОЛНЕНИЕ</button>
           </div>
           <button class="btn" data-close="repair-order">ЗАКРЫТЬ</button>
         </div>

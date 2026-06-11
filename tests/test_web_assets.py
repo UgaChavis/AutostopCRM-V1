@@ -214,11 +214,20 @@ class WebAssetsTests(unittest.TestCase):
             "clientsButton",
             "cashboxesButton",
             "employeesButton",
-            "columnButton",
-            "cardButton",
         ):
             self.assertIn(f'id="{button_id}"', primary_html)
             self.assertNotIn(f'id="{button_id}"', rare_html)
+        self.assertNotIn('id="columnButton"', primary_html)
+        self.assertNotIn('id="cardButton"', primary_html)
+        self.assertNotIn('id="columnButton"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="cardButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="board-add-column"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-create-column="true"', BOARD_WEB_APP_HTML)
+        self.assertIn('aria-label="Добавить столбец"', BOARD_WEB_APP_HTML)
+        self.assertIn("target.closest('[data-create-column]')", BOARD_WEB_APP_HTML)
+        self.assertIn("async function createColumnFromBoard()", BOARD_WEB_APP_HTML)
+        self.assertIn(".board-add-column {", BOARD_WEB_APP_HTML)
+        self.assertIn(".board-add-column:hover", BOARD_WEB_APP_HTML)
         self.assertIn(".topbar__rare-actions {", BOARD_WEB_APP_HTML)
         self.assertIn("min-height: 27px;", BOARD_WEB_APP_HTML)
         self.assertIn("padding: 5px 8px;", BOARD_WEB_APP_HTML)
@@ -872,7 +881,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("width: 220px;", BOARD_WEB_APP_HTML)
         self.assertIn("height: 27px;", BOARD_WEB_APP_HTML)
         self.assertIn('aria-label="Поиск по доске"', BOARD_WEB_APP_HTML)
-        self.assertIn('placeholder="VIN, госномер, клиент"', BOARD_WEB_APP_HTML)
+        self.assertIn('placeholder="поиск"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('placeholder="VIN, госномер, клиент"', BOARD_WEB_APP_HTML)
+        self.assertIn(".topbar-search__input::placeholder {", BOARD_WEB_APP_HTML)
+        self.assertIn("color: rgba(242, 240, 230, 0.28);", BOARD_WEB_APP_HTML)
         self.assertNotIn("topbar-search__label", BOARD_WEB_APP_HTML)
         self.assertNotIn("поиск по доске", BOARD_WEB_APP_HTML)
         self.assertNotIn("НАЙТИ КАРТОЧКУ", BOARD_WEB_APP_HTML)
@@ -889,6 +901,50 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("min-height: 0;", BOARD_WEB_APP_HTML)
         self.assertIn(".topbar-search__clear[hidden]", BOARD_WEB_APP_HTML)
         self.assertIn(".topbar-search__results.is-open", BOARD_WEB_APP_HTML)
+        self.assertIn("width: min(760px, calc(100vw - 32px));", BOARD_WEB_APP_HTML)
+        self.assertIn("max-height: min(680px, calc(100vh - 76px));", BOARD_WEB_APP_HTML)
+        self.assertIn("-webkit-line-clamp: 3;", BOARD_WEB_APP_HTML)
+        search_meta_rule = re.search(
+            r"\.topbar-search__meta \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(search_meta_rule)
+        assert search_meta_rule is not None
+        self.assertIn("font-size: 10.5px;", search_meta_rule.group("body"))
+        search_title_rule = re.search(
+            r"\.topbar-search__title \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(search_title_rule)
+        assert search_title_rule is not None
+        self.assertIn("font-size: 15px;", search_title_rule.group("body"))
+        search_summary_rule = re.search(
+            r"\.topbar-search__summary \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(search_summary_rule)
+        assert search_summary_rule is not None
+        self.assertIn("font-size: 13px;", search_summary_rule.group("body"))
+        self.assertIn("line-height: 1.36;", search_summary_rule.group("body"))
+        search_badge_rule = re.search(
+            r"\.topbar-search__column,\n    \.topbar-search__match \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(search_badge_rule)
+        assert search_badge_rule is not None
+        self.assertIn("font-size: 9.5px;", search_badge_rule.group("body"))
+        search_empty_rule = re.search(
+            r"\.topbar-search__empty,\n    \.topbar-search__error \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(search_empty_rule)
+        assert search_empty_rule is not None
+        self.assertIn("font-size: 13.5px;", search_empty_rule.group("body"))
         self.assertIn("body.is-mobile-lite .topbar-search {", BOARD_WEB_APP_HTML)
         self.assertIn("flex: 1 0 100%;", BOARD_WEB_APP_HTML)
         self.assertIn("body.is-mobile-lite .topbar-search__clear {", BOARD_WEB_APP_HTML)
@@ -907,7 +963,7 @@ class WebAssetsTests(unittest.TestCase):
             "els.boardSearchInput.addEventListener('click', openBoardSearchOnFocus)",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("const BOARD_SEARCH_LIMIT = 8;", BOARD_WEB_APP_HTML)
+        self.assertIn("const BOARD_SEARCH_LIMIT = 16;", BOARD_WEB_APP_HTML)
         self.assertIn("const BOARD_SEARCH_DEBOUNCE_MS = 90;", BOARD_WEB_APP_HTML)
         self.assertIn("const BOARD_SEARCH_CACHE_TTL_MS = 20000;", BOARD_WEB_APP_HTML)
         self.assertIn("completedQuery: '',", BOARD_WEB_APP_HTML)
@@ -1973,7 +2029,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("if (state.cardSaveInFlight) return;", BOARD_WEB_APP_HTML)
         self.assertIn("state.cardSaveInFlight = true;", BOARD_WEB_APP_HTML)
         self.assertIn("state.cardCreateColumnId || state.activeCard?.column", BOARD_WEB_APP_HTML)
-        self.assertIn('id="cardButton" type="button"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="cardButton" type="button"', BOARD_WEB_APP_HTML)
         self.assertIn('data-create-in="', BOARD_WEB_APP_HTML)
         self.assertIn('id="saveCardButton" type="button"', BOARD_WEB_APP_HTML)
         self.assertIn("fullCardCache: new Map()", BOARD_WEB_APP_HTML)
@@ -2022,7 +2078,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("function openNewCardInColumn(columnId)", BOARD_WEB_APP_HTML)
-        self.assertIn("function openDefaultNewCard()", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function openDefaultNewCard()", BOARD_WEB_APP_HTML)
         self.assertIn("function focusCardModalInitialControl()", BOARD_WEB_APP_HTML)
         self.assertIn("focusCardModalInitialControl();", BOARD_WEB_APP_HTML)
         self.assertIn("async function archiveActiveCard()", BOARD_WEB_APP_HTML)
@@ -2057,7 +2113,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("if (await handleCardWorkspaceClick(target)) return;", BOARD_WEB_APP_HTML)
-        self.assertIn(
+        self.assertNotIn(
             "els.cardButton.addEventListener('click', openDefaultNewCard);", BOARD_WEB_APP_HTML
         )
         self.assertIn(
@@ -3134,7 +3190,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("+ ' ₽';", BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderAddWorkRowButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderAddMaterialRowButton"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="repairOrderAutofillButton"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="repairOrderAutofillButton"', BOARD_WEB_APP_HTML)
+        self.assertNotIn("els.repairOrderAutofillButton", BOARD_WEB_APP_HTML)
+        self.assertNotIn("autofillRepairOrder", BOARD_WEB_APP_HTML)
+        self.assertNotIn(".repair-order-headline-actions", BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderPrintButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderTagList"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderTagInput"', BOARD_WEB_APP_HTML)
@@ -3310,6 +3369,15 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("saveRepairOrder = async function(", BOARD_WEB_APP_HTML)
         self.assertIn("const cardId = await requireRepairOrderCardId();", BOARD_WEB_APP_HTML)
         self.assertIn("source.client_information ?? source.comment", BOARD_WEB_APP_HTML)
+        self.assertNotIn("comment: currentCard.description || ''", BOARD_WEB_APP_HTML)
+        self.assertNotIn(
+            "comment: item.comment ?? snapshotCard.description ?? ''", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("comment: currentCard.repair_order?.comment || ''", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "comment: item.comment ?? snapshotCard.repair_order?.comment ?? ''",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("function repairOrderCanonicalDateValue(value)", BOARD_WEB_APP_HTML)
         self.assertIn("function repairOrderFormDateDisplayValue(value)", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -3349,7 +3417,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("payments.slice().reverse().map((item) => {", BOARD_WEB_APP_HTML)
         self.assertIn("Кем: ", BOARD_WEB_APP_HTML)
         self.assertIn("Касса: ", BOARD_WEB_APP_HTML)
-        self.assertIn("'/api/autofill_repair_order'", BOARD_WEB_APP_HTML)
+        self.assertNotIn("'/api/autofill_repair_order'", BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.repairOrderModal.addEventListener('change', handleRepairOrderModalInput);",
             BOARD_WEB_APP_HTML,
@@ -3437,11 +3505,15 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("total: liveTotalValue,", BOARD_WEB_APP_HTML)
 
-    def test_repair_order_autofill_status_uses_report_hints(self) -> None:
-        self.assertIn("function buildRepairOrderAutofillStatus(data)", BOARD_WEB_APP_HTML)
-        self.assertIn("data?.meta?.autofill_report", BOARD_WEB_APP_HTML)
-        self.assertIn("filled_fields", BOARD_WEB_APP_HTML)
-        self.assertIn("информация для клиента", BOARD_WEB_APP_HTML)
+    def test_repair_order_manual_form_does_not_expose_autofill(self) -> None:
+        repair_order_modal_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                '<div class="modal" id="repairOrderModal">'
+            ) : BOARD_WEB_APP_HTML.index('<div class="modal" id="repairOrderPrintModal">')
+        ]
+        self.assertNotIn("repairOrderAutofillButton", repair_order_modal_fragment)
+        self.assertNotIn("АВТОЗАПОЛНЕНИЕ", repair_order_modal_fragment)
+        self.assertNotIn("repair-order-headline-actions", repair_order_modal_fragment)
 
     def test_repair_order_print_module_exposes_preview_template_editor_and_routes(self) -> None:
         self.assertIn('id="repairOrderPrintModal"', BOARD_WEB_APP_HTML)
@@ -3604,12 +3676,74 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn(".dialog--repair-orders {", BOARD_WEB_APP_HTML)
         self.assertIn("width: min(1940px, calc(100vw - 24px));", BOARD_WEB_APP_HTML)
+        repair_orders_modal_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                '<div class="modal" id="repairOrdersModal">'
+            ) : BOARD_WEB_APP_HTML.index(
+                '<div class="repair-orders-table-head" id="repairOrdersTableHead">'
+            )
+        ]
+        self.assertIn("dialog__head-actions--repair-orders", repair_orders_modal_fragment)
+        self.assertIn(
+            'class="repair-orders-controls repair-orders-controls--header"',
+            repair_orders_modal_fragment,
+        )
+        self.assertLess(
+            repair_orders_modal_fragment.index("repair-orders-controls--header"),
+            repair_orders_modal_fragment.index('data-close="repair-orders"'),
+        )
+        self.assertNotIn(
+            '<div class="repair-orders-controls">\n        <div class="field field--compact">',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'class="wall-meta repair-orders-meta" id="repairOrdersMeta" hidden aria-hidden="true"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertNotIn("ПОКАЗАНО: ' + items.length", BOARD_WEB_APP_HTML)
+        self.assertIn("els.repairOrdersMeta.textContent = '';", BOARD_WEB_APP_HTML)
+        self.assertIn(".repair-orders-controls--header {", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "grid-template-columns: minmax(190px, 260px) 132px 132px;",
+            BOARD_WEB_APP_HTML,
+        )
+        head_left_rule = re.search(
+            r"\.dialog__head-left--repair-orders \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(head_left_rule)
+        assert head_left_rule is not None
+        self.assertIn("flex: 0 0 auto;", head_left_rule.group("body"))
+        head_actions_rule = re.search(
+            r"\.dialog__head-actions--repair-orders \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(head_actions_rule)
+        assert head_actions_rule is not None
+        self.assertIn("justify-content: flex-start;", head_actions_rule.group("body"))
+        self.assertIn("margin-left: 12px;", head_actions_rule.group("body"))
+        self.assertIn(
+            '.dialog__head-actions--repair-orders [data-close="repair-orders"] {',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("margin-left: auto;", BOARD_WEB_APP_HTML)
         self.assertIn(
             "repairOrderListTotalText(item.grand_total, item.works_total)", BOARD_WEB_APP_HTML
         )
         self.assertIn("function repairOrderListDateDisplayValue(value)", BOARD_WEB_APP_HTML)
         self.assertIn("renderRepairOrderListRows = function(items)", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-row__number", BOARD_WEB_APP_HTML)
+        repair_order_number_rule = re.search(
+            r"\.repair-orders-row__number \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(repair_order_number_rule)
+        assert repair_order_number_rule is not None
+        self.assertIn("font-size: 16px;", repair_order_number_rule.group("body"))
+        self.assertIn("font-weight: 800;", repair_order_number_rule.group("body"))
         self.assertIn(".repair-orders-row__dates", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-row__date-meta", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-row__opened", BOARD_WEB_APP_HTML)
@@ -3624,15 +3758,32 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".repair-orders-search-label", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-search-spinner", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-search-scope", BOARD_WEB_APP_HTML)
-        self.assertIn("width: 28px;", BOARD_WEB_APP_HTML)
-        self.assertIn("height: 28px;", BOARD_WEB_APP_HTML)
-        self.assertIn("flex: 0 0 28px;", BOARD_WEB_APP_HTML)
+        search_scope_rule = re.search(
+            r"\.repair-orders-search-scope \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(search_scope_rule)
+        assert search_scope_rule is not None
+        self.assertIn("width: 18px;", search_scope_rule.group("body"))
+        self.assertIn("height: 18px;", search_scope_rule.group("body"))
+        self.assertIn("flex: 0 0 18px;", search_scope_rule.group("body"))
+        self.assertNotIn("width: 28px;", search_scope_rule.group("body"))
         self.assertIn(".repair-orders-table-head__searchable", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-table-head__searchable-group", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-table-head__sum", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-row__total", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-row__payment-status", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-row__paid", BOARD_WEB_APP_HTML)
+        repair_order_money_rule = re.search(
+            r"\.repair-orders-row__paid,\n    \.repair-orders-row__total \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(repair_order_money_rule)
+        assert repair_order_money_rule is not None
+        self.assertIn("font-size: 15px;", repair_order_money_rule.group("body"))
+        self.assertIn("font-weight: 800;", repair_order_money_rule.group("body"))
         self.assertIn("minmax(152px, 184px)", BOARD_WEB_APP_HTML)
         self.assertIn("minmax(109px, 1.013fr)", BOARD_WEB_APP_HTML)
         self.assertIn("minmax(168px, 203px)", BOARD_WEB_APP_HTML)
@@ -3717,7 +3868,7 @@ class WebAssetsTests(unittest.TestCase):
         persist_fragment = BOARD_WEB_APP_HTML[
             BOARD_WEB_APP_HTML.index(
                 "async function persistRepairOrderRecord"
-            ) : BOARD_WEB_APP_HTML.index("async function autofillRepairOrder")
+            ) : BOARD_WEB_APP_HTML.index("saveRepairOrder = async function")
         ]
         self.assertIn("await refreshRepairOrdersListAfterMutation();", persist_fragment)
 
@@ -3816,9 +3967,15 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("syncRepairOrdersLayout(normalizedFilter);", BOARD_WEB_APP_HTML)
-        self.assertIn("ОТКРЫТЫЕ: ", BOARD_WEB_APP_HTML)
-        self.assertIn("ГОТОВЫЕ: ", BOARD_WEB_APP_HTML)
-        self.assertIn("АРХИВ: ", BOARD_WEB_APP_HTML)
+        repair_orders_meta_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "repairOrdersMetaText = function(items, meta)"
+            ) : BOARD_WEB_APP_HTML.index("renderRepairOrderListRows = function(items)")
+        ]
+        self.assertIn("return '';", repair_orders_meta_fragment)
+        self.assertNotIn("ОТКРЫТЫЕ: ", repair_orders_meta_fragment)
+        self.assertNotIn("ГОТОВЫЕ: ", repair_orders_meta_fragment)
+        self.assertNotIn("АРХИВ: ", repair_orders_meta_fragment)
         self.assertIn("repairOrdersIsClosedView(status)", BOARD_WEB_APP_HTML)
         self.assertIn("const phoneText = phone || '-';", BOARD_WEB_APP_HTML)
         self.assertIn("repairOrdersTableHeadSearchableHtml('Даты', 'date')", BOARD_WEB_APP_HTML)
@@ -4411,7 +4568,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function applyBoardScalePreference(", BOARD_WEB_APP_HTML)
         self.assertIn("function openBoardSettings()", BOARD_WEB_APP_HTML)
         self.assertIn("function refreshGptWallView()", BOARD_WEB_APP_HTML)
-        self.assertIn("async function createColumnFromTopbar()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function createColumnFromBoard()", BOARD_WEB_APP_HTML)
         self.assertIn("function closeNamedModal(closeKey)", BOARD_WEB_APP_HTML)
         self.assertIn(
             "async function loadModalData(path, { method = 'GET', body = null, openModal = false, modalEl = null, onSuccess, onError } = {})",
@@ -4609,10 +4766,8 @@ class WebAssetsTests(unittest.TestCase):
             "els.gptWallRefresh.addEventListener('click', refreshGptWallView);", BOARD_WEB_APP_HTML
         )
         self.assertIn("els.gptWallText.dataset.wallView = view;", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "els.columnButton.addEventListener('click', createColumnFromTopbar);",
-            BOARD_WEB_APP_HTML,
-        )
+        self.assertIn("target.closest('[data-create-column]')", BOARD_WEB_APP_HTML)
+        self.assertIn("await createColumnFromBoard();", BOARD_WEB_APP_HTML)
 
     def test_blob_helpers_drive_download_and_text_report_paths(self) -> None:
         self.assertIn(

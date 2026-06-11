@@ -8,7 +8,7 @@
     const CLIENTS_INITIAL_LIMIT = 35;
     const CLIENTS_SEARCH_LIMIT = 50;
     const CARD_CLIENT_SUGGESTION_LIMIT = 6;
-    const BOARD_SEARCH_LIMIT = 8;
+    const BOARD_SEARCH_LIMIT = 16;
     const BOARD_SEARCH_DEBOUNCE_MS = 90;
     const CASH_JOURNAL_FILTER_DEBOUNCE_MS = 80;
     const CASH_JOURNAL_RENDER_BATCH_SIZE = 250;
@@ -825,8 +825,6 @@
       boardSearchInput: document.getElementById('boardSearchInput'),
       boardSearchClearButton: document.getElementById('boardSearchClearButton'),
       boardSearchResults: document.getElementById('boardSearchResults'),
-      columnButton: document.getElementById('columnButton'),
-      cardButton: document.getElementById('cardButton'),
       boardSettingsModal: document.getElementById('boardSettingsModal'),
       boardScaleInput: document.getElementById('boardScaleInput'),
       boardScaleValue: document.getElementById('boardScaleValue'),
@@ -1176,7 +1174,6 @@
       repairOrderInventoryIssueButton: document.getElementById('repairOrderInventoryIssueButton'),
       repairOrderInventoryReturnButton: document.getElementById('repairOrderInventoryReturnButton'),
       repairOrderInventoryStatus: document.getElementById('repairOrderInventoryStatus'),
-      repairOrderAutofillButton: document.getElementById('repairOrderAutofillButton'),
       repairOrderCloseButton: document.getElementById('repairOrderCloseButton'),
       repairOrderSaveButton: document.getElementById('repairOrderSaveButton'),
       repairOrderPrintButton: document.getElementById('repairOrderPrintButton'),
@@ -9604,7 +9601,7 @@
         vin: item.vin ?? snapshotCard.repair_order?.vin ?? '',
         mileage: item.mileage ?? snapshotCard.repair_order?.mileage ?? '',
         reason: item.reason ?? item.summary ?? item.heading ?? snapshotCard.title ?? '',
-        comment: item.comment ?? snapshotCard.description ?? '',
+        comment: item.comment ?? snapshotCard.repair_order?.comment ?? '',
         works: snapshotCard.repair_order?.works || [],
         materials: snapshotCard.repair_order?.materials || [],
         payments: snapshotCard.repair_order?.payments || [],
@@ -13386,7 +13383,7 @@
         prepayment: currentCard.repair_order?.prepayment || '',
         payments: currentCard.repair_order?.payments || [],
         reason: currentCard.title || '',
-        comment: currentCard.description || '',
+        comment: currentCard.repair_order?.comment || '',
         note: currentCard.repair_order?.note || '',
         tags: currentCard.repair_order?.tags || [],
       });
@@ -14181,56 +14178,6 @@
       await refreshRepairOrdersListAfterMutation();
       if (!silent && statusMessage) setStatus(statusMessage, false);
       return { cardId, repairOrder: nextOrder, card: updatedCard, data };
-    }
-
-    async function autofillRepairOrder() {
-      const cardId = await requireRepairOrderCardId();
-      if (!cardId) return;
-      try {
-        els.repairOrderAutofillButton.disabled = true;
-        const data = await api('/api/autofill_repair_order', {
-          method: 'POST',
-          body: {
-            card_id: cardId,
-            actor_name: state.actor,
-            source: 'ui',
-            overwrite: false,
-          },
-        });
-        const updatedCard = repairOrderResponseCard(data);
-        applyRepairOrderCardUpdate(updatedCard, data?.repair_order || {});
-        setStatus(buildRepairOrderAutofillStatus(data), false);
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        els.repairOrderAutofillButton.disabled = false;
-      }
-    }
-
-    function buildRepairOrderAutofillStatus(data) {
-      if (!data?.meta?.changed) return 'Пустые поля для автозаполнения не найдены.';
-      const report = data?.meta?.autofill_report || {};
-      const parts = [];
-      const filledFields = Array.isArray(report.filled_fields) ? report.filled_fields : [];
-      const fieldLabels = {
-        client: 'клиент',
-        phone: 'телефон',
-        vehicle: 'автомобиль',
-        license_plate: 'госномер',
-        vin: 'VIN',
-        mileage: 'пробег',
-        opened_at: 'дата открытия',
-        reason: 'суть обращения',
-        comment: 'информация для клиента',
-        note: 'тех. заметка',
-      };
-      const filledLabels = filledFields
-        .map((field) => fieldLabels[field] || field)
-        .filter(Boolean);
-      if (filledLabels.length) parts.push(filledLabels.join(', '));
-      const reviewItems = Array.isArray(report.review_items) ? report.review_items.filter(Boolean) : [];
-      if (!parts.length) return 'Заказ-наряд автозаполнен.';
-      return 'Заказ-наряд автозаполнен: ' + parts.join(', ') + '.' + (reviewItems.length ? ' ' + reviewItems[0] : '');
     }
 
     saveRepairOrder = async function(printAfter = false) {
@@ -15720,9 +15667,8 @@
 
     function renderRepairOrdersView() {
       const items = filterRepairOrdersItems(state.repairOrdersItems);
-      const meta = state.repairOrdersMetaState || {};
       syncRepairOrdersControls();
-      els.repairOrdersMeta.textContent = repairOrdersMetaText(items, meta);
+      els.repairOrdersMeta.textContent = '';
       els.repairOrdersList.innerHTML = items.length
         ? renderRepairOrderListRows(items)
         : '<div class="log-row__meta">' + repairOrdersEmptyStateText() + '</div>';
@@ -15731,19 +15677,7 @@
 
     // СПИСОК: ДАТА / АВТО / СУТЬ / СУММА
     repairOrdersMetaText = function(items, meta) {
-      const parts = [
-        'ПОКАЗАНО: ' + items.length,
-        'ОТКРЫТЫЕ: ' + (meta.open_total ?? meta.active_total ?? 0),
-        'ГОТОВЫЕ: ' + (meta.ready_total ?? 0),
-        'АРХИВ: ' + (meta.archived_total ?? 0),
-      ];
-      const activeQuery = String(state.repairOrdersQuery || meta.query || '').trim();
-      if (activeQuery) parts.push('ПОИСК: ' + repairOrdersSearchFieldLabel().toUpperCase() + ' = ' + activeQuery);
-      const sortBy = normalizeRepairOrdersSortBy(meta.sort_by || state.repairOrdersSortBy);
-      const sortDir = normalizeRepairOrdersSortDir(meta.sort_dir || state.repairOrdersSortDir);
-      const sortLabel = sortBy === 'number' ? 'НОМЕР' : (sortBy === 'closed_at' ? 'ДАТА ЗАКРЫТИЯ' : 'ДАТА ОТКРЫТИЯ');
-      parts.push('СОРТ: ' + sortLabel + ' ' + (sortDir === 'asc' ? '^' : 'v'));
-      return parts.join(' | ');
+      return '';
     };
 
     renderRepairOrderListRows = function(items) {
@@ -15963,7 +15897,8 @@
         return;
       }
       const cardsByColumn = buildBoardCardsByColumn(snapshot);
-      els.board.innerHTML = snapshot.columns.map((column, index) => renderBoardColumnHtml(column, index, snapshot, cardsByColumn)).join('') + '<div class="sticky-layer" id="stickyLayer"></div>';
+      const addColumnButtonHtml = '<button class="board-add-column" type="button" data-create-column="true" title="Добавить столбец" aria-label="Добавить столбец">+</button>';
+      els.board.innerHTML = snapshot.columns.map((column, index) => renderBoardColumnHtml(column, index, snapshot, cardsByColumn)).join('') + addColumnButtonHtml + '<div class="sticky-layer" id="stickyLayer"></div>';
       els.stickyLayer = document.getElementById('stickyLayer');
       renderStickies();
       renderMobileShell();
@@ -16919,7 +16854,7 @@
       await saveBoardScale();
     }
 
-    async function createColumnFromTopbar() {
+    async function createColumnFromBoard() {
       const label = window.prompt('Название столбца');
       if (!label) return;
       try {
@@ -16928,10 +16863,6 @@
       } catch (error) {
         setStatus(error.message, true);
       }
-    }
-
-    function openDefaultNewCard() {
-      openCardModal({ column: state.snapshot?.columns?.[0]?.id || 'inbox', tags: [], attachments: [], remaining_seconds: 86400 });
     }
 
     function openRepairOrdersModal() {

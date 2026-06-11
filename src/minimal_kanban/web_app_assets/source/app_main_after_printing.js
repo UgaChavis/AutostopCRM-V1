@@ -411,6 +411,13 @@
         await deleteColumnFromButton(deleteColumnButton);
         return;
       }
+      const createColumnTrigger = target.closest('[data-create-column]');
+      if (createColumnTrigger instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        await createColumnFromBoard();
+        return;
+      }
       const createInTrigger = target.closest('[data-create-in]');
       if (createInTrigger instanceof HTMLElement) openNewCardInColumn(createInTrigger.dataset.createIn);
       if (await handleAuxiliaryBoardClick(target, event)) return;
@@ -647,8 +654,6 @@
     els.boardScaleInput.addEventListener('input', handleBoardScaleInput);
     els.boardScaleInput.addEventListener('change', persistBoardScaleChange);
     els.boardScaleReset.addEventListener('click', resetBoardScaleToDefault);
-    els.columnButton.addEventListener('click', createColumnFromTopbar);
-    els.cardButton.addEventListener('click', openDefaultNewCard);
     els.signalDaysIncrementButton.addEventListener('click', () => adjustSignalPart('days', 1));
     els.signalDaysDecrementButton.addEventListener('click', () => adjustSignalPart('days', -1));
     els.signalHoursIncrementButton.addEventListener('click', () => adjustSignalPart('hours', 1));
@@ -689,7 +694,6 @@
     els.repairOrderTagAddButton.addEventListener('click', addRepairOrderTag);
     els.repairOrderTagInput.addEventListener('keydown', handleRepairOrderTagInputKeydown);
     els.repairOrderButton.addEventListener('click', openRepairOrderModal);
-    els.repairOrderAutofillButton.addEventListener('click', autofillRepairOrder);
     els.repairOrderCloseButton.addEventListener('click', toggleRepairOrderStatus);
     els.repairOrderSaveButton.addEventListener('click', saveRepairOrderDraft);
     els.repairOrderPaymentsButton.addEventListener('click', openRepairOrderPaymentsModal);

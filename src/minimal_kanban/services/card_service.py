@@ -6078,10 +6078,6 @@ class CardService(
         if order.license_plate != original_order.get("license_plate", ""):
             changed_fields.append("license_plate")
 
-        if overwrite or not order.comment:
-            order.comment = self._build_client_description(card, order) or order.comment
-        if order.comment != original_order.get("comment", ""):
-            changed_fields.append("comment")
         if overwrite or not order.note:
             order.note = self._build_internal_repair_note(card, order) or order.note
         if order.note != original_order.get("note", ""):
@@ -6876,56 +6872,6 @@ class CardService(
         for row in suggested:
             self._append_repair_row(merged, row)
         return normalize_repair_order_rows([row.to_dict() for row in merged])
-
-    def _build_client_description(self, card: Card, order: RepairOrder) -> str:
-        parts: list[str] = []
-        reason = normalize_text(
-            order.reason or self._build_repair_order_reason(card), default="", limit=320
-        )
-        customer_name = self._extract_customer_name(card)
-        customer_phone = self._extract_phone(card)
-        vehicle = normalize_text(order.vehicle or card.vehicle_display(), default="", limit=120)
-        license_plate = normalize_text(
-            order.license_plate or self._extract_license_plate(card), default="", limit=40
-        )
-        vin = normalize_text(order.vin or self._extract_vin(card), default="", limit=32).upper()
-        mileage = normalize_text(order.mileage or self._extract_mileage(card), default="", limit=40)
-        findings = self._extract_repair_findings(card)
-        recommendations = self._extract_repair_recommendations(card)
-        client_facts: list[str] = []
-        if customer_name:
-            client_facts.append(f"клиент: {customer_name}")
-        if customer_phone:
-            client_facts.append(f"телефон: {customer_phone}")
-        if vehicle:
-            client_facts.append(f"автомобиль: {vehicle}")
-        if license_plate:
-            client_facts.append(f"госномер: {license_plate}")
-        if vin:
-            client_facts.append(f"VIN: {vin}")
-        if mileage:
-            client_facts.append(f"пробег: {mileage}")
-        if client_facts:
-            parts.append("Заявка принята. " + ", ".join(client_facts[:6]) + ".")
-        if reason:
-            parts.append(f"Клиент обратился с запросом: {reason.rstrip('.')} .".replace(" .", "."))
-        if findings:
-            parts.append(
-                f"В ходе проверки выявлено: {'; '.join(findings[:2]).rstrip('.')} .".replace(
-                    " .", "."
-                )
-            )
-        if recommendations:
-            parts.append(
-                f"Рекомендовано далее: {'; '.join(recommendations[:2]).rstrip('.')} .".replace(
-                    " .", "."
-                )
-            )
-        if not parts:
-            fallback = self._clean_repair_text_fragment(card.description, limit=320)
-            if fallback:
-                parts.append(fallback)
-        return normalize_text(" ".join(parts), default="", limit=1200)
 
     def _format_client_material(self, row: RepairOrderRow) -> str:
         quantity = normalize_text(row.quantity, default="", limit=40)
