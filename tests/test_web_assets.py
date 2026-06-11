@@ -2478,8 +2478,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("pendingCardClientId", BOARD_WEB_APP_HTML)
         self.assertNotIn("clientProfileMeta", BOARD_WEB_APP_HTML)
         self.assertIn(".clients-list-pane {", BOARD_WEB_APP_HTML)
-        self.assertIn("width: min(96vw, 2100px);", BOARD_WEB_APP_HTML)
-        self.assertIn("height: min(92vh, 1180px);", BOARD_WEB_APP_HTML)
+        self.assertIn("width: min(77vw, 1680px);", BOARD_WEB_APP_HTML)
+        self.assertIn("height: min(74vh, 944px);", BOARD_WEB_APP_HTML)
+        self.assertNotIn("width: min(96vw, 2100px);", BOARD_WEB_APP_HTML)
+        self.assertNotIn("height: min(92vh, 1180px);", BOARD_WEB_APP_HTML)
         self.assertIn(
             "grid-template-columns: minmax(420px, 40%) minmax(0, 1fr);", BOARD_WEB_APP_HTML
         )
