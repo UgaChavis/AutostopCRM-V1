@@ -1525,6 +1525,58 @@ class ApiServerTests(unittest.TestCase):
         )
         self.assertFalse(worker_card["is_unread"])
 
+        status, updated = self.request(
+            "/api/update_card",
+            {
+                "card_id": card_id,
+                "description": "Worker saved after seeing",
+                "source": "ui",
+            },
+            headers=worker_headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(updated["data"]["card"]["is_unread"])
+        self.assertFalse(updated["data"]["card"]["has_unseen_update"])
+
+        columns = worker_snapshot["data"]["columns"]
+        current_column = updated["data"]["card"]["column"]
+        target_column = next(column["id"] for column in columns if column["id"] != current_column)
+        status, moved = self.request(
+            "/api/move_card",
+            {"card_id": card_id, "column": target_column, "source": "ui"},
+            headers=worker_headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(moved["data"]["card"]["is_unread"])
+        self.assertFalse(moved["data"]["card"]["has_unseen_update"])
+        moved_affected = next(
+            card for card in moved["data"]["affected_cards"] if card["id"] == card_id
+        )
+        self.assertFalse(moved_affected["is_unread"])
+        self.assertFalse(moved_affected["has_unseen_update"])
+
+        status, admin_updated = self.request(
+            "/api/update_card",
+            {
+                "card_id": card_id,
+                "description": "Admin changed after worker saw it",
+                "source": "ui",
+            },
+            headers=admin_headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(admin_updated["data"]["card"]["has_unseen_update"])
+
+        status, worker_snapshot = self.request(
+            "/api/get_board_snapshot", method="GET", headers=worker_headers
+        )
+        self.assertEqual(status, 200)
+        worker_card = next(
+            card for card in worker_snapshot["data"]["cards"] if card["id"] == card_id
+        )
+        self.assertFalse(worker_card["is_unread"])
+        self.assertTrue(worker_card["has_unseen_update"])
+
     def test_operator_user_listing_reads_board_bundle_once(self) -> None:
         logged_in = self.operator_service.login({"username": "admin", "password": "admin"})
         session = logged_in["session"]

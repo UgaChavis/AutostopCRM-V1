@@ -2680,6 +2680,35 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
 
+    def test_seen_badge_suppression_prevents_stale_snapshot_reappearing(self) -> None:
+        self.assertIn("const CARD_SEEN_SUPPRESSION_TTL_MS = 60000;", BOARD_WEB_APP_HTML)
+        self.assertIn("cardSeenSuppressions: new Map(),", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function recordCardSeenSuppression(cardId, updatedAt = '')", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("function applyCardSeenSuppression(card)", BOARD_WEB_APP_HTML)
+        self.assertIn("function applyCardSeenSuppressionsToSnapshot(snapshot)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const nextSnapshot = applyCardSeenSuppressionsToSnapshot(await api('/api/get_board_snapshot?compact=1&include_archive=0'));",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "const suppressedNextCards = applyCardSeenSuppressionsToCards(nextCards);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "const suppressedNextCard = applyCardSeenSuppression(nextCard);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "const suppressedCard = applyCardSeenSuppression(card);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "recordCardSeenSuppression(normalizedCardId, suppressionUpdatedAt);",
+            BOARD_WEB_APP_HTML,
+        )
+
     def test_board_drag_drop_supports_reordering_inside_column(self) -> None:
         self.assertIn(".card.is-drop-before::before {", BOARD_WEB_APP_HTML)
         self.assertIn("function updateBoardDragAutoScroll(clientX, clientY)", BOARD_WEB_APP_HTML)
@@ -4445,7 +4474,10 @@ class WebAssetsTests(unittest.TestCase):
             "function applyBoardColumnCardsPatch(nextCards, affectedColumnIds)", BOARD_WEB_APP_HTML
         )
         self.assertIn("function applyArchivedCardPatch(nextCard)", BOARD_WEB_APP_HTML)
-        self.assertIn("const previousCard = snapshotCardById(nextCard.id);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const previousCard = snapshotCardById(suppressedNextCard.id);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "if (previousColumnId && previousColumnId === nextColumnId) {", BOARD_WEB_APP_HTML
         )
@@ -4454,7 +4486,8 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            "if (samePosition && replaceBoardCardElement(nextCard)) return;", BOARD_WEB_APP_HTML
+            "if (samePosition && replaceBoardCardElement(suppressedNextCard)) return;",
+            BOARD_WEB_APP_HTML,
         )
         self.assertIn("renderBoardColumnById(previousColumnId, cardsByColumn)", BOARD_WEB_APP_HTML)
         self.assertIn(

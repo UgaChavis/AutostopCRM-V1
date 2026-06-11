@@ -21,6 +21,7 @@
     const CARD_JOURNAL_LIMIT_STEP = 50;
     const CARD_JOURNAL_MAX_LIMIT = 1000;
     const CARD_OPEN_SIDE_EFFECT_DELAY_MS = 700;
+    const CARD_SEEN_SUPPRESSION_TTL_MS = 60000;
     const MOBILE_VIEW_ORDER = ['board', 'cashboxes', 'inventory', 'repair-orders', 'more'];
     const MOBILE_CARD_TABS = ['overview', 'vehicle', 'files', 'journal'];
     const MOBILE_REPAIR_ORDER_TABS = ['client', 'works', 'materials', 'payments', 'totals'];
@@ -140,6 +141,7 @@
       unreadHoverTimers: new Map(),
       unreadSeenInFlight: new Set(),
       unreadSeenDeferredTimers: new Map(),
+      cardSeenSuppressions: new Map(),
       repairOrdersFilter: 'open',
       repairOrdersQuery: '',
       repairOrdersRemoteQuery: '',
@@ -16020,6 +16022,67 @@
       });
     }
 
+    function cardUpdatedAtMs(value) {
+      const parsed = Date.parse(String(value || '').trim());
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function pruneCardSeenSuppressions(nowMs = Date.now()) {
+      for (const [cardId, suppression] of state.cardSeenSuppressions.entries()) {
+        const suppressedAtMs = Number(suppression?.suppressed_at_ms || 0);
+        if (!suppressedAtMs || nowMs - suppressedAtMs > CARD_SEEN_SUPPRESSION_TTL_MS) {
+          state.cardSeenSuppressions.delete(cardId);
+        }
+      }
+    }
+
+    function recordCardSeenSuppression(cardId, updatedAt = '') {
+      const normalizedCardId = String(cardId || '').trim();
+      if (!normalizedCardId) return;
+      pruneCardSeenSuppressions();
+      state.cardSeenSuppressions.set(normalizedCardId, {
+        updated_at: String(updatedAt || '').trim(),
+        suppressed_at_ms: Date.now(),
+      });
+    }
+
+    function incomingCardIsNewerThanSuppression(card, suppression) {
+      const incomingUpdatedAt = String(card?.updated_at || '').trim();
+      const suppressedUpdatedAt = String(suppression?.updated_at || '').trim();
+      const incomingMs = cardUpdatedAtMs(incomingUpdatedAt);
+      const suppressedMs = cardUpdatedAtMs(suppressedUpdatedAt);
+      if (incomingMs && suppressedMs) return incomingMs > suppressedMs;
+      if (incomingUpdatedAt && suppressedUpdatedAt) return incomingUpdatedAt > suppressedUpdatedAt;
+      return false;
+    }
+
+    function applyCardSeenSuppression(card) {
+      const cardId = String(card?.id || '').trim();
+      if (!cardId) return card;
+      pruneCardSeenSuppressions();
+      const suppression = state.cardSeenSuppressions.get(cardId);
+      if (!suppression) return card;
+      if (incomingCardIsNewerThanSuppression(card, suppression)) {
+        state.cardSeenSuppressions.delete(cardId);
+        return card;
+      }
+      if (!card.is_unread && !card.has_unseen_update) return card;
+      return { ...card, is_unread: false, has_unseen_update: false };
+    }
+
+    function applyCardSeenSuppressionsToCards(cards) {
+      if (!Array.isArray(cards)) return cards;
+      return cards.map((card) => applyCardSeenSuppression(card));
+    }
+
+    function applyCardSeenSuppressionsToSnapshot(snapshot) {
+      if (!snapshot || typeof snapshot !== 'object') return snapshot;
+      return {
+        ...snapshot,
+        cards: applyCardSeenSuppressionsToCards(snapshot.cards),
+      };
+    }
+
     async function refreshSnapshot(showSuccess = false) {
       return perfMeasureAsync('refreshSnapshot', async () => {
         if (state.refreshInFlight) {
@@ -16031,7 +16094,7 @@
         state.refreshInFlight = (async () => {
           try {
             if (!state.snapshot || els.statusLine?.dataset.connection === 'offline') showConnectionPendingStatus();
-            const nextSnapshot = await api('/api/get_board_snapshot?compact=1&include_archive=0');
+            const nextSnapshot = applyCardSeenSuppressionsToSnapshot(await api('/api/get_board_snapshot?compact=1&include_archive=0'));
             const previousRevision = String(state.lastSnapshotRevision || '');
             const nextRevision = String(nextSnapshot?.meta?.revision || '');
             const boardChanged = !previousRevision || !nextRevision || previousRevision !== nextRevision;
@@ -16112,7 +16175,7 @@
       const pending = state.cardFetchInFlight.get(normalizedCardId);
       if (pending) return pending;
       const request = api('/api/get_card?card_id=' + encodeURIComponent(normalizedCardId))
-        .then((data) => cacheFullCard(data?.card))
+        .then((data) => cacheFullCard(applyCardSeenSuppression(data?.card)))
         .finally(() => state.cardFetchInFlight.delete(normalizedCardId));
       state.cardFetchInFlight.set(normalizedCardId, request);
       return request;
@@ -16152,10 +16215,11 @@
         .filter(Boolean);
       if (!normalizedColumnIds.length) return false;
       const targetColumns = new Set(normalizedColumnIds);
-      const nextCardMap = new Map(nextCards.filter((card) => card?.id).map((card) => [card.id, card]));
+      const suppressedNextCards = applyCardSeenSuppressionsToCards(nextCards);
+      const nextCardMap = new Map(suppressedNextCards.filter((card) => card?.id).map((card) => [card.id, card]));
       state.snapshot.cards = state.snapshot.cards
         .filter((card) => !targetColumns.has(String(card.column || '').trim()))
-        .concat(nextCards);
+        .concat(suppressedNextCards);
       if (state.activeCard?.id) {
         const nextActiveCard = nextCardMap.get(state.activeCard.id);
         if (nextActiveCard) state.activeCard = nextActiveCard;
@@ -16178,20 +16242,21 @@
 
     function applyArchivedCardPatch(nextCard) {
       if (!nextCard?.id || !Array.isArray(state.snapshot?.cards)) return false;
-      const previousCard = snapshotCardById(nextCard.id);
-      state.snapshot.cards = state.snapshot.cards.filter((card) => card.id !== nextCard.id);
+      const suppressedNextCard = applyCardSeenSuppression(nextCard);
+      const previousCard = snapshotCardById(suppressedNextCard.id);
+      state.snapshot.cards = state.snapshot.cards.filter((card) => card.id !== suppressedNextCard.id);
       if (Array.isArray(state.archiveCards)) {
-        state.archiveCards = state.archiveCards.filter((card) => card.id !== nextCard.id);
+        state.archiveCards = state.archiveCards.filter((card) => card.id !== suppressedNextCard.id);
       }
-      if (nextCard.archived) {
+      if (suppressedNextCard.archived) {
         if (state.archiveLoaded) {
-          state.archiveCards = [nextCard].concat(state.archiveCards).slice(0, ARCHIVE_PREVIEW_LIMIT);
+          state.archiveCards = [suppressedNextCard].concat(state.archiveCards).slice(0, ARCHIVE_PREVIEW_LIMIT);
         }
       } else {
-        state.snapshot.cards = state.snapshot.cards.concat(nextCard);
+        state.snapshot.cards = state.snapshot.cards.concat(suppressedNextCard);
       }
-      if (state.activeCard?.id === nextCard.id) state.activeCard = nextCard.archived ? null : nextCard;
-      const affectedColumnId = String((nextCard.column || previousCard?.column || '')).trim();
+      if (state.activeCard?.id === suppressedNextCard.id) state.activeCard = suppressedNextCard.archived ? null : suppressedNextCard;
+      const affectedColumnId = String((suppressedNextCard.column || previousCard?.column || '')).trim();
       if (affectedColumnId) {
         const cardsByColumn = buildBoardCardsByColumn(state.snapshot);
         if (!renderBoardColumnById(affectedColumnId, cardsByColumn)) renderBoard();
@@ -16212,29 +16277,30 @@
 
     function replaceSnapshotCard(nextCard) {
       if (!nextCard?.id) return;
-      const previousCard = snapshotCardById(nextCard.id);
+      const suppressedNextCard = applyCardSeenSuppression(nextCard);
+      const previousCard = snapshotCardById(suppressedNextCard.id);
       if (Array.isArray(state.snapshot?.cards)) {
-        state.snapshot.cards = state.snapshot.cards.map((card) => card.id === nextCard.id ? nextCard : card);
+        state.snapshot.cards = state.snapshot.cards.map((card) => card.id === suppressedNextCard.id ? suppressedNextCard : card);
       }
       if (Array.isArray(state.archiveCards)) {
-        state.archiveCards = state.archiveCards.map((card) => card.id === nextCard.id ? nextCard : card);
+        state.archiveCards = state.archiveCards.map((card) => card.id === suppressedNextCard.id ? suppressedNextCard : card);
       }
-      if (state.activeCard?.id === nextCard.id) state.activeCard = nextCard;
+      if (state.activeCard?.id === suppressedNextCard.id) state.activeCard = suppressedNextCard;
       const archiveOpen = els.archiveModal.classList.contains('is-open');
-      const touchesArchive = previousCard?.archived || nextCard.archived;
+      const touchesArchive = previousCard?.archived || suppressedNextCard.archived;
       if (archiveOpen && touchesArchive) renderArchive();
-      if (!previousCard || previousCard.archived || nextCard.archived) {
+      if (!previousCard || previousCard.archived || suppressedNextCard.archived) {
         renderBoard();
         if (archiveOpen && !touchesArchive) renderArchive();
         return;
       }
       const previousColumnId = String(previousCard.column || '').trim();
-      const nextColumnId = String(nextCard.column || '').trim();
+      const nextColumnId = String(suppressedNextCard.column || '').trim();
       if (previousColumnId && previousColumnId === nextColumnId) {
         const previousPosition = Number(previousCard.position ?? NaN);
-        const nextPosition = Number(nextCard.position ?? NaN);
+        const nextPosition = Number(suppressedNextCard.position ?? NaN);
         const samePosition = previousPosition === nextPosition || (Number.isNaN(previousPosition) && Number.isNaN(nextPosition));
-        if (samePosition && replaceBoardCardElement(nextCard)) return;
+        if (samePosition && replaceBoardCardElement(suppressedNextCard)) return;
         const cardsByColumn = buildBoardCardsByColumn(state.snapshot);
         if (!renderBoardColumnById(previousColumnId, cardsByColumn)) renderBoard();
         return;
@@ -16258,8 +16324,9 @@
 
     function applySavedCardLocalPatch(card) {
       if (!card?.id || !Array.isArray(state.snapshot?.cards)) return false;
-      cacheFullCard(card);
-      const nextCard = boardCardFromFullCard(card);
+      const suppressedCard = applyCardSeenSuppression(card);
+      cacheFullCard(suppressedCard);
+      const nextCard = boardCardFromFullCard(suppressedCard);
       const previousCard = snapshotCardById(nextCard.id);
       if (previousCard) {
         replaceSnapshotCard(nextCard);
@@ -16298,11 +16365,13 @@
       clearUnreadHoverTimer(normalizedCardId);
       const currentCard = snapshotCardById(normalizedCardId);
       const cardElement = boardCardElementById(normalizedCardId);
+      const suppressionUpdatedAt = currentCard?.updated_at || (state.activeCard?.id === normalizedCardId ? state.activeCard.updated_at : '');
       const hadMarker = Boolean(
         currentCard?.is_unread
         || currentCard?.has_unseen_update
         || cardElement?.querySelector('.card__unread-badge, .card__updated-badge')
       );
+      recordCardSeenSuppression(normalizedCardId, suppressionUpdatedAt);
       if (currentCard) {
         currentCard.is_unread = false;
         currentCard.has_unseen_update = false;

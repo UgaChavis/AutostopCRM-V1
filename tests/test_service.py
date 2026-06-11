@@ -5469,6 +5469,68 @@ class CardServiceTests(unittest.TestCase):
         self.assertFalse(bob_view["is_unread"])
         self.assertTrue(clara_view["is_unread"])
 
+    def test_seen_user_update_does_not_restore_new_badge_for_self(self) -> None:
+        created = self.service.create_card(
+            {
+                "title": "New for worker",
+                "description": "Initial",
+                "deadline": {"hours": 1},
+                "source": "ui",
+                "actor_name": "ALICE",
+            }
+        )
+        card_id = created["card"]["id"]
+        self.assertTrue(
+            self.service.get_card({"card_id": card_id, "actor_name": "BOB"})["card"]["is_unread"]
+        )
+
+        self.service.mark_card_seen({"card_id": card_id, "actor_name": "BOB"})
+        updated = self.service.update_card(
+            {
+                "card_id": card_id,
+                "description": "Bob changed this card",
+                "actor_name": "BOB",
+            }
+        )
+
+        self.assertFalse(updated["card"]["is_unread"])
+        self.assertFalse(updated["card"]["has_unseen_update"])
+        bob_view = self.service.get_card({"card_id": card_id, "actor_name": "BOB"})["card"]
+        clara_view = self.service.get_card({"card_id": card_id, "actor_name": "CLARA"})["card"]
+        self.assertFalse(bob_view["is_unread"])
+        self.assertFalse(bob_view["has_unseen_update"])
+        self.assertTrue(clara_view["is_unread"])
+
+    def test_seen_user_move_does_not_restore_new_badge_in_column_patch(self) -> None:
+        columns = self.store.read_bundle()["columns"]
+        source_column = columns[0].id
+        target_column = columns[1].id
+        created = self.service.create_card(
+            {
+                "title": "Move without returning NEW",
+                "description": "Initial",
+                "deadline": {"hours": 1},
+                "column": source_column,
+                "source": "ui",
+                "actor_name": "ALICE",
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.mark_card_seen({"card_id": card_id, "actor_name": "BOB"})
+
+        moved = self.service.move_card(
+            {"card_id": card_id, "column": target_column, "actor_name": "BOB"}
+        )
+        affected_card = next(card for card in moved["affected_cards"] if card["id"] == card_id)
+
+        self.assertFalse(moved["card"]["is_unread"])
+        self.assertFalse(moved["card"]["has_unseen_update"])
+        self.assertFalse(affected_card["is_unread"])
+        self.assertFalse(affected_card["has_unseen_update"])
+        bob_view = self.service.get_card({"card_id": card_id, "actor_name": "BOB"})["card"]
+        self.assertFalse(bob_view["is_unread"])
+        self.assertFalse(bob_view["has_unseen_update"])
+
     def test_mcp_created_card_is_unread_for_humans_until_marked_seen(self) -> None:
         created = self.service.create_card(
             {
@@ -5540,6 +5602,21 @@ class CardServiceTests(unittest.TestCase):
         marked = self.service.mark_card_seen({"card_id": card_id, "actor_name": "ALICE"})
         self.assertTrue(marked["meta"]["changed"])
         self.assertFalse(marked["card"]["has_unseen_update"])
+
+        marked_again = self.service.mark_card_seen({"card_id": card_id, "actor_name": "ALICE"})
+        self.assertFalse(marked_again["meta"]["changed"])
+        self.assertFalse(marked_again["card"]["has_unseen_update"])
+
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "description": "Updated by Bob again",
+                "actor_name": "BOB",
+            }
+        )
+        alice_view = self.service.get_card({"card_id": card_id, "actor_name": "ALICE"})["card"]
+        self.assertTrue(alice_view["has_unseen_update"])
+        self.assertFalse(alice_view["is_unread"])
 
     def test_deadline_status_transitions(self) -> None:
         base = datetime(2026, 3, 23, 12, 0, 0, tzinfo=timezone.utc)

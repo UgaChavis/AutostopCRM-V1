@@ -799,13 +799,16 @@ class CardService(
                 )
             column_labels = self._column_labels(bundle["columns"])
             card_payload = (
-                self._manager_card_item(card, column_labels, now=utc_now())
+                self._manager_card_item(
+                    card, column_labels, now=utc_now(), viewer_username=actor_name
+                )
                 if response_mode == "compact"
                 else self._serialize_card(
                     card,
                     events,
                     column_labels=column_labels,
                     include_removed_attachments=True,
+                    viewer_username=actor_name,
                 )
             )
             return {
@@ -870,7 +873,10 @@ class CardService(
                 self._save_bundle(bundle, columns=columns, cards=cards, events=events)
             return {
                 "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(columns)
+                    card,
+                    events,
+                    column_labels=self._column_labels(columns),
+                    viewer_username=actor_name,
                 ),
                 "meta": {
                     "enabled": False,
@@ -953,7 +959,10 @@ class CardService(
 
             return {
                 "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(columns)
+                    card,
+                    events,
+                    column_labels=self._column_labels(columns),
+                    viewer_username=actor_name,
                 ),
                 "meta": {
                     "changed": changed,
@@ -992,7 +1001,10 @@ class CardService(
             self._save_bundle(bundle, columns=columns, cards=cards, events=events)
             return {
                 "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(columns)
+                    card,
+                    events,
+                    column_labels=self._column_labels(columns),
+                    viewer_username=actor_name,
                 ),
                 "meta": {
                     "changed": False,
@@ -1162,7 +1174,10 @@ class CardService(
             self._save_bundle(bundle, columns=columns, cards=cards, events=events)
             return {
                 "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(columns)
+                    card,
+                    events,
+                    column_labels=self._column_labels(columns),
+                    viewer_username=actor_name,
                 ),
                 "meta": {
                     "enabled": enabled,
@@ -1252,7 +1267,10 @@ class CardService(
             self._save_bundle(bundle, columns=columns, cards=cards, events=events)
             return {
                 "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(columns)
+                    card,
+                    events,
+                    column_labels=self._column_labels(columns),
+                    viewer_username=actor_name,
                 ),
                 "meta": {
                     "launched": bool(launched_task_id) and not already_running,
@@ -2487,7 +2505,10 @@ class CardService(
                 "card_id": card.id,
                 "heading": card.heading(),
                 "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(columns)
+                    card,
+                    events,
+                    column_labels=self._column_labels(columns),
+                    viewer_username=actor_name,
                 ),
                 "repair_order": card.repair_order.to_dict(),
                 "meta": {
@@ -2552,7 +2573,10 @@ class CardService(
             return {
                 "repair_order": card.repair_order.to_dict(),
                 "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(columns)
+                    card,
+                    events,
+                    column_labels=self._column_labels(columns),
+                    viewer_username=actor_name,
                 ),
                 "meta": {
                     "changed": changed or numbering_changed,
@@ -2616,7 +2640,10 @@ class CardService(
             return {
                 "repair_order": card.repair_order.to_dict(),
                 "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(columns)
+                    card,
+                    events,
+                    column_labels=self._column_labels(columns),
+                    viewer_username=actor_name,
                 ),
                 "meta": {
                     "changed": changed or numbering_changed,
@@ -2667,7 +2694,10 @@ class CardService(
             return {
                 "repair_order": card.repair_order.to_dict(),
                 "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(columns)
+                    card,
+                    events,
+                    column_labels=self._column_labels(columns),
+                    viewer_username=actor_name,
                 ),
                 "meta": {
                     "changed": changed or numbering_changed,
@@ -2733,7 +2763,10 @@ class CardService(
             return {
                 "repair_order": card.repair_order.to_dict(),
                 "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(columns)
+                    card,
+                    events,
+                    column_labels=self._column_labels(columns),
+                    viewer_username=actor_name,
                 ),
                 "meta": {
                     "changed": changed or numbering_changed,
@@ -3430,13 +3463,16 @@ class CardService(
             )
             column_labels = self._column_labels(bundle["columns"])
             card_payload = (
-                self._manager_card_item(card, column_labels, now=utc_now())
+                self._manager_card_item(
+                    card, column_labels, now=utc_now(), viewer_username=actor_name
+                )
                 if response_mode == "compact"
                 else self._serialize_card(
                     card,
                     events,
                     column_labels=column_labels,
                     include_removed_attachments=True,
+                    viewer_username=actor_name,
                 )
             )
             return {
@@ -3494,7 +3530,10 @@ class CardService(
             return {
                 "repair_order": next_order.to_dict(),
                 "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(columns)
+                    card,
+                    events,
+                    column_labels=self._column_labels(columns),
+                    viewer_username=actor_name,
                 ),
                 "meta": {
                     "changed": changed or numbering_changed,
@@ -3546,9 +3585,16 @@ class CardService(
             )
             column_labels = self._column_labels(bundle["columns"])
             card_payload = (
-                self._manager_card_item(card, column_labels, now=utc_now())
+                self._manager_card_item(
+                    card, column_labels, now=utc_now(), viewer_username=actor_name
+                )
                 if response_mode == "compact"
-                else self._serialize_card(card, events, column_labels=column_labels)
+                else self._serialize_card(
+                    card,
+                    events,
+                    column_labels=column_labels,
+                    viewer_username=actor_name,
+                )
             )
             return {
                 "card": card_payload,
@@ -3634,13 +3680,19 @@ class CardService(
             )
             affected_column_ids = [column_id for column_id in affected_column_ids if column_id]
             return {
-                "card": self._serialize_card(card, events, column_labels=column_labels),
+                "card": self._serialize_card(
+                    card,
+                    events,
+                    column_labels=column_labels,
+                    viewer_username=actor_name,
+                ),
                 "affected_column_ids": affected_column_ids,
                 "affected_cards": self._serialize_compact_cards_for_columns(
                     cards,
                     events,
                     affected_column_ids,
                     column_labels=column_labels,
+                    viewer_username=actor_name,
                 ),
                 "meta": {
                     "changed": changed or ready_state_changed or ready_column_changed,
@@ -3688,7 +3740,10 @@ class CardService(
             self._logger.info("archive_card id=%s actor=%s source=%s", card.id, actor_name, source)
             return {
                 "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(bundle["columns"])
+                    card,
+                    events,
+                    column_labels=self._column_labels(bundle["columns"]),
+                    viewer_username=actor_name,
                 )
             }
 
@@ -3779,9 +3834,19 @@ class CardService(
                         changed_any = True
                     warnings.extend({"card_id": card.id, **warning} for warning in ready_warnings)
                     serialized = (
-                        self._manager_card_item(card, column_labels, now=utc_now())
+                        self._manager_card_item(
+                            card,
+                            column_labels,
+                            now=utc_now(),
+                            viewer_username=actor_name,
+                        )
                         if response_mode == "compact"
-                        else self._serialize_card(card, events, column_labels=column_labels)
+                        else self._serialize_card(
+                            card,
+                            events,
+                            column_labels=column_labels,
+                            viewer_username=actor_name,
+                        )
                     )
                     serialized["bulk_move"] = {
                         "before_column": previous_column,
@@ -3893,7 +3958,10 @@ class CardService(
             self._logger.info("restore_card id=%s actor=%s source=%s", card.id, actor_name, source)
             return {
                 "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(columns)
+                    card,
+                    events,
+                    column_labels=self._column_labels(columns),
+                    viewer_username=actor_name,
                 )
             }
 
@@ -4173,6 +4241,7 @@ class CardService(
                     events,
                     column_labels=self._column_labels(bundle["columns"]),
                     include_removed_attachments=True,
+                    viewer_username=actor_name,
                 ),
                 "attachment": attachment.to_dict(),
             }
@@ -4219,6 +4288,7 @@ class CardService(
                     events,
                     column_labels=self._column_labels(bundle["columns"]),
                     include_removed_attachments=True,
+                    viewer_username=actor_name,
                 )
             }
 
@@ -4479,6 +4549,7 @@ class CardService(
         column_ids: list[str],
         *,
         column_labels: dict[str, str] | None = None,
+        viewer_username: str | None = None,
     ) -> list[dict]:
         normalized_column_ids = [
             str(column_id or "").strip() for column_id in column_ids if str(column_id or "").strip()
@@ -4491,7 +4562,13 @@ class CardService(
             key=lambda item: (item.column, item.position, item.created_at, item.updated_at, item.id)
         )
         return [
-            self._serialize_card(card, events, column_labels=column_labels, compact=True)
+            self._serialize_card(
+                card,
+                events,
+                column_labels=column_labels,
+                viewer_username=viewer_username,
+                compact=True,
+            )
             for card in selected_cards
         ]
 
@@ -7790,6 +7867,7 @@ class CardService(
         column_labels: dict[str, str],
         *,
         now: datetime | None = None,
+        viewer_username: str | None = None,
     ) -> dict[str, Any]:
         now = now or utc_now()
         return {
@@ -7806,6 +7884,8 @@ class CardService(
             "remaining_seconds": card.remaining_seconds(now),
             "deadline_total_seconds": card.deadline_total_seconds,
             "updated_at": card.updated_at,
+            "is_unread": card.is_unread_for(viewer_username),
+            "has_unseen_update": card.has_unseen_update_for(viewer_username),
             "board_summary_present": bool(card.board_summary),
             "board_summary_stale": card.board_summary_stale(),
             "has_repair_order": self._card_has_repair_order(card),

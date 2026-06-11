@@ -295,7 +295,10 @@ class CardServiceInventoryMixin:
                 "material_row": card.repair_order.materials[row_index].to_dict(),
                 "repair_order": card.repair_order.to_dict(),
                 "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(columns)
+                    card,
+                    events,
+                    column_labels=self._column_labels(columns),
+                    viewer_username=actor_name,
                 ),
                 "meta": {"row_index": row_index},
             }
@@ -436,7 +439,10 @@ class CardServiceInventoryMixin:
                 "movement": movement.to_dict(),
                 "repair_order": card.repair_order.to_dict() if card is not None else None,
                 "card": self._serialize_card(
-                    card, events, column_labels=self._column_labels(columns)
+                    card,
+                    events,
+                    column_labels=self._column_labels(columns),
+                    viewer_username=actor_name,
                 )
                 if card is not None
                 else None,
