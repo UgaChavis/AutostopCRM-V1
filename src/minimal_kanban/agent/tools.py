@@ -160,6 +160,8 @@ class AgentToolExecutor:
                     "tags": "optional array",
                     "deadline": "optional object",
                     "vehicle_profile": "optional object",
+                    "expected_updated_at": "optional string",
+                    "response_mode": "optional string: full or compact",
                 },
             ),
             AgentToolDefinition(
@@ -448,11 +450,15 @@ class AgentToolExecutor:
             card_id=self._required_text(args, "card_id"),
             vehicle=self._maybe_text(args.get("vehicle")),
             title=self._maybe_text(args.get("title")),
-            description=self._maybe_text(args.get("description")),
+            description=self._maybe_exact_text(args.get("description"))
+            if "description" in args
+            else None,
             tags=self._maybe_list(args.get("tags")),
             deadline=self._maybe_dict(args.get("deadline")),
             vehicle_profile=self._maybe_dict(args.get("vehicle_profile")),
             actor_name=self._actor_name,
+            expected_updated_at=self._maybe_text(args.get("expected_updated_at")),
+            response_mode=self._maybe_text(args.get("response_mode")),
         )
 
     def _move_card(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -661,6 +667,9 @@ class AgentToolExecutor:
     def _maybe_text(self, value: Any) -> str | None:
         text = str(value).strip() if value is not None else ""
         return text or None
+
+    def _maybe_exact_text(self, value: Any) -> str | None:
+        return str(value) if value is not None else None
 
     def _maybe_int(self, value: Any) -> int | None:
         if value is None or value == "":

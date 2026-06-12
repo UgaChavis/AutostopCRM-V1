@@ -44,6 +44,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/bulk_move_cards",
     "/api/bulk_refresh_board_summaries",
     "/api/bulk_set_deadline_if_below",
+    "/api/cancel_cash_transaction",
     "/api/cancel_last_cash_transaction",
     "/api/cleanup_card_content",
     "/api/cleanup_card",

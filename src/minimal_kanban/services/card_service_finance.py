@@ -26,6 +26,11 @@ from ..repair_order import (
     REPAIR_ORDER_STATUS_OPEN,
     RepairOrderPayment,
 )
+from .card_service_cashbox_cancellation import (
+    _CASH_TRANSACTION_KIND_CANCELLATION,
+    _CASH_TRANSACTION_KIND_CANCELLED,
+    CardServiceCashboxCancellationMixin,
+)
 from .payroll_constants import EMPLOYEE_SHIFT_ACCRUAL_NOTE
 
 EMPLOYEES_SETTING_KEY = "employees"
@@ -33,7 +38,7 @@ EMPLOYEE_SHIFT_ACCRUALS_SETTING_KEY = "employee_shift_accruals"
 _CASH_EXPENSE_NOTE_MIN_CHARS = 10
 
 
-class CardServiceFinanceMixin:
+class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
     def list_cashboxes(self, payload: dict | None = None) -> dict:
         return self._finance_read_core.list_cashboxes(payload)
 
@@ -1067,6 +1072,10 @@ class CardServiceFinanceMixin:
         repair_order_context: dict[str, object] | None = None,
     ) -> str:
         kind = normalize_text(transaction.transaction_kind, default="", limit=32).casefold()
+        if kind == _CASH_TRANSACTION_KIND_CANCELLATION:
+            return "cancellation"
+        if kind == _CASH_TRANSACTION_KIND_CANCELLED:
+            return "cancelled"
         if repair_order_context:
             return "linked" if kind == "repair_order_payment" else "linked_legacy"
         if kind == "repair_order_payment":
@@ -1350,6 +1359,11 @@ class CardServiceFinanceMixin:
                         data={"cashbox_id": transaction.cashbox_id},
                     )
                 )
+            if kind_casefold in {
+                _CASH_TRANSACTION_KIND_CANCELLED,
+                _CASH_TRANSACTION_KIND_CANCELLATION,
+            }:
+                continue
             if kind_casefold in {"salary_payout", "salary_advance"}:
                 if transaction.direction != "expense":
                     issues.append(
@@ -1656,6 +1670,10 @@ class CardServiceFinanceMixin:
             return "аванс"
         if normalized == "cashbox_normalization":
             return "нормализация"
+        if normalized == _CASH_TRANSACTION_KIND_CANCELLATION:
+            return "отмена"
+        if normalized == _CASH_TRANSACTION_KIND_CANCELLED:
+            return "отменено"
         return ""
 
     def _normalize_salary_transaction_kind(self, value: Any) -> str:

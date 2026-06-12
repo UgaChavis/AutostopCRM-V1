@@ -143,7 +143,7 @@ Read: `list_cashboxes`, `get_cashbox`, `get_cash_journal`, `/api/finance_audit`,
 Write: `create_cashbox`, `reorder_cashboxes`, `create_cashbox_transfer`,
 `delete_cashbox`, `create_cash_transaction`,
 `create_employee_salary_transaction`, `/api/create_employee_shift_accrual`,
-`cancel_last_cash_transaction`, `save_employee`, `toggle_employee`,
+`cancel_cash_transaction`, `cancel_last_cash_transaction`, `save_employee`, `toggle_employee`,
 `delete_employee`.
 
 Maintenance-only: `/api/finance_audit/apply_safe_fixes`.
@@ -151,6 +151,11 @@ Maintenance-only: `/api/finance_audit/apply_safe_fixes`.
 Manual `create_cash_transaction` expenses require `note` with at least 10
 visible characters. Income operations, transfers, salary payouts, and repair
 order payments keep their existing note behavior.
+
+`cancel_cash_transaction` cancels a selected journal row by `transaction_id`.
+Payload requires `reason` with at least 10 visible characters. The service keeps
+the original row, marks it cancelled, and creates one or more reversal rows; for
+cashbox transfers both paired movements are reversed together.
 
 `get_cashbox` supports `transaction_limit` and `transaction_offset`; response
 `meta.has_more` tells whether another page exists.

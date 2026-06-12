@@ -293,10 +293,6 @@ PRINTING_WEB_MODULE_HTML = r"""
           <div class="repair-order-print-panel__title">Настройки</div>
           <div class="repair-order-print-settings" id="repairOrderPrintSettings">
             <section class="repair-order-print-settings__section">
-              <div class="repair-order-print-settings__section-title">Шаблон активного документа</div>
-              <div class="field field--compact"><label for="repairOrderPrintTemplateSelect">Шаблон</label><select id="repairOrderPrintTemplateSelect"></select></div>
-            </section>
-            <section class="repair-order-print-settings__section">
               <div class="repair-order-print-settings__section-title">Печать</div>
               <div class="field field--compact"><label for="repairOrderPrintPrinterSelect">Принтер</label><select id="repairOrderPrintPrinterSelect"></select></div>
               <div class="repair-order-print-settings__row">
@@ -326,7 +322,7 @@ PRINTING_WEB_MODULE_HTML = r"""
       </div>
       <div class="dialog__foot repair-order-print-footer dialog__floating-actions">
         <div class="repair-order-print-preview__meta" id="repairOrderPrintFooterMeta">PDF генерируется из шаблона и текущих данных заказ-наряда.</div>
-        <div class="repair-order-print-footer__actions"><button class="btn btn--ghost" id="repairOrderPrintTemplateEditorButton" type="button">ШАБЛОНЫ</button><button class="btn btn--ghost" id="repairOrderPrintExportButton" type="button">PDF</button><button class="btn" id="repairOrderPrintRunButton" type="button">ПЕЧАТЬ</button></div>
+        <div class="repair-order-print-footer__actions"><button class="btn btn--ghost" id="repairOrderPrintExportButton" type="button">PDF</button><button class="btn" id="repairOrderPrintRunButton" type="button">ПЕЧАТЬ</button></div>
       </div>
     </div>
   </div>
@@ -1012,6 +1008,7 @@ _PRINTING_SCRIPT_PART2 = r"""
       const activeId = repairOrderPrintActiveDocument();
       const templates = repairOrderPrintTemplatesFor(activeId);
       const selectedTemplateId = repairOrderPrintSelectedTemplateId(activeId);
+      if (!printEls.templateSelect) return;
       printEls.templateSelect.innerHTML = templates.length
         ? templates.map((item) => '<option value="' + escapeHtml(item.id) + '"' + (item.id === selectedTemplateId ? ' selected' : '') + '>' + escapeHtml(item.name) + (item.is_default ? ' · default' : '') + '</option>').join('')
         : '<option value="">Шаблонов нет</option>';

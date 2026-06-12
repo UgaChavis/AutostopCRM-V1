@@ -2421,6 +2421,31 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("clients-field--type", BOARD_WEB_APP_HTML)
         self.assertIn("clients-name-field", BOARD_WEB_APP_HTML)
         self.assertIn("clientProfilePhone", BOARD_WEB_APP_HTML)
+        self.assertIn("function clientTypeDisplayLabel(value)", BOARD_WEB_APP_HTML)
+        self.assertIn("'Физ. лицо'", BOARD_WEB_APP_HTML)
+        self.assertIn("'Юр. лицо'", BOARD_WEB_APP_HTML)
+        self.assertIn('<option value="person">Физ. лицо</option>', BOARD_WEB_APP_HTML)
+        self.assertIn('<option value="company">Юр. лицо</option>', BOARD_WEB_APP_HTML)
+        card_client_type_select = re.search(
+            r'<select id="cardClientCreateTypeInput">(?P<body>.*?)</select>',
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(card_client_type_select)
+        assert card_client_type_select is not None
+        self.assertIn(
+            '<option value="person">Физ. лицо</option>', card_client_type_select.group("body")
+        )
+        self.assertIn(
+            '<option value="company">Юр. лицо</option>', card_client_type_select.group("body")
+        )
+        self.assertIn("function clientFormDirtySnapshot()", BOARD_WEB_APP_HTML)
+        self.assertIn("function updateClientSaveButtonState()", BOARD_WEB_APP_HTML)
+        self.assertIn("state.clientsDraftBaseline", BOARD_WEB_APP_HTML)
+        self.assertIn("els.clientSaveButton.disabled = !dirty;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.clientSaveButton.classList.toggle('is-dirty', dirty);", BOARD_WEB_APP_HTML
+        )
         self.assertIn("clientPhoneMatchKeys", BOARD_WEB_APP_HTML)
         self.assertIn("clientPhoneSearchVariants", BOARD_WEB_APP_HTML)
         self.assertIn("const CLIENT_PHONE_LIMIT = 3;", BOARD_WEB_APP_HTML)
@@ -2539,6 +2564,33 @@ class WebAssetsTests(unittest.TestCase):
             "clientProfileTitle) els.clientProfileTitle.textContent = clientDisplayName(client);",
             BOARD_WEB_APP_HTML,
         )
+        client_type_badge_rule = re.search(
+            r"\.client-type-badge \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(client_type_badge_rule)
+        assert client_type_badge_rule is not None
+        self.assertIn("font-size: 11.5px;", client_type_badge_rule.group("body"))
+        self.assertIn("min-width: 68px;", client_type_badge_rule.group("body"))
+        client_profile_phone_rule = re.search(
+            r"\.client-profile-phone \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(client_profile_phone_rule)
+        assert client_profile_phone_rule is not None
+        self.assertIn("font-size: 22px;", client_profile_phone_rule.group("body"))
+        self.assertIn("color: #eef5d7;", client_profile_phone_rule.group("body"))
+        client_comment_rule = re.search(
+            r"#clientCommentInput \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(client_comment_rule)
+        assert client_comment_rule is not None
+        self.assertIn("min-height: 72px;", client_comment_rule.group("body"))
+        self.assertIn("height: 72px;", client_comment_rule.group("body"))
         self.assertIn('id="clientRequisitesDetails"', BOARD_WEB_APP_HTML)
         self.assertIn('id="clientMatchPanel"', BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -3262,6 +3314,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("ИТОГО ПО ЗАКАЗ-НАРЯДУ", BOARD_WEB_APP_HTML)
         self.assertIn("К ДОПЛАТЕ БЕЗНАЛ", BOARD_WEB_APP_HTML)
         self.assertIn("К ДОПЛАТЕ НАЛ", BOARD_WEB_APP_HTML)
+        self.assertIn("grid-auto-columns: 148px;", BOARD_WEB_APP_HTML)
+        self.assertIn("min-height: 46px;", BOARD_WEB_APP_HTML)
+        self.assertIn("justify-items: start;", BOARD_WEB_APP_HTML)
         self.assertIn("Артикул / OEM", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-table__input {", BOARD_WEB_APP_HTML)
         self.assertIn("font-size: 14.25px;", BOARD_WEB_APP_HTML)
@@ -3557,7 +3612,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="repairOrderPrintModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderPrintDocuments"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderPrintPreviewFrame"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="repairOrderPrintTemplateSelect"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="repairOrderPrintTemplateSelect"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="repairOrderPrintTemplateEditorButton"', BOARD_WEB_APP_HTML)
+        self.assertNotIn("Шаблон активного документа", BOARD_WEB_APP_HTML)
+        self.assertNotIn("ШАБЛОНЫ</button>", BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderPrintPrinterSelect"', BOARD_WEB_APP_HTML)
         self.assertIn('id="inspectionSheetFormModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="inspectionSheetFormAutofillButton"', BOARD_WEB_APP_HTML)
@@ -3788,6 +3846,25 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("function repairOrderListDateDisplayValue(value)", BOARD_WEB_APP_HTML)
         self.assertIn("renderRepairOrderListRows = function(items)", BOARD_WEB_APP_HTML)
+        repair_orders_row_rule = re.search(
+            r"@keyframes repair-orders-search-spin \{.*?\n    \.repair-orders-row \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(repair_orders_row_rule)
+        assert repair_orders_row_rule is not None
+        self.assertIn("height: 58px;", repair_orders_row_rule.group("body"))
+        self.assertIn("min-height: 58px;", repair_orders_row_rule.group("body"))
+        self.assertIn("overflow: hidden;", repair_orders_row_rule.group("body"))
+        self.assertIn(".repair-orders-row__title-cell {", BOARD_WEB_APP_HTML)
+        repair_order_title_cell_rule = re.search(
+            r"\.repair-orders-row__title-cell \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(repair_order_title_cell_rule)
+        assert repair_order_title_cell_rule is not None
+        self.assertIn("overflow: hidden;", repair_order_title_cell_rule.group("body"))
         self.assertIn(".repair-orders-row__number", BOARD_WEB_APP_HTML)
         repair_order_number_rule = re.search(
             r"\.repair-orders-row__number \{(?P<body>.*?)\n    \}",
@@ -3832,6 +3909,24 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".repair-orders-row__total", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-row__payment-status", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-row__paid", BOARD_WEB_APP_HTML)
+        repair_order_title_rule = re.search(
+            r"\.repair-orders-row__title-cell \{.*?\n    \}\n    \.repair-orders-row__title \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(repair_order_title_rule)
+        assert repair_order_title_rule is not None
+        self.assertIn("-webkit-line-clamp: 2;", repair_order_title_rule.group("body"))
+        repair_order_payment_status_rule = re.search(
+            r"\.repair-orders-row__payment-status \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(repair_order_payment_status_rule)
+        assert repair_order_payment_status_rule is not None
+        self.assertIn("min-width: 108px;", repair_order_payment_status_rule.group("body"))
+        self.assertIn("min-height: 28px;", repair_order_payment_status_rule.group("body"))
+        self.assertIn("font-size: 12.5px;", repair_order_payment_status_rule.group("body"))
         repair_order_money_rule = re.search(
             r"\.repair-orders-row__paid,\n    \.repair-orders-row__total \{(?P<body>.*?)\n    \}",
             BOARD_WEB_APP_HTML,
@@ -3972,6 +4067,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("opacity: 0.42;", BOARD_WEB_APP_HTML)
         self.assertIn('#repairOrderCloseButton[data-close-available="true"] {', BOARD_WEB_APP_HTML)
         self.assertIn("border-color: rgba(186, 197, 146, 0.82);", BOARD_WEB_APP_HTML)
+        self.assertIn("animation: repair-order-close-ready-pulse", BOARD_WEB_APP_HTML)
+        self.assertIn("@keyframes repair-order-close-ready-pulse", BOARD_WEB_APP_HTML)
         self.assertIn(
             '#repairOrderCloseButton[data-close-available="true"]:hover', BOARD_WEB_APP_HTML
         )
@@ -3991,6 +4088,16 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("'/api/update_repair_order'", BOARD_WEB_APP_HTML)
+        footer_actions_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                '<div class="repair-order-footer__actions">'
+            ) : BOARD_WEB_APP_HTML.index(
+                '<button class="btn repair-order-save" id="repairOrderSaveButton"'
+            )
+        ]
+        self.assertNotIn("ОТМЕНА", footer_actions_fragment)
+        self.assertNotIn('data-close="repair-order"', footer_actions_fragment)
+        self.assertIn("height: 36px;", BOARD_WEB_APP_HTML)
         self.assertIn(
             "license_plate: currentCard.repair_order?.license_plate || profile.registration_plate || profile.license_plate || ''",
             BOARD_WEB_APP_HTML,
@@ -4017,6 +4124,12 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="repairOrdersReadyTab"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrdersClosedTab"', BOARD_WEB_APP_HTML)
         self.assertIn("function updateRepairOrdersTabs()", BOARD_WEB_APP_HTML)
+        self.assertIn("#repairOrdersOpenTab.is-active {", BOARD_WEB_APP_HTML)
+        self.assertIn("#repairOrdersReadyTab.is-active {", BOARD_WEB_APP_HTML)
+        self.assertIn("#repairOrdersClosedTab.is-active {", BOARD_WEB_APP_HTML)
+        self.assertIn("0 0 12px rgba(105, 196, 95, 0.18)", BOARD_WEB_APP_HTML)
+        self.assertIn("0 0 12px rgba(174, 181, 181, 0.18)", BOARD_WEB_APP_HTML)
+        self.assertIn("0 0 12px rgba(207, 112, 100, 0.18)", BOARD_WEB_APP_HTML)
         self.assertIn("data-repair-orders-filter", BOARD_WEB_APP_HTML)
         self.assertIn("renderRepairOrderListRows = function(items)", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -4065,13 +4178,17 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="cashboxTransferModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxJournalModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxesList"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="cashboxCreateButton"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="cashboxCreateButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxJournalButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxJournalLedgerButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxJournalStatsButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxJournalDownloadButton"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="cashboxDeleteButton"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="cashboxCancelLastButton"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="cashboxDeleteButton"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="cashboxCancelLastButton"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="cashboxStats"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="cashboxCancelPopover"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="cashboxCancelReasonInput"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="cashboxCancelConfirmButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxIncomeButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxTransferButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxTransferTargets"', BOARD_WEB_APP_HTML)
@@ -4089,7 +4206,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".cashboxes-list.is-drag-active .cashbox-row {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashboxes-list.is-drop-end::after {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-transactions-card {", BOARD_WEB_APP_HTML)
-        self.assertIn(".cashbox-cancel-last-button[disabled] {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-transaction__cancel {", BOARD_WEB_APP_HTML)
+        self.assertIn(".cashbox-cancel-popover {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-text {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-view {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-mode-switch {", BOARD_WEB_APP_HTML)
@@ -4125,7 +4243,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("grid-template-columns: var(--cash-journal-stats-grid);", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-journal-download-button {", BOARD_WEB_APP_HTML)
         self.assertIn(".card-journal-text {", BOARD_WEB_APP_HTML)
-        self.assertIn(".cashbox-delete-button {", BOARD_WEB_APP_HTML)
+        self.assertNotIn(".cashbox-delete-button {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-detail__identity {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-composer__actions {", BOARD_WEB_APP_HTML)
         self.assertIn(".cashbox-transfer-grid {", BOARD_WEB_APP_HTML)
@@ -4138,13 +4256,8 @@ class WebAssetsTests(unittest.TestCase):
             'class="btn btn--accent cashbox-journal-main-button" id="cashboxJournalButton">ЖУРНАЛ',
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn(
-            'class="btn btn--accent" id="cashboxCreateButton">+ ДОБАВИТЬ', BOARD_WEB_APP_HTML
-        )
-        self.assertIn(
-            'class="btn btn--ghost cashbox-delete-button" id="cashboxDeleteButton">- УДАЛИТЬ',
-            BOARD_WEB_APP_HTML,
-        )
+        self.assertNotIn("+ ДОБАВИТЬ", BOARD_WEB_APP_HTML)
+        self.assertNotIn("- УДАЛИТЬ", BOARD_WEB_APP_HTML)
         self.assertIn(
             'class="btn btn--accent" id="cashboxTransferConfirmButton">ПЕРЕМЕСТИТЬ',
             BOARD_WEB_APP_HTML,
@@ -4162,7 +4275,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "els.cashboxDetailTitle.textContent = 'ЗАГРУЖАЮ КАССЫ...';", BOARD_WEB_APP_HTML
         )
-        self.assertIn("els.cashboxStats.innerHTML = '';", BOARD_WEB_APP_HTML)
+        self.assertNotIn("els.cashboxStats", BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.cashboxTransactions.innerHTML = '<div class=\"cashboxes-empty\">ЗАГРУЖАЮ ДВИЖЕНИЯ...</div>';",
             BOARD_WEB_APP_HTML,
@@ -4297,7 +4410,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("text/markdown;charset=utf-8", BOARD_WEB_APP_HTML)
         self.assertIn("'.md'", BOARD_WEB_APP_HTML)
         self.assertIn("function filteredCashboxTransactions()", BOARD_WEB_APP_HTML)
-        self.assertIn("async function createCashbox()", BOARD_WEB_APP_HTML)
+        self.assertNotIn("async function createCashbox()", BOARD_WEB_APP_HTML)
         self.assertIn(
             "async function reorderCashboxes(cashboxId, beforeCashboxId = '')", BOARD_WEB_APP_HTML
         )
@@ -4314,7 +4427,10 @@ class WebAssetsTests(unittest.TestCase):
             "els.cashboxNoteInput.addEventListener('input', handleCashboxNoteInput);",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("async function cancelLastCashboxTransaction()", BOARD_WEB_APP_HTML)
+        self.assertIn("function openCashboxCancelPopover(transactionId)", BOARD_WEB_APP_HTML)
+        self.assertIn("async function submitCashboxTransactionCancellation()", BOARD_WEB_APP_HTML)
+        self.assertIn("CASHBOX_CANCEL_REASON_MIN_LENGTH", BOARD_WEB_APP_HTML)
+        self.assertIn("data-cashbox-transaction-cancel", BOARD_WEB_APP_HTML)
         self.assertIn(
             "async function loadCashboxes(openModal = false, { deferDetail = false } = {})",
             BOARD_WEB_APP_HTML,
@@ -4347,7 +4463,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("offset: filteredCashboxTransactions().length,", BOARD_WEB_APP_HTML)
         self.assertIn("append: true,", BOARD_WEB_APP_HTML)
         self.assertIn("data-cashbox-transactions-load-more", BOARD_WEB_APP_HTML)
-        self.assertIn("function activeCashboxLatestTransaction()", BOARD_WEB_APP_HTML)
+        self.assertIn("function cashboxTransactionCanBeCancelled(item)", BOARD_WEB_APP_HTML)
         self.assertIn("function cashboxTransactionIsTransfer(item)", BOARD_WEB_APP_HTML)
         self.assertIn("note.toLowerCase().startsWith('перемещение')", BOARD_WEB_APP_HTML)
         self.assertNotIn("перемещение\x08", BOARD_WEB_APP_HTML)
@@ -4368,22 +4484,7 @@ class WebAssetsTests(unittest.TestCase):
             "maximumFractionDigits: 0,",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn(
-            "const stats = activeCashboxStatistics();",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn(
-            "stats.balance_display || cashboxFormatMinorAmount(balanceMinor)",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn(
-            "stats.income_total_display || cashboxFormatMinorAmount(stats.income_total_minor || 0)",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn(
-            "stats.expense_total_display || cashboxFormatMinorAmount(stats.expense_total_minor || 0)",
-            BOARD_WEB_APP_HTML,
-        )
+        self.assertNotIn("function renderCashboxStats()", BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.cashboxesButton.addEventListener('click', openCashboxesModal);", BOARD_WEB_APP_HTML
         )
@@ -4414,7 +4515,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            "els.cashboxCancelLastButton.addEventListener('click', cancelLastCashboxTransaction);",
+            "els.cashboxCancelConfirmButton?.addEventListener('click', submitCashboxTransactionCancellation);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
@@ -4457,7 +4558,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn('aria-label="Операция кассы ', BOARD_WEB_APP_HTML)
-        self.assertIn('title="Отменить последнее движение:', BOARD_WEB_APP_HTML)
+        self.assertIn('title="Отменить платеж"', BOARD_WEB_APP_HTML)
         self.assertIn('id="cashboxTransferPreview"', BOARD_WEB_APP_HTML)
         self.assertIn("function renderCashboxTransferPreview(", BOARD_WEB_APP_HTML)
         self.assertIn('data-cash-journal-region="toolbar"', BOARD_WEB_APP_HTML)

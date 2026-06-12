@@ -491,13 +491,13 @@
     remountElement('inventorySaveButton');
     remountElement('inventoryReplenishButton');
     remountElement('employeesButton');
-    remountElement('cashboxCreateButton');
     remountElement('cashboxJournalButton');
     remountElement('cashboxJournalLedgerButton');
     remountElement('cashboxJournalStatsButton');
     remountElement('cashboxJournalDownloadButton');
-    remountElement('cashboxDeleteButton');
-    remountElement('cashboxCancelLastButton');
+    remountElement('cashboxCancelDismissButton');
+    remountElement('cashboxCancelConfirmButton');
+    remountElement('cashboxCancelReasonInput');
     remountElement('cashboxIncomeButton');
     remountElement('cashboxTransferButton');
     remountElement('cashboxExpenseButton');
@@ -564,7 +564,6 @@
     els.boardSearchResults.addEventListener('click', handleBoardSearchResultsClick);
     document.addEventListener('click', handleBoardSearchDocumentClick);
     document.addEventListener('keydown', handleModalStackKeydown);
-    els.cashboxCreateButton.addEventListener('click', createCashbox);
     els.cashboxJournalButton.addEventListener('click', openCashJournalModal);
     if (els.cashboxJournalLedgerButton) {
       els.cashboxJournalLedgerButton.addEventListener('click', handleCashJournalModeClick);
@@ -582,7 +581,6 @@
     els.cashboxJournalText.addEventListener('click', handleCashJournalStatsPeriodClick);
     els.cashboxJournalText.addEventListener('click', handleCashJournalLoadMoreClick);
     els.cashboxJournalDownloadButton.addEventListener('click', downloadCashJournal);
-    els.cashboxDeleteButton.addEventListener('click', deleteActiveCashbox);
     els.sharedFilesUploadButton.addEventListener('click', () => els.sharedFilesInput.click());
     els.sharedFilesInput.addEventListener('change', () => uploadSharedFiles(els.sharedFilesInput.files));
     els.sharedFilesOpenButton.addEventListener('click', openActiveSharedFile);
@@ -605,9 +603,9 @@
     els.sharedFilesContextMenu.addEventListener('click', handleSharedFilesContextMenuClick);
     document.addEventListener('click', handleSharedFilesDocumentClick);
     document.addEventListener('keydown', handleSharedFilesGlobalKeydown);
-    if (els.cashboxCancelLastButton) {
-      els.cashboxCancelLastButton.addEventListener('click', cancelLastCashboxTransaction);
-    }
+    els.cashboxCancelDismissButton?.addEventListener('click', closeCashboxCancelPopover);
+    els.cashboxCancelConfirmButton?.addEventListener('click', submitCashboxTransactionCancellation);
+    els.cashboxCancelReasonInput?.addEventListener('input', () => setCashboxCancelReasonInvalid(false));
     els.cashboxIncomeButton.addEventListener('click', () => createCashboxTransaction('income'));
     els.cashboxTransferButton.addEventListener('click', createCashboxTransfer);
     els.cashboxExpenseButton.addEventListener('click', () => createCashboxTransaction('expense'));

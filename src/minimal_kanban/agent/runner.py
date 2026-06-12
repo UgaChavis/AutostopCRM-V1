@@ -1702,13 +1702,9 @@ class AgentRunner(AgentRunnerOutputMixin):
         )
 
     def _description_patch_applied(self, actual_value: Any, expected_value: Any) -> bool:
-        actual = " ".join(str(actual_value or "").split()).casefold()
-        expected = " ".join(str(expected_value or "").split()).casefold()
-        if not expected:
-            return not actual
-        if actual == expected:
-            return True
-        return expected in actual
+        actual = "" if actual_value is None else str(actual_value)
+        expected = "" if expected_value is None else str(expected_value)
+        return actual == expected
 
     def _finalize_verify_result(
         self, *, plan: PlanResult, verify: VerifyResult, tool_results: list[ToolResult]

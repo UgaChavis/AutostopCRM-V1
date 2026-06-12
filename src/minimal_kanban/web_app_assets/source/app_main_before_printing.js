@@ -15,6 +15,7 @@
     const CASHBOX_TRANSACTION_PAGE_SIZE = 100;
     const CASHBOX_DETAIL_DEFER_DELAY_MS = 120;
     const CASHBOX_EXPENSE_NOTE_MIN_LENGTH = 10;
+    const CASHBOX_CANCEL_REASON_MIN_LENGTH = 10;
     const BOARD_SEARCH_CACHE_TTL_MS = 20000;
     const PERF_STORAGE_KEY = 'autostop-perf';
     const CARD_JOURNAL_INITIAL_LIMIT = 50;
@@ -179,6 +180,7 @@
       clientsSearchTimer: null,
       clientsRequestSeq: 0,
       clientsMetaState: null,
+      clientsDraftBaseline: '',
       clientVehicleEditor: null,
       sharedFiles: [],
       sharedFilesActiveId: '',
@@ -204,6 +206,7 @@
       cashboxDragId: '',
       cashboxDropBeforeId: '',
       cashboxDragIgnoreClicksUntil: 0,
+      cashboxCancelTransactionId: '',
       cashboxTransferDraft: {
         sourceId: '',
         targetId: '',
@@ -1015,22 +1018,23 @@
       employeeSalaryReportText: document.getElementById('employeeSalaryReportText'),
       employeeSalaryReportDownloadButton: document.getElementById('employeeSalaryReportDownloadButton'),
       cashboxesList: document.getElementById('cashboxesList'),
-      cashboxCreateButton: document.getElementById('cashboxCreateButton'),
       cashboxJournalButton: document.getElementById('cashboxJournalButton'),
       cashboxJournalLedgerButton: document.getElementById('cashboxJournalLedgerButton'),
       cashboxJournalStatsButton: document.getElementById('cashboxJournalStatsButton'),
       cashboxJournalDownloadButton: document.getElementById('cashboxJournalDownloadButton'),
-      cashboxDeleteButton: document.getElementById('cashboxDeleteButton'),
-      cashboxCancelLastButton: document.getElementById('cashboxCancelLastButton'),
       cashboxDetailTitle: document.getElementById('cashboxDetailTitle'),
       cashboxDetailMeta: document.getElementById('cashboxDetailMeta'),
-      cashboxStats: document.getElementById('cashboxStats'),
       cashboxAmountInput: document.getElementById('cashboxAmountInput'),
       cashboxNoteInput: document.getElementById('cashboxNoteInput'),
       cashboxIncomeButton: document.getElementById('cashboxIncomeButton'),
       cashboxTransferButton: document.getElementById('cashboxTransferButton'),
       cashboxExpenseButton: document.getElementById('cashboxExpenseButton'),
       cashboxTransactions: document.getElementById('cashboxTransactions'),
+      cashboxCancelPopover: document.getElementById('cashboxCancelPopover'),
+      cashboxCancelMeta: document.getElementById('cashboxCancelMeta'),
+      cashboxCancelReasonInput: document.getElementById('cashboxCancelReasonInput'),
+      cashboxCancelDismissButton: document.getElementById('cashboxCancelDismissButton'),
+      cashboxCancelConfirmButton: document.getElementById('cashboxCancelConfirmButton'),
       cashboxJournalText: document.getElementById('cashboxJournalText'),
       cashboxTransferSourceName: document.getElementById('cashboxTransferSourceName'),
       cashboxTransferSourceBalance: document.getElementById('cashboxTransferSourceBalance'),
@@ -4127,6 +4131,21 @@
       return phones.length ? phones.join(' · ') : fallback;
     }
 
+    function clientTypeDisplayLabel(value) {
+      const normalized = String(value || '').trim().toLowerCase();
+      const labels = {
+        person: 'Физ. лицо',
+        'фл': 'Физ. лицо',
+        ip: 'ИП',
+        'ип': 'ИП',
+        ooo: 'ООО',
+        'ооо': 'ООО',
+        company: 'Юр. лицо',
+        'юл': 'Юр. лицо',
+      };
+      return labels[normalized] || String(value || 'Физ. лицо').trim() || 'Физ. лицо';
+    }
+
     function clientMetaLine(client) {
       const stats = client?.stats || {};
       const parts = [];
@@ -4140,7 +4159,7 @@
 
     function clientRowAriaLabel(client) {
       const stats = client?.stats || {};
-      const type = client?.type_label || client?.client_type || 'ФЛ';
+      const type = clientTypeDisplayLabel(client?.type_label || client?.client_type || 'person');
       const parts = [
         clientDisplayName(client),
         'тип ' + type,
@@ -4222,8 +4241,9 @@
         const activeClass = client.id === state.clientsActiveId ? ' is-active' : '';
         const displayName = clientDisplayName(client);
         const rowLabel = clientRowAriaLabel(client);
+        const typeLabel = clientTypeDisplayLabel(client.type_label || client.client_type || 'person');
         return '<button class="client-row' + activeClass + '" type="button" data-client-id="' + escapeHtml(client.id) + '" aria-label="Клиент ' + escapeHtml(rowLabel) + '" title="' + escapeHtml(rowLabel) + '">'
-          + '<div class="client-row__title"><span class="client-row__name" title="' + escapeHtml(displayName) + '">' + escapeHtml(displayName) + '</span><span class="client-type-badge">' + escapeHtml(client.type_label || client.client_type || 'ФЛ') + '</span></div>'
+          + '<div class="client-row__title"><span class="client-row__name" title="' + escapeHtml(displayName) + '">' + escapeHtml(displayName) + '</span><span class="client-type-badge">' + escapeHtml(typeLabel) + '</span></div>'
           + '<div class="client-row__meta">' + escapeHtml(clientMetaLine(client)) + '</div>'
           + clientRowChipsHtml(client)
           + '</button>';
@@ -4279,6 +4299,7 @@
       renderClientPhoneFields(next);
       const input = document.getElementById('clientPhoneInput' + next.length);
       if (input instanceof HTMLInputElement) input.focus();
+      updateClientSaveButtonState();
     }
 
     function removeClientPhoneField(index) {
@@ -4288,6 +4309,7 @@
       const values = inputs.map((input) => input.value);
       values.splice(normalizedIndex, 1);
       renderClientPhoneFields(values.length ? values : ['']);
+      updateClientSaveButtonState();
     }
 
     function resetClientForm() {
@@ -4348,6 +4370,8 @@
       if (els.clientContactPositionInput) els.clientContactPositionInput.value = client.contact_position || '';
       const orgMode = ['ip', 'ooo', 'company'].includes(String(client.client_type || 'person'));
       if (els.clientRequisitesDetails) els.clientRequisitesDetails.open = orgMode;
+      state.clientsDraftBaseline = clientFormDirtySnapshot();
+      updateClientSaveButtonState();
     }
 
     function clientProfileVehicleKey(vehicle, index = 0) {
@@ -4459,6 +4483,27 @@
         contact_person: els.clientContactPersonInput?.value || '',
         contact_position: els.clientContactPositionInput?.value || '',
       };
+    }
+
+    function clientFormDirtySnapshot() {
+      return JSON.stringify(readClientFormPayload());
+    }
+
+    function updateClientSaveButtonState() {
+      if (!els.clientSaveButton) return;
+      const baseline = String(state.clientsDraftBaseline || '');
+      const current = clientFormDirtySnapshot();
+      const dirty = Boolean(baseline && current !== baseline);
+      els.clientSaveButton.disabled = !dirty;
+      els.clientSaveButton.classList.toggle('is-dirty', dirty);
+      els.clientSaveButton.setAttribute('aria-disabled', dirty ? 'false' : 'true');
+    }
+
+    function handleClientFormChange(event) {
+      const target = event?.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (!target.closest('#clientProfileFormFields')) return;
+      updateClientSaveButtonState();
     }
 
     async function loadClients({ openModal = false } = {}) {
@@ -4606,6 +4651,8 @@
     }
 
     async function saveClientProfile() {
+      updateClientSaveButtonState();
+      if (els.clientSaveButton?.disabled) return;
       const payload = readClientFormPayload();
       try {
         const data = state.clientsActiveId
@@ -4689,7 +4736,10 @@
       });
       els.clientTypeInput?.addEventListener('change', () => {
         if (els.clientRequisitesDetails) els.clientRequisitesDetails.open = ['ip', 'ooo', 'company'].includes(els.clientTypeInput.value);
+        updateClientSaveButtonState();
       });
+      els.clientProfilePane?.addEventListener('input', handleClientFormChange);
+      els.clientProfilePane?.addEventListener('change', handleClientFormChange);
       state.clientsUiBound = true;
     }
 
@@ -10115,7 +10165,7 @@
         return '<button class="mobile-client-row' + activeClass + '" type="button" data-mobile-client-id="' + escapeHtml(client.id || '') + '">'
           + '<div class="mobile-client-row__top">'
             + '<span class="mobile-client-row__name">' + escapeHtml(displayName) + '</span>'
-            + '<span class="mobile-client-row__type">' + escapeHtml(client.type_label || client.client_type || 'ФЛ') + '</span>'
+            + '<span class="mobile-client-row__type">' + escapeHtml(clientTypeDisplayLabel(client.type_label || client.client_type || 'person')) + '</span>'
           + '</div>'
           + '<div class="mobile-client-row__meta">' + escapeHtml(mobileClientPhoneLine(client)) + '</div>'
           + '<div class="mobile-client-row__meta">' + escapeHtml(clientMetaLine(client)) + '</div>'
@@ -17733,15 +17783,34 @@
       return Array.isArray(state.activeCashbox?.transactions) ? state.activeCashbox.transactions : [];
     }
 
-    function activeCashboxLatestTransaction() {
-      const transactions = filteredCashboxTransactions();
-      return transactions.length ? transactions[0] : null;
-    }
-
     function cashboxTransactionIsTransfer(item) {
       if (item?.transfer_group_id || item?.related_transaction_id) return true;
       const note = String(item?.note || '').trim().toLowerCase();
       return note.startsWith('перемещение в ') || note.startsWith('перемещение из ');
+    }
+
+    function cashboxCancelledTransactionIds() {
+      const ids = new Set();
+      filteredCashboxTransactions().forEach((item) => {
+        const kind = String(item?.transaction_kind || '').trim();
+        const relatedId = String(item?.related_transaction_id || '').trim();
+        if (kind === 'cashbox_cancellation' && relatedId) ids.add(relatedId);
+      });
+      return ids;
+    }
+
+    function cashboxTransactionCanBeCancelled(item) {
+      const transactionId = String(item?.id || '').trim();
+      if (!transactionId) return false;
+      const kind = String(item?.transaction_kind || '').trim();
+      if (kind === 'cashbox_cancellation' || kind === 'cashbox_cancelled') return false;
+      return !cashboxCancelledTransactionIds().has(transactionId);
+    }
+
+    function cashboxTransactionById(transactionId) {
+      const normalizedId = String(transactionId || '').trim();
+      if (!normalizedId) return null;
+      return filteredCashboxTransactions().find((item) => String(item?.id || '') === normalizedId) || null;
     }
 
     function buildCashboxStatistics(transactions) {
@@ -17881,16 +17950,6 @@
       renderMobileShell();
     }
 
-    function renderCashboxStats() {
-      const stats = activeCashboxStatistics();
-      const balanceMinor = Number(stats.balance_minor || 0);
-      els.cashboxStats.innerHTML = [
-        { label: 'Баланс', value: stats.balance_display || cashboxFormatMinorAmount(balanceMinor), sign: stats.balance_sign || (balanceMinor < 0 ? 'negative' : 'positive') },
-        { label: 'Поступления', value: stats.income_total_display || cashboxFormatMinorAmount(stats.income_total_minor || 0), sign: 'positive' },
-        { label: 'Списания', value: stats.expense_total_display || cashboxFormatMinorAmount(stats.expense_total_minor || 0), sign: 'positive' },
-      ].map((item) => '<div class="cashbox-stat-grid"><div class="cashbox-stat-grid__label">' + escapeHtml(item.label) + '</div><div class="cashbox-stat-grid__value" data-balance-sign="' + escapeHtml(item.sign) + '">' + escapeHtml(item.value) + '</div></div>').join('');
-    }
-
     function renderCashboxTransactions() {
       const transactions = filteredCashboxTransactions();
       const meta = state.activeCashbox?.meta || {};
@@ -17906,10 +17965,15 @@
         const contextLabel = 'Источник: ' + sourceLabel + (linkParts.length ? ' · ' + linkParts.join(' · ') : '');
         const contextHtml = escapeHtml(contextLabel) + (flags.length ? '<div class="cashbox-journal-link-flags">' + flags.map((flag) => '<span class="cashbox-journal-link-flag">' + escapeHtml(flag) + '</span>').join('') + '</div>' : '');
         const absoluteAmount = cashboxFormatMinorAmount(item?.amount_minor || 0).replace(/^-/, '');
+        const canCancel = cashboxTransactionCanBeCancelled(item);
+        const cancelHtml = canCancel
+          ? '<button class="cashbox-transaction__cancel" type="button" data-cashbox-transaction-cancel="' + escapeHtml(item.id || '') + '" title="Отменить платеж" aria-label="Отменить платеж">&times;</button>'
+          : '<button class="cashbox-transaction__cancel" type="button" hidden aria-hidden="true" tabindex="-1">&times;</button>';
         return '<div class="cashbox-transaction">'
           + '<div class="cashbox-transaction__badge" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(direction === 'expense' ? 'списание' : 'поступление') + '</div>'
           + '<div class="cashbox-transaction__body"><div class="cashbox-transaction__summary"><div class="cashbox-transaction__note">' + escapeHtml(note) + '</div><div class="cashbox-transaction__context">' + contextHtml + '</div></div><div class="cashbox-transaction__meta">' + escapeHtml(item?.business_datetime_display || formatDate(item?.created_at)) + ' | ' + escapeHtml(actor) + '</div></div>'
           + '<div class="cashbox-transaction__amount" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(direction === 'expense' ? '-' : '+') + escapeHtml(absoluteAmount) + '</div>'
+          + cancelHtml
           + '</div>';
       }).join('') : '<div class="cashboxes-empty">ПО ФИЛЬТРУ НИЧЕГО НЕ НАЙДЕНО.</div>';
       const hasMore = Boolean(meta?.has_more);
@@ -17922,48 +17986,28 @@
 
     function renderCashboxDetail() {
       const cashbox = state.activeCashbox?.cashbox || null;
-      const cancelButton = els.cashboxCancelLastButton;
       if (!cashbox) {
         els.cashboxDetailTitle.textContent = 'КАССА НЕ ВЫБРАНА';
         els.cashboxDetailMeta.textContent = '';
-        els.cashboxDeleteButton.disabled = true;
-        if (cancelButton) {
-          cancelButton.disabled = true;
-          cancelButton.title = 'Отменить последнее движение: выберите кассу.';
-        }
         els.cashboxIncomeButton.disabled = true;
         els.cashboxTransferButton.disabled = true;
         els.cashboxExpenseButton.disabled = true;
         syncCashboxFiltersUi();
-        els.cashboxStats.innerHTML = '';
         els.cashboxTransactions.innerHTML = '<div class="cashboxes-empty">НЕТ ДАННЫХ.</div>';
+        closeCashboxCancelPopover();
         renderMobileShell();
         return;
       }
-      const stats = activeCashboxStatistics();
-      const canDelete = Number(stats.transactions_total || 0) === 0;
-      const latestTransaction = activeCashboxLatestTransaction();
-      const canCancelLast = !!latestTransaction;
       els.cashboxDetailTitle.textContent = cashbox.name || 'КАССА';
       els.cashboxDetailMeta.textContent = '';
-      els.cashboxDeleteButton.disabled = !canDelete;
-      if (cancelButton) {
-        cancelButton.disabled = !canCancelLast;
-        if (!latestTransaction) {
-          cancelButton.title = 'Отменить последнее движение: движений пока нет.';
-        } else {
-          const amount = cashboxFormatMinorAmount(latestTransaction.amount_minor || 0).replace(/^-/, '');
-          const note = String(latestTransaction.note || '').trim() || 'Без комментария';
-          const transferNotice = cashboxTransactionIsTransfer(latestTransaction) ? ' Перемещение отменяется целой парой.' : '';
-          cancelButton.title = 'Отменить последнее движение: ' + note + ' · ' + amount + '.' + transferNotice;
-        }
-      }
       els.cashboxIncomeButton.disabled = false;
       els.cashboxTransferButton.disabled = (Array.isArray(state.cashboxes) ? state.cashboxes.length : 0) < 2;
       els.cashboxExpenseButton.disabled = false;
       syncCashboxFiltersUi();
-      renderCashboxStats();
       renderCashboxTransactions();
+      if (state.cashboxCancelTransactionId && !cashboxTransactionById(state.cashboxCancelTransactionId)) {
+        closeCashboxCancelPopover();
+      }
       renderMobileShell();
     }
 
@@ -18073,9 +18117,6 @@
         if (!isCurrentCashboxesLoad(loadContext)) return null;
         state.cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
         state.cashboxesLoaded = true;
-        const total = Number(data?.meta?.total || state.cashboxes.length);
-        els.cashboxCreateButton.disabled = total >= 6;
-        els.cashboxCreateButton.title = '';
         const nextId = state.cashboxes.some((item) => item.id === state.activeCashboxId)
           ? state.activeCashboxId
           : (state.cashboxes[0]?.id || '');
@@ -18125,7 +18166,6 @@
       maybeOpenModal(els.cashboxesModal, true);
       els.cashboxDetailTitle.textContent = 'ЗАГРУЖАЮ КАССЫ...';
       els.cashboxDetailMeta.textContent = '';
-      els.cashboxStats.innerHTML = '';
       els.cashboxTransactions.innerHTML = '<div class="cashboxes-empty">ЗАГРУЖАЮ ДВИЖЕНИЯ...</div>';
       if (!Array.isArray(state.cashboxes) || !state.cashboxes.length) {
         els.cashboxesList.innerHTML = '<div class="cashboxes-empty">ЗАГРУЖАЮ КАССЫ...</div>';
@@ -19218,53 +19258,6 @@
       }
     }
 
-    async function createCashbox() {
-      if (Array.isArray(state.cashboxes) && state.cashboxes.length >= 6) {
-        setStatus('МАКСИМУМ 6 КАСС.', true);
-        return;
-      }
-      const name = String(window.prompt('Название кассы') || '').trim();
-      if (!name) {
-        return;
-      }
-      try {
-        els.cashboxCreateButton.disabled = true;
-        const data = await api('/api/create_cashbox', {
-          method: 'POST',
-          body: { name, actor_name: state.actor, source: 'ui' },
-        });
-        if (data?.cashbox?.id) state.activeCashboxId = data.cashbox.id;
-        await loadCashboxes(true);
-        setStatus('КАССА СОЗДАНА.', false);
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        els.cashboxCreateButton.disabled = false;
-      }
-    }
-
-    async function deleteActiveCashbox() {
-      const cashbox = state.activeCashbox?.cashbox || null;
-      if (!cashbox?.id) return;
-      if (!window.confirm('Удалить кассу "' + String(cashbox.name || '').trim() + '"?')) return;
-      try {
-        els.cashboxDeleteButton.disabled = true;
-        await api('/api/delete_cashbox', {
-          method: 'POST',
-          body: { cashbox_id: cashbox.id, actor_name: state.actor, source: 'ui' },
-        });
-        state.activeCashboxId = '';
-        state.activeCashbox = null;
-        await loadCashboxes(true);
-        setStatus('КАССА УДАЛЕНА.', false);
-      } catch (error) {
-        const message = String(error?.message || '').trim();
-        setStatus(message || 'НЕ УДАЛОСЬ УДАЛИТЬ КАССУ.', true);
-      } finally {
-        els.cashboxDeleteButton.disabled = false;
-      }
-    }
-
     async function reorderCashboxes(cashboxId, beforeCashboxId = '') {
       const normalizedId = String(cashboxId || '').trim();
       if (!normalizedId) return;
@@ -19526,37 +19519,78 @@
       }
     }
 
-    async function cancelLastCashboxTransaction() {
-      const cashbox = state.activeCashbox?.cashbox || null;
-      const latestTransaction = activeCashboxLatestTransaction();
-      const cancelButton = els.cashboxCancelLastButton;
-      if (!cashbox?.id || !latestTransaction?.id) {
-        setStatus('НЕТ ДВИЖЕНИЯ ДЛЯ ОТМЕНЫ.', true);
+    function setCashboxCancelReasonInvalid(isInvalid) {
+      if (!els.cashboxCancelReasonInput) return;
+      els.cashboxCancelReasonInput.classList.toggle('is-invalid', Boolean(isInvalid));
+      if (isInvalid) els.cashboxCancelReasonInput.setAttribute('aria-invalid', 'true');
+      else els.cashboxCancelReasonInput.removeAttribute('aria-invalid');
+    }
+
+    function closeCashboxCancelPopover() {
+      state.cashboxCancelTransactionId = '';
+      if (els.cashboxCancelPopover) els.cashboxCancelPopover.hidden = true;
+      if (els.cashboxCancelReasonInput) {
+        els.cashboxCancelReasonInput.value = '';
+        setCashboxCancelReasonInvalid(false);
+      }
+      if (els.cashboxCancelConfirmButton) els.cashboxCancelConfirmButton.disabled = false;
+    }
+
+    function openCashboxCancelPopover(transactionId) {
+      const transaction = cashboxTransactionById(transactionId);
+      if (!transaction || !cashboxTransactionCanBeCancelled(transaction)) {
+        setStatus('ЭТУ ОПЕРАЦИЮ НЕЛЬЗЯ ОТМЕНИТЬ.', true);
         return;
       }
-      const amount = cashboxFormatMinorAmount(latestTransaction.amount_minor || 0).replace(/^-/, '');
-      const note = String(latestTransaction.note || '').trim() || 'Без комментария';
-      const transferNotice = cashboxTransactionIsTransfer(latestTransaction) ? '\nПеремещение будет отменено целиком в обеих кассах.' : '';
-      if (!window.confirm('Отменить последнее движение по кассе "' + String(cashbox.name || '').trim() + '"?\n' + note + '\n' + amount + transferNotice)) {
+      state.cashboxCancelTransactionId = String(transaction.id || '').trim();
+      const amount = cashboxFormatMinorAmount(transaction.amount_minor || 0).replace(/^-/, '');
+      const note = String(transaction.note || '').trim() || 'Без комментария';
+      if (els.cashboxCancelMeta) {
+        els.cashboxCancelMeta.textContent = note + ' · ' + amount;
+      }
+      if (els.cashboxCancelReasonInput) {
+        els.cashboxCancelReasonInput.value = '';
+        setCashboxCancelReasonInvalid(false);
+      }
+      if (els.cashboxCancelPopover) els.cashboxCancelPopover.hidden = false;
+      window.setTimeout(() => {
+        els.cashboxCancelReasonInput?.focus();
+      }, 0);
+    }
+
+    async function submitCashboxTransactionCancellation() {
+      const cashbox = state.activeCashbox?.cashbox || null;
+      const transaction = cashboxTransactionById(state.cashboxCancelTransactionId);
+      if (!cashbox?.id || !transaction?.id) {
+        setStatus('ВЫБЕРИТЕ ОПЕРАЦИЮ ДЛЯ ОТМЕНЫ.', true);
+        return;
+      }
+      const reason = String(els.cashboxCancelReasonInput?.value || '').trim();
+      if (reason.length < CASHBOX_CANCEL_REASON_MIN_LENGTH) {
+        setCashboxCancelReasonInvalid(true);
+        els.cashboxCancelReasonInput?.focus();
+        setStatus('ПРИЧИНА ОТМЕНЫ ДОЛЖНА БЫТЬ НЕ КОРОЧЕ 10 СИМВОЛОВ.', true);
         return;
       }
       try {
-        if (cancelButton) cancelButton.disabled = true;
-        await api('/api/cancel_last_cash_transaction', {
+        if (els.cashboxCancelConfirmButton) els.cashboxCancelConfirmButton.disabled = true;
+        await api('/api/cancel_cash_transaction', {
           method: 'POST',
           body: {
             cashbox_id: cashbox.id,
-            transaction_id: latestTransaction.id,
+            transaction_id: transaction.id,
+            reason,
             actor_name: state.actor,
             source: 'ui',
           },
         });
+        closeCashboxCancelPopover();
         await loadCashboxDetail(cashbox.id, { openModal: true });
-        setStatus('ПОСЛЕДНЕЕ ДВИЖЕНИЕ ОТМЕНЕНО.', false);
+        setStatus('ОПЕРАЦИЯ ОТМЕНЕНА.', false);
       } catch (error) {
-        setStatus(String(error?.message || 'НЕ УДАЛОСЬ ОТМЕНИТЬ ПОСЛЕДНЕЕ ДВИЖЕНИЕ.'), true);
+        setStatus(String(error?.message || 'НЕ УДАЛОСЬ ОТМЕНИТЬ ОПЕРАЦИЮ.'), true);
       } finally {
-        renderCashboxDetail();
+        if (els.cashboxCancelConfirmButton) els.cashboxCancelConfirmButton.disabled = false;
       }
     }
 
@@ -19582,6 +19616,12 @@
     async function handleCashboxTransactionsClick(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      const cancelButton = target.closest('[data-cashbox-transaction-cancel]');
+      if (cancelButton instanceof HTMLButtonElement) {
+        event.preventDefault();
+        openCashboxCancelPopover(cancelButton.getAttribute('data-cashbox-transaction-cancel'));
+        return;
+      }
       const button = target.closest('[data-cashbox-transactions-load-more]');
       if (!(button instanceof HTMLButtonElement)) return;
       event.preventDefault();

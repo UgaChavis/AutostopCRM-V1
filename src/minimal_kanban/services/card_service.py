@@ -64,6 +64,7 @@ from ..models import (
 )
 from ..printing.service import PrintModuleError, PrintModuleService
 from ..repair_order import (
+    REPAIR_ORDER_COMMENT_LIMIT,
     REPAIR_ORDER_PAYMENT_METHOD_CARD,
     REPAIR_ORDER_PAYMENT_METHOD_CASHLESS,
     REPAIR_ORDER_STATUS_CLOSED,
@@ -2488,9 +2489,22 @@ class CardService(
                         card_id=card.id,
                         details={"fields": synced_fields},
                     )
+                cleared_client_information = self._clear_legacy_repair_order_comment(card)
+                if cleared_client_information:
+                    self._append_event(
+                        events,
+                        actor_name=actor_name,
+                        source=source,
+                        action="repair_order_client_information_autofill_cleared",
+                        message=(
+                            f"{actor_name} очистил автоматический текст информации для клиента"
+                        ),
+                        card_id=card.id,
+                        details={"field": "comment"},
+                    )
                 numbering_changed = self._synchronize_repair_order_numbers(cards)
-                if created or numbering_changed or synced_fields:
-                    if synced_fields:
+                if created or numbering_changed or synced_fields or cleared_client_information:
+                    if synced_fields or cleared_client_information:
                         self._touch_card(card, actor_name)
                         self._ensure_repair_order_text_file(card, force=True)
                     self._save_bundle(
@@ -7340,7 +7354,6 @@ class CardService(
         return {
             **self._repair_order_card_field_suggestions(card),
             "reason": card.title,
-            "comment": card.description,
         }
 
     def _repair_order_card_field_suggestions(self, card: Card) -> dict[str, str]:
@@ -7376,6 +7389,39 @@ class CardService(
             setattr(card.repair_order, field_name, suggested_value)
             changed_fields.append(field_name)
         return changed_fields
+
+    def _clear_legacy_repair_order_comment(self, card: Card) -> bool:
+        if not self._card_has_repair_order(card):
+            return False
+        comment = normalize_text(
+            card.repair_order.comment, default="", limit=REPAIR_ORDER_COMMENT_LIMIT
+        )
+        if not comment:
+            return False
+        description = normalize_text(card.description, default="", limit=REPAIR_ORDER_COMMENT_LIMIT)
+        if description and comment == description:
+            card.repair_order.comment = ""
+            return True
+        if not self._is_legacy_generated_repair_order_comment(comment):
+            return False
+        card.repair_order.comment = ""
+        return True
+
+    @staticmethod
+    def _is_legacy_generated_repair_order_comment(comment: str) -> bool:
+        normalized = normalize_text(comment, default="", limit=REPAIR_ORDER_COMMENT_LIMIT)
+        if not normalized:
+            return False
+        legacy_markers = (
+            "🚗 **",
+            "📅 **Запись:**",
+            "🛠️ **Работы:**",
+            "📦 **Запчасти:**",
+            "🧾 **ЗН:**",
+            "📌 **Данные:**",
+        )
+        marker_count = sum(1 for marker in legacy_markers if marker in normalized)
+        return marker_count >= 4 and "ЗН" in normalized
 
     def _ensure_repair_order_exists(
         self,
