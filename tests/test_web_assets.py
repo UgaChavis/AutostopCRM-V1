@@ -3750,9 +3750,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("els.repairOrdersMeta.textContent = '';", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-controls--header {", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "grid-template-columns: minmax(190px, 260px) 132px 132px;",
+            "grid-template-columns: repeat(3, minmax(160px, 172px));",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn("box-sizing: border-box;", BOARD_WEB_APP_HTML)
+        self.assertIn("height: 30px;", BOARD_WEB_APP_HTML)
         head_left_rule = re.search(
             r"\.dialog__head-left--repair-orders \{(?P<body>.*?)\n    \}",
             BOARD_WEB_APP_HTML,
@@ -3768,13 +3770,19 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIsNotNone(head_actions_rule)
         assert head_actions_rule is not None
+        self.assertIn("align-items: center;", head_actions_rule.group("body"))
         self.assertIn("justify-content: flex-start;", head_actions_rule.group("body"))
         self.assertIn("margin-left: 12px;", head_actions_rule.group("body"))
-        self.assertIn(
-            '.dialog__head-actions--repair-orders [data-close="repair-orders"] {',
+        close_button_rule = re.search(
+            r"\.dialog__head-actions--repair-orders \[data-close=\"repair-orders\"\] \{(?P<body>.*?)\n    \}",
             BOARD_WEB_APP_HTML,
+            re.S,
         )
-        self.assertIn("margin-left: auto;", BOARD_WEB_APP_HTML)
+        self.assertIsNotNone(close_button_rule)
+        assert close_button_rule is not None
+        self.assertIn("margin-left: auto;", close_button_rule.group("body"))
+        self.assertIn("min-width: 96px;", close_button_rule.group("body"))
+        self.assertIn("min-height: 36px;", close_button_rule.group("body"))
         self.assertIn(
             "repairOrderListTotalText(item.grand_total, item.works_total)", BOARD_WEB_APP_HTML
         )
@@ -3811,13 +3819,16 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIsNotNone(search_scope_rule)
         assert search_scope_rule is not None
-        self.assertIn("width: 18px;", search_scope_rule.group("body"))
-        self.assertIn("height: 18px;", search_scope_rule.group("body"))
-        self.assertIn("flex: 0 0 18px;", search_scope_rule.group("body"))
+        self.assertIn("width: 12px;", search_scope_rule.group("body"))
+        self.assertIn("height: 12px;", search_scope_rule.group("body"))
+        self.assertIn("flex: 0 0 12px;", search_scope_rule.group("body"))
         self.assertNotIn("width: 28px;", search_scope_rule.group("body"))
         self.assertIn(".repair-orders-table-head__searchable", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-table-head__searchable-group", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-table-head__sum", BOARD_WEB_APP_HTML)
+        self.assertIn(".repair-orders-table-head > div {", BOARD_WEB_APP_HTML)
+        self.assertIn("padding-bottom: 14px;", BOARD_WEB_APP_HTML)
+        self.assertIn("scroll-padding-bottom: 14px;", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-row__total", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-row__payment-status", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-row__paid", BOARD_WEB_APP_HTML)

@@ -1602,15 +1602,22 @@
     }
     .dialog__head-actions--repair-orders {
       display: flex;
-      align-items: flex-end;
+      align-items: center;
       justify-content: flex-start;
-      gap: 8px;
+      gap: 12px;
       min-width: 0;
       flex: 1 1 auto;
       margin-left: 12px;
     }
     .dialog__head-actions--repair-orders [data-close="repair-orders"] {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       margin-left: auto;
+      min-width: 96px;
+      min-height: 36px;
+      padding: 0 14px;
+      font-size: 11px;
     }
     .dialog__tabs--repair-orders {
       margin: 0;
@@ -4466,10 +4473,18 @@
     }
     .repair-orders-controls input,
     .repair-orders-controls select {
+      box-sizing: border-box;
+      height: 30px;
       min-height: 30px;
       padding: 5px 7px;
       font-size: 12px;
       line-height: 1.2;
+    }
+    .repair-orders-controls .field--compact input[type="text"],
+    .repair-orders-controls .field--compact select {
+      box-sizing: border-box;
+      height: 30px;
+      min-height: 30px;
     }
     .repair-orders-table-head,
     .repair-orders-row {
@@ -4481,17 +4496,24 @@
       position: sticky;
       top: -1px;
       z-index: 2;
+      align-items: stretch;
       cursor: default;
       gap: 6px 8px;
-      padding: 6px 8px;
+      padding: 5px 8px;
       border: 1px solid var(--line);
       background: rgba(19, 24, 20, 0.98);
       color: var(--text-soft);
       font-family: var(--mono);
       font-size: 11px;
-      line-height: 1.15;
+      line-height: 1;
       letter-spacing: 0.08em;
       text-transform: uppercase;
+    }
+    .repair-orders-table-head > div {
+      display: flex;
+      align-items: center;
+      min-height: 18px;
+      line-height: 1;
     }
     .repair-orders-search-label {
       display: inline-flex;
@@ -4519,11 +4541,19 @@
       display: inline-flex;
       align-items: center;
       gap: 5px;
+      height: 100%;
+      line-height: 1;
       min-width: 0;
+    }
+    .repair-orders-table-head__searchable span {
+      display: inline-flex;
+      align-items: center;
+      min-height: 14px;
+      line-height: 1;
     }
     .repair-orders-table-head__searchable-group {
       display: inline-flex;
-      align-items: center;
+      align-items: stretch;
       justify-content: space-between;
       gap: 12px;
       min-width: 0;
@@ -4531,12 +4561,13 @@
     }
     .repair-orders-table-head__searchable--plate {
       flex: 0 0 auto;
+      justify-content: flex-end;
     }
     .repair-orders-search-scope {
       position: relative;
-      width: 18px;
-      height: 18px;
-      flex: 0 0 18px;
+      width: 12px;
+      height: 12px;
+      flex: 0 0 12px;
       border: 1px solid rgba(158, 164, 152, 0.5);
       border-radius: 999px;
       background: rgba(112, 118, 108, 0.16);
@@ -4548,7 +4579,7 @@
     .repair-orders-search-scope::after {
       content: '';
       position: absolute;
-      inset: 5px;
+      inset: 3px;
       border-radius: 999px;
       background: rgba(160, 164, 156, 0.36);
       transition: background 140ms ease, box-shadow 140ms ease;
@@ -4570,6 +4601,7 @@
       box-shadow: 0 0 8px rgba(126, 211, 117, 0.32);
     }
     .repair-orders-table-head__sum {
+      justify-content: flex-end;
       text-align: right;
     }
     @keyframes repair-orders-search-spin {
@@ -4816,7 +4848,7 @@
     }
     .repair-orders-controls--header {
       display: grid;
-      grid-template-columns: minmax(190px, 260px) 132px 132px;
+      grid-template-columns: repeat(3, minmax(160px, 172px));
       gap: 6px;
       align-items: end;
     }
@@ -4825,15 +4857,17 @@
       gap: 3px;
     }
     .repair-orders-search-field {
-      width: min(260px, 24vw);
+      width: 100%;
     }
     .repair-orders-sort-field {
-      width: 132px;
+      width: 100%;
     }
     .repair-orders-list {
       display: grid;
       gap: 6px;
       min-height: 72px;
+      padding-bottom: 14px;
+      scroll-padding-bottom: 14px;
     }
     .repair-order-tags-card {
       gap: 7px;
