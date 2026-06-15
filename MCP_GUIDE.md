@@ -120,9 +120,17 @@ Manager operations: `manager_board_scan`, `list_ready_unpaid_cards`,
 Clients/vehicles: list/search/get/stats/suggest, client CRUD, card link/unlink,
 vehicle upsert/delete.
 
-Repair orders/PDF: list/get/text/PDF download, update, status change, replace
-works/materials. `list_repair_orders` supports `compact=true` and
-`redact_private=true` for low-payload diagnostics.
+Repair orders/PDF: list/get/text/PDF download, document-without-card PDF
+creation, update, status change, replace works/materials.
+`download_repair_order_print_pdf` exports documents from an existing CRM card.
+`create_document_without_card_pdf` exports the same standard AutoStop templates
+without a card from `request_text` and/or `manual_document`; omit
+`document_type` to infer it from phrases such as `акт выполненных работ`,
+`дефектовка`, `заказ-наряд`, `счет-фактура`, or `продажа запчастей`.
+Pass `manual_document.tax_label` or a text line such as `НДС: Без НДС` when the
+invoice must print a specific tax regime.
+`list_repair_orders`
+supports `compact=true` and `redact_private=true` for low-payload diagnostics.
 
 Inventory: `list_inventory_items`, `search_inventory_items`,
 `get_inventory_item`, `list_inventory_movements`, `save_inventory_item`,
@@ -156,7 +164,11 @@ Not normal MCP runtime tools: `autofill_vehicle_data`,
 - Do not move, archive, delete, or change money/client/file/order data without
   explicit owner intent.
 - For clients, search/suggest before create/link.
-- For documents, use CRM PDF export.
+- For documents, use CRM PDF export. For AutoStop documents with a card use
+  `download_repair_order_print_pdf`; for "Документ без карточки" use
+  `create_document_without_card_pdf`. Do not build independent PDF/HTML
+  templates for invoices, acts, repair orders, invoice-facturas, defect reports,
+  completion acts, or parts-sale documents.
 - Repair-order numbers are immutable; corrections are maintenance-only.
 - Finance audit safe fixes are maintenance-only and require the runbook
   audit-first flow.

@@ -2846,6 +2846,16 @@ class CardService(
     def get_repair_order_print_workspace(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
+            if self._is_manual_print_payload(payload):
+                try:
+                    profile = self._manual_print_profile(payload)
+                    return self._print_module.workspace(
+                        profile.card, repair_order=profile.card.repair_order
+                    )
+                except PrintModuleError as exc:
+                    self._fail(
+                        exc.code, exc.message, status_code=exc.status_code, details=exc.details
+                    )
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             self._ensure_repair_order_state_supported(card)
@@ -2860,6 +2870,16 @@ class CardService(
     def get_inspection_sheet_form(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
+            if self._is_manual_print_payload(payload):
+                try:
+                    profile = self._manual_print_profile(payload)
+                    return self._print_module.get_inspection_sheet_form(
+                        profile.card, repair_order=profile.card.repair_order
+                    )
+                except PrintModuleError as exc:
+                    self._fail(
+                        exc.code, exc.message, status_code=exc.status_code, details=exc.details
+                    )
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             preview_card = self._print_module_card(card, payload)
@@ -2873,6 +2893,30 @@ class CardService(
     def save_inspection_sheet_form(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
+            if self._is_manual_print_payload(payload):
+                session = (
+                    payload.get("_operator_session")
+                    if isinstance(payload.get("_operator_session"), dict)
+                    else {}
+                )
+                actor_name = normalize_actor_name(
+                    (session.get("username") if session else "") or payload.get("actor_name")
+                )
+                try:
+                    profile = self._manual_print_profile(payload)
+                    return self._print_module.save_inspection_sheet_form(
+                        profile.card,
+                        repair_order=profile.card.repair_order,
+                        form_data=payload.get("form_data")
+                        if isinstance(payload.get("form_data"), dict)
+                        else {},
+                        filled_by=actor_name,
+                        source=str(payload.get("form_source", "manual") or "manual"),
+                    )
+                except PrintModuleError as exc:
+                    self._fail(
+                        exc.code, exc.message, status_code=exc.status_code, details=exc.details
+                    )
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             preview_card = self._print_module_card(card, payload)
@@ -2981,6 +3025,29 @@ class CardService(
     def preview_repair_order_print_documents(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
+            if self._is_manual_print_payload(payload):
+                try:
+                    profile = self._manual_print_profile(payload)
+                    return self._print_module.preview_documents(
+                        profile.card,
+                        repair_order=profile.card.repair_order,
+                        client=profile.client,
+                        selected_document_ids=payload.get("selected_document_ids"),
+                        active_document_id=str(payload.get("active_document_id", "") or ""),
+                        selected_template_ids=payload.get("selected_template_ids")
+                        if isinstance(payload.get("selected_template_ids"), dict)
+                        else {},
+                        template_overrides=payload.get("template_overrides")
+                        if isinstance(payload.get("template_overrides"), dict)
+                        else {},
+                        print_settings=payload.get("print_settings")
+                        if isinstance(payload.get("print_settings"), dict)
+                        else {},
+                    )
+                except PrintModuleError as exc:
+                    self._fail(
+                        exc.code, exc.message, status_code=exc.status_code, details=exc.details
+                    )
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             preview_card = self._print_module_card(card, payload)
@@ -3008,6 +3075,40 @@ class CardService(
     def export_repair_order_print_pdf(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
+            if self._is_manual_print_payload(payload):
+                try:
+                    profile = self._manual_print_profile(payload)
+                    pdf_bytes, file_name, meta = self._print_module.export_documents_pdf(
+                        profile.card,
+                        repair_order=profile.card.repair_order,
+                        client=profile.client,
+                        selected_document_ids=payload.get("selected_document_ids"),
+                        selected_template_ids=payload.get("selected_template_ids")
+                        if isinstance(payload.get("selected_template_ids"), dict)
+                        else {},
+                        template_overrides=payload.get("template_overrides")
+                        if isinstance(payload.get("template_overrides"), dict)
+                        else {},
+                        print_settings=payload.get("print_settings")
+                        if isinstance(payload.get("print_settings"), dict)
+                        else {},
+                    )
+                    return {
+                        "file_name": file_name,
+                        "mime_type": "application/pdf",
+                        "content_base64": base64.b64encode(pdf_bytes).decode("ascii"),
+                        "size_bytes": len(pdf_bytes),
+                        "meta": {
+                            **meta,
+                            "source": "manual_document",
+                            "document_without_card": True,
+                            "request_text": profile.request_text,
+                        },
+                    }
+                except PrintModuleError as exc:
+                    self._fail(
+                        exc.code, exc.message, status_code=exc.status_code, details=exc.details
+                    )
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             preview_card = self._print_module_card(card, payload)
@@ -3041,6 +3142,34 @@ class CardService(
     def print_repair_order_documents(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
+            if self._is_manual_print_payload(payload):
+                try:
+                    profile = self._manual_print_profile(payload)
+                    result = self._print_module.print_documents(
+                        profile.card,
+                        repair_order=profile.card.repair_order,
+                        client=profile.client,
+                        selected_document_ids=payload.get("selected_document_ids"),
+                        selected_template_ids=payload.get("selected_template_ids")
+                        if isinstance(payload.get("selected_template_ids"), dict)
+                        else {},
+                        template_overrides=payload.get("template_overrides")
+                        if isinstance(payload.get("template_overrides"), dict)
+                        else {},
+                        print_settings=payload.get("print_settings")
+                        if isinstance(payload.get("print_settings"), dict)
+                        else {},
+                        printer_name=str(payload.get("printer_name", "") or ""),
+                    )
+                    return {
+                        **result,
+                        "card_id": profile.card.id,
+                        "source": "manual_document",
+                    }
+                except PrintModuleError as exc:
+                    self._fail(
+                        exc.code, exc.message, status_code=exc.status_code, details=exc.details
+                    )
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             events = bundle["events"]
@@ -3168,6 +3297,24 @@ class CardService(
             }
         )
         return cloned_card
+
+    def _is_manual_print_payload(self, payload: dict[str, Any]) -> bool:
+        return bool(
+            payload.get("document_without_card")
+            or isinstance(payload.get("manual_document"), dict)
+            or normalize_text(payload.get("request_text"), default="", limit=20_000)
+        )
+
+    def _manual_print_profile(self, payload: dict[str, Any]):
+        manual_document = (
+            payload.get("manual_document")
+            if isinstance(payload.get("manual_document"), dict)
+            else {}
+        )
+        return self._print_module.manual_document_profile(
+            manual_document,
+            request_text=str(payload.get("request_text", "") or "")[:20_000],
+        )
 
     def _print_module_client(
         self, bundle: dict[str, Any], preview_card: Card

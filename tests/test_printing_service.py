@@ -161,6 +161,225 @@ class PrintingServiceTests(unittest.TestCase):
         )
         self.assertTrue(inspection_document["supports_form_fill"])
 
+    def test_manual_document_profile_uses_builtin_templates_without_card(self) -> None:
+        profile = self.service.manual_document_profile(
+            {
+                "document_number": "INV-77",
+                "document_date": "15.06.2026",
+                "client": {
+                    "client_type": "ooo",
+                    "display_name": "ООО Ручной Клиент",
+                    "legal_name": "ООО Ручной Клиент",
+                    "inn": "2468000000",
+                    "kpp": "246801001",
+                    "checking_account": "40702810900000000001",
+                    "bank_name": "Тест Банк",
+                    "bik": "044525225",
+                    "correspondent_account": "30101810400000000225",
+                    "legal_address": "660000, г. Красноярск, ул. Тестовая, 1",
+                    "contact_person": "Петров Петр",
+                    "contact_position": "Директор",
+                },
+                "vehicle": {
+                    "name": "Toyota Land Cruiser 200",
+                    "vin": "JTMHV05J604123456",
+                    "license_plate": "А777АА124",
+                    "mileage": "188000",
+                },
+                "works": [
+                    {"name": "Диагностика подвески", "quantity": "1", "price": "2500"},
+                ],
+                "materials": [
+                    {"name": "Фильтр салона", "quantity": "2", "price": "900"},
+                ],
+                "payments": [
+                    {
+                        "amount": "1000",
+                        "paid_at": "15.06.2026",
+                        "payment_method": "cash",
+                        "note": "Аванс",
+                    }
+                ],
+                "reason": "Ручное оформление без карточки",
+                "comment": "Комментарий клиента",
+                "note": "Комментарий мастера",
+            }
+        )
+
+        workspace = self.service.workspace(
+            profile.card,
+            repair_order=profile.card.repair_order,
+        )
+        preview = self.service.preview_documents(
+            profile.card,
+            repair_order=profile.card.repair_order,
+            client=profile.client,
+            selected_document_ids=[
+                "repair_order",
+                "vehicle_acceptance_act",
+                "invoice",
+                "invoice_factura",
+                "inspection_sheet",
+                "completion_act",
+                "parts_sale",
+            ],
+            active_document_id="invoice",
+        )
+
+        self.assertTrue(workspace["meta"]["document_without_card"])
+        self.assertEqual(
+            workspace["meta"]["supported_document_types"], list(SUPPORTED_PRINT_DOCUMENT_TYPES)
+        )
+        self.assertEqual(preview["active_document_id"], "invoice")
+        self.assertEqual(len(preview["documents"]), len(SUPPORTED_PRINT_DOCUMENT_TYPES))
+        invoice_html = preview["documents"][2]["pages"][0]["html"]
+        repair_order_html = preview["documents"][0]["pages"][0]["html"]
+        self.assertIn("Счет на оплату", invoice_html)
+        self.assertIn("ООО Ручной Клиент", invoice_html)
+        self.assertIn("2468000000", invoice_html)
+        self.assertIn("Toyota Land Cruiser 200", repair_order_html)
+        self.assertIn("Диагностика подвески", repair_order_html)
+        self.assertIn("Фильтр салона", repair_order_html)
+        self.assertIn("4 945,00", invoice_html)
+        self.assertEqual(preview["documents"][0]["template"]["source"], "builtin")
+
+    def test_manual_inspection_sheet_drafts_are_isolated_by_document_identity(self) -> None:
+        first = self.service.manual_document_profile(
+            {
+                "document_number": "MAN-1",
+                "client": {"display_name": "Первый клиент"},
+                "vehicle": {"name": "Toyota Camry"},
+                "works": [{"name": "Первая работа", "quantity": "1", "price": "1000"}],
+            }
+        )
+        second = self.service.manual_document_profile(
+            {
+                "document_number": "MAN-2",
+                "client": {"display_name": "Второй клиент"},
+                "vehicle": {"name": "Nissan X-Trail"},
+                "works": [{"name": "Вторая работа", "quantity": "1", "price": "2000"}],
+            }
+        )
+
+        self.service.save_inspection_sheet_form(
+            first.card,
+            repair_order=first.card.repair_order,
+            form_data={"findings": "Утечка из первого документа"},
+            filled_by="tester",
+        )
+        loaded = self.service.get_inspection_sheet_form(
+            second.card,
+            repair_order=second.card.repair_order,
+        )
+
+        self.assertEqual(loaded["form"]["client"], "Второй клиент")
+        self.assertEqual(loaded["form"]["vehicle"], "Nissan X-Trail")
+        self.assertNotIn("Утечка из первого документа", loaded["form"]["findings"])
+
+    def test_manual_document_profile_parses_text_request_sections(self) -> None:
+        profile = self.service.manual_document_profile(
+            request_text=(
+                "Счет № TXT-500 от 15.06.2026\n"
+                "Клиент: ООО Текстовый Клиент\n"
+                "Телефон: +7 391 200-00-00\n"
+                "ИНН: 2468123456\n"
+                "КПП: 246801001\n"
+                "Банк: Текст Банк\n"
+                "БИК: 040407777\n"
+                "Р/с: 40702810900000000999\n"
+                "К/с: 30101810400000000777\n"
+                "НДС: Без НДС\n"
+                "Адрес: 660000, Красноярск, ул. Ручная, 5\n"
+                "Автомобиль: Lexus RX200t\n"
+                "Госномер: Т555ТТ124\n"
+                "VIN: JTJBARBZ502123456\n"
+                "Пробег: 123000\n"
+                "Работы:\n"
+                "Диагностика 1 x 2500\n"
+                "Замена масла 1 x 1200\n"
+                "Материалы:\n"
+                "Масло 5 x 900\n"
+                "Оплаты:\n"
+                "1000 | 15.06.2026 | cash | Аванс\n"
+                "Комментарий: оформить без карточки CRM."
+            )
+        )
+
+        order = profile.card.repair_order
+        self.assertEqual(order.number, "TXT-500")
+        self.assertEqual(order.date, "15.06.2026")
+        self.assertEqual(order.tax_label, "Без НДС")
+        self.assertEqual(order.client, "ООО Текстовый Клиент")
+        self.assertEqual(order.phone, "+7 391 200-00-00")
+        self.assertEqual(order.vehicle, "Lexus RX200t")
+        self.assertEqual(order.license_plate, "т555тт124")
+        self.assertEqual(order.vin, "JTJBARBZ502123456")
+        self.assertEqual(order.mileage, "123000")
+        self.assertEqual([row.name for row in order.works], ["Диагностика", "Замена масла"])
+        self.assertEqual([row.name for row in order.materials], ["Масло"])
+        self.assertEqual(order.payments[0].amount, "1000")
+        self.assertEqual(profile.client.inn if profile.client else "", "2468123456")
+        self.assertEqual(profile.client.bank_name if profile.client else "", "Текст Банк")
+
+    def test_manual_document_profile_keeps_text_request_when_ui_form_is_blank(self) -> None:
+        profile = self.service.manual_document_profile(
+            {
+                "client": {"display_name": "", "inn": ""},
+                "vehicle": {"name": "", "vin": ""},
+                "works": [],
+                "materials": [],
+                "payments": [],
+                "comment": "",
+            },
+            request_text=(
+                "Клиент: ООО Из Текста\n"
+                "ИНН: 2468555444\n"
+                "Автомобиль: Subaru Forester\n"
+                "VIN: JF1SJ5LC5FG123456\n"
+                "Работы:\n"
+                "Диагностика 1 x 3000\n"
+            ),
+        )
+
+        self.assertEqual(profile.card.repair_order.client, "ООО Из Текста")
+        self.assertEqual(profile.card.repair_order.vehicle, "Subaru Forester")
+        self.assertEqual(profile.card.repair_order.vin, "JF1SJ5LC5FG123456")
+        self.assertEqual([row.name for row in profile.card.repair_order.works], ["Диагностика"])
+        self.assertEqual(profile.client.inn if profile.client else "", "2468555444")
+
+    def test_manual_invoice_can_render_without_vat(self) -> None:
+        profile = self.service.manual_document_profile(
+            {
+                "document_number": "NO-VAT-1",
+                "document_date": "15.06.2026",
+                "tax_label": "Без НДС",
+                "client": {"display_name": "ООО Без НДС", "inn": "2468000000"},
+                "vehicle": {"name": "Toyota Camry", "vin": "JTNB11HK203123456"},
+                "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+            }
+        )
+
+        preview = self.service.preview_documents(
+            profile.card,
+            repair_order=profile.card.repair_order,
+            client=profile.client,
+            selected_document_ids=["invoice"],
+            active_document_id="invoice",
+        )
+        html = preview["documents"][0]["pages"][0]["html"]
+        context = self.service._build_document_context(
+            profile.card,
+            profile.card.repair_order,
+            document=self.service._document_definition("invoice"),
+            settings=self.service._read_settings(),
+            client=profile.client,
+        )
+
+        self.assertIn("<td>Налоговый режим</td><td>Без НДС</td>", html)
+        self.assertNotIn("В том числе НДС (5%)", html)
+        self.assertEqual(context["invoice"]["vat"], Decimal("0.00"))
+        self.assertFalse(context["invoice"]["has_vat"])
+
     def test_workspace_prefills_service_profile_when_settings_are_blank(self) -> None:
         self.service._settings_path.write_text(
             (

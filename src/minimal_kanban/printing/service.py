@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import html
 import json
 import re
 import uuid
 from copy import deepcopy
+from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
@@ -122,6 +124,13 @@ class PrintModuleError(RuntimeError):
         self.details = details or {}
 
 
+@dataclass(slots=True)
+class ManualDocumentProfile:
+    card: Card
+    client: ClientProfile | None = None
+    request_text: str = ""
+
+
 def _normalize_text(value: Any, *, limit: int = 4000) -> str:
     return " ".join(str(value or "").strip().split())[:limit]
 
@@ -141,6 +150,296 @@ def _normalize_document_type(value: Any) -> str:
     return document_type
 
 
+def _first_text(*values: Any, limit: int = 4000) -> str:
+    for value in values:
+        text = _normalize_text(value, limit=limit)
+        if text:
+            return text
+    return ""
+
+
+def _first_multiline(*values: Any, limit: int = 4000) -> str:
+    for value in values:
+        text = _normalize_multiline(value, limit=limit)
+        if text:
+            return text
+    return ""
+
+
+def _manual_table_rows(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, dict):
+            row = dict(item)
+        else:
+            row = {"name": item}
+        name = _normalize_text(row.get("name") or row.get("title"), limit=240)
+        catalog_number = _normalize_text(
+            row.get("catalog_number") or row.get("catalogNumber") or row.get("article"),
+            limit=160,
+        )
+        quantity = _normalize_text(row.get("quantity") or row.get("qty") or "1", limit=40)
+        price = _normalize_text(row.get("price") or row.get("unit_price") or "", limit=40)
+        total = _normalize_text(row.get("total") or row.get("amount") or "", limit=40)
+        if not name and not total:
+            continue
+        rows.append(
+            {
+                "name": name,
+                "catalog_number": catalog_number,
+                "quantity": quantity or "1",
+                "price": price,
+                "total": total,
+            }
+        )
+        if len(rows) >= 100:
+            break
+    return rows
+
+
+def _manual_vehicle_payload(value: Any) -> dict[str, str]:
+    if isinstance(value, dict):
+        return {
+            "name": _first_text(
+                value.get("name"),
+                value.get("vehicle"),
+                value.get("display_name"),
+                value.get("model"),
+                limit=160,
+            ),
+            "license_plate": _first_text(
+                value.get("license_plate"),
+                value.get("licensePlate"),
+                value.get("plate"),
+                limit=40,
+            ),
+            "vin": _first_text(value.get("vin"), value.get("VIN"), limit=80),
+            "mileage": _first_text(
+                value.get("mileage"),
+                value.get("odometer"),
+                value.get("run"),
+                limit=40,
+            ),
+        }
+    return {
+        "name": _normalize_text(value, limit=160),
+        "license_plate": "",
+        "vin": "",
+        "mileage": "",
+    }
+
+
+def _parse_manual_line_item_rows(values: list[str]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for raw_value in values:
+        for raw_item in re.split(r"[;\n]+", raw_value):
+            item = _normalize_text(raw_item, limit=300).rstrip(".")
+            if not item:
+                continue
+            parts = [part.strip() for part in re.split(r"[|\t]", item) if part.strip()]
+            if len(parts) >= 3:
+                rows.append(
+                    {
+                        "name": _normalize_text(parts[0], limit=240),
+                        "quantity": parts[1].replace(",", "."),
+                        "price": parts[2].replace(",", "."),
+                        "total": parts[3].replace(",", ".") if len(parts) >= 4 else "",
+                    }
+                )
+            else:
+                row_match = re.match(
+                    r"(?P<name>.+?)\s+(?P<qty>\d+(?:[,.]\d+)?)\s*(?:x|х|\*)\s*(?P<price>\d+(?:[,.]\d+)?)$",
+                    item,
+                    flags=re.IGNORECASE,
+                )
+                if row_match:
+                    rows.append(
+                        {
+                            "name": _normalize_text(row_match.group("name"), limit=240),
+                            "quantity": row_match.group("qty").replace(",", "."),
+                            "price": row_match.group("price").replace(",", "."),
+                        }
+                    )
+                else:
+                    rows.append({"name": item, "quantity": "1", "price": ""})
+            if len(rows) >= 20:
+                return rows
+    return rows
+
+
+def _parse_manual_line_items(text: str, label: str) -> list[dict[str, str]]:
+    pattern = rf"{label}\s*:\s*(.+?)(?:\n|\.|$)"
+    match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return []
+    return _parse_manual_line_item_rows([match.group(1)])
+
+
+def _parse_manual_payment_rows(values: list[str]) -> list[dict[str, str]]:
+    payments: list[dict[str, str]] = []
+    for raw_value in values:
+        for raw_item in re.split(r"[\n]+", raw_value):
+            item = _normalize_text(raw_item, limit=300).rstrip(".")
+            if not item:
+                continue
+            parts = [part.strip() for part in re.split(r"[|\t;]", item)]
+            payments.append(
+                {
+                    "amount": parts[0] if parts else item,
+                    "paid_at": parts[1] if len(parts) >= 2 else "",
+                    "payment_method": parts[2] if len(parts) >= 3 else "",
+                    "note": " · ".join(part for part in parts[3:] if part)
+                    if len(parts) >= 4
+                    else "",
+                }
+            )
+            if len(payments) >= 20:
+                return payments
+    return payments
+
+
+def _manual_text_field(fields: dict[str, str], *aliases: str) -> str:
+    for alias in aliases:
+        value = fields.get(alias)
+        if value:
+            return value
+    return ""
+
+
+def _manual_text_key(value: str) -> str:
+    return _normalize_text(value, limit=64).lower().replace("ё", "е")
+
+
+def _manual_tax_label_from_text(request_text: str) -> str:
+    normalized = _normalize_text(request_text, limit=20_000).lower().replace("ё", "е")
+    if not normalized:
+        return ""
+    if "без ндс" in normalized:
+        return "Без НДС"
+    vat_match = re.search(r"\bндс\s*(?:\(|:)?\s*(\d{1,2}(?:[,.]\d{1,2})?)\s*%?", normalized)
+    if vat_match:
+        return f"НДС ({vat_match.group(1).replace('.', ',')}%)"
+    return ""
+
+
+def _manual_value_is_blank(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, dict):
+        return all(_manual_value_is_blank(item) for item in value.values())
+    if isinstance(value, list):
+        return all(_manual_value_is_blank(item) for item in value)
+    return not _normalize_multiline(value, limit=4000)
+
+
+def _merge_manual_document_payload(parsed: dict[str, Any], raw: dict[str, Any]) -> dict[str, Any]:
+    merged = deepcopy(parsed)
+    for key, value in raw.items():
+        current = merged.get(key)
+        if isinstance(value, dict) and isinstance(current, dict):
+            merged[key] = _merge_manual_document_payload(current, value)
+            continue
+        if _manual_value_is_blank(value):
+            merged.setdefault(key, value)
+            continue
+        merged[key] = value
+    return merged
+
+
+def _parse_manual_document_text(request_text: str) -> dict[str, Any]:
+    text = _normalize_multiline(request_text, limit=20_000)
+    if not text:
+        return {}
+    section_by_key = {
+        "работы": "works",
+        "работа": "works",
+        "услуги": "works",
+        "материалы": "materials",
+        "запчасти": "materials",
+        "детали": "materials",
+        "оплаты": "payments",
+        "оплата": "payments",
+        "платежи": "payments",
+    }
+    fields: dict[str, str] = {}
+    sections: dict[str, list[str]] = {"works": [], "materials": [], "payments": []}
+    current_section = ""
+    for raw_line in text.split("\n"):
+        line = _normalize_text(raw_line, limit=1000)
+        if not line:
+            continue
+        key_match = re.match(r"^(?P<key>[^:：]{1,40})\s*[:：]\s*(?P<value>.*)$", line)
+        if key_match:
+            key = _manual_text_key(key_match.group("key"))
+            value = _normalize_text(key_match.group("value"), limit=1000)
+            section = section_by_key.get(key)
+            if section:
+                current_section = section
+                if value:
+                    sections[section].append(value)
+                continue
+            fields[key] = value
+            current_section = ""
+            continue
+        if current_section:
+            sections[current_section].append(line)
+    number_match = re.search(
+        r"(?:№|номер|счет|счёт|акт|заказ-наряд|зн)\s*[:#№-]?\s*([A-Za-zА-Яа-я0-9/_-]{2,40})",
+        text,
+        flags=re.IGNORECASE,
+    )
+    date_match = re.search(r"\b(\d{1,2}[./]\d{1,2}[./]\d{2,4})\b", text)
+    client_match = re.search(r"\bдля\s+(.+?)(?:\.|\n|$)", text, flags=re.IGNORECASE)
+    client_name = _first_text(
+        _manual_text_field(fields, "клиент", "заказчик", "покупатель", "контрагент"),
+        client_match.group(1).strip() if client_match else "",
+        limit=160,
+    )
+    return {
+        "document_number": _first_text(
+            _manual_text_field(fields, "номер", "№", "документ", "счет", "счёт", "акт"),
+            number_match.group(1) if number_match else "",
+            limit=40,
+        ),
+        "document_date": _first_text(
+            _manual_text_field(fields, "дата"),
+            date_match.group(1) if date_match else "",
+            limit=32,
+        ),
+        "tax_label": _first_text(
+            _manual_text_field(fields, "ндс", "налог", "налоговый режим", "tax_label"),
+            _manual_tax_label_from_text(text),
+            limit=48,
+        ),
+        "client": {
+            "display_name": client_name,
+            "legal_name": _manual_text_field(fields, "юр лицо", "юридическое лицо"),
+            "phone": _manual_text_field(fields, "телефон", "тел", "phone"),
+            "inn": _manual_text_field(fields, "инн"),
+            "kpp": _manual_text_field(fields, "кпп"),
+            "checking_account": _manual_text_field(fields, "р/с", "расчетный счет"),
+            "bank_name": _manual_text_field(fields, "банк"),
+            "bik": _manual_text_field(fields, "бик"),
+            "correspondent_account": _manual_text_field(fields, "к/с", "корреспондентский счет"),
+            "legal_address": _manual_text_field(fields, "адрес", "юридический адрес"),
+        },
+        "vehicle": {
+            "name": _manual_text_field(fields, "автомобиль", "авто", "машина"),
+            "license_plate": _manual_text_field(fields, "госномер", "номер авто", "гос номер"),
+            "vin": _manual_text_field(fields, "vin", "вин"),
+            "mileage": _manual_text_field(fields, "пробег"),
+        },
+        "works": _parse_manual_line_item_rows(sections["works"])
+        or _parse_manual_line_items(text, "работы"),
+        "materials": _parse_manual_line_item_rows(sections["materials"])
+        or _parse_manual_line_items(text, "материалы"),
+        "payments": _parse_manual_payment_rows(sections["payments"]),
+        "comment": _first_multiline(_manual_text_field(fields, "комментарий"), text, limit=4000),
+    }
+
+
 def _parse_decimal(value: Any) -> Decimal | None:
     raw = str(value or "").strip().replace(" ", "").replace(",", ".")
     if not raw:
@@ -153,6 +452,43 @@ def _parse_decimal(value: Any) -> Decimal | None:
 
 def _round_money(value: Decimal) -> Decimal:
     return value.quantize(_MONEY_QUANT, rounding=ROUND_HALF_UP)
+
+
+def _invoice_tax_payload(order: RepairOrder) -> dict[str, Any]:
+    raw_label = _normalize_text(getattr(order, "tax_label", ""), limit=48)
+    if not raw_label:
+        return {
+            "label": "НДС (5%)",
+            "rate_display": "5%",
+            "rate": _INVOICE_VAT_RATE,
+            "has_vat": True,
+        }
+    normalized = raw_label.lower().replace("ё", "е")
+    if "без ндс" in normalized:
+        return {
+            "label": "Без НДС",
+            "rate_display": "0%",
+            "rate": Decimal("0"),
+            "has_vat": False,
+        }
+    percent_match = re.search(r"(\d{1,2}(?:[,.]\d{1,2})?)\s*%", normalized)
+    if percent_match:
+        try:
+            rate = Decimal(percent_match.group(1).replace(",", ".")) / Decimal("100")
+        except InvalidOperation:
+            rate = _INVOICE_VAT_RATE
+        return {
+            "label": raw_label,
+            "rate_display": f"{percent_match.group(1).replace('.', ',')}%",
+            "rate": rate,
+            "has_vat": rate != Decimal("0"),
+        }
+    return {
+        "label": raw_label,
+        "rate_display": "5%",
+        "rate": _INVOICE_VAT_RATE,
+        "has_vat": True,
+    }
 
 
 def _money_display(value: Any) -> str:
@@ -485,10 +821,146 @@ class PrintModuleService:
         self._builtin_documents = {item.id: item for item in BUILTIN_PRINT_DOCUMENTS}
         self._builtin_templates = {item.id: item for item in builtin_template_records()}
 
+    def manual_document_profile(
+        self,
+        payload: dict[str, Any] | None = None,
+        *,
+        request_text: str = "",
+    ) -> ManualDocumentProfile:
+        raw_payload = payload if isinstance(payload, dict) else {}
+        parsed_payload = _parse_manual_document_text(request_text)
+        merged_payload = _merge_manual_document_payload(parsed_payload, raw_payload)
+        client_payload_raw = merged_payload.get("client") or merged_payload.get("counterparty")
+        client_payload = client_payload_raw if isinstance(client_payload_raw, dict) else {}
+        client_name = _first_text(
+            merged_payload.get("client_name"),
+            client_payload.get("display_name"),
+            client_payload.get("legal_name"),
+            client_payload.get("short_name"),
+            client_payload_raw if isinstance(client_payload_raw, str) else "",
+            limit=160,
+        )
+        client_phone = _first_text(
+            merged_payload.get("client_phone"),
+            client_payload.get("phone"),
+            limit=80,
+        )
+        vehicle_payload = _manual_vehicle_payload(
+            merged_payload.get("vehicle") or merged_payload.get("car") or {}
+        )
+        number = _first_text(
+            merged_payload.get("document_number"),
+            merged_payload.get("number"),
+            merged_payload.get("repair_order_number"),
+            limit=40,
+        )
+        document_date = _first_text(
+            merged_payload.get("document_date"),
+            merged_payload.get("date"),
+            merged_payload.get("opened_at"),
+            limit=32,
+        )
+        closed_at = _first_text(merged_payload.get("closed_at"), limit=32)
+        works = _manual_table_rows(merged_payload.get("works"))
+        materials = _manual_table_rows(merged_payload.get("materials"))
+        repair_order_payload = {
+            "number": number,
+            "date": document_date,
+            "opened_at": _first_text(merged_payload.get("opened_at"), document_date, limit=32),
+            "closed_at": closed_at,
+            "client": client_name,
+            "phone": client_phone,
+            "vehicle": vehicle_payload["name"],
+            "license_plate": vehicle_payload["license_plate"],
+            "vin": vehicle_payload["vin"],
+            "mileage": vehicle_payload["mileage"],
+            "payment_method": _first_text(merged_payload.get("payment_method"), limit=32),
+            "tax_label": _first_text(merged_payload.get("tax_label"), limit=48),
+            "prepayment": _first_text(merged_payload.get("prepayment"), limit=40),
+            "payments": merged_payload.get("payments", []),
+            "reason": _first_multiline(
+                merged_payload.get("reason"),
+                merged_payload.get("complaint"),
+                limit=4000,
+            ),
+            "comment": _first_multiline(
+                merged_payload.get("comment"),
+                merged_payload.get("client_comment"),
+                request_text,
+                limit=4000,
+            ),
+            "note": _first_multiline(
+                merged_payload.get("note"),
+                merged_payload.get("master_comment"),
+                limit=4000,
+            ),
+            "works": works,
+            "materials": materials,
+        }
+        now = utc_now_iso()
+        title = _first_text(
+            merged_payload.get("title"),
+            f"Документ без карточки {number}".strip(),
+            "Документ без карточки",
+            limit=120,
+        )
+        card = Card.from_dict(
+            {
+                "id": "manual-document",
+                "vehicle": vehicle_payload["name"],
+                "title": title,
+                "description": _first_multiline(
+                    request_text, merged_payload.get("comment"), limit=20000
+                ),
+                "column": "inbox",
+                "archived": False,
+                "created_at": now,
+                "updated_at": now,
+                "deadline_timestamp": now,
+                "repair_order": repair_order_payload,
+            }
+        )
+        client: ClientProfile | None = None
+        if client_name or client_payload:
+            client_payload = {
+                **client_payload,
+                "id": "manual-client",
+                "display_name": _first_text(client_payload.get("display_name"), client_name),
+                "phone": _first_text(client_payload.get("phone"), client_phone),
+            }
+            if not client_payload.get("client_type"):
+                client_payload["client_type"] = (
+                    "person"
+                    if not any(
+                        _first_text(client_payload.get(field))
+                        for field in (
+                            "legal_name",
+                            "short_name",
+                            "inn",
+                            "kpp",
+                            "ogrn",
+                            "checking_account",
+                            "bank_name",
+                            "bik",
+                            "correspondent_account",
+                            "legal_address",
+                            "actual_address",
+                        )
+                    )
+                    else "company"
+                )
+            client = ClientProfile.from_dict(client_payload)
+        return ManualDocumentProfile(
+            card=card,
+            client=client,
+            request_text=_normalize_multiline(request_text, limit=20_000),
+        )
+
     def workspace(self, card: Card, *, repair_order: RepairOrder | None = None) -> dict[str, Any]:
         settings = self._read_settings()
         template_map = self._templates_by_document_type(settings=settings)
         printers = list_printers(default_name=settings.default_printer)
+        document_without_card = card.id == "manual-document"
         return {
             "card_id": card.id,
             "heading": card.heading(),
@@ -514,6 +986,7 @@ class PrintModuleService:
                 "supported_document_types": list(SUPPORTED_PRINT_DOCUMENT_TYPES),
                 "has_printers": bool(printers),
                 "has_repair_order_data": not (repair_order or card.repair_order).is_empty(),
+                "document_without_card": document_without_card,
             },
         }
 
@@ -1180,6 +1653,17 @@ class PrintModuleService:
         }
 
     def _inspection_sheet_form_key(self, card: Card) -> str:
+        if card.id == "manual-document":
+            payload = {
+                "title": card.title,
+                "vehicle": card.vehicle,
+                "description": card.description,
+                "repair_order": card.repair_order.to_storage_dict(),
+            }
+            digest = hashlib.sha256(
+                json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            ).hexdigest()[:16]
+            return f"manual-document:{digest}"
         return _normalize_text(card.id, limit=128)
 
     def _read_inspection_sheet_form_map(self) -> dict[str, dict[str, Any]]:
@@ -1393,8 +1877,9 @@ class PrintModuleService:
         invoice_line_items_for_document = (
             invoice_line_items if document.id == "invoice" else base_line_items
         )
+        invoice_tax = _invoice_tax_payload(order)
         invoice_tax_amount = _round_money(
-            invoice_total * _INVOICE_VAT_RATE / (Decimal("1") + _INVOICE_VAT_RATE)
+            invoice_total * invoice_tax["rate"] / (Decimal("1") + invoice_tax["rate"])
         )
         invoice_tax_display = _money_display(invoice_tax_amount)
         invoice_total_display = _money_display(invoice_total)
@@ -1584,8 +2069,8 @@ class PrintModuleService:
             },
             "invoice": {
                 "line_items": invoice_line_items_for_document,
-                "tax_label": "НДС (5%)",
-                "tax_rate_display": "5%",
+                "tax_label": invoice_tax["label"],
+                "tax_rate_display": invoice_tax["rate_display"],
                 "subtotal": invoice_total,
                 "subtotal_display": invoice_total_display,
                 "vat": invoice_tax_amount,
@@ -1593,7 +2078,7 @@ class PrintModuleService:
                 "total": invoice_total,
                 "total_display": invoice_total_display,
                 "total_words_display": invoice_total_words_display,
-                "has_vat": invoice_tax_amount != Decimal("0"),
+                "has_vat": invoice_tax["has_vat"] and invoice_tax_amount != Decimal("0"),
             },
             "meta": {
                 "warnings": warnings,

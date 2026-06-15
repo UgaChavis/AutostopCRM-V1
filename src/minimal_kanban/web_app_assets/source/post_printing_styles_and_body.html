@@ -3335,7 +3335,10 @@
             <div class="mobile-kicker">НАРЯДЫ</div>
             <h2>Заказ-наряды</h2>
           </div>
-          <button class="mobile-action mobile-action--ghost" id="mobileRepairOrdersRefreshButton" type="button">ОБНОВИТЬ</button>
+          <div class="mobile-workspace__actions">
+            <button class="mobile-action mobile-action--primary" id="mobileManualDocumentPrintButton" type="button">ДОКУМЕНТ</button>
+            <button class="mobile-action mobile-action--ghost" id="mobileRepairOrdersRefreshButton" type="button">ОБНОВИТЬ</button>
+          </div>
         </div>
         <div class="mobile-repair-order-list" id="mobileRepairOrdersList"></div>
         <div class="mobile-repair-order-detail" id="mobileRepairOrderDetail" hidden>
@@ -3575,6 +3578,7 @@
         <div class="topbar-search__results" id="boardSearchResults" role="listbox" aria-label="Результаты поиска"></div>
       </div>
       <div class="topbar__actions">
+        <button class="btn" id="manualDocumentPrintButton">ДОКУМЕНТ</button>
         <button class="btn" id="repairOrdersButton">ЗАКАЗ-НАРЯДЫ</button>
         <button class="btn" id="clientsButton">КЛИЕНТЫ</button>
         <button class="btn" id="cashboxesButton">КАССЫ</button>

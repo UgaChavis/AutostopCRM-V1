@@ -103,6 +103,99 @@ class BoardApiClientTests(unittest.TestCase):
             },
         )
 
+    def test_manual_document_pdf_export_uses_expected_api_payload(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.create_document_without_card_pdf(
+                request_text="Счет MAN-55 от 15.06.2026 для ООО Ромашка. Работы: Диагностика 1 x 2500.",
+                document_type="invoice",
+                manual_document={"client": {"display_name": "ООО Ромашка"}},
+                print_settings={"paper_size": "A4"},
+            )
+
+        request.assert_called_once_with(
+            "/api/export_repair_order_print_pdf",
+            {
+                "document_without_card": True,
+                "request_text": "Счет MAN-55 от 15.06.2026 для ООО Ромашка. Работы: Диагностика 1 x 2500.",
+                "selected_document_ids": ["invoice"],
+                "manual_document": {"client": {"display_name": "ООО Ромашка"}},
+                "print_settings": {"paper_size": "A4"},
+            },
+        )
+
+    def test_manual_document_pdf_export_infers_document_type_from_text_request(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.create_document_without_card_pdf(
+                request_text=(
+                    "Акт выполненных работ № ACT-55 от 15.06.2026 для ООО Ромашка. "
+                    "Работы: Диагностика 1 x 2500."
+                ),
+                document_type="",
+            )
+
+        request.assert_called_once_with(
+            "/api/export_repair_order_print_pdf",
+            {
+                "document_without_card": True,
+                "request_text": (
+                    "Акт выполненных работ № ACT-55 от 15.06.2026 для ООО Ромашка. "
+                    "Работы: Диагностика 1 x 2500."
+                ),
+                "selected_document_ids": ["completion_act"],
+            },
+        )
+
+    def test_manual_document_pdf_export_accepts_russian_document_type_alias(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.create_document_without_card_pdf(
+                request_text="Дефектовка без карточки для ООО Ромашка",
+                document_type="дефектовка",
+            )
+
+        request.assert_called_once_with(
+            "/api/export_repair_order_print_pdf",
+            {
+                "document_without_card": True,
+                "request_text": "Дефектовка без карточки для ООО Ромашка",
+                "selected_document_ids": ["inspection_sheet"],
+            },
+        )
+
+    def test_manual_document_pdf_export_infers_every_standard_document_family(self) -> None:
+        cases = [
+            ("Счет на оплату без карточки для ООО Ромашка", "invoice"),
+            ("Счет-фактура без карточки для ООО Ромашка", "invoice_factura"),
+            ("Акт выполненных работ без карточки для ООО Ромашка", "completion_act"),
+            ("Акт приема автомобиля без карточки для ООО Ромашка", "vehicle_acceptance_act"),
+            ("Заказ-наряд без карточки для ООО Ромашка", "repair_order"),
+            ("Дефектовочная ведомость без карточки для ООО Ромашка", "inspection_sheet"),
+            ("Продажа запчастей без карточки для ООО Ромашка", "parts_sale"),
+        ]
+
+        for request_text, expected_document_type in cases:
+            with self.subTest(request_text=request_text):
+                client = BoardApiClient("https://board.example/api", bearer_token="secret")
+                with patch.object(client, "_request", return_value={"ok": True}) as request:
+                    client.create_document_without_card_pdf(
+                        request_text=request_text,
+                        document_type="auto",
+                    )
+
+                request.assert_called_once_with(
+                    "/api/export_repair_order_print_pdf",
+                    {
+                        "document_without_card": True,
+                        "request_text": request_text,
+                        "selected_document_ids": [expected_document_type],
+                    },
+                )
+
     def test_get_card_log_can_request_compact_payload(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")
 

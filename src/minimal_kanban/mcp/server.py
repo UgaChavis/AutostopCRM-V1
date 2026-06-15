@@ -2766,6 +2766,47 @@ def create_mcp_server(
         )
 
     @server.tool(
+        name="create_document_without_card_pdf",
+        description=_scoped_description(
+            "Create a standard AutoStop PDF without a CRM card through the CRM print module. "
+            "Use this for invoices, invoice-facturas, completion acts, vehicle acceptance acts, repair orders, inspection sheets, defect reports, and parts sale documents when the user provides the data manually in text. "
+            "You may omit document_type when request_text clearly names the document in Russian, for example акт выполненных работ, дефектовка, заказ-наряд, счет-фактура, or продажа запчастей."
+        ),
+        annotations=_read_tool_annotations("Create Document Without Card PDF"),
+        structured_output=True,
+    )
+    def create_document_without_card_pdf(
+        request_text: str,
+        document_type: str = "",
+        manual_document: dict[str, Any] | None = None,
+        selected_template_ids: dict[str, str] | None = None,
+        print_settings: dict[str, Any] | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "create_document_without_card_pdf",
+            lambda: board_api.create_document_without_card_pdf(
+                request_text=request_text,
+                document_type=document_type,
+                manual_document=manual_document,
+                selected_template_ids=selected_template_ids,
+                print_settings=print_settings,
+            ),
+            params={
+                "request_text": request_text,
+                "document_type": document_type,
+                "manual_document": manual_document,
+                "selected_template_ids": selected_template_ids,
+                "print_settings": print_settings,
+            },
+            transform=lambda response: _with_data_meta(
+                response,
+                response_mode="manual_document_pdf_download",
+                view_mode="base64_pdf",
+                mime_type="application/pdf",
+            ),
+        )
+
+    @server.tool(
         name="list_archived_cards",
         description=_scoped_description(
             "List archived cards from the current Minimal Kanban board."

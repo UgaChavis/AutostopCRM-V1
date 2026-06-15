@@ -890,7 +890,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("НАЙТИ КАРТОЧКУ", BOARD_WEB_APP_HTML)
         self.assertNotIn('placeholder="НАЙТИ КАРТОЧКУ"', BOARD_WEB_APP_HTML)
         generic_search_input_index = BOARD_WEB_APP_HTML.index(
-            'input[type="text"], input[type="password"], input[type="search"]'
+            'input[type="text"], input[type="password"], input[type="email"], input[type="search"]'
         )
         self.assertIn(".topbar-search .topbar-search__input {", BOARD_WEB_APP_HTML)
         compact_search_input_index = BOARD_WEB_APP_HTML.index(
@@ -3070,7 +3070,7 @@ class WebAssetsTests(unittest.TestCase):
             "Администратор создает пользователя или обновляет ему пароль.", BOARD_WEB_APP_HTML
         )
         self.assertIn(
-            'input[type="text"], input[type="password"], input[type="search"], input[type="month"], textarea, select, input[type="number"]',
+            'input[type="text"], input[type="password"], input[type="email"], input[type="search"], input[type="month"], textarea, select, input[type="number"]',
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("color-scheme: dark;", BOARD_WEB_APP_HTML)
@@ -3629,6 +3629,36 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_repair_order_print_module_exposes_preview_template_editor_and_routes(self) -> None:
         self.assertIn('id="repairOrderPrintModal"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="manualDocumentPrintButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="mobileManualDocumentPrintButton"', BOARD_WEB_APP_HTML)
+        self.assertIn("body.is-mobile-lite #repairOrderPrintModal", BOARD_WEB_APP_HTML)
+        self.assertIn("body.is-mobile-lite #inspectionSheetFormModal", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'grid-template-areas: "docs" "settings" "preview"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("grid-auto-rows: auto", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            ".repair-order-print-layout > .repair-order-print-panel { min-height: auto; overflow: visible; }",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".repair-order-print-layout > .repair-order-print-panel:nth-child(2) { min-height: 420px; overflow: hidden; }",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertNotIn(
+            ".repair-order-print-layout,\n      .print-template-editor { grid-template-columns: 1fr; grid-template-areas: none; }",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn('id="repairOrderPrintModeSelect"', BOARD_WEB_APP_HTML)
+        self.assertIn('value="manual">Документ без карточки</option>', BOARD_WEB_APP_HTML)
+        self.assertIn('id="manualPrintDocumentForm"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="manualPrintClientName"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="manualPrintClientInn"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="manualPrintVehicle"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="manualPrintWorks"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="manualPrintMaterials"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="manualPrintPayments"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderPrintDocuments"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderPrintPreviewFrame"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="repairOrderPrintTemplateSelect"', BOARD_WEB_APP_HTML)
@@ -3650,6 +3680,13 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="printTemplateTokenSelect"', BOARD_WEB_APP_HTML)
         self.assertIn('id="printTemplatePreviewFrame"', BOARD_WEB_APP_HTML)
         self.assertIn("async function openRepairOrderPrintWorkspace()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function openManualDocumentPrintWorkspace()", BOARD_WEB_APP_HTML)
+        self.assertIn("function blankManualPrintDocument()", BOARD_WEB_APP_HTML)
+        self.assertIn("function manualPrintLocalDateValue()", BOARD_WEB_APP_HTML)
+        self.assertIn("document_date: manualPrintLocalDateValue(),", BOARD_WEB_APP_HTML)
+        self.assertNotIn("document_date: new Date().toISOString().slice(0, 10)", BOARD_WEB_APP_HTML)
+        self.assertIn("function readManualPrintDocumentFromInputs()", BOARD_WEB_APP_HTML)
+        self.assertIn("function repairOrderPrintIsManualMode()", BOARD_WEB_APP_HTML)
         self.assertIn("function syncRepairOrderPrintPrinterState()", BOARD_WEB_APP_HTML)
         self.assertIn("function runRepairOrderBrowserPrint()", BOARD_WEB_APP_HTML)
         self.assertIn("isPrintRunning: false,", BOARD_WEB_APP_HTML)
@@ -3674,6 +3711,23 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("'/api/set_default_print_template'", BOARD_WEB_APP_HTML)
         self.assertIn(
             "printRepairOrderDraft = function() { return openRepairOrderPrintWorkspace(); };",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "printManualDocumentDraft = function() { return openManualDocumentPrintWorkspace(); };",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.mobileManualDocumentPrintButton?.addEventListener('click', printManualDocumentDraft);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("document_without_card: repairOrderPrintIsManualMode()", BOARD_WEB_APP_HTML)
+        self.assertIn("manual_document: readManualPrintDocumentFromInputs()", BOARD_WEB_APP_HTML)
+        self.assertIn('id="manualPrintTaxLabel"', BOARD_WEB_APP_HTML)
+        self.assertIn("tax_label: printEls.manualTaxLabel?.value || ''", BOARD_WEB_APP_HTML)
+        self.assertIn("if (parts.length >= 3) {", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "return { name: parts[0], quantity: parts[1] || '1', price: parts[2] || '', total: parts[3] || '' };",
             BOARD_WEB_APP_HTML,
         )
         self.assertNotIn(

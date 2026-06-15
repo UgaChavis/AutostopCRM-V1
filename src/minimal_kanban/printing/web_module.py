@@ -8,6 +8,15 @@ PRINTING_WEB_MODULE_STYLE = r"""
     #inspectionSheetFormModal {
       z-index: 18;
     }
+    body.is-mobile-lite #repairOrderPrintModal {
+      z-index: 68;
+    }
+    body.is-mobile-lite #printTemplateEditorModal {
+      z-index: 69;
+    }
+    body.is-mobile-lite #inspectionSheetFormModal {
+      z-index: 70;
+    }
     .dialog--repair-order-print {
       width: min(1860px, calc(100% - 18px));
       max-width: none;
@@ -144,12 +153,16 @@ PRINTING_WEB_MODULE_STYLE = r"""
     .repair-order-print-settings .field { gap: 5px; }
     .repair-order-print-settings input,
     .repair-order-print-settings select,
+    .repair-order-print-settings textarea,
     .print-template-editor__editor select,
     .print-template-editor__editor input,
     .print-template-editor__source textarea { background: rgba(14, 18, 15, 0.76); }
     .repair-order-print-settings__row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     .repair-order-print-settings__section { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 14px; border: 1px solid rgba(116, 128, 111, 0.3); background: rgba(255, 255, 255, 0.02); }
     .repair-order-print-settings__section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-soft); font-family: var(--mono); }
+    .manual-print-document-form { display: flex; flex-direction: column; gap: 8px; }
+    .manual-print-document-form[hidden] { display: none; }
+    .manual-print-document-form textarea { min-height: 82px; resize: vertical; line-height: 1.45; }
     .repair-order-print-footer,
     .print-template-editor__footer { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
     .repair-order-print-footer__actions,
@@ -245,10 +258,17 @@ PRINTING_WEB_MODULE_STYLE = r"""
     @media (max-width: 1100px) {
       .dialog--repair-order-print,
       .dialog--print-template-editor { width: min(100%, calc(100% - 12px)); height: min(100vh, 100%); }
-      .repair-order-print-layout,
-      .print-template-editor { grid-template-columns: 1fr; grid-template-areas: none; }
+      .repair-order-print-layout { grid-template-columns: 1fr; grid-template-areas: "docs" "settings" "preview"; grid-auto-rows: auto; align-content: start; overflow: auto; }
+      .repair-order-print-layout > .repair-order-print-panel:first-child { grid-area: docs; }
+      .repair-order-print-layout > .repair-order-print-panel:nth-child(2) { grid-area: preview; }
+      .repair-order-print-layout > .repair-order-print-panel:nth-child(3) { grid-area: settings; }
+      .repair-order-print-layout > .repair-order-print-panel { min-height: auto; overflow: visible; }
+      .repair-order-print-layout > .repair-order-print-panel:nth-child(2) { min-height: 420px; overflow: hidden; }
+      .print-template-editor { grid-template-columns: 1fr; grid-template-areas: "list" "editor" "preview"; align-content: start; overflow: auto; }
       .repair-order-print-documents { max-height: 240px; }
+      .repair-order-print-settings { overflow: visible; }
       .repair-order-print-settings__row { grid-template-columns: 1fr; }
+      .repair-order-print-preview-wrap { max-height: min(70vh, 640px); }
       .repair-order-print-preview-frame,
       .print-template-editor__preview-frame { width: 760px; }
     }
@@ -292,6 +312,45 @@ PRINTING_WEB_MODULE_HTML = r"""
         <section class="repair-order-print-panel">
           <div class="repair-order-print-panel__title">Настройки</div>
           <div class="repair-order-print-settings" id="repairOrderPrintSettings">
+            <section class="repair-order-print-settings__section">
+              <div class="repair-order-print-settings__section-title">Режим</div>
+              <div class="field field--compact"><label for="repairOrderPrintModeSelect">Источник данных</label><select id="repairOrderPrintModeSelect"><option value="card">Карточка CRM</option><option value="manual">Документ без карточки</option></select></div>
+              <div class="manual-print-document-form" id="manualPrintDocumentForm" hidden>
+                <div class="repair-order-print-settings__row">
+                  <div class="field field--compact"><label for="manualPrintDocumentNumber">Номер</label><input id="manualPrintDocumentNumber" type="text" maxlength="40"></div>
+                  <div class="field field--compact"><label for="manualPrintDocumentDate">Дата</label><input id="manualPrintDocumentDate" type="date"></div>
+                </div>
+                <div class="field field--compact"><label for="manualPrintTaxLabel">НДС</label><select id="manualPrintTaxLabel"><option value="НДС (5%)">НДС 5%</option><option value="Без НДС">Без НДС</option></select></div>
+                <div class="field field--compact"><label for="manualPrintClientName">Клиент</label><input id="manualPrintClientName" type="text" maxlength="160"></div>
+                <div class="repair-order-print-settings__row">
+                  <div class="field field--compact"><label for="manualPrintClientPhone">Телефон</label><input id="manualPrintClientPhone" type="text" maxlength="80"></div>
+                  <div class="field field--compact"><label for="manualPrintClientInn">ИНН</label><input id="manualPrintClientInn" type="text" maxlength="32"></div>
+                </div>
+                <div class="repair-order-print-settings__row">
+                  <div class="field field--compact"><label for="manualPrintClientKpp">КПП</label><input id="manualPrintClientKpp" type="text" maxlength="32"></div>
+                  <div class="field field--compact"><label for="manualPrintClientBik">БИК</label><input id="manualPrintClientBik" type="text" maxlength="32"></div>
+                </div>
+                <div class="field field--compact"><label for="manualPrintClientAddress">Адрес клиента</label><input id="manualPrintClientAddress" type="text" maxlength="240"></div>
+                <div class="field field--compact"><label for="manualPrintClientBankName">Банк клиента</label><input id="manualPrintClientBankName" type="text" maxlength="160"></div>
+                <div class="repair-order-print-settings__row">
+                  <div class="field field--compact"><label for="manualPrintClientAccount">Р/с клиента</label><input id="manualPrintClientAccount" type="text" maxlength="64"></div>
+                  <div class="field field--compact"><label for="manualPrintClientCorrAccount">К/с клиента</label><input id="manualPrintClientCorrAccount" type="text" maxlength="64"></div>
+                </div>
+                <div class="field field--compact"><label for="manualPrintVehicle">Автомобиль</label><input id="manualPrintVehicle" type="text" maxlength="160"></div>
+                <div class="repair-order-print-settings__row">
+                  <div class="field field--compact"><label for="manualPrintLicensePlate">Госномер</label><input id="manualPrintLicensePlate" type="text" maxlength="40"></div>
+                  <div class="field field--compact"><label for="manualPrintVin">VIN</label><input id="manualPrintVin" type="text" maxlength="80"></div>
+                </div>
+                <div class="field field--compact"><label for="manualPrintMileage">Пробег</label><input id="manualPrintMileage" type="text" maxlength="40"></div>
+                <div class="field field--compact"><label for="manualPrintWorks">Работы</label><textarea id="manualPrintWorks" spellcheck="false"></textarea></div>
+                <div class="field field--compact"><label for="manualPrintMaterials">Материалы</label><textarea id="manualPrintMaterials" spellcheck="false"></textarea></div>
+                <div class="field field--compact"><label for="manualPrintPayments">Оплаты</label><textarea id="manualPrintPayments" spellcheck="false"></textarea></div>
+                <div class="field field--compact"><label for="manualPrintReason">Основание</label><textarea id="manualPrintReason" spellcheck="false"></textarea></div>
+                <div class="field field--compact"><label for="manualPrintComment">Комментарий</label><textarea id="manualPrintComment" spellcheck="false"></textarea></div>
+                <div class="field field--compact"><label for="manualPrintNote">Примечание мастера</label><textarea id="manualPrintNote" spellcheck="false"></textarea></div>
+                <div class="field field--compact"><label for="manualPrintRequestText">Текстовый запрос агента</label><textarea id="manualPrintRequestText" spellcheck="false"></textarea></div>
+              </div>
+            </section>
             <section class="repair-order-print-settings__section">
               <div class="repair-order-print-settings__section-title">Печать</div>
               <div class="field field--compact"><label for="repairOrderPrintPrinterSelect">Принтер</label><select id="repairOrderPrintPrinterSelect"></select></div>
@@ -441,10 +500,13 @@ _PRINTING_SCRIPT_PART1 = r"""
       isPrintRunning: false,
       zoomMode: 'fit',
       zoom: 1,
+      mode: 'card',
+      manualDocument: null,
       inspectionSheetForm: null,
       templateEditor: { documentType: 'repair_order', templateId: '' },
     };
     let printTemplatePreviewTimer = null;
+    let manualPrintPreviewTimer = null;
 
     const printEls = {
       modal: document.getElementById('repairOrderPrintModal'),
@@ -465,6 +527,31 @@ _PRINTING_SCRIPT_PART1 = r"""
       prevPageButton: document.getElementById('repairOrderPrintPrevPageButton'),
       nextPageButton: document.getElementById('repairOrderPrintNextPageButton'),
       templateSelect: document.getElementById('repairOrderPrintTemplateSelect'),
+      modeSelect: document.getElementById('repairOrderPrintModeSelect'),
+      manualForm: document.getElementById('manualPrintDocumentForm'),
+      manualDocumentNumber: document.getElementById('manualPrintDocumentNumber'),
+      manualDocumentDate: document.getElementById('manualPrintDocumentDate'),
+      manualTaxLabel: document.getElementById('manualPrintTaxLabel'),
+      manualClientName: document.getElementById('manualPrintClientName'),
+      manualClientPhone: document.getElementById('manualPrintClientPhone'),
+      manualClientInn: document.getElementById('manualPrintClientInn'),
+      manualClientKpp: document.getElementById('manualPrintClientKpp'),
+      manualClientAddress: document.getElementById('manualPrintClientAddress'),
+      manualClientBankName: document.getElementById('manualPrintClientBankName'),
+      manualClientBik: document.getElementById('manualPrintClientBik'),
+      manualClientAccount: document.getElementById('manualPrintClientAccount'),
+      manualClientCorrAccount: document.getElementById('manualPrintClientCorrAccount'),
+      manualVehicle: document.getElementById('manualPrintVehicle'),
+      manualLicensePlate: document.getElementById('manualPrintLicensePlate'),
+      manualVin: document.getElementById('manualPrintVin'),
+      manualMileage: document.getElementById('manualPrintMileage'),
+      manualWorks: document.getElementById('manualPrintWorks'),
+      manualMaterials: document.getElementById('manualPrintMaterials'),
+      manualPayments: document.getElementById('manualPrintPayments'),
+      manualReason: document.getElementById('manualPrintReason'),
+      manualComment: document.getElementById('manualPrintComment'),
+      manualNote: document.getElementById('manualPrintNote'),
+      manualRequestText: document.getElementById('manualPrintRequestText'),
       printerSelect: document.getElementById('repairOrderPrintPrinterSelect'),
       copies: document.getElementById('repairOrderPrintCopies'),
       paperSize: document.getElementById('repairOrderPrintPaperSize'),
@@ -772,15 +859,170 @@ _PRINTING_SCRIPT_PART1 = r"""
       };
     }
 
+    function repairOrderPrintIsManualMode() {
+      return repairOrderPrintState.mode === 'manual';
+    }
+
+    function manualPrintLocalDateValue() {
+      const date = new Date();
+      const year = String(date.getFullYear()).padStart(4, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return year + '-' + month + '-' + day;
+    }
+
+    function blankManualPrintDocument() {
+      return {
+        document_number: '',
+        document_date: manualPrintLocalDateValue(),
+        tax_label: 'НДС (5%)',
+        client: {
+          display_name: '',
+          phone: '',
+          inn: '',
+          kpp: '',
+          legal_address: '',
+          actual_address: '',
+          bank_name: '',
+          bik: '',
+          checking_account: '',
+          correspondent_account: '',
+        },
+        vehicle: { name: '', license_plate: '', vin: '', mileage: '' },
+        works: [],
+        materials: [],
+        payments: [],
+        reason: '',
+        comment: '',
+        note: '',
+      };
+    }
+
+    function splitManualPrintRows(value) {
+      return String(value || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+    }
+
+    function readManualPrintLineItems(value) {
+      return splitManualPrintRows(value).map((line) => {
+        const parts = line.split(/[|\t;]/).map((item) => item.trim());
+        if (parts.length >= 3) {
+          return { name: parts[0], quantity: parts[1] || '1', price: parts[2] || '', total: parts[3] || '' };
+        }
+        const match = line.match(/^(.*?)\s+(\d+(?:[,.]\d+)?)\s*(?:x|х|\*)\s*(\d+(?:[,.]\d+)?)$/i);
+        if (match) {
+          return { name: match[1].trim(), quantity: match[2].replace(',', '.'), price: match[3].replace(',', '.') };
+        }
+        return { name: line, quantity: '1', price: '', total: '' };
+      });
+    }
+
+    function readManualPrintPayments(value) {
+      return splitManualPrintRows(value).map((line) => {
+        const parts = line.split(/[|\t;]/).map((item) => item.trim());
+        return {
+          amount: parts[0] || line,
+          paid_at: parts[1] || '',
+          payment_method: parts[2] || '',
+          note: parts.slice(3).join(' · '),
+        };
+      });
+    }
+
+    function applyManualPrintDocumentToInputs(documentData = blankManualPrintDocument()) {
+      const data = { ...blankManualPrintDocument(), ...(documentData || {}) };
+      const client = { ...blankManualPrintDocument().client, ...(data.client || {}) };
+      const vehicle = { ...blankManualPrintDocument().vehicle, ...(data.vehicle || {}) };
+      if (printEls.manualDocumentNumber) printEls.manualDocumentNumber.value = data.document_number || '';
+      if (printEls.manualDocumentDate) printEls.manualDocumentDate.value = data.document_date || '';
+      if (printEls.manualTaxLabel) printEls.manualTaxLabel.value = data.tax_label || 'НДС (5%)';
+      if (printEls.manualClientName) printEls.manualClientName.value = client.display_name || '';
+      if (printEls.manualClientPhone) printEls.manualClientPhone.value = client.phone || '';
+      if (printEls.manualClientInn) printEls.manualClientInn.value = client.inn || '';
+      if (printEls.manualClientKpp) printEls.manualClientKpp.value = client.kpp || '';
+      if (printEls.manualClientAddress) printEls.manualClientAddress.value = client.legal_address || client.actual_address || '';
+      if (printEls.manualClientBankName) printEls.manualClientBankName.value = client.bank_name || '';
+      if (printEls.manualClientBik) printEls.manualClientBik.value = client.bik || '';
+      if (printEls.manualClientAccount) printEls.manualClientAccount.value = client.checking_account || '';
+      if (printEls.manualClientCorrAccount) printEls.manualClientCorrAccount.value = client.correspondent_account || '';
+      if (printEls.manualVehicle) printEls.manualVehicle.value = vehicle.name || '';
+      if (printEls.manualLicensePlate) printEls.manualLicensePlate.value = vehicle.license_plate || '';
+      if (printEls.manualVin) printEls.manualVin.value = vehicle.vin || '';
+      if (printEls.manualMileage) printEls.manualMileage.value = vehicle.mileage || '';
+      if (printEls.manualWorks) printEls.manualWorks.value = '';
+      if (printEls.manualMaterials) printEls.manualMaterials.value = '';
+      if (printEls.manualPayments) printEls.manualPayments.value = '';
+      if (printEls.manualReason) printEls.manualReason.value = data.reason || '';
+      if (printEls.manualComment) printEls.manualComment.value = data.comment || '';
+      if (printEls.manualNote) printEls.manualNote.value = data.note || '';
+      if (printEls.manualRequestText) printEls.manualRequestText.value = '';
+    }
+
+    function readManualPrintDocumentFromInputs() {
+      const address = printEls.manualClientAddress?.value || '';
+      return {
+        document_number: printEls.manualDocumentNumber?.value || '',
+        document_date: printEls.manualDocumentDate?.value || '',
+        tax_label: printEls.manualTaxLabel?.value || '',
+        client: {
+          display_name: printEls.manualClientName?.value || '',
+          phone: printEls.manualClientPhone?.value || '',
+          inn: printEls.manualClientInn?.value || '',
+          kpp: printEls.manualClientKpp?.value || '',
+          legal_address: address,
+          actual_address: address,
+          bank_name: printEls.manualClientBankName?.value || '',
+          bik: printEls.manualClientBik?.value || '',
+          checking_account: printEls.manualClientAccount?.value || '',
+          correspondent_account: printEls.manualClientCorrAccount?.value || '',
+        },
+        vehicle: {
+          name: printEls.manualVehicle?.value || '',
+          license_plate: printEls.manualLicensePlate?.value || '',
+          vin: printEls.manualVin?.value || '',
+          mileage: printEls.manualMileage?.value || '',
+        },
+        works: readManualPrintLineItems(printEls.manualWorks?.value || ''),
+        materials: readManualPrintLineItems(printEls.manualMaterials?.value || ''),
+        payments: readManualPrintPayments(printEls.manualPayments?.value || ''),
+        reason: printEls.manualReason?.value || '',
+        comment: printEls.manualComment?.value || '',
+        note: printEls.manualNote?.value || '',
+      };
+    }
+
+    function syncRepairOrderPrintMode() {
+      const nextMode = repairOrderPrintState.mode === 'manual' ? 'manual' : 'card';
+      repairOrderPrintState.mode = nextMode;
+      if (printEls.modeSelect) printEls.modeSelect.value = nextMode;
+      if (printEls.manualForm) printEls.manualForm.hidden = !repairOrderPrintIsManualMode();
+      if (printEls.footerMeta && !repairOrderPrintState.previewByDocument?.[repairOrderPrintActiveDocument()]) {
+        printEls.footerMeta.textContent = repairOrderPrintIsManualMode()
+          ? 'PDF генерируется из стандартного шаблона AutoStop без карточки CRM.'
+          : 'PDF генерируется из шаблона и текущих данных заказ-наряда.';
+      }
+    }
+
     function repairOrderPrintRequestPayload(extra = {}) {
       return {
-        card_id: state.editingId || state.activeCard?.id || '',
+        card_id: repairOrderPrintIsManualMode() ? '' : (state.editingId || state.activeCard?.id || ''),
         source: 'ui',
-        repair_order: readRepairOrderFromForm(),
+        repair_order: repairOrderPrintIsManualMode() ? {} : readRepairOrderFromForm(),
         selected_document_ids: repairOrderPrintSelectedIds(),
         active_document_id: repairOrderPrintActiveDocument(),
         selected_template_ids: { ...repairOrderPrintState.selectedTemplateIds },
         print_settings: repairOrderPrintSettingsPayload(),
+        ...(repairOrderPrintIsManualMode() ? {
+          document_without_card: repairOrderPrintIsManualMode(),
+          manual_document: readManualPrintDocumentFromInputs(),
+          request_text: printEls.manualRequestText?.value || '',
+        } : {
+          document_without_card: repairOrderPrintIsManualMode(),
+        }),
         ...extra,
       };
     }
@@ -934,14 +1176,17 @@ _PRINTING_SCRIPT_PART1 = r"""
 
 _PRINTING_SCRIPT_PART2 = r"""
     function applyRepairOrderPrintWorkspace(data, { preserveSelection = false } = {}) {
-      const previousSelected = preserveSelection ? repairOrderPrintSelectedIds() : ['repair_order'];
-      const previousActive = preserveSelection ? repairOrderPrintActiveDocument() : 'repair_order';
+      const defaultDocumentId = repairOrderPrintIsManualMode() ? 'invoice' : 'repair_order';
+      const previousSelected = preserveSelection ? repairOrderPrintSelectedIds() : [defaultDocumentId];
+      const previousActive = preserveSelection ? repairOrderPrintActiveDocument() : defaultDocumentId;
       const previousTemplates = preserveSelection ? { ...repairOrderPrintState.selectedTemplateIds } : {};
       repairOrderPrintState.workspace = data || { documents: [], templates: {}, settings: {}, printers: [] };
       const docs = repairOrderPrintWorkspaceDocuments();
-      const selected = normalizeRepairOrderPrintSelectedIds(preserveSelection ? previousSelected : ['repair_order']);
+      const selected = normalizeRepairOrderPrintSelectedIds(
+        preserveSelection ? previousSelected : [defaultDocumentId]
+      );
       repairOrderPrintState.selectedDocumentIds = selected;
-      repairOrderPrintState.activeDocumentId = selected.includes(previousActive) ? previousActive : (selected[0] || docs[0]?.id || 'repair_order');
+      repairOrderPrintState.activeDocumentId = selected.includes(previousActive) ? previousActive : (selected[0] || docs[0]?.id || defaultDocumentId);
       repairOrderPrintState.selectedTemplateIds = {};
       docs.forEach((item) => {
         repairOrderPrintState.selectedTemplateIds[item.id] = previousTemplates[item.id] || item.selected_template_id || '';
@@ -976,6 +1221,7 @@ _PRINTING_SCRIPT_PART2 = r"""
       renderRepairOrderPrintTemplateSelect();
       renderPrintTemplateDocumentTypeOptions();
       syncRepairOrderPrintPrinterState();
+      syncRepairOrderPrintMode();
     }
 
     function renderRepairOrderPrintDocuments() {
@@ -1084,6 +1330,8 @@ _PRINTING_SCRIPT_PART2 = r"""
     }
 
     async function loadRepairOrderPrintWorkspace({ openModal = false, preserveSelection = false } = {}) {
+      repairOrderPrintState.mode = 'card';
+      syncRepairOrderPrintMode();
       const cardId = await requireRepairOrderCardId();
       if (!cardId) return null;
       const data = await api('/api/get_repair_order_print_workspace', {
@@ -1098,6 +1346,38 @@ _PRINTING_SCRIPT_PART2 = r"""
       if (openModal) printEls.modal.classList.add('is-open');
       await refreshRepairOrderPrintPreview();
       return data;
+    }
+
+    async function openManualDocumentPrintWorkspace() {
+      try {
+        repairOrderPrintState.mode = 'manual';
+        if (!repairOrderPrintState.manualDocument) {
+          repairOrderPrintState.manualDocument = blankManualPrintDocument();
+          applyManualPrintDocumentToInputs(repairOrderPrintState.manualDocument);
+        }
+        syncRepairOrderPrintMode();
+        const data = await api('/api/get_repair_order_print_workspace', {
+          method: 'POST',
+          body: repairOrderPrintRequestPayload({
+            document_without_card: true,
+            selected_document_ids: ['invoice'],
+            active_document_id: 'invoice',
+          }),
+        });
+        applyRepairOrderPrintWorkspace(data, { preserveSelection: Boolean(repairOrderPrintState.workspace) });
+        repairOrderPrintState.selectedDocumentIds = normalizeRepairOrderPrintSelectedIds(['invoice']);
+        repairOrderPrintState.activeDocumentId = 'invoice';
+        renderRepairOrderPrintDocuments();
+        renderRepairOrderPrintTemplateSelect();
+        printEls.modal.classList.add('is-open');
+        await refreshRepairOrderPrintPreview({
+          document_without_card: true,
+          selected_document_ids: repairOrderPrintState.selectedDocumentIds,
+          active_document_id: repairOrderPrintState.activeDocumentId,
+        });
+      } catch (error) {
+        setStatus(error.message, true);
+      }
     }
 
     async function openRepairOrderPrintWorkspace() {
@@ -1140,6 +1420,12 @@ _PRINTING_SCRIPT_PART2 = r"""
       await loadInspectionSheetForm();
       if (printEls.inspectionSheetFooterMeta) {
         printEls.inspectionSheetFooterMeta.textContent = 'После применения предпросмотр и печать будут использовать заполненную ведомость.';
+      }
+      if (printEls.inspectionSheetAutofillButton) {
+        printEls.inspectionSheetAutofillButton.disabled = repairOrderPrintIsManualMode();
+        printEls.inspectionSheetAutofillButton.title = repairOrderPrintIsManualMode()
+          ? 'Автозаполнение доступно только для карточки CRM.'
+          : '';
       }
       printEls.inspectionSheetModal?.classList.add('is-open');
     }
@@ -1357,6 +1643,31 @@ _PRINTING_SCRIPT_PART3 = r"""
     function handleRepairOrderPrintTemplateSelectChange() {
       repairOrderPrintState.selectedTemplateIds[repairOrderPrintActiveDocument()] = printEls.templateSelect?.value || '';
       refreshRepairOrderPrintPreview();
+    }
+
+    function scheduleManualPrintPreviewRefresh() {
+      if (!repairOrderPrintIsManualMode() || !repairOrderPrintState.workspace) return;
+      repairOrderPrintState.manualDocument = readManualPrintDocumentFromInputs();
+      if (manualPrintPreviewTimer) {
+        window.clearTimeout(manualPrintPreviewTimer);
+      }
+      manualPrintPreviewTimer = window.setTimeout(() => {
+        manualPrintPreviewTimer = null;
+        refreshRepairOrderPrintPreview();
+      }, 320);
+    }
+
+    function handleRepairOrderPrintModeChange() {
+      const nextMode = printEls.modeSelect?.value === 'manual' ? 'manual' : 'card';
+      if (nextMode === 'manual') {
+        openManualDocumentPrintWorkspace();
+        return;
+      }
+      repairOrderPrintState.mode = 'card';
+      syncRepairOrderPrintMode();
+      loadRepairOrderPrintWorkspace({ openModal: true, preserveSelection: false }).catch((error) => {
+        setStatus(error.message, true);
+      });
     }
 
     function repairOrderPrintSetZoom(mode, zoomValue = repairOrderPrintState.zoom) {
@@ -1600,10 +1911,14 @@ _PRINTING_SCRIPT_PART3 = r"""
     }
 
     printRepairOrderDraft = function() { return openRepairOrderPrintWorkspace(); };
+    printManualDocumentDraft = function() { return openManualDocumentPrintWorkspace(); };
 
     if (printEls.documents) printEls.documents.addEventListener('click', handleRepairOrderPrintDocumentsClick);
     if (printEls.documentsAction) printEls.documentsAction.addEventListener('click', handleRepairOrderPrintDocumentsActionClick);
     if (printEls.templateSelect) printEls.templateSelect.addEventListener('change', handleRepairOrderPrintTemplateSelectChange);
+    if (printEls.modeSelect) printEls.modeSelect.addEventListener('change', handleRepairOrderPrintModeChange);
+    if (printEls.manualForm) printEls.manualForm.addEventListener('input', scheduleManualPrintPreviewRefresh);
+    if (printEls.manualForm) printEls.manualForm.addEventListener('change', scheduleManualPrintPreviewRefresh);
     if (printEls.fitWidthButton) printEls.fitWidthButton.addEventListener('click', () => repairOrderPrintSetZoom('fit', 1));
     if (printEls.actualSizeButton) printEls.actualSizeButton.addEventListener('click', () => repairOrderPrintSetZoom('manual', 1));
     if (printEls.zoomInButton) printEls.zoomInButton.addEventListener('click', () => repairOrderPrintSetZoom('manual', repairOrderPrintScale() + 0.1));

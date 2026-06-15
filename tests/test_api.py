@@ -3660,6 +3660,173 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(printed["data"]["copies"], 2)
         print_backend.assert_called_once()
 
+    def test_repair_order_print_module_accepts_manual_document_without_card(self) -> None:
+        manual_document = {
+            "document_number": "MAN-100",
+            "document_date": "15.06.2026",
+            "client": {
+                "client_type": "ooo",
+                "display_name": "ООО Документ Без Карточки",
+                "legal_name": "ООО Документ Без Карточки",
+                "inn": "2468000000",
+                "kpp": "246801001",
+                "checking_account": "40702810900000000001",
+                "bank_name": "Тест Банк",
+                "bik": "044525225",
+                "correspondent_account": "30101810400000000225",
+                "legal_address": "660000, г. Красноярск, ул. Тестовая, 1",
+            },
+            "vehicle": {
+                "name": "Nissan X-Trail T32",
+                "vin": "Z8NTANT32ES123456",
+                "license_plate": "К123КК124",
+                "mileage": "92000",
+            },
+            "works": [{"name": "Замена масла", "quantity": "1", "price": "1500"}],
+            "materials": [{"name": "Масло моторное", "quantity": "5", "price": "700"}],
+            "payments": [{"amount": "2000", "paid_at": "15.06.2026", "payment_method": "cash"}],
+            "reason": "Ручное оформление",
+            "comment": "Данные введены оператором вручную",
+            "note": "Проверить подписи",
+        }
+
+        status, workspace = self.request(
+            "/api/get_repair_order_print_workspace",
+            {"document_without_card": True, "manual_document": manual_document},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(workspace["data"]["meta"]["document_without_card"])
+        self.assertEqual(workspace["data"]["card_id"], "manual-document")
+        self.assertEqual(
+            [item["id"] for item in workspace["data"]["documents"]],
+            [
+                "repair_order",
+                "vehicle_acceptance_act",
+                "invoice",
+                "invoice_factura",
+                "inspection_sheet",
+                "completion_act",
+                "parts_sale",
+            ],
+        )
+
+        status, preview = self.request(
+            "/api/preview_repair_order_print_documents",
+            {
+                "document_without_card": True,
+                "manual_document": manual_document,
+                "selected_document_ids": ["invoice", "completion_act", "repair_order"],
+                "active_document_id": "completion_act",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(preview["data"]["active_document_id"], "completion_act")
+        invoice_html = preview["data"]["documents"][0]["pages"][0]["html"]
+        repair_order_html = preview["data"]["documents"][2]["pages"][0]["html"]
+        self.assertIn("ООО Документ Без Карточки", invoice_html)
+        self.assertIn("40702810900000000001", invoice_html)
+        self.assertIn("5 750,00", invoice_html)
+        self.assertIn("Nissan X-Trail T32", repair_order_html)
+
+        with patch(
+            "minimal_kanban.printing.service.render_html_to_pdf_bytes",
+            return_value=b"%PDF-1.4 manual-document-route",
+        ):
+            status, exported = self.request(
+                "/api/export_repair_order_print_pdf",
+                {
+                    "document_without_card": True,
+                    "manual_document": manual_document,
+                    "selected_document_ids": ["invoice"],
+                },
+            )
+        self.assertEqual(status, 200)
+        self.assertTrue(base64.b64decode(exported["data"]["content_base64"]).startswith(b"%PDF"))
+        self.assertEqual(exported["data"]["meta"]["source"], "manual_document")
+        self.assertEqual(
+            exported["data"]["meta"]["documents"][0]["template_id"], "builtin:invoice:standard"
+        )
+
+    def test_repair_order_print_module_accepts_request_text_without_card(self) -> None:
+        request_text = (
+            "Счет № TEXT-77 от 15.06.2026\n"
+            "Клиент: ООО Текстовый Документ\n"
+            "ИНН: 2468003333\n"
+            "КПП: 246801001\n"
+            "Банк: Тест Банк\n"
+            "БИК: 044525225\n"
+            "Р/с: 40702810900000000001\n"
+            "К/с: 30101810400000000225\n"
+            "Автомобиль: Toyota RAV4\n"
+            "VIN: JTMBFREV10D123456\n"
+            "Работы:\n"
+            "Диагностика 1 x 2500\n"
+            "Материалы:\n"
+            "Фильтр салона 1 x 900\n"
+            "Оплаты:\n"
+            "1000 | 15.06.2026 | cash | Аванс"
+        )
+
+        status, preview = self.request(
+            "/api/preview_repair_order_print_documents",
+            {
+                "document_without_card": True,
+                "request_text": request_text,
+                "selected_document_ids": ["invoice", "completion_act"],
+                "active_document_id": "invoice",
+            },
+        )
+        self.assertEqual(status, 200)
+        invoice_html = preview["data"]["documents"][0]["pages"][0]["html"]
+        self.assertIn("ООО Текстовый Документ", invoice_html)
+        self.assertIn("2468003333", invoice_html)
+        self.assertIn("40702810900000000001", invoice_html)
+        self.assertIn("3 910,00", invoice_html)
+        self.assertIn("В том числе НДС", invoice_html)
+
+        with patch(
+            "minimal_kanban.printing.service.render_html_to_pdf_bytes",
+            return_value=b"%PDF-1.4 request-text-manual-document-route",
+        ):
+            status, exported = self.request(
+                "/api/export_repair_order_print_pdf",
+                {
+                    "document_without_card": True,
+                    "request_text": request_text,
+                    "selected_document_ids": ["invoice"],
+                },
+            )
+        self.assertEqual(status, 200)
+        self.assertTrue(base64.b64decode(exported["data"]["content_base64"]).startswith(b"%PDF"))
+        self.assertEqual(exported["data"]["meta"]["source"], "manual_document")
+        self.assertEqual(
+            exported["data"]["meta"]["documents"][0]["template_id"], "builtin:invoice:standard"
+        )
+
+    def test_repair_order_print_module_manual_invoice_supports_no_vat(self) -> None:
+        status, preview = self.request(
+            "/api/preview_repair_order_print_documents",
+            {
+                "document_without_card": True,
+                "manual_document": {
+                    "document_number": "NO-VAT-API",
+                    "document_date": "15.06.2026",
+                    "tax_label": "Без НДС",
+                    "client": {"display_name": "ООО Без НДС", "inn": "2468000000"},
+                    "vehicle": {"name": "Toyota Camry", "vin": "JTNB11HK203123456"},
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+                },
+                "selected_document_ids": ["invoice"],
+                "active_document_id": "invoice",
+            },
+        )
+
+        self.assertEqual(status, 200)
+        invoice_html = preview["data"]["documents"][0]["pages"][0]["html"]
+        self.assertIn("<td>Налоговый режим</td><td>Без НДС</td>", invoice_html)
+        self.assertNotIn("В том числе НДС (5%)", invoice_html)
+        self.assertIn("1 150,00", invoice_html)
+
     def test_invoice_preview_includes_linked_client_requisites(self) -> None:
         status, client_created = self.request(
             "/api/create_client",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -12,6 +13,105 @@ from ..config import get_api_port, get_api_port_fallback_limit
 
 class BoardApiTransportError(RuntimeError):
     pass
+
+
+SUPPORTED_PRINT_DOCUMENT_TYPES = {
+    "repair_order",
+    "vehicle_acceptance_act",
+    "invoice",
+    "invoice_factura",
+    "inspection_sheet",
+    "completion_act",
+    "parts_sale",
+}
+
+MANUAL_DOCUMENT_TYPE_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "invoice_factura",
+        (
+            "invoice_factura",
+            "invoice factura",
+            "счет фактура",
+            "счет-фактура",
+            "счёт фактура",
+            "счёт-фактура",
+        ),
+    ),
+    (
+        "vehicle_acceptance_act",
+        (
+            "vehicle_acceptance_act",
+            "акт приема",
+            "акт приемки",
+            "акт приёма",
+            "акт приёмки",
+            "прием автомобиля",
+            "приём автомобиля",
+        ),
+    ),
+    (
+        "completion_act",
+        (
+            "completion_act",
+            "акт выполненных работ",
+            "акт выполненных работ услуг",
+            "акт работ",
+            "акт оказанных услуг",
+        ),
+    ),
+    (
+        "inspection_sheet",
+        (
+            "inspection_sheet",
+            "дефектовка",
+            "дефектовочная ведомость",
+            "дефектный акт",
+            "inspection sheet",
+        ),
+    ),
+    (
+        "parts_sale",
+        (
+            "parts_sale",
+            "продажа запчастей",
+            "продажа деталей",
+            "реализация запчастей",
+            "запчасти без ремонта",
+        ),
+    ),
+    (
+        "repair_order",
+        (
+            "repair_order",
+            "заказ наряд",
+            "заказ-наряд",
+            "зн",
+            "наряд",
+        ),
+    ),
+    ("invoice", ("invoice", "счет", "счёт", "счет на оплату", "счёт на оплату")),
+)
+
+
+def _manual_document_type_text(value: object) -> str:
+    text = str(value or "").lower().replace("ё", "е")
+    text = re.sub(r"[_\-]+", " ", text)
+    return " ".join(text.split())
+
+
+def _normalize_manual_document_type(document_type: object, request_text: object) -> str:
+    raw_document_type = str(document_type or "").strip()
+    normalized_document_type = raw_document_type.strip().lower()
+    if normalized_document_type in SUPPORTED_PRINT_DOCUMENT_TYPES:
+        return normalized_document_type
+    explicit_text = _manual_document_type_text(raw_document_type)
+    source_text = explicit_text or _manual_document_type_text(request_text)
+    if not source_text or source_text == "auto":
+        source_text = _manual_document_type_text(request_text)
+    for resolved_type, aliases in MANUAL_DOCUMENT_TYPE_ALIASES:
+        if any(alias in source_text for alias in aliases):
+            return resolved_type
+    return normalized_document_type or "invoice"
 
 
 def candidate_api_urls() -> list[str]:
@@ -672,6 +772,29 @@ class BoardApiClient:
             payload["selected_template_ids"] = selected_template_ids
         if template_overrides is not None:
             payload["template_overrides"] = template_overrides
+        if print_settings is not None:
+            payload["print_settings"] = print_settings
+        return self._request("/api/export_repair_order_print_pdf", payload)
+
+    def create_document_without_card_pdf(
+        self,
+        *,
+        request_text: str,
+        document_type: str = "",
+        manual_document: dict[str, object] | None = None,
+        selected_template_ids: dict[str, str] | None = None,
+        print_settings: dict[str, object] | None = None,
+    ) -> dict:
+        resolved_document_type = _normalize_manual_document_type(document_type, request_text)
+        payload: dict[str, object] = {
+            "document_without_card": True,
+            "request_text": request_text,
+            "selected_document_ids": [resolved_document_type],
+        }
+        if manual_document is not None:
+            payload["manual_document"] = manual_document
+        if selected_template_ids is not None:
+            payload["selected_template_ids"] = selected_template_ids
         if print_settings is not None:
             payload["print_settings"] = print_settings
         return self._request("/api/export_repair_order_print_pdf", payload)

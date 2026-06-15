@@ -668,6 +668,7 @@ class RepairOrder:
     vin: str = ""
     mileage: str = ""
     payment_method: str = REPAIR_ORDER_PAYMENT_METHOD_CASH
+    tax_label: str = ""
     prepayment: str = ""
     payments: list[RepairOrderPayment] = field(default_factory=list)
     reason: str = ""
@@ -692,6 +693,7 @@ class RepairOrder:
         self.vin = _normalize_single_line(self.vin, limit=REPAIR_ORDER_FIELD_LIMIT)
         self.mileage = _normalize_single_line(self.mileage, limit=REPAIR_ORDER_FIELD_LIMIT)
         self.payment_method = normalize_repair_order_payment_method(self.payment_method)
+        self.tax_label = _normalize_single_line(self.tax_label, limit=48)
         self.prepayment = _normalize_single_line(
             self.prepayment, limit=REPAIR_ORDER_ROW_VALUE_LIMIT
         )
@@ -734,6 +736,7 @@ class RepairOrder:
                 self.license_plate,
                 self.vin,
                 self.mileage,
+                self.tax_label,
                 self.prepayment,
                 self.payments,
                 self.reason,
@@ -760,6 +763,7 @@ class RepairOrder:
             "mileage": self.mileage,
             "payment_method": self.payment_method,
             "payment_method_label": repair_order_payment_method_label(self.payment_method),
+            "tax_label": self.tax_label,
             "prepayment": self.prepayment_amount() if self.payments else self.prepayment,
             "prepayment_display": self.prepayment_amount(),
             "paid_total": self.prepayment_amount(),
@@ -801,6 +805,7 @@ class RepairOrder:
             "vin": self.vin,
             "mileage": self.mileage,
             "payment_method": self.payment_method,
+            "tax_label": self.tax_label,
             "prepayment": self.prepayment_amount() if self.payments else self.prepayment,
             "payments": [payment.to_dict() for payment in self.payments],
             "reason": self.reason,
@@ -909,6 +914,7 @@ class RepairOrder:
             vin=payload.get("vin", ""),
             mileage=payload.get("mileage", payload.get("odometer", "")),
             payment_method=payload.get("payment_method", payload.get("paymentMethod", "")),
+            tax_label=payload.get("tax_label", payload.get("taxLabel", "")),
             prepayment=payload.get(
                 "prepayment", payload.get("advance_payment", payload.get("advancePayment", ""))
             ),

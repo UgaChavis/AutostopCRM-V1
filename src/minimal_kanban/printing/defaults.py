@@ -669,7 +669,8 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   </section>
   <table class="doc-totals-table">
     <tr><td>Итого</td><td>{{invoice.subtotal_display}}</td></tr>
-    <tr><td>В том числе НДС (5%)</td><td>{{invoice.vat_display}}</td></tr>
+    {{#invoice.has_vat}}<tr><td>В том числе {{invoice.tax_label}}</td><td>{{invoice.vat_display}}</td></tr>{{/invoice.has_vat}}
+    {{^invoice.has_vat}}<tr><td>Налоговый режим</td><td>{{invoice.tax_label}}</td></tr>{{/invoice.has_vat}}
     <tr class="doc-totals-table__grand"><td>Всего к оплате</td><td>{{invoice.total_display}}</td></tr>
   </table>
   <div class="doc-invoice-words">Сумма прописью: <strong>{{invoice.total_words_display}}</strong></div>
@@ -760,7 +761,8 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   <table class="doc-totals-table">
     <tr><td>Налоговый режим</td><td>{{invoice.tax_label}}</td></tr>
     <tr><td>Итого по счету-фактуре</td><td>{{invoice.subtotal_display}}</td></tr>
-    <tr><td>В том числе НДС (5%)</td><td>{{invoice.vat_display}}</td></tr>
+    {{#invoice.has_vat}}<tr><td>В том числе {{invoice.tax_label}}</td><td>{{invoice.vat_display}}</td></tr>{{/invoice.has_vat}}
+    {{^invoice.has_vat}}<tr><td>Сумма налога</td><td>{{invoice.tax_label}}</td></tr>{{/invoice.has_vat}}
     <tr class="doc-totals-table__grand"><td>К оплате</td><td>{{invoice.total_display}}</td></tr>
   </table>
   <section class="doc-section">

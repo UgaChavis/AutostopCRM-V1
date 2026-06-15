@@ -109,6 +109,7 @@ EXPECTED_MCP_TOOLS = {
     "bulk_refresh_board_summaries",
     "bulk_set_deadline_if_below",
     "cleanup_card",
+    "create_document_without_card_pdf",
     "create_card",
     "create_cash_transaction",
     "create_cashbox",
@@ -201,7 +202,7 @@ class McpRepairOrderPatchPayloadTests(unittest.TestCase):
 
         self.assertEqual(len(grouped_names), len(set(grouped_names)))
         self.assertEqual(PUBLIC_MCP_TOOL_NAMES, EXPECTED_MCP_TOOLS)
-        self.assertEqual(len(PUBLIC_MCP_TOOL_NAMES), 91)
+        self.assertEqual(len(PUBLIC_MCP_TOOL_NAMES), 92)
         self.assertEqual(
             set(MCP_TOOL_GROUPS),
             {
@@ -446,7 +447,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 91)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 92)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 legacy_descriptions = [
                     tool.name
@@ -1115,6 +1116,54 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(pdf_payload["file_name"].endswith(".pdf"))
                 self.assertTrue(base64.b64decode(pdf_payload["content_base64"]).startswith(b"%PDF"))
                 self.assertEqual(pdf_payload["meta"]["documents"][0]["id"], "invoice")
+
+                with patch(
+                    "minimal_kanban.printing.service.render_html_to_pdf_bytes",
+                    return_value=b"%PDF-1.4 mcp manual-document export",
+                ):
+                    manual_document_pdf = await session.call_tool(
+                        "create_document_without_card_pdf",
+                        {
+                            "request_text": "Счет без карточки CRM для ООО Ромашка",
+                            "document_type": "invoice",
+                            "manual_document": {
+                                "client": {"display_name": "ООО Ромашка"},
+                                "works": [
+                                    {"name": "Диагностика", "quantity": "1", "price": "1000"}
+                                ],
+                            },
+                        },
+                    )
+                self.assertTrue(manual_document_pdf.structuredContent["ok"])
+                manual_pdf_payload = manual_document_pdf.structuredContent["data"]
+                self.assertEqual(manual_pdf_payload["mime_type"], "application/pdf")
+                self.assertTrue(
+                    base64.b64decode(manual_pdf_payload["content_base64"]).startswith(b"%PDF")
+                )
+                self.assertEqual(manual_pdf_payload["meta"]["source"], "manual_document")
+
+                with patch(
+                    "minimal_kanban.printing.service.render_html_to_pdf_bytes",
+                    return_value=b"%PDF-1.4 mcp inferred manual-document export",
+                ):
+                    inferred_manual_document_pdf = await session.call_tool(
+                        "create_document_without_card_pdf",
+                        {
+                            "request_text": "Акт выполненных работ без карточки CRM для ООО Ромашка. Работы: Диагностика 1 x 1000",
+                            "manual_document": {
+                                "client": {"display_name": "ООО Ромашка"},
+                                "works": [
+                                    {"name": "Диагностика", "quantity": "1", "price": "1000"}
+                                ],
+                            },
+                        },
+                    )
+                self.assertTrue(inferred_manual_document_pdf.structuredContent["ok"])
+                inferred_manual_pdf_payload = inferred_manual_document_pdf.structuredContent["data"]
+                self.assertEqual(
+                    inferred_manual_pdf_payload["meta"]["documents"][0]["id"],
+                    "completion_act",
+                )
 
                 repair_orders = await session.call_tool(
                     "list_repair_orders",

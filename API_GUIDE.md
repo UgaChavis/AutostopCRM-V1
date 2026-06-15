@@ -109,7 +109,16 @@ read-only/dry-run audit, owner approval, and post-fix checks.
 
 Supported print documents include repair order, acceptance act, invoice,
 invoice factura, inspection sheet, completion act, and parts sale. Agents
-should use CRM PDF export instead of independent PDF generation.
+should use CRM PDF export instead of independent PDF generation. The same
+print routes also support "Документ без карточки": send
+`document_without_card=true`, `manual_document`, optional `request_text`, and
+selected document/template ids to `get_repair_order_print_workspace`,
+`preview_repair_order_print_documents`, `export_repair_order_print_pdf`, or
+`print_repair_order_documents`. Manual payloads may include `tax_label`
+(`НДС (5%)` or `Без НДС`) in addition to client requisites, vehicle, works,
+materials, payments, dates, numbers, and comments. They are rendered by the existing
+PrintServiceProfile, template engine, standard AutoStop templates, and PDF
+renderer; do not introduce separate PDF/HTML templates for AutoStop documents.
 
 Repair-order work rows may include salary override fields:
 `work_salary_override_enabled`, `work_salary_guarantee`,

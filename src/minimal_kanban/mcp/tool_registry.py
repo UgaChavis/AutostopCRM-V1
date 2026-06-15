@@ -74,6 +74,7 @@ MCP_TOOL_GROUPS: dict[str, tuple[str, ...]] = {
     ),
     "repair_orders": (
         "download_repair_order_print_pdf",
+        "create_document_without_card_pdf",
         "get_repair_order",
         "get_repair_order_text",
         "list_repair_orders",
