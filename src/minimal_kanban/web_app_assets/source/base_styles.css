@@ -1853,7 +1853,7 @@
       font-size: 11px;
       letter-spacing: 0.06em;
     }
-    input[type="text"], input[type="password"], input[type="search"], input[type="month"], textarea, select, input[type="number"] {
+    input[type="text"], input[type="password"], input[type="email"], input[type="search"], input[type="month"], textarea, select, input[type="number"] {
       width: 100%;
       border: 1px solid var(--line);
       background: #151c17;
@@ -1905,6 +1905,7 @@
     }
     .field--compact input[type="text"],
     .field--compact input[type="password"],
+    .field--compact input[type="email"],
     .field--compact select {
       min-height: 34px;
       padding: 6px 8px;

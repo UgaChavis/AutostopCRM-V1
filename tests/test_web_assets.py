@@ -2604,6 +2604,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "id=\"' + inputId + '\" data-client-email-input=\"' + index + '\"", BOARD_WEB_APP_HTML
         )
+        self.assertIn(
+            'input[type="text"], input[type="password"], input[type="email"], input[type="search"]',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn('.field--compact input[type="email"],', BOARD_WEB_APP_HTML)
         self.assertIn("email: emails[0] || '',", BOARD_WEB_APP_HTML)
         self.assertIn("emails,", BOARD_WEB_APP_HTML)
         self.assertIn("clients-field--email", BOARD_WEB_APP_HTML)
