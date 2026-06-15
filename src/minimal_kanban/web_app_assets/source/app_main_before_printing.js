@@ -330,6 +330,7 @@
       { value: 'red', label: 'Красная' },
     ];
     const CLIENT_PHONE_LIMIT = 3;
+    const CLIENT_EMAIL_LIMIT = 3;
     const VEHICLE_COMPLETION_LABELS = {
       manually_entered: 'ручной ввод',
       partially_autofilled: 'частично автозаполнено',
@@ -901,6 +902,8 @@
       clientPhoneFields: document.getElementById('clientPhoneFields'),
       clientPhoneAddButton: document.getElementById('clientPhoneAddButton'),
       clientEmailInput: document.getElementById('clientEmailInput'),
+      clientEmailFields: document.getElementById('clientEmailFields'),
+      clientEmailAddButton: document.getElementById('clientEmailAddButton'),
       clientCommentInput: document.getElementById('clientCommentInput'),
       clientRequisitesDetails: document.getElementById('clientRequisitesDetails'),
       clientLegalNameInput: document.getElementById('clientLegalNameInput'),
@@ -4126,6 +4129,29 @@
       ]);
     }
 
+    function normalizeEmailList(values) {
+      const rawItems = Array.isArray(values) ? values : [values];
+      const emails = [];
+      const seen = new Set();
+      for (const raw of rawItems) {
+        const email = String(raw || '').replace(/\s+/g, '').trim();
+        if (!email) continue;
+        const key = email.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        emails.push(email);
+        if (emails.length >= CLIENT_EMAIL_LIMIT) break;
+      }
+      return emails;
+    }
+
+    function clientEmailList(client) {
+      return normalizeEmailList([
+        client?.email,
+        ...(Array.isArray(client?.emails) ? client.emails : []),
+      ]);
+    }
+
     function compactPhoneLine(client, fallback = 'телефон не указан') {
       const phones = clientPhoneList(client);
       return phones.length ? phones.join(' · ') : fallback;
@@ -4256,6 +4282,12 @@
       els.clientPhoneAddButton = document.getElementById('clientPhoneAddButton');
     }
 
+    function refreshClientEmailRefs() {
+      els.clientEmailFields = document.getElementById('clientEmailFields');
+      els.clientEmailInput = document.getElementById('clientEmailInput');
+      els.clientEmailAddButton = document.getElementById('clientEmailAddButton');
+    }
+
     function renderClientPhoneFields(values = ['']) {
       refreshClientPhoneRefs();
       if (!els.clientPhoneFields) return;
@@ -4312,6 +4344,62 @@
       updateClientSaveButtonState();
     }
 
+    function renderClientEmailFields(values = ['']) {
+      refreshClientEmailRefs();
+      if (!els.clientEmailFields) return;
+      const rawItems = Array.isArray(values) ? values : [values];
+      const visible = [];
+      const seen = new Set();
+      for (const raw of rawItems) {
+        const email = String(raw || '').replace(/\s+/g, '').trim();
+        const key = email ? email.toLowerCase() : '';
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
+        visible.push(email);
+        if (visible.length >= CLIENT_EMAIL_LIMIT) break;
+      }
+      if (!visible.length) visible.push('');
+      els.clientEmailFields.innerHTML = visible.map((email, index) => {
+        const inputId = index === 0 ? 'clientEmailInput' : 'clientEmailInput' + (index + 1);
+        const actionButton = index === 0
+          ? '<button class="btn btn--ghost client-email-add" id="clientEmailAddButton" type="button" data-client-email-add="true" title="Добавить e-mail">+</button>'
+          : '<button class="btn btn--ghost client-email-remove" type="button" data-client-email-remove="' + index + '" title="Удалить e-mail">×</button>';
+        return '<div class="client-email-row">'
+          + '<input id="' + inputId + '" data-client-email-input="' + index + '" type="email" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" value="' + escapeHtml(email) + '">'
+          + actionButton
+          + '</div>';
+      }).join('');
+      refreshClientEmailRefs();
+      if (els.clientEmailAddButton) els.clientEmailAddButton.disabled = visible.length >= CLIENT_EMAIL_LIMIT;
+    }
+
+    function readClientEmailFields() {
+      refreshClientEmailRefs();
+      const inputs = Array.from(els.clientEmailFields?.querySelectorAll('[data-client-email-input]') || []);
+      return normalizeEmailList(inputs.map((input) => input.value));
+    }
+
+    function addClientEmailField() {
+      const current = readClientEmailFields();
+      const next = current.length ? current.slice() : [''];
+      if (next.length >= CLIENT_EMAIL_LIMIT) return;
+      next.push('');
+      renderClientEmailFields(next);
+      const input = document.getElementById('clientEmailInput' + next.length);
+      if (input instanceof HTMLInputElement) input.focus();
+      updateClientSaveButtonState();
+    }
+
+    function removeClientEmailField(index) {
+      const normalizedIndex = Number(index);
+      if (!Number.isInteger(normalizedIndex) || normalizedIndex <= 0) return;
+      const inputs = Array.from(els.clientEmailFields?.querySelectorAll('[data-client-email-input]') || []);
+      const values = inputs.map((input) => input.value);
+      values.splice(normalizedIndex, 1);
+      renderClientEmailFields(values.length ? values : ['']);
+      updateClientSaveButtonState();
+    }
+
     function resetClientForm() {
       state.clientsActiveId = '';
       state.clientsActiveProfile = null;
@@ -4326,6 +4414,7 @@
         phone: '',
         phones: [],
         email: '',
+        emails: [],
         comment: '',
         legal_name: '',
         short_name: '',
@@ -4353,7 +4442,7 @@
       if (els.clientMiddleNameInput) els.clientMiddleNameInput.value = client.middle_name || '';
       if (els.clientDisplayNameInput) els.clientDisplayNameInput.value = client.display_name || '';
       renderClientPhoneFields(clientPhoneList(client));
-      if (els.clientEmailInput) els.clientEmailInput.value = client.email || '';
+      renderClientEmailFields(clientEmailList(client));
       if (els.clientCommentInput) els.clientCommentInput.value = client.comment || '';
       if (els.clientLegalNameInput) els.clientLegalNameInput.value = client.legal_name || '';
       if (els.clientShortNameInput) els.clientShortNameInput.value = client.short_name || '';
@@ -4459,6 +4548,7 @@
 
     function readClientFormPayload() {
       const phones = readClientPhoneFields();
+      const emails = readClientEmailFields();
       return {
         client_type: els.clientTypeInput?.value || 'person',
         last_name: els.clientLastNameInput?.value || '',
@@ -4467,7 +4557,8 @@
         display_name: els.clientDisplayNameInput?.value || '',
         phone: phones[0] || '',
         phones,
-        email: els.clientEmailInput?.value || '',
+        email: emails[0] || '',
+        emails,
         comment: els.clientCommentInput?.value || '',
         legal_name: els.clientLegalNameInput?.value || '',
         short_name: els.clientShortNameInput?.value || '',
@@ -4722,6 +4813,22 @@
         if (removeTarget instanceof HTMLElement) {
           event.preventDefault();
           removeClientPhoneField(removeTarget.dataset.clientPhoneRemove);
+        }
+      });
+      els.clientEmailAddButton?.addEventListener('click', addClientEmailField);
+      els.clientEmailFields?.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const addTarget = target.closest('[data-client-email-add]');
+        if (addTarget instanceof HTMLElement) {
+          event.preventDefault();
+          addClientEmailField();
+          return;
+        }
+        const removeTarget = target.closest('[data-client-email-remove]');
+        if (removeTarget instanceof HTMLElement) {
+          event.preventDefault();
+          removeClientEmailField(removeTarget.dataset.clientEmailRemove);
         }
       });
       els.clientVehicleAddButton?.addEventListener('click', () => startClientVehicleEditor('__new__'));

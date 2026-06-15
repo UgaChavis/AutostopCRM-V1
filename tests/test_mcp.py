@@ -2010,13 +2010,20 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     "update_client",
                     {
                         "client_id": client_id,
-                        "patch": {"email": "petrov@example.test"},
+                        "patch": {
+                            "email": "petrov@example.test",
+                            "emails": ["petrov@example.test", "accounting@example.test"],
+                        },
                         "actor_name": "ОПЕРАТОР",
                     },
                 )
                 self.assertFalse(updated.isError)
                 self.assertEqual(
                     updated.structuredContent["data"]["client"]["email"], "petrov@example.test"
+                )
+                self.assertEqual(
+                    updated.structuredContent["data"]["client"]["emails"],
+                    ["petrov@example.test", "accounting@example.test"],
                 )
 
                 created_card = await session.call_tool(

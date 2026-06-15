@@ -2449,9 +2449,14 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("clientPhoneMatchKeys", BOARD_WEB_APP_HTML)
         self.assertIn("clientPhoneSearchVariants", BOARD_WEB_APP_HTML)
         self.assertIn("const CLIENT_PHONE_LIMIT = 3;", BOARD_WEB_APP_HTML)
+        self.assertIn("const CLIENT_EMAIL_LIMIT = 3;", BOARD_WEB_APP_HTML)
         self.assertIn('id="clientPhoneFields"', BOARD_WEB_APP_HTML)
         self.assertIn('id="clientPhoneAddButton"', BOARD_WEB_APP_HTML)
         self.assertIn("function renderClientPhoneFields(values = [''])", BOARD_WEB_APP_HTML)
+        self.assertIn('id="clientEmailFields"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="clientEmailAddButton"', BOARD_WEB_APP_HTML)
+        self.assertIn("function renderClientEmailFields(values = [''])", BOARD_WEB_APP_HTML)
+        self.assertIn("function readClientEmailFields()", BOARD_WEB_APP_HTML)
         self.assertIn(
             "function renderVehicleCustomerPhoneFields(values = [''])", BOARD_WEB_APP_HTML
         )
@@ -2596,6 +2601,15 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "id=\"' + inputId + '\" data-client-phone-input=\"' + index + '\"", BOARD_WEB_APP_HTML
         )
+        self.assertIn(
+            "id=\"' + inputId + '\" data-client-email-input=\"' + index + '\"", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("email: emails[0] || '',", BOARD_WEB_APP_HTML)
+        self.assertIn("emails,", BOARD_WEB_APP_HTML)
+        self.assertIn("clients-field--email", BOARD_WEB_APP_HTML)
+        self.assertIn("justify-self: start;", BOARD_WEB_APP_HTML)
+        self.assertIn("width: min(100%, 360px);", BOARD_WEB_APP_HTML)
+        self.assertIn("align-self: start;", BOARD_WEB_APP_HTML)
         self.assertIn(
             'id="clientLegalNameInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"',
             BOARD_WEB_APP_HTML,

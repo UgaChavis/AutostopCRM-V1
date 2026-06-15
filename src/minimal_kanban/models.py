@@ -74,6 +74,7 @@ CLIENT_FIELD_LIMIT = 160
 CLIENT_NOTE_LIMIT = 2000
 CLIENT_PHONE_LIMIT = 80
 CLIENT_PHONES_LIMIT = 3
+CLIENT_EMAILS_LIMIT = 3
 CLIENT_VEHICLES_LIMIT = 50
 CLIENT_VEHICLE_YEAR_LIMIT = 16
 ARCHIVE_PREVIEW_LIMIT = 30
@@ -368,6 +369,36 @@ def normalize_client_phones(value) -> list[str]:
         if len(phones) >= CLIENT_PHONES_LIMIT:
             break
     return phones
+
+
+def normalize_client_email(value) -> str:
+    text = normalize_text(value, default="", limit=CLIENT_FIELD_LIMIT)
+    return re.sub(r"\s+", "", text)
+
+
+def normalize_client_emails(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raw_items = re.split(r"[\n,;]+", value)
+    elif isinstance(value, list):
+        raw_items = [str(item) for item in value]
+    else:
+        return []
+    emails: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_items:
+        email = normalize_client_email(raw)
+        if not email:
+            continue
+        dedupe_key = email.casefold()
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        emails.append(email)
+        if len(emails) >= CLIENT_EMAILS_LIMIT:
+            break
+    return emails
 
 
 @dataclass(slots=True)
@@ -1343,6 +1374,7 @@ class ClientProfile:
     phone: str = ""
     phones: list[str] = field(default_factory=list)
     email: str = ""
+    emails: list[str] = field(default_factory=list)
     comment: str = ""
     legal_name: str = ""
     short_name: str = ""
@@ -1372,7 +1404,9 @@ class ClientProfile:
         self.phone = normalize_client_phone(self.phone)
         self.phones = normalize_client_phones([self.phone, *list(self.phones or [])])
         self.phone = self.phones[0] if self.phones else self.phone
-        self.email = normalize_text(self.email, default="", limit=CLIENT_FIELD_LIMIT)
+        self.email = normalize_client_email(self.email)
+        self.emails = normalize_client_emails([self.email, *list(self.emails or [])])
+        self.email = self.emails[0] if self.emails else self.email
         self.comment = normalize_text(self.comment, default="", limit=CLIENT_NOTE_LIMIT)
         self.legal_name = normalize_text(self.legal_name, default="", limit=CLIENT_FIELD_LIMIT)
         self.short_name = normalize_text(self.short_name, default="", limit=CLIENT_FIELD_LIMIT)
@@ -1445,6 +1479,7 @@ class ClientProfile:
             "phone": self.phone,
             "phones": list(self.phones),
             "email": self.email,
+            "emails": list(self.emails),
             "comment": self.comment,
             "legal_name": self.legal_name,
             "short_name": self.short_name,
@@ -1480,6 +1515,7 @@ class ClientProfile:
             phone=payload.get("phone", ""),
             phones=payload.get("phones", []),
             email=payload.get("email", ""),
+            emails=payload.get("emails", []),
             comment=payload.get("comment", payload.get("note", "")),
             legal_name=payload.get("legal_name", ""),
             short_name=payload.get("short_name", ""),

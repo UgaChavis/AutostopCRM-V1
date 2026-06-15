@@ -2523,28 +2523,41 @@
       font-weight: 700;
       letter-spacing: 0.01em;
     }
-    .clients-profile-pane #clientPhoneInput {
+    .clients-profile-pane #clientPhoneInput,
+    .clients-profile-pane #clientEmailInput {
       font-size: 15px;
       font-weight: 700;
       letter-spacing: 0.01em;
     }
-    .clients-field--phones {
+    .clients-field--phones,
+    .clients-field--email {
       display: flex;
       flex-direction: column;
       gap: 5px;
+      align-self: start;
     }
-    .client-phone-head {
+    .clients-field--email {
+      justify-self: start;
+      width: min(100%, 360px);
+      max-width: 360px;
+    }
+    .client-phone-head,
+    .client-email-head {
       display: flex;
       align-items: center;
     }
-    .client-phone-head label {
+    .client-phone-head label,
+    .client-email-head label {
       margin: 0;
     }
-    .client-phone-head .client-phone-add {
+    .client-phone-head .client-phone-add,
+    .client-email-head .client-email-add {
       display: none;
     }
     .client-phone-add,
     .client-phone-remove,
+    .client-email-add,
+    .client-email-remove,
     .vehicle-phone-add,
     .vehicle-phone-remove {
       min-width: 28px;
@@ -2557,16 +2570,19 @@
       line-height: 1;
     }
     .client-phone-list,
+    .client-email-list,
     .vehicle-phone-list {
       display: grid;
       gap: 5px;
     }
-    .client-phone-row {
+    .client-phone-row,
+    .client-email-row {
       display: flex;
       gap: 5px;
       align-items: center;
     }
-    .client-phone-row input {
+    .client-phone-row input,
+    .client-email-row input {
       flex: 1 1 auto;
       min-width: 0;
     }
@@ -3864,7 +3880,10 @@
               <div class="client-phone-head"><label for="clientPhoneInput">ТЕЛЕФОН</label></div>
               <div class="client-phone-list" id="clientPhoneFields"></div>
             </div>
-            <div class="field field--compact"><label for="clientEmailInput">EMAIL</label><input id="clientEmailInput" type="text" maxlength="160" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+            <div class="field field--compact clients-field--email">
+              <div class="client-email-head"><label for="clientEmailInput">EMAIL</label></div>
+              <div class="client-email-list" id="clientEmailFields"></div>
+            </div>
             <div class="field field--compact clients-field--wide"><label for="clientCommentInput">КОММЕНТАРИЙ</label><textarea id="clientCommentInput" maxlength="2000" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea></div>
           </div>
           <details class="clients-requisites" id="clientRequisitesDetails">

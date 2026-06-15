@@ -485,6 +485,29 @@ class CardServiceTests(unittest.TestCase):
         search = self.service.search_clients({"query": "79020000003", "limit": 5})
         self.assertEqual(search["clients"][0]["id"], client["id"])
 
+    def test_client_profile_supports_up_to_three_emails(self) -> None:
+        client = self.service.create_client(
+            {
+                "display_name": "Клиент с несколькими email",
+                "email": "info@example.com",
+                "emails": [
+                    "INFO@example.com",
+                    "orders@example.com",
+                    "parts@example.com",
+                    "extra@example.com",
+                ],
+            }
+        )["client"]
+
+        self.assertEqual(client["email"], "info@example.com")
+        self.assertEqual(
+            client["emails"],
+            ["info@example.com", "orders@example.com", "parts@example.com"],
+        )
+
+        search = self.service.search_clients({"query": "parts@example.com", "limit": 5})
+        self.assertEqual(search["clients"][0]["id"], client["id"])
+
     def test_client_profile_deduplicates_russian_phone_formats(self) -> None:
         client = self.service.create_client(
             {

@@ -80,8 +80,10 @@ Write: `create_client`, `update_client`, `delete_client`,
 `delete_client_vehicle`.
 
 Before creating a client, use search/suggest. `client_id` links a card to a
-client; `client_vehicle_id` links to a specific saved vehicle. Deleting
-clients/vehicles and overwriting card fields require clear owner intent.
+client; `client_vehicle_id` links to a specific saved vehicle. Client profiles
+store `phone`/`email` as primary values and `phones`/`emails` as up to three
+saved contacts each. Deleting clients/vehicles and overwriting card fields
+require clear owner intent.
 
 ## Repair Orders And Printing
 
