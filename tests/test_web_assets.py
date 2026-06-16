@@ -3631,6 +3631,25 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="repairOrderPrintModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="manualDocumentPrintButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="mobileManualDocumentPrintButton"', BOARD_WEB_APP_HTML)
+        topbar_actions = re.search(
+            r'<div class="topbar__actions">(?P<body>.*?)</div>',
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(topbar_actions)
+        self.assertNotIn('id="manualDocumentPrintButton"', topbar_actions.group("body"))
+        print_footer_actions = re.search(
+            r'<div class="repair-order-print-footer__actions">(?P<body>.*?)</div>',
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(print_footer_actions)
+        print_footer_html = print_footer_actions.group("body")
+        self.assertIn('id="manualDocumentPrintButton"', print_footer_html)
+        self.assertLess(
+            print_footer_html.index('id="manualDocumentPrintButton"'),
+            print_footer_html.index('id="repairOrderPrintExportButton"'),
+        )
         self.assertIn("body.is-mobile-lite #repairOrderPrintModal", BOARD_WEB_APP_HTML)
         self.assertIn("body.is-mobile-lite #inspectionSheetFormModal", BOARD_WEB_APP_HTML)
         self.assertIn(

@@ -381,7 +381,7 @@ PRINTING_WEB_MODULE_HTML = r"""
       </div>
       <div class="dialog__foot repair-order-print-footer dialog__floating-actions">
         <div class="repair-order-print-preview__meta" id="repairOrderPrintFooterMeta">PDF генерируется из шаблона и текущих данных заказ-наряда.</div>
-        <div class="repair-order-print-footer__actions"><button class="btn btn--ghost" id="repairOrderPrintExportButton" type="button">PDF</button><button class="btn" id="repairOrderPrintRunButton" type="button">ПЕЧАТЬ</button></div>
+        <div class="repair-order-print-footer__actions"><button class="btn btn--ghost" id="manualDocumentPrintButton" type="button">ДОКУМЕНТ</button><button class="btn btn--ghost" id="repairOrderPrintExportButton" type="button">PDF</button><button class="btn" id="repairOrderPrintRunButton" type="button">ПЕЧАТЬ</button></div>
       </div>
     </div>
   </div>
