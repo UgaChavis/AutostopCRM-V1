@@ -10706,8 +10706,10 @@ class CardServiceTests(unittest.TestCase):
 
         self.assertEqual(context["context"]["product_name"], "AutoStop CRM")
         self.assertEqual(context["context"]["board_name"], "Current AutoStop CRM Board")
+        self.assertEqual(context["context"]["board_key"], "autostopcrm/current-board")
         self.assertEqual(context["context"]["board_scope"], "single_local_board_instance")
         self.assertIn("Do not use it for Trello, YouGile", context["context"]["scope_rule"])
+        self.assertNotIn("minimal-kanban", json.dumps(context, ensure_ascii=False))
         self.assertEqual(context["context"]["vehicle_profile_autofill_mode"], "card_content_first")
         self.assertIn("vin", context["context"]["vehicle_profile_compact_fields"])
         self.assertGreaterEqual(context["context"]["columns_total"], 1)

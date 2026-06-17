@@ -240,9 +240,10 @@ The current owner-facing AI path is MCP/local API tools.
 
 ## Settings And Verification
 
-Saved settings live in `%APPDATA%\Minimal Kanban\settings.json`; explicit
-environment variables override saved settings. Secrets are redacted in logs,
-but `settings.json` is not system-encrypted.
+Saved settings live in the compatibility path
+`%APPDATA%\Minimal Kanban\settings.json`; explicit environment variables
+override saved settings. Secrets are redacted in logs, but `settings.json` is
+not system-encrypted.
 
 Local API/MCP smoke:
 

@@ -65,6 +65,8 @@ class ConnectionCardTests(unittest.TestCase):
 
         self.assertIn("effective_mcp_url = https://public.example/mcp", text)
         self.assertIn("openai_api_key = [скрыто]", text)
+        self.assertIn("Интеграция / GPT / MCP", text)
+        self.assertNotIn("Settings ->", text)
         self.assertNotIn("sk-secret", text)
         self.assertNotIn("local-secret", text)
 
@@ -118,6 +120,8 @@ class ConnectionCardTests(unittest.TestCase):
         )
         self.assertIn("connector_scope_rule = current AutoStop CRM board only", text)
         self.assertIn("chatgpt_home = https://chatgpt.com/", text)
+        self.assertIn("В ChatGPT откройте настройки", text)
+        self.assertNotIn("Settings ->", text)
         self.assertIn("[GPT-CRITICAL TOOLS]", text)
         self.assertIn("- ping_connector", text)
         self.assertIn("- bootstrap_context", text)

@@ -40,8 +40,9 @@ Backend API environment:
 - `MINIMAL_KANBAN_BOARD_API_URL`
 - `MINIMAL_KANBAN_API_BEARER_TOKEN`
 
-Saved settings live in `%APPDATA%\Minimal Kanban\settings.json`; explicit env
-variables win. `MINIMAL_KANBAN_MCP_ALLOWED_HOSTS` and
+Saved settings live in the compatibility path
+`%APPDATA%\Minimal Kanban\settings.json`; explicit env variables win.
+`MINIMAL_KANBAN_MCP_ALLOWED_HOSTS` and
 `MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS` add comma/newline-separated transport
 security allowlist entries.
 
@@ -61,6 +62,10 @@ Use `CHATGPT_CONNECTOR_SETUP.md` as the single ChatGPT Apps & Connectors setup
 checklist. This guide only defines the MCP transport and tool contract.
 Connector scope is exactly one current AutoStop CRM board. The final connector
 URL must start with `https://` and end with `/mcp`.
+
+Identity calls return `product_name=AutoStop CRM`,
+`board_name=Current AutoStop CRM Board`, `board_key=autostopcrm/current-board`,
+and connector names shaped as `autostopcrm-this-board-only-<host>`.
 
 Responses API clients use the same `server_url`. Do not rely on a static JSON
 tool list; fetch live tools or use connector discovery. In bearer mode, pass

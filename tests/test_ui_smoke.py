@@ -74,6 +74,8 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(self.window.access_state_value_label.text(), "ГОТОВО")
         self.assertEqual(self.window.mcp_state_value_label.text(), "ОЖИДАНИЕ")
         self.assertEqual(self.window.mcp_value_label.text(), "")
+        self.assertIn("Откройте доску", self.window.compact_hint_label.text())
+        self.assertNotIn("Open the board", self.window.compact_hint_label.text())
 
     def test_board_updates_after_creating_card(self) -> None:
         self.service.create_card(

@@ -511,6 +511,14 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 ping = await session.call_tool("ping_connector", {})
                 self.assertFalse(ping.isError)
                 self.assertTrue(ping.structuredContent["ok"])
+                self.assertTrue(
+                    ping.structuredContent["data"]["connector_name"].startswith(
+                        "autostopcrm-this-board-only-"
+                    )
+                )
+                self.assertNotIn(
+                    "minimal-kanban", json.dumps(ping.structuredContent, ensure_ascii=False)
+                )
                 self.assertEqual(ping.structuredContent["data"]["message"], "pong")
                 self.assertEqual(ping.structuredContent["data"]["schema_version"], "2026-04-13")
                 self.assertIn("[CONNECTOR PING]", ping.structuredContent["data"]["text"])
@@ -533,6 +541,13 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(
                     bootstrap.structuredContent["data"]["identity"]["board_scope"],
                     "single_local_board_instance",
+                )
+                self.assertEqual(
+                    bootstrap.structuredContent["data"]["identity"]["board_key"],
+                    "autostopcrm/current-board",
+                )
+                self.assertNotIn(
+                    "minimal-kanban", json.dumps(bootstrap.structuredContent, ensure_ascii=False)
                 )
                 self.assertIn("recommended_write_flow", bootstrap.structuredContent["data"])
                 self.assertIn("[BOOTSTRAP CONTEXT]", bootstrap.structuredContent["data"]["text"])
@@ -576,6 +591,18 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(identity.structuredContent["ok"])
                 self.assertIn("resource_url", identity.structuredContent["data"]["identity"])
                 self.assertIn("connector_name", identity.structuredContent["data"]["identity"])
+                self.assertTrue(
+                    identity.structuredContent["data"]["identity"]["connector_name"].startswith(
+                        "autostopcrm-this-board-only-"
+                    )
+                )
+                self.assertEqual(
+                    identity.structuredContent["data"]["identity"]["board_key"],
+                    "autostopcrm/current-board",
+                )
+                self.assertNotIn(
+                    "minimal-kanban", json.dumps(identity.structuredContent, ensure_ascii=False)
+                )
                 self.assertEqual(
                     identity.structuredContent["data"]["identity"]["board_scope"],
                     "single_local_board_instance",

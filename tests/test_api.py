@@ -5239,8 +5239,10 @@ class ApiServerAuthTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(context["ok"])
         self.assertEqual(context["data"]["context"]["board_name"], "Current AutoStop CRM Board")
+        self.assertEqual(context["data"]["context"]["board_key"], "autostopcrm/current-board")
         self.assertEqual(context["data"]["context"]["board_scope"], "single_local_board_instance")
         self.assertIn("Do not use it for Trello, YouGile", context["data"]["context"]["scope_rule"])
+        self.assertNotIn("minimal-kanban", json.dumps(context, ensure_ascii=False))
         self.assertTrue(
             any(column["id"] == column_id for column in context["data"]["context"]["columns"])
         )

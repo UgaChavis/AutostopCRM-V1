@@ -385,15 +385,17 @@ class ChatGPTConnectDialog(QDialog):
 
         step_texts = (
             "Шаг 1. Запустите локальный API и MCP сервер.",
-            "Шаг 2. Откройте ChatGPT -> Settings -> Apps & Connectors -> Create.",
-            "Шаг 3. Добавьте MCP Server.",
-            "Шаг 4. Вставьте effective MCP URL.",
-            "Шаг 6. Нажмите Connect и завершите linking, если ChatGPT его запросит.",
-            "Шаг 7. Проверьте tools, get_board_content и get_board_events.",
+            "Шаг 2. В ChatGPT откройте настройки, раздел Apps & Connectors, и создайте новый connector.",
+            "Шаг 3. Добавьте MCP-сервер.",
+            "Шаг 4. Вставьте итоговый MCP URL.",
+            "Шаг 6. Нажмите кнопку подключения и завершите linking, если ChatGPT его запросит.",
+            "Шаг 7. Проверьте список tools, get_board_content и get_board_events.",
         )
+        self.step_instruction_labels: list[QLabel] = []
         for text in step_texts[:4]:
             label = QLabel(text)
             label.setWordWrap(True)
+            self.step_instruction_labels.append(label)
             steps_layout.addWidget(label)
         self.step_token_label = QLabel("")
         self.step_token_label.setWordWrap(True)
@@ -401,6 +403,7 @@ class ChatGPTConnectDialog(QDialog):
         for text in step_texts[4:]:
             label = QLabel(text)
             label.setWordWrap(True)
+            self.step_instruction_labels.append(label)
             steps_layout.addWidget(label)
 
         values_frame = QFrame()
@@ -628,7 +631,8 @@ class ChatGPTConnectDialog(QDialog):
     def _open_chatgpt_home(self) -> None:
         QDesktopServices.openUrl(QUrl(CHATGPT_HOME_URL))
         self._set_status(
-            "ChatGPT открыт. Продолжайте: Settings -> Apps & Connectors -> Create.", tone="success"
+            "ChatGPT открыт. В настройках ChatGPT откройте Apps & Connectors и создайте MCP connector.",
+            tone="success",
         )
 
     def _open_openai_guide(self) -> None:

@@ -5,11 +5,11 @@ repos:
         name: ruff format
         entry: ruff format --check
         language: python
-        additional_dependencies: [ruff]
+        additional_dependencies: ["ruff==0.15.11"]
         types: [python]
       - id: ruff-check
         name: ruff check
         entry: ruff check
         language: python
-        additional_dependencies: [ruff]
+        additional_dependencies: ["ruff==0.15.11"]
         types: [python]

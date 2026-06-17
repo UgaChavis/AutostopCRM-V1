@@ -242,10 +242,11 @@ class MainWindow(QMainWindow):
             "5. Все действия попадут в общий журнал карточек."
         )
         note.setStyleSheet("color: #c9c8bc; line-height: 1.5;")
-        compact_hint = QLabel(
-            "Open the board, wait for the public HTTPS MCP URL, then connect ChatGPT using the auth mode shown in Integration settings."
+        self.compact_hint_label = QLabel(
+            "Откройте доску, дождитесь публичного HTTPS MCP URL и подключите ChatGPT "
+            "с режимом авторизации из настроек интеграции."
         )
-        compact_hint.setStyleSheet("color: #b8b7ab; line-height: 1.4;")
+        self.compact_hint_label.setStyleSheet("color: #b8b7ab; line-height: 1.4;")
         summary_panel.hide()
         local_panel.hide()
         network_panel.hide()
@@ -266,7 +267,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(status_panel)
         layout.addWidget(mcp_panel)
         layout.addLayout(action_row)
-        layout.addWidget(compact_hint)
+        layout.addWidget(self.compact_hint_label)
         layout.addStretch(1)
         self.setCentralWidget(root)
 

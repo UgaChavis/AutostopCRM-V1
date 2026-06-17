@@ -363,7 +363,7 @@ def _connector_name_from_url(url: str) -> str:
     host = (urlsplit(url).hostname or "local").strip().lower()
     sanitized = "".join(char if char.isalnum() else "-" for char in host).strip("-")
     sanitized = sanitized or "local"
-    return f"minimal-kanban-this-board-only-{sanitized}"
+    return f"autostopcrm-this-board-only-{sanitized}"
 
 
 def _canonical_tool_path(tool_name: str) -> str:
@@ -395,7 +395,7 @@ def _external_product_text(text: str) -> str:
 
 def _single_board_rule_text() -> str:
     return _external_product_text(
-        "This connector may operate only on the current Minimal Kanban board served by this exact MCP/API endpoint. "
+        "This connector may operate only on the current AutoStop CRM board served by this exact MCP/API endpoint. "
         "Do not use it for Trello, YouGile, or any other kanban connector."
     )
 
@@ -521,7 +521,7 @@ def create_mcp_server(
         "product_name": "AutoStop CRM",
         "board_name": "Current AutoStop CRM Board",
         "board_scope": "single_local_board_instance",
-        "board_key": "minimal-kanban/current-local-board",
+        "board_key": "autostopcrm/current-board",
         "scope_rule": _single_board_rule_text(),
         "resource_url": effective_resource_url,
         "server_base_url": server_base_url,
@@ -577,7 +577,7 @@ def create_mcp_server(
         name=connector_name,
         instructions=(
             _external_product_text(
-                f"Minimal Kanban MCP connector for exactly one board instance at {effective_resource_url}. "
+                f"AutoStop CRM MCP connector for exactly one board instance at {effective_resource_url}. "
             )
             + " "
             f"{_single_board_rule_text()} "
@@ -1130,7 +1130,7 @@ def create_mcp_server(
     @server.tool(
         name="get_connector_identity",
         description=_scoped_description(
-            "Return the hard identity of this MCP connector: name, resource_url, auth mode, and the rule that it manages only the current Minimal Kanban board."
+            "Return the hard identity of this MCP connector: name, resource_url, auth mode, and the rule that it manages only the current AutoStop CRM board."
         ),
         annotations=_read_tool_annotations("Connector Identity"),
         structured_output=True,
@@ -1152,7 +1152,7 @@ def create_mcp_server(
     @server.tool(
         name="ping_connector",
         description=_scoped_description(
-            "Return the lightest possible connector ping. Use this first when you need to verify that ChatGPT can execute any Minimal Kanban MCP tool at all."
+            "Return the lightest possible connector ping. Use this first when you need to verify that ChatGPT can execute any AutoStop CRM MCP tool at all."
         ),
         annotations=_read_tool_annotations("Connector Ping"),
         structured_output=True,
@@ -1319,7 +1319,7 @@ def create_mcp_server(
 
     @server.tool(
         name="list_columns",
-        description=_scoped_description("List all columns of the current Minimal Kanban board."),
+        description=_scoped_description("List all columns of the current AutoStop CRM board."),
         annotations=_read_tool_annotations("List Columns"),
         structured_output=True,
     )
@@ -1328,7 +1328,7 @@ def create_mcp_server(
 
     @server.tool(
         name="create_column",
-        description=_scoped_description("Create a new column on the current Minimal Kanban board."),
+        description=_scoped_description("Create a new column on the current AutoStop CRM board."),
         annotations=_write_tool_annotations("Create Column"),
         structured_output=True,
     )
@@ -1349,7 +1349,7 @@ def create_mcp_server(
     @server.tool(
         name="rename_column",
         description=_scoped_description(
-            "Rename an existing column on the current Minimal Kanban board while keeping the same column id."
+            "Rename an existing column on the current AutoStop CRM board while keeping the same column id."
         ),
         annotations=_write_tool_annotations("Rename Column", idempotent=True),
         structured_output=True,
@@ -1363,7 +1363,7 @@ def create_mcp_server(
     @server.tool(
         name="delete_column",
         description=_scoped_description(
-            "Delete an empty column from the current Minimal Kanban board. The last remaining column cannot be removed."
+            "Delete an empty column from the current AutoStop CRM board. The last remaining column cannot be removed."
         ),
         annotations=_write_tool_annotations("Delete Column", destructive=True),
         structured_output=True,
@@ -1377,7 +1377,7 @@ def create_mcp_server(
     @server.tool(
         name="create_sticky",
         description=_scoped_description(
-            "Create a sticky note on the current Minimal Kanban board. Sticky notes belong only to this board instance. "
+            "Create a sticky note on the current AutoStop CRM board. Sticky notes belong only to this board instance. "
             "The deadline accepts either days/hours/minutes/seconds or total_seconds."
         ),
         annotations=_write_tool_annotations("Create Sticky"),
@@ -1400,7 +1400,7 @@ def create_mcp_server(
     @server.tool(
         name="get_cards",
         description=_scoped_description(
-            "Return cards from the current Minimal Kanban board. Archived cards are excluded by default. "
+            "Return cards from the current AutoStop CRM board. Archived cards are excluded by default. "
             "Use compact=true for board scans with lighter payloads; set compact=false when full vehicle_profile, repair_order, attachments, and ai_autofill_log are needed."
         ),
         annotations=_read_tool_annotations("List Cards"),
@@ -1422,7 +1422,7 @@ def create_mcp_server(
     @server.tool(
         name="get_card",
         description=_scoped_description(
-            "Return one card by card_id from the current Minimal Kanban board, including the full vehicle_profile and the compact vehicle_profile_compact used by the 1.1 card layout."
+            "Return one card by card_id from the current AutoStop CRM board, including the full vehicle_profile and the compact vehicle_profile_compact used by the 1.1 card layout."
         ),
         annotations=_read_tool_annotations("Get Card"),
         structured_output=True,
@@ -1433,7 +1433,7 @@ def create_mcp_server(
     @server.tool(
         name="list_card_attachments",
         description=_scoped_description(
-            "List attachment metadata for one card from the current Minimal Kanban board without returning file bytes. Use this before reading any attached file."
+            "List attachment metadata for one card from the current AutoStop CRM board without returning file bytes. Use this before reading any attached file."
         ),
         annotations=_read_tool_annotations("List Card Attachments"),
         structured_output=True,
@@ -1454,7 +1454,7 @@ def create_mcp_server(
     @server.tool(
         name="get_card_attachment",
         description=_scoped_description(
-            "Return safe metadata for one card attachment from the current Minimal Kanban board, including content kind, size, hash, and download path, but not file bytes."
+            "Return safe metadata for one card attachment from the current AutoStop CRM board, including content kind, size, hash, and download path, but not file bytes."
         ),
         annotations=_read_tool_annotations("Get Card Attachment"),
         structured_output=True,
@@ -1652,7 +1652,7 @@ def create_mcp_server(
     @server.tool(
         name="get_card_context",
         description=_scoped_description(
-            "Return the focused operational context of one card from the current Minimal Kanban board: card data, recent card events, attachment summaries, board context, and repair-order text when available. "
+            "Return the focused operational context of one card from the current AutoStop CRM board: card data, recent card events, attachment summaries, board context, and repair-order text when available. "
             "Use view_mode=agent for the default GPT workflow and view_mode=full when a human-style full read is needed."
         ),
         annotations=_read_tool_annotations("Card Context"),
@@ -1691,7 +1691,7 @@ def create_mcp_server(
     @server.tool(
         name="get_board_snapshot",
         description=_scoped_description(
-            "Return a structured snapshot of the current Minimal Kanban board: columns, active cards, archived tail, stickies, and settings. "
+            "Return a structured snapshot of the current AutoStop CRM board: columns, active cards, archived tail, stickies, and settings. "
             "Cards in the snapshot include vehicle_profile_compact for the 1.1 vehicle card view. "
             "Use compact=true for lighter GPT scans and include_archive=false when the archived tail is not needed."
         ),
@@ -1752,7 +1752,7 @@ def create_mcp_server(
     @server.tool(
         name="review_board",
         description=_scoped_description(
-            "Return an operational board review for the current Minimal Kanban board: summary counts, per-column load, manager alerts, priority cards, and recent important events."
+            "Return an operational board review for the current AutoStop CRM board: summary counts, per-column load, manager alerts, priority cards, and recent important events."
         ),
         annotations=_read_tool_annotations("Board Review"),
         structured_output=True,
@@ -2208,7 +2208,7 @@ def create_mcp_server(
     @server.tool(
         name="update_board_settings",
         description=_scoped_description(
-            "Update board-wide settings for the current Minimal Kanban board. Currently supports board_scale."
+            "Update board-wide settings for the current AutoStop CRM board. Currently supports board_scale."
         ),
         annotations=_write_tool_annotations("Update Board Settings"),
         structured_output=True,
@@ -2222,7 +2222,7 @@ def create_mcp_server(
     @server.tool(
         name="get_board_content",
         description=_scoped_description(
-            "Return the hidden machine wall board-content section as Markdown for the current Minimal Kanban board: columns, card content, archived card content by default, sticky notes, compact vehicle profiles, and board context, without the event journal. "
+            "Return the hidden machine wall board-content section as Markdown for the current AutoStop CRM board: columns, card content, archived card content by default, sticky notes, compact vehicle profiles, and board context, without the event journal. "
             "This can be a heavy read when include_archived=true or view_mode=full. Use view_mode=agent for a lighter GPT-oriented read; that mode keeps cards compact and caps the recent wall slice."
         ),
         annotations=_read_tool_annotations("Board Content"),
@@ -2258,7 +2258,7 @@ def create_mcp_server(
     @server.tool(
         name="get_board_events",
         description=_scoped_description(
-            "Return the hidden machine wall event-log section as Markdown for the current Minimal Kanban board: newest-first events, what happened, when, by whom, and which card it affected when available. "
+            "Return the hidden machine wall event-log section as Markdown for the current AutoStop CRM board: newest-first events, what happened, when, by whom, and which card it affected when available. "
             "The default event_limit is 100. Large limits are heavy; use a small event_limit for routine diagnostics. Use include_archived to keep the surrounding board-content read aligned with archive visibility; events remain a newest-first audit slice."
         ),
         annotations=_read_tool_annotations("Board Events"),
@@ -2299,7 +2299,7 @@ def create_mcp_server(
     @server.tool(
         name="get_gpt_wall",
         description=_scoped_description(
-            "Return the hidden machine wall aggregate for the current Minimal Kanban board as Markdown: full card text, structured board state, newest-first recent events, compact 1.1 vehicle profile summaries for each card, and separated board_content / event_log sections. "
+            "Return the hidden machine wall aggregate for the current AutoStop CRM board as Markdown: full card text, structured board state, newest-first recent events, compact 1.1 vehicle profile summaries for each card, and separated board_content / event_log sections. "
             "This is the heaviest board context tool. Use view_mode=agent for the normal GPT context flow; that mode keeps cards compact and the event slice short. Use view_mode=full only for wide diagnostics or exports."
         ),
         annotations=_read_tool_annotations("GPT Wall"),
@@ -2347,7 +2347,7 @@ def create_mcp_server(
     @server.tool(
         name="get_card_log",
         description=_scoped_description(
-            "Return the card_journal.v2 audit log of one card from the current Minimal Kanban board. By default this keeps the legacy full format with raw changes and Markdown. Use compact=true and limit=50 for a fast GPT-safe journal slice without heavy raw/Markdown fields."
+            "Return the card_journal.v2 audit log of one card from the current AutoStop CRM board. By default this keeps the legacy full format with raw changes and Markdown. Use compact=true and limit=50 for a fast GPT-safe journal slice without heavy raw/Markdown fields."
         ),
         annotations=_read_tool_annotations("Card Log"),
         structured_output=True,
@@ -2650,7 +2650,7 @@ def create_mcp_server(
     @server.tool(
         name="list_repair_orders",
         description=_scoped_description(
-            "List repair orders from the current Minimal Kanban board with status filtering, search, sorting, card links, client, vehicle, and text-file metadata."
+            "List repair orders from the current AutoStop CRM board with status filtering, search, sorting, card links, client, vehicle, and text-file metadata."
         ),
         annotations=_read_tool_annotations("List Repair Orders"),
         structured_output=True,
@@ -2696,7 +2696,7 @@ def create_mcp_server(
     @server.tool(
         name="get_repair_order",
         description=_scoped_description(
-            "Return the structured repair order of one card from the current Minimal Kanban board."
+            "Return the structured repair order of one card from the current AutoStop CRM board."
         ),
         annotations=_read_tool_annotations("Get Repair Order"),
         structured_output=True,
@@ -2707,7 +2707,7 @@ def create_mcp_server(
     @server.tool(
         name="get_repair_order_text",
         description=_scoped_description(
-            "Return the text rendering of one repair order from the current Minimal Kanban board together with file metadata."
+            "Return the text rendering of one repair order from the current AutoStop CRM board together with file metadata."
         ),
         annotations=_read_tool_annotations("Repair Order Text"),
         structured_output=True,
@@ -2808,9 +2808,7 @@ def create_mcp_server(
 
     @server.tool(
         name="list_archived_cards",
-        description=_scoped_description(
-            "List archived cards from the current Minimal Kanban board."
-        ),
+        description=_scoped_description("List archived cards from the current AutoStop CRM board."),
         annotations=_read_tool_annotations("Archived Cards"),
         structured_output=True,
     )
@@ -2830,7 +2828,7 @@ def create_mcp_server(
     @server.tool(
         name="search_cards",
         description=_scoped_description(
-            "Search cards only inside the current Minimal Kanban board using query and optional filters such as column, tag, indicator, and status."
+            "Search cards only inside the current AutoStop CRM board using query and optional filters such as column, tag, indicator, and status."
         ),
         annotations=_read_tool_annotations("Search Cards"),
         structured_output=True,
@@ -2874,7 +2872,7 @@ def create_mcp_server(
     @server.tool(
         name="create_card",
         description=_scoped_description(
-            "Create a card on the current Minimal Kanban board with vehicle, title, description, optional tags, optional target column, optional vehicle_profile, and a deadline. "
+            "Create a card on the current AutoStop CRM board with vehicle, title, description, optional tags, optional target column, optional vehicle_profile, and a deadline. "
             "vehicle must contain make/model only, and title must contain the short essence of the issue, task, or result. "
             "If deadline is omitted or all-zero, the connector uses a default of one day. "
             "For the 1.1 vehicle card flow, prefer the compact vehicle fields: make_display, model_display, production_year, vin, engine_model, gearbox_model, drivetrain, and oem_notes."
@@ -2909,7 +2907,7 @@ def create_mcp_server(
     @server.tool(
         name="update_card",
         description=_scoped_description(
-            "Update an existing card on the current Minimal Kanban board. Supported fields: vehicle, title, description, tags, deadline, and vehicle_profile. "
+            "Update an existing card on the current AutoStop CRM board. Supported fields: vehicle, title, description, tags, deadline, and vehicle_profile. "
             "Keep vehicle limited to make/model only, and keep title limited to the short essence of the issue, task, or result. "
             "Keep manual vehicle fields authoritative; later autofill results must not silently overwrite them."
         ),
@@ -3206,7 +3204,7 @@ def create_mcp_server(
     @server.tool(
         name="update_repair_order",
         description=_scoped_description(
-            "Patch the structured repair order of one card on the current Minimal Kanban board. Pass a JSON object with only the fields to change; unspecified fields remain unchanged."
+            "Patch the structured repair order of one card on the current AutoStop CRM board. Pass a JSON object with only the fields to change; unspecified fields remain unchanged."
         ),
         annotations=_write_tool_annotations("Update Repair Order"),
         structured_output=True,
@@ -3233,7 +3231,7 @@ def create_mcp_server(
     @server.tool(
         name="set_repair_order_status",
         description=_scoped_description(
-            "Set the status of one repair order on the current Minimal Kanban board. Use open for active orders, ready for completed vehicles waiting for handoff/payment, and closed for archived orders."
+            "Set the status of one repair order on the current AutoStop CRM board. Use open for active orders, ready for completed vehicles waiting for handoff/payment, and closed for archived orders."
         ),
         annotations=_write_tool_annotations("Set Repair Order Status"),
         structured_output=True,
@@ -3267,7 +3265,7 @@ def create_mcp_server(
     @server.tool(
         name="replace_repair_order_works",
         description=_scoped_description(
-            "Replace the full Works table of a repair order on the current Minimal Kanban board."
+            "Replace the full Works table of a repair order on the current AutoStop CRM board."
         ),
         annotations=_write_tool_annotations("Replace Repair Order Works"),
         structured_output=True,
@@ -3289,7 +3287,7 @@ def create_mcp_server(
     @server.tool(
         name="replace_repair_order_materials",
         description=_scoped_description(
-            "Replace the full Materials table of a repair order on the current Minimal Kanban board."
+            "Replace the full Materials table of a repair order on the current AutoStop CRM board."
         ),
         annotations=_write_tool_annotations("Replace Repair Order Materials"),
         structured_output=True,
@@ -3311,7 +3309,7 @@ def create_mcp_server(
     @server.tool(
         name="update_sticky",
         description=_scoped_description(
-            "Update the text or deadline of a sticky note on the current Minimal Kanban board. "
+            "Update the text or deadline of a sticky note on the current AutoStop CRM board. "
             "The deadline accepts either days/hours/minutes/seconds or total_seconds."
         ),
         annotations=_write_tool_annotations("Update Sticky"),
@@ -3336,7 +3334,7 @@ def create_mcp_server(
     @server.tool(
         name="move_sticky",
         description=_scoped_description(
-            "Move a sticky note on the current Minimal Kanban board to a new x/y position."
+            "Move a sticky note on the current AutoStop CRM board to a new x/y position."
         ),
         annotations=_write_tool_annotations("Move Sticky"),
         structured_output=True,
@@ -3350,7 +3348,7 @@ def create_mcp_server(
     @server.tool(
         name="delete_sticky",
         description=_scoped_description(
-            "Delete a sticky note from the current Minimal Kanban board."
+            "Delete a sticky note from the current AutoStop CRM board."
         ),
         annotations=_write_tool_annotations("Delete Sticky", destructive=True),
         structured_output=True,
@@ -3364,7 +3362,7 @@ def create_mcp_server(
     @server.tool(
         name="set_card_deadline",
         description=_scoped_description(
-            "Change only the deadline of a card on the current Minimal Kanban board. "
+            "Change only the deadline of a card on the current AutoStop CRM board. "
             "The deadline accepts either days/hours/minutes/seconds or total_seconds."
         ),
         annotations=_write_tool_annotations("Set Card Deadline"),
@@ -3413,7 +3411,7 @@ def create_mcp_server(
     @server.tool(
         name="move_card",
         description=_scoped_description(
-            "Move a card on the current Minimal Kanban board using the target column id. "
+            "Move a card on the current AutoStop CRM board using the target column id. "
             "Optionally pass before_card_id to reorder inside the same column or insert before another card in the target column."
         ),
         annotations=_write_tool_annotations("Move Card"),
@@ -3438,7 +3436,7 @@ def create_mcp_server(
     @server.tool(
         name="bulk_move_cards",
         description=_scoped_description(
-            "Move multiple cards to one target column on the current Minimal Kanban board in a single write call. Prefer this over long chains of sequential move_card calls."
+            "Move multiple cards to one target column on the current AutoStop CRM board in a single write call. Prefer this over long chains of sequential move_card calls."
         ),
         annotations=_write_tool_annotations("Bulk Move Cards", idempotent=True),
         structured_output=True,
@@ -3461,7 +3459,7 @@ def create_mcp_server(
 
     @server.tool(
         name="archive_card",
-        description=_scoped_description("Archive a card on the current Minimal Kanban board."),
+        description=_scoped_description("Archive a card on the current AutoStop CRM board."),
         annotations=_write_tool_annotations("Archive Card", destructive=True),
         structured_output=True,
     )
@@ -3474,7 +3472,7 @@ def create_mcp_server(
     @server.tool(
         name="restore_card",
         description=_scoped_description(
-            "Restore an archived card back onto the current Minimal Kanban board."
+            "Restore an archived card back onto the current AutoStop CRM board."
         ),
         annotations=_write_tool_annotations("Restore Card"),
         structured_output=True,
@@ -3490,7 +3488,7 @@ def create_mcp_server(
     @server.tool(
         name="list_overdue_cards",
         description=_scoped_description(
-            "List overdue cards from the current Minimal Kanban board. Archived cards are excluded by default."
+            "List overdue cards from the current AutoStop CRM board. Archived cards are excluded by default."
         ),
         annotations=_read_tool_annotations("Overdue Cards"),
         structured_output=True,

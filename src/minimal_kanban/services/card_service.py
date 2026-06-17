@@ -4918,7 +4918,7 @@ class CardService(
         context = {
             "product_name": "AutoStop CRM",
             "board_name": "Current AutoStop CRM Board",
-            "board_key": "minimal-kanban/current-local-board",
+            "board_key": "autostopcrm/current-board",
             "board_scope": "single_local_board_instance",
             "scope_rule": (
                 "This connector may operate only on the current AutoStop CRM board served by this exact MCP/API "

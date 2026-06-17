@@ -384,6 +384,9 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         assert wizard is not None
         self.assertIn("Сначала запустите MCP сервер", wizard.warning_label.text())
         self.assertTrue(wizard.mcp_token_input.isHidden())
+        step_text = "\n".join(label.text() for label in wizard.step_instruction_labels)
+        self.assertIn("В ChatGPT откройте настройки", step_text)
+        self.assertNotIn("Settings ->", step_text)
 
         wizard.copy_all_button.click()
         clipboard = QGuiApplication.clipboard().text()
@@ -478,6 +481,13 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         self.assertIn("Внешний MCP endpoint доступен.", wizard.preflight_status_label.text())
         wizard.mcp_token_input.copy_button.click()
         self.assertEqual(QGuiApplication.clipboard().text(), "mcp-secret")
+
+        with patch("minimal_kanban.ui.settings_window.QDesktopServices.openUrl") as open_url:
+            wizard._open_chatgpt_home()
+
+        open_url.assert_called_once()
+        self.assertIn("настройках ChatGPT", wizard.preflight_status_label.text())
+        self.assertNotIn("Settings ->", wizard.preflight_status_label.text())
 
         wizard.close()
         dialog.close()

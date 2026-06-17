@@ -46,12 +46,12 @@ def build_connector_file_contents(
         f"effective_mcp_url = {normalized_mcp_url}\n"
         f"effective_local_api_url = {normalized_local_api_url}\n\n"
         "Connection flow:\n"
-        "1. Start the app from the desktop shortcut.\n"
-        "2. Open ChatGPT -> Settings -> Apps & Connectors -> Connectors -> Create.\n"
-        "3. Paste effective_mcp_url.\n"
-        f"4. Choose {auth_label}.\n"
-        "5. Create the connector.\n"
-        "6. In a new chat call ping_connector, then bootstrap_context.\n"
+        "1. Запустите приложение с ярлыка.\n"
+        "2. В ChatGPT откройте настройки, раздел Apps & Connectors, и создайте connector.\n"
+        "3. Вставьте effective_mcp_url.\n"
+        f"4. Выберите режим {auth_label}.\n"
+        "5. Создайте connector.\n"
+        "6. В новом чате вызовите ping_connector, затем bootstrap_context.\n"
     )
     connector_payload = {
         "name": f"{DISPLAY_PRODUCT_NAME} / This Board Only ({host_label})",
@@ -97,12 +97,12 @@ def build_pending_connector_file_contents(
             "effective_mcp_url = \n"
             f"effective_local_api_url = {normalized_local_api_url}\n\n"
             "Connection flow:\n"
-            "1. Start the app from the desktop shortcut.\n"
-            "2. Open ChatGPT -> Settings -> Apps & Connectors -> Connectors -> Create.\n"
-            "3. Paste effective_mcp_url after the public HTTPS MCP URL appears.\n"
-            f"4. Choose {auth_label}.\n"
-            "5. Create the connector.\n"
-            "6. In a new chat call ping_connector, then bootstrap_context.\n"
+            "1. Запустите приложение с ярлыка.\n"
+            "2. В ChatGPT откройте настройки, раздел Apps & Connectors, и создайте connector.\n"
+            "3. Вставьте effective_mcp_url после появления публичного HTTPS MCP URL.\n"
+            f"4. Выберите режим {auth_label}.\n"
+            "5. Создайте connector.\n"
+            "6. В новом чате вызовите ping_connector, затем bootstrap_context.\n"
         ),
         CONNECTOR_JSON_FILENAME: (
             "{\n"

@@ -41,6 +41,8 @@ class DesktopConnectorFilesTests(unittest.TestCase):
         self.assertIn(
             "effective_local_api_url = http://127.0.0.1:41731", contents[CONNECTION_CARD_FILENAME]
         )
+        self.assertIn("В ChatGPT откройте настройки", contents[CONNECTION_CARD_FILENAME])
+        self.assertNotIn("Settings ->", contents[CONNECTION_CARD_FILENAME])
 
         payload = json.loads(contents[CONNECTOR_JSON_FILENAME])
         self.assertEqual(payload["name"], "AutoStop CRM / This Board Only (kanban.example)")
@@ -77,6 +79,8 @@ class DesktopConnectorFilesTests(unittest.TestCase):
         )
         self.assertIn('"connector_url": ""', contents[CONNECTOR_JSON_FILENAME])
         self.assertIn("No authentication", contents[AUTH_NOTE_FILENAME])
+        self.assertIn("В ChatGPT откройте настройки", contents[CONNECTION_CARD_FILENAME])
+        self.assertNotIn("Settings ->", contents[CONNECTION_CARD_FILENAME])
         self.assertEqual(contents[URL_FILENAME], WAITING_MESSAGE)
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -91,7 +95,7 @@ class DesktopConnectorFilesTests(unittest.TestCase):
         )
 
         self.assertIn("connector_auth_mode = bearer", contents[CONNECTION_CARD_FILENAME])
-        self.assertIn("Choose Bearer token.", contents[CONNECTION_CARD_FILENAME])
+        self.assertIn("Выберите режим Bearer token.", contents[CONNECTION_CARD_FILENAME])
         self.assertIn("Bearer token", contents[AUTH_NOTE_FILENAME])
 
         payload = json.loads(contents[CONNECTOR_JSON_FILENAME])

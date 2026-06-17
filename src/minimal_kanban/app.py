@@ -74,7 +74,7 @@ def _acquire_instance_guard():
             raise OSError(ctypes.get_last_error(), "CreateMutexW failed.")
         if ctypes.get_last_error() == 183:
             kernel32.CloseHandle(handle)
-            raise TimeoutError("Minimal Kanban instance is already running.")
+            raise TimeoutError("Экземпляр AutoStop CRM уже запущен.")
 
         class _WindowsMutexGuard:
             def __enter__(self):
