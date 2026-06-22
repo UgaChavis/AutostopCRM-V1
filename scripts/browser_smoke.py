@@ -778,13 +778,21 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     )
     await page.fill("#cardTitle", "Browser smoke saved")
     await page.click("#saveCardButton")
-    await _wait_modal_closed(page, "#cardModal")
+    await page.wait_for_function(
+        """() => {
+          const statusText = document.querySelector('#statusLine')?.textContent || '';
+          const saveButton = document.querySelector('#saveCardButton');
+          return statusText.includes('КАРТОЧКА СОХРАНЕНА') && saveButton && !saveButton.disabled;
+        }"""
+    )
     snapshot = _read_json(f"{runtime.base_url}/api/get_board_snapshot?compact=1&include_archive=0")
     cards = snapshot.get("data", {}).get("cards", [])
     scenarios["desktop_board_card_roundtrip"] = any(
         card.get("id") == runtime.card_id and card.get("title") == "Browser smoke saved"
         for card in cards
     )
+    await page.click("#cardModalCloseButtonTop")
+    await _wait_modal_closed(page, "#cardModal")
 
     await page.click("#cashboxesButton")
     await _wait_modal_open(page, "#cashboxesModal")
