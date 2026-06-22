@@ -808,8 +808,13 @@
       return perfMeasureAsync('saveCard', async () => {
         try {
           const data = await persistCardPayload(payload);
-          if (data?.card) applySavedCardLocalPatch(data.card);
-          closeCardModal({ force: true });
+          const savedCard = data?.card || null;
+          if (savedCard) {
+            applySavedCardLocalPatch(savedCard);
+            applyCardModalState(savedCard, { preserveLazyPanels: true });
+          } else {
+            rememberCardModalCleanState(payload);
+          }
           setStatus('КАРТОЧКА СОХРАНЕНА.', false);
         } catch (error) {
           setStatus(error.message, true);

@@ -2117,7 +2117,14 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("Есть несохраненные изменения", BOARD_WEB_APP_HTML)
         self.assertIn("function closeCardModal({ force = false } = {})", BOARD_WEB_APP_HTML)
         self.assertIn("const data = await persistCardPayload(payload);", BOARD_WEB_APP_HTML)
-        self.assertIn("if (data?.card) applySavedCardLocalPatch(data.card);", BOARD_WEB_APP_HTML)
+        self.assertIn("const savedCard = data?.card || null;", save_fragment)
+        self.assertIn("applySavedCardLocalPatch(savedCard);", save_fragment)
+        self.assertIn(
+            "applyCardModalState(savedCard, { preserveLazyPanels: true });",
+            save_fragment,
+        )
+        self.assertIn("rememberCardModalCleanState(payload);", save_fragment)
+        self.assertNotIn("closeCardModal({ force: true });", save_fragment)
         self.assertIn(
             "state.cardSaveInFlight = true;\n      if (els.saveCardButton) els.saveCardButton.disabled = true;\n      syncCardSaveDirtyState();",
             BOARD_WEB_APP_HTML,
@@ -4523,6 +4530,27 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function submitCashboxTransactionCancellation()", BOARD_WEB_APP_HTML)
         self.assertIn("CASHBOX_CANCEL_REASON_MIN_LENGTH", BOARD_WEB_APP_HTML)
         self.assertIn("data-cashbox-transaction-cancel", BOARD_WEB_APP_HTML)
+        self.assertIn("function invalidateCashboxesCache()", BOARD_WEB_APP_HTML)
+        self.assertIn("function cashboxMutationPath(path)", BOARD_WEB_APP_HTML)
+        self.assertIn("notifyCashboxesMutation(path, request.method);", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/update_repair_order',", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/create_employee_salary_transaction',", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "async function refreshCashboxesAfterMoneyMutation({ openModal = false, deferDetail = true } = {})",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "await refreshCashboxesAfterMoneyMutation({ openModal: true, deferDetail: false });",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "await refreshCashboxesAfterMoneyMutation({ deferDetail: true });",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "state.cashboxesLoaded && Array.isArray(state.cashboxes) && state.cashboxes.length",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "async function loadCashboxes(openModal = false, { deferDetail = false } = {})",
             BOARD_WEB_APP_HTML,

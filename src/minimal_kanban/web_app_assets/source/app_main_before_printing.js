@@ -2965,6 +2965,7 @@
         throw error;
       }
       finishApiPerf();
+      notifyCashboxesMutation(path, request.method);
       return payload.data;
     }
 
@@ -6115,12 +6116,13 @@
     }
 
     async function ensureEmployeeSalaryCashboxes() {
-      if (Array.isArray(state.cashboxes) && state.cashboxes.length) {
+      if (state.cashboxesLoaded && Array.isArray(state.cashboxes) && state.cashboxes.length) {
         renderEmployeeSalaryCashboxOptions();
         return;
       }
       const data = await api('/api/list_cashboxes?limit=200');
       state.cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
+      state.cashboxesLoaded = true;
       renderEmployeeSalaryCashboxOptions();
     }
 
@@ -6572,11 +6574,7 @@
         await loadEmployeesReference();
         await loadPayrollReport();
         renderEmployeesWorkspace();
-        if (els.cashboxesModal?.classList.contains('is-open')) {
-          await loadCashboxes(true);
-        } else {
-          await loadCashboxes(false);
-        }
+        await refreshCashboxesAfterMoneyMutation({ deferDetail: true });
         setStatus(kind === 'salary_advance' ? 'АВАНС ВЫДАН.' : 'ЗАРПЛАТА ВЫПЛАЧЕНА.', false);
       } catch (error) {
         setStatus(error.message, true);
@@ -11015,7 +11013,7 @@
     function setMobileView(view) {
       state.mobileView = normalizeMobileView(view);
       renderMobileShell();
-      if (state.mobileView === 'cashboxes' && !state.cashboxesLoaded) {
+      if (state.mobileView === 'cashboxes') {
         loadCashboxes(false, { deferDetail: true });
       }
       if (state.mobileView === 'inventory' && !state.inventoryLoaded) {
@@ -13208,12 +13206,13 @@
     }
 
     async function ensureRepairOrderPaymentCashboxes() {
-      if (Array.isArray(state.cashboxes) && state.cashboxes.length) {
+      if (state.cashboxesLoaded && Array.isArray(state.cashboxes) && state.cashboxes.length) {
         renderRepairOrderPaymentCashboxOptions(els.repairOrderPaymentCashbox?.value || '');
         return;
       }
       const data = await api('/api/list_cashboxes?limit=200');
       state.cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
+      state.cashboxesLoaded = true;
       renderRepairOrderPaymentCashboxOptions(els.repairOrderPaymentCashbox?.value || '');
     }
 
@@ -14266,6 +14265,7 @@
       const updatedCard = repairOrderResponseCard(data, repairOrder);
       const nextOrder = applyRepairOrderCardUpdate(updatedCard, data?.repair_order || repairOrder);
       await refreshRepairOrdersListAfterMutation();
+      await refreshCashboxesAfterMoneyMutation({ deferDetail: true });
       if (!silent && statusMessage) setStatus(statusMessage, false);
       return { cardId, repairOrder: nextOrder, card: updatedCard, data };
     }
@@ -18008,6 +18008,44 @@
       return Number(balanceMinor || 0) < 0 ? 'negative' : 'positive';
     }
 
+    function invalidateCashboxesCache() {
+      state.cashboxesLoaded = false;
+      state.cashboxJournalData = null;
+    }
+
+    function cashboxesModalIsOpen() {
+      return Boolean(els.cashboxesModal?.classList.contains('is-open'));
+    }
+
+    function cashboxMutationPath(path) {
+      const normalizedPath = String(path || '').split('?')[0];
+      return [
+        '/api/create_cash_transaction',
+        '/api/create_cashbox_transfer',
+        '/api/cancel_cash_transaction',
+        '/api/cancel_last_cash_transaction',
+        '/api/create_employee_salary_transaction',
+        '/api/update_card',
+        '/api/update_repair_order',
+        '/api/set_repair_order_status',
+      ].includes(normalizedPath);
+    }
+
+    function notifyCashboxesMutation(path, method = 'GET') {
+      if (String(method || 'GET').toUpperCase() === 'GET') return;
+      if (!cashboxMutationPath(path)) return;
+      invalidateCashboxesCache();
+    }
+
+    async function refreshCashboxesAfterMoneyMutation({ openModal = false, deferDetail = true } = {}) {
+      invalidateCashboxesCache();
+      const shouldReload = openModal
+        || cashboxesModalIsOpen()
+        || (state.mobileLite && state.mobileView === 'cashboxes');
+      if (!shouldReload) return;
+      await loadCashboxes(openModal, { deferDetail });
+    }
+
     function cashboxDropBeforeIdFromRow(row, clientY) {
       const targetId = String(row?.dataset?.cashboxId || '').trim();
       if (!targetId || targetId === state.cashboxDragId) return '';
@@ -18276,7 +18314,7 @@
       els.cashboxDetailTitle.textContent = 'ЗАГРУЖАЮ КАССЫ...';
       els.cashboxDetailMeta.textContent = '';
       els.cashboxTransactions.innerHTML = '<div class="cashboxes-empty">ЗАГРУЖАЮ ДВИЖЕНИЯ...</div>';
-      if (!Array.isArray(state.cashboxes) || !state.cashboxes.length) {
+      if (!state.cashboxesLoaded || !Array.isArray(state.cashboxes) || !state.cashboxes.length) {
         els.cashboxesList.innerHTML = '<div class="cashboxes-empty">ЗАГРУЖАЮ КАССЫ...</div>';
       }
       if (!state.activeCashbox) {
@@ -18296,11 +18334,6 @@
         }
         renderCashboxesList();
         renderCashboxDetail();
-        if (cachedId && !filteredCashboxTransactions().length) {
-          els.cashboxTransactions.innerHTML = '<div class="cashboxes-empty">ЗАГРУЖАЮ ДВИЖЕНИЯ...</div>';
-          scheduleCashboxDetailLoad(cachedId, { openModal: false });
-        }
-        return;
       }
       loadCashboxes(false, { deferDetail: true });
     }
@@ -19538,7 +19571,7 @@
         if (els.cashboxTransferAmountInput) els.cashboxTransferAmountInput.value = '';
         if (els.cashboxTransferNoteInput) els.cashboxTransferNoteInput.value = '';
         closeCashboxTransferModal();
-        await loadCashboxes(true);
+        await refreshCashboxesAfterMoneyMutation({ openModal: true, deferDetail: false });
         setStatus('ПЕРЕМЕЩЕНИЕ СОХРАНЕНО.', false);
       } catch (error) {
         setStatus(error.message, true);
@@ -19618,7 +19651,7 @@
         });
         els.cashboxAmountInput.value = '';
         els.cashboxNoteInput.value = '';
-        await loadCashboxDetail(cashbox.id, { openModal: true });
+        await refreshCashboxesAfterMoneyMutation({ openModal: true, deferDetail: false });
         setStatus(direction === 'expense' ? 'СПИСАНИЕ СОХРАНЕНО.' : 'ПОСТУПЛЕНИЕ СОХРАНЕНО.', false);
       } catch (error) {
         setStatus(error.message, true);
@@ -19694,7 +19727,7 @@
           },
         });
         closeCashboxCancelPopover();
-        await loadCashboxDetail(cashbox.id, { openModal: true });
+        await refreshCashboxesAfterMoneyMutation({ openModal: true, deferDetail: false });
         setStatus('ОПЕРАЦИЯ ОТМЕНЕНА.', false);
       } catch (error) {
         setStatus(String(error?.message || 'НЕ УДАЛОСЬ ОТМЕНИТЬ ОПЕРАЦИЮ.'), true);
