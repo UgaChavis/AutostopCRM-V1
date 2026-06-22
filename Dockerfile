@@ -15,10 +15,14 @@ RUN apt-get update && \
         libglib2.0-0 \
         libnspr4 \
         libnss3 \
+        libasound2t64 \
+        libgssapi-krb5-2 \
         libxcomposite1 \
         libxdamage1 \
+        libxfixes3 \
         libxkbcommon0 \
         libxkbfile1 \
+        libxrandr2 \
         libxtst6 && \
     rm -rf /var/lib/apt/lists/*
 

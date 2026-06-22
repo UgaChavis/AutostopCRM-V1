@@ -66,10 +66,14 @@ class DeployScriptTests(unittest.TestCase):
         for package in (
             "libnspr4",
             "libnss3",
+            "libasound2t64",
+            "libgssapi-krb5-2",
             "libxcomposite1",
             "libxdamage1",
+            "libxfixes3",
             "libxtst6",
             "libxkbfile1",
+            "libxrandr2",
         ):
             with self.subTest(package=package):
                 self.assertIn(package, dockerfile)
