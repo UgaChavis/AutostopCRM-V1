@@ -36,10 +36,24 @@ PRINTING_WEB_MODULE_STYLE = r"""
     .repair-order-print-layout {
       min-height: 0;
       display: grid;
-      grid-template-columns: clamp(224px, 16vw, 280px) minmax(0, 1fr) 340px;
+      grid-template-columns: 220px minmax(0, 1fr);
       gap: 14px;
       padding: 14px;
       background: rgba(0, 0, 0, 0.08);
+    }
+    .repair-order-print-layout > .repair-order-print-panel:first-child {
+      align-items: center;
+    }
+    .repair-order-print-layout > .repair-order-print-panel:first-child > * {
+      width: 100%;
+    }
+    .repair-order-print-layout > .repair-order-print-panel:first-child .repair-order-print-panel__title,
+    .repair-order-print-layout > .repair-order-print-panel:first-child .repair-order-print-preview__meta,
+    .repair-order-print-layout > .repair-order-print-panel:first-child .repair-order-print-docs-count {
+      text-align: center;
+    }
+    .repair-order-print-panel--settings {
+      display: none;
     }
     .repair-order-print-panel,
     .print-template-editor__panel,
@@ -129,11 +143,11 @@ PRINTING_WEB_MODULE_STYLE = r"""
       border: 1px solid rgba(116, 128, 111, 0.34);
       border-radius: 16px;
       background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.08)), #1a211c;
-      padding: 16px;
+      padding: 12px;
       overflow: auto;
       position: relative;
     }
-    .repair-order-print-preview-stage { min-width: 0; width: 100%; min-height: 0; display: flex; justify-content: center; align-items: flex-start; padding: 4px 0 40px; }
+    .repair-order-print-preview-stage { min-width: 0; width: 100%; min-height: 0; display: flex; justify-content: center; align-items: flex-start; padding: 0 0 28px; }
     .repair-order-print-preview-frame,
     .print-template-editor__preview-frame {
       width: 920px;
@@ -246,10 +260,9 @@ PRINTING_WEB_MODULE_STYLE = r"""
       .inspection-sheet-form__row { grid-template-columns: 1fr; }
     }
     @media (max-width: 1500px) {
-      .repair-order-print-layout { grid-template-columns: clamp(200px, 16vw, 240px) minmax(0, 1fr); grid-template-areas: "docs preview" "settings settings"; }
+      .repair-order-print-layout { grid-template-columns: 220px minmax(0, 1fr); grid-template-areas: "docs preview"; }
       .repair-order-print-layout > .repair-order-print-panel:first-child { grid-area: docs; }
       .repair-order-print-layout > .repair-order-print-panel:nth-child(2) { grid-area: preview; }
-      .repair-order-print-layout > .repair-order-print-panel:nth-child(3) { grid-area: settings; }
       .print-template-editor { grid-template-columns: 300px minmax(0, 1fr); grid-template-areas: "list editor" "preview preview"; }
       .print-template-editor__panel { grid-area: list; }
       .print-template-editor__editor { grid-area: editor; }
@@ -258,10 +271,9 @@ PRINTING_WEB_MODULE_STYLE = r"""
     @media (max-width: 1100px) {
       .dialog--repair-order-print,
       .dialog--print-template-editor { width: min(100%, calc(100% - 12px)); height: min(100vh, 100%); }
-      .repair-order-print-layout { grid-template-columns: 1fr; grid-template-areas: "docs" "settings" "preview"; grid-auto-rows: auto; align-content: start; overflow: auto; }
+      .repair-order-print-layout { grid-template-columns: 1fr; grid-template-areas: "docs" "preview"; grid-auto-rows: auto; align-content: start; overflow: auto; }
       .repair-order-print-layout > .repair-order-print-panel:first-child { grid-area: docs; }
       .repair-order-print-layout > .repair-order-print-panel:nth-child(2) { grid-area: preview; }
-      .repair-order-print-layout > .repair-order-print-panel:nth-child(3) { grid-area: settings; }
       .repair-order-print-layout > .repair-order-print-panel { min-height: auto; overflow: visible; }
       .repair-order-print-layout > .repair-order-print-panel:nth-child(2) { min-height: 420px; overflow: hidden; }
       .print-template-editor { grid-template-columns: 1fr; grid-template-areas: "list" "editor" "preview"; align-content: start; overflow: auto; }
@@ -309,7 +321,7 @@ PRINTING_WEB_MODULE_HTML = r"""
             <div class="repair-order-print-preview-stage"><iframe class="repair-order-print-preview-frame" id="repairOrderPrintPreviewFrame" title="Предпросмотр документа"></iframe></div>
           </div>
         </section>
-        <section class="repair-order-print-panel">
+        <section class="repair-order-print-panel repair-order-print-panel--settings" hidden>
           <div class="repair-order-print-panel__title">Настройки</div>
           <div class="repair-order-print-settings" id="repairOrderPrintSettings">
             <section class="repair-order-print-settings__section">
@@ -1324,8 +1336,8 @@ _PRINTING_SCRIPT_PART2 = r"""
 
     function repairOrderPrintScale() {
       if (repairOrderPrintState.zoomMode === 'fit') {
-        const availableWidth = Math.max(560, (printEls.previewWrap?.clientWidth || 920) - 48);
-        return Math.max(0.55, Math.min(1.2, availableWidth / 920));
+        const availableWidth = Math.max(560, (printEls.previewWrap?.clientWidth || 920) - 24);
+        return Math.max(0.55, Math.min(1, availableWidth / 920));
       }
       return Math.max(0.4, Math.min(2, Number(repairOrderPrintState.zoom || 1)));
     }

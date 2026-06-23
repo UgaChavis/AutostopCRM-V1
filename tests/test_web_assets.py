@@ -3675,8 +3675,13 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("body.is-mobile-lite #repairOrderPrintModal", BOARD_WEB_APP_HTML)
         self.assertIn("body.is-mobile-lite #inspectionSheetFormModal", BOARD_WEB_APP_HTML)
         self.assertIn(
-            'grid-template-areas: "docs" "settings" "preview"',
+            "grid-template-columns: 220px minmax(0, 1fr);",
             BOARD_WEB_APP_HTML,
+        )
+        self.assertIn('grid-template-areas: "docs preview"', BOARD_WEB_APP_HTML)
+        self.assertIn('grid-template-areas: "docs" "preview"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            ".repair-order-print-panel--settings {\n      display: none;", BOARD_WEB_APP_HTML
         )
         self.assertIn("grid-auto-rows: auto", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -3687,6 +3692,7 @@ class WebAssetsTests(unittest.TestCase):
             ".repair-order-print-layout > .repair-order-print-panel:nth-child(2) { min-height: 420px; overflow: hidden; }",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn("Math.min(1, availableWidth / 920)", BOARD_WEB_APP_HTML)
         self.assertNotIn(
             ".repair-order-print-layout,\n      .print-template-editor { grid-template-columns: 1fr; grid-template-areas: none; }",
             BOARD_WEB_APP_HTML,
@@ -3700,6 +3706,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="manualPrintWorks"', BOARD_WEB_APP_HTML)
         self.assertIn('id="manualPrintMaterials"', BOARD_WEB_APP_HTML)
         self.assertIn('id="manualPrintPayments"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'class="repair-order-print-panel repair-order-print-panel--settings" hidden',
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn('id="regulatedPrintOverridesForm"', BOARD_WEB_APP_HTML)
         self.assertIn('id="regulatedPrintBuyerName"', BOARD_WEB_APP_HTML)
         self.assertIn('id="regulatedPrintBuyerInn"', BOARD_WEB_APP_HTML)
