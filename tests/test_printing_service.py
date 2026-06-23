@@ -106,6 +106,42 @@ def build_payment_card(*, payment_method: str, payments: list[dict[str, str]]) -
     )
 
 
+def build_cashless_prepayment_example_card() -> Card:
+    return Card.from_dict(
+        {
+            "id": "card-print-payments-example",
+            "vehicle": "Toyota Land Cruiser 200",
+            "title": "Ремонт АКПП",
+            "description": "Эталонный пример расчета предоплаты по безналу.",
+            "column": "inbox",
+            "archived": False,
+            "created_at": "2026-04-06T10:00:00+00:00",
+            "updated_at": "2026-04-06T10:30:00+00:00",
+            "repair_order": {
+                "number": "312",
+                "date": "28.05.2026 10:00",
+                "opened_at": "28.05.2026 10:00",
+                "client": "ООО СК Бастион",
+                "phone": "89048952630",
+                "vehicle": "Toyota Land Cruiser 200",
+                "license_plate": "М763НН124",
+                "vin": "JTMHV05J504018876",
+                "mileage": "",
+                "payment_method": "cashless",
+                "payments": [{"amount": "170000", "payment_method": "cashless"}],
+                "reason": "Ремонт АКПП",
+                "comment": "Проверка итоговой таблицы заказ-наряда.",
+                "works": [
+                    {"name": "Итого работы", "quantity": "1", "price": "197000", "total": ""},
+                ],
+                "materials": [
+                    {"name": "Итого материалы", "quantity": "1", "price": "137545", "total": ""},
+                ],
+            },
+        }
+    )
+
+
 def build_business_client() -> ClientProfile:
     return ClientProfile.from_dict(
         {
@@ -432,8 +468,23 @@ class PrintingServiceTests(unittest.TestCase):
             "Стоимость заказ-наряда по безналичному расчету",
             preview["documents"][0]["pages"][0]["html"],
         )
-        self.assertIn("Предоплата", preview["documents"][0]["pages"][0]["html"])
-        self.assertIn("К доплате", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn("13 800 ₽", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn("15 870 ₽", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn("Предоплата по безналу", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn("1 000 ₽", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn("Налоги и сборы", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn("150 ₽", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn(
+            "К доплате по безналичному расчету",
+            preview["documents"][0]["pages"][0]["html"],
+        )
+        self.assertIn("14 892,50 ₽", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn(
+            "К доплате по наличному расчету",
+            preview["documents"][0]["pages"][0]["html"],
+        )
+        self.assertIn("12 950 ₽", preview["documents"][0]["pages"][0]["html"])
+        self.assertNotIn("13 800,00 ₽", preview["documents"][0]["pages"][0]["html"])
         self.assertNotIn("Итого по заказ-наряду", preview["documents"][0]["pages"][0]["html"])
         self.assertTrue(
             any(
@@ -739,7 +790,9 @@ class PrintingServiceTests(unittest.TestCase):
                     "taxes": Decimal("1500"),
                     "grand": Decimal("21500"),
                     "prepayment": Decimal("10000"),
-                    "due": Decimal("11500"),
+                    "due": Decimal("13225"),
+                    "cash_due": Decimal("11500"),
+                    "noncash_due": Decimal("13225"),
                 },
             ),
             (
@@ -753,7 +806,9 @@ class PrintingServiceTests(unittest.TestCase):
                     "taxes": Decimal("1050"),
                     "grand": Decimal("21050"),
                     "prepayment": Decimal("12000"),
-                    "due": Decimal("9200"),
+                    "due": Decimal("10407.5"),
+                    "cash_due": Decimal("9050"),
+                    "noncash_due": Decimal("10407.5"),
                 },
             ),
         ]
@@ -776,6 +831,11 @@ class PrintingServiceTests(unittest.TestCase):
                 self.assertEqual(totals["grand"], expected["grand"])
                 self.assertEqual(totals["prepayment"], expected["prepayment"])
                 self.assertEqual(totals["due"], expected["due"])
+                self.assertEqual(totals["cash_due"], expected.get("cash_due", expected["due"]))
+                self.assertEqual(
+                    totals["noncash_due"],
+                    expected.get("noncash_due", expected["due"] * Decimal("1.15")),
+                )
                 self.assertEqual(totals["cash_total"], expected["subtotal"])
                 self.assertEqual(totals["noncash_total"], expected["subtotal"] * Decimal("1.15"))
                 self.assertEqual(
@@ -802,15 +862,34 @@ class PrintingServiceTests(unittest.TestCase):
         )
         html = preview["documents"][0]["pages"][0]["html"]
 
-        self.assertIn("Стоимость заказ-наряда</td><td>20 000,00", html)
+        self.assertIn("Стоимость заказ-наряда</td><td>20 000 ₽", html)
         self.assertIn("Стоимость заказ-наряда по безналичному расчету", html)
         self.assertIn("включая налоги и сборы 15%", html)
-        self.assertIn(">23 000,00</td>", html)
-        self.assertIn("Предоплата</td><td>3 000,00", html)
-        self.assertIn("К доплате по безналичному расчету</td><td>19 550,00", html)
+        self.assertIn(">23 000 ₽</td>", html)
+        self.assertIn("Предоплата наличными</td><td>3 000 ₽", html)
+        self.assertNotIn("Налоги и сборы</td>", html)
+        self.assertIn("К доплате по безналичному расчету</td><td>19 550 ₽", html)
+        self.assertIn("К доплате по наличному расчету</td><td>17 000 ₽", html)
+        self.assertNotIn("20 000,00 ₽", html)
         self.assertNotIn("<tr><td>Итого работы</td>", html)
         self.assertNotIn("<tr><td>Итого материалы</td>", html)
         self.assertNotIn("Итого по заказ-наряду", html)
+
+    def test_repair_order_print_totals_include_cashless_prepayment_fees(self) -> None:
+        preview = self.service.preview_documents(
+            build_cashless_prepayment_example_card(),
+            selected_document_ids=["repair_order"],
+            active_document_id="repair_order",
+        )
+        html = preview["documents"][0]["pages"][0]["html"]
+
+        self.assertIn("Стоимость заказ-наряда</td><td>334 545 ₽", html)
+        self.assertIn(">384 726,75 ₽</td>", html)
+        self.assertIn("Предоплата по безналу</td><td>170 000 ₽", html)
+        self.assertIn("Налоги и сборы</td><td>25 500 ₽", html)
+        self.assertIn("К доплате по безналичному расчету</td><td>218 551,75 ₽", html)
+        self.assertIn("К доплате по наличному расчету</td><td>190 045 ₽", html)
+        self.assertNotIn("334 545,00 ₽", html)
 
     def test_inspection_sheet_form_roundtrip_updates_preview(self) -> None:
         initial = self.service.get_inspection_sheet_form(self.card)

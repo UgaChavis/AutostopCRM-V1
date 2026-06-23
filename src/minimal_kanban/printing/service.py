@@ -491,7 +491,7 @@ def _invoice_tax_payload(order: RepairOrder) -> dict[str, Any]:
     }
 
 
-def _money_display(value: Any) -> str:
+def _money_display(value: Any, *, trim_kopeks: bool = False, currency: bool = False) -> str:
     parsed = _parse_decimal(value)
     if parsed is None:
         return "—"
@@ -499,7 +499,15 @@ def _money_display(value: Any) -> str:
     text = format(quantized, "f")
     whole, dot, fraction = text.partition(".")
     grouped_whole = f"{int(whole):,}".replace(",", " ")
-    return f"{grouped_whole},{fraction[:2]}" if dot else grouped_whole
+    if dot and not (trim_kopeks and fraction[:2] == "00"):
+        result = f"{grouped_whole},{fraction[:2]}"
+    else:
+        result = grouped_whole
+    return f"{result} ₽" if currency else result
+
+
+def _money_ruble_display(value: Any) -> str:
+    return _money_display(value, trim_kopeks=True, currency=True)
 
 
 def _plural_form(number: int, forms: tuple[str, str, str]) -> str:
@@ -1866,6 +1874,10 @@ class PrintModuleService:
         payment_summary_display = {
             f"{key}_display": _money_display(value) for key, value in payment_summary.items()
         }
+        payment_summary_ruble_display = {
+            f"{key}_ruble_display": _money_ruble_display(value)
+            for key, value in payment_summary.items()
+        }
         invoice_cashless_total = _round_money(
             sum(
                 (_parse_decimal(item.get("total")) or Decimal("0") for item in invoice_line_items),
@@ -1905,6 +1917,9 @@ class PrintModuleService:
         grand_total_display = _money_display(grand_total)
         grand_total_words_display = _money_words_display(grand_total)
         total_paid_display = payment_summary_display["total_paid_display"]
+        cash_prepayment = payment_summary["base_paid_cash_only"]
+        card_prepayment = payment_summary["base_paid_card"]
+        cashless_prepayment = payment_summary["base_paid_noncash"]
         client_context = _client_invoice_context(
             client,
             order_client=order.client,
@@ -2044,27 +2059,54 @@ class PrintModuleService:
                 "subtotal_display": payment_summary_display["base_total_display"],
                 "cash_total": cash_total,
                 "cash_total_display": _money_display(cash_total),
+                "cash_total_ruble_display": _money_ruble_display(cash_total),
                 "noncash_total": noncash_total,
                 "noncash_total_display": _money_display(noncash_total),
+                "noncash_total_ruble_display": _money_ruble_display(noncash_total),
                 "noncash_taxes_and_fees": noncash_taxes_and_fees,
                 "noncash_taxes_and_fees_display": _money_display(noncash_taxes_and_fees),
+                "noncash_taxes_and_fees_ruble_display": _money_ruble_display(
+                    noncash_taxes_and_fees
+                ),
                 "taxes_display": payment_summary_display["taxes_and_fees_display"],
                 "grand_display": grand_total_display,
+                "grand_ruble_display": _money_ruble_display(grand_total),
                 "grand_words_display": grand_total_words_display,
                 "prepayment_display": total_paid_display,
+                "prepayment_ruble_display": _money_ruble_display(payment_summary["total_paid"]),
+                "cash_prepayment": cash_prepayment,
+                "cash_prepayment_ruble_display": _money_ruble_display(cash_prepayment),
+                "card_prepayment": card_prepayment,
+                "card_prepayment_ruble_display": _money_ruble_display(card_prepayment),
+                "cashless_prepayment": cashless_prepayment,
+                "cashless_prepayment_ruble_display": _money_ruble_display(cashless_prepayment),
                 "due_label": selected_due_label,
                 "due_display": selected_due_display,
+                "due_ruble_display": _money_ruble_display(selected_due),
                 "due_words_display": selected_due_words_display,
+                "cash_due": payment_summary["cash_due"],
                 "base_total_display": payment_summary_display["base_total_display"],
+                "base_total_ruble_display": _money_ruble_display(payment_summary["base_total"]),
                 "base_paid_cash_display": payment_summary_display["base_paid_cash_display"],
                 "base_paid_noncash_display": payment_summary_display["base_paid_noncash_display"],
                 "base_remaining_display": payment_summary_display["base_remaining_display"],
                 "cash_due_display": payment_summary_display["cash_due_display"],
+                "cash_due_ruble_display": _money_ruble_display(payment_summary["cash_due"]),
+                "noncash_due": payment_summary["noncash_due"],
                 "noncash_due_display": payment_summary_display["noncash_due_display"],
+                "noncash_due_ruble_display": _money_ruble_display(payment_summary["noncash_due"]),
                 "taxes_and_fees_display": payment_summary_display["taxes_and_fees_display"],
+                "taxes_and_fees_ruble_display": _money_ruble_display(
+                    payment_summary["taxes_and_fees"]
+                ),
                 "total_paid_display": total_paid_display,
+                "total_paid_ruble_display": _money_ruble_display(payment_summary["total_paid"]),
+                **payment_summary_ruble_display,
                 "has_taxes": payment_summary["taxes_and_fees"] != Decimal("0"),
                 "has_prepayment": payment_summary["total_paid"] != Decimal("0"),
+                "has_cash_prepayment": cash_prepayment != Decimal("0"),
+                "has_card_prepayment": card_prepayment != Decimal("0"),
+                "has_cashless_prepayment": cashless_prepayment != Decimal("0"),
                 "has_payment_summary": True,
             },
             "invoice": {

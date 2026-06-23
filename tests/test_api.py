@@ -2695,9 +2695,9 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         cashless_order = updated_cashless["data"]["card"]["repair_order"]
         self.assertEqual(cashless_order["payment_method"], "cashless")
-        self.assertEqual(cashless_order["taxes_total"], "150")
-        self.assertEqual(cashless_order["grand_total"], "1150")
-        self.assertEqual(cashless_order["due_total"], "650")
+        self.assertEqual(cashless_order["taxes_total"], "75")
+        self.assertEqual(cashless_order["grand_total"], "1075")
+        self.assertEqual(cashless_order["due_total"], "575")
 
         status, cash_cashbox = self.request(
             "/api/create_cashbox", {"name": "Наличный", "actor_name": "ADMIN"}
@@ -2732,10 +2732,10 @@ class ApiServerTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         mixed_order = mixed_paid["data"]["card"]["repair_order"]
-        self.assertEqual(mixed_order["taxes_total"], "150")
-        self.assertEqual(mixed_order["grand_total"], "1150")
+        self.assertEqual(mixed_order["taxes_total"], "75")
+        self.assertEqual(mixed_order["grand_total"], "1075")
         self.assertEqual(mixed_order["paid_total"], "1000")
-        self.assertEqual(mixed_order["due_total"], "150")
+        self.assertEqual(mixed_order["due_total"], "75")
 
         status, created = self.request(
             "/api/create_card",
@@ -3396,9 +3396,9 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(updated["data"]["card"]["repair_order"]["works_total"], "1500")
         self.assertEqual(updated["data"]["card"]["repair_order"]["materials_total"], "0")
         self.assertEqual(updated["data"]["card"]["repair_order"]["subtotal_total"], "1500")
-        self.assertEqual(updated["data"]["card"]["repair_order"]["taxes_total"], "225")
-        self.assertEqual(updated["data"]["card"]["repair_order"]["grand_total"], "1725")
-        self.assertEqual(updated["data"]["card"]["repair_order"]["due_total"], "525")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["taxes_total"], "180")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["grand_total"], "1680")
+        self.assertEqual(updated["data"]["card"]["repair_order"]["due_total"], "480")
 
         status, cashbox_details = self.request(
             f"/api/get_cashbox?cashbox_id={cashbox['id']}&transaction_limit=10",

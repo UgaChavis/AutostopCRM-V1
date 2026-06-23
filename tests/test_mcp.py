@@ -1074,13 +1074,13 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     materials.structuredContent["data"]["repair_order"]["subtotal_total"], "3100"
                 )
                 self.assertEqual(
-                    materials.structuredContent["data"]["repair_order"]["taxes_total"], "465"
+                    materials.structuredContent["data"]["repair_order"]["taxes_total"], "75"
                 )
                 self.assertEqual(
-                    materials.structuredContent["data"]["repair_order"]["grand_total"], "3565"
+                    materials.structuredContent["data"]["repair_order"]["grand_total"], "3175"
                 )
                 self.assertEqual(
-                    materials.structuredContent["data"]["repair_order"]["due_total"], "3065"
+                    materials.structuredContent["data"]["repair_order"]["due_total"], "2675"
                 )
 
                 repair_order_read = await session.call_tool(
@@ -1119,14 +1119,14 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     repair_order_text.structuredContent["data"]["text"],
                 )
                 self.assertIn(
-                    "Налоги и сборы: 465", repair_order_text.structuredContent["data"]["text"]
+                    "Налоги и сборы: 75", repair_order_text.structuredContent["data"]["text"]
                 )
                 self.assertIn(
-                    "Итого по заказ-наряду: 3565",
+                    "Итого по заказ-наряду: 3175",
                     repair_order_text.structuredContent["data"]["text"],
                 )
                 self.assertIn(
-                    "К доплате: 3065", repair_order_text.structuredContent["data"]["text"]
+                    "К доплате: 2675", repair_order_text.structuredContent["data"]["text"]
                 )
 
                 with patch(

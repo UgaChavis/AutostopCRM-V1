@@ -3029,8 +3029,9 @@
       min-width: 0;
       min-height: 46px;
       align-content: center;
-      justify-items: start;
+      justify-items: center;
       padding: 6px 9px;
+      text-align: center;
     }
     .repair-order-total.is-hidden {
       display: none;
@@ -3039,28 +3040,26 @@
       color: var(--text-soft);
       font-family: var(--mono);
       font-size: 9.25px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
+      letter-spacing: 0;
+      line-height: 1.15;
+      white-space: nowrap;
     }
     .repair-order-total strong {
       color: var(--text);
       font-size: 15px;
       font-variant-numeric: tabular-nums;
       line-height: 1.1;
+      white-space: nowrap;
     }
     .repair-order-total--subtotal {
       border: 1px solid rgba(116, 126, 106, 0.16);
       background: rgba(255, 255, 255, 0.02);
-    }
-    .repair-order-total--subtotal strong {
-      font-size: 16px;
     }
     .repair-order-total--cashless-due {
       border: 1px solid rgba(108, 148, 107, 0.28);
       background: rgba(86, 122, 84, 0.14);
     }
     .repair-order-total--cashless-due strong {
-      font-size: 16px;
       color: #eef5ea;
     }
     .repair-order-total--cash-due {
@@ -3068,7 +3067,6 @@
       background: rgba(99, 74, 40, 0.16);
     }
     .repair-order-total--cash-due strong {
-      font-size: 16px;
       color: #f4ecd9;
     }
     .repair-order-total--taxes {
@@ -3076,7 +3074,6 @@
       background: rgba(140, 151, 109, 0.1);
     }
     .repair-order-total--taxes strong {
-      font-size: 13px;
       color: #f0e2c4;
     }
     .repair-order-footer__actions {

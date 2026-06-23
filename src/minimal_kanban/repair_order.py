@@ -233,20 +233,21 @@ def repair_order_payment_summary_value(
         base_total - base_paid_cash - base_paid_card - base_paid_noncash, Decimal("0")
     )
     taxes_and_fees = _round_money(base_paid_noncash * REPAIR_ORDER_PAYMENT_TAX_RATE)
+    total_paid = _round_money(base_paid_cash + base_paid_card + base_paid_noncash)
+    cash_due = max(base_total + taxes_and_fees - total_paid, Decimal("0"))
     return {
         "base_total": base_total,
+        "base_paid_cash_only": _round_money(base_paid_cash),
         "base_paid_cash": _round_money(base_paid_cash + base_paid_card),
         "base_paid_card": _round_money(base_paid_card),
         "base_paid_noncash": _round_money(base_paid_noncash),
         "base_remaining": _round_money(base_remaining),
-        "cash_due": _round_money(base_remaining),
-        "noncash_due": _round_money(
-            base_remaining * (Decimal("1") + REPAIR_ORDER_PAYMENT_TAX_RATE)
-        ),
+        "cash_due": _round_money(cash_due),
+        "noncash_due": _round_money(cash_due * (Decimal("1") + REPAIR_ORDER_PAYMENT_TAX_RATE)),
         "taxes_and_fees": taxes_and_fees,
-        "total_paid": _round_money(base_paid_cash + base_paid_card + base_paid_noncash),
+        "total_paid": total_paid,
         "grand_total": _round_money(base_total + taxes_and_fees),
-        "due_total": _round_money(base_remaining),
+        "due_total": _round_money(cash_due),
     }
 
 
@@ -850,9 +851,7 @@ class RepairOrder:
         return prepayment
 
     def taxes_value(self) -> Decimal:
-        if self.payment_method != REPAIR_ORDER_PAYMENT_METHOD_CASHLESS:
-            return Decimal("0")
-        return _round_money(self.subtotal_value() * REPAIR_ORDER_PAYMENT_TAX_RATE)
+        return self.payment_summary_value()["taxes_and_fees"]
 
     def taxes_amount(self) -> str:
         return _format_decimal(self.taxes_value())
@@ -869,8 +868,7 @@ class RepairOrder:
         return _format_decimal(self.prepayment_value())
 
     def due_total_value(self) -> Decimal:
-        grand_total = _parse_decimal(self.grand_total_amount()) or Decimal("0")
-        return grand_total - self.prepayment_value()
+        return self.payment_summary_value()["cash_due"]
 
     def due_total_amount(self) -> str:
         return _format_decimal(self.due_total_value())
@@ -889,7 +887,7 @@ class RepairOrder:
         return self.prepayment_value() != Decimal("0")
 
     def is_paid(self) -> bool:
-        return self.payment_summary_value()["base_remaining"] <= Decimal("0")
+        return self.payment_summary_value()["cash_due"] <= Decimal("0")
 
     def payment_status(self) -> str:
         return "paid" if self.is_paid() else "unpaid"

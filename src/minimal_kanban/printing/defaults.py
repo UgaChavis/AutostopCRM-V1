@@ -448,10 +448,14 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     </tbody><tfoot><tr><td colspan="3">Итого материалы</td><td class="doc-table__sum">{{totals.materials_display}}</td></tr></tfoot></table>
   </section>
   <table class="doc-totals-table">
-    <tr><td>Стоимость заказ-наряда</td><td>{{totals.subtotal_display}}</td></tr>
-    <tr><td>Стоимость заказ-наряда по безналичному расчету<br><small>включая налоги и сборы 15%</small></td><td>{{totals.noncash_total_display}}</td></tr>
-    {{#totals.has_prepayment}}<tr><td>Предоплата</td><td>{{totals.prepayment_display}}</td></tr>{{/totals.has_prepayment}}
-    <tr class="doc-totals-table__grand"><td>{{totals.due_label}}</td><td>{{totals.due_display}}</td></tr>
+    <tr><td>Стоимость заказ-наряда</td><td>{{totals.base_total_ruble_display}}</td></tr>
+    <tr><td>Стоимость заказ-наряда по безналичному расчету<br><small>включая налоги и сборы 15%</small></td><td>{{totals.noncash_total_ruble_display}}</td></tr>
+    {{#totals.has_cash_prepayment}}<tr><td>Предоплата наличными</td><td>{{totals.cash_prepayment_ruble_display}}</td></tr>{{/totals.has_cash_prepayment}}
+    {{#totals.has_card_prepayment}}<tr><td>Предоплата на карту</td><td>{{totals.card_prepayment_ruble_display}}</td></tr>{{/totals.has_card_prepayment}}
+    {{#totals.has_cashless_prepayment}}<tr><td>Предоплата по безналу</td><td>{{totals.cashless_prepayment_ruble_display}}</td></tr>{{/totals.has_cashless_prepayment}}
+    {{#totals.has_taxes}}<tr><td>Налоги и сборы</td><td>{{totals.taxes_and_fees_ruble_display}}</td></tr>{{/totals.has_taxes}}
+    <tr class="doc-totals-table__grand"><td>К доплате по безналичному расчету</td><td>{{totals.noncash_due_ruble_display}}</td></tr>
+    <tr class="doc-totals-table__grand"><td>К доплате по наличному расчету</td><td>{{totals.cash_due_ruble_display}}</td></tr>
   </table>
 </div>
 <!-- AUTOSTOPCRM_PAGE_BREAK -->
@@ -958,10 +962,14 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   </section>
   <section class="doc-section"><h2 class="doc-section__title">Справка для клиента</h2><div class="doc-note">{{{repair_order.client_information_html}}}</div></section>
   <table class="doc-totals-table">
-    <tr><td>Стоимость заказ-наряда</td><td>{{totals.subtotal_display}}</td></tr>
-    <tr><td>Стоимость заказ-наряда по безналичному расчету<br><small>включая налоги и сборы 15%</small></td><td>{{totals.noncash_total_display}}</td></tr>
-    {{#totals.has_prepayment}}<tr><td>Предоплата</td><td>{{totals.prepayment_display}}</td></tr>{{/totals.has_prepayment}}
-    <tr class="doc-totals-table__grand"><td>{{totals.due_label}}</td><td>{{totals.due_display}}</td></tr>
+    <tr><td>Стоимость заказ-наряда</td><td>{{totals.base_total_ruble_display}}</td></tr>
+    <tr><td>Стоимость заказ-наряда по безналичному расчету<br><small>включая налоги и сборы 15%</small></td><td>{{totals.noncash_total_ruble_display}}</td></tr>
+    {{#totals.has_cash_prepayment}}<tr><td>Предоплата наличными</td><td>{{totals.cash_prepayment_ruble_display}}</td></tr>{{/totals.has_cash_prepayment}}
+    {{#totals.has_card_prepayment}}<tr><td>Предоплата на карту</td><td>{{totals.card_prepayment_ruble_display}}</td></tr>{{/totals.has_card_prepayment}}
+    {{#totals.has_cashless_prepayment}}<tr><td>Предоплата по безналу</td><td>{{totals.cashless_prepayment_ruble_display}}</td></tr>{{/totals.has_cashless_prepayment}}
+    {{#totals.has_taxes}}<tr><td>Налоги и сборы</td><td>{{totals.taxes_and_fees_ruble_display}}</td></tr>{{/totals.has_taxes}}
+    <tr class="doc-totals-table__grand"><td>К доплате по безналичному расчету</td><td>{{totals.noncash_due_ruble_display}}</td></tr>
+    <tr class="doc-totals-table__grand"><td>К доплате по наличному расчету</td><td>{{totals.cash_due_ruble_display}}</td></tr>
   </table>
   <div class="doc-invoice-words">Сумма прописью: <strong>{{totals.due_words_display}}</strong></div>
   <section class="doc-section doc-section--warranty doc-section--warranty-summary">

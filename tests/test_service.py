@@ -7667,9 +7667,9 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(order["works_total"], "2500")
         self.assertEqual(order["materials_total"], "2800")
         self.assertEqual(order["subtotal_total"], "5300")
-        self.assertEqual(order["taxes_total"], "795")
-        self.assertEqual(order["grand_total"], "6095")
-        self.assertEqual(order["due_total"], "5095")
+        self.assertEqual(order["taxes_total"], "150")
+        self.assertEqual(order["grand_total"], "5450")
+        self.assertEqual(order["due_total"], "4450")
         self.assertTrue(order["has_taxes"])
         self.assertTrue(order["has_prepayment"])
 
@@ -7691,9 +7691,9 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(stored["payment_status"], "unpaid")
         self.assertEqual(len(stored["payments"]), 1)
         self.assertEqual(stored["payments"][0]["cashbox_name"], cashbox["name"])
-        self.assertEqual(stored["taxes_total"], "795")
-        self.assertEqual(stored["grand_total"], "6095")
-        self.assertEqual(stored["due_total"], "5095")
+        self.assertEqual(stored["taxes_total"], "150")
+        self.assertEqual(stored["grand_total"], "5450")
+        self.assertEqual(stored["due_total"], "4450")
 
     def test_repair_order_cash_taxes_depend_on_selected_cashbox(self) -> None:
         cashless_cashbox = self.service.create_cashbox(
@@ -7724,9 +7724,9 @@ class CardServiceTests(unittest.TestCase):
             }
         )["card"]["repair_order"]
         self.assertEqual(updated_cashless["payment_method"], "cashless")
-        self.assertEqual(updated_cashless["taxes_total"], "150")
-        self.assertEqual(updated_cashless["grand_total"], "1150")
-        self.assertEqual(updated_cashless["due_total"], "650")
+        self.assertEqual(updated_cashless["taxes_total"], "75")
+        self.assertEqual(updated_cashless["grand_total"], "1075")
+        self.assertEqual(updated_cashless["due_total"], "575")
 
         updated_mixed = self.service.update_card(
             {
@@ -7755,10 +7755,10 @@ class CardServiceTests(unittest.TestCase):
             }
         )["card"]["repair_order"]
         self.assertEqual(updated_mixed["payment_method"], "cashless")
-        self.assertEqual(updated_mixed["taxes_total"], "150")
-        self.assertEqual(updated_mixed["grand_total"], "1150")
+        self.assertEqual(updated_mixed["taxes_total"], "75")
+        self.assertEqual(updated_mixed["grand_total"], "1075")
         self.assertEqual(updated_mixed["paid_total"], "1000")
-        self.assertEqual(updated_mixed["due_total"], "150")
+        self.assertEqual(updated_mixed["due_total"], "75")
 
         maria_cashbox = self.service.create_cashbox({"name": "Карта Мария", "actor_name": "ADMIN"})[
             "cashbox"
@@ -8085,8 +8085,8 @@ class CardServiceTests(unittest.TestCase):
                     "base_paid_cash": "0",
                     "base_paid_noncash": "10000",
                     "base_remaining": "10000",
-                    "cash_due": "10000",
-                    "noncash_due": "11500",
+                    "cash_due": "11500",
+                    "noncash_due": "13225",
                     "taxes_and_fees": "1500",
                     "total_paid": "10000",
                 },
@@ -8116,10 +8116,33 @@ class CardServiceTests(unittest.TestCase):
                     "base_paid_cash": "5000",
                     "base_paid_noncash": "5000",
                     "base_remaining": "10000",
-                    "cash_due": "10000",
-                    "noncash_due": "11500",
+                    "cash_due": "10750",
+                    "noncash_due": "12362.5",
                     "taxes_and_fees": "750",
                     "total_paid": "10000",
+                },
+            ),
+            (
+                "cashless_base_paid_but_fees_due",
+                [
+                    {
+                        "amount": "20000",
+                        "paid_at": "06.04.2026 10:00",
+                        "note": "Закрытие базы безналом",
+                        "payment_method": "cash",
+                        "actor_name": "ADMIN",
+                        "cashbox_id": cashless_cashbox["id"],
+                    }
+                ],
+                {
+                    "base_total": "20000",
+                    "base_paid_cash": "0",
+                    "base_paid_noncash": "20000",
+                    "base_remaining": "0",
+                    "cash_due": "3000",
+                    "noncash_due": "3450",
+                    "taxes_and_fees": "3000",
+                    "total_paid": "20000",
                 },
             ),
             (
@@ -8155,9 +8178,6 @@ class CardServiceTests(unittest.TestCase):
                     self.assertEqual(summary[key], value)
                 self.assertEqual(order["subtotal_total"], "20000")
                 self.assertEqual(order["payment_summary"]["base_total"], order["subtotal_total"])
-                self.assertEqual(
-                    order["payment_summary"]["cash_due"], order["payment_summary"]["base_remaining"]
-                )
 
     def test_list_repair_orders_creates_text_files_and_sorts_by_latest_number(self) -> None:
         first = self.service.create_card(
@@ -8913,7 +8933,7 @@ class CardServiceTests(unittest.TestCase):
 
         self.assertFalse(issue["safe_fix_available"])
 
-    def test_finance_audit_does_not_flag_closed_noncash_fee_as_underpaid(self) -> None:
+    def test_finance_audit_reports_closed_noncash_fee_as_underpaid(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Безнал", "actor_name": "ADMIN"})["cashbox"]
         card = self.service.create_card(
             {"vehicle": "Skoda Rapid", "title": "Безналичная оплата", "deadline": {"hours": 2}}
@@ -8937,7 +8957,23 @@ class CardServiceTests(unittest.TestCase):
                 },
             }
         )
-        self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+        with self.assertRaises(ServiceError) as context:
+            self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+        self.assertEqual(context.exception.code, "repair_order_payment_required")
+
+        bundle = self.store.read_bundle()
+        stored_card = next(item for item in bundle["cards"] if item.id == card_id)
+        stored_card.repair_order.status = "closed"
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
 
         audit = self.service.get_finance_audit()
         issues = [
@@ -8946,7 +8982,10 @@ class CardServiceTests(unittest.TestCase):
             if issue["code"] == "closed_underpaid" and issue["card_id"] == card_id
         ]
 
-        self.assertEqual(issues, [])
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]["data"]["due_total"], "150")
+        self.assertEqual(issues[0]["data"]["paid_total"], "1000")
+        self.assertEqual(issues[0]["data"]["grand_total"], "1150")
 
     def test_finance_audit_reports_closed_order_with_base_underpayment(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[

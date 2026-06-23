@@ -3337,12 +3337,12 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('data-repair-order-total="cash_due"', BOARD_WEB_APP_HTML)
         self.assertIn('data-repair-order-total-block="taxes"', BOARD_WEB_APP_HTML)
         self.assertIn('data-repair-order-total="taxes"', BOARD_WEB_APP_HTML)
-        self.assertIn("ИТОГО ПО ЗАКАЗ-НАРЯДУ", BOARD_WEB_APP_HTML)
+        self.assertIn("Итого по наряду", BOARD_WEB_APP_HTML)
         self.assertIn("К ДОПЛАТЕ БЕЗНАЛ", BOARD_WEB_APP_HTML)
         self.assertIn("К ДОПЛАТЕ НАЛ", BOARD_WEB_APP_HTML)
         self.assertIn("grid-auto-columns: 148px;", BOARD_WEB_APP_HTML)
         self.assertIn("min-height: 46px;", BOARD_WEB_APP_HTML)
-        self.assertIn("justify-items: start;", BOARD_WEB_APP_HTML)
+        self.assertIn("justify-items: center;", BOARD_WEB_APP_HTML)
         self.assertIn("Артикул / OEM", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-table__input {", BOARD_WEB_APP_HTML)
         self.assertIn("font-size: 14.25px;", BOARD_WEB_APP_HTML)
@@ -3408,9 +3408,14 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("base_paid_card: basePaidCard", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "total_paid: repairOrderRoundMoney(basePaidCash + basePaidCard + basePaidNoncash)",
+            "const totalPaid = repairOrderRoundMoney(basePaidCash + basePaidCard + basePaidNoncash);",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn(
+            "total_paid: totalPaid",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(".format(rounded).replace(/,00$/, '') + ' ₽';", BOARD_WEB_APP_HTML)
         self.assertIn(
             "node.textContent = repairOrderFormatMoney(summary.base_total);", BOARD_WEB_APP_HTML
         )
@@ -3430,7 +3435,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "const summary = repairOrderSummaryValue(subtotal, payments);", BOARD_WEB_APP_HTML
         )
-        self.assertIn("const due = summary.base_remaining;", BOARD_WEB_APP_HTML)
+        self.assertIn("const due = summary.cash_due;", BOARD_WEB_APP_HTML)
         self.assertIn("function openRepairOrderPaymentsModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function addRepairOrderPayment()", BOARD_WEB_APP_HTML)
         self.assertIn("async function deleteRepairOrderPayment(paymentId)", BOARD_WEB_APP_HTML)

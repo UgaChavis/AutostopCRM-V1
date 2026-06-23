@@ -10002,10 +10002,10 @@
       const payments = readMobileRepairOrderPayments();
       const summary = repairOrderSummaryValue(subtotal, payments);
       els.mobileRepairOrderTotals.innerHTML = ''
-        + '<div class="mobile-repair-order-total"><span>Работы</span><strong>' + escapeHtml(repairOrderFormatRubles(worksTotal)) + '</strong></div>'
-        + '<div class="mobile-repair-order-total"><span>Материалы</span><strong>' + escapeHtml(repairOrderFormatRubles(materialsTotal)) + '</strong></div>'
-        + '<div class="mobile-repair-order-total"><span>Оплачено</span><strong>' + escapeHtml(repairOrderFormatRubles(summary.total_paid)) + '</strong></div>'
-        + '<div class="mobile-repair-order-total mobile-repair-order-total--grand"><span>К оплате</span><strong>' + escapeHtml(repairOrderFormatRubles(summary.due_total)) + '</strong></div>';
+        + '<div class="mobile-repair-order-total"><span>Работы</span><strong>' + escapeHtml(repairOrderFormatMoney(worksTotal)) + '</strong></div>'
+        + '<div class="mobile-repair-order-total"><span>Материалы</span><strong>' + escapeHtml(repairOrderFormatMoney(materialsTotal)) + '</strong></div>'
+        + '<div class="mobile-repair-order-total"><span>Оплачено</span><strong>' + escapeHtml(repairOrderFormatMoney(summary.total_paid)) + '</strong></div>'
+        + '<div class="mobile-repair-order-total mobile-repair-order-total--grand"><span>К оплате</span><strong>' + escapeHtml(repairOrderFormatMoney(summary.due_total)) + '</strong></div>';
     }
 
     function normalizeMobileRepairOrderTab(tab) {
@@ -12962,10 +12962,11 @@
     function repairOrderFormatMoney(value) {
       const normalized = typeof value === 'number' ? value : repairOrderParseNumber(value);
       const safeValue = normalized === null ? 0 : normalized;
+      const rounded = repairOrderRoundMoney(safeValue);
       return new Intl.NumberFormat('ru-RU', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
-      }).format(safeValue);
+      }).format(rounded).replace(/,00$/, '') + ' ₽';
     }
 
     function repairOrderFormatRubles(value) {
@@ -13145,18 +13146,21 @@
       const basePaidNoncash = repairOrderCashlessPaymentsValue(normalizedPayments);
       const baseRemaining = repairOrderRoundMoney(Math.max(normalizedBaseTotal - basePaidCash - basePaidCard - basePaidNoncash, 0));
       const taxesAndFees = repairOrderRoundMoney(basePaidNoncash * repairOrderTaxRate('cashless'));
+      const totalPaid = repairOrderRoundMoney(basePaidCash + basePaidCard + basePaidNoncash);
+      const cashDue = repairOrderRoundMoney(Math.max(normalizedBaseTotal + taxesAndFees - totalPaid, 0));
       return {
         base_total: normalizedBaseTotal,
+        base_paid_cash_only: basePaidCash,
         base_paid_cash: repairOrderRoundMoney(basePaidCash + basePaidCard),
         base_paid_card: basePaidCard,
         base_paid_noncash: basePaidNoncash,
         base_remaining: baseRemaining,
-        cash_due: baseRemaining,
-        noncash_due: repairOrderRoundMoney(baseRemaining * (1 + repairOrderTaxRate('cashless'))),
+        cash_due: cashDue,
+        noncash_due: repairOrderRoundMoney(cashDue * (1 + repairOrderTaxRate('cashless'))),
         taxes_and_fees: taxesAndFees,
-        total_paid: repairOrderRoundMoney(basePaidCash + basePaidCard + basePaidNoncash),
+        total_paid: totalPaid,
         grand_total: repairOrderRoundMoney(normalizedBaseTotal + taxesAndFees),
-        due_total: baseRemaining,
+        due_total: cashDue,
       };
     }
 
@@ -13444,7 +13448,7 @@
         repairOrderRowsTotalValue(normalized.works) + repairOrderRowsTotalValue(normalized.materials)
       );
       const summary = repairOrderSummaryValue(subtotal, normalized.payments);
-      return summary.base_remaining <= 0;
+      return summary.cash_due <= 0;
     }
 
     function syncRepairOrderCloseButtonState(order = null) {
@@ -13922,7 +13926,7 @@
       const subtotal = repairOrderRoundMoney(syncRepairOrderSectionTotals('works') + syncRepairOrderSectionTotals('materials'));
       const summary = repairOrderSummaryValue(subtotal, payments);
       const total = summary.total_paid;
-      const due = summary.base_remaining;
+      const due = summary.cash_due;
       if (els.repairOrderPaymentsMeta) {
         const latestPayment = payments.length ? payments[payments.length - 1] : null;
         const latestText = latestPayment
