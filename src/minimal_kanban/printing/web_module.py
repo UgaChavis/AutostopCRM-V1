@@ -147,7 +147,14 @@ PRINTING_WEB_MODULE_STYLE = r"""
       overflow: auto;
       position: relative;
     }
-    .repair-order-print-preview-stage { min-width: 0; width: 100%; min-height: 0; display: flex; justify-content: center; align-items: flex-start; padding: 0 0 28px; }
+    .repair-order-print-preview-stage {
+      min-width: 0;
+      width: 920px;
+      height: 1180px;
+      min-height: 0;
+      position: relative;
+      margin: 0 auto 28px;
+    }
     .repair-order-print-preview-frame,
     .print-template-editor__preview-frame {
       width: 920px;
@@ -158,6 +165,12 @@ PRINTING_WEB_MODULE_STYLE = r"""
       box-shadow: 0 14px 34px rgba(0, 0, 0, 0.26);
       transform-origin: top center;
       transition: transform .12s ease, width .12s ease;
+    }
+    .repair-order-print-preview-frame {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: top left;
     }
     .repair-order-print-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
     .repair-order-print-toolbar__group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -318,7 +331,7 @@ PRINTING_WEB_MODULE_HTML = r"""
           </div>
           <div class="repair-order-print-preview__warnings" id="repairOrderPrintWarnings"></div>
           <div class="repair-order-print-preview-wrap" id="repairOrderPrintPreviewWrap">
-            <div class="repair-order-print-preview-stage"><iframe class="repair-order-print-preview-frame" id="repairOrderPrintPreviewFrame" title="Предпросмотр документа"></iframe></div>
+            <div class="repair-order-print-preview-stage" id="repairOrderPrintPreviewStage"><iframe class="repair-order-print-preview-frame" id="repairOrderPrintPreviewFrame" title="Предпросмотр документа"></iframe></div>
           </div>
         </section>
         <section class="repair-order-print-panel repair-order-print-panel--settings" hidden>
@@ -412,7 +425,7 @@ PRINTING_WEB_MODULE_HTML = r"""
       </div>
       <div class="dialog__foot repair-order-print-footer dialog__floating-actions">
         <div class="repair-order-print-preview__meta" id="repairOrderPrintFooterMeta">PDF генерируется из шаблона и текущих данных заказ-наряда.</div>
-        <div class="repair-order-print-footer__actions"><button class="btn btn--ghost" id="manualDocumentPrintButton" type="button">ДОКУМЕНТ</button><button class="btn btn--ghost" id="repairOrderPrintExportButton" type="button">PDF</button><button class="btn" id="repairOrderPrintRunButton" type="button">ПЕЧАТЬ</button></div>
+        <div class="repair-order-print-footer__actions"><button class="btn btn--ghost" id="repairOrderPrintExportButton" type="button">PDF</button><button class="btn" id="repairOrderPrintRunButton" type="button">ПЕЧАТЬ</button></div>
       </div>
     </div>
   </div>
@@ -551,6 +564,7 @@ _PRINTING_SCRIPT_PART1 = r"""
       pageMeta: document.getElementById('repairOrderPrintPageMeta'),
       warnings: document.getElementById('repairOrderPrintWarnings'),
       previewWrap: document.getElementById('repairOrderPrintPreviewWrap'),
+      previewStage: document.getElementById('repairOrderPrintPreviewStage'),
       previewFrame: document.getElementById('repairOrderPrintPreviewFrame'),
       fitWidthButton: document.getElementById('repairOrderPrintFitWidthButton'),
       actualSizeButton: document.getElementById('repairOrderPrintActualSizeButton'),
@@ -1334,19 +1348,40 @@ _PRINTING_SCRIPT_PART2 = r"""
       }
     }
 
+    const REPAIR_ORDER_PRINT_PREVIEW_VIEWPORTS = {
+      portrait: { width: 920, height: 1180 },
+      landscape: { width: 1180, height: 860 },
+    };
+
+    function repairOrderPrintPreviewViewport() {
+      const preview = repairOrderPrintCurrentPreview();
+      const page = preview?.pages?.[repairOrderPrintCurrentPageIndex()] || null;
+      const pageHtml = String(page?.html || '');
+      return pageHtml.includes('regulated-page--landscape')
+        ? REPAIR_ORDER_PRINT_PREVIEW_VIEWPORTS.landscape
+        : REPAIR_ORDER_PRINT_PREVIEW_VIEWPORTS.portrait;
+    }
+
     function repairOrderPrintScale() {
+      const viewport = repairOrderPrintPreviewViewport();
       if (repairOrderPrintState.zoomMode === 'fit') {
-        const availableWidth = Math.max(560, (printEls.previewWrap?.clientWidth || 920) - 24);
-        return Math.max(0.55, Math.min(1, availableWidth / 920));
+        const availableWidth = Math.max(320, (printEls.previewWrap?.clientWidth || viewport.width) - 24);
+        return Math.max(0.3, Math.min(1, availableWidth / viewport.width));
       }
       return Math.max(0.4, Math.min(2, Number(repairOrderPrintState.zoom || 1)));
     }
 
     function applyRepairOrderPrintZoom() {
+      const viewport = repairOrderPrintPreviewViewport();
       const scale = repairOrderPrintScale();
       if (!printEls.previewFrame) return;
+      if (printEls.previewStage) {
+        printEls.previewStage.style.width = (viewport.width * scale) + 'px';
+        printEls.previewStage.style.height = (viewport.height * scale) + 'px';
+      }
+      printEls.previewFrame.style.width = viewport.width + 'px';
+      printEls.previewFrame.style.height = viewport.height + 'px';
       printEls.previewFrame.style.transform = 'scale(' + scale + ')';
-      printEls.previewFrame.style.width = (920 / Math.max(scale, 0.001)) + 'px';
     }
 
     function renderRepairOrderPrintPreview() {
@@ -1982,7 +2017,6 @@ _PRINTING_SCRIPT_PART3 = r"""
     }
 
     printRepairOrderDraft = function() { return openRepairOrderPrintWorkspace(); };
-    printManualDocumentDraft = function() { return openManualDocumentPrintWorkspace(); };
 
     if (printEls.documents) printEls.documents.addEventListener('click', handleRepairOrderPrintDocumentsClick);
     if (printEls.documentsAction) printEls.documentsAction.addEventListener('click', handleRepairOrderPrintDocumentsActionClick);

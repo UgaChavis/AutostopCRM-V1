@@ -3651,8 +3651,8 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_repair_order_print_module_exposes_preview_template_editor_and_routes(self) -> None:
         self.assertIn('id="repairOrderPrintModal"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="manualDocumentPrintButton"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="mobileManualDocumentPrintButton"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="manualDocumentPrintButton"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="mobileManualDocumentPrintButton"', BOARD_WEB_APP_HTML)
         topbar_actions = re.search(
             r'<div class="topbar__actions">(?P<body>.*?)</div>',
             BOARD_WEB_APP_HTML,
@@ -3660,6 +3660,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIsNotNone(topbar_actions)
         self.assertNotIn('id="manualDocumentPrintButton"', topbar_actions.group("body"))
+        self.assertNotIn('id="mobileManualDocumentPrintButton"', topbar_actions.group("body"))
         print_footer_actions = re.search(
             r'<div class="repair-order-print-footer__actions">(?P<body>.*?)</div>',
             BOARD_WEB_APP_HTML,
@@ -3667,11 +3668,9 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIsNotNone(print_footer_actions)
         print_footer_html = print_footer_actions.group("body")
-        self.assertIn('id="manualDocumentPrintButton"', print_footer_html)
-        self.assertLess(
-            print_footer_html.index('id="manualDocumentPrintButton"'),
-            print_footer_html.index('id="repairOrderPrintExportButton"'),
-        )
+        self.assertNotIn('id="manualDocumentPrintButton"', print_footer_html)
+        self.assertIn('id="repairOrderPrintExportButton"', print_footer_html)
+        self.assertIn('id="repairOrderPrintRunButton"', print_footer_html)
         self.assertIn("body.is-mobile-lite #repairOrderPrintModal", BOARD_WEB_APP_HTML)
         self.assertIn("body.is-mobile-lite #inspectionSheetFormModal", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -3693,7 +3692,11 @@ class WebAssetsTests(unittest.TestCase):
             ".repair-order-print-layout > .repair-order-print-panel:nth-child(2) { min-height: 420px; overflow: hidden; }",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("Math.min(1, availableWidth / 920)", BOARD_WEB_APP_HTML)
+        self.assertIn('id="repairOrderPrintPreviewStage"', BOARD_WEB_APP_HTML)
+        self.assertIn("REPAIR_ORDER_PRINT_PREVIEW_VIEWPORTS", BOARD_WEB_APP_HTML)
+        self.assertIn("landscape: { width: 1180, height: 860 }", BOARD_WEB_APP_HTML)
+        self.assertIn("pageHtml.includes('regulated-page--landscape')", BOARD_WEB_APP_HTML)
+        self.assertIn("Math.min(1, availableWidth / viewport.width)", BOARD_WEB_APP_HTML)
         self.assertNotIn(
             ".repair-order-print-layout,\n      .print-template-editor { grid-template-columns: 1fr; grid-template-areas: none; }",
             BOARD_WEB_APP_HTML,
@@ -3772,14 +3775,8 @@ class WebAssetsTests(unittest.TestCase):
             "printRepairOrderDraft = function() { return openRepairOrderPrintWorkspace(); };",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn(
-            "printManualDocumentDraft = function() { return openManualDocumentPrintWorkspace(); };",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn(
-            "els.mobileManualDocumentPrintButton?.addEventListener('click', printManualDocumentDraft);",
-            BOARD_WEB_APP_HTML,
-        )
+        self.assertNotIn("printManualDocumentDraft", BOARD_WEB_APP_HTML)
+        self.assertNotIn("manualDocumentPrintButton?.addEventListener", BOARD_WEB_APP_HTML)
         self.assertIn("document_without_card: repairOrderPrintIsManualMode()", BOARD_WEB_APP_HTML)
         self.assertIn(
             "document_overrides: readRegulatedPrintOverridesFromInputs()", BOARD_WEB_APP_HTML

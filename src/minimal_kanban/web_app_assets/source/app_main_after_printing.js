@@ -703,8 +703,6 @@
     els.repairOrderSaveButton.addEventListener('click', saveRepairOrderDraft);
     els.repairOrderPaymentsButton.addEventListener('click', openRepairOrderPaymentsModal);
     els.repairOrderPrintButton.addEventListener('click', printRepairOrderDraft);
-    els.manualDocumentPrintButton?.addEventListener('click', printManualDocumentDraft);
-    els.mobileManualDocumentPrintButton?.addEventListener('click', printManualDocumentDraft);
     els.saveCardButton.addEventListener('click', saveCard);
     els.saveStickyButton.addEventListener('click', saveSticky);
     els.archiveAction.addEventListener('click', archiveActiveCard);
