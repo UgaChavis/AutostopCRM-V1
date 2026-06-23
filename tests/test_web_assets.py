@@ -3385,6 +3385,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function repairOrderCashPaymentsValue(payments)", BOARD_WEB_APP_HTML)
         self.assertIn("function repairOrderCardPaymentsValue(payments)", BOARD_WEB_APP_HTML)
         self.assertIn("function repairOrderTaxRate(value)", BOARD_WEB_APP_HTML)
+        self.assertIn("function repairOrderCashlessGrossValue(netAmount)", BOARD_WEB_APP_HTML)
         self.assertIn(
             "function repairOrderProjectedTaxesValue(subtotal, paymentMethod)", BOARD_WEB_APP_HTML
         )
@@ -3417,7 +3418,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            "noncash_due: repairOrderRoundMoney(cashDue * (1 + repairOrderTaxRate('cashless'))),",
+            "noncash_due: repairOrderCashlessGrossValue(cashDue),",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(

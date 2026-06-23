@@ -3503,11 +3503,11 @@ class ApiServerTests(unittest.TestCase):
             text_payload["data"]["text"],
         )
         self.assertIn(
-            "Стоимость заказ-наряда по безналичному расчету: 16100",
+            "Стоимость заказ-наряда по безналичному расчету: 16470.59",
             text_payload["data"]["text"],
         )
         self.assertIn(
-            "Доплата по безналичному расчету: 16100",
+            "Доплата по безналичному расчету: 16470.59",
             text_payload["data"]["text"],
         )
         self.assertIn(
@@ -3740,7 +3740,7 @@ class ApiServerTests(unittest.TestCase):
         repair_order_html = preview["data"]["documents"][2]["pages"][0]["html"]
         self.assertIn("ООО Документ Без Карточки", invoice_html)
         self.assertIn("40702810900000000001", invoice_html)
-        self.assertIn("5 750,00", invoice_html)
+        self.assertIn("5 882,35", invoice_html)
         self.assertIn("Nissan X-Trail T32", repair_order_html)
 
         with patch(
@@ -3796,7 +3796,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("ООО Текстовый Документ", invoice_html)
         self.assertIn("2468003333", invoice_html)
         self.assertIn("40702810900000000001", invoice_html)
-        self.assertIn("3 910,00", invoice_html)
+        self.assertIn("4 000,00", invoice_html)
         self.assertIn("В том числе НДС", invoice_html)
 
         with patch(
@@ -3840,7 +3840,7 @@ class ApiServerTests(unittest.TestCase):
         invoice_html = preview["data"]["documents"][0]["pages"][0]["html"]
         self.assertIn("<td>Налоговый режим</td><td>Без НДС</td>", invoice_html)
         self.assertNotIn("В том числе НДС (5%)", invoice_html)
-        self.assertIn("1 150,00", invoice_html)
+        self.assertIn("1 176,47", invoice_html)
 
     def test_invoice_preview_includes_linked_client_requisites(self) -> None:
         status, client_created = self.request(

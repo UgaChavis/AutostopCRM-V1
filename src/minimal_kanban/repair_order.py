@@ -29,6 +29,7 @@ REPAIR_ORDER_PAYMENT_METHOD_CASHLESS = "cashless"
 REPAIR_ORDER_PAYMENT_METHOD_CARD = "card"
 REPAIR_ORDER_PAYMENT_METHOD_LIMIT = 16
 REPAIR_ORDER_PAYMENT_TAX_RATE = Decimal("0.15")
+REPAIR_ORDER_PAYMENT_NET_RATE = Decimal("1") - REPAIR_ORDER_PAYMENT_TAX_RATE
 REPAIR_ORDER_ALLOWED_STATUSES = {
     REPAIR_ORDER_STATUS_OPEN,
     REPAIR_ORDER_STATUS_READY,
@@ -194,6 +195,13 @@ def _round_money(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def repair_order_cashless_gross_value(net_amount: Decimal) -> Decimal:
+    net_amount = _round_money(net_amount)
+    if net_amount <= Decimal("0"):
+        return Decimal("0")
+    return _round_money(net_amount / REPAIR_ORDER_PAYMENT_NET_RATE)
+
+
 def repair_order_payments_value_by_method(
     payments: list[RepairOrderPayment] | Any,
     payment_method: str,
@@ -243,7 +251,7 @@ def repair_order_payment_summary_value(
         "base_paid_noncash": _round_money(base_paid_noncash),
         "base_remaining": _round_money(base_remaining),
         "cash_due": _round_money(cash_due),
-        "noncash_due": _round_money(cash_due * (Decimal("1") + REPAIR_ORDER_PAYMENT_TAX_RATE)),
+        "noncash_due": repair_order_cashless_gross_value(cash_due),
         "taxes_and_fees": taxes_and_fees,
         "total_paid": total_paid,
         "grand_total": _round_money(base_total + taxes_and_fees),
@@ -832,7 +840,7 @@ class RepairOrder:
         return _format_decimal(self.subtotal_value())
 
     def noncash_total_value(self) -> Decimal:
-        return _round_money(self.subtotal_value() * (Decimal("1") + REPAIR_ORDER_PAYMENT_TAX_RATE))
+        return repair_order_cashless_gross_value(self.subtotal_value())
 
     def noncash_total_amount(self) -> str:
         return _format_decimal(self.noncash_total_value())

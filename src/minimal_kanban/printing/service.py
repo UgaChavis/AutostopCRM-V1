@@ -16,9 +16,9 @@ from typing import Any
 from ..models import Card, ClientProfile, parse_datetime, utc_now_iso
 from ..repair_order import (
     REPAIR_ORDER_PAYMENT_METHOD_CASHLESS,
-    REPAIR_ORDER_PAYMENT_TAX_RATE,
     RepairOrder,
     RepairOrderRow,
+    repair_order_cashless_gross_value,
 )
 from .defaults import BUILTIN_PRINT_DOCUMENTS, PRINT_BASE_STYLES, builtin_template_records
 from .models import (
@@ -649,14 +649,37 @@ def _repair_row_dict(row: RepairOrderRow, *, section: str, index: int) -> dict[s
 
 def _invoice_line_item_dict(item: dict[str, Any]) -> dict[str, Any]:
     invoice_item = dict(item)
-    factor = Decimal("1") + REPAIR_ORDER_PAYMENT_TAX_RATE
-    price = _round_money((_parse_decimal(item.get("price")) or Decimal("0")) * factor)
-    total = _round_money((_parse_decimal(item.get("total")) or Decimal("0")) * factor)
+    price = repair_order_cashless_gross_value(_parse_decimal(item.get("price")) or Decimal("0"))
+    total = repair_order_cashless_gross_value(_parse_decimal(item.get("total")) or Decimal("0"))
     invoice_item["price"] = price
     invoice_item["total"] = total
     invoice_item["price_display"] = _money_display(price)
     invoice_item["total_display"] = _money_display(total)
     return invoice_item
+
+
+def _balance_invoice_line_totals(
+    line_items: list[dict[str, Any]], target_total: Decimal
+) -> list[dict[str, Any]]:
+    if not line_items:
+        return line_items
+    current_total = _round_money(
+        sum(
+            (_parse_decimal(item.get("total")) or Decimal("0") for item in line_items),
+            Decimal("0"),
+        )
+    )
+    adjustment = _round_money(target_total - current_total)
+    if adjustment == Decimal("0"):
+        return line_items
+    balanced_items = list(line_items)
+    last_index = len(balanced_items) - 1
+    last_item = dict(balanced_items[last_index])
+    total = _round_money((_parse_decimal(last_item.get("total")) or Decimal("0")) + adjustment)
+    last_item["total"] = total
+    last_item["total_display"] = _money_display(total)
+    balanced_items[last_index] = last_item
+    return balanced_items
 
 
 def _print_safe_repair_order_dict(order: RepairOrder) -> dict[str, Any]:
@@ -1839,7 +1862,6 @@ class PrintModuleService:
         base_line_items = [
             {**item, "index": index + 1} for index, item in enumerate(works + materials)
         ]
-        invoice_line_items = [_invoice_line_item_dict(item) for item in base_line_items]
         inspection_form = self._load_inspection_sheet_form(card, order)
         findings = self._bullet_points(order.note, fallback_source=order.comment)
         recommendations = self._bullet_points(order.comment)
@@ -1878,11 +1900,10 @@ class PrintModuleService:
             f"{key}_ruble_display": _money_ruble_display(value)
             for key, value in payment_summary.items()
         }
-        invoice_cashless_total = _round_money(
-            sum(
-                (_parse_decimal(item.get("total")) or Decimal("0") for item in invoice_line_items),
-                Decimal("0"),
-            )
+        invoice_cashless_total = repair_order_cashless_gross_value(payment_summary["base_total"])
+        invoice_line_items = _balance_invoice_line_totals(
+            [_invoice_line_item_dict(item) for item in base_line_items],
+            invoice_cashless_total,
         )
         invoice_base_total = payment_summary["base_total"]
         invoice_total = invoice_cashless_total if document.id == "invoice" else invoice_base_total
@@ -1899,9 +1920,7 @@ class PrintModuleService:
         invoice_prepayment = payment_summary["total_paid"]
         invoice_amount_due = _round_money(max(invoice_total - invoice_prepayment, Decimal("0")))
         cash_total = payment_summary["base_total"]
-        noncash_total = payment_summary["base_total"] * (
-            Decimal("1") + REPAIR_ORDER_PAYMENT_TAX_RATE
-        )
+        noncash_total = repair_order_cashless_gross_value(payment_summary["base_total"])
         noncash_taxes_and_fees = noncash_total - payment_summary["base_total"]
         selected_due = (
             payment_summary["noncash_due"]

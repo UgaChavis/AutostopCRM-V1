@@ -602,8 +602,8 @@ class AgentControlService:
                 "MCP URL: https://crm.autostopcrm.ru/mcp\n"
                 "Admin smoke credentials: use AUTOSTOP_SMOKE_OPERATOR_USERNAME/AUTOSTOP_SMOKE_OPERATOR_PASSWORD from the runtime environment.\n"
                 "Use cashbox names exactly as they exist.\n"
-                "If payment goes to cashbox 'Безналичный', the repair order adds 15% taxes and fees from that payment amount and keeps those fees in the client debt.\n"
-                "Cashboxes 'Наличный' and 'Карта Мария' count as cash-like payments and do not add taxes and fees.\n"
+                "If payment goes to cashbox 'Безналичный', the repair order withholds 15% taxes and fees from that gross incoming amount and applies the remaining 85% to the client debt.\n"
+                "Cashboxes 'Наличный' and 'Карта Мария' count as cash-like payments and do not withhold taxes and fees.\n"
             )
         runner = None
         while not self._worker_stop.is_set():

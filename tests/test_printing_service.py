@@ -276,7 +276,8 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Toyota Land Cruiser 200", repair_order_html)
         self.assertIn("Диагностика подвески", repair_order_html)
         self.assertIn("Фильтр салона", repair_order_html)
-        self.assertIn("4 945,00", invoice_html)
+        self.assertIn("5 058,82", invoice_html)
+        self.assertIn("4 058,82", invoice_html)
         self.assertEqual(preview["documents"][0]["template"]["source"], "builtin")
 
     def test_manual_inspection_sheet_drafts_are_isolated_by_document_identity(self) -> None:
@@ -469,14 +470,14 @@ class PrintingServiceTests(unittest.TestCase):
             preview["documents"][0]["pages"][0]["html"],
         )
         self.assertIn("13 800 ₽", preview["documents"][0]["pages"][0]["html"])
-        self.assertIn("15 870 ₽", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn("16 235,29 ₽", preview["documents"][0]["pages"][0]["html"])
         self.assertIn("Предоплата по безналу", preview["documents"][0]["pages"][0]["html"])
         self.assertIn("1 000 ₽", preview["documents"][0]["pages"][0]["html"])
         self.assertIn(
             "Доплата по безналичному расчету",
             preview["documents"][0]["pages"][0]["html"],
         )
-        self.assertIn("14 892,50 ₽", preview["documents"][0]["pages"][0]["html"])
+        self.assertIn("15 235,29 ₽", preview["documents"][0]["pages"][0]["html"])
         self.assertIn(
             "Доплата по наличному расчету",
             preview["documents"][0]["pages"][0]["html"],
@@ -506,7 +507,7 @@ class PrintingServiceTests(unittest.TestCase):
         )
         self.assertIn("Всего к оплате", preview["documents"][1]["pages"][0]["html"])
         self.assertIn("Предоплата", preview["documents"][1]["pages"][0]["html"])
-        self.assertIn("14 870,00", preview["documents"][1]["pages"][0]["html"])
+        self.assertIn("15 235,29", preview["documents"][1]["pages"][0]["html"])
         self.assertIn("Сумма прописью", preview["documents"][1]["pages"][0]["html"])
         self.assertEqual(preview["documents"][0]["missing_fields"], [])
 
@@ -549,11 +550,11 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Сумма прописью", html)
         self.assertIn("Всего к оплате", html)
         self.assertIn("Предоплата", html)
-        self.assertIn("2 875,00", html)
-        self.assertIn("15 870,00", html)
+        self.assertIn("2 941,18", html)
+        self.assertIn("16 235,29", html)
         self.assertIn("1 000,00", html)
-        self.assertIn("14 870,00", html)
-        self.assertIn("755,71", html)
+        self.assertIn("15 235,29", html)
+        self.assertIn("773,11", html)
         self.assertNotIn("13 800,00", html)
         self.assertIn("Руководитель", html)
         self.assertIn("Бухгалтер", html)
@@ -571,27 +572,27 @@ class PrintingServiceTests(unittest.TestCase):
         invoice = context["invoice"]
         invoice_items = invoice["line_items"]
 
-        self.assertEqual(invoice["total"], Decimal("15870.00"))
-        self.assertEqual(invoice["total_display"], "15 870,00")
-        self.assertEqual(invoice["vat"], Decimal("755.71"))
-        self.assertEqual(invoice["vat_display"], "755,71")
-        self.assertEqual(invoice["subtotal"], Decimal("15870.00"))
+        self.assertEqual(invoice["total"], Decimal("16235.29"))
+        self.assertEqual(invoice["total_display"], "16 235,29")
+        self.assertEqual(invoice["vat"], Decimal("773.11"))
+        self.assertEqual(invoice["vat_display"], "773,11")
+        self.assertEqual(invoice["subtotal"], Decimal("16235.29"))
         self.assertEqual(invoice["prepayment"], Decimal("1000"))
         self.assertEqual(invoice["prepayment_display"], "1 000,00")
-        self.assertEqual(invoice["amount_due"], Decimal("14870.00"))
-        self.assertEqual(invoice["amount_due_display"], "14 870,00")
+        self.assertEqual(invoice["amount_due"], Decimal("15235.29"))
+        self.assertEqual(invoice["amount_due_display"], "15 235,29")
         self.assertTrue(invoice["has_prepayment"])
         self.assertEqual(context["line_items"], invoice_items)
         self.assertEqual(invoice_items[0]["name"], "Диагностика АКПП")
-        self.assertEqual(invoice_items[0]["price"], Decimal("2875.00"))
-        self.assertEqual(invoice_items[0]["total"], Decimal("2875.00"))
-        self.assertEqual(invoice_items[0]["price_display"], "2 875,00")
-        self.assertEqual(invoice_items[0]["total_display"], "2 875,00")
+        self.assertEqual(invoice_items[0]["price"], Decimal("2941.18"))
+        self.assertEqual(invoice_items[0]["total"], Decimal("2941.18"))
+        self.assertEqual(invoice_items[0]["price_display"], "2 941,18")
+        self.assertEqual(invoice_items[0]["total_display"], "2 941,18")
         self.assertEqual(invoice_items[2]["name"], "ATF")
-        self.assertEqual(invoice_items[2]["price"], Decimal("1092.50"))
-        self.assertEqual(invoice_items[2]["total"], Decimal("6555.00"))
-        self.assertEqual(invoice_items[2]["price_display"], "1 092,50")
-        self.assertEqual(invoice_items[2]["total_display"], "6 555,00")
+        self.assertEqual(invoice_items[2]["price"], Decimal("1117.65"))
+        self.assertEqual(invoice_items[2]["total"], Decimal("6705.88"))
+        self.assertEqual(invoice_items[2]["price_display"], "1 117,65")
+        self.assertEqual(invoice_items[2]["total_display"], "6 705,88")
 
     def test_invoice_template_renders_linked_client_requisites(self) -> None:
         preview = self.service.preview_documents(
@@ -634,8 +635,8 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("НДС (5%)", html)
         self.assertIn("13 800,00", html)
         self.assertIn("2 500,00", html)
-        self.assertNotIn("15 870,00", html)
-        self.assertNotIn("2 875,00", html)
+        self.assertNotIn("16 235,29", html)
+        self.assertNotIn("2 941,18", html)
         self.assertIn("Подписи", html)
         self.assertNotIn("undefined", html)
         self.assertNotIn("NaN", html)
@@ -792,6 +793,8 @@ class PrintingServiceTests(unittest.TestCase):
                     "prepayment": Decimal("10000"),
                     "cash_like_prepayment": Decimal("10000"),
                     "due": Decimal("10000"),
+                    "cash_due": Decimal("10000"),
+                    "noncash_due": Decimal("11764.71"),
                     "due_label": "Доплата по наличному расчету",
                 },
             ),
@@ -804,9 +807,9 @@ class PrintingServiceTests(unittest.TestCase):
                     "grand": Decimal("21500"),
                     "prepayment": Decimal("10000"),
                     "cash_like_prepayment": Decimal("0"),
-                    "due": Decimal("13225"),
+                    "due": Decimal("13529.41"),
                     "cash_due": Decimal("11500"),
-                    "noncash_due": Decimal("13225"),
+                    "noncash_due": Decimal("13529.41"),
                     "due_label": "Доплата по безналичному расчету",
                 },
             ),
@@ -822,9 +825,9 @@ class PrintingServiceTests(unittest.TestCase):
                     "grand": Decimal("21050"),
                     "prepayment": Decimal("12000"),
                     "cash_like_prepayment": Decimal("5000"),
-                    "due": Decimal("10407.5"),
+                    "due": Decimal("10647.06"),
                     "cash_due": Decimal("9050"),
-                    "noncash_due": Decimal("10407.5"),
+                    "noncash_due": Decimal("10647.06"),
                     "due_label": "Доплата по безналичному расчету",
                 },
             ),
@@ -850,16 +853,11 @@ class PrintingServiceTests(unittest.TestCase):
                 self.assertEqual(totals["due"], expected["due"])
                 self.assertEqual(totals["due_label"], expected["due_label"])
                 self.assertEqual(totals["cash_due"], expected.get("cash_due", expected["due"]))
-                self.assertEqual(
-                    totals["noncash_due"],
-                    expected.get("noncash_due", expected["due"] * Decimal("1.15")),
-                )
+                self.assertEqual(totals["noncash_due"], expected["noncash_due"])
                 self.assertEqual(totals["cash_total"], expected["subtotal"])
                 self.assertEqual(totals["cash_like_prepayment"], expected["cash_like_prepayment"])
-                self.assertEqual(totals["noncash_total"], expected["subtotal"] * Decimal("1.15"))
-                self.assertEqual(
-                    totals["noncash_taxes_and_fees"], expected["subtotal"] * Decimal("0.15")
-                )
+                self.assertEqual(totals["noncash_total"], Decimal("23529.41"))
+                self.assertEqual(totals["noncash_taxes_and_fees"], Decimal("3529.41"))
                 self.assertEqual(
                     context["repair_order"]["prepayment_display"], totals["prepayment_display"]
                 )
@@ -887,12 +885,12 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Стоимость заказ-наряда за наличный расчет</td><td>20 000 ₽", html)
         self.assertIn("Стоимость заказ-наряда по безналичному расчету", html)
         self.assertIn("включая налоги и сборы 15%", html)
-        self.assertIn(">23 000 ₽</td>", html)
+        self.assertIn(">23 529,41 ₽</td>", html)
         self.assertIn("Предоплата за наличные</td><td>5 000 ₽", html)
         self.assertNotIn("Предоплата наличными</td>", html)
         self.assertNotIn("Предоплата на карту</td>", html)
         self.assertNotIn("Налоги и сборы</td>", html)
-        self.assertIn("Доплата по безналичному расчету</td><td>17 250 ₽", html)
+        self.assertIn("Доплата по безналичному расчету</td><td>17 647,06 ₽", html)
         self.assertIn("Доплата по наличному расчету</td><td>15 000 ₽", html)
         self.assertNotIn("20 000,00 ₽", html)
         self.assertNotIn("<tr><td>Итого работы</td>", html)
@@ -908,10 +906,10 @@ class PrintingServiceTests(unittest.TestCase):
         html = preview["documents"][0]["pages"][0]["html"]
 
         self.assertIn("Стоимость заказ-наряда за наличный расчет</td><td>334 545 ₽", html)
-        self.assertIn(">384 726,75 ₽</td>", html)
+        self.assertIn(">393 582,35 ₽</td>", html)
         self.assertIn("Предоплата по безналу</td><td>170 000 ₽", html)
         self.assertNotIn("Налоги и сборы</td>", html)
-        self.assertIn("Доплата по безналичному расчету</td><td>218 551,75 ₽", html)
+        self.assertIn("Доплата по безналичному расчету</td><td>223 582,35 ₽", html)
         self.assertIn("Доплата по наличному расчету</td><td>190 045 ₽", html)
         self.assertNotIn("334 545,00 ₽", html)
 
@@ -923,12 +921,12 @@ class PrintingServiceTests(unittest.TestCase):
         )
         html = preview["documents"][0]["pages"][0]["html"]
 
-        self.assertIn("Итого</td><td>384 726,75", html)
-        self.assertIn("В том числе НДС (5%)</td><td>18 320,32", html)
+        self.assertIn("Итого</td><td>393 582,35", html)
+        self.assertIn("В том числе НДС (5%)</td><td>18 742,02", html)
         self.assertIn("Предоплата</td><td>170 000,00", html)
-        self.assertIn("Всего к оплате</td><td>214 726,75", html)
-        self.assertIn("Двести четырнадцать тысяч", html)
-        self.assertNotIn("Всего к оплате</td><td>384 726,75", html)
+        self.assertIn("Всего к оплате</td><td>223 582,35", html)
+        self.assertIn("Двести двадцать три тысячи", html)
+        self.assertNotIn("Всего к оплате</td><td>393 582,35", html)
 
     def test_invoice_print_hides_prepayment_row_when_order_has_no_payments(self) -> None:
         preview = self.service.preview_documents(
@@ -938,9 +936,9 @@ class PrintingServiceTests(unittest.TestCase):
         )
         html = preview["documents"][0]["pages"][0]["html"]
 
-        self.assertIn("Итого</td><td>23 000,00", html)
+        self.assertIn("Итого</td><td>23 529,41", html)
         self.assertNotIn("Предоплата</td>", html)
-        self.assertIn("Всего к оплате</td><td>23 000,00", html)
+        self.assertIn("Всего к оплате</td><td>23 529,41", html)
 
     def test_invoice_print_caps_amount_due_at_zero_after_overpayment(self) -> None:
         preview = self.service.preview_documents(
@@ -953,7 +951,7 @@ class PrintingServiceTests(unittest.TestCase):
         )
         html = preview["documents"][0]["pages"][0]["html"]
 
-        self.assertIn("Итого</td><td>23 000,00", html)
+        self.assertIn("Итого</td><td>23 529,41", html)
         self.assertIn("Предоплата</td><td>30 000,00", html)
         self.assertIn("Всего к оплате</td><td>0,00", html)
         self.assertNotIn("Всего к оплате</td><td>-", html)

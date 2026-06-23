@@ -13156,7 +13156,7 @@
         base_paid_noncash: basePaidNoncash,
         base_remaining: baseRemaining,
         cash_due: cashDue,
-        noncash_due: repairOrderRoundMoney(cashDue * (1 + repairOrderTaxRate('cashless'))),
+        noncash_due: repairOrderCashlessGrossValue(cashDue),
         taxes_and_fees: taxesAndFees,
         total_paid: totalPaid,
         grand_total: repairOrderRoundMoney(normalizedBaseTotal + taxesAndFees),
@@ -13175,6 +13175,17 @@
       return normalizeRepairOrderPaymentMethod(value) === 'cashless' ? 0.15 : 0;
     }
 
+    function repairOrderCashlessNetRate() {
+      return 1 - repairOrderTaxRate('cashless');
+    }
+
+    function repairOrderCashlessGrossValue(netAmount) {
+      const normalized = repairOrderRoundMoney(repairOrderParseNumber(netAmount) ?? 0);
+      const netRate = repairOrderCashlessNetRate();
+      if (normalized <= 0 || netRate <= 0) return 0;
+      return repairOrderRoundMoney(normalized / netRate);
+    }
+
     function syncRepairOrderPaymentMethod(value) {
       const normalized = normalizeRepairOrderPaymentMethod(value);
       if (els.repairOrderPaymentMethod) els.repairOrderPaymentMethod.value = normalized;
@@ -13191,7 +13202,10 @@
     }
 
     function repairOrderProjectedTaxesValue(subtotal, paymentMethod) {
-      return repairOrderRoundMoney(subtotal * repairOrderTaxRate(paymentMethod));
+      if (normalizeRepairOrderPaymentMethod(paymentMethod) !== 'cashless') return 0;
+      return repairOrderRoundMoney(
+        repairOrderCashlessGrossValue(subtotal) - repairOrderRoundMoney(subtotal)
+      );
     }
 
     function renderRepairOrderPaymentCashboxOptions(selectedId = '') {

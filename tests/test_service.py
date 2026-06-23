@@ -1346,6 +1346,47 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 409)
         self.assertIn("выполнить оплату", raised.exception.message.lower())
 
+    def test_cashless_gross_payment_can_close_repair_order(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Безналичный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        created = self.service.create_card(
+            {
+                "vehicle": "Nissan Qashqai",
+                "title": "Безнал закрывает чистый долг",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        updated = self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Клиент",
+                    "works": [{"name": "Развал схождение", "quantity": "1", "price": "2100"}],
+                    "payments": [
+                        {
+                            "amount": "2470.59",
+                            "paid_at": "23.06.2026 18:48",
+                            "note": "Оплата безналом",
+                            "payment_method": "cash",
+                            "cashbox_id": cashbox["id"],
+                            "actor_name": "ADMIN",
+                        }
+                    ],
+                },
+            }
+        )
+
+        order = updated["card"]["repair_order"]
+        self.assertEqual(order["payment_summary"]["taxes_and_fees"], "370.59")
+        self.assertEqual(order["payment_summary"]["cash_due"], "0")
+        self.assertEqual(order["payment_summary"]["noncash_due"], "0")
+        self.assertEqual(order["payment_status"], "paid")
+
+        closed = self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
+        self.assertEqual(closed["card"]["repair_order"]["status"], "closed")
+
     def test_update_repair_order_rejects_unpaid_closed_status(self) -> None:
         created = self.service.create_card(
             {
@@ -8045,7 +8086,7 @@ class CardServiceTests(unittest.TestCase):
                     "base_paid_noncash": "0",
                     "base_remaining": "20000",
                     "cash_due": "20000",
-                    "noncash_due": "23000",
+                    "noncash_due": "23529.41",
                     "taxes_and_fees": "0",
                     "total_paid": "0",
                 },
@@ -8068,7 +8109,7 @@ class CardServiceTests(unittest.TestCase):
                     "base_paid_noncash": "0",
                     "base_remaining": "10000",
                     "cash_due": "10000",
-                    "noncash_due": "11500",
+                    "noncash_due": "11764.71",
                     "taxes_and_fees": "0",
                     "total_paid": "10000",
                 },
@@ -8091,7 +8132,7 @@ class CardServiceTests(unittest.TestCase):
                     "base_paid_noncash": "10000",
                     "base_remaining": "10000",
                     "cash_due": "11500",
-                    "noncash_due": "13225",
+                    "noncash_due": "13529.41",
                     "taxes_and_fees": "1500",
                     "total_paid": "10000",
                 },
@@ -8122,7 +8163,7 @@ class CardServiceTests(unittest.TestCase):
                     "base_paid_noncash": "5000",
                     "base_remaining": "10000",
                     "cash_due": "10750",
-                    "noncash_due": "12362.5",
+                    "noncash_due": "12647.06",
                     "taxes_and_fees": "750",
                     "total_paid": "10000",
                 },
@@ -8145,7 +8186,7 @@ class CardServiceTests(unittest.TestCase):
                     "base_paid_noncash": "20000",
                     "base_remaining": "0",
                     "cash_due": "3000",
-                    "noncash_due": "3450",
+                    "noncash_due": "3529.41",
                     "taxes_and_fees": "3000",
                     "total_paid": "20000",
                 },
@@ -9906,11 +9947,11 @@ class CardServiceTests(unittest.TestCase):
             context["repair_order_text"]["text"],
         )
         self.assertIn(
-            "Стоимость заказ-наряда по безналичному расчету: 1380",
+            "Стоимость заказ-наряда по безналичному расчету: 1411.76",
             context["repair_order_text"]["text"],
         )
         self.assertIn(
-            "Доплата по безналичному расчету: 1380",
+            "Доплата по безналичному расчету: 1411.76",
             context["repair_order_text"]["text"],
         )
         self.assertIn(

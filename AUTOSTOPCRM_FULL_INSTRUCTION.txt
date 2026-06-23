@@ -28,9 +28,10 @@ docker compose exec -T autostopcrm python scripts/check_live_connector.py --stri
 docker compose exec -T autostopcrm python scripts/docs_audit.py --format text
 
 Money logic:
-- cashless repair-order payments add 15% taxes/fees from the cashless paid amount
-- those taxes/fees stay in the client debt; payment_status follows cash_due
-- invoice "Всего к оплате" is full cashless invoice total minus all prepayments
+- cashless repair-order payments are gross incoming amounts
+- 15% of each cashless payment is withheld as taxes/fees; 85% covers the order
+- cashless amount due is cash_due / 0.85, so paying it closes the order
+- invoice "Всего к оплате" is gross cashless invoice total minus all prepayments
 
 Diagnostics:
 git status --short --branch
