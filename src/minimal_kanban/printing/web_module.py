@@ -52,7 +52,7 @@ PRINTING_WEB_MODULE_STYLE = r"""
     .repair-order-print-layout > .repair-order-print-panel:first-child .repair-order-print-docs-count {
       text-align: center;
     }
-    .repair-order-print-panel--settings {
+    .repair-order-print-panel.repair-order-print-panel--settings {
       display: none;
     }
     .repair-order-print-panel,

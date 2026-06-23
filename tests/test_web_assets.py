@@ -3681,7 +3681,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('grid-template-areas: "docs preview"', BOARD_WEB_APP_HTML)
         self.assertIn('grid-template-areas: "docs" "preview"', BOARD_WEB_APP_HTML)
         self.assertIn(
-            ".repair-order-print-panel--settings {\n      display: none;", BOARD_WEB_APP_HTML
+            ".repair-order-print-panel.repair-order-print-panel--settings {\n      display: none;",
+            BOARD_WEB_APP_HTML,
         )
         self.assertIn("grid-auto-rows: auto", BOARD_WEB_APP_HTML)
         self.assertIn(
