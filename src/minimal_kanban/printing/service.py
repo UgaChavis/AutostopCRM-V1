@@ -40,6 +40,21 @@ _SENTENCE_SPLIT_RE = re.compile(r"[\n\r]+|(?<=[.!?])\s+")
 _MONEY_QUANT = Decimal("0.01")
 _INVOICE_VAT_RATE = Decimal("0.05")
 _BRAND_LOGO_PATH = Path(__file__).resolve().parent / "assets" / "autostop_brand_logo.png"
+_RU_MONTHS_GENITIVE = (
+    "",
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
+    "мая",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
+)
 _MONEY_UNITS_MALE = (
     "",
     "один",
@@ -617,6 +632,19 @@ def _date_only_display(value: Any, *, fallback: str = "—") -> str:
     return parsed.strftime("%d.%m.%Y")
 
 
+def _date_long_ru_display(value: Any, *, fallback: str = "—") -> str:
+    text = _normalize_text(value, limit=64)
+    if not text:
+        return fallback
+    parsed = parse_datetime(text)
+    if parsed is None:
+        return text
+    month = _RU_MONTHS_GENITIVE[parsed.month] if 1 <= parsed.month <= 12 else ""
+    if not month:
+        return parsed.strftime("%d.%m.%Y")
+    return f"{parsed.day:02d} {month} {parsed.year} г."
+
+
 def _inn_kpp_display(inn: Any, kpp: Any) -> str:
     inn_text = _normalize_text(inn, limit=32)
     kpp_text = _normalize_text(kpp, limit=32)
@@ -727,7 +755,10 @@ def _regulated_line_item_dict(
         "total_with_tax": total_with_tax,
         "total_with_tax_display": _money_display(total_with_tax),
         "excise_display": "Без акциза",
+        "line_code_display": "—",
         "country_display": "—",
+        "country_code_display": "—",
+        "country_name_display": "—",
         "customs_declaration_display": "—",
     }
 
@@ -818,7 +849,9 @@ def _regulated_document_context(
         limit=32,
     )
     document_number = _display(order.number, fallback="—", limit=40)
-    document_date = _date_only_display(order.date or order.opened_at)
+    document_date_value = order.date or order.opened_at
+    document_date = _date_only_display(document_date_value)
+    document_date_long = _date_long_ru_display(document_date_value)
     linked_invoice = _regulated_override_text(
         overrides,
         "linked_invoice",
@@ -830,6 +863,13 @@ def _regulated_document_context(
         "shipment_document",
         fallback=f"№ {document_number} от {document_date}",
         limit=120,
+    )
+    upd_shipment_document = _regulated_override_text(
+        overrides,
+        "upd_shipment_document",
+        "shipment_document",
+        fallback=f"Универсальный передаточный документ №{document_number} от {document_date}",
+        limit=180,
     )
     basis = _regulated_override_text(
         overrides,
@@ -876,7 +916,9 @@ def _regulated_document_context(
     return {
         "document_number_display": document_number,
         "document_date_display": document_date,
+        "document_date_long_display": document_date_long,
         "correction_display": "—",
+        "correction_date_display": "—",
         "linked_invoice_display": linked_invoice,
         "seller_name_display": seller_legal_name,
         "seller_address_display": _display(service_profile.address, limit=300),
@@ -888,13 +930,17 @@ def _regulated_document_context(
         "consignee_display": consignee,
         "payment_document_display": payment_document,
         "shipment_document_display": shipment_document,
+        "upd_shipment_document_display": upd_shipment_document,
         "buyer_name_display": buyer_name,
         "buyer_address_display": buyer_address,
         "buyer_inn_kpp_display": _inn_kpp_display(buyer_inn, buyer_kpp),
         "buyer_position_display": buyer_position,
         "buyer_signer_display": buyer_signer,
         "currency_display": "Российский рубль, 643",
+        "state_contract_display": "—",
+        "upd_status_code_display": "1",
         "upd_status_display": "1 - счет-фактура и передаточный документ (акт)",
+        "upd_status_secondary_display": "2 - передаточный документ (акт)",
         "document_pages_display": "2",
         "basis_display": basis,
         "transport_details_display": transport_details,
