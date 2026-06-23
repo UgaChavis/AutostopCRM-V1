@@ -20,12 +20,23 @@ SUPPORTED_PRINT_DOCUMENT_TYPES = {
     "vehicle_acceptance_act",
     "invoice",
     "invoice_factura",
+    "upd",
     "inspection_sheet",
     "completion_act",
     "parts_sale",
 }
 
 MANUAL_DOCUMENT_TYPE_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "upd",
+        (
+            "upd",
+            "упд",
+            "универсальный передаточный документ",
+            "универсальный передаточный",
+            "передаточный документ",
+        ),
+    ),
     (
         "invoice_factura",
         (

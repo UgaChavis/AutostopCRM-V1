@@ -255,6 +255,7 @@ class PrintingServiceTests(unittest.TestCase):
                 "vehicle_acceptance_act",
                 "invoice",
                 "invoice_factura",
+                "upd",
                 "inspection_sheet",
                 "completion_act",
                 "parts_sale",
@@ -618,7 +619,7 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertNotIn("undefined", html)
         self.assertNotIn("NaN", html)
 
-    def test_invoice_factura_template_renders_brand_header_and_totals(self) -> None:
+    def test_invoice_factura_template_renders_regulated_header_and_totals(self) -> None:
         preview = self.service.preview_documents(
             self.card,
             selected_document_ids=["invoice_factura"],
@@ -628,18 +629,139 @@ class PrintingServiceTests(unittest.TestCase):
         document = preview["documents"][0]
         html = document["pages"][0]["html"]
         self.assertIn("Счет-фактура", html)
-        self.assertIn('class="doc-brand-mark"', html)
-        self.assertIn("Бухгалтерский документ", html)
+        self.assertIn("Приложение № 1 к постановлению Правительства Российской Федерации", html)
         self.assertIn("ОГРН", html)
-        self.assertIn("Налоговый режим", html)
+        self.assertIn("Налоговая ставка", html)
         self.assertIn("НДС (5%)", html)
         self.assertIn("13 800,00", html)
         self.assertIn("2 500,00", html)
-        self.assertNotIn("16 235,29", html)
-        self.assertNotIn("2 941,18", html)
+        self.assertIn("690,00", html)
+        self.assertIn("14 490,00", html)
         self.assertIn("Подписи", html)
+        self.assertNotIn("Бухгалтерский документ", html)
+        self.assertNotIn("Номенклатура", html)
         self.assertNotIn("undefined", html)
         self.assertNotIn("NaN", html)
+
+    def test_invoice_factura_matches_regulated_sample_layout_and_requisites(self) -> None:
+        preview = self.service.preview_documents(
+            self.card,
+            client=build_business_client(),
+            selected_document_ids=["invoice_factura"],
+            active_document_id="invoice_factura",
+        )
+
+        html = preview["documents"][0]["pages"][0]["html"]
+        self.assertIn("Приложение № 1 к постановлению Правительства Российской Федерации", html)
+        self.assertIn("Счет-фактура №", html)
+        self.assertIn("Исправление №", html)
+        self.assertIn("Грузоотправитель и его адрес", html)
+        self.assertIn("Грузополучатель и его адрес", html)
+        self.assertIn("К платежно-расчетному документу", html)
+        self.assertIn("Документ об отгрузке", html)
+        self.assertIn("К счету-фактуре", html)
+        self.assertIn("ИНН/КПП покупателя", html)
+        self.assertIn("ООО Контрагент", html)
+        self.assertIn("2468000000 / 246801001", html)
+        self.assertIn("Российский рубль, 643", html)
+        self.assertIn(
+            "Наименование товара (описание выполненных работ, оказанных услуг), имущественного права",
+            html,
+        )
+        self.assertIn("В том числе сумма акциза", html)
+        self.assertIn("Налоговая ставка", html)
+        self.assertIn("Сумма налога, предъявляемая покупателю", html)
+        self.assertIn(
+            "Стоимость товаров (работ, услуг), имущественных прав с налогом - всего", html
+        )
+        self.assertIn("Страна происхождения товара", html)
+        self.assertIn("Регистрационный номер декларации на товары", html)
+        self.assertIn("Без акциза", html)
+        self.assertIn("Итого", html)
+        self.assertIn("Всего к оплате", html)
+        self.assertIn("Индивидуальный предприниматель Гришкявичус Константин Владиславович", html)
+        self.assertIn("319246800097453, 05.08.2019", html)
+        self.assertNotIn("Бухгалтерский документ", html)
+        self.assertNotIn("Номенклатура", html)
+        self.assertNotIn("undefined", html)
+        self.assertNotIn("NaN", html)
+
+    def test_upd_template_renders_two_page_regulated_sample_from_card_and_client(self) -> None:
+        preview = self.service.preview_documents(
+            self.card,
+            client=build_business_client(),
+            selected_document_ids=["upd"],
+            active_document_id="upd",
+        )
+
+        document = preview["documents"][0]
+        self.assertEqual(document["id"], "upd")
+        self.assertEqual(document["page_count"], 2)
+        first_page_html = document["pages"][0]["html"]
+        second_page_html = document["pages"][1]["html"]
+        combined_html = first_page_html + second_page_html
+        self.assertIn("Универсальный передаточный документ", first_page_html)
+        self.assertIn("Статус:", first_page_html)
+        self.assertIn("1 - счет-фактура и передаточный документ (акт)", first_page_html)
+        self.assertIn("Счет-фактура №", first_page_html)
+        self.assertIn("Документ об отгрузке", first_page_html)
+        self.assertIn("ООО Контрагент", first_page_html)
+        self.assertIn("2468000000 / 246801001", first_page_html)
+        self.assertIn("Российский рубль, 643", first_page_html)
+        self.assertIn("УПД № 12", second_page_html)
+        self.assertIn("Документ составлен на", second_page_html)
+        self.assertIn("Всего к оплате", second_page_html)
+        self.assertIn("Основание передачи (сдачи) / получения (приемки)", second_page_html)
+        self.assertIn("Счет на оплату №12", second_page_html)
+        self.assertIn(
+            "Товар (груз) передал / услуги, результаты работ, права сдал", second_page_html
+        )
+        self.assertIn(
+            "Товар (груз) получил / услуги, результаты работ, права принял", second_page_html
+        )
+        self.assertIn(
+            "Ответственный за правильность оформления факта хозяйственной жизни", second_page_html
+        )
+        self.assertIn(
+            "Наименование экономического субъекта составителя документа",
+            second_page_html,
+        )
+        self.assertIn("М.П.", second_page_html)
+        self.assertIn("Диагностика АКПП", combined_html)
+        self.assertIn("ATF", combined_html)
+        self.assertNotIn("undefined", combined_html)
+        self.assertNotIn("NaN", combined_html)
+
+    def test_regulated_document_overrides_print_fields_without_mutating_client(self) -> None:
+        client = build_business_client()
+        preview = self.service.preview_documents(
+            self.card,
+            client=client,
+            selected_document_ids=["upd"],
+            active_document_id="upd",
+            document_overrides={
+                "buyer_name": "ООО Ручной Получатель",
+                "buyer_inn": "2455555555",
+                "buyer_kpp": "245501001",
+                "buyer_address": "660049, Красноярск, пр-т Мира, 1",
+                "basis": "Договор ремонта № ABC-9 от 01.04.2026",
+                "transport_details": "Самовывоз покупателем",
+                "buyer_position": "Директор",
+                "buyer_signer": "Петров П.П.",
+                "seller_position": "ИП",
+                "seller_signer": "Гришкявичус К.В.",
+            },
+        )
+
+        html = "".join(page["html"] for page in preview["documents"][0]["pages"])
+        self.assertIn("ООО Ручной Получатель", html)
+        self.assertIn("2455555555 / 245501001", html)
+        self.assertIn("660049, Красноярск, пр-т Мира, 1", html)
+        self.assertIn("Договор ремонта № ABC-9 от 01.04.2026", html)
+        self.assertIn("Самовывоз покупателем", html)
+        self.assertIn("Петров П.П.", html)
+        self.assertIn("Гришкявичус К.В.", html)
+        self.assertEqual(client.legal_name, "ООО Контрагент")
 
     def test_inspection_sheet_template_renders_brand_header_and_confirmation(self) -> None:
         preview = self.service.preview_documents(

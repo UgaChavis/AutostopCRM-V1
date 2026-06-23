@@ -3700,6 +3700,12 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="manualPrintWorks"', BOARD_WEB_APP_HTML)
         self.assertIn('id="manualPrintMaterials"', BOARD_WEB_APP_HTML)
         self.assertIn('id="manualPrintPayments"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="regulatedPrintOverridesForm"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="regulatedPrintBuyerName"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="regulatedPrintBuyerInn"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="regulatedPrintBuyerKpp"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="regulatedPrintBasis"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="regulatedPrintTransportDetails"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderPrintDocuments"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrderPrintPreviewFrame"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="repairOrderPrintTemplateSelect"', BOARD_WEB_APP_HTML)
@@ -3727,6 +3733,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("document_date: manualPrintLocalDateValue(),", BOARD_WEB_APP_HTML)
         self.assertNotIn("document_date: new Date().toISOString().slice(0, 10)", BOARD_WEB_APP_HTML)
         self.assertIn("function readManualPrintDocumentFromInputs()", BOARD_WEB_APP_HTML)
+        self.assertIn("function readRegulatedPrintOverridesFromInputs()", BOARD_WEB_APP_HTML)
         self.assertIn("function repairOrderPrintIsManualMode()", BOARD_WEB_APP_HTML)
         self.assertIn("function syncRepairOrderPrintPrinterState()", BOARD_WEB_APP_HTML)
         self.assertIn("function runRepairOrderBrowserPrint()", BOARD_WEB_APP_HTML)
@@ -3763,6 +3770,9 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("document_without_card: repairOrderPrintIsManualMode()", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "document_overrides: readRegulatedPrintOverridesFromInputs()", BOARD_WEB_APP_HTML
+        )
         self.assertIn("manual_document: readManualPrintDocumentFromInputs()", BOARD_WEB_APP_HTML)
         self.assertIn('id="manualPrintTaxLabel"', BOARD_WEB_APP_HTML)
         self.assertIn("tax_label: printEls.manualTaxLabel?.value || ''", BOARD_WEB_APP_HTML)

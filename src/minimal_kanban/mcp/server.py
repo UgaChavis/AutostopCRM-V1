@@ -2721,7 +2721,7 @@ def create_mcp_server(
     @server.tool(
         name="download_repair_order_print_pdf",
         description=_scoped_description(
-            "Export one repair order, invoice, invoice-factura, completion act, acceptance act, parts sale document, or inspection sheet as the same CRM-generated PDF that operators download from the print window. Returns application/pdf base64 for attaching to emails or messages."
+            "Export one repair order, invoice, invoice-factura, UPD, completion act, acceptance act, parts sale document, or inspection sheet as the same CRM-generated PDF that operators download from the print window. Returns application/pdf base64 for attaching to emails or messages."
         ),
         annotations=_read_tool_annotations("Download Repair Order PDF"),
         structured_output=True,
@@ -2734,6 +2734,7 @@ def create_mcp_server(
                 "vehicle_acceptance_act",
                 "invoice",
                 "invoice_factura",
+                "upd",
                 "inspection_sheet",
                 "completion_act",
                 "parts_sale",
@@ -2769,8 +2770,8 @@ def create_mcp_server(
         name="create_document_without_card_pdf",
         description=_scoped_description(
             "Create a standard AutoStop PDF without a CRM card through the CRM print module. "
-            "Use this for invoices, invoice-facturas, completion acts, vehicle acceptance acts, repair orders, inspection sheets, defect reports, and parts sale documents when the user provides the data manually in text. "
-            "You may omit document_type when request_text clearly names the document in Russian, for example акт выполненных работ, дефектовка, заказ-наряд, счет-фактура, or продажа запчастей."
+            "Use this for invoices, invoice-facturas, UPD, completion acts, vehicle acceptance acts, repair orders, inspection sheets, defect reports, and parts sale documents when the user provides the data manually in text. "
+            "You may omit document_type when request_text clearly names the document in Russian, for example УПД, акт выполненных работ, дефектовка, заказ-наряд, счет-фактура, or продажа запчастей."
         ),
         annotations=_read_tool_annotations("Create Document Without Card PDF"),
         structured_output=True,

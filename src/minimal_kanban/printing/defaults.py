@@ -35,8 +35,14 @@ BUILTIN_PRINT_DOCUMENTS: tuple[PrintDocumentDefinition, ...] = (
     PrintDocumentDefinition(
         id="invoice_factura",
         label="Счет-фактура",
-        description="Документ с реквизитами, строками работ и материалов.",
+        description="Регламентная форма счета-фактуры по работам и материалам.",
         default_template_id="builtin:invoice_factura:standard",
+    ),
+    PrintDocumentDefinition(
+        id="upd",
+        label="УПД",
+        description="Универсальный передаточный документ: счет-фактура и акт.",
+        default_template_id="builtin:upd:standard",
     ),
     PrintDocumentDefinition(
         id="inspection_sheet",
@@ -319,6 +325,151 @@ PRINT_BASE_STYLES = """
   .doc-signature-caption { color: var(--paper-soft); font-size: 9px; margin-top: 4px; }
   .doc-hint { color: var(--paper-soft); font-size: 11px; }
   .doc-page-break { display: block; height: 0; clear: both; page-break-before: always; page-break-after: auto; break-before: page; break-after: auto; }
+  .document-shell:has(.regulated-page--landscape) { max-width: 1180px; }
+  .regulated-page {
+    font-family: Arial, "Segoe UI", sans-serif;
+    color: #111;
+  }
+  .regulated-page--landscape {
+    page: regulated-landscape;
+    width: 297mm;
+    min-height: 210mm;
+    padding: 6mm 7mm 7mm;
+    font-size: 7.3px;
+    line-height: 1.16;
+  }
+  .regulated-page--landscape + .regulated-page--landscape {
+    page-break-before: always;
+    break-before: page;
+  }
+  .regulated-note {
+    text-align: right;
+    font-size: 6.9px;
+    line-height: 1.2;
+    margin: 0 0 2mm auto;
+    max-width: 410px;
+  }
+  .regulated-title-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 250px;
+    gap: 8px;
+    align-items: start;
+    margin-bottom: 2.2mm;
+  }
+  .regulated-title {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.12;
+    font-weight: 700;
+  }
+  .regulated-title--compact {
+    font-size: 11px;
+  }
+  .regulated-status {
+    border: 1px solid #111;
+    padding: 3px 5px;
+    font-size: 7px;
+    line-height: 1.25;
+  }
+  .regulated-meta-table,
+  .regulated-tax-table,
+  .regulated-signature-table,
+  .regulated-transfer-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .regulated-meta-table {
+    margin-bottom: 2.4mm;
+    font-size: 7.2px;
+  }
+  .regulated-meta-table td {
+    padding: 1px 3px;
+    vertical-align: top;
+  }
+  .regulated-meta-table td:first-child {
+    width: 185px;
+    color: #333;
+  }
+  .regulated-tax-table {
+    font-size: 6.55px;
+    line-height: 1.12;
+  }
+  .regulated-tax-table th,
+  .regulated-tax-table td {
+    border: 1px solid #111;
+    padding: 2px 2.5px;
+    vertical-align: top;
+    word-break: normal;
+    overflow-wrap: anywhere;
+  }
+  .regulated-tax-table th {
+    text-align: center;
+    font-weight: 600;
+  }
+  .regulated-tax-table tbody td {
+    min-height: 16px;
+  }
+  .regulated-tax-table__name { width: 21%; }
+  .regulated-tax-table__num { width: 2.4%; text-align: center; }
+  .regulated-tax-table__unit-code { width: 4.2%; text-align: center; }
+  .regulated-tax-table__unit { width: 4.5%; text-align: center; }
+  .regulated-tax-table__qty { width: 4.2%; text-align: right; }
+  .regulated-tax-table__money { width: 6.2%; text-align: right; font-variant-numeric: tabular-nums; }
+  .regulated-tax-table__country { width: 5.8%; text-align: center; }
+  .regulated-tax-table__declaration { width: 7.8%; }
+  .regulated-num,
+  .regulated-money {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .regulated-center { text-align: center; }
+  .regulated-strong { font-weight: 700; }
+  .regulated-small { font-size: 6.6px; line-height: 1.15; }
+  .regulated-page-footer {
+    margin-top: 2mm;
+    text-align: right;
+    font-size: 6.8px;
+  }
+  .regulated-summary {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: baseline;
+    margin-top: 2mm;
+    font-size: 7.4px;
+  }
+  .regulated-signature-table {
+    margin-top: 4mm;
+    font-size: 7.2px;
+  }
+  .regulated-signature-table td {
+    width: 50%;
+    padding: 2px 10px 2px 0;
+    vertical-align: top;
+  }
+  .regulated-sign-line {
+    display: inline-block;
+    min-width: 120px;
+    border-bottom: 1px solid #111;
+    line-height: 1.4;
+    text-align: center;
+  }
+  .regulated-transfer-table {
+    margin-top: 3mm;
+    font-size: 7.15px;
+  }
+  .regulated-transfer-table td {
+    border: 1px solid #111;
+    padding: 4px 5px;
+    vertical-align: top;
+  }
+  .regulated-transfer-table__label {
+    width: 32%;
+    font-weight: 700;
+  }
+  @page regulated-landscape { size: A4 landscape; margin: 6mm; }
   @page { size: A4; margin: 9mm; }
   @media print {
     html,
@@ -340,6 +491,13 @@ PRINT_BASE_STYLES = """
       box-shadow: none;
       page-break-after: auto;
       break-after: auto;
+    }
+    .regulated-page--landscape {
+      width: auto;
+      min-height: auto;
+      margin: 0;
+      box-shadow: none;
+      border: 0;
     }
   }
 """.strip()
@@ -702,91 +860,231 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
         _record(
             "invoice_factura",
             "standard",
-            "Стандартный счет-фактура",
+            "Счет-фактура по форме 2026",
             """
-<div class="document-page">
-  <table class="doc-head-table">
-    <tr>
-      <td class="doc-head-table__left">
-        <table class="doc-head-table" style="margin-bottom:0;">
-          <tr>
-            <td style="width:104px; vertical-align:top; padding-right:12px;">
-              <div class="doc-brand-mark">
-                {{#service.brand_logo_data_uri}}<img src="{{service.brand_logo_data_uri}}" width="70" height="70" style="width:70px;height:70px;" alt="AutoStop">{{/service.brand_logo_data_uri}}
-                {{^service.brand_logo_data_uri}}<div class="doc-brand-mark__fallback">AutoStop</div>{{/service.brand_logo_data_uri}}
-              </div>
-            </td>
-            <td style="vertical-align:top;">
-              <div class="doc-brand-copy">
-                <div class="doc-kicker">Бухгалтерский документ</div>
-                <h1 class="doc-title">Счет-фактура</h1>
-                <div class="doc-subtitle">По заказ-наряду № {{repair_order.number_display}} от {{dates.document_date_display}}</div>
-              </div>
-            </td>
-          </tr>
-        </table>
-      </td>
-      <td class="doc-head-table__right">
-        <div class="doc-service">
-          <div class="doc-service__name">{{service.company_name}}</div>
-          <div class="doc-service__meta">{{service.legal_name}}</div>
-          <div class="doc-service__meta">Тел. {{service.reception_phone}} · {{service.website}}</div>
-          <div class="doc-service__meta">ИНН {{service.inn}} · КПП {{service.kpp}} · ОГРН {{service.ogrn}}</div>
-        </div>
-      </td>
-    </tr>
+<div class="document-page regulated-page regulated-page--landscape">
+  <div class="regulated-note">
+    Приложение № 1 к постановлению Правительства Российской Федерации от 26 декабря 2011 г. № 1137<br>
+    (в редакции постановления Правительства Российской Федерации от 23 января 2026 г. № 26)
+  </div>
+  <div class="regulated-title-row">
+    <h1 class="regulated-title">Счет-фактура № {{regulated.document_number_display}} от {{regulated.document_date_display}}</h1>
+    <div class="regulated-small">К счету-фактуре: {{regulated.linked_invoice_display}}</div>
+  </div>
+  <table class="regulated-meta-table">
+    <tr><td>Исправление №</td><td>{{regulated.correction_display}}</td></tr>
+    <tr><td>Продавец</td><td>{{regulated.seller_name_display}}</td></tr>
+    <tr><td>Адрес</td><td>{{regulated.seller_address_display}}</td></tr>
+    <tr><td>ИНН/КПП продавца</td><td>{{regulated.seller_inn_kpp_display}}</td></tr>
+    <tr><td>ОГРН/ОГРНИП продавца</td><td>{{regulated.seller_registration_display}}</td></tr>
+    <tr><td>Грузоотправитель и его адрес</td><td>{{regulated.shipper_display}}</td></tr>
+    <tr><td>Грузополучатель и его адрес</td><td>{{regulated.consignee_display}}</td></tr>
+    <tr><td>К платежно-расчетному документу</td><td>{{regulated.payment_document_display}}</td></tr>
+    <tr><td>Документ об отгрузке</td><td>{{regulated.shipment_document_display}}</td></tr>
+    <tr><td>Покупатель</td><td>{{regulated.buyer_name_display}}</td></tr>
+    <tr><td>Адрес</td><td>{{regulated.buyer_address_display}}</td></tr>
+    <tr><td>ИНН/КПП покупателя</td><td>{{regulated.buyer_inn_kpp_display}}</td></tr>
+    <tr><td>Валюта: наименование, код</td><td>{{regulated.currency_display}}</td></tr>
   </table>
-  <section class="doc-section">
-    <h2 class="doc-section__title">Сведения по счету-фактуре</h2>
-    <table class="doc-meta-table">
+  <table class="regulated-tax-table">
+    <thead>
       <tr>
-        <td><div class="doc-label">Покупатель</div><div class="doc-value">{{client.name_display}}</div></td>
-        <td><div class="doc-label">Контакт</div><div class="doc-value">{{client.phone_display}}</div></td>
-        <td><div class="doc-label">Дата</div><div class="doc-value">{{dates.document_date_display}}</div></td>
+        <th class="regulated-tax-table__num">№ п/п</th>
+        <th class="regulated-tax-table__unit-code">Код вида товара</th>
+        <th class="regulated-tax-table__name">Наименование товара (описание выполненных работ, оказанных услуг), имущественного права</th>
+        <th class="regulated-tax-table__unit-code">Код единицы измерения</th>
+        <th class="regulated-tax-table__unit">Условное обозначение</th>
+        <th class="regulated-tax-table__qty">Количество (объем)</th>
+        <th class="regulated-tax-table__money">Цена (тариф) за единицу измерения</th>
+        <th class="regulated-tax-table__money">Стоимость товаров (работ, услуг), имущественных прав без налога - всего</th>
+        <th class="regulated-tax-table__money">В том числе сумма акциза</th>
+        <th class="regulated-tax-table__money">Налоговая ставка</th>
+        <th class="regulated-tax-table__money">Сумма налога, предъявляемая покупателю</th>
+        <th class="regulated-tax-table__money">Стоимость товаров (работ, услуг), имущественных прав с налогом - всего</th>
+        <th class="regulated-tax-table__country">Страна происхождения товара</th>
+        <th class="regulated-tax-table__declaration">Регистрационный номер декларации на товары</th>
       </tr>
-    </table>
-  </section>
-  <section class="doc-section">
-    <h2 class="doc-section__title">Номенклатура</h2>
-    <table class="doc-table"><thead><tr><th>Наименование</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
-      {{#line_items}}<tr><td>{{section_label}}: {{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}</td></tr>{{/line_items}}
-      {{^line_items}}<tr><td class="doc-table__empty" colspan="4">Номенклатура не заполнена</td></tr>{{/line_items}}
-    </tbody><tfoot><tr><td colspan="3">Всего</td><td class="doc-table__sum">{{invoice.total_display}}</td></tr></tfoot></table>
-  </section>
-  <section class="doc-section">
-    <h2 class="doc-section__title">Сведения по заказу</h2>
-    <table class="doc-meta-table">
-      <tr>
-        <td><div class="doc-label">Автомобиль</div><div class="doc-value">{{vehicle.display_name}} · {{vehicle.license_plate_display}} · VIN {{vehicle.vin_display}}</div></td>
-        <td><div class="doc-label">Налоговый режим</div><div class="doc-value">{{invoice.tax_label}}</div></td>
-        <td><div class="doc-label">Назначение платежа</div><div class="doc-value">{{service.payment_purpose}}</div></td>
+    </thead>
+    <tbody>
+      {{#regulated.rows}}<tr>
+        <td class="regulated-center">{{index}}</td>
+        <td class="regulated-center">{{product_code_display}}</td>
+        <td>{{name}}</td>
+        <td class="regulated-center">{{unit_code_display}}</td>
+        <td class="regulated-center">{{unit_display}}</td>
+        <td class="regulated-num">{{quantity_display}}</td>
+        <td class="regulated-money">{{price_display}}</td>
+        <td class="regulated-money">{{subtotal_display}}</td>
+        <td class="regulated-center">{{excise_display}}</td>
+        <td class="regulated-center">{{tax_rate_display}}</td>
+        <td class="regulated-money">{{vat_display}}</td>
+        <td class="regulated-money">{{total_with_tax_display}}</td>
+        <td class="regulated-center">{{country_display}}</td>
+        <td>{{customs_declaration_display}}</td>
+      </tr>{{/regulated.rows}}
+      {{^regulated.rows}}<tr><td class="regulated-center" colspan="14">Работы и материалы не указаны</td></tr>{{/regulated.rows}}
+      <tr class="regulated-strong">
+        <td colspan="7" class="regulated-num">Итого</td>
+        <td class="regulated-money">{{regulated.subtotal_display}}</td>
+        <td class="regulated-center">Без акциза</td>
+        <td class="regulated-center">{{regulated.tax_rate_display}}</td>
+        <td class="regulated-money">{{regulated.vat_display}}</td>
+        <td class="regulated-money">{{regulated.total_with_tax_display}}</td>
+        <td colspan="2"></td>
       </tr>
-    </table>
-  </section>
-  <table class="doc-totals-table">
-    <tr><td>Налоговый режим</td><td>{{invoice.tax_label}}</td></tr>
-    <tr><td>Итого по счету-фактуре</td><td>{{invoice.subtotal_display}}</td></tr>
-    {{#invoice.has_vat}}<tr><td>В том числе {{invoice.tax_label}}</td><td>{{invoice.vat_display}}</td></tr>{{/invoice.has_vat}}
-    {{^invoice.has_vat}}<tr><td>Сумма налога</td><td>{{invoice.tax_label}}</td></tr>{{/invoice.has_vat}}
-    <tr class="doc-totals-table__grand"><td>К оплате</td><td>{{invoice.total_display}}</td></tr>
+      <tr class="regulated-strong">
+        <td colspan="11" class="regulated-num">Всего к оплате</td>
+        <td class="regulated-money">{{regulated.total_with_tax_display}}</td>
+        <td colspan="2"></td>
+      </tr>
+    </tbody>
   </table>
-  <section class="doc-section">
+  <div class="regulated-summary">
+    <div>Сумма прописью: {{regulated.total_words_display}}</div>
+    <div>НДС: {{regulated.tax_label}} · {{regulated.vat_display}}</div>
+  </div>
+  <section>
     <h2 class="doc-section__title">Подписи</h2>
-    <table class="doc-signatures-table">
+    <table class="regulated-signature-table">
       <tr>
-        <td>
-          <div class="doc-signatures__role">Руководитель</div>
-          <div class="doc-signature-line">&nbsp;</div>
-          <div class="doc-signature-caption">{{service.legal_name}}</div>
-        </td>
-        <td>
-          <div class="doc-signatures__role">Бухгалтер</div>
-          <div class="doc-signature-line">&nbsp;</div>
-          <div class="doc-signature-caption">{{service.legal_name}}</div>
-        </td>
+        <td>{{regulated.seller_position_display}} <span class="regulated-sign-line">{{regulated.seller_signer_display}}</span><br><span class="regulated-small">{{regulated.seller_name_display}}</span></td>
+        <td>Главный бухгалтер <span class="regulated-sign-line">—</span></td>
+      </tr>
+      <tr>
+        <td colspan="2">Индивидуальный предприниматель <span class="regulated-sign-line">{{regulated.seller_signer_display}}</span> {{regulated.seller_registration_display}}</td>
       </tr>
     </table>
   </section>
+  <div class="regulated-page-footer">Счет-фактура № {{regulated.document_number_display}} от {{regulated.document_date_display}} страница 1 из 1</div>
+</div>
+            """,
+        ),
+        _record(
+            "upd",
+            "standard",
+            "УПД по форме 2026",
+            """
+<div class="document-page regulated-page regulated-page--landscape">
+  <div class="regulated-note">
+    Универсальный передаточный документ применяется как счет-фактура и первичный учетный документ.
+  </div>
+  <div class="regulated-title-row">
+    <div>
+      <h1 class="regulated-title">Универсальный передаточный документ № {{regulated.document_number_display}} от {{regulated.document_date_display}}</h1>
+      <div class="regulated-small">Счет-фактура № {{regulated.document_number_display}} от {{regulated.document_date_display}} · Документ об отгрузке {{regulated.shipment_document_display}}</div>
+    </div>
+    <div class="regulated-status"><strong>Статус:</strong><br>{{regulated.upd_status_display}}</div>
+  </div>
+  <table class="regulated-meta-table">
+    <tr><td>Продавец</td><td>{{regulated.seller_name_display}}</td></tr>
+    <tr><td>Адрес</td><td>{{regulated.seller_address_display}}</td></tr>
+    <tr><td>ИНН/КПП продавца</td><td>{{regulated.seller_inn_kpp_display}}</td></tr>
+    <tr><td>Грузоотправитель и его адрес</td><td>{{regulated.shipper_display}}</td></tr>
+    <tr><td>Грузополучатель и его адрес</td><td>{{regulated.consignee_display}}</td></tr>
+    <tr><td>К платежно-расчетному документу</td><td>{{regulated.payment_document_display}}</td></tr>
+    <tr><td>Покупатель</td><td>{{regulated.buyer_name_display}}</td></tr>
+    <tr><td>Адрес</td><td>{{regulated.buyer_address_display}}</td></tr>
+    <tr><td>ИНН/КПП покупателя</td><td>{{regulated.buyer_inn_kpp_display}}</td></tr>
+    <tr><td>Валюта: наименование, код</td><td>{{regulated.currency_display}}</td></tr>
+  </table>
+  <table class="regulated-tax-table">
+    <thead>
+      <tr>
+        <th class="regulated-tax-table__num">№ п/п</th>
+        <th class="regulated-tax-table__name">Наименование товара (описание выполненных работ, оказанных услуг), имущественного права</th>
+        <th class="regulated-tax-table__unit-code">Код единицы измерения</th>
+        <th class="regulated-tax-table__unit">Условное обозначение</th>
+        <th class="regulated-tax-table__qty">Количество (объем)</th>
+        <th class="regulated-tax-table__money">Цена (тариф) за единицу измерения</th>
+        <th class="regulated-tax-table__money">Стоимость без налога - всего</th>
+        <th class="regulated-tax-table__money">В том числе сумма акциза</th>
+        <th class="regulated-tax-table__money">Налоговая ставка</th>
+        <th class="regulated-tax-table__money">Сумма налога, предъявляемая покупателю</th>
+        <th class="regulated-tax-table__money">Стоимость товаров (работ, услуг), имущественных прав с налогом - всего</th>
+        <th class="regulated-tax-table__country">Страна происхождения товара</th>
+        <th class="regulated-tax-table__declaration">Регистрационный номер декларации на товары</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#regulated.rows}}<tr>
+        <td class="regulated-center">{{index}}</td>
+        <td>{{name}}</td>
+        <td class="regulated-center">{{unit_code_display}}</td>
+        <td class="regulated-center">{{unit_display}}</td>
+        <td class="regulated-num">{{quantity_display}}</td>
+        <td class="regulated-money">{{price_display}}</td>
+        <td class="regulated-money">{{subtotal_display}}</td>
+        <td class="regulated-center">{{excise_display}}</td>
+        <td class="regulated-center">{{tax_rate_display}}</td>
+        <td class="regulated-money">{{vat_display}}</td>
+        <td class="regulated-money">{{total_with_tax_display}}</td>
+        <td class="regulated-center">{{country_display}}</td>
+        <td>{{customs_declaration_display}}</td>
+      </tr>{{/regulated.rows}}
+      {{^regulated.rows}}<tr><td class="regulated-center" colspan="13">Работы и материалы не указаны</td></tr>{{/regulated.rows}}
+      <tr class="regulated-strong">
+        <td colspan="6" class="regulated-num">Итого</td>
+        <td class="regulated-money">{{regulated.subtotal_display}}</td>
+        <td class="regulated-center">Без акциза</td>
+        <td class="regulated-center">{{regulated.tax_rate_display}}</td>
+        <td class="regulated-money">{{regulated.vat_display}}</td>
+        <td class="regulated-money">{{regulated.total_with_tax_display}}</td>
+        <td colspan="2"></td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="regulated-page-footer">УПД № {{regulated.document_number_display}} от {{regulated.document_date_display}} страница 1 из 2</div>
+</div>
+<!-- AUTOSTOPCRM_PAGE_BREAK -->
+<div class="document-page regulated-page regulated-page--landscape">
+  <div class="regulated-title-row">
+    <div>
+      <h1 class="regulated-title regulated-title--compact">УПД № {{regulated.document_number_display}} от {{regulated.document_date_display}}</h1>
+      <div class="regulated-small">Документ составлен на {{regulated.document_pages_display}} страницах. Страница 2 из 2.</div>
+    </div>
+    <div class="regulated-status"><strong>Статус:</strong><br>{{regulated.upd_status_display}}</div>
+  </div>
+  <table class="regulated-tax-table">
+    <thead>
+      <tr>
+        <th class="regulated-tax-table__num">№</th>
+        <th class="regulated-tax-table__name">Наименование</th>
+        <th class="regulated-tax-table__qty">Количество</th>
+        <th class="regulated-tax-table__money">Цена</th>
+        <th class="regulated-tax-table__money">Стоимость без налога</th>
+        <th class="regulated-tax-table__money">НДС</th>
+        <th class="regulated-tax-table__money">Стоимость с налогом</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#regulated.rows}}<tr>
+        <td class="regulated-center">{{index}}</td>
+        <td>{{name}}</td>
+        <td class="regulated-num">{{quantity_display}}</td>
+        <td class="regulated-money">{{price_display}}</td>
+        <td class="regulated-money">{{subtotal_display}}</td>
+        <td class="regulated-money">{{vat_display}}</td>
+        <td class="regulated-money">{{total_with_tax_display}}</td>
+      </tr>{{/regulated.rows}}
+      {{^regulated.rows}}<tr><td class="regulated-center" colspan="7">Работы и материалы не указаны</td></tr>{{/regulated.rows}}
+      <tr class="regulated-strong">
+        <td colspan="4" class="regulated-num">Всего к оплате</td>
+        <td class="regulated-money">{{regulated.subtotal_display}}</td>
+        <td class="regulated-money">{{regulated.vat_display}}</td>
+        <td class="regulated-money">{{regulated.total_with_tax_display}}</td>
+      </tr>
+    </tbody>
+  </table>
+  <table class="regulated-transfer-table">
+    <tr><td class="regulated-transfer-table__label">Основание передачи (сдачи) / получения (приемки)</td><td>{{regulated.basis_display}}</td></tr>
+    <tr><td class="regulated-transfer-table__label">Данные о транспортировке и грузе</td><td>{{regulated.transport_details_display}}</td></tr>
+    <tr><td class="regulated-transfer-table__label">Товар (груз) передал / услуги, результаты работ, права сдал</td><td>{{regulated.seller_position_display}} <span class="regulated-sign-line">{{regulated.seller_signer_display}}</span></td></tr>
+    <tr><td class="regulated-transfer-table__label">Товар (груз) получил / услуги, результаты работ, права принял</td><td>{{regulated.buyer_position_display}} <span class="regulated-sign-line">{{regulated.buyer_signer_display}}</span></td></tr>
+    <tr><td class="regulated-transfer-table__label">Ответственный за правильность оформления факта хозяйственной жизни</td><td>{{regulated.seller_position_display}} <span class="regulated-sign-line">{{regulated.seller_signer_display}}</span> / {{regulated.buyer_position_display}} <span class="regulated-sign-line">{{regulated.buyer_signer_display}}</span></td></tr>
+    <tr><td class="regulated-transfer-table__label">Наименование экономического субъекта составителя документа</td><td>{{regulated.seller_name_display}}<br>{{regulated.buyer_name_display}}</td></tr>
+    <tr><td class="regulated-transfer-table__label">М.П.</td><td>М.П. продавца ____________ &nbsp;&nbsp; М.П. покупателя ____________</td></tr>
+  </table>
+  <div class="regulated-page-footer">УПД № {{regulated.document_number_display}} от {{regulated.document_date_display}} страница 2 из 2</div>
 </div>
             """,
         ),

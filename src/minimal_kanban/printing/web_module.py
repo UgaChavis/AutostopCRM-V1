@@ -351,6 +351,25 @@ PRINTING_WEB_MODULE_HTML = r"""
                 <div class="field field--compact"><label for="manualPrintRequestText">Текстовый запрос агента</label><textarea id="manualPrintRequestText" spellcheck="false"></textarea></div>
               </div>
             </section>
+            <section class="repair-order-print-settings__section" id="regulatedPrintOverridesForm">
+              <div class="repair-order-print-settings__section-title">Счет-фактура / УПД</div>
+              <div class="field field--compact"><label for="regulatedPrintBuyerName">Покупатель</label><input id="regulatedPrintBuyerName" type="text" maxlength="180"></div>
+              <div class="repair-order-print-settings__row">
+                <div class="field field--compact"><label for="regulatedPrintBuyerInn">ИНН покупателя</label><input id="regulatedPrintBuyerInn" type="text" maxlength="32"></div>
+                <div class="field field--compact"><label for="regulatedPrintBuyerKpp">КПП покупателя</label><input id="regulatedPrintBuyerKpp" type="text" maxlength="32"></div>
+              </div>
+              <div class="field field--compact"><label for="regulatedPrintBuyerAddress">Адрес покупателя</label><input id="regulatedPrintBuyerAddress" type="text" maxlength="300"></div>
+              <div class="field field--compact"><label for="regulatedPrintBasis">Основание передачи</label><textarea id="regulatedPrintBasis" spellcheck="false"></textarea></div>
+              <div class="field field--compact"><label for="regulatedPrintTransportDetails">Транспортировка</label><textarea id="regulatedPrintTransportDetails" spellcheck="false"></textarea></div>
+              <div class="repair-order-print-settings__row">
+                <div class="field field--compact"><label for="regulatedPrintBuyerPosition">Должность покупателя</label><input id="regulatedPrintBuyerPosition" type="text" maxlength="120"></div>
+                <div class="field field--compact"><label for="regulatedPrintBuyerSigner">Подписант покупателя</label><input id="regulatedPrintBuyerSigner" type="text" maxlength="120"></div>
+              </div>
+              <div class="repair-order-print-settings__row">
+                <div class="field field--compact"><label for="regulatedPrintSellerPosition">Должность продавца</label><input id="regulatedPrintSellerPosition" type="text" maxlength="120"></div>
+                <div class="field field--compact"><label for="regulatedPrintSellerSigner">Подписант продавца</label><input id="regulatedPrintSellerSigner" type="text" maxlength="120"></div>
+              </div>
+            </section>
             <section class="repair-order-print-settings__section">
               <div class="repair-order-print-settings__section-title">Печать</div>
               <div class="field field--compact"><label for="repairOrderPrintPrinterSelect">Принтер</label><select id="repairOrderPrintPrinterSelect"></select></div>
@@ -507,6 +526,7 @@ _PRINTING_SCRIPT_PART1 = r"""
     };
     let printTemplatePreviewTimer = null;
     let manualPrintPreviewTimer = null;
+    let regulatedPrintPreviewTimer = null;
 
     const printEls = {
       modal: document.getElementById('repairOrderPrintModal'),
@@ -552,6 +572,17 @@ _PRINTING_SCRIPT_PART1 = r"""
       manualComment: document.getElementById('manualPrintComment'),
       manualNote: document.getElementById('manualPrintNote'),
       manualRequestText: document.getElementById('manualPrintRequestText'),
+      regulatedOverridesForm: document.getElementById('regulatedPrintOverridesForm'),
+      regulatedBuyerName: document.getElementById('regulatedPrintBuyerName'),
+      regulatedBuyerInn: document.getElementById('regulatedPrintBuyerInn'),
+      regulatedBuyerKpp: document.getElementById('regulatedPrintBuyerKpp'),
+      regulatedBuyerAddress: document.getElementById('regulatedPrintBuyerAddress'),
+      regulatedBasis: document.getElementById('regulatedPrintBasis'),
+      regulatedTransportDetails: document.getElementById('regulatedPrintTransportDetails'),
+      regulatedBuyerPosition: document.getElementById('regulatedPrintBuyerPosition'),
+      regulatedBuyerSigner: document.getElementById('regulatedPrintBuyerSigner'),
+      regulatedSellerPosition: document.getElementById('regulatedPrintSellerPosition'),
+      regulatedSellerSigner: document.getElementById('regulatedPrintSellerSigner'),
       printerSelect: document.getElementById('repairOrderPrintPrinterSelect'),
       copies: document.getElementById('repairOrderPrintCopies'),
       paperSize: document.getElementById('repairOrderPrintPaperSize'),
@@ -995,11 +1026,27 @@ _PRINTING_SCRIPT_PART1 = r"""
       };
     }
 
+    function readRegulatedPrintOverridesFromInputs() {
+      return {
+        buyer_name: printEls.regulatedBuyerName?.value || '',
+        buyer_inn: printEls.regulatedBuyerInn?.value || '',
+        buyer_kpp: printEls.regulatedBuyerKpp?.value || '',
+        buyer_address: printEls.regulatedBuyerAddress?.value || '',
+        basis: printEls.regulatedBasis?.value || '',
+        transport_details: printEls.regulatedTransportDetails?.value || '',
+        buyer_position: printEls.regulatedBuyerPosition?.value || '',
+        buyer_signer: printEls.regulatedBuyerSigner?.value || '',
+        seller_position: printEls.regulatedSellerPosition?.value || '',
+        seller_signer: printEls.regulatedSellerSigner?.value || '',
+      };
+    }
+
     function syncRepairOrderPrintMode() {
       const nextMode = repairOrderPrintState.mode === 'manual' ? 'manual' : 'card';
       repairOrderPrintState.mode = nextMode;
       if (printEls.modeSelect) printEls.modeSelect.value = nextMode;
       if (printEls.manualForm) printEls.manualForm.hidden = !repairOrderPrintIsManualMode();
+      if (printEls.regulatedOverridesForm) printEls.regulatedOverridesForm.hidden = repairOrderPrintIsManualMode();
       if (printEls.footerMeta && !repairOrderPrintState.previewByDocument?.[repairOrderPrintActiveDocument()]) {
         printEls.footerMeta.textContent = repairOrderPrintIsManualMode()
           ? 'PDF генерируется из стандартного шаблона AutoStop без карточки CRM.'
@@ -1016,6 +1063,7 @@ _PRINTING_SCRIPT_PART1 = r"""
         active_document_id: repairOrderPrintActiveDocument(),
         selected_template_ids: { ...repairOrderPrintState.selectedTemplateIds },
         print_settings: repairOrderPrintSettingsPayload(),
+        document_overrides: readRegulatedPrintOverridesFromInputs(),
         ...(repairOrderPrintIsManualMode() ? {
           document_without_card: repairOrderPrintIsManualMode(),
           manual_document: readManualPrintDocumentFromInputs(),
@@ -1657,6 +1705,17 @@ _PRINTING_SCRIPT_PART3 = r"""
       }, 320);
     }
 
+    function scheduleRegulatedPrintPreviewRefresh() {
+      if (repairOrderPrintIsManualMode() || !repairOrderPrintState.workspace) return;
+      if (regulatedPrintPreviewTimer) {
+        window.clearTimeout(regulatedPrintPreviewTimer);
+      }
+      regulatedPrintPreviewTimer = window.setTimeout(() => {
+        regulatedPrintPreviewTimer = null;
+        refreshRepairOrderPrintPreview();
+      }, 320);
+    }
+
     function handleRepairOrderPrintModeChange() {
       const nextMode = printEls.modeSelect?.value === 'manual' ? 'manual' : 'card';
       if (nextMode === 'manual') {
@@ -1919,6 +1978,8 @@ _PRINTING_SCRIPT_PART3 = r"""
     if (printEls.modeSelect) printEls.modeSelect.addEventListener('change', handleRepairOrderPrintModeChange);
     if (printEls.manualForm) printEls.manualForm.addEventListener('input', scheduleManualPrintPreviewRefresh);
     if (printEls.manualForm) printEls.manualForm.addEventListener('change', scheduleManualPrintPreviewRefresh);
+    if (printEls.regulatedOverridesForm) printEls.regulatedOverridesForm.addEventListener('input', scheduleRegulatedPrintPreviewRefresh);
+    if (printEls.regulatedOverridesForm) printEls.regulatedOverridesForm.addEventListener('change', scheduleRegulatedPrintPreviewRefresh);
     if (printEls.fitWidthButton) printEls.fitWidthButton.addEventListener('click', () => repairOrderPrintSetZoom('fit', 1));
     if (printEls.actualSizeButton) printEls.actualSizeButton.addEventListener('click', () => repairOrderPrintSetZoom('manual', 1));
     if (printEls.zoomInButton) printEls.zoomInButton.addEventListener('click', () => repairOrderPrintSetZoom('manual', repairOrderPrintScale() + 0.1));

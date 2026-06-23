@@ -131,7 +131,7 @@ creation, update, status change, replace works/materials.
 `create_document_without_card_pdf` exports the same standard AutoStop templates
 without a card from `request_text` and/or `manual_document`; omit
 `document_type` to infer it from phrases such as `акт выполненных работ`,
-`дефектовка`, `заказ-наряд`, `счет-фактура`, or `продажа запчастей`.
+`дефектовка`, `заказ-наряд`, `счет-фактура`, `УПД`, or `продажа запчастей`.
 Pass `manual_document.tax_label` or a text line such as `НДС: Без НДС` when the
 invoice must print a specific tax regime.
 `list_repair_orders`
@@ -180,8 +180,8 @@ Not normal MCP runtime tools: `autofill_vehicle_data`,
 - For documents, use CRM PDF export. For AutoStop documents with a card use
   `download_repair_order_print_pdf`; for "Документ без карточки" use
   `create_document_without_card_pdf`. Do not build independent PDF/HTML
-  templates for invoices, acts, repair orders, invoice-facturas, defect reports,
-  completion acts, or parts-sale documents.
+  templates for invoices, acts, repair orders, invoice-facturas, UPD, defect
+  reports, completion acts, or parts-sale documents.
 - Repair-order numbers are immutable; corrections are maintenance-only.
 - Finance audit safe fixes are maintenance-only and require the runbook
   audit-first flow.

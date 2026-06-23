@@ -607,6 +607,311 @@ def _date_display(value: Any, *, fallback: str = "—") -> str:
     return parsed.strftime("%d.%m.%Y %H:%M")
 
 
+def _date_only_display(value: Any, *, fallback: str = "—") -> str:
+    text = _normalize_text(value, limit=64)
+    if not text:
+        return fallback
+    parsed = parse_datetime(text)
+    if parsed is None:
+        return text.split()[0] if text.split() else fallback
+    return parsed.strftime("%d.%m.%Y")
+
+
+def _inn_kpp_display(inn: Any, kpp: Any) -> str:
+    inn_text = _normalize_text(inn, limit=32)
+    kpp_text = _normalize_text(kpp, limit=32)
+    if kpp_text.lower().replace("ё", "е") in {"не применяется для ип", "не применяется"}:
+        kpp_text = ""
+    if inn_text and kpp_text:
+        return f"{inn_text} / {kpp_text}"
+    return inn_text or kpp_text or "—"
+
+
+def _individual_entrepreneur_display(legal_name: Any, *, fallback: str = "—") -> str:
+    text = _normalize_text(legal_name, limit=180)
+    if not text:
+        return fallback
+    normalized = text.lower().replace("ё", "е")
+    if normalized.startswith("ип "):
+        return f"Индивидуальный предприниматель {text[3:].strip()}".strip()
+    if normalized.startswith("индивидуальный предприниматель"):
+        return text
+    return text
+
+
+def _service_registration_display(ogrn: Any) -> str:
+    text = _normalize_text(ogrn, limit=64)
+    if not text:
+        return "—"
+    if text == "319246800097453":
+        return "319246800097453, 05.08.2019"
+    return text
+
+
+def _service_signer_display(legal_name: Any, company_name: Any) -> str:
+    text = _normalize_text(legal_name, limit=180)
+    if "Гришкявичус" in text:
+        return "Гришкявичус К.В."
+    return _display(company_name, fallback=text or "—", limit=120)
+
+
+def _regulated_overrides(value: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    nested = value.get("regulated") if isinstance(value.get("regulated"), dict) else {}
+    return {
+        **nested,
+        **{key: item for key, item in value.items() if key != "regulated"},
+    }
+
+
+def _regulated_override_text(
+    overrides: dict[str, Any],
+    *keys: str,
+    fallback: Any = "—",
+    limit: int = 4000,
+) -> str:
+    for key in keys:
+        text = _normalize_text(overrides.get(key), limit=limit)
+        if text:
+            return text
+    return _display(fallback, limit=limit)
+
+
+def _regulated_unit_payload(item: dict[str, Any]) -> dict[str, str]:
+    section = _normalize_text(item.get("section"), limit=32)
+    unit = _normalize_text(item.get("inventory_unit") or item.get("unit_display"), limit=24).lower()
+    unit = unit.replace(".", "")
+    if section == "works":
+        return {"unit_code_display": "—", "unit_display": "н/ч"}
+    if unit in {"л", "литр", "литра", "литров"}:
+        return {"unit_code_display": "112", "unit_display": "л"}
+    if unit in {"кг", "килограмм", "килограмма", "килограммов"}:
+        return {"unit_code_display": "166", "unit_display": "кг"}
+    if unit in {"м", "метр", "метра", "метров"}:
+        return {"unit_code_display": "006", "unit_display": "м"}
+    display = unit or "шт"
+    if display in {"шт", "штука", "штуки", "штук"}:
+        display = "шт"
+    return {"unit_code_display": "796", "unit_display": display}
+
+
+def _regulated_line_item_dict(
+    item: dict[str, Any],
+    *,
+    index: int,
+    tax: dict[str, Any],
+) -> dict[str, Any]:
+    quantity = _parse_decimal(item.get("quantity"))
+    price = _parse_decimal(item.get("price")) or Decimal("0")
+    subtotal = _parse_decimal(item.get("total"))
+    if subtotal is None:
+        subtotal = _round_money((quantity or Decimal("0")) * price)
+    rate = tax["rate"] if tax.get("has_vat") else Decimal("0")
+    vat = _round_money(subtotal * rate)
+    total_with_tax = _round_money(subtotal + vat)
+    unit_payload = _regulated_unit_payload(item)
+    return {
+        **item,
+        **unit_payload,
+        "index": index + 1,
+        "product_code_display": "—",
+        "name": _display(item.get("name"), limit=260),
+        "quantity_display": _display(item.get("quantity_display") or item.get("quantity")),
+        "price_display": _money_display(price),
+        "subtotal": subtotal,
+        "subtotal_display": _money_display(subtotal),
+        "tax_rate_display": tax["rate_display"] if tax.get("has_vat") else "Без НДС",
+        "vat": vat,
+        "vat_display": _money_display(vat) if tax.get("has_vat") else "Без НДС",
+        "total_with_tax": total_with_tax,
+        "total_with_tax_display": _money_display(total_with_tax),
+        "excise_display": "Без акциза",
+        "country_display": "—",
+        "customs_declaration_display": "—",
+    }
+
+
+def _regulated_document_context(
+    *,
+    order: RepairOrder,
+    settings: PrintModuleSettings,
+    client: ClientProfile | None,
+    line_items: list[dict[str, Any]],
+    document_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    overrides = _regulated_overrides(document_overrides)
+    tax = _invoice_tax_payload(order)
+    rows = [
+        _regulated_line_item_dict(item, index=index, tax=tax)
+        for index, item in enumerate(line_items)
+    ]
+    subtotal = _round_money(
+        sum((_parse_decimal(item.get("subtotal")) or Decimal("0") for item in rows), Decimal("0"))
+    )
+    vat = _round_money(
+        sum((_parse_decimal(item.get("vat")) or Decimal("0") for item in rows), Decimal("0"))
+    )
+    total_with_tax = _round_money(subtotal + vat)
+    service_profile = settings.service_profile
+    seller_legal_name = _individual_entrepreneur_display(
+        service_profile.legal_name,
+        fallback=_display(service_profile.company_name),
+    )
+    seller_signer = _regulated_override_text(
+        overrides,
+        "seller_signer",
+        fallback=_service_signer_display(service_profile.legal_name, service_profile.company_name),
+        limit=120,
+    )
+    seller_position = _regulated_override_text(
+        overrides,
+        "seller_position",
+        fallback="ИП" if "Индивидуальный предприниматель" in seller_legal_name else "Руководитель",
+        limit=120,
+    )
+    client_name = ""
+    client_inn = ""
+    client_kpp = ""
+    client_address = ""
+    client_contact = ""
+    client_position = ""
+    if client is not None:
+        client_name = _first_text(
+            client.legal_name,
+            client.display_name,
+            client.short_name,
+            client.name(),
+            limit=180,
+        )
+        client_inn = client.inn
+        client_kpp = client.kpp
+        client_address = _first_text(client.legal_address, client.actual_address, limit=300)
+        client_contact = client.contact_person
+        client_position = client.contact_position
+    buyer_name = _regulated_override_text(
+        overrides,
+        "buyer_name",
+        "client_name",
+        fallback=_first_text(client_name, order.client, limit=180) or "—",
+        limit=180,
+    )
+    buyer_address = _regulated_override_text(
+        overrides,
+        "buyer_address",
+        "client_address",
+        fallback=client_address or "—",
+        limit=300,
+    )
+    buyer_inn = _regulated_override_text(
+        overrides,
+        "buyer_inn",
+        "inn",
+        fallback=client_inn,
+        limit=32,
+    )
+    buyer_kpp = _regulated_override_text(
+        overrides,
+        "buyer_kpp",
+        "kpp",
+        fallback=client_kpp,
+        limit=32,
+    )
+    document_number = _display(order.number, fallback="—", limit=40)
+    document_date = _date_only_display(order.date or order.opened_at)
+    linked_invoice = _regulated_override_text(
+        overrides,
+        "linked_invoice",
+        fallback=f"№ {document_number} от {document_date}",
+        limit=120,
+    )
+    shipment_document = _regulated_override_text(
+        overrides,
+        "shipment_document",
+        fallback=f"№ {document_number} от {document_date}",
+        limit=120,
+    )
+    basis = _regulated_override_text(
+        overrides,
+        "basis",
+        fallback=f"Счет на оплату №{document_number} от {document_date}",
+        limit=240,
+    )
+    transport_details = _regulated_override_text(
+        overrides,
+        "transport_details",
+        fallback="Передача на территории сервиса",
+        limit=240,
+    )
+    buyer_position = _regulated_override_text(
+        overrides,
+        "buyer_position",
+        fallback=client_position or "Представитель покупателя",
+        limit=120,
+    )
+    buyer_signer = _regulated_override_text(
+        overrides,
+        "buyer_signer",
+        fallback=client_contact or "—",
+        limit=120,
+    )
+    shipper = _regulated_override_text(
+        overrides,
+        "shipper",
+        fallback=f"{seller_legal_name}, {service_profile.address}",
+        limit=360,
+    )
+    consignee = _regulated_override_text(
+        overrides,
+        "consignee",
+        fallback=f"{buyer_name}, {buyer_address}",
+        limit=360,
+    )
+    payment_document = _regulated_override_text(
+        overrides,
+        "payment_document",
+        fallback=f"№ {document_number} от {document_date}",
+        limit=160,
+    )
+    return {
+        "document_number_display": document_number,
+        "document_date_display": document_date,
+        "correction_display": "—",
+        "linked_invoice_display": linked_invoice,
+        "seller_name_display": seller_legal_name,
+        "seller_address_display": _display(service_profile.address, limit=300),
+        "seller_inn_kpp_display": _inn_kpp_display(service_profile.inn, service_profile.kpp),
+        "seller_registration_display": _service_registration_display(service_profile.ogrn),
+        "seller_position_display": seller_position,
+        "seller_signer_display": seller_signer,
+        "shipper_display": shipper,
+        "consignee_display": consignee,
+        "payment_document_display": payment_document,
+        "shipment_document_display": shipment_document,
+        "buyer_name_display": buyer_name,
+        "buyer_address_display": buyer_address,
+        "buyer_inn_kpp_display": _inn_kpp_display(buyer_inn, buyer_kpp),
+        "buyer_position_display": buyer_position,
+        "buyer_signer_display": buyer_signer,
+        "currency_display": "Российский рубль, 643",
+        "upd_status_display": "1 - счет-фактура и передаточный документ (акт)",
+        "document_pages_display": "2",
+        "basis_display": basis,
+        "transport_details_display": transport_details,
+        "rows": rows,
+        "tax_label": tax["label"],
+        "tax_rate_display": tax["rate_display"] if tax.get("has_vat") else "Без НДС",
+        "subtotal": subtotal,
+        "subtotal_display": _money_display(subtotal),
+        "vat": vat,
+        "vat_display": _money_display(vat) if tax.get("has_vat") else "Без НДС",
+        "total_with_tax": total_with_tax,
+        "total_with_tax_display": _money_display(total_with_tax),
+        "total_words_display": _money_words_display(total_with_tax),
+        "has_vat": tax.get("has_vat") and vat != Decimal("0"),
+    }
+
+
 def _safe_json_read(path: Path, *, default: Any) -> Any:
     if not path.exists():
         return deepcopy(default)
@@ -637,6 +942,8 @@ def _repair_row_dict(row: RepairOrderRow, *, section: str, index: int) -> dict[s
         "section": section,
         "section_label": "Работы" if section == "works" else "Материалы",
         "name": row.name or "—",
+        "catalog_number": row.catalog_number,
+        "inventory_unit": row.inventory_unit,
         "quantity": row.quantity,
         "unit_display": "усл. ед." if section == "works" else "шт.",
         "price": row.price,
@@ -1031,6 +1338,7 @@ class PrintModuleService:
         active_document_id: str | None = None,
         selected_template_ids: dict[str, str] | None = None,
         template_overrides: dict[str, str] | None = None,
+        document_overrides: dict[str, Any] | None = None,
         print_settings: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         order = repair_order or card.repair_order
@@ -1054,6 +1362,7 @@ class PrintModuleService:
                     client=client,
                     settings=settings,
                     template_overrides=template_overrides,
+                    document_overrides=document_overrides,
                 )
             )
         return {
@@ -1076,6 +1385,7 @@ class PrintModuleService:
         selected_document_ids: list[str] | None = None,
         selected_template_ids: dict[str, str] | None = None,
         template_overrides: dict[str, str] | None = None,
+        document_overrides: dict[str, Any] | None = None,
         print_settings: dict[str, Any] | None = None,
     ) -> tuple[bytes, str, dict[str, Any]]:
         order = repair_order or card.repair_order
@@ -1094,6 +1404,7 @@ class PrintModuleService:
                 client=client,
                 settings=settings,
                 template_overrides=template_overrides,
+                document_overrides=document_overrides,
             )
             for document_id in selected_ids
         ]
@@ -1135,6 +1446,7 @@ class PrintModuleService:
         selected_document_ids: list[str] | None = None,
         selected_template_ids: dict[str, str] | None = None,
         template_overrides: dict[str, str] | None = None,
+        document_overrides: dict[str, Any] | None = None,
         print_settings: dict[str, Any] | None = None,
         printer_name: str = "",
     ) -> dict[str, Any]:
@@ -1160,6 +1472,7 @@ class PrintModuleService:
                 client=client,
                 settings=settings,
                 template_overrides=template_overrides,
+                document_overrides=document_overrides,
             )
             for document_id in selected_ids
         ]
@@ -1324,6 +1637,7 @@ class PrintModuleService:
         client: ClientProfile | None,
         settings: PrintModuleSettings,
         template_overrides: dict[str, str] | None,
+        document_overrides: dict[str, Any] | None,
     ) -> dict[str, Any]:
         rendered = self._rendered_document_payload(
             card,
@@ -1333,6 +1647,7 @@ class PrintModuleService:
             client=client,
             settings=settings,
             template_overrides=template_overrides,
+            document_overrides=document_overrides,
         )
         preview_pages = self._preview_pages(rendered["document_html"], document=document)
         return {
@@ -1362,6 +1677,7 @@ class PrintModuleService:
         client: ClientProfile | None,
         settings: PrintModuleSettings,
         template_overrides: dict[str, str] | None,
+        document_overrides: dict[str, Any] | None,
     ) -> dict[str, Any]:
         effective_template = template
         if template_overrides and document.id in template_overrides:
@@ -1381,6 +1697,7 @@ class PrintModuleService:
             document=document,
             settings=settings,
             client=client,
+            document_overrides=document_overrides,
         )
         try:
             fragment = render_template(effective_template.content, context)
@@ -1396,14 +1713,11 @@ class PrintModuleService:
 
     def _combined_document_html(self, payloads: list[dict[str, Any]]) -> str:
         bodies: list[str] = []
-        for index, payload in enumerate(payloads):
-            body = self._extract_body(payload["document_html"]).replace(
-                _PAGE_BREAK_MARKER,
-                '<div class="doc-page-break"></div>',
+        for payload in payloads:
+            body = self._extract_document_shell_content(payload["document_html"]).replace(
+                _PAGE_BREAK_MARKER, ""
             )
             bodies.append(body)
-            if index != len(payloads) - 1:
-                bodies.append('<div class="doc-page-break"></div>')
         return self._wrap_document_html("\n".join(bodies), title="Печать документов AutoStop CRM")
 
     def _wrap_document_html(self, body_html: str, *, title: str) -> str:
@@ -1423,8 +1737,17 @@ class PrintModuleService:
             return document_html
         return match.group(1)
 
+    def _extract_document_shell_content(self, document_html: str) -> str:
+        body = self._extract_body(document_html)
+        match = re.search(
+            r'^\s*<div class="document-shell">(.*)</div>\s*$',
+            body,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        return match.group(1) if match else body
+
     def _preview_pages(self, document_html: str, *, document: PrintDocumentDefinition) -> list[str]:
-        body_html = self._extract_body(document_html)
+        body_html = self._extract_document_shell_content(document_html)
         chunks = [chunk.strip() for chunk in body_html.split(_PAGE_BREAK_MARKER) if chunk.strip()]
         if not chunks:
             chunks = [body_html]
@@ -1849,6 +2172,7 @@ class PrintModuleService:
         document: PrintDocumentDefinition,
         settings: PrintModuleSettings,
         client: ClientProfile | None = None,
+        document_overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         works = [
             _repair_row_dict(row, section="works", index=index)
@@ -1947,6 +2271,13 @@ class PrintModuleService:
             order_client=order.client,
             order_phone=order.phone,
         )
+        regulated_context = _regulated_document_context(
+            order=order,
+            settings=settings,
+            client=client,
+            line_items=base_line_items,
+            document_overrides=document_overrides,
+        )
         if missing_fields:
             warnings.append("Часть полей не заполнена, проверьте документ перед печатью.")
         if not base_line_items:
@@ -2022,6 +2353,7 @@ class PrintModuleService:
             },
             "dates": {
                 "document_date_display": _date_display(order.date or order.opened_at),
+                "document_date_only_display": _date_only_display(order.date or order.opened_at),
                 "opened_at_display": _date_display(order.opened_at),
                 "closed_at_display": _date_display(order.closed_at),
                 "generated_at_display": _date_display(utc_now_iso()),
@@ -2153,6 +2485,7 @@ class PrintModuleService:
                 "has_prepayment": invoice_prepayment != Decimal("0"),
                 "has_vat": invoice_tax["has_vat"] and invoice_tax_amount != Decimal("0"),
             },
+            "regulated": regulated_context,
             "meta": {
                 "warnings": warnings,
                 "missing_fields": missing_fields,
@@ -2186,7 +2519,7 @@ class PrintModuleService:
         if document.id not in {"parts_sale"} and not _normalize_text(order.vin):
             missing.append("vin")
         if (
-            document.id in {"repair_order", "invoice", "invoice_factura", "completion_act"}
+            document.id in {"repair_order", "invoice", "invoice_factura", "upd", "completion_act"}
             and not works
         ):
             missing.append("works")
@@ -2196,6 +2529,7 @@ class PrintModuleService:
                 "repair_order",
                 "invoice",
                 "invoice_factura",
+                "upd",
                 "completion_act",
                 "parts_sale",
             }

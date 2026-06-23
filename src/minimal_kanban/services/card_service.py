@@ -3040,6 +3040,7 @@ class CardService(
                         template_overrides=payload.get("template_overrides")
                         if isinstance(payload.get("template_overrides"), dict)
                         else {},
+                        document_overrides=self._print_document_overrides(payload),
                         print_settings=payload.get("print_settings")
                         if isinstance(payload.get("print_settings"), dict)
                         else {},
@@ -3065,6 +3066,7 @@ class CardService(
                     template_overrides=payload.get("template_overrides")
                     if isinstance(payload.get("template_overrides"), dict)
                     else {},
+                    document_overrides=self._print_document_overrides(payload),
                     print_settings=payload.get("print_settings")
                     if isinstance(payload.get("print_settings"), dict)
                     else {},
@@ -3089,6 +3091,7 @@ class CardService(
                         template_overrides=payload.get("template_overrides")
                         if isinstance(payload.get("template_overrides"), dict)
                         else {},
+                        document_overrides=self._print_document_overrides(payload),
                         print_settings=payload.get("print_settings")
                         if isinstance(payload.get("print_settings"), dict)
                         else {},
@@ -3125,6 +3128,7 @@ class CardService(
                     template_overrides=payload.get("template_overrides")
                     if isinstance(payload.get("template_overrides"), dict)
                     else {},
+                    document_overrides=self._print_document_overrides(payload),
                     print_settings=payload.get("print_settings")
                     if isinstance(payload.get("print_settings"), dict)
                     else {},
@@ -3156,6 +3160,7 @@ class CardService(
                         template_overrides=payload.get("template_overrides")
                         if isinstance(payload.get("template_overrides"), dict)
                         else {},
+                        document_overrides=self._print_document_overrides(payload),
                         print_settings=payload.get("print_settings")
                         if isinstance(payload.get("print_settings"), dict)
                         else {},
@@ -3188,6 +3193,7 @@ class CardService(
                     template_overrides=payload.get("template_overrides")
                     if isinstance(payload.get("template_overrides"), dict)
                     else {},
+                    document_overrides=self._print_document_overrides(payload),
                     print_settings=payload.get("print_settings")
                     if isinstance(payload.get("print_settings"), dict)
                     else {},
@@ -3315,6 +3321,24 @@ class CardService(
             manual_document,
             request_text=str(payload.get("request_text", "") or "")[:20_000],
         )
+
+    def _print_document_overrides(self, payload: dict[str, Any]) -> dict[str, Any]:
+        top_level = (
+            payload.get("document_overrides")
+            if isinstance(payload.get("document_overrides"), dict)
+            else {}
+        )
+        manual_document = (
+            payload.get("manual_document")
+            if isinstance(payload.get("manual_document"), dict)
+            else {}
+        )
+        manual_regulated = (
+            manual_document.get("regulated")
+            if isinstance(manual_document.get("regulated"), dict)
+            else {}
+        )
+        return {**manual_regulated, **top_level}
 
     def _print_module_client(
         self, bundle: dict[str, Any], preview_card: Card

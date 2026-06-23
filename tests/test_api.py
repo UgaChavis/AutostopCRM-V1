@@ -3719,6 +3719,7 @@ class ApiServerTests(unittest.TestCase):
                 "vehicle_acceptance_act",
                 "invoice",
                 "invoice_factura",
+                "upd",
                 "inspection_sheet",
                 "completion_act",
                 "parts_sale",
@@ -3742,6 +3743,32 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("40702810900000000001", invoice_html)
         self.assertIn("5 882,35", invoice_html)
         self.assertIn("Nissan X-Trail T32", repair_order_html)
+
+        status, upd_preview = self.request(
+            "/api/preview_repair_order_print_documents",
+            {
+                "document_without_card": True,
+                "manual_document": {
+                    **manual_document,
+                    "tax_label": "НДС (5%)",
+                    "regulated": {
+                        "basis": "Договор № MANUAL-100",
+                        "transport_details": "Передача на территории сервиса",
+                    },
+                },
+                "selected_document_ids": ["upd"],
+                "active_document_id": "upd",
+            },
+        )
+        self.assertEqual(status, 200)
+        upd_document = upd_preview["data"]["documents"][0]
+        self.assertEqual(upd_document["id"], "upd")
+        self.assertEqual(upd_document["page_count"], 2)
+        upd_html = "".join(page["html"] for page in upd_document["pages"])
+        self.assertIn("Универсальный передаточный документ", upd_html)
+        self.assertIn("ООО Документ Без Карточки", upd_html)
+        self.assertIn("Договор № MANUAL-100", upd_html)
+        self.assertIn("Передача на территории сервиса", upd_html)
 
         with patch(
             "minimal_kanban.printing.service.render_html_to_pdf_bytes",
