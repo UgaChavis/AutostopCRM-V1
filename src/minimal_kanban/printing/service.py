@@ -1896,6 +1896,8 @@ class PrintModuleService:
         invoice_tax_display = _money_display(invoice_tax_amount)
         invoice_total_display = _money_display(invoice_total)
         invoice_total_words_display = _money_words_display(invoice_total)
+        invoice_prepayment = payment_summary["total_paid"]
+        invoice_amount_due = _round_money(max(invoice_total - invoice_prepayment, Decimal("0")))
         cash_total = payment_summary["base_total"]
         noncash_total = payment_summary["base_total"] * (
             Decimal("1") + REPAIR_ORDER_PAYMENT_TAX_RATE
@@ -1919,6 +1921,7 @@ class PrintModuleService:
         total_paid_display = payment_summary_display["total_paid_display"]
         cash_prepayment = payment_summary["base_paid_cash_only"]
         card_prepayment = payment_summary["base_paid_card"]
+        cash_like_prepayment = _round_money(cash_prepayment + card_prepayment)
         cashless_prepayment = payment_summary["base_paid_noncash"]
         client_context = _client_invoice_context(
             client,
@@ -2074,6 +2077,8 @@ class PrintModuleService:
                 "grand_words_display": grand_total_words_display,
                 "prepayment_display": total_paid_display,
                 "prepayment_ruble_display": _money_ruble_display(payment_summary["total_paid"]),
+                "cash_like_prepayment": cash_like_prepayment,
+                "cash_like_prepayment_ruble_display": _money_ruble_display(cash_like_prepayment),
                 "cash_prepayment": cash_prepayment,
                 "cash_prepayment_ruble_display": _money_ruble_display(cash_prepayment),
                 "card_prepayment": card_prepayment,
@@ -2104,6 +2109,7 @@ class PrintModuleService:
                 **payment_summary_ruble_display,
                 "has_taxes": payment_summary["taxes_and_fees"] != Decimal("0"),
                 "has_prepayment": payment_summary["total_paid"] != Decimal("0"),
+                "has_cash_like_prepayment": cash_like_prepayment != Decimal("0"),
                 "has_cash_prepayment": cash_prepayment != Decimal("0"),
                 "has_card_prepayment": card_prepayment != Decimal("0"),
                 "has_cashless_prepayment": cashless_prepayment != Decimal("0"),
@@ -2120,6 +2126,12 @@ class PrintModuleService:
                 "total": invoice_total,
                 "total_display": invoice_total_display,
                 "total_words_display": invoice_total_words_display,
+                "prepayment": invoice_prepayment,
+                "prepayment_display": _money_display(invoice_prepayment),
+                "amount_due": invoice_amount_due,
+                "amount_due_display": _money_display(invoice_amount_due),
+                "amount_due_words_display": _money_words_display(invoice_amount_due),
+                "has_prepayment": invoice_prepayment != Decimal("0"),
                 "has_vat": invoice_tax["has_vat"] and invoice_tax_amount != Decimal("0"),
             },
             "meta": {

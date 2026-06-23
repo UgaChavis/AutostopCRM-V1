@@ -266,14 +266,16 @@ PRINT_BASE_STYLES = """
   .doc-totals__row:last-child { border-bottom: 0; }
   .doc-totals__row > span:last-child { text-align: right; }
   .doc-totals__row--grand { font-size: 14px; font-weight: 700; background: rgba(0, 0, 0, 0.03); }
-  .doc-totals-table { width: min(400px, 100%); margin-left: auto; margin-top: 10px; border-collapse: collapse; }
+  .doc-totals-table { width: min(460px, 100%); margin-left: auto; margin-top: 10px; border-collapse: collapse; }
   .doc-totals-table td {
     border: 1px solid var(--paper-line);
     padding: 8px 11px;
     font-variant-numeric: tabular-nums;
     background: rgba(255,255,255,0.65);
   }
-  .doc-totals-table td:last-child { text-align: right; width: 32%; }
+  .doc-totals-table td:first-child { white-space: nowrap; }
+  .doc-totals-table td:last-child { text-align: right; width: 30%; }
+  .doc-totals-table__strong td { font-weight: 700; }
   .doc-totals-table__grand td { font-size: 14px; font-weight: 700; background: rgba(0, 0, 0, 0.03); }
   .doc-invoice-words {
     margin-top: 10px;
@@ -448,14 +450,12 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     </tbody><tfoot><tr><td colspan="3">Итого материалы</td><td class="doc-table__sum">{{totals.materials_display}}</td></tr></tfoot></table>
   </section>
   <table class="doc-totals-table">
-    <tr><td>Стоимость заказ-наряда</td><td>{{totals.base_total_ruble_display}}</td></tr>
-    <tr><td>Стоимость заказ-наряда по безналичному расчету<br><small>включая налоги и сборы 15%</small></td><td>{{totals.noncash_total_ruble_display}}</td></tr>
-    {{#totals.has_cash_prepayment}}<tr><td>Предоплата наличными</td><td>{{totals.cash_prepayment_ruble_display}}</td></tr>{{/totals.has_cash_prepayment}}
-    {{#totals.has_card_prepayment}}<tr><td>Предоплата на карту</td><td>{{totals.card_prepayment_ruble_display}}</td></tr>{{/totals.has_card_prepayment}}
+    <tr class="doc-totals-table__strong"><td>Стоимость заказ-наряда за наличный расчет</td><td>{{totals.base_total_ruble_display}}</td></tr>
+    <tr class="doc-totals-table__strong"><td>Стоимость заказ-наряда по безналичному расчету<br><small>включая налоги и сборы 15%</small></td><td>{{totals.noncash_total_ruble_display}}</td></tr>
+    {{#totals.has_cash_like_prepayment}}<tr><td>Предоплата за наличные</td><td>{{totals.cash_like_prepayment_ruble_display}}</td></tr>{{/totals.has_cash_like_prepayment}}
     {{#totals.has_cashless_prepayment}}<tr><td>Предоплата по безналу</td><td>{{totals.cashless_prepayment_ruble_display}}</td></tr>{{/totals.has_cashless_prepayment}}
-    {{#totals.has_taxes}}<tr><td>Налоги и сборы</td><td>{{totals.taxes_and_fees_ruble_display}}</td></tr>{{/totals.has_taxes}}
-    <tr class="doc-totals-table__grand"><td>К доплате по безналичному расчету</td><td>{{totals.noncash_due_ruble_display}}</td></tr>
-    <tr class="doc-totals-table__grand"><td>К доплате по наличному расчету</td><td>{{totals.cash_due_ruble_display}}</td></tr>
+    <tr class="doc-totals-table__grand"><td>Доплата по безналичному расчету</td><td>{{totals.noncash_due_ruble_display}}</td></tr>
+    <tr class="doc-totals-table__grand"><td>Доплата по наличному расчету</td><td>{{totals.cash_due_ruble_display}}</td></tr>
   </table>
 </div>
 <!-- AUTOSTOPCRM_PAGE_BREAK -->
@@ -675,9 +675,10 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     <tr><td>Итого</td><td>{{invoice.subtotal_display}}</td></tr>
     {{#invoice.has_vat}}<tr><td>В том числе {{invoice.tax_label}}</td><td>{{invoice.vat_display}}</td></tr>{{/invoice.has_vat}}
     {{^invoice.has_vat}}<tr><td>Налоговый режим</td><td>{{invoice.tax_label}}</td></tr>{{/invoice.has_vat}}
-    <tr class="doc-totals-table__grand"><td>Всего к оплате</td><td>{{invoice.total_display}}</td></tr>
+    {{#invoice.has_prepayment}}<tr><td>Предоплата</td><td>{{invoice.prepayment_display}}</td></tr>{{/invoice.has_prepayment}}
+    <tr class="doc-totals-table__grand"><td>Всего к оплате</td><td>{{invoice.amount_due_display}}</td></tr>
   </table>
-  <div class="doc-invoice-words">Сумма прописью: <strong>{{invoice.total_words_display}}</strong></div>
+  <div class="doc-invoice-words">Сумма прописью: <strong>{{invoice.amount_due_words_display}}</strong></div>
   <section class="doc-section">
     <h2 class="doc-section__title">Подписи</h2>
     <table class="doc-signatures-table">
@@ -962,14 +963,12 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   </section>
   <section class="doc-section"><h2 class="doc-section__title">Справка для клиента</h2><div class="doc-note">{{{repair_order.client_information_html}}}</div></section>
   <table class="doc-totals-table">
-    <tr><td>Стоимость заказ-наряда</td><td>{{totals.base_total_ruble_display}}</td></tr>
-    <tr><td>Стоимость заказ-наряда по безналичному расчету<br><small>включая налоги и сборы 15%</small></td><td>{{totals.noncash_total_ruble_display}}</td></tr>
-    {{#totals.has_cash_prepayment}}<tr><td>Предоплата наличными</td><td>{{totals.cash_prepayment_ruble_display}}</td></tr>{{/totals.has_cash_prepayment}}
-    {{#totals.has_card_prepayment}}<tr><td>Предоплата на карту</td><td>{{totals.card_prepayment_ruble_display}}</td></tr>{{/totals.has_card_prepayment}}
+    <tr class="doc-totals-table__strong"><td>Стоимость заказ-наряда за наличный расчет</td><td>{{totals.base_total_ruble_display}}</td></tr>
+    <tr class="doc-totals-table__strong"><td>Стоимость заказ-наряда по безналичному расчету<br><small>включая налоги и сборы 15%</small></td><td>{{totals.noncash_total_ruble_display}}</td></tr>
+    {{#totals.has_cash_like_prepayment}}<tr><td>Предоплата за наличные</td><td>{{totals.cash_like_prepayment_ruble_display}}</td></tr>{{/totals.has_cash_like_prepayment}}
     {{#totals.has_cashless_prepayment}}<tr><td>Предоплата по безналу</td><td>{{totals.cashless_prepayment_ruble_display}}</td></tr>{{/totals.has_cashless_prepayment}}
-    {{#totals.has_taxes}}<tr><td>Налоги и сборы</td><td>{{totals.taxes_and_fees_ruble_display}}</td></tr>{{/totals.has_taxes}}
-    <tr class="doc-totals-table__grand"><td>К доплате по безналичному расчету</td><td>{{totals.noncash_due_ruble_display}}</td></tr>
-    <tr class="doc-totals-table__grand"><td>К доплате по наличному расчету</td><td>{{totals.cash_due_ruble_display}}</td></tr>
+    <tr class="doc-totals-table__grand"><td>Доплата по безналичному расчету</td><td>{{totals.noncash_due_ruble_display}}</td></tr>
+    <tr class="doc-totals-table__grand"><td>Доплата по наличному расчету</td><td>{{totals.cash_due_ruble_display}}</td></tr>
   </table>
   <div class="doc-invoice-words">Сумма прописью: <strong>{{totals.due_words_display}}</strong></div>
   <section class="doc-section doc-section--warranty doc-section--warranty-summary">
