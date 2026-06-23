@@ -1115,18 +1115,27 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertTrue(repair_order_text.structuredContent["ok"])
                 self.assertIn(
-                    "Стоимость заказ-наряда: 3100",
+                    "Стоимость заказ-наряда за наличный расчет: 3100",
+                    repair_order_text.structuredContent["data"]["text"],
+                )
+                self.assertIn(
+                    "Стоимость заказ-наряда по безналичному расчету: 3565",
+                    repair_order_text.structuredContent["data"]["text"],
+                )
+                self.assertIn(
+                    "Предоплата по безналу: 500",
                     repair_order_text.structuredContent["data"]["text"],
                 )
                 self.assertIn(
                     "Налоги и сборы: 75", repair_order_text.structuredContent["data"]["text"]
                 )
                 self.assertIn(
-                    "Итого по заказ-наряду: 3175",
+                    "Доплата по безналичному расчету: 3076.25",
                     repair_order_text.structuredContent["data"]["text"],
                 )
                 self.assertIn(
-                    "К доплате: 2675", repair_order_text.structuredContent["data"]["text"]
+                    "Доплата по наличному расчету: 2675",
+                    repair_order_text.structuredContent["data"]["text"],
                 )
 
                 with patch(

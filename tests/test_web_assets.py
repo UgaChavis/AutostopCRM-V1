@@ -3413,6 +3413,14 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
+            "const cashDue = repairOrderRoundMoney(Math.max(normalizedBaseTotal + taxesAndFees - totalPaid, 0));",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "noncash_due: repairOrderRoundMoney(cashDue * (1 + repairOrderTaxRate('cashless'))),",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
             "total_paid: totalPaid",
             BOARD_WEB_APP_HTML,
         )

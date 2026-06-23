@@ -792,6 +792,7 @@ class PrintingServiceTests(unittest.TestCase):
                     "prepayment": Decimal("10000"),
                     "cash_like_prepayment": Decimal("10000"),
                     "due": Decimal("10000"),
+                    "due_label": "Доплата по наличному расчету",
                 },
             ),
             (
@@ -806,6 +807,7 @@ class PrintingServiceTests(unittest.TestCase):
                     "due": Decimal("13225"),
                     "cash_due": Decimal("11500"),
                     "noncash_due": Decimal("13225"),
+                    "due_label": "Доплата по безналичному расчету",
                 },
             ),
             (
@@ -823,6 +825,7 @@ class PrintingServiceTests(unittest.TestCase):
                     "due": Decimal("10407.5"),
                     "cash_due": Decimal("9050"),
                     "noncash_due": Decimal("10407.5"),
+                    "due_label": "Доплата по безналичному расчету",
                 },
             ),
         ]
@@ -845,6 +848,7 @@ class PrintingServiceTests(unittest.TestCase):
                 self.assertEqual(totals["grand"], expected["grand"])
                 self.assertEqual(totals["prepayment"], expected["prepayment"])
                 self.assertEqual(totals["due"], expected["due"])
+                self.assertEqual(totals["due_label"], expected["due_label"])
                 self.assertEqual(totals["cash_due"], expected.get("cash_due", expected["due"]))
                 self.assertEqual(
                     totals["noncash_due"],
@@ -925,6 +929,34 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Всего к оплате</td><td>214 726,75", html)
         self.assertIn("Двести четырнадцать тысяч", html)
         self.assertNotIn("Всего к оплате</td><td>384 726,75", html)
+
+    def test_invoice_print_hides_prepayment_row_when_order_has_no_payments(self) -> None:
+        preview = self.service.preview_documents(
+            build_payment_card(payment_method="cashless", payments=[]),
+            selected_document_ids=["invoice"],
+            active_document_id="invoice",
+        )
+        html = preview["documents"][0]["pages"][0]["html"]
+
+        self.assertIn("Итого</td><td>23 000,00", html)
+        self.assertNotIn("Предоплата</td>", html)
+        self.assertIn("Всего к оплате</td><td>23 000,00", html)
+
+    def test_invoice_print_caps_amount_due_at_zero_after_overpayment(self) -> None:
+        preview = self.service.preview_documents(
+            build_payment_card(
+                payment_method="cashless",
+                payments=[{"amount": "30000", "payment_method": "cashless"}],
+            ),
+            selected_document_ids=["invoice"],
+            active_document_id="invoice",
+        )
+        html = preview["documents"][0]["pages"][0]["html"]
+
+        self.assertIn("Итого</td><td>23 000,00", html)
+        self.assertIn("Предоплата</td><td>30 000,00", html)
+        self.assertIn("Всего к оплате</td><td>0,00", html)
+        self.assertNotIn("Всего к оплате</td><td>-", html)
 
     def test_inspection_sheet_form_roundtrip_updates_preview(self) -> None:
         initial = self.service.get_inspection_sheet_form(self.card)

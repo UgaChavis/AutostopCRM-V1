@@ -3498,9 +3498,24 @@ class ApiServerTests(unittest.TestCase):
         status, text_payload = self.request("/api/get_repair_order_text", {"card_id": card_id})
         self.assertEqual(status, 200)
         self.assertEqual(text_payload["data"]["card_id"], card_id)
-        self.assertIn("Стоимость заказ-наряда: 14000", text_payload["data"]["text"])
-        self.assertIn("Итого по заказ-наряду: 14000", text_payload["data"]["text"])
-        self.assertIn("К доплате: 14000", text_payload["data"]["text"])
+        self.assertIn(
+            "Стоимость заказ-наряда за наличный расчет: 14000",
+            text_payload["data"]["text"],
+        )
+        self.assertIn(
+            "Стоимость заказ-наряда по безналичному расчету: 16100",
+            text_payload["data"]["text"],
+        )
+        self.assertIn(
+            "Доплата по безналичному расчету: 16100",
+            text_payload["data"]["text"],
+        )
+        self.assertIn(
+            "Доплата по наличному расчету: 14000",
+            text_payload["data"]["text"],
+        )
+        self.assertNotIn("Итого по заказ-наряду", text_payload["data"]["text"])
+        self.assertNotIn("К доплате:", text_payload["data"]["text"])
 
     def test_repair_order_number_correction_route_is_immutable(self) -> None:
         status, created = self.request(

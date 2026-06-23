@@ -4364,8 +4364,8 @@ def run_agent_loop(*, logger: logging.Logger) -> int:
             "MCP URL: https://crm.autostopcrm.ru/mcp\n"
             "Admin smoke credentials: use AUTOSTOP_SMOKE_OPERATOR_USERNAME/AUTOSTOP_SMOKE_OPERATOR_PASSWORD from the runtime environment.\n"
             "Use cashbox names exactly as they exist.\n"
-            "If payment goes to cashbox 'Безналичный', the repair order adds 15% taxes and fees from that payment amount.\n"
-            "Cashboxes 'Наличный' and 'Карта Мария' do not add taxes and fees.\n"
+            "If payment goes to cashbox 'Безналичный', the repair order adds 15% taxes and fees from that payment amount and keeps those fees in the client debt.\n"
+            "Cashboxes 'Наличный' and 'Карта Мария' count as cash-like payments and do not add taxes and fees.\n"
         )
     board_api = None
     while board_api is None:

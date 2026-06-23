@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timedelta, timezone
 import logging
 from datetime import datetime as dt
+from decimal import Decimal
 import sys
 import tempfile
 import unittest
@@ -36,6 +37,7 @@ from minimal_kanban.models import (
     Card,
     CashBox,
     CashTransaction,
+    normalize_money_minor,
     utc_now,
 )
 from minimal_kanban.agent.config import get_agent_name
@@ -222,6 +224,9 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(
             self.service._repair_orders_dir, Path(self.temp_dir.name) / "repair-orders"
         )
+
+    def test_money_minor_normalization_preserves_decimal_zero(self) -> None:
+        self.assertEqual(normalize_money_minor(Decimal("0"), default=500), 0)
 
     def _patch_time(self, moment: datetime):
         return (
@@ -9896,9 +9901,24 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn("Current AutoStop CRM Board", context["board_context"]["text"])
         self.assertIn("repair_order_updated", {event["action"] for event in context["events"]})
         self.assertIn("ЗАКАЗ-НАРЯД", context["repair_order_text"]["text"])
-        self.assertIn("Стоимость заказ-наряда: 1200", context["repair_order_text"]["text"])
-        self.assertIn("Итого по заказ-наряду: 1200", context["repair_order_text"]["text"])
-        self.assertIn("К доплате: 1200", context["repair_order_text"]["text"])
+        self.assertIn(
+            "Стоимость заказ-наряда за наличный расчет: 1200",
+            context["repair_order_text"]["text"],
+        )
+        self.assertIn(
+            "Стоимость заказ-наряда по безналичному расчету: 1380",
+            context["repair_order_text"]["text"],
+        )
+        self.assertIn(
+            "Доплата по безналичному расчету: 1380",
+            context["repair_order_text"]["text"],
+        )
+        self.assertIn(
+            "Доплата по наличному расчету: 1200",
+            context["repair_order_text"]["text"],
+        )
+        self.assertNotIn("Итого по заказ-наряду", context["repair_order_text"]["text"])
+        self.assertNotIn("К доплате:", context["repair_order_text"]["text"])
 
     def test_repair_order_patch_and_row_replacement_tools_update_order(self) -> None:
         created = self.service.create_card(

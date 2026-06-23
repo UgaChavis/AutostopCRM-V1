@@ -602,7 +602,7 @@ def normalize_money_minor(value, *, default: int = 0, minimum: int | None = None
     elif isinstance(value, float):
         parsed = int(round(value * 100))
     else:
-        text = str(value or "").strip().replace(" ", "").replace(",", ".")
+        text = "" if value is None else str(value).strip().replace(" ", "").replace(",", ".")
         if not text:
             parsed = default
         else:

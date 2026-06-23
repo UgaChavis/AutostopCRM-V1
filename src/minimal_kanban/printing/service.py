@@ -441,7 +441,7 @@ def _parse_manual_document_text(request_text: str) -> dict[str, Any]:
 
 
 def _parse_decimal(value: Any) -> Decimal | None:
-    raw = str(value or "").strip().replace(" ", "").replace(",", ".")
+    raw = "" if value is None else str(value).strip().replace(" ", "").replace(",", ".")
     if not raw:
         return None
     try:
@@ -1909,9 +1909,9 @@ class PrintModuleService:
             else payment_summary["cash_due"]
         )
         selected_due_label = (
-            "К доплате по безналичному расчету"
+            "Доплата по безналичному расчету"
             if order.payment_method == REPAIR_ORDER_PAYMENT_METHOD_CASHLESS
-            else "К доплате"
+            else "Доплата по наличному расчету"
         )
         selected_due_display = _money_display(selected_due)
         selected_due_words_display = _money_words_display(selected_due)

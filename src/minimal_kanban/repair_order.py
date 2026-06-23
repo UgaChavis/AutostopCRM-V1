@@ -151,7 +151,7 @@ def repair_order_payment_method_label(value) -> str:
 
 
 def _parse_decimal(value) -> Decimal | None:
-    raw = str(value or "").strip().replace(" ", "").replace(",", ".")
+    raw = "" if value is None else str(value).strip().replace(" ", "").replace(",", ".")
     if not raw:
         return None
     try:
@@ -831,6 +831,12 @@ class RepairOrder:
     def subtotal_amount(self) -> str:
         return _format_decimal(self.subtotal_value())
 
+    def noncash_total_value(self) -> Decimal:
+        return _round_money(self.subtotal_value() * (Decimal("1") + REPAIR_ORDER_PAYMENT_TAX_RATE))
+
+    def noncash_total_amount(self) -> str:
+        return _format_decimal(self.noncash_total_value())
+
     def cash_payments_value(self) -> Decimal:
         if self.payments:
             return repair_order_payments_value_by_method(
@@ -872,6 +878,9 @@ class RepairOrder:
 
     def due_total_amount(self) -> str:
         return _format_decimal(self.due_total_value())
+
+    def noncash_due_amount(self) -> str:
+        return _format_decimal(self.payment_summary_value()["noncash_due"])
 
     def payment_summary_value(self) -> dict[str, Decimal]:
         return repair_order_payment_summary_value(self.subtotal_value(), self.payments)

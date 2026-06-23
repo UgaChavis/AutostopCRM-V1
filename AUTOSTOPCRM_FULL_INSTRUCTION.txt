@@ -27,6 +27,11 @@ cd /opt/autostopcrm
 docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --mcp-url https://crm.autostopcrm.ru/mcp --operator-username "${AUTOSTOP_SMOKE_OPERATOR_USERNAME:?set smoke username}" --operator-password "${AUTOSTOP_SMOKE_OPERATOR_PASSWORD:?set smoke password}" --expect-admin
 docker compose exec -T autostopcrm python scripts/docs_audit.py --format text
 
+Money logic:
+- cashless repair-order payments add 15% taxes/fees from the cashless paid amount
+- those taxes/fees stay in the client debt; payment_status follows cash_due
+- invoice "Всего к оплате" is full cashless invoice total minus all prepayments
+
 Diagnostics:
 git status --short --branch
 git rev-parse --short HEAD

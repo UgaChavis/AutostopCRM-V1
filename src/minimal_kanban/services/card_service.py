@@ -8591,13 +8591,27 @@ class CardService(
         lines.extend(["", "Материалы:"])
         lines.extend(self._render_repair_order_rows(order.materials))
         lines.append(f"Итого материалы: {order.materials_total_amount()}")
+        payment_summary = order.payment_summary_value()
+        payment_summary_amounts = order.payment_summary_amounts()
+        cash_like_prepayment = payment_summary["base_paid_cash"]
+        cashless_prepayment = payment_summary["base_paid_noncash"]
         lines.extend(
             [
                 "",
-                f"Стоимость заказ-наряда: {order.subtotal_amount()}",
-                f"Налоги и сборы: {order.taxes_amount()}",
-                f"Итого по заказ-наряду: {order.grand_total_amount()}",
-                f"К доплате: {order.due_total_amount()}",
+                f"Стоимость заказ-наряда за наличный расчет: {order.subtotal_amount()}",
+                f"Стоимость заказ-наряда по безналичному расчету: {order.noncash_total_amount()}",
+                f"Предоплата всего: {order.prepayment_amount()}",
+            ]
+        )
+        if cash_like_prepayment:
+            lines.append(f"Предоплата за наличные: {payment_summary_amounts['base_paid_cash']}")
+        if cashless_prepayment:
+            lines.append(f"Предоплата по безналу: {payment_summary_amounts['base_paid_noncash']}")
+            lines.append(f"Налоги и сборы: {order.taxes_amount()}")
+        lines.extend(
+            [
+                f"Доплата по безналичному расчету: {order.noncash_due_amount()}",
+                f"Доплата по наличному расчету: {order.due_total_amount()}",
                 "",
                 "JSON:",
                 json.dumps(order.to_storage_dict(), ensure_ascii=False, indent=2),

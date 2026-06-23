@@ -120,6 +120,14 @@ materials, payments, dates, numbers, and comments. They are rendered by the exis
 PrintServiceProfile, template engine, standard AutoStop templates, and PDF
 renderer; do not introduce separate PDF/HTML templates for AutoStop documents.
 
+Repair-order payment totals use the shared backend calculation: cashless
+payments add 15% taxes/fees from the cashless paid amount, those fees remain in
+the client's cash debt, and `due_total`/`payment_status` follow the cash debt.
+The printed repair order and completion act show cash and cashless доплата
+rows; they do not print a separate `Налоги и сборы` row. The invoice keeps its
+full cashless `Итого` and VAT, then subtracts all repair-order prepayments in
+`Всего к оплате`.
+
 Repair-order work rows may include salary override fields:
 `work_salary_override_enabled`, `work_salary_guarantee`,
 `work_salary_percent_override`, and `work_salary_note`. When enabled, payroll

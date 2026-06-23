@@ -136,6 +136,12 @@ Pass `manual_document.tax_label` or a text line such as `НДС: Без НДС` 
 invoice must print a specific tax regime.
 `list_repair_orders`
 supports `compact=true` and `redact_private=true` for low-payload diagnostics.
+Repair-order payment summaries count 15% taxes/fees on cashless payments, keep
+those fees in the client's cash debt, and mark the order paid only when that
+cash debt is zero. In print exports, repair order and completion act totals show
+cash/cashless доплата rows without a separate `Налоги и сборы` row; the invoice
+keeps the full cashless total and VAT, then subtracts all prepayments in
+`Всего к оплате`.
 
 Inventory: `list_inventory_items`, `search_inventory_items`,
 `get_inventory_item`, `list_inventory_movements`, `save_inventory_item`,
