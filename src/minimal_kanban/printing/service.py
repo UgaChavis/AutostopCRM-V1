@@ -856,9 +856,7 @@ def _regulated_document_context(
     seller_leader_position = _regulated_optional_text(
         overrides,
         "seller_leader_position",
-        fallback="Индивидуальный предприниматель или иное уполномоченное лицо"
-        if seller_is_individual
-        else seller_position,
+        fallback="" if seller_is_individual else seller_position,
         limit=160,
     )
     seller_leader_signer = _regulated_optional_text(

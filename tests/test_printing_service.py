@@ -869,6 +869,10 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("ATF", combined_html)
         self.assertNotIn("продолжение передаточной части", second_page_html)
         self.assertNotIn("Передача на территории сервиса", combined_html)
+        self.assertNotIn(
+            '<td class="regulated-line-cell">Индивидуальный предприниматель или иное уполномоченное лицо</td>',
+            second_page_html,
+        )
         self.assertNotIn("undefined", combined_html)
         self.assertNotIn("NaN", combined_html)
 
