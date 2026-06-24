@@ -729,7 +729,7 @@ def _regulated_unit_payload(item: dict[str, Any]) -> dict[str, str]:
     section = _normalize_text(item.get("section"), limit=32)
     unit = _normalize_text(item.get("inventory_unit") or item.get("unit_display"), limit=24).lower()
     unit = unit.replace(".", "")
-    if section == "works":
+    if section == "works" and (not unit or unit in {"усл ед", "услед", "услуга", "услуги", "усл"}):
         return {"unit_code_display": "—", "unit_display": "н/ч"}
     if unit in {"л", "литр", "литра", "литров"}:
         return {"unit_code_display": "112", "unit_display": "л"}
@@ -775,10 +775,10 @@ def _regulated_line_item_dict(
         "total_with_tax_display": _money_display(total_with_tax),
         "excise_display": "Без акциза",
         "line_code_display": "—",
-        "country_display": "—",
-        "country_code_display": "—",
-        "country_name_display": "—",
-        "customs_declaration_display": "—",
+        "country_display": "",
+        "country_code_display": "",
+        "country_name_display": "",
+        "customs_declaration_display": "",
     }
 
 
@@ -899,25 +899,25 @@ def _regulated_document_context(
     transport_details = _regulated_optional_text(
         overrides,
         "transport_details",
-        fallback="Передача на территории сервиса",
+        fallback="",
         limit=240,
     )
-    buyer_position = _regulated_override_text(
+    buyer_position = _regulated_optional_text(
         overrides,
         "buyer_position",
-        fallback=client_position or "Представитель покупателя",
+        fallback=client_position,
         limit=120,
     )
-    buyer_signer = _regulated_override_text(
+    buyer_signer = _regulated_optional_text(
         overrides,
         "buyer_signer",
-        fallback=client_contact or "—",
+        fallback=client_contact,
         limit=120,
     )
     shipper = _regulated_override_text(
         overrides,
         "shipper",
-        fallback=f"{seller_legal_name}, {service_profile.address}",
+        fallback="он же",
         limit=360,
     )
     consignee = _regulated_override_text(
@@ -956,7 +956,7 @@ def _regulated_document_context(
         "buyer_position_display": buyer_position,
         "buyer_signer_display": buyer_signer,
         "currency_display": "Российский рубль, 643",
-        "state_contract_display": "—",
+        "state_contract_display": "",
         "upd_status_code_display": "1",
         "upd_status_display": "1 - счет-фактура и передаточный документ (акт)",
         "upd_status_secondary_display": "2 - передаточный документ (акт)",
@@ -1010,7 +1010,7 @@ def _repair_row_dict(row: RepairOrderRow, *, section: str, index: int) -> dict[s
         "catalog_number": row.catalog_number,
         "inventory_unit": row.inventory_unit,
         "quantity": row.quantity,
-        "unit_display": "усл. ед." if section == "works" else "шт.",
+        "unit_display": row.inventory_unit or ("усл. ед." if section == "works" else "шт."),
         "price": row.price,
         "total": row.total or row.computed_total(),
         "quantity_display": row.quantity or "—",

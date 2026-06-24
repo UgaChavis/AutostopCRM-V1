@@ -662,6 +662,7 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("К платежно-расчетному документу", html)
         self.assertIn("Документ об отгрузке", html)
         self.assertIn("К счету-фактуре", html)
+        self.assertIn('class="regulated-wide-line"', html)
         self.assertIn("ИНН/КПП покупателя", html)
         self.assertIn("ООО Контрагент", html)
         self.assertIn("2468000000 / 246801001", html)
@@ -679,8 +680,10 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Страна происхождения товара", html)
         self.assertIn("Регистрационный номер декларации на товары", html)
         self.assertIn("Без акциза", html)
+        self.assertIn(">н/ч<", html)
         self.assertIn("Итого", html)
         self.assertIn("Всего к оплате", html)
+        self.assertIn(">он же<", html)
         self.assertIn("Индивидуальный предприниматель Гришкявичус Константин Владиславович", html)
         self.assertIn("319246800097453, 05.08.2019", html)
         self.assertNotIn("Бухгалтерский документ", html)
@@ -707,6 +710,7 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("1 - счет-фактура и передаточный документ (акт)", first_page_html)
         self.assertIn("Счет-фактура №", first_page_html)
         self.assertIn("Документ об отгрузке", first_page_html)
+        self.assertIn('class="regulated-wide-line"', first_page_html)
         self.assertIn("ООО Контрагент", first_page_html)
         self.assertIn("2468000000 / 246801001", first_page_html)
         self.assertIn("Российский рубль, 643", first_page_html)
@@ -715,6 +719,8 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Всего к оплате", second_page_html)
         self.assertIn("Основание передачи (сдачи) / получения (приемки)", second_page_html)
         self.assertIn("Счет на оплату №12", second_page_html)
+        self.assertIn("[16]", second_page_html)
+        self.assertIn("[19]", second_page_html)
         self.assertIn(
             "Товар (груз) передал / услуги, результаты работ, права сдал", second_page_html
         )
@@ -731,8 +737,51 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("М.П.", second_page_html)
         self.assertIn("Диагностика АКПП", combined_html)
         self.assertIn("ATF", combined_html)
+        self.assertNotIn("Передача на территории сервиса", combined_html)
         self.assertNotIn("undefined", combined_html)
         self.assertNotIn("NaN", combined_html)
+
+    def test_regulated_work_unit_can_be_set_explicitly_for_upd_rows(self) -> None:
+        card = Card.from_dict(
+            {
+                "id": "card-upd-work-unit",
+                "vehicle": "",
+                "title": "УПД",
+                "description": "",
+                "column": "done",
+                "archived": False,
+                "created_at": "2026-05-08T10:00:00+00:00",
+                "updated_at": "2026-05-08T10:00:00+00:00",
+                "repair_order": {
+                    "number": "169",
+                    "date": "08.05.2026 12:00",
+                    "opened_at": "08.05.2026 12:00",
+                    "client": 'ЗАО "ВЕАЛ"',
+                    "payment_method": "cashless",
+                    "tax_label": "НДС 5%",
+                    "works": [
+                        {
+                            "name": "Замена коренного сальника",
+                            "inventory_unit": "шт",
+                            "quantity": "1",
+                            "price": "19714.29",
+                            "total": "",
+                        },
+                    ],
+                    "materials": [],
+                },
+            }
+        )
+        preview = self.service.preview_documents(
+            card,
+            client=build_business_client(),
+            selected_document_ids=["upd"],
+            active_document_id="upd",
+        )
+
+        html = preview["documents"][0]["pages"][0]["html"]
+        self.assertIn('<td class="regulated-center">796</td>', html)
+        self.assertIn('<td class="regulated-center">шт</td>', html)
 
     def test_regulated_document_overrides_print_fields_without_mutating_client(self) -> None:
         client = build_business_client()

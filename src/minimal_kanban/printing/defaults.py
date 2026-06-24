@@ -529,6 +529,23 @@ PRINT_BASE_STYLES = """
     text-align: center;
     white-space: nowrap;
   }
+  .regulated-wide-line {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 8mm;
+    align-items: end;
+    gap: 1.5mm;
+    margin: 0 0 1.4mm;
+    font-size: 7.15px;
+    line-height: 1.13;
+  }
+  .regulated-wide-line__label {
+    min-height: 5.5mm;
+    border-bottom: 1px solid #111;
+  }
+  .regulated-wide-line__code {
+    text-align: center;
+    white-space: nowrap;
+  }
   .regulated-tax-table--sample {
     font-size: 6.25px;
     line-height: 1.08;
@@ -1079,11 +1096,13 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <td class="regulated-req-label">Документ об отгрузке</td><td class="regulated-req-value">{{regulated.shipment_document_display}}</td><td class="regulated-req-code">(5а)</td>
       <td class="regulated-req-label"></td><td></td><td></td>
     </tr>
-    <tr>
-      <td class="regulated-req-label">К счету-фактуре, выставленному при получении оплаты, частичной оплаты</td><td class="regulated-req-value">{{regulated.linked_invoice_display}}</td><td class="regulated-req-code">(5б)</td>
-      <td class="regulated-req-label"></td><td></td><td></td>
-    </tr>
   </table>
+  <div class="regulated-wide-line">
+    <div class="regulated-wide-line__label">
+      К счету-фактуре (счетам-фактурам), выставленному (выставленным) при получении оплаты, частичной оплаты или иных платежей в счет предстоящих поставок товаров (выполнения работ, оказания услуг), передачи имущественных прав {{regulated.linked_invoice_display}}
+    </div>
+    <div class="regulated-wide-line__code">(5б)</div>
+  </div>
   <table class="regulated-tax-table regulated-tax-table--sample">
     <colgroup>
       <col style="width:6mm"><col style="width:54mm"><col style="width:9mm">
@@ -1264,11 +1283,13 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <td class="regulated-req-label">К платежно-расчетному документу</td><td class="regulated-req-value">{{regulated.payment_document_display}}</td><td class="regulated-req-code">(5)</td>
       <td class="regulated-req-label">ОГРН/ОГРНИП продавца</td><td class="regulated-req-value">{{regulated.seller_registration_display}}</td><td class="regulated-req-code"></td>
     </tr>
-    <tr>
-      <td class="regulated-req-label">К счету-фактуре, выставленному при получении оплаты, частичной оплаты</td><td class="regulated-req-value">{{regulated.linked_invoice_display}}</td><td class="regulated-req-code">(5б)</td>
-      <td class="regulated-req-label"></td><td></td><td></td>
-    </tr>
   </table>
+  <div class="regulated-wide-line">
+    <div class="regulated-wide-line__label">
+      К счету-фактуре (счетам-фактурам), выставленному (выставленным) при получении оплаты, частичной оплаты или иных платежей в счет предстоящих поставок товаров (выполнения работ, оказания услуг), передачи имущественных прав {{regulated.linked_invoice_display}}
+    </div>
+    <div class="regulated-wide-line__code">(5б)</div>
+  </div>
   <table class="regulated-tax-table regulated-tax-table--sample">
     <colgroup>
       <col style="width:10mm"><col style="width:6mm"><col style="width:48mm"><col style="width:8mm">
@@ -1422,6 +1443,16 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <td class="regulated-line-cell">&nbsp;</td>
     </tr>
     <tr>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td class="regulated-sign-caption">(подпись)</td>
+      <td class="regulated-sign-caption">(ф.и.о.)</td>
+      <td></td>
+      <td class="regulated-sign-caption">(подпись)</td>
+      <td class="regulated-sign-caption">(ф.и.о.)</td>
+    </tr>
+    <tr>
       <td class="regulated-upd-detail-label">Основание передачи (сдачи) / получения (приемки)</td>
       <td class="regulated-line-cell" colspan="6">{{regulated.basis_display}}</td>
       <td class="regulated-upd-detail-ref">[8]</td>
@@ -1448,6 +1479,36 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <td></td>
     </tr>
     <tr>
+      <td class="regulated-sign-caption">(должность)</td>
+      <td class="regulated-sign-caption">(подпись)</td>
+      <td class="regulated-sign-caption">(ф.и.о.)</td>
+      <td></td>
+      <td class="regulated-sign-caption">(должность)</td>
+      <td class="regulated-sign-caption">(подпись)</td>
+      <td class="regulated-sign-caption">(ф.и.о.)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td class="regulated-upd-detail-label">Дата отгрузки, передачи (сдачи)</td>
+      <td class="regulated-line-cell">{{regulated.document_date_long_display}}</td>
+      <td class="regulated-upd-detail-ref">[11]</td>
+      <td></td>
+      <td class="regulated-upd-detail-label">Дата получения (приемки)</td>
+      <td class="regulated-line-cell">"____" __________ 20___ г.</td>
+      <td class="regulated-upd-detail-ref">[16]</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td class="regulated-upd-detail-label">Иные сведения об отгрузке, передаче</td>
+      <td class="regulated-line-cell">&nbsp;</td>
+      <td class="regulated-upd-detail-ref">[12]</td>
+      <td></td>
+      <td class="regulated-upd-detail-label">Иные сведения о получении, приемке</td>
+      <td class="regulated-line-cell">&nbsp;</td>
+      <td class="regulated-upd-detail-ref">[17]</td>
+      <td></td>
+    </tr>
+    <tr>
       <td class="regulated-upd-detail-label" colspan="3">Ответственный за правильность оформления факта хозяйственной жизни</td>
       <td></td>
       <td class="regulated-upd-detail-label" colspan="3">Ответственный за правильность оформления факта хозяйственной жизни</td>
@@ -1464,10 +1525,27 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <td></td>
     </tr>
     <tr>
+      <td class="regulated-sign-caption">(должность)</td>
+      <td class="regulated-sign-caption">(подпись)</td>
+      <td class="regulated-sign-caption">(ф.и.о.)</td>
+      <td></td>
+      <td class="regulated-sign-caption">(должность)</td>
+      <td class="regulated-sign-caption">(подпись)</td>
+      <td class="regulated-sign-caption">(ф.и.о.)</td>
+      <td></td>
+    </tr>
+    <tr>
       <td class="regulated-upd-detail-label" colspan="3">Наименование экономического субъекта составителя документа</td>
       <td class="regulated-line-cell">{{regulated.seller_name_display}}</td>
       <td class="regulated-upd-detail-label" colspan="2">Наименование экономического субъекта составителя документа</td>
-      <td class="regulated-line-cell" colspan="2">{{regulated.buyer_name_display}}</td>
+      <td class="regulated-line-cell">{{regulated.buyer_name_display}}</td>
+      <td class="regulated-upd-detail-ref">[19]</td>
+    </tr>
+    <tr>
+      <td class="regulated-line-cell" colspan="3">&nbsp;</td>
+      <td class="regulated-upd-detail-ref">[14]</td>
+      <td class="regulated-line-cell" colspan="3">&nbsp;</td>
+      <td></td>
     </tr>
     <tr>
       <td class="regulated-upd-detail-label">М.П.</td>
