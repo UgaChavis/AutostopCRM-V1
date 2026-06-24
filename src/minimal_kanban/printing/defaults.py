@@ -349,6 +349,10 @@ PRINT_BASE_STYLES = """
     margin: 0 0 2mm auto;
     max-width: 410px;
   }
+  .regulated-page--invoice .regulated-note {
+    line-height: 1.55;
+    margin-bottom: 0;
+  }
   .regulated-title-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 250px;
@@ -575,8 +579,11 @@ PRINT_BASE_STYLES = """
     text-align: center;
     white-space: nowrap;
   }
+  .regulated-wide-line[data-regulated-wide-line-sample="true"] {
+    margin-bottom: 0.47mm;
+  }
   .regulated-wide-line[data-regulated-wide-line-sample="true"] .regulated-wide-line__label {
-    min-height: 10.2mm;
+    min-height: 11.13mm;
   }
   .regulated-tax-table--sample {
     font-size: 7pt;
@@ -740,6 +747,15 @@ PRINT_BASE_STYLES = """
     padding-bottom: 0;
     font-size: 0;
     line-height: 0;
+  }
+  .regulated-upd-detail-table tr:nth-child(9) td,
+  .regulated-upd-detail-table tr:nth-child(11) td {
+    padding-top: 2.2px;
+    padding-bottom: 2.2px;
+  }
+  .regulated-upd-detail-table tr:nth-child(10) td {
+    padding-top: 2.625px;
+    padding-bottom: 2.625px;
   }
   .regulated-upd-detail-table tr:nth-child(n+12) td {
     padding-top: 4.7px;
