@@ -492,6 +492,7 @@ PRINT_BASE_STYLES = """
   .regulated-form-title-table--invoice {
     font-size: 11pt;
     line-height: 1.05;
+    width: 162mm;
   }
   .regulated-form-title-table td {
     padding: 1.4px 2px;
@@ -507,6 +508,10 @@ PRINT_BASE_STYLES = """
     font-size: 11pt;
     font-weight: 700;
     white-space: nowrap;
+  }
+  .regulated-form-title-table--invoice tr:first-child td {
+    padding-top: 4px;
+    padding-bottom: 4px;
   }
   .regulated-title-value {
     border-bottom: 1px solid #111;
@@ -535,6 +540,7 @@ PRINT_BASE_STYLES = """
   }
   .regulated-requisites-table--invoice {
     height: 35mm;
+    margin-bottom: 0;
   }
   .regulated-requisites-table--invoice td,
   .regulated-requisites-table--upd td {
@@ -586,9 +592,29 @@ PRINT_BASE_STYLES = """
     vertical-align: middle;
     font-size: 6pt;
   }
+  .regulated-tax-table--sample thead tr:first-child {
+    height: 9.7mm;
+  }
+  .regulated-tax-table--sample .regulated-column-codes {
+    height: 3.1mm;
+  }
+  .regulated-page--upd .regulated-tax-table--sample thead tr:nth-child(2) th {
+    font-size: 5.6pt;
+    line-height: 0.95;
+    padding-top: 0.7px;
+    padding-bottom: 0.7px;
+  }
+  .regulated-page--upd .regulated-tax-table--sample thead tr:nth-child(2) {
+    height: 12.3mm;
+  }
   .regulated-tax-table--sample tbody td {
     height: 17px;
     vertical-align: top;
+  }
+  .regulated-page--upd .regulated-tax-table--sample tbody tr:nth-child(3) td,
+  .regulated-page--upd .regulated-tax-table--sample tbody tr:nth-child(6) td,
+  .regulated-page--upd .regulated-tax-table--sample tbody tr:nth-child(8) td {
+    height: 29px;
   }
   .regulated-tax-table--sample .regulated-column-codes th {
     font-size: 5pt;
@@ -607,9 +633,20 @@ PRINT_BASE_STYLES = """
     font-size: 7pt;
     line-height: 1.05;
   }
+  .regulated-page--invoice .regulated-sign-grid {
+    margin-top: 1.1mm;
+  }
   .regulated-sign-grid td {
     padding: 1.8px 2px;
     vertical-align: bottom;
+  }
+  .regulated-page--invoice .regulated-sign-grid tr:nth-child(3) {
+    font-size: 6.4pt;
+    line-height: 0.95;
+  }
+  .regulated-page--invoice .regulated-sign-grid tr:nth-child(4) .regulated-sign-caption {
+    font-size: 4.2pt;
+    line-height: 0.9;
   }
   .regulated-sign-grid .regulated-sign-role {
     width: 33mm;
@@ -643,7 +680,8 @@ PRINT_BASE_STYLES = """
     grid-template-columns: 20mm minmax(0, 1fr);
     column-gap: 2mm;
     align-items: start;
-    margin-bottom: 1.8mm;
+    min-height: 55.7mm;
+    margin-bottom: 0.8mm;
   }
   .regulated-upd-main {
     min-width: 0;
@@ -696,6 +734,13 @@ PRINT_BASE_STYLES = """
   .regulated-upd-detail-table tr:nth-child(-n+7) td {
     padding: 0.1px 0.8px;
   }
+  .regulated-upd-detail-table tr:nth-child(6) td {
+    height: 2px;
+    padding-top: 0;
+    padding-bottom: 0;
+    font-size: 0;
+    line-height: 0;
+  }
   .regulated-upd-detail-table tr:nth-child(n+12) td {
     padding-top: 4.7px;
     padding-bottom: 4.7px;
@@ -709,8 +754,8 @@ PRINT_BASE_STYLES = """
     white-space: nowrap;
   }
   .regulated-upd-registration-caption {
-    font-size: 4.5pt;
-    line-height: 1.0;
+    font-size: 3.2pt;
+    line-height: 0.9;
   }
   @page regulated-landscape { size: A4 landscape; margin: 6mm; }
   @page { size: A4; margin: 9mm; }
@@ -1105,7 +1150,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
             "standard",
             "Счет-фактура по форме 2026",
             """
-<div class="document-page regulated-page regulated-page--landscape">
+<div class="document-page regulated-page regulated-page--landscape regulated-page--invoice">
   <div class="regulated-legal-top">
     <table class="regulated-form-title-table regulated-form-title-table--invoice">
       <tr>
@@ -1279,7 +1324,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
             "standard",
             "УПД по форме 2026",
             """
-<div class="document-page regulated-page regulated-page--landscape">
+<div class="document-page regulated-page regulated-page--landscape regulated-page--upd">
   <div class="regulated-upd-top">
     <div class="regulated-upd-status">
       <div class="regulated-upd-name">Универсальный передаточный документ</div>
@@ -1426,7 +1471,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   <div class="regulated-page-footer">УПД № {{regulated.document_number_display}} от {{regulated.document_date_display}} страница 1 из 2</div>
 </div>
 <!-- AUTOSTOPCRM_PAGE_BREAK -->
-<div class="document-page regulated-page regulated-page--landscape">
+<div class="document-page regulated-page regulated-page--landscape regulated-page--upd">
   <table class="regulated-tax-table regulated-tax-table--sample">
     <colgroup>
       <col style="width:10mm"><col style="width:6mm"><col style="width:48mm"><col style="width:8mm">
