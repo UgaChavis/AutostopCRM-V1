@@ -30,6 +30,7 @@ REPAIR_ORDER_PAYMENT_METHOD_CARD = "card"
 REPAIR_ORDER_PAYMENT_METHOD_LIMIT = 16
 REPAIR_ORDER_PAYMENT_TAX_RATE = Decimal("0.15")
 REPAIR_ORDER_PAYMENT_NET_RATE = Decimal("1") - REPAIR_ORDER_PAYMENT_TAX_RATE
+REPAIR_ORDER_ROW_TOTAL_ROUNDING_TOLERANCE = Decimal("0.01")
 REPAIR_ORDER_ALLOWED_STATUSES = {
     REPAIR_ORDER_STATUS_OPEN,
     REPAIR_ORDER_STATUS_READY,
@@ -167,6 +168,22 @@ def _format_decimal(value: Decimal) -> str:
     if "." in text:
         text = text.rstrip("0").rstrip(".")
     return text or "0"
+
+
+def _resolved_row_total_text(total: str, computed_total: str) -> str:
+    if not computed_total:
+        return total
+    if not total:
+        return computed_total
+    parsed_total = _parse_decimal(total)
+    parsed_computed = _parse_decimal(computed_total)
+    if (
+        parsed_total is not None
+        and parsed_computed is not None
+        and abs(parsed_total - parsed_computed) <= REPAIR_ORDER_ROW_TOTAL_ROUNDING_TOLERANCE
+    ):
+        return _format_decimal(parsed_total)
+    return computed_total
 
 
 def _normalize_nonnegative_decimal_text(value) -> str:
@@ -309,7 +326,7 @@ class RepairOrderRow:
         self.price = _normalize_single_line(self.price, limit=REPAIR_ORDER_ROW_VALUE_LIMIT)
         normalized_total = _normalize_single_line(self.total, limit=REPAIR_ORDER_ROW_VALUE_LIMIT)
         computed_total = self.computed_total()
-        self.total = computed_total if computed_total else normalized_total
+        self.total = _resolved_row_total_text(normalized_total, computed_total)
         self.executor_id = _normalize_single_line(self.executor_id, limit=64)
         self.executor_name = _normalize_single_line(
             self.executor_name, limit=REPAIR_ORDER_FIELD_LIMIT
@@ -429,13 +446,12 @@ class RepairOrderRow:
         }
 
     def total_value(self) -> Decimal:
-        computed_total = self.computed_total()
-        if computed_total:
-            parsed = _parse_decimal(computed_total)
-            if parsed is not None:
-                return parsed
         parsed_total = _parse_decimal(self.total)
-        return parsed_total if parsed_total is not None else Decimal("0")
+        if parsed_total is not None:
+            return parsed_total
+        computed_total = self.computed_total()
+        parsed_computed = _parse_decimal(computed_total)
+        return parsed_computed if parsed_computed is not None else Decimal("0")
 
     def computed_total(self) -> str:
         quantity = _parse_decimal(self.quantity)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 # ruff: noqa: E402
+import html
 import sys
 import tempfile
 import threading
@@ -163,6 +164,28 @@ def build_business_client() -> ClientProfile:
             "actual_address": "660000, г. Красноярск, ул. Тестовая, 2",
             "contact_person": "Иванов Иван",
             "contact_position": "Директор",
+        }
+    )
+
+
+def build_client_profile(
+    *,
+    legal_name: str,
+    inn: str,
+    kpp: str,
+    legal_address: str,
+) -> ClientProfile:
+    return ClientProfile.from_dict(
+        {
+            "id": f"client-{inn}",
+            "client_type": "company",
+            "display_name": legal_name,
+            "legal_name": legal_name,
+            "short_name": legal_name,
+            "inn": inn,
+            "kpp": kpp,
+            "legal_address": legal_address,
+            "actual_address": legal_address,
         }
     )
 
@@ -707,6 +730,87 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertNotIn("undefined", html)
         self.assertNotIn("NaN", html)
 
+    def test_invoice_factura_can_match_uploaded_sample_values_from_repair_order_card(
+        self,
+    ) -> None:
+        card = Card.from_dict(
+            {
+                "id": "card-schet-faktura-sample",
+                "vehicle": "",
+                "title": "Счет-фактура",
+                "description": "",
+                "column": "done",
+                "archived": False,
+                "created_at": "2026-05-20T12:00:00+00:00",
+                "updated_at": "2026-05-20T12:00:00+00:00",
+                "repair_order": {
+                    "number": "268",
+                    "date": "20.05.2026 12:00",
+                    "opened_at": "20.05.2026 12:00",
+                    "client": 'ООО "КРАМЗ"',
+                    "payment_method": "cashless",
+                    "tax_label": "НДС 5%",
+                    "works": [
+                        {
+                            "name": "Замена заднего левого фонаря",
+                            "quantity": "1",
+                            "price": "1070",
+                            "total": "",
+                        },
+                    ],
+                    "materials": [
+                        {
+                            "name": "Фонарь задний левый",
+                            "inventory_unit": "шт",
+                            "quantity": "1",
+                            "price": "12384",
+                            "total": "",
+                        },
+                    ],
+                },
+            }
+        )
+        client = build_client_profile(
+            legal_name='ООО "КРАМЗ"',
+            inn="2465043748",
+            kpp="246501001",
+            legal_address=(
+                "660111, Красноярский край, Г.О. ГОРОД КРАСНОЯРСК, "
+                "Г КРАСНОЯРСК, УЛ ПОГРАНИЧНИКОВ, ЗД. 42"
+            ),
+        )
+
+        preview = self.service.preview_documents(
+            card,
+            client=client,
+            selected_document_ids=["invoice_factura"],
+            active_document_id="invoice_factura",
+        )
+
+        text = html.unescape(preview["documents"][0]["pages"][0]["html"])
+        expected_fragments = [
+            "Счет-фактура №",
+            "268",
+            "20 мая 2026 г.",
+            'ООО "КРАМЗ"',
+            "2465043748 / 246501001",
+            "Замена заднего левого фонаря",
+            "Фонарь задний левый",
+            ">н/ч<",
+            ">796<",
+            ">шт<",
+            "1 070,00",
+            "12 384,00",
+            "13 454,00",
+            "53,50",
+            "619,20",
+            "672,70",
+            "14 126,70",
+            "Счет-фактура № 268 от 20.05.2026 страница 1 из 1",
+        ]
+        for fragment in expected_fragments:
+            self.assertIn(fragment, text)
+
     def test_upd_template_renders_two_page_regulated_sample_from_card_and_client(self) -> None:
         preview = self.service.preview_documents(
             self.card,
@@ -768,6 +872,149 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertNotIn("undefined", combined_html)
         self.assertNotIn("NaN", combined_html)
 
+    def test_upd_can_match_uploaded_sample_values_from_repair_order_card(self) -> None:
+        card = Card.from_dict(
+            {
+                "id": "card-upd-sample",
+                "vehicle": "",
+                "title": "УПД",
+                "description": "",
+                "column": "done",
+                "archived": False,
+                "created_at": "2026-05-08T12:00:00+00:00",
+                "updated_at": "2026-05-08T12:00:00+00:00",
+                "repair_order": {
+                    "number": "169",
+                    "date": "08.05.2026 12:00",
+                    "opened_at": "08.05.2026 12:00",
+                    "client": 'ЗАО "ВЕАЛ"',
+                    "payment_method": "cashless",
+                    "tax_label": "НДС 5%",
+                    "works": [
+                        {
+                            "name": "Замена коренного сальника",
+                            "inventory_unit": "шт",
+                            "quantity": "1",
+                            "price": "19714.29",
+                            "total": "",
+                        },
+                        {
+                            "name": "Диагностика автоэлектрика",
+                            "inventory_unit": "шт",
+                            "quantity": "1",
+                            "price": "2190.48",
+                            "total": "",
+                        },
+                        {
+                            "name": "Замена парктроника переднего левого",
+                            "inventory_unit": "шт",
+                            "quantity": "1",
+                            "price": "3285.71",
+                            "total": "",
+                        },
+                        {
+                            "name": "Доставка",
+                            "inventory_unit": "шт",
+                            "quantity": "1",
+                            "price": "1095.24",
+                            "total": "",
+                        },
+                    ],
+                    "materials": [
+                        {
+                            "name": "Сальник коленвала задний",
+                            "inventory_unit": "шт",
+                            "quantity": "1",
+                            "price": "8542.86",
+                            "total": "",
+                        },
+                        {
+                            "name": "Расходные материалы Motul 8100 X-Clean Gen2 5W40",
+                            "inventory_unit": "л",
+                            "quantity": "3",
+                            "price": "1924.33",
+                            "total": "5773",
+                        },
+                        {
+                            "name": "Расходные материалы",
+                            "inventory_unit": "шт",
+                            "quantity": "1",
+                            "price": "2190.48",
+                            "total": "",
+                        },
+                        {
+                            "name": "Парктроник передний левый центральный",
+                            "inventory_unit": "шт",
+                            "quantity": "1",
+                            "price": "1642.86",
+                            "total": "",
+                        },
+                    ],
+                },
+            }
+        )
+        client = build_client_profile(
+            legal_name='ЗАО "ВЕАЛ"',
+            inn="2466080950",
+            kpp="246601001",
+            legal_address="660049, КРАСНОЯРСКИЙ КРАЙ, Г. КРАСНОЯРСК, ПР-КТ МИРА, Д. 30, ОФИС 502",
+        )
+
+        preview = self.service.preview_documents(
+            card,
+            client=client,
+            selected_document_ids=["upd"],
+            active_document_id="upd",
+        )
+
+        text = html.unescape("".join(page["html"] for page in preview["documents"][0]["pages"]))
+        expected_fragments = [
+            "Универсальный передаточный документ",
+            "Счет-фактура №",
+            "169",
+            "08 мая 2026 г.",
+            'ЗАО "ВЕАЛ"',
+            "2466080950 / 246601001",
+            "Универсальный передаточный документ №169 от 08.05.2026",
+            "Замена коренного сальника",
+            "Диагностика автоэлектрика",
+            "Замена парктроника переднего левого",
+            "Доставка",
+            "Сальник коленвала задний",
+            "Расходные материалы Motul 8100 X-Clean Gen2 5W40",
+            "Расходные материалы",
+            "Парктроник передний левый центральный",
+            "19 714,29",
+            "985,71",
+            "20 700,00",
+            "2 190,48",
+            "109,52",
+            "2 300,00",
+            "3 285,71",
+            "164,29",
+            "3 450,00",
+            "1 095,24",
+            "54,76",
+            "1 150,00",
+            "8 542,86",
+            "427,14",
+            "8 970,00",
+            "1 924,33",
+            "5 773,00",
+            "288,65",
+            "6 061,65",
+            "1 642,86",
+            "82,14",
+            "1 725,00",
+            "44 434,92",
+            "2 221,73",
+            "46 656,65",
+            "Счет на оплату №169 от 08.05.2026",
+            "УПД № 169 от 08.05.2026 страница 2 из 2",
+        ]
+        for fragment in expected_fragments:
+            self.assertIn(fragment, text)
+
     def test_regulated_work_unit_can_be_set_explicitly_for_upd_rows(self) -> None:
         card = Card.from_dict(
             {
@@ -809,6 +1056,59 @@ class PrintingServiceTests(unittest.TestCase):
         html = preview["documents"][0]["pages"][0]["html"]
         self.assertIn('<td class="regulated-center">796</td>', html)
         self.assertIn('<td class="regulated-center">шт</td>', html)
+
+    def test_regulated_documents_preserve_explicit_line_total_for_rounding_kopeck(
+        self,
+    ) -> None:
+        card = Card.from_dict(
+            {
+                "id": "card-regulated-rounded-total",
+                "vehicle": "",
+                "title": "УПД",
+                "description": "",
+                "column": "done",
+                "archived": False,
+                "created_at": "2026-05-08T10:00:00+00:00",
+                "updated_at": "2026-05-08T10:00:00+00:00",
+                "repair_order": {
+                    "number": "169",
+                    "date": "08.05.2026 12:00",
+                    "opened_at": "08.05.2026 12:00",
+                    "client": 'ЗАО "ВЕАЛ"',
+                    "payment_method": "cashless",
+                    "tax_label": "НДС 5%",
+                    "works": [],
+                    "materials": [
+                        {
+                            "name": "Расходные материалы Motul 8100 X-Clean Gen2 5W40",
+                            "inventory_unit": "л",
+                            "quantity": "3",
+                            "price": "1924.33",
+                            "total": "5773",
+                        },
+                    ],
+                },
+            }
+        )
+        self.assertEqual(card.repair_order.materials[0].total, "5773")
+
+        preview = self.service.preview_documents(
+            card,
+            client=build_business_client(),
+            selected_document_ids=["invoice_factura", "upd"],
+            active_document_id="upd",
+        )
+
+        combined_html = "".join(
+            page["html"] for document in preview["documents"] for page in document["pages"]
+        )
+        self.assertIn("Расходные материалы Motul 8100 X-Clean Gen2 5W40", combined_html)
+        self.assertIn('<td class="regulated-center">112</td>', combined_html)
+        self.assertIn('<td class="regulated-center">л</td>', combined_html)
+        self.assertIn("1 924,33", combined_html)
+        self.assertIn("5 773,00", combined_html)
+        self.assertIn("288,65", combined_html)
+        self.assertIn("6 061,65", combined_html)
 
     def test_regulated_documents_do_not_require_vehicle_contact_fields(self) -> None:
         card = build_card()

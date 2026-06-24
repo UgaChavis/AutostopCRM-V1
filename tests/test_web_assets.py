@@ -3390,6 +3390,15 @@ class WebAssetsTests(unittest.TestCase):
             "function repairOrderProjectedTaxesValue(subtotal, paymentMethod)", BOARD_WEB_APP_HTML
         )
         self.assertIn("function repairOrderRowsTotalValue(", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const REPAIR_ORDER_ROW_TOTAL_ROUNDING_TOLERANCE = 0.011;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("function repairOrderResolvedRowTotalValue(row)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "Math.abs(roundedFallback - computed) <= REPAIR_ORDER_ROW_TOTAL_ROUNDING_TOLERANCE",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("function repairOrderSummaryValue(baseTotal, payments)", BOARD_WEB_APP_HTML)
         self.assertIn("function syncRepairOrderTotals()", BOARD_WEB_APP_HTML)
         self.assertIn(

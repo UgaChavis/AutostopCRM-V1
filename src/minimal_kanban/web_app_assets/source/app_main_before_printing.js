@@ -324,6 +324,7 @@
     const REPAIR_ORDER_SORT_FIELDS = ['number', 'opened_at', 'closed_at'];
     const REPAIR_ORDER_SORT_DIRECTIONS = ['asc', 'desc'];
     const REPAIR_ORDER_SEARCH_FIELDS = ['number', 'date', 'client', 'phone', 'vehicle', 'summary', 'license_plate'];
+    const REPAIR_ORDER_ROW_TOTAL_ROUNDING_TOLERANCE = 0.011;
     const TAG_COLOR_OPTIONS = [
       { value: 'green', label: 'Зелёная' },
       { value: 'yellow', label: 'Жёлтая' },
@@ -13239,11 +13240,19 @@
     function repairOrderResolvedRowTotalValue(row) {
       const quantity = repairOrderParseNumber(row?.quantity);
       const price = repairOrderParseNumber(row?.price);
-      if (quantity !== null && price !== null) {
-        return repairOrderRoundMoney(quantity * price);
-      }
       const fallback = repairOrderParseNumber(row?.total);
-      return fallback === null ? null : repairOrderRoundMoney(fallback);
+      const roundedFallback = fallback === null ? null : repairOrderRoundMoney(fallback);
+      if (quantity !== null && price !== null) {
+        const computed = repairOrderRoundMoney(quantity * price);
+        if (
+          roundedFallback !== null
+          && Math.abs(roundedFallback - computed) <= REPAIR_ORDER_ROW_TOTAL_ROUNDING_TOLERANCE
+        ) {
+          return roundedFallback;
+        }
+        return computed;
+      }
+      return roundedFallback;
     }
 
     function repairOrderRowsTotalValue(rows) {
@@ -13673,9 +13682,14 @@
       const quantityParsed = repairOrderParseNumber(quantityValue);
       const priceParsed = repairOrderParseNumber(priceValue);
       const effectiveQuantity = quantityParsed === null && !String(quantityValue ?? '').trim() ? 1 : quantityParsed;
+      const existingTotalRaw = row.dataset.repairOrderTotalRaw || '';
       const liveTotalValue = effectiveQuantity !== null && priceParsed !== null
-        ? repairOrderNumberToRaw(repairOrderRoundMoney(effectiveQuantity * priceParsed))
-        : (row.dataset.repairOrderTotalRaw || '');
+        ? repairOrderNumberToRaw(repairOrderResolvedRowTotalValue({
+          quantity: repairOrderNumberToRaw(effectiveQuantity),
+          price: priceValue,
+          total: existingTotalRaw,
+        }))
+        : existingTotalRaw;
       return normalizeRepairOrderRow({
         name: row.querySelector('[data-repair-order-cell="name"]')?.value,
         catalog_number: row.querySelector('[data-repair-order-cell="catalog_number"]')?.value,
