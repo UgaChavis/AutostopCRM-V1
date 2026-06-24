@@ -36,6 +36,7 @@ _SETTINGS_FILE_NAME = "settings.json"
 _TEMPLATES_FILE_NAME = "templates.json"
 _INSPECTION_SHEET_FORMS_FILE_NAME = "inspection_sheet_forms.json"
 _PAGE_BREAK_MARKER = "<!-- AUTOSTOPCRM_PAGE_BREAK -->"
+_REGULATED_LANDSCAPE_DOCUMENT_TYPES = {"invoice_factura", "upd"}
 _SENTENCE_SPLIT_RE = re.compile(r"[\n\r]+|(?<=[.!?])\s+")
 _MONEY_QUANT = Decimal("0.01")
 _INVOICE_VAT_RATE = Decimal("0.05")
@@ -706,6 +707,24 @@ def _regulated_override_text(
     return _display(fallback, limit=limit)
 
 
+def _regulated_optional_text(
+    overrides: dict[str, Any],
+    *keys: str,
+    fallback: Any = "",
+    limit: int = 4000,
+) -> str:
+    for key in keys:
+        if key in overrides:
+            return _normalize_text(overrides.get(key), limit=limit)
+    return _normalize_text(fallback, limit=limit)
+
+
+def _print_render_orientation(settings: PrintModuleSettings, document_ids: list[str]) -> str:
+    if any(document_id in _REGULATED_LANDSCAPE_DOCUMENT_TYPES for document_id in document_ids):
+        return "landscape"
+    return settings.orientation
+
+
 def _regulated_unit_payload(item: dict[str, Any]) -> dict[str, str]:
     section = _normalize_text(item.get("section"), limit=32)
     unit = _normalize_text(item.get("inventory_unit") or item.get("unit_display"), limit=24).lower()
@@ -852,19 +871,19 @@ def _regulated_document_context(
     document_date_value = order.date or order.opened_at
     document_date = _date_only_display(document_date_value)
     document_date_long = _date_long_ru_display(document_date_value)
-    linked_invoice = _regulated_override_text(
+    linked_invoice = _regulated_optional_text(
         overrides,
         "linked_invoice",
-        fallback=f"№ {document_number} от {document_date}",
+        fallback="",
         limit=120,
     )
-    shipment_document = _regulated_override_text(
+    shipment_document = _regulated_optional_text(
         overrides,
         "shipment_document",
-        fallback=f"№ {document_number} от {document_date}",
+        fallback="",
         limit=120,
     )
-    upd_shipment_document = _regulated_override_text(
+    upd_shipment_document = _regulated_optional_text(
         overrides,
         "upd_shipment_document",
         "shipment_document",
@@ -877,7 +896,7 @@ def _regulated_document_context(
         fallback=f"Счет на оплату №{document_number} от {document_date}",
         limit=240,
     )
-    transport_details = _regulated_override_text(
+    transport_details = _regulated_optional_text(
         overrides,
         "transport_details",
         fallback="Передача на территории сервиса",
@@ -1455,11 +1474,12 @@ class PrintModuleService:
             for document_id in selected_ids
         ]
         combined_html = self._combined_document_html(document_payloads)
+        render_orientation = _print_render_orientation(settings, selected_ids)
         try:
             pdf_bytes = render_html_to_pdf_bytes(
                 combined_html,
                 paper_size=settings.paper_size,
-                orientation=settings.orientation,
+                orientation=render_orientation,
                 title=f"AutoStop CRM {card.heading()}",
             )
         except PdfRenderError as exc:
@@ -1479,7 +1499,7 @@ class PrintModuleService:
                     for payload in document_payloads
                 ],
                 "paper_size": settings.paper_size,
-                "orientation": settings.orientation,
+                "orientation": render_orientation,
             },
         )
 
@@ -1523,13 +1543,14 @@ class PrintModuleService:
             for document_id in selected_ids
         ]
         combined_html = self._combined_document_html(document_payloads)
+        render_orientation = _print_render_orientation(settings, selected_ids)
         try:
             print_html(
                 combined_html,
                 printer_name=requested_printer,
                 copies=settings.copies,
                 paper_size=settings.paper_size,
-                orientation=settings.orientation,
+                orientation=render_orientation,
                 title=f"AutoStop CRM {card.heading()}",
             )
         except PrinterBackendError as exc:

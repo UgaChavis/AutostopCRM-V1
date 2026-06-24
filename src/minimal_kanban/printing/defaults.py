@@ -334,9 +334,9 @@ PRINT_BASE_STYLES = """
     page: regulated-landscape;
     width: 297mm;
     min-height: 210mm;
-    padding: 6mm 7mm 7mm;
-    font-size: 7.3px;
-    line-height: 1.16;
+    padding: 5mm 6mm 7mm;
+    font-size: 8px;
+    line-height: 1.18;
   }
   .regulated-page--landscape + .regulated-page--landscape {
     page-break-before: always;
@@ -344,8 +344,8 @@ PRINT_BASE_STYLES = """
   }
   .regulated-note {
     text-align: right;
-    font-size: 6.9px;
-    line-height: 1.2;
+    font-size: 7.2px;
+    line-height: 1.22;
     margin: 0 0 2mm auto;
     max-width: 410px;
   }
@@ -474,7 +474,7 @@ PRINT_BASE_STYLES = """
     grid-template-columns: minmax(0, 1fr) 76mm;
     gap: 4mm;
     align-items: start;
-    margin-bottom: 1mm;
+    margin-bottom: 1.8mm;
   }
   .regulated-form-title-table,
   .regulated-requisites-table,
@@ -486,17 +486,17 @@ PRINT_BASE_STYLES = """
     table-layout: fixed;
   }
   .regulated-form-title-table {
-    font-size: 8px;
-    line-height: 1.08;
+    font-size: 8.8px;
+    line-height: 1.12;
   }
   .regulated-form-title-table td {
-    padding: 1px 2px;
+    padding: 1.4px 2px;
     vertical-align: bottom;
   }
   .regulated-title-label {
     width: 25mm;
     font-weight: 700;
-    font-size: 9px;
+    font-size: 10px;
   }
   .regulated-title-value {
     border-bottom: 1px solid #111;
@@ -509,12 +509,12 @@ PRINT_BASE_STYLES = """
     white-space: nowrap;
   }
   .regulated-requisites-table {
-    margin: 1mm 0 1.4mm;
-    font-size: 6.6px;
-    line-height: 1.08;
+    margin: 1.4mm 0 2.1mm;
+    font-size: 7.15px;
+    line-height: 1.13;
   }
   .regulated-requisites-table td {
-    padding: 1px 2px;
+    padding: 1.5px 2px;
     vertical-align: top;
   }
   .regulated-req-label {
@@ -530,12 +530,12 @@ PRINT_BASE_STYLES = """
     white-space: nowrap;
   }
   .regulated-tax-table--sample {
-    font-size: 5.8px;
-    line-height: 1.02;
+    font-size: 6.25px;
+    line-height: 1.08;
   }
   .regulated-tax-table--sample th,
   .regulated-tax-table--sample td {
-    padding: 1.3px 1.5px;
+    padding: 1.9px 1.7px;
     border-color: #111;
   }
   .regulated-tax-table--sample th {
@@ -543,13 +543,13 @@ PRINT_BASE_STYLES = """
     vertical-align: middle;
   }
   .regulated-tax-table--sample tbody td {
-    height: 11px;
+    height: 14px;
     vertical-align: top;
   }
   .regulated-tax-table--sample .regulated-column-codes th {
-    font-size: 5.4px;
+    font-size: 5.8px;
     font-weight: 400;
-    padding: 0.8px 1px;
+    padding: 1px;
   }
   .regulated-table-name-cell {
     min-width: 31mm;
@@ -559,12 +559,12 @@ PRINT_BASE_STYLES = """
     font-weight: 700;
   }
   .regulated-sign-grid {
-    margin-top: 3mm;
-    font-size: 6.6px;
-    line-height: 1.1;
+    margin-top: 4.2mm;
+    font-size: 7.1px;
+    line-height: 1.14;
   }
   .regulated-sign-grid td {
-    padding: 1px 2px;
+    padding: 1.8px 2px;
     vertical-align: bottom;
   }
   .regulated-sign-grid .regulated-sign-role {
@@ -590,17 +590,17 @@ PRINT_BASE_STYLES = """
     grid-template-columns: 38mm minmax(0, 1fr) 78mm;
     gap: 3mm;
     align-items: start;
-    margin-bottom: 1mm;
+    margin-bottom: 1.8mm;
   }
   .regulated-upd-name {
-    font-size: 10.5px;
+    font-size: 11.2px;
     font-weight: 700;
     line-height: 1.08;
   }
   .regulated-upd-status-table {
     margin-top: 1mm;
-    font-size: 6.1px;
-    line-height: 1.05;
+    font-size: 6.6px;
+    line-height: 1.1;
   }
   .regulated-upd-status-table td {
     border: 1px solid #111;
@@ -614,12 +614,12 @@ PRINT_BASE_STYLES = """
     font-weight: 700;
   }
   .regulated-upd-detail-table {
-    margin-top: 3mm;
-    font-size: 6.2px;
-    line-height: 1.08;
+    margin-top: 4mm;
+    font-size: 6.95px;
+    line-height: 1.12;
   }
   .regulated-upd-detail-table td {
-    padding: 1.5px 2px;
+    padding: 2.6px 2px;
     vertical-align: bottom;
   }
   .regulated-upd-detail-label {

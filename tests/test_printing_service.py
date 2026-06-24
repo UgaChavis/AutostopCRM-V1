@@ -1181,6 +1181,30 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual(result["copies"], 2)
         print_backend.assert_called_once()
 
+    def test_regulated_documents_force_landscape_pdf_and_print_orientation(self) -> None:
+        with patch(
+            "minimal_kanban.printing.service.render_html_to_pdf_bytes",
+            return_value=b"%PDF-1.4 test",
+        ) as render_pdf:
+            _pdf_bytes, _file_name, meta = self.service.export_documents_pdf(
+                self.card,
+                selected_document_ids=["invoice_factura"],
+                print_settings={"orientation": "portrait"},
+            )
+
+        self.assertEqual(meta["orientation"], "landscape")
+        self.assertEqual(render_pdf.call_args.kwargs["orientation"], "landscape")
+
+        with patch("minimal_kanban.printing.service.print_html") as print_backend:
+            self.service.print_documents(
+                self.card,
+                selected_document_ids=["upd"],
+                printer_name="Office Printer",
+                print_settings={"default_printer": "Office Printer", "orientation": "portrait"},
+            )
+
+        self.assertEqual(print_backend.call_args.kwargs["orientation"], "landscape")
+
     def test_print_requires_printer_selection_when_direct_print_requested(self) -> None:
         with self.assertRaises(PrintModuleError) as context:
             self.service.print_documents(
