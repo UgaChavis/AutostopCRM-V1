@@ -557,6 +557,20 @@ PRINT_BASE_STYLES = """
   .regulated-req-value {
     border-bottom: 1px solid #111;
   }
+  .regulated-req-payment-grid {
+    display: grid;
+    grid-template-columns: 7mm minmax(0, 1fr) 7mm minmax(0, 1fr);
+    align-items: end;
+    gap: 1.4mm;
+    min-height: 100%;
+  }
+  .regulated-req-payment-grid__marker,
+  .regulated-req-payment-grid__value {
+    display: block;
+    min-width: 0;
+    text-align: center;
+    white-space: nowrap;
+  }
   .regulated-req-code {
     width: 8mm;
     text-align: center;
@@ -1215,7 +1229,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <td class="regulated-req-label">Идентификатор государственного контракта, договора (соглашения) (при наличии)</td><td class="regulated-req-value">{{regulated.state_contract_display}}</td><td class="regulated-req-code">(8)</td>
     </tr>
     <tr>
-      <td class="regulated-req-label">К платежно-расчетному документу</td><td class="regulated-req-value">{{regulated.payment_document_display}}</td><td class="regulated-req-code">(5)</td>
+      <td class="regulated-req-label">К платежно-расчетному документу</td><td class="regulated-req-value"><span class="regulated-req-payment-grid"><span class="regulated-req-payment-grid__marker">№</span><span class="regulated-req-payment-grid__value">{{regulated.document_number_display}}</span><span class="regulated-req-payment-grid__marker">от</span><span class="regulated-req-payment-grid__value">{{regulated.document_date_display}}</span></span></td><td class="regulated-req-code">(5)</td>
       <td class="regulated-req-label"></td><td></td><td></td>
     </tr>
     <tr>
@@ -1403,7 +1417,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
           <td class="regulated-req-label">Идентификатор государственного контракта, договора (соглашения) (при наличии)</td><td class="regulated-req-value">{{regulated.state_contract_display}}</td><td class="regulated-req-code">(8)</td>
         </tr>
         <tr>
-          <td class="regulated-req-label">К платежно-расчетному документу</td><td class="regulated-req-value">{{regulated.upd_payment_document_display}}</td><td class="regulated-req-code">(5)</td>
+          <td class="regulated-req-label">К платежно-расчетному документу</td><td class="regulated-req-value"><span class="regulated-req-payment-grid"><span class="regulated-req-payment-grid__marker">№</span><span class="regulated-req-payment-grid__value">{{regulated.upd_payment_document_display}}</span><span class="regulated-req-payment-grid__marker">от</span><span class="regulated-req-payment-grid__value"></span></span></td><td class="regulated-req-code">(5)</td>
           <td class="regulated-req-label"></td><td></td><td></td>
         </tr>
         <tr>

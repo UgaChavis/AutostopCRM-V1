@@ -806,10 +806,15 @@ class PrintingServiceTests(unittest.TestCase):
             "619,20",
             "672,70",
             "14 126,70",
+            "regulated-req-payment-grid",
             "Счет-фактура № 268 от 20.05.2026 страница 1 из 1",
         ]
         for fragment in expected_fragments:
             self.assertIn(fragment, text)
+        self.assertNotIn(
+            '<td class="regulated-req-value">№ 268 от 20.05.2026</td>',
+            preview["documents"][0]["pages"][0]["html"],
+        )
 
     def test_upd_template_renders_two_page_regulated_sample_from_card_and_client(self) -> None:
         preview = self.service.preview_documents(
@@ -980,6 +985,7 @@ class PrintingServiceTests(unittest.TestCase):
             'ЗАО "ВЕАЛ"',
             "2466080950 / 246601001",
             "Универсальный передаточный документ №169 от 08.05.2026",
+            "regulated-req-payment-grid",
             "Замена коренного сальника",
             "Диагностика автоэлектрика",
             "Замена парктроника переднего левого",
