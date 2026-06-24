@@ -335,8 +335,8 @@ PRINT_BASE_STYLES = """
     width: 297mm;
     min-height: 210mm;
     padding: 5mm 6mm 7mm;
-    font-size: 8px;
-    line-height: 1.18;
+    font-size: 7pt;
+    line-height: 1.05;
   }
   .regulated-page--landscape + .regulated-page--landscape {
     page-break-before: always;
@@ -344,8 +344,8 @@ PRINT_BASE_STYLES = """
   }
   .regulated-note {
     text-align: right;
-    font-size: 7.2px;
-    line-height: 1.22;
+    font-size: 5.5pt;
+    line-height: 1.08;
     margin: 0 0 2mm auto;
     max-width: 410px;
   }
@@ -358,17 +358,17 @@ PRINT_BASE_STYLES = """
   }
   .regulated-title {
     margin: 0;
-    font-size: 13px;
+    font-size: 11pt;
     line-height: 1.12;
     font-weight: 700;
   }
   .regulated-title--compact {
-    font-size: 11px;
+    font-size: 9pt;
   }
   .regulated-status {
     border: 1px solid #111;
     padding: 3px 5px;
-    font-size: 7px;
+    font-size: 7pt;
     line-height: 1.25;
   }
   .regulated-meta-table,
@@ -381,7 +381,7 @@ PRINT_BASE_STYLES = """
   }
   .regulated-meta-table {
     margin-bottom: 2.4mm;
-    font-size: 7.2px;
+    font-size: 7pt;
   }
   .regulated-meta-table td {
     padding: 1px 3px;
@@ -392,8 +392,8 @@ PRINT_BASE_STYLES = """
     color: #333;
   }
   .regulated-tax-table {
-    font-size: 6.55px;
-    line-height: 1.12;
+    font-size: 7pt;
+    line-height: 1.05;
   }
   .regulated-tax-table th,
   .regulated-tax-table td {
@@ -430,7 +430,7 @@ PRINT_BASE_STYLES = """
   .regulated-page-footer {
     margin-top: 2mm;
     text-align: right;
-    font-size: 6.8px;
+    font-size: 6pt;
   }
   .regulated-summary {
     display: flex;
@@ -438,11 +438,11 @@ PRINT_BASE_STYLES = """
     gap: 12px;
     align-items: baseline;
     margin-top: 2mm;
-    font-size: 7.4px;
+    font-size: 7pt;
   }
   .regulated-signature-table {
     margin-top: 4mm;
-    font-size: 7.2px;
+    font-size: 7pt;
   }
   .regulated-signature-table td {
     width: 50%;
@@ -458,7 +458,7 @@ PRINT_BASE_STYLES = """
   }
   .regulated-transfer-table {
     margin-top: 3mm;
-    font-size: 7.15px;
+    font-size: 7pt;
   }
   .regulated-transfer-table td {
     border: 1px solid #111;
@@ -486,8 +486,12 @@ PRINT_BASE_STYLES = """
     table-layout: fixed;
   }
   .regulated-form-title-table {
-    font-size: 8.8px;
-    line-height: 1.12;
+    font-size: 7pt;
+    line-height: 1.05;
+  }
+  .regulated-form-title-table--invoice {
+    font-size: 11pt;
+    line-height: 1.05;
   }
   .regulated-form-title-table td {
     padding: 1.4px 2px;
@@ -495,14 +499,21 @@ PRINT_BASE_STYLES = """
   }
   .regulated-title-label {
     width: 25mm;
+    font-weight: 400;
+    font-size: 7pt;
+  }
+  .regulated-form-title-table--invoice .regulated-title-label {
+    width: 38mm;
+    font-size: 11pt;
     font-weight: 700;
-    font-size: 10px;
+    white-space: nowrap;
   }
   .regulated-title-value {
     border-bottom: 1px solid #111;
     text-align: center;
-    font-weight: 700;
+    font-weight: 400;
   }
+  .regulated-form-title-table--invoice .regulated-title-value { font-weight: 700; }
   .regulated-code-cell {
     width: 8mm;
     text-align: center;
@@ -510,8 +521,8 @@ PRINT_BASE_STYLES = """
   }
   .regulated-requisites-table {
     margin: 1.4mm 0 2.1mm;
-    font-size: 7.15px;
-    line-height: 1.13;
+    font-size: 7pt;
+    line-height: 1.05;
   }
   .regulated-requisites-table td {
     padding: 1.5px 2px;
@@ -535,8 +546,8 @@ PRINT_BASE_STYLES = """
     align-items: end;
     gap: 1.5mm;
     margin: 0 0 1.4mm;
-    font-size: 7.15px;
-    line-height: 1.13;
+    font-size: 7pt;
+    line-height: 1.05;
   }
   .regulated-wide-line__label {
     min-height: 5.5mm;
@@ -547,8 +558,8 @@ PRINT_BASE_STYLES = """
     white-space: nowrap;
   }
   .regulated-tax-table--sample {
-    font-size: 6.25px;
-    line-height: 1.08;
+    font-size: 7pt;
+    line-height: 1.0;
   }
   .regulated-tax-table--sample th,
   .regulated-tax-table--sample td {
@@ -558,13 +569,14 @@ PRINT_BASE_STYLES = """
   .regulated-tax-table--sample th {
     font-weight: 600;
     vertical-align: middle;
+    font-size: 6pt;
   }
   .regulated-tax-table--sample tbody td {
     height: 14px;
     vertical-align: top;
   }
   .regulated-tax-table--sample .regulated-column-codes th {
-    font-size: 5.8px;
+    font-size: 5pt;
     font-weight: 400;
     padding: 1px;
   }
@@ -577,8 +589,8 @@ PRINT_BASE_STYLES = """
   }
   .regulated-sign-grid {
     margin-top: 4.2mm;
-    font-size: 7.1px;
-    line-height: 1.14;
+    font-size: 7pt;
+    line-height: 1.05;
   }
   .regulated-sign-grid td {
     padding: 1.8px 2px;
@@ -592,12 +604,14 @@ PRINT_BASE_STYLES = """
   .regulated-upd-detail-table .regulated-line-cell {
     border-bottom: 1px solid #111;
     text-align: center;
+    overflow-wrap: anywhere;
   }
   .regulated-sign-grid .regulated-sign-caption,
   .regulated-upd-detail-table .regulated-sign-caption {
     color: #444;
-    font-size: 5.3px;
+    font-size: 5pt;
     text-align: center;
+    overflow-wrap: anywhere;
   }
   .regulated-page-footer--left {
     text-align: left;
@@ -610,13 +624,13 @@ PRINT_BASE_STYLES = """
     margin-bottom: 1.8mm;
   }
   .regulated-upd-name {
-    font-size: 11.2px;
-    font-weight: 700;
+    font-size: 7pt;
+    font-weight: 400;
     line-height: 1.08;
   }
   .regulated-upd-status-table {
     margin-top: 1mm;
-    font-size: 6.6px;
+    font-size: 7pt;
     line-height: 1.1;
   }
   .regulated-upd-status-table td {
@@ -627,13 +641,13 @@ PRINT_BASE_STYLES = """
   .regulated-upd-status-number {
     width: 11mm;
     text-align: center;
-    font-size: 12px;
-    font-weight: 700;
+    font-size: 7pt;
+    font-weight: 400;
   }
   .regulated-upd-detail-table {
     margin-top: 4mm;
-    font-size: 6.95px;
-    line-height: 1.12;
+    font-size: 7pt;
+    line-height: 1.05;
   }
   .regulated-upd-detail-table td {
     padding: 2.6px 2px;
@@ -646,6 +660,10 @@ PRINT_BASE_STYLES = """
     width: 8mm;
     text-align: center;
     white-space: nowrap;
+  }
+  .regulated-upd-registration-caption {
+    font-size: 4.5pt;
+    line-height: 1.0;
   }
   @page regulated-landscape { size: A4 landscape; margin: 6mm; }
   @page { size: A4; margin: 9mm; }
@@ -1042,7 +1060,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
             """
 <div class="document-page regulated-page regulated-page--landscape">
   <div class="regulated-legal-top">
-    <table class="regulated-form-title-table">
+    <table class="regulated-form-title-table regulated-form-title-table--invoice">
       <tr>
         <td class="regulated-title-label">Счет-фактура №</td>
         <td class="regulated-title-value">{{regulated.document_number_display}}</td>
@@ -1441,13 +1459,23 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <td></td>
       <td class="regulated-upd-detail-label" colspan="2">Индивидуальный предприниматель<br>или иное уполномоченное лицо</td>
       <td class="regulated-line-cell">{{regulated.seller_full_signer_display}}</td>
-      <td class="regulated-line-cell">{{regulated.seller_registration_display}}</td>
+      <td></td>
     </tr>
     <tr>
       <td></td><td></td><td></td><td></td>
       <td class="regulated-sign-caption" colspan="2">(подпись)</td>
       <td class="regulated-sign-caption">(ф.и.о.)</td>
-      <td class="regulated-sign-caption">(основной государственный регистрационный номер индивидуального предпринимателя и дата присвоения такого номера)</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td></td><td></td><td></td><td></td>
+      <td></td><td></td>
+      <td class="regulated-line-cell" colspan="2">&nbsp;</td>
+    </tr>
+    <tr>
+      <td></td><td></td><td></td><td></td>
+      <td></td><td></td>
+      <td class="regulated-sign-caption regulated-upd-registration-caption" colspan="2">(основной государственный регистрационный номер индивидуального предпринимателя и дата присвоения такого номера)</td>
     </tr>
     <tr>
       <td class="regulated-upd-detail-label">Основание передачи (сдачи) / получения (приемки)</td>

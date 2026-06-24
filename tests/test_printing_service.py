@@ -745,6 +745,7 @@ class PrintingServiceTests(unittest.TestCase):
             "основной государственный регистрационный номер индивидуального предпринимателя и дата присвоения такого номера",
             second_page_html,
         )
+        self.assertNotIn("319246800097453, 05.08.2019", second_page_html)
         self.assertIn("Индивидуальный предприниматель", second_page_html)
         self.assertIn(
             "Товар (груз) передал / услуги, результаты работ, права сдал", second_page_html
