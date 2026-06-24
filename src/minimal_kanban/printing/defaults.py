@@ -528,6 +528,18 @@ PRINT_BASE_STYLES = """
     padding: 1.5px 2px;
     vertical-align: top;
   }
+  .regulated-requisites-table--invoice,
+  .regulated-requisites-table--upd {
+    font-size: 6.4pt;
+    line-height: 1.0;
+  }
+  .regulated-requisites-table--invoice {
+    height: 35mm;
+  }
+  .regulated-requisites-table--invoice td,
+  .regulated-requisites-table--upd td {
+    padding: 0.7px 1.2px;
+  }
   .regulated-req-label {
     width: 24mm;
     font-weight: 600;
@@ -557,13 +569,16 @@ PRINT_BASE_STYLES = """
     text-align: center;
     white-space: nowrap;
   }
+  .regulated-wide-line[data-regulated-wide-line-sample="true"] .regulated-wide-line__label {
+    min-height: 10.2mm;
+  }
   .regulated-tax-table--sample {
     font-size: 7pt;
     line-height: 1.0;
   }
   .regulated-tax-table--sample th,
   .regulated-tax-table--sample td {
-    padding: 1.9px 1.7px;
+    padding: 2.3px 1.7px;
     border-color: #111;
   }
   .regulated-tax-table--sample th {
@@ -572,7 +587,7 @@ PRINT_BASE_STYLES = """
     font-size: 6pt;
   }
   .regulated-tax-table--sample tbody td {
-    height: 14px;
+    height: 17px;
     vertical-align: top;
   }
   .regulated-tax-table--sample .regulated-column-codes th {
@@ -623,6 +638,27 @@ PRINT_BASE_STYLES = """
     align-items: start;
     margin-bottom: 1.8mm;
   }
+  .regulated-upd-top {
+    display: grid;
+    grid-template-columns: 20mm minmax(0, 1fr);
+    column-gap: 2mm;
+    align-items: start;
+    margin-bottom: 1.8mm;
+  }
+  .regulated-upd-main {
+    min-width: 0;
+  }
+  .regulated-upd-title-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 78mm;
+    column-gap: 2mm;
+    align-items: start;
+    min-height: 10.2mm;
+    margin-bottom: 1.1mm;
+  }
+  .regulated-upd-title-row .regulated-note {
+    margin-bottom: 0;
+  }
   .regulated-upd-name {
     font-size: 7pt;
     font-weight: 400;
@@ -645,13 +681,24 @@ PRINT_BASE_STYLES = """
     font-weight: 400;
   }
   .regulated-upd-detail-table {
-    margin-top: 4mm;
-    font-size: 7pt;
-    line-height: 1.05;
+    margin-top: 0;
+    font-size: 6.4pt;
+    line-height: 1.0;
   }
   .regulated-upd-detail-table td {
-    padding: 2.6px 2px;
+    padding: 0.6px 1.2px;
     vertical-align: bottom;
+  }
+  .regulated-upd-detail-table tr:nth-child(-n+7) {
+    font-size: 5.2pt;
+    line-height: 0.95;
+  }
+  .regulated-upd-detail-table tr:nth-child(-n+7) td {
+    padding: 0.1px 0.8px;
+  }
+  .regulated-upd-detail-table tr:nth-child(n+12) td {
+    padding-top: 4.7px;
+    padding-bottom: 4.7px;
   }
   .regulated-upd-detail-label {
     font-weight: 700;
@@ -1081,10 +1128,10 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       (в редакции постановления Правительства Российской Федерации от 23 января 2026 г. № 26)
     </div>
   </div>
-  <table class="regulated-requisites-table">
+  <table class="regulated-requisites-table regulated-requisites-table--invoice">
     <colgroup>
-      <col style="width:24mm"><col><col style="width:8mm">
-      <col style="width:28mm"><col><col style="width:8mm">
+      <col style="width:47mm"><col style="width:105mm"><col style="width:8mm">
+      <col style="width:39mm"><col style="width:75mm"><col style="width:8mm">
     </colgroup>
     <tr>
       <td class="regulated-req-label">Продавец</td><td class="regulated-req-value">{{regulated.seller_name_display}}</td><td class="regulated-req-code">(2)</td>
@@ -1115,7 +1162,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <td class="regulated-req-label"></td><td></td><td></td>
     </tr>
   </table>
-  <div class="regulated-wide-line">
+  <div class="regulated-wide-line" data-regulated-wide-line-sample="true">
     <div class="regulated-wide-line__label">
       К счету-фактуре (счетам-фактурам), выставленному (выставленным) при получении оплаты, частичной оплаты или иных платежей в счет предстоящих поставок товаров (выполнения работ, оказания услуг), передачи имущественных прав {{regulated.linked_invoice_display}}
     </div>
@@ -1233,8 +1280,8 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
             "УПД по форме 2026",
             """
 <div class="document-page regulated-page regulated-page--landscape">
-  <div class="regulated-upd-header">
-    <div>
+  <div class="regulated-upd-top">
+    <div class="regulated-upd-status">
       <div class="regulated-upd-name">Универсальный передаточный документ</div>
       <table class="regulated-upd-status-table">
         <tr>
@@ -1246,66 +1293,70 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
         </tr>
       </table>
     </div>
-    <table class="regulated-form-title-table">
-      <tr>
-        <td class="regulated-title-label">Счет-фактура №</td>
-        <td class="regulated-title-value">{{regulated.document_number_display}}</td>
-        <td class="regulated-code-cell">от</td>
-        <td class="regulated-title-value">{{regulated.document_date_long_display}}</td>
-        <td class="regulated-code-cell">(1)</td>
-      </tr>
-      <tr>
-        <td class="regulated-title-label">Исправление №</td>
-        <td class="regulated-title-value">{{regulated.correction_display}}</td>
-        <td class="regulated-code-cell">от</td>
-        <td class="regulated-title-value">{{regulated.correction_date_display}}</td>
-        <td class="regulated-code-cell">(1а)</td>
-      </tr>
-    </table>
-    <div class="regulated-note">
-      Приложение № 1 к постановлению Правительства Российской Федерации от 26 декабря 2011 г. № 1137<br>
-      (в редакции постановления Правительства Российской Федерации от 23 января 2026 г. № 26)
+    <div class="regulated-upd-main">
+      <div class="regulated-upd-title-row">
+        <table class="regulated-form-title-table">
+          <tr>
+            <td class="regulated-title-label">Счет-фактура №</td>
+            <td class="regulated-title-value">{{regulated.document_number_display}}</td>
+            <td class="regulated-code-cell">от</td>
+            <td class="regulated-title-value">{{regulated.document_date_long_display}}</td>
+            <td class="regulated-code-cell">(1)</td>
+          </tr>
+          <tr>
+            <td class="regulated-title-label">Исправление №</td>
+            <td class="regulated-title-value">{{regulated.correction_display}}</td>
+            <td class="regulated-code-cell">от</td>
+            <td class="regulated-title-value">{{regulated.correction_date_display}}</td>
+            <td class="regulated-code-cell">(1а)</td>
+          </tr>
+        </table>
+        <div class="regulated-note">
+          Приложение № 1 к постановлению Правительства Российской Федерации от 26 декабря 2011 г. № 1137<br>
+          (в редакции постановления Правительства Российской Федерации от 23 января 2026 г. № 26)
+        </div>
+      </div>
+      <table class="regulated-requisites-table regulated-requisites-table--upd">
+        <colgroup>
+          <col style="width:42mm"><col style="width:95mm"><col style="width:6mm">
+          <col style="width:39mm"><col style="width:72mm"><col style="width:6mm">
+        </colgroup>
+        <tr>
+          <td class="regulated-req-label">Продавец</td><td class="regulated-req-value">{{regulated.seller_name_display}}</td><td class="regulated-req-code">(2)</td>
+          <td class="regulated-req-label">Покупатель</td><td class="regulated-req-value">{{regulated.buyer_name_display}}</td><td class="regulated-req-code">(6)</td>
+        </tr>
+        <tr>
+          <td class="regulated-req-label">Адрес</td><td class="regulated-req-value">{{regulated.seller_address_display}}</td><td class="regulated-req-code">(2а)</td>
+          <td class="regulated-req-label">Адрес</td><td class="regulated-req-value">{{regulated.buyer_address_display}}</td><td class="regulated-req-code">(6а)</td>
+        </tr>
+        <tr>
+          <td class="regulated-req-label">ИНН/КПП продавца</td><td class="regulated-req-value">{{regulated.seller_inn_kpp_display}}</td><td class="regulated-req-code">(2б)</td>
+          <td class="regulated-req-label">ИНН/КПП покупателя</td><td class="regulated-req-value">{{regulated.buyer_inn_kpp_display}}</td><td class="regulated-req-code">(6б)</td>
+        </tr>
+        <tr>
+          <td class="regulated-req-label">Грузоотправитель и его адрес</td><td class="regulated-req-value">{{regulated.shipper_display}}</td><td class="regulated-req-code">(3)</td>
+          <td class="regulated-req-label">Валюта: наименование, код</td><td class="regulated-req-value">{{regulated.currency_display}}</td><td class="regulated-req-code">(7)</td>
+        </tr>
+        <tr>
+          <td class="regulated-req-label">Грузополучатель и его адрес</td><td class="regulated-req-value">{{regulated.consignee_display}}</td><td class="regulated-req-code">(4)</td>
+          <td class="regulated-req-label">Идентификатор государственного контракта, договора (соглашения) (при наличии)</td><td class="regulated-req-value">{{regulated.state_contract_display}}</td><td class="regulated-req-code">(8)</td>
+        </tr>
+        <tr>
+          <td class="regulated-req-label">К платежно-расчетному документу</td><td class="regulated-req-value">{{regulated.upd_payment_document_display}}</td><td class="regulated-req-code">(5)</td>
+          <td class="regulated-req-label"></td><td></td><td></td>
+        </tr>
+        <tr>
+          <td class="regulated-req-label">Документ об отгрузке</td><td class="regulated-req-value">{{regulated.upd_shipment_document_display}}</td><td class="regulated-req-code">(5а)</td>
+          <td class="regulated-req-label"></td><td></td><td></td>
+        </tr>
+      </table>
+      <div class="regulated-wide-line" data-regulated-wide-line-sample="true">
+        <div class="regulated-wide-line__label">
+          К счету-фактуре (счетам-фактурам), выставленному (выставленным) при получении оплаты, частичной оплаты или иных платежей в счет предстоящих поставок товаров (выполнения работ, оказания услуг), передачи имущественных прав {{regulated.linked_invoice_display}}
+        </div>
+        <div class="regulated-wide-line__code">(5б)</div>
+      </div>
     </div>
-  </div>
-  <table class="regulated-requisites-table">
-    <colgroup>
-      <col style="width:26mm"><col><col style="width:8mm">
-      <col style="width:29mm"><col><col style="width:8mm">
-    </colgroup>
-    <tr>
-      <td class="regulated-req-label">Продавец</td><td class="regulated-req-value">{{regulated.seller_name_display}}</td><td class="regulated-req-code">(2)</td>
-      <td class="regulated-req-label">Покупатель</td><td class="regulated-req-value">{{regulated.buyer_name_display}}</td><td class="regulated-req-code">(6)</td>
-    </tr>
-    <tr>
-      <td class="regulated-req-label">Адрес</td><td class="regulated-req-value">{{regulated.seller_address_display}}</td><td class="regulated-req-code">(2а)</td>
-      <td class="regulated-req-label">Адрес</td><td class="regulated-req-value">{{regulated.buyer_address_display}}</td><td class="regulated-req-code">(6а)</td>
-    </tr>
-    <tr>
-      <td class="regulated-req-label">ИНН/КПП продавца</td><td class="regulated-req-value">{{regulated.seller_inn_kpp_display}}</td><td class="regulated-req-code">(2б)</td>
-      <td class="regulated-req-label">ИНН/КПП покупателя</td><td class="regulated-req-value">{{regulated.buyer_inn_kpp_display}}</td><td class="regulated-req-code">(6б)</td>
-    </tr>
-    <tr>
-      <td class="regulated-req-label">Грузоотправитель и его адрес</td><td class="regulated-req-value">{{regulated.shipper_display}}</td><td class="regulated-req-code">(3)</td>
-      <td class="regulated-req-label">Валюта: наименование, код</td><td class="regulated-req-value">{{regulated.currency_display}}</td><td class="regulated-req-code">(7)</td>
-    </tr>
-    <tr>
-      <td class="regulated-req-label">Грузополучатель и его адрес</td><td class="regulated-req-value">{{regulated.consignee_display}}</td><td class="regulated-req-code">(4)</td>
-      <td class="regulated-req-label">Идентификатор государственного контракта, договора (соглашения) (при наличии)</td><td class="regulated-req-value">{{regulated.state_contract_display}}</td><td class="regulated-req-code">(8)</td>
-    </tr>
-    <tr>
-      <td class="regulated-req-label">К платежно-расчетному документу</td><td class="regulated-req-value">{{regulated.upd_payment_document_display}}</td><td class="regulated-req-code">(5)</td>
-      <td class="regulated-req-label"></td><td></td><td></td>
-    </tr>
-    <tr>
-      <td class="regulated-req-label">Документ об отгрузке</td><td class="regulated-req-value">{{regulated.upd_shipment_document_display}}</td><td class="regulated-req-code">(5а)</td>
-      <td class="regulated-req-label"></td><td></td><td></td>
-    </tr>
-  </table>
-  <div class="regulated-wide-line">
-    <div class="regulated-wide-line__label">
-      К счету-фактуре (счетам-фактурам), выставленному (выставленным) при получении оплаты, частичной оплаты или иных платежей в счет предстоящих поставок товаров (выполнения работ, оказания услуг), передачи имущественных прав {{regulated.linked_invoice_display}}
-    </div>
-    <div class="regulated-wide-line__code">(5б)</div>
   </div>
   <table class="regulated-tax-table regulated-tax-table--sample">
     <colgroup>
