@@ -1090,7 +1090,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     </tr>
     <tr>
       <td class="regulated-req-label">К платежно-расчетному документу</td><td class="regulated-req-value">{{regulated.payment_document_display}}</td><td class="regulated-req-code">(5)</td>
-      <td class="regulated-req-label">ОГРН/ОГРНИП продавца</td><td class="regulated-req-value">{{regulated.seller_registration_display}}</td><td class="regulated-req-code"></td>
+      <td class="regulated-req-label"></td><td></td><td></td>
     </tr>
     <tr>
       <td class="regulated-req-label">Документ об отгрузке</td><td class="regulated-req-value">{{regulated.shipment_document_display}}</td><td class="regulated-req-code">(5а)</td>
@@ -1159,8 +1159,8 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <tr class="regulated-strong">
         <td colspan="7" class="regulated-total-label">Итого</td>
         <td class="regulated-money">{{regulated.subtotal_display}}</td>
-        <td class="regulated-center">Без акциза</td>
-        <td class="regulated-center">{{regulated.tax_rate_display}}</td>
+        <td class="regulated-center">X</td>
+        <td class="regulated-center"></td>
         <td class="regulated-money">{{regulated.vat_display}}</td>
         <td class="regulated-money">{{regulated.total_with_tax_display}}</td>
         <td colspan="3"></td>
@@ -1169,7 +1169,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
         <td colspan="7" class="regulated-total-label">Всего к оплате</td>
         <td class="regulated-money">{{regulated.subtotal_display}}</td>
         <td class="regulated-center">X</td>
-        <td class="regulated-center">{{regulated.tax_rate_display}}</td>
+        <td class="regulated-center"></td>
         <td class="regulated-money">{{regulated.vat_display}}</td>
         <td class="regulated-money">{{regulated.total_with_tax_display}}</td>
         <td colspan="3"></td>
@@ -1184,7 +1184,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     <tr>
       <td class="regulated-sign-role">Руководитель организации<br>или иное уполномоченное лицо</td>
       <td class="regulated-sign-name">&nbsp;</td>
-      <td class="regulated-sign-name">{{regulated.seller_signer_display}}</td>
+      <td class="regulated-sign-name">{{regulated.seller_leader_signer_display}}</td>
       <td class="regulated-sign-role">Главный бухгалтер<br>или иное уполномоченное лицо</td>
       <td class="regulated-sign-name">&nbsp;</td>
       <td class="regulated-sign-name">&nbsp;</td>
@@ -1243,11 +1243,6 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
         <td class="regulated-title-value">{{regulated.correction_date_display}}</td>
         <td class="regulated-code-cell">(1а)</td>
       </tr>
-      <tr>
-        <td class="regulated-title-label">Документ об отгрузке</td>
-        <td class="regulated-title-value" colspan="3">{{regulated.upd_shipment_document_display}}</td>
-        <td class="regulated-code-cell">(5а)</td>
-      </tr>
     </table>
     <div class="regulated-note">
       Приложение № 1 к постановлению Правительства Российской Федерации от 26 декабря 2011 г. № 1137<br>
@@ -1280,8 +1275,12 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <td class="regulated-req-label">Идентификатор государственного контракта, договора (соглашения)</td><td class="regulated-req-value">{{regulated.state_contract_display}}</td><td class="regulated-req-code">(8)</td>
     </tr>
     <tr>
-      <td class="regulated-req-label">К платежно-расчетному документу</td><td class="regulated-req-value">{{regulated.payment_document_display}}</td><td class="regulated-req-code">(5)</td>
-      <td class="regulated-req-label">ОГРН/ОГРНИП продавца</td><td class="regulated-req-value">{{regulated.seller_registration_display}}</td><td class="regulated-req-code"></td>
+      <td class="regulated-req-label">К платежно-расчетному документу</td><td class="regulated-req-value">{{regulated.upd_payment_document_display}}</td><td class="regulated-req-code">(5)</td>
+      <td class="regulated-req-label"></td><td></td><td></td>
+    </tr>
+    <tr>
+      <td class="regulated-req-label">Документ об отгрузке</td><td class="regulated-req-value">{{regulated.upd_shipment_document_display}}</td><td class="regulated-req-code">(5а)</td>
+      <td class="regulated-req-label"></td><td></td><td></td>
     </tr>
   </table>
   <div class="regulated-wide-line">
@@ -1347,8 +1346,8 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <tr class="regulated-strong">
         <td colspan="8" class="regulated-total-label">Итого</td>
         <td class="regulated-money">{{regulated.subtotal_display}}</td>
-        <td class="regulated-center">Без акциза</td>
-        <td class="regulated-center">{{regulated.tax_rate_display}}</td>
+        <td class="regulated-center">X</td>
+        <td class="regulated-center"></td>
         <td class="regulated-money">{{regulated.vat_display}}</td>
         <td class="regulated-money">{{regulated.total_with_tax_display}}</td>
         <td colspan="3"></td>
@@ -1359,27 +1358,6 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
 </div>
 <!-- AUTOSTOPCRM_PAGE_BREAK -->
 <div class="document-page regulated-page regulated-page--landscape">
-  <div class="regulated-legal-top">
-    <table class="regulated-form-title-table">
-      <tr>
-        <td class="regulated-title-label">УПД №</td>
-        <td class="regulated-title-value">{{regulated.document_number_display}}</td>
-        <td class="regulated-code-cell">от</td>
-        <td class="regulated-title-value">{{regulated.document_date_long_display}}</td>
-        <td class="regulated-code-cell">Стр. 2</td>
-      </tr>
-      <tr>
-        <td class="regulated-title-label">Документ составлен на</td>
-        <td class="regulated-title-value">{{regulated.document_pages_display}}</td>
-        <td class="regulated-code-cell" colspan="2">страницах</td>
-        <td class="regulated-code-cell"></td>
-      </tr>
-    </table>
-    <div class="regulated-note">
-      Универсальный передаточный документ<br>
-      продолжение передаточной части
-    </div>
-  </div>
   <table class="regulated-tax-table regulated-tax-table--sample">
     <colgroup>
       <col style="width:10mm"><col style="width:6mm"><col style="width:48mm"><col style="width:8mm">
@@ -1419,7 +1397,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
         <td colspan="8" class="regulated-total-label">Всего к оплате</td>
         <td class="regulated-money">{{regulated.subtotal_display}}</td>
         <td class="regulated-center">X</td>
-        <td class="regulated-center">{{regulated.tax_rate_display}}</td>
+        <td class="regulated-center"></td>
         <td class="regulated-money">{{regulated.vat_display}}</td>
         <td class="regulated-money">{{regulated.total_with_tax_display}}</td>
         <td colspan="3"></td>
@@ -1428,29 +1406,33 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   </table>
   <table class="regulated-upd-detail-table">
     <colgroup>
-      <col style="width:38mm"><col style="width:42mm"><col style="width:8mm">
-      <col style="width:38mm"><col style="width:42mm"><col style="width:8mm">
-      <col style="width:38mm"><col>
+      <col style="width:38mm"><col style="width:28mm"><col style="width:42mm"><col style="width:8mm">
+      <col style="width:38mm"><col style="width:28mm"><col style="width:42mm"><col style="width:8mm">
     </colgroup>
     <tr>
       <td class="regulated-upd-detail-label">Документ составлен на</td>
       <td class="regulated-line-cell">&nbsp;</td>
       <td>листах</td>
-      <td class="regulated-upd-detail-label">Руководитель организации<br>или иное уполномоченное лицо</td>
-      <td class="regulated-line-cell">{{regulated.seller_signer_display}}</td>
-      <td class="regulated-upd-detail-ref"></td>
-      <td class="regulated-upd-detail-label">Главный бухгалтер<br>или иное уполномоченное лицо</td>
-      <td class="regulated-line-cell">&nbsp;</td>
+      <td></td>
+      <td class="regulated-upd-detail-label" colspan="2">Руководитель организации<br>или иное уполномоченное лицо</td>
+      <td class="regulated-upd-detail-label" colspan="2">Главный бухгалтер<br>или иное уполномоченное лицо</td>
     </tr>
     <tr>
       <td></td>
       <td></td>
       <td></td>
+      <td></td>
+      <td class="regulated-line-cell">{{regulated.seller_leader_position_display}}</td>
+      <td class="regulated-line-cell">&nbsp;</td>
+      <td class="regulated-line-cell">{{regulated.seller_full_signer_display}}</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td></td><td></td><td></td><td></td>
+      <td class="regulated-sign-caption">(должность)</td>
       <td class="regulated-sign-caption">(подпись)</td>
       <td class="regulated-sign-caption">(ф.и.о.)</td>
       <td></td>
-      <td class="regulated-sign-caption">(подпись)</td>
-      <td class="regulated-sign-caption">(ф.и.о.)</td>
     </tr>
     <tr>
       <td class="regulated-upd-detail-label">Основание передачи (сдачи) / получения (приемки)</td>
@@ -1470,13 +1452,13 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     </tr>
     <tr>
       <td class="regulated-line-cell">{{regulated.seller_position_display}}</td>
+      <td class="regulated-line-cell">&nbsp;</td>
       <td class="regulated-line-cell">{{regulated.seller_signer_display}}</td>
       <td class="regulated-upd-detail-ref">[10]</td>
-      <td></td>
       <td class="regulated-line-cell">{{regulated.buyer_position_display}}</td>
+      <td class="regulated-line-cell">&nbsp;</td>
       <td class="regulated-line-cell">{{regulated.buyer_signer_display}}</td>
       <td class="regulated-upd-detail-ref">[15]</td>
-      <td></td>
     </tr>
     <tr>
       <td class="regulated-sign-caption">(должность)</td>
@@ -1494,18 +1476,21 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <td class="regulated-upd-detail-ref">[11]</td>
       <td></td>
       <td class="regulated-upd-detail-label">Дата получения (приемки)</td>
-      <td class="regulated-line-cell">"____" __________ 20___ г.</td>
+      <td class="regulated-line-cell" colspan="2">"_____" ______________ 20___г.</td>
       <td class="regulated-upd-detail-ref">[16]</td>
-      <td></td>
     </tr>
     <tr>
       <td class="regulated-upd-detail-label">Иные сведения об отгрузке, передаче</td>
-      <td class="regulated-line-cell">&nbsp;</td>
+      <td class="regulated-line-cell" colspan="2">&nbsp;</td>
       <td class="regulated-upd-detail-ref">[12]</td>
-      <td></td>
       <td class="regulated-upd-detail-label">Иные сведения о получении, приемке</td>
-      <td class="regulated-line-cell">&nbsp;</td>
+      <td class="regulated-line-cell" colspan="2">&nbsp;</td>
       <td class="regulated-upd-detail-ref">[17]</td>
+    </tr>
+    <tr>
+      <td class="regulated-sign-caption" colspan="3">(ссылки на неотъемлемые приложения, сопутствующие документы, иные документы и т.п.)</td>
+      <td></td>
+      <td class="regulated-sign-caption" colspan="3">(информация о наличии/отсутствии претензии; ссылки на неотъемлемые приложения, и другие документы и т.п.)</td>
       <td></td>
     </tr>
     <tr>
@@ -1516,13 +1501,13 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     </tr>
     <tr>
       <td class="regulated-line-cell">{{regulated.seller_position_display}}</td>
+      <td class="regulated-line-cell">&nbsp;</td>
       <td class="regulated-line-cell">{{regulated.seller_signer_display}}</td>
       <td class="regulated-upd-detail-ref">[13]</td>
-      <td></td>
       <td class="regulated-line-cell">{{regulated.buyer_position_display}}</td>
+      <td class="regulated-line-cell">&nbsp;</td>
       <td class="regulated-line-cell">{{regulated.buyer_signer_display}}</td>
       <td class="regulated-upd-detail-ref">[18]</td>
-      <td></td>
     </tr>
     <tr>
       <td class="regulated-sign-caption">(должность)</td>
@@ -1535,24 +1520,23 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <td></td>
     </tr>
     <tr>
+      <td class="regulated-upd-detail-label" colspan="3">Наименование экономического субъекта составителя документа (в т.ч. комиссионера / агента)</td>
+      <td></td>
       <td class="regulated-upd-detail-label" colspan="3">Наименование экономического субъекта составителя документа</td>
-      <td class="regulated-line-cell">{{regulated.seller_name_display}}</td>
-      <td class="regulated-upd-detail-label" colspan="2">Наименование экономического субъекта составителя документа</td>
-      <td class="regulated-line-cell">{{regulated.buyer_name_display}}</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td class="regulated-line-cell" colspan="3">{{regulated.seller_economic_subject_display}}</td>
+      <td class="regulated-upd-detail-ref">[14]</td>
+      <td class="regulated-line-cell" colspan="3">{{regulated.buyer_economic_subject_display}}</td>
       <td class="regulated-upd-detail-ref">[19]</td>
     </tr>
     <tr>
-      <td class="regulated-line-cell" colspan="3">&nbsp;</td>
-      <td class="regulated-upd-detail-ref">[14]</td>
-      <td class="regulated-line-cell" colspan="3">&nbsp;</td>
-      <td></td>
-    </tr>
-    <tr>
       <td class="regulated-upd-detail-label">М.П.</td>
-      <td class="regulated-line-cell" colspan="2">&nbsp;</td>
+      <td class="regulated-sign-caption" colspan="2">(может не заполняться при проставлении печати в М.П., может быть указан ИНН / КПП)</td>
       <td></td>
       <td class="regulated-upd-detail-label">М.П.</td>
-      <td class="regulated-line-cell" colspan="3">&nbsp;</td>
+      <td class="regulated-sign-caption" colspan="3">(может не заполняться при проставлении печати в М.П., может быть указан ИНН / КПП)</td>
     </tr>
   </table>
   <div class="regulated-page-footer">УПД № {{regulated.document_number_display}} от {{regulated.document_date_display}} страница 2 из 2</div>

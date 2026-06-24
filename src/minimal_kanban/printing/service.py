@@ -649,7 +649,13 @@ def _date_long_ru_display(value: Any, *, fallback: str = "—") -> str:
 def _inn_kpp_display(inn: Any, kpp: Any) -> str:
     inn_text = _normalize_text(inn, limit=32)
     kpp_text = _normalize_text(kpp, limit=32)
-    if kpp_text.lower().replace("ё", "е") in {"не применяется для ип", "не применяется"}:
+    if kpp_text.lower().replace("ё", "е") in {
+        "не применяется для ип",
+        "не применяется",
+        "нет",
+        "-",
+        "—",
+    }:
         kpp_text = ""
     if inn_text and kpp_text:
         return f"{inn_text} / {kpp_text}"
@@ -682,6 +688,23 @@ def _service_signer_display(legal_name: Any, company_name: Any) -> str:
     if "Гришкявичус" in text:
         return "Гришкявичус К.В."
     return _display(company_name, fallback=text or "—", limit=120)
+
+
+def _service_person_name_display(legal_name: Any, company_name: Any) -> str:
+    text = _normalize_text(legal_name, limit=180)
+    if "Гришкявичус" in text:
+        return "Гришкявичус Константин Владиславович"
+    return _display(company_name, fallback=text or "—", limit=120)
+
+
+def _regulated_seller_address_display(legal_name: Any, address: Any) -> str:
+    legal_text = _normalize_text(legal_name, limit=180)
+    address_text = _normalize_text(address, limit=300)
+    if "Гришкявичус" in legal_text and (
+        not address_text or "семафорная" in address_text.lower().replace("ё", "е")
+    ):
+        return "КРАЙ КРАСНОЯРСКИЙ, ГОРОД КРАСНОЯРСК"
+    return _display(address_text, limit=300)
 
 
 def _regulated_overrides(value: dict[str, Any] | None) -> dict[str, Any]:
@@ -730,7 +753,7 @@ def _regulated_unit_payload(item: dict[str, Any]) -> dict[str, str]:
     unit = _normalize_text(item.get("inventory_unit") or item.get("unit_display"), limit=24).lower()
     unit = unit.replace(".", "")
     if section == "works" and (not unit or unit in {"усл ед", "услед", "услуга", "услуги", "усл"}):
-        return {"unit_code_display": "—", "unit_display": "н/ч"}
+        return {"unit_code_display": "", "unit_display": "н/ч"}
     if unit in {"л", "литр", "литра", "литров"}:
         return {"unit_code_display": "112", "unit_display": "л"}
     if unit in {"кг", "килограмм", "килограмма", "килограммов"}:
@@ -774,7 +797,7 @@ def _regulated_line_item_dict(
         "total_with_tax": total_with_tax,
         "total_with_tax_display": _money_display(total_with_tax),
         "excise_display": "Без акциза",
-        "line_code_display": "—",
+        "line_code_display": "",
         "country_display": "",
         "country_code_display": "",
         "country_name_display": "",
@@ -808,17 +831,41 @@ def _regulated_document_context(
         service_profile.legal_name,
         fallback=_display(service_profile.company_name),
     )
+    seller_is_individual = "Индивидуальный предприниматель" in seller_legal_name
     seller_signer = _regulated_override_text(
         overrides,
         "seller_signer",
         fallback=_service_signer_display(service_profile.legal_name, service_profile.company_name),
         limit=120,
     )
+    seller_full_signer = _regulated_override_text(
+        overrides,
+        "seller_full_signer",
+        fallback=_service_person_name_display(
+            service_profile.legal_name,
+            service_profile.company_name,
+        ),
+        limit=160,
+    )
     seller_position = _regulated_override_text(
         overrides,
         "seller_position",
-        fallback="ИП" if "Индивидуальный предприниматель" in seller_legal_name else "Руководитель",
+        fallback="ИП" if seller_is_individual else "Руководитель",
         limit=120,
+    )
+    seller_leader_position = _regulated_optional_text(
+        overrides,
+        "seller_leader_position",
+        fallback="Индивидуальный предприниматель или иное уполномоченное лицо"
+        if seller_is_individual
+        else seller_position,
+        limit=160,
+    )
+    seller_leader_signer = _regulated_optional_text(
+        overrides,
+        "seller_leader_signer",
+        fallback="" if seller_is_individual else seller_signer,
+        limit=160,
     )
     client_name = ""
     client_inn = ""
@@ -932,6 +979,39 @@ def _regulated_document_context(
         fallback=f"№ {document_number} от {document_date}",
         limit=160,
     )
+    upd_payment_document = _regulated_optional_text(
+        overrides,
+        "upd_payment_document",
+        fallback="",
+        limit=160,
+    )
+    seller_address = _regulated_override_text(
+        overrides,
+        "seller_address",
+        fallback=_regulated_seller_address_display(
+            service_profile.legal_name,
+            service_profile.address,
+        ),
+        limit=300,
+    )
+    seller_economic_subject = _display(
+        f"{seller_legal_name}, ИНН {service_profile.inn}"
+        if service_profile.inn
+        else seller_legal_name,
+        limit=260,
+    )
+    buyer_economic_subject = _display(
+        ", ".join(
+            part
+            for part in (
+                buyer_name,
+                f"ИНН {buyer_inn}" if buyer_inn else "",
+                f"КПП {buyer_kpp}" if buyer_kpp else "",
+            )
+            if part
+        ),
+        limit=260,
+    )
     return {
         "document_number_display": document_number,
         "document_date_display": document_date,
@@ -940,14 +1020,19 @@ def _regulated_document_context(
         "correction_date_display": "—",
         "linked_invoice_display": linked_invoice,
         "seller_name_display": seller_legal_name,
-        "seller_address_display": _display(service_profile.address, limit=300),
+        "seller_address_display": seller_address,
         "seller_inn_kpp_display": _inn_kpp_display(service_profile.inn, service_profile.kpp),
         "seller_registration_display": _service_registration_display(service_profile.ogrn),
         "seller_position_display": seller_position,
         "seller_signer_display": seller_signer,
+        "seller_full_signer_display": seller_full_signer,
+        "seller_leader_position_display": seller_leader_position,
+        "seller_leader_signer_display": seller_leader_signer,
+        "seller_economic_subject_display": seller_economic_subject,
         "shipper_display": shipper,
         "consignee_display": consignee,
         "payment_document_display": payment_document,
+        "upd_payment_document_display": upd_payment_document,
         "shipment_document_display": shipment_document,
         "upd_shipment_document_display": upd_shipment_document,
         "buyer_name_display": buyer_name,
@@ -955,6 +1040,7 @@ def _regulated_document_context(
         "buyer_inn_kpp_display": _inn_kpp_display(buyer_inn, buyer_kpp),
         "buyer_position_display": buyer_position,
         "buyer_signer_display": buyer_signer,
+        "buyer_economic_subject_display": buyer_economic_subject,
         "currency_display": "Российский рубль, 643",
         "state_contract_display": "",
         "upd_status_code_display": "1",

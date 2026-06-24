@@ -630,7 +630,7 @@ class PrintingServiceTests(unittest.TestCase):
         html = document["pages"][0]["html"]
         self.assertIn("Счет-фактура", html)
         self.assertIn("Приложение № 1 к постановлению Правительства Российской Федерации", html)
-        self.assertIn("ОГРН", html)
+        self.assertIn("319246800097453, 05.08.2019", html)
         self.assertIn("Налоговая ставка", html)
         self.assertIn("5%", html)
         self.assertIn("(5б)", html)
@@ -666,6 +666,9 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("ИНН/КПП покупателя", html)
         self.assertIn("ООО Контрагент", html)
         self.assertIn("2468000000 / 246801001", html)
+        self.assertIn("246413435608", html)
+        self.assertNotIn("не применяется для ИП", html)
+        self.assertIn("КРАЙ КРАСНОЯРСКИЙ, ГОРОД КРАСНОЯРСК", html)
         self.assertIn("Российский рубль, 643", html)
         self.assertIn(
             "Наименование товара (описание выполненных работ, оказанных услуг), имущественного права",
@@ -681,6 +684,7 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Регистрационный номер декларации на товары", html)
         self.assertIn("Без акциза", html)
         self.assertIn(">н/ч<", html)
+        self.assertIn('<td class="regulated-center">X</td>', html)
         self.assertIn("Итого", html)
         self.assertIn("Всего к оплате", html)
         self.assertIn(">он же<", html)
@@ -721,6 +725,8 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Счет на оплату №12", second_page_html)
         self.assertIn("[16]", second_page_html)
         self.assertIn("[19]", second_page_html)
+        self.assertIn("ИНН 2468000000, КПП 246801001", second_page_html)
+        self.assertIn("может не заполняться при проставлении печати", second_page_html)
         self.assertIn(
             "Товар (груз) передал / услуги, результаты работ, права сдал", second_page_html
         )
@@ -737,6 +743,7 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("М.П.", second_page_html)
         self.assertIn("Диагностика АКПП", combined_html)
         self.assertIn("ATF", combined_html)
+        self.assertNotIn("продолжение передаточной части", second_page_html)
         self.assertNotIn("Передача на территории сервиса", combined_html)
         self.assertNotIn("undefined", combined_html)
         self.assertNotIn("NaN", combined_html)
