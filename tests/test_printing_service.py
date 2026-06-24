@@ -676,12 +676,24 @@ class PrintingServiceTests(unittest.TestCase):
         )
         self.assertIn("В том числе сумма акциза", html)
         self.assertIn("Налоговая ставка", html)
-        self.assertIn("Сумма налога, предъявляемая покупателю", html)
+        self.assertIn("Сумма<br>налога, предъявля-<br>емая покупателю", html)
         self.assertIn(
             "Стоимость товаров (работ, услуг), имущественных прав с налогом - всего", html
         )
         self.assertIn("Страна происхождения товара", html)
-        self.assertIn("Регистрационный номер декларации на товары", html)
+        self.assertIn(
+            "Регистрационный номер декларации на товары или регистрационный номер партии товара, подлежащего прослеживаемости",
+            html,
+        )
+        self.assertIn(
+            "Идентификатор государственного контракта, договора (соглашения) (при наличии)", html
+        )
+        self.assertIn("предъявля-", html)
+        self.assertIn("цифро-", html)
+        self.assertIn(
+            "основной государственный регистрационный номер индивидуального предпринимателя и дата присвоения такого номера",
+            html,
+        )
         self.assertIn("Без акциза", html)
         self.assertIn(">н/ч<", html)
         self.assertIn('<td class="regulated-center">X</td>', html)
@@ -727,6 +739,13 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("[19]", second_page_html)
         self.assertIn("ИНН 2468000000, КПП 246801001", second_page_html)
         self.assertIn("может не заполняться при проставлении печати", second_page_html)
+        self.assertIn("(договор; доверенность и др.)", second_page_html)
+        self.assertIn("транспортная накладная, поручение экспедитору", second_page_html)
+        self.assertIn(
+            "основной государственный регистрационный номер индивидуального предпринимателя и дата присвоения такого номера",
+            second_page_html,
+        )
+        self.assertIn("Индивидуальный предприниматель", second_page_html)
         self.assertIn(
             "Товар (груз) передал / услуги, результаты работ, права сдал", second_page_html
         )
@@ -789,6 +808,24 @@ class PrintingServiceTests(unittest.TestCase):
         html = preview["documents"][0]["pages"][0]["html"]
         self.assertIn('<td class="regulated-center">796</td>', html)
         self.assertIn('<td class="regulated-center">шт</td>', html)
+
+    def test_regulated_documents_do_not_require_vehicle_contact_fields(self) -> None:
+        card = build_card()
+        card.repair_order.phone = ""
+        card.repair_order.vehicle = ""
+        card.repair_order.vin = ""
+        card.vehicle = ""
+
+        preview = self.service.preview_documents(
+            card,
+            client=build_business_client(),
+            selected_document_ids=["invoice_factura", "upd"],
+            active_document_id="invoice_factura",
+        )
+
+        for document in preview["documents"]:
+            self.assertEqual(document["missing_fields"], [])
+            self.assertEqual(document["warnings"], [])
 
     def test_regulated_document_overrides_print_fields_without_mutating_client(self) -> None:
         client = build_business_client()

@@ -2661,16 +2661,23 @@ class PrintModuleService:
         materials: list[dict[str, Any]],
     ) -> list[str]:
         missing: list[str] = []
+        regulated_documents = {"invoice_factura", "upd"}
         if not _normalize_text(order.client):
             missing.append("client")
-        if not _normalize_text(order.phone):
+        if document.id not in regulated_documents and not _normalize_text(order.phone):
             missing.append("phone")
-        if document.id not in {"parts_sale"} and not _normalize_text(
+        if document.id not in {"parts_sale", *regulated_documents} and not _normalize_text(
             order.vehicle or card.vehicle_display()
         ):
             missing.append("vehicle")
-        if document.id not in {"parts_sale"} and not _normalize_text(order.vin):
+        if document.id not in {"parts_sale", *regulated_documents} and not _normalize_text(
+            order.vin
+        ):
             missing.append("vin")
+        if document.id in regulated_documents:
+            if not works and not materials:
+                missing.append("line_items")
+            return missing
         if (
             document.id in {"repair_order", "invoice", "invoice_factura", "upd", "completion_act"}
             and not works

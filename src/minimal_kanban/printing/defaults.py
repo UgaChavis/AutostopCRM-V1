@@ -1086,7 +1086,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     </tr>
     <tr>
       <td class="regulated-req-label">Грузополучатель и его адрес</td><td class="regulated-req-value">{{regulated.consignee_display}}</td><td class="regulated-req-code">(4)</td>
-      <td class="regulated-req-label">Идентификатор государственного контракта, договора (соглашения)</td><td class="regulated-req-value">{{regulated.state_contract_display}}</td><td class="regulated-req-code">(8)</td>
+      <td class="regulated-req-label">Идентификатор государственного контракта, договора (соглашения) (при наличии)</td><td class="regulated-req-value">{{regulated.state_contract_display}}</td><td class="regulated-req-code">(8)</td>
     </tr>
     <tr>
       <td class="regulated-req-label">К платежно-расчетному документу</td><td class="regulated-req-value">{{regulated.payment_document_display}}</td><td class="regulated-req-code">(5)</td>
@@ -1122,15 +1122,15 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
         <th rowspan="2">Стоимость товаров (работ, услуг), имущественных прав без налога - всего</th>
         <th rowspan="2">В том числе сумма акциза</th>
         <th rowspan="2">Налоговая ставка</th>
-        <th rowspan="2">Сумма налога, предъявляемая покупателю</th>
+        <th rowspan="2">Сумма<br>налога, предъявля-<br>емая покупателю</th>
         <th rowspan="2">Стоимость товаров (работ, услуг), имущественных прав с налогом - всего</th>
         <th colspan="2">Страна происхождения товара</th>
-        <th rowspan="2">Регистрационный номер декларации на товары</th>
+        <th rowspan="2">Регистрационный номер декларации на товары или регистрационный номер партии товара, подлежащего прослеживаемости</th>
       </tr>
       <tr>
         <th>код</th>
-        <th>условное обозначение (национальное)</th>
-        <th>цифровой код</th>
+        <th>условное обозначение (национа-льное)</th>
+        <th>цифро-<br>вой код</th>
         <th>краткое наименование</th>
       </tr>
       <tr class="regulated-column-codes">
@@ -1202,7 +1202,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     </tr>
     <tr>
       <td></td><td class="regulated-sign-caption">(подпись)</td><td class="regulated-sign-caption">(ф.и.о.)</td>
-      <td class="regulated-sign-caption" colspan="2">(реквизиты свидетельства о государственной регистрации индивидуального предпринимателя)</td><td></td>
+      <td class="regulated-sign-caption" colspan="2">(основной государственный регистрационный номер индивидуального предпринимателя и дата присвоения такого номера)</td><td></td>
     </tr>
   </table>
   <div class="regulated-page-footer">Счет-фактура № {{regulated.document_number_display}} от {{regulated.document_date_display}} страница 1 из 1</div>
@@ -1272,7 +1272,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     </tr>
     <tr>
       <td class="regulated-req-label">Грузополучатель и его адрес</td><td class="regulated-req-value">{{regulated.consignee_display}}</td><td class="regulated-req-code">(4)</td>
-      <td class="regulated-req-label">Идентификатор государственного контракта, договора (соглашения)</td><td class="regulated-req-value">{{regulated.state_contract_display}}</td><td class="regulated-req-code">(8)</td>
+      <td class="regulated-req-label">Идентификатор государственного контракта, договора (соглашения) (при наличии)</td><td class="regulated-req-value">{{regulated.state_contract_display}}</td><td class="regulated-req-code">(8)</td>
     </tr>
     <tr>
       <td class="regulated-req-label">К платежно-расчетному документу</td><td class="regulated-req-value">{{regulated.upd_payment_document_display}}</td><td class="regulated-req-code">(5)</td>
@@ -1308,16 +1308,16 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
         <th rowspan="2">Стоимость товаров (работ, услуг), имущественных прав без налога - всего</th>
         <th rowspan="2">В том числе сумма акциза</th>
         <th rowspan="2">Налоговая ставка</th>
-        <th rowspan="2">Сумма налога, предъявляемая покупателю</th>
+        <th rowspan="2">Сумма<br>налога, предъявля-<br>емая покупателю</th>
         <th rowspan="2">Стоимость товаров (работ, услуг), имущественных прав с налогом - всего</th>
         <th colspan="2">Страна происхождения товара</th>
-        <th rowspan="2">Регистрационный номер декларации на товары</th>
+        <th rowspan="2">Регистрационный номер декларации на товары или регистрационный номер партии товара, подлежащего прослеживаемости</th>
       </tr>
       <tr>
         <th>код</th>
         <th>условное обозначение (национальное)</th>
-        <th>цифровой код</th>
-        <th>краткое наименование</th>
+        <th>цифро-<br>вой код</th>
+        <th>краткое наимено-вание</th>
       </tr>
       <tr class="regulated-column-codes">
         <th>А</th><th>1</th><th>1а</th><th>1б</th><th>2</th><th>2а</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9</th><th>10</th><th>10а</th><th>11</th>
@@ -1377,16 +1377,16 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
         <th rowspan="2">Стоимость товаров (работ, услуг), имущественных прав без налога - всего</th>
         <th rowspan="2">В том числе сумма акциза</th>
         <th rowspan="2">Налоговая ставка</th>
-        <th rowspan="2">Сумма налога, предъявляемая покупателю</th>
+        <th rowspan="2">Сумма<br>налога, предъявля-<br>емая покупателю</th>
         <th rowspan="2">Стоимость товаров (работ, услуг), имущественных прав с налогом - всего</th>
         <th colspan="2">Страна происхождения товара</th>
-        <th rowspan="2">Регистрационный номер декларации на товары</th>
+        <th rowspan="2">Регистрационный номер декларации на товары или регистрационный номер партии товара, подлежащего прослеживаемости</th>
       </tr>
       <tr>
         <th>код</th>
         <th>условное обозначение (национальное)</th>
-        <th>цифровой код</th>
-        <th>краткое наименование</th>
+        <th>цифро-<br>вой код</th>
+        <th>краткое наимено-вание</th>
       </tr>
       <tr class="regulated-column-codes">
         <th>А</th><th>1</th><th>1а</th><th>1б</th><th>2</th><th>2а</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>9</th><th>10</th><th>10а</th><th>11</th>
@@ -1435,14 +1435,39 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <td></td>
     </tr>
     <tr>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td class="regulated-upd-detail-label" colspan="2">Индивидуальный предприниматель<br>или иное уполномоченное лицо</td>
+      <td class="regulated-line-cell">{{regulated.seller_full_signer_display}}</td>
+      <td class="regulated-line-cell">{{regulated.seller_registration_display}}</td>
+    </tr>
+    <tr>
+      <td></td><td></td><td></td><td></td>
+      <td class="regulated-sign-caption" colspan="2">(подпись)</td>
+      <td class="regulated-sign-caption">(ф.и.о.)</td>
+      <td class="regulated-sign-caption">(основной государственный регистрационный номер индивидуального предпринимателя и дата присвоения такого номера)</td>
+    </tr>
+    <tr>
       <td class="regulated-upd-detail-label">Основание передачи (сдачи) / получения (приемки)</td>
       <td class="regulated-line-cell" colspan="6">{{regulated.basis_display}}</td>
       <td class="regulated-upd-detail-ref">[8]</td>
     </tr>
     <tr>
+      <td></td>
+      <td class="regulated-sign-caption" colspan="6">(договор; доверенность и др.)</td>
+      <td></td>
+    </tr>
+    <tr>
       <td class="regulated-upd-detail-label">Данные о транспортировке и грузе</td>
       <td class="regulated-line-cell" colspan="6">{{regulated.transport_details_display}}</td>
       <td class="regulated-upd-detail-ref">[9]</td>
+    </tr>
+    <tr>
+      <td></td>
+      <td class="regulated-sign-caption" colspan="6">(транспортная накладная, поручение экспедитору, экспедиторская / складская расписка и др. / масса нетто/ брутто груза, если не приведены ссылки на транспортные документы, содержащие эти сведения)</td>
+      <td></td>
     </tr>
     <tr>
       <td class="regulated-upd-detail-label" colspan="3">Товар (груз) передал / услуги, результаты работ, права сдал</td>
