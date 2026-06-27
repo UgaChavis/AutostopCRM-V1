@@ -60,9 +60,10 @@ Server filesystem cleanup boundaries:
   orphan containers, inactive volumes with obsolete compose project names,
   old root-level release tarballs, old `/opt/autostop-app.previous-*` and
   `/opt/autostop-app.backup-*` directories when a newer control copy remains,
-  old `/opt/autostop-app-backups` tar/dump copies beyond the retained recent
-  set, empty accidental files, and data directories from integrations that
-  have already been removed from compose, code, tests, and docs.
+  old `/opt/autostop-app-backups` tar/tar.gz/dump copies older than 7 days
+  beyond the minimum retained recent set, empty accidental files, and data
+  directories from integrations that have already been removed from compose,
+  code, tests, and docs.
 - Always keep: `.env` files, credentials, production state, Postgres/upload
   volumes, `/root/autostopcrm-backups`, audit archives, operator activity,
   active nginx configs, active systemd files, active VPN configs, and dirty

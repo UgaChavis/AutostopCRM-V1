@@ -91,8 +91,9 @@ Backup boundaries:
 - Keep `/root/autostopcrm-backups` unless an owner explicitly reviews it.
 - Keep production state, audit archives, Postgres/upload volumes, operator
   activity, active nginx/systemd/VPN configs, and dirty checkouts.
-- `/opt/autostop-app-backups` retains recent app tar and DB dump copies; the
-  maintenance script keeps the newest 3 tar files and newest 2 dump files.
+- `/opt/autostop-app-backups` retains recent app tar and DB dump copies for 7
+  days; the maintenance script also keeps at least the newest 3 tar/tar.gz
+  files and newest 2 dump files even if they are older than the age window.
 
 CRM audit events:
 
