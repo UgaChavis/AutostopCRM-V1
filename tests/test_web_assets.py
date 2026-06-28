@@ -2172,7 +2172,8 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("rememberCardModalCleanState(payload);", save_fragment)
         self.assertIn(
-            "const shouldCloseAfterSave = state.cardCloseAfterSave && saveSucceeded", save_fragment
+            "const shouldCloseAfterSave = saveSucceeded && els.cardModal?.classList.contains('is-open');",
+            save_fragment,
         )
         self.assertIn("state.cardSavePromise = savePromise;", save_fragment)
         self.assertIn("if (shouldCloseAfterSave) closeCardModal({ force: true });", save_fragment)

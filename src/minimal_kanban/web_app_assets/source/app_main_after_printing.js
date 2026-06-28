@@ -813,7 +813,7 @@
           setStatus(error.message, true);
           return false;
         } finally {
-          const shouldCloseAfterSave = state.cardCloseAfterSave && saveSucceeded && els.cardModal?.classList.contains('is-open');
+          const shouldCloseAfterSave = saveSucceeded && els.cardModal?.classList.contains('is-open');
           state.cardSaveInFlight = false;
           state.cardSavePromise = null;
           state.cardCloseAfterSave = false;
