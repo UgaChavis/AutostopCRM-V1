@@ -2754,6 +2754,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("font-size: 11px;", BOARD_WEB_APP_HTML)
         self.assertIn(".vehicle-group__title {", BOARD_WEB_APP_HTML)
         self.assertIn(".vehicle-group--identity .vehicle-group__grid {", BOARD_WEB_APP_HTML)
+        self.assertIn(".vehicle-field input,", BOARD_WEB_APP_HTML)
+        self.assertIn("height: 32px;", BOARD_WEB_APP_HTML)
+        self.assertIn("min-height: 32px;", BOARD_WEB_APP_HTML)
         self.assertIn(".vehicle-field__label label,", BOARD_WEB_APP_HTML)
         self.assertIn(".vehicle-copy {", BOARD_WEB_APP_HTML)
 
@@ -3354,7 +3357,8 @@ class WebAssetsTests(unittest.TestCase):
             '<label for="repairOrderComment">ИНФОРМАЦИЯ ДЛЯ КЛИЕНТА</label>', BOARD_WEB_APP_HTML
         )
         self.assertIn(".repair-order-client-info textarea {", BOARD_WEB_APP_HTML)
-        self.assertIn("min-height: 112px;", BOARD_WEB_APP_HTML)
+        self.assertIn("min-height: 70px;", BOARD_WEB_APP_HTML)
+        self.assertIn("height: 70px;", BOARD_WEB_APP_HTML)
         self.assertIn("font-size: 14.5px;", BOARD_WEB_APP_HTML)
         self.assertIn("font-size: 14.75px;", BOARD_WEB_APP_HTML)
         self.assertIn("font-size: 15.25px;", BOARD_WEB_APP_HTML)
@@ -4314,6 +4318,16 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("'/api/update_repair_order'", BOARD_WEB_APP_HTML)
+        self.assertIn("repairOrderInitialPayloadKey: ''", BOARD_WEB_APP_HTML)
+        self.assertIn("state.repairOrderSaveInFlight = false", BOARD_WEB_APP_HTML)
+        self.assertIn("state.repairOrderSavePromise = null", BOARD_WEB_APP_HTML)
+        self.assertIn("function repairOrderModalHasUnsavedChanges()", BOARD_WEB_APP_HTML)
+        self.assertIn("function syncRepairOrderSaveDirtyState()", BOARD_WEB_APP_HTML)
+        self.assertIn("function scheduleRepairOrderSaveDirtyStateSync()", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.repairOrderSaveButton.classList.toggle('is-dirty', hasUnsavedChanges);",
+            BOARD_WEB_APP_HTML,
+        )
         footer_actions_fragment = BOARD_WEB_APP_HTML[
             BOARD_WEB_APP_HTML.index(
                 '<div class="repair-order-footer__actions">'
@@ -4324,6 +4338,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("ОТМЕНА", footer_actions_fragment)
         self.assertNotIn('data-close="repair-order"', footer_actions_fragment)
         self.assertIn("height: 36px;", BOARD_WEB_APP_HTML)
+        self.assertIn("#repairOrderSaveButton.is-dirty:not(:disabled) {", BOARD_WEB_APP_HTML)
+        self.assertIn("animation: repair-order-save-pulse", BOARD_WEB_APP_HTML)
         self.assertIn(
             "license_plate: currentCard.repair_order?.license_plate || profile.registration_plate || profile.license_plate || ''",
             BOARD_WEB_APP_HTML,

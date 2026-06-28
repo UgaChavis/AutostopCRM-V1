@@ -155,6 +155,9 @@
       repairOrdersItems: [],
       repairOrdersMetaState: null,
       repairOrderParentLayer: '',
+      repairOrderSaveInFlight: false,
+      repairOrderSavePromise: null,
+      repairOrderInitialPayloadKey: '',
       repairOrderWorkSalaryRow: null,
       modalStack: [],
       boardSearch: {
@@ -12155,6 +12158,7 @@
       if (!upsertRepairOrderTag(tag)) return;
       els.repairOrderTagInput.value = '';
       renderRepairOrderTags();
+      scheduleRepairOrderSaveDirtyStateSync();
     }
 
     function editRepairOrderTag(label) {
@@ -12169,11 +12173,13 @@
         els.repairOrderTagInput.focus();
       }
       renderRepairOrderTags();
+      scheduleRepairOrderSaveDirtyStateSync();
     }
 
     function removeRepairOrderTag(label) {
       state.repairOrderTags = state.repairOrderTags.filter((tag) => tag.label !== String(label || '').trim());
       renderRepairOrderTags();
+      scheduleRepairOrderSaveDirtyStateSync();
     }
 
     function handleRepairOrderTagInputKeydown(event) {
@@ -12910,6 +12916,45 @@
 
     function scheduleCardSaveDirtyStateSync() {
       requestAnimationFrame(syncCardSaveDirtyState);
+    }
+
+    function repairOrderDirtyComparisonPayload(order = readRepairOrderFromForm()) {
+      const normalized = normalizeRepairOrder(order);
+      const { payment_summary, ...comparison } = normalized;
+      return comparison;
+    }
+
+    function repairOrderModalPayloadKey(order = readRepairOrderFromForm()) {
+      return JSON.stringify(repairOrderDirtyComparisonPayload(order));
+    }
+
+    function rememberRepairOrderModalCleanState(order = readRepairOrderFromForm()) {
+      state.repairOrderInitialPayloadKey = repairOrderModalPayloadKey(order);
+      syncRepairOrderSaveDirtyState();
+    }
+
+    function repairOrderModalHasUnsavedChanges() {
+      if (!els.repairOrderModal?.classList.contains('is-open')) return false;
+      if (state.repairOrderSaveInFlight) return false;
+      const initialKey = String(state.repairOrderInitialPayloadKey || '');
+      return Boolean(initialKey && initialKey !== repairOrderModalPayloadKey());
+    }
+
+    function syncRepairOrderSaveDirtyState() {
+      const hasUnsavedChanges = repairOrderModalHasUnsavedChanges();
+      if (!els.repairOrderSaveButton) return;
+      els.repairOrderSaveButton.classList.toggle('is-dirty', hasUnsavedChanges);
+      els.repairOrderSaveButton.setAttribute(
+        'aria-label',
+        hasUnsavedChanges ? 'Сохранить несохраненные изменения заказ-наряда' : 'Сохранить заказ-наряд'
+      );
+      els.repairOrderSaveButton.title = hasUnsavedChanges
+        ? 'Сохранить несохраненные изменения заказ-наряда'
+        : 'Сохранить заказ-наряд';
+    }
+
+    function scheduleRepairOrderSaveDirtyStateSync() {
+      requestAnimationFrame(syncRepairOrderSaveDirtyState);
     }
 
     function emptyRepairOrderRow(overrides = {}) {
@@ -14050,11 +14095,13 @@
       if (nextPayments.length === previousPayments.length) return;
       state.repairOrderPayments = nextPayments;
       renderRepairOrderPayments();
+      scheduleRepairOrderSaveDirtyStateSync();
       try {
         const persisted = await persistRepairOrderRecord({ silent: true });
         if (!persisted) {
           state.repairOrderPayments = previousPayments;
           renderRepairOrderPayments();
+          scheduleRepairOrderSaveDirtyStateSync();
           return;
         }
         applyRepairOrderToForm(persisted.repairOrder);
@@ -14062,6 +14109,7 @@
       } catch (error) {
         state.repairOrderPayments = previousPayments;
         renderRepairOrderPayments();
+        scheduleRepairOrderSaveDirtyStateSync();
         setStatus(String(error?.message || 'Не удалось удалить оплату из кассы.'), true);
       }
     }
@@ -14099,11 +14147,13 @@
       state.repairOrderPayments = (state.repairOrderPayments || []).concat([payment]);
       syncRepairOrderPaymentMethodFromPayments();
       renderRepairOrderPayments();
+      scheduleRepairOrderSaveDirtyStateSync();
       try {
         const persisted = await persistRepairOrderRecord({ silent: true });
         if (!persisted) {
           state.repairOrderPayments = (state.repairOrderPayments || []).filter((item) => item.id !== payment.id);
           renderRepairOrderPayments();
+          scheduleRepairOrderSaveDirtyStateSync();
           return;
         }
         applyRepairOrderToForm(persisted.repairOrder);
@@ -14113,6 +14163,7 @@
       } catch (error) {
         state.repairOrderPayments = (state.repairOrderPayments || []).filter((item) => item.id !== payment.id);
         renderRepairOrderPayments();
+        scheduleRepairOrderSaveDirtyStateSync();
         setStatus(String(error?.message || 'Не удалось записать оплату в кассу.'), true);
       } finally {
         els.repairOrderPaymentAmount?.focus();
@@ -14179,6 +14230,7 @@
       els.repairOrderModalTitle.title = heading;
       syncRepairOrderStatusUi(normalized.status, normalized);
       syncRepairOrderTotals();
+      rememberRepairOrderModalCleanState(normalized);
     }
 
     function readRepairOrderFromForm() {
@@ -14265,6 +14317,7 @@
       closeRepairOrderPaymentsModal();
       popModal('repair-order');
       state.repairOrderParentLayer = '';
+      syncRepairOrderSaveDirtyState();
       if (parentLayer === 'repair-orders') {
         resetCardModalState();
       }
@@ -14279,6 +14332,7 @@
       const defaults = section === 'materials' ? operatorDefaultMaterialExecutor() : {};
       body.insertAdjacentHTML('beforeend', repairOrderRowHtml(section, emptyRepairOrderRow(defaults), rowIndex));
       syncRepairOrderTotals();
+      scheduleRepairOrderSaveDirtyStateSync();
       body.querySelector('tr:last-child input')?.focus();
     }
 
@@ -14286,6 +14340,7 @@
       const rows = ensureRepairOrderRows(readRepairOrderRows(section));
       if (rowIndex >= 0 && rowIndex < rows.length) rows.splice(rowIndex, 1);
       renderRepairOrderRows(section, rows);
+      scheduleRepairOrderSaveDirtyStateSync();
     }
 
     function repairOrdersModalIsOpen() {
@@ -14332,13 +14387,28 @@
     }
 
     saveRepairOrder = async function(printAfter = false) {
-      try {
-        const persisted = await persistRepairOrderRecord({ statusMessage: 'Заказ-наряд сохранён.' });
-        if (!persisted) return;
-        if (printAfter) setStatus('Печать будет добавлена позже. Заказ-наряд сохранён.', false);
-      } catch (error) {
-        setStatus(error.message, true);
-      }
+      if (state.repairOrderSaveInFlight) return state.repairOrderSavePromise || false;
+      state.repairOrderSaveInFlight = true;
+      if (els.repairOrderSaveButton) els.repairOrderSaveButton.disabled = true;
+      syncRepairOrderSaveDirtyState();
+      const savePromise = perfMeasureAsync('saveRepairOrder', async () => {
+        try {
+          const persisted = await persistRepairOrderRecord({ statusMessage: 'Заказ-наряд сохранён.' });
+          if (!persisted) return false;
+          if (printAfter) setStatus('Печать будет добавлена позже. Заказ-наряд сохранён.', false);
+          return true;
+        } catch (error) {
+          setStatus(error.message, true);
+          return false;
+        } finally {
+          state.repairOrderSaveInFlight = false;
+          state.repairOrderSavePromise = null;
+          if (els.repairOrderSaveButton) els.repairOrderSaveButton.disabled = false;
+          syncRepairOrderSaveDirtyState();
+        }
+      });
+      state.repairOrderSavePromise = savePromise;
+      return savePromise;
     };
 
     async function toggleRepairOrderStatus() {
@@ -20856,6 +20926,7 @@
         }
       }
       if (target.closest('tr[data-repair-order-row]')) syncRepairOrderTotals();
+      scheduleRepairOrderSaveDirtyStateSync();
     }
 
     function saveRepairOrderDraft() {

@@ -2728,8 +2728,8 @@
       white-space: nowrap;
     }
     .repair-order-client-info textarea {
-      min-height: 112px;
-      height: 112px;
+      min-height: 70px;
+      height: 70px;
       max-height: 168px;
       line-height: 1.4;
       padding: 8px 10px;
@@ -4016,10 +4016,53 @@
       background: #aab58b;
       color: #182018;
       font-weight: 700;
+      transition: border-color 160ms ease, background 160ms ease, box-shadow 180ms ease, color 160ms ease, opacity 160ms ease;
     }
     .repair-order-save:hover {
       border-color: #b8c39d;
       background: #b8c39d;
+    }
+    #repairOrderSaveButton.is-dirty:not(:disabled) {
+      border-color: rgba(126, 190, 111, 0.68);
+      background:
+        linear-gradient(180deg, rgba(136, 197, 118, 0.12), rgba(79, 131, 68, 0.08)),
+        #aab58b;
+      color: #effbe8;
+      box-shadow:
+        0 0 0 1px rgba(120, 190, 107, 0.12),
+        0 0 12px rgba(105, 196, 95, 0.18),
+        inset 0 0 16px rgba(97, 169, 85, 0.06);
+      animation: repair-order-save-pulse 1800ms ease-in-out infinite;
+    }
+    #repairOrderSaveButton.is-dirty:not(:disabled):hover {
+      border-color: rgba(145, 205, 126, 0.94);
+      background:
+        linear-gradient(180deg, rgba(146, 209, 127, 0.16), rgba(84, 138, 73, 0.1)),
+        #aab58b;
+      box-shadow:
+        0 0 0 1px rgba(126, 190, 111, 0.16),
+        0 0 15px rgba(105, 196, 95, 0.2),
+        inset 0 0 18px rgba(97, 169, 85, 0.08);
+    }
+    @keyframes repair-order-save-pulse {
+      0%, 100% {
+        box-shadow:
+          0 0 0 1px rgba(120, 190, 107, 0.12),
+          0 0 12px rgba(105, 196, 95, 0.18),
+          inset 0 0 16px rgba(97, 169, 85, 0.06);
+      }
+      50% {
+        box-shadow:
+          0 0 0 1px rgba(126, 190, 111, 0.2),
+          0 0 16px rgba(105, 196, 95, 0.26),
+          0 0 24px rgba(122, 212, 110, 0.1),
+          inset 0 0 18px rgba(97, 169, 85, 0.08);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #repairOrderSaveButton.is-dirty:not(:disabled) {
+        animation: none;
+      }
     }
     .vehicle-group {
       display: grid;
