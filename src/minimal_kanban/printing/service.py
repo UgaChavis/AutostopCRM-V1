@@ -250,9 +250,19 @@ def _regulated_line_item_dict(
     subtotal = _parse_decimal(item.get("total"))
     if subtotal is None:
         subtotal = _round_money((quantity or Decimal("0")) * price)
+    gross_total = repair_order_cashless_gross_value(subtotal)
     rate = tax["rate"] if tax.get("has_vat") else Decimal("0")
-    vat = _round_money(subtotal * rate)
-    total_with_tax = _round_money(subtotal + vat)
+    if tax.get("has_vat"):
+        subtotal = _round_money(gross_total * (Decimal("1") - rate))
+        vat = _round_money(gross_total - subtotal)
+    else:
+        vat = Decimal("0")
+    total_with_tax = gross_total
+    price_value = (
+        _round_money(gross_total / quantity)
+        if quantity and quantity > Decimal("0")
+        else gross_total
+    )
     unit_payload = _regulated_unit_payload(item)
     return {
         **item,
@@ -261,7 +271,8 @@ def _regulated_line_item_dict(
         "product_code_display": "—",
         "name": _display(item.get("name"), limit=260),
         "quantity_display": _display(item.get("quantity_display") or item.get("quantity")),
-        "price_display": _money_display(price),
+        "price": price_value,
+        "price_display": _money_display(price_value),
         "subtotal": subtotal,
         "subtotal_display": _money_display(subtotal),
         "tax_rate_display": tax["rate_display"] if tax.get("has_vat") else "Без НДС",
@@ -278,6 +289,57 @@ def _regulated_line_item_dict(
     }
 
 
+def _balance_regulated_line_totals(
+    line_items: list[dict[str, Any]],
+    *,
+    target_total: Decimal,
+    tax_rate: Decimal,
+) -> list[dict[str, Any]]:
+    if not line_items:
+        return line_items
+    current_total = _round_money(
+        sum(
+            (_parse_decimal(item.get("total_with_tax")) or Decimal("0") for item in line_items),
+            Decimal("0"),
+        )
+    )
+    adjustment = _round_money(target_total - current_total)
+    if adjustment == Decimal("0"):
+        return line_items
+    balanced_items = list(line_items)
+    last_index = len(balanced_items) - 1
+    last_item = dict(balanced_items[last_index])
+    total_with_tax = _round_money(
+        (_parse_decimal(last_item.get("total_with_tax")) or Decimal("0")) + adjustment
+    )
+    if tax_rate != Decimal("0"):
+        subtotal = _round_money(total_with_tax * (Decimal("1") - tax_rate))
+        vat = _round_money(total_with_tax - subtotal)
+    else:
+        subtotal = total_with_tax
+        vat = Decimal("0")
+    quantity = _parse_decimal(last_item.get("quantity"))
+    price = (
+        _round_money(total_with_tax / quantity)
+        if quantity and quantity > Decimal("0")
+        else total_with_tax
+    )
+    last_item.update(
+        {
+            "price": price,
+            "price_display": _money_display(price),
+            "subtotal": subtotal,
+            "subtotal_display": _money_display(subtotal),
+            "vat": vat,
+            "vat_display": _money_display(vat) if tax_rate != Decimal("0") else "Без НДС",
+            "total_with_tax": total_with_tax,
+            "total_with_tax_display": _money_display(total_with_tax),
+        }
+    )
+    balanced_items[last_index] = last_item
+    return balanced_items
+
+
 def _regulated_document_context(
     *,
     order: RepairOrder,
@@ -288,17 +350,35 @@ def _regulated_document_context(
 ) -> dict[str, Any]:
     overrides = _regulated_overrides(document_overrides)
     tax = _invoice_tax_payload(order)
-    rows = [
+    raw_rows = [
         _regulated_line_item_dict(item, index=index, tax=tax)
         for index, item in enumerate(line_items)
     ]
+    base_subtotal = _round_money(
+        sum(
+            (_parse_decimal(item.get("total")) or Decimal("0") for item in line_items),
+            Decimal("0"),
+        )
+    )
+    target_total = repair_order_cashless_gross_value(base_subtotal)
+    tax_rate = tax["rate"] if tax.get("has_vat") else Decimal("0")
+    rows = _balance_regulated_line_totals(
+        raw_rows,
+        target_total=target_total,
+        tax_rate=tax_rate,
+    )
     subtotal = _round_money(
         sum((_parse_decimal(item.get("subtotal")) or Decimal("0") for item in rows), Decimal("0"))
     )
     vat = _round_money(
         sum((_parse_decimal(item.get("vat")) or Decimal("0") for item in rows), Decimal("0"))
     )
-    total_with_tax = _round_money(subtotal + vat)
+    total_with_tax = _round_money(
+        sum(
+            (_parse_decimal(item.get("total_with_tax")) or Decimal("0") for item in rows),
+            Decimal("0"),
+        )
+    )
     service_profile = settings.service_profile
     seller_legal_name = _individual_entrepreneur_display(
         service_profile.legal_name,

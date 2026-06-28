@@ -784,10 +784,10 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Налоговая ставка", html)
         self.assertIn("5%", html)
         self.assertIn("(5б)", html)
-        self.assertIn("13 800,00", html)
-        self.assertIn("2 500,00", html)
-        self.assertIn("690,00", html)
-        self.assertIn("14 490,00", html)
+        self.assertIn("15 423,53", html)
+        self.assertIn("2 941,18", html)
+        self.assertIn("811,76", html)
+        self.assertIn("16 235,29", html)
         self.assertIn("Руководитель организации", html)
         self.assertIn("Индивидуальный предприниматель", html)
         self.assertNotIn("Бухгалтерский документ", html)
@@ -926,13 +926,13 @@ class PrintingServiceTests(unittest.TestCase):
             ">н/ч<",
             ">796<",
             ">шт<",
-            "1 070,00",
-            "12 384,00",
-            "13 454,00",
-            "53,50",
-            "619,20",
-            "672,70",
-            "14 126,70",
+            "1 258,82",
+            "14 569,42",
+            "15 036,83",
+            "62,94",
+            "728,47",
+            "791,41",
+            "15 828,24",
             "regulated-req-payment-grid",
             "Счет-фактура № 268 от 20.05.2026 страница 1 из 1",
         ]
@@ -1121,31 +1121,41 @@ class PrintingServiceTests(unittest.TestCase):
             "Расходные материалы Motul 8100 X-Clean Gen2 5W40",
             "Расходные материалы",
             "Парктроник передний левый центральный",
-            "19 714,29",
-            "985,71",
-            "20 700,00",
-            "2 190,48",
-            "109,52",
-            "2 300,00",
-            "3 285,71",
-            "164,29",
-            "3 450,00",
-            "1 095,24",
-            "54,76",
-            "1 150,00",
-            "8 542,86",
-            "427,14",
-            "8 970,00",
-            "1 924,33",
-            "5 773,00",
-            "288,65",
-            "6 061,65",
-            "1 642,86",
-            "82,14",
-            "1 725,00",
-            "44 434,92",
-            "2 221,73",
-            "46 656,65",
+            "23 193,28",
+            "22 033,62",
+            "1 159,66",
+            "23 193,28",
+            "2 577,04",
+            "2 448,19",
+            "128,85",
+            "2 577,04",
+            "3 865,54",
+            "3 672,26",
+            "193,28",
+            "3 865,54",
+            "1 288,52",
+            "1 224,09",
+            "64,43",
+            "1 288,52",
+            "10 050,42",
+            "9 547,90",
+            "502,52",
+            "10 050,42",
+            "2 263,92",
+            "6 452,17",
+            "339,59",
+            "6 791,76",
+            "2 577,04",
+            "2 448,19",
+            "128,85",
+            "2 577,04",
+            "1 932,78",
+            "1 836,14",
+            "96,64",
+            "1 932,78",
+            "49 662,56",
+            "2 613,82",
+            "52 276,38",
             "Счет на оплату №169 от 08.05.2026",
             "УПД № 169 от 08.05.2026 страница 2 из 2",
         ]
@@ -1242,10 +1252,10 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Расходные материалы Motul 8100 X-Clean Gen2 5W40", combined_html)
         self.assertIn('<td class="regulated-center">112</td>', combined_html)
         self.assertIn('<td class="regulated-center">л</td>', combined_html)
-        self.assertIn("1 924,33", combined_html)
-        self.assertIn("5 773,00", combined_html)
-        self.assertIn("288,65", combined_html)
-        self.assertIn("6 061,65", combined_html)
+        self.assertIn("2 263,92", combined_html)
+        self.assertIn("6 791,76", combined_html)
+        self.assertIn("339,59", combined_html)
+        self.assertIn("6 791,76", combined_html)
 
     def test_regulated_documents_do_not_require_vehicle_contact_fields(self) -> None:
         card = build_card()

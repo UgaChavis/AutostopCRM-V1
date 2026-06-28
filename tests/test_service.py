@@ -8363,7 +8363,11 @@ class CardServiceTests(unittest.TestCase):
             "cashbox"
         ]
 
-        def update_order(payments: list[dict[str, str]] | None = None) -> dict[str, str]:
+        def update_order(
+            payments: list[dict[str, str]] | None = None,
+            *,
+            subtotal: str = "20000",
+        ) -> dict[str, str]:
             created = self.service.create_card(
                 {"vehicle": "TOYOTA CAMRY", "title": "Сводка", "deadline": {"hours": 2}}
             )["card"]
@@ -8371,7 +8375,7 @@ class CardServiceTests(unittest.TestCase):
                 {
                     "card_id": created["id"],
                     "repair_order": {
-                        "works": [{"name": "Ремонт", "quantity": "1", "price": "20000"}],
+                        "works": [{"name": "Ремонт", "quantity": "1", "price": subtotal}],
                         **({"payments": payments} if payments is not None else {}),
                     },
                 }
@@ -8381,6 +8385,7 @@ class CardServiceTests(unittest.TestCase):
         scenarios = [
             (
                 "no_payments",
+                "20000",
                 None,
                 {
                     "base_total": "20000",
@@ -8395,6 +8400,7 @@ class CardServiceTests(unittest.TestCase):
             ),
             (
                 "cash_partial",
+                "20000",
                 [
                     {
                         "amount": "10000",
@@ -8418,6 +8424,7 @@ class CardServiceTests(unittest.TestCase):
             ),
             (
                 "cashless_partial",
+                "20000",
                 [
                     {
                         "amount": "10000",
@@ -8441,6 +8448,7 @@ class CardServiceTests(unittest.TestCase):
             ),
             (
                 "mixed_payment",
+                "20000",
                 [
                     {
                         "amount": "5000",
@@ -8471,7 +8479,32 @@ class CardServiceTests(unittest.TestCase):
                 },
             ),
             (
+                "repair_order_391_cash_prepayment",
+                "82310",
+                [
+                    {
+                        "amount": "40000",
+                        "paid_at": "03.06.2026 10:00",
+                        "note": "Предоплата наличными",
+                        "payment_method": "cash",
+                        "actor_name": "ADMIN",
+                        "cashbox_id": cash_cashbox["id"],
+                    }
+                ],
+                {
+                    "base_total": "82310",
+                    "base_paid_cash": "40000",
+                    "base_paid_noncash": "0",
+                    "base_remaining": "42310",
+                    "cash_due": "42310",
+                    "noncash_due": "49776.47",
+                    "taxes_and_fees": "0",
+                    "total_paid": "40000",
+                },
+            ),
+            (
                 "cashless_base_paid_but_fees_due",
+                "20000",
                 [
                     {
                         "amount": "20000",
@@ -8495,6 +8528,7 @@ class CardServiceTests(unittest.TestCase):
             ),
             (
                 "full_close",
+                "20000",
                 [
                     {
                         "amount": "20000",
@@ -8518,13 +8552,13 @@ class CardServiceTests(unittest.TestCase):
             ),
         ]
 
-        for scenario_name, payments, expected in scenarios:
+        for scenario_name, subtotal, payments, expected in scenarios:
             with self.subTest(scenario=scenario_name):
-                order = update_order(payments)
+                order = update_order(payments, subtotal=subtotal)
                 summary = order["payment_summary"]
                 for key, value in expected.items():
                     self.assertEqual(summary[key], value)
-                self.assertEqual(order["subtotal_total"], "20000")
+                self.assertEqual(order["subtotal_total"], subtotal)
                 self.assertEqual(order["payment_summary"]["base_total"], order["subtotal_total"])
 
     def test_list_repair_orders_creates_text_files_and_sorts_by_latest_number(self) -> None:
