@@ -205,6 +205,59 @@ def _qt_page_orientation(orientation: str):
     )
 
 
+def _webengine_pdf_finish(state: dict[str, object], loop, error: str = "") -> None:
+    if state["done"]:
+        return
+    state["done"] = True
+    state["error"] = error
+    loop.quit()
+
+
+def _webengine_pdf_handle_pdf_finished(
+    pdf_path: Path,
+    state: dict[str, object],
+    loop,
+    file_path: str,
+    success: bool,
+) -> None:
+    if not success:
+        _webengine_pdf_finish(state, loop, "Qt WebEngine не создал PDF-файл.")
+        return
+    if Path(file_path) != pdf_path:
+        _webengine_pdf_finish(state, loop, "Qt WebEngine вернул неожиданный путь PDF.")
+        return
+    _webengine_pdf_finish(state, loop)
+
+
+def _webengine_pdf_handle_load_finished(
+    page,
+    pdf_path: Path,
+    paper_size: str,
+    orientation: str,
+    state: dict[str, object],
+    loop,
+    success: bool,
+) -> None:
+    if not success:
+        _webengine_pdf_finish(state, loop, "Qt WebEngine не загрузил HTML для PDF.")
+        return
+    from PySide6.QtCore import QMarginsF
+    from PySide6.QtGui import QPageLayout
+
+    layout = QPageLayout(
+        _qt_page_size(paper_size),
+        _qt_page_orientation(orientation),
+        QMarginsF(9, 9, 9, 9),
+        QPageLayout.Unit.Millimeter,
+    )
+    page.pdfPrintingFinished.connect(
+        lambda file_path, success: _webengine_pdf_handle_pdf_finished(
+            pdf_path, state, loop, file_path, success
+        )
+    )
+    page.printToPdf(str(pdf_path), layout)
+
+
 def _render_webengine_pdf_bytes(
     html: str,
     *,
@@ -215,8 +268,7 @@ def _render_webengine_pdf_bytes(
     del title
     _ensure_qt_application()
     try:
-        from PySide6.QtCore import QEventLoop, QMarginsF, QTimer, QUrl
-        from PySide6.QtGui import QPageLayout
+        from PySide6.QtCore import QEventLoop, QTimer, QUrl
         from PySide6.QtWebEngineCore import QWebEnginePage
     except Exception as exc:
         raise PdfRenderError("Qt WebEngine недоступен для генерации красивого PDF.") from exc
@@ -231,38 +283,16 @@ def _render_webengine_pdf_bytes(
     state: dict[str, object] = {"done": False, "error": ""}
     timer = QTimer()
     timer.setSingleShot(True)
-
-    def finish(error: str = "") -> None:
-        if state["done"]:
-            return
-        state["done"] = True
-        state["error"] = error
-        loop.quit()
-
-    def handle_pdf_finished(file_path: str, success: bool) -> None:
-        if not success:
-            finish("Qt WebEngine не создал PDF-файл.")
-            return
-        if Path(file_path) != pdf_path:
-            finish("Qt WebEngine вернул неожиданный путь PDF.")
-            return
-        finish()
-
-    def handle_load_finished(success: bool) -> None:
-        if not success:
-            finish("Qt WebEngine не загрузил HTML для PDF.")
-            return
-        layout = QPageLayout(
-            _qt_page_size(paper_size),
-            _qt_page_orientation(orientation),
-            QMarginsF(9, 9, 9, 9),
-            QPageLayout.Unit.Millimeter,
+    timer.timeout.connect(
+        lambda: _webengine_pdf_finish(
+            state, loop, "Истекло время генерации PDF через Qt WebEngine."
         )
-        page.pdfPrintingFinished.connect(handle_pdf_finished)
-        page.printToPdf(str(pdf_path), layout)
-
-    timer.timeout.connect(lambda: finish("Истекло время генерации PDF через Qt WebEngine."))
-    page.loadFinished.connect(handle_load_finished)
+    )
+    page.loadFinished.connect(
+        lambda success: _webengine_pdf_handle_load_finished(
+            page, pdf_path, paper_size, orientation, state, loop, success
+        )
+    )
     try:
         try:
             pdf_path.unlink(missing_ok=True)

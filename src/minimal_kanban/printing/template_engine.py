@@ -90,6 +90,59 @@ def _extract_section(template: str, start_index: int, stop_name: str) -> tuple[s
         index = match.end()
 
 
+def _render_section_block(
+    sigil: str,
+    inner: str,
+    stack: list[Any],
+    value: Any,
+    *,
+    section_depth: int,
+) -> str:
+    rendered_parts: list[str] = []
+    if sigil == "#":
+        if isinstance(value, list):
+            for item in value:
+                rendered, _ = _render_segment(
+                    inner,
+                    [item, *stack],
+                    0,
+                    stop_name=None,
+                    section_depth=section_depth + 1,
+                )
+                rendered_parts.append(rendered)
+        elif isinstance(value, dict):
+            rendered, _ = _render_segment(
+                inner,
+                [value, *stack],
+                0,
+                stop_name=None,
+                section_depth=section_depth + 1,
+            )
+            rendered_parts.append(rendered)
+        elif _is_truthy(value):
+            rendered, _ = _render_segment(
+                inner,
+                [value, *stack],
+                0,
+                stop_name=None,
+                section_depth=section_depth + 1,
+            )
+            rendered_parts.append(rendered)
+    elif sigil == "^":
+        if not _is_truthy(value):
+            rendered, _ = _render_segment(
+                inner,
+                stack,
+                0,
+                stop_name=None,
+                section_depth=section_depth + 1,
+            )
+            rendered_parts.append(rendered)
+    else:
+        raise TemplateRenderError(f"Неподдерживаемый тег шаблона: {sigil}")
+    return "".join(rendered_parts)
+
+
 def _render_segment(
     template: str,
     stack: list[Any],
@@ -129,45 +182,13 @@ def _render_segment(
             )
         inner, next_index = _extract_section(template, index, name)
         value = _resolve(name, stack)
-        if sigil == "#":
-            if isinstance(value, list):
-                for item in value:
-                    rendered, _ = _render_segment(
-                        inner,
-                        [item, *stack],
-                        0,
-                        stop_name=None,
-                        section_depth=section_depth + 1,
-                    )
-                    out.append(rendered)
-            elif isinstance(value, dict):
-                rendered, _ = _render_segment(
-                    inner,
-                    [value, *stack],
-                    0,
-                    stop_name=None,
-                    section_depth=section_depth + 1,
-                )
-                out.append(rendered)
-            elif _is_truthy(value):
-                rendered, _ = _render_segment(
-                    inner,
-                    [value, *stack],
-                    0,
-                    stop_name=None,
-                    section_depth=section_depth + 1,
-                )
-                out.append(rendered)
-        elif sigil == "^":
-            if not _is_truthy(value):
-                rendered, _ = _render_segment(
-                    inner,
-                    stack,
-                    0,
-                    stop_name=None,
-                    section_depth=section_depth + 1,
-                )
-                out.append(rendered)
-        else:
-            raise TemplateRenderError(f"Неподдерживаемый тег шаблона: {sigil}{name}")
+        out.append(
+            _render_section_block(
+                sigil,
+                inner,
+                stack,
+                value,
+                section_depth=section_depth,
+            )
+        )
         index = next_index

@@ -77,21 +77,18 @@ def _material_salary_snapshot_signature(row: RepairOrderRow) -> tuple[str, ...]:
     )
 
 
-def preserve_repair_order_payroll_snapshots(
-    previous_order: RepairOrder, next_order: RepairOrder
-) -> RepairOrder:
-    if next_order.status != REPAIR_ORDER_STATUS_CLOSED:
-        return next_order
-    next_rows: list[dict[str, str]] = []
+def _preserve_repair_order_payroll_work_rows(
+    previous_rows: list[dict[str, str]], next_rows: list[dict[str, str]]
+) -> tuple[list[dict[str, str]], bool]:
+    preserved_rows: list[dict[str, str]] = []
     changed = False
-    previous_rows = list(previous_order.works)
     represented_signatures = {
         signature
-        for source_row in next_order.works
+        for source_row in next_rows
         for signature in (_work_salary_snapshot_signature(_row_from(source_row)),)
         if signature
     }
-    for index, source_row in enumerate(next_order.works):
+    for index, source_row in enumerate(next_rows):
         row = _row_from(source_row)
         before = row.to_dict()
         if index < len(previous_rows):
@@ -103,7 +100,7 @@ def preserve_repair_order_payroll_snapshots(
                 and current_signature != previous_signature
                 and previous_signature in represented_signatures
             ):
-                next_rows.append(before)
+                preserved_rows.append(before)
                 continue
             if previous_row.salary_accrued_at:
                 row.work_executor_id_snapshot = (
@@ -139,29 +136,34 @@ def preserve_repair_order_payroll_snapshots(
                     setattr(row, field, getattr(previous_row, field))
         after = row.to_dict()
         changed = changed or after != before
-        next_rows.append(after)
+        preserved_rows.append(after)
+    return preserved_rows, changed
 
-    next_material_rows: list[dict[str, str]] = []
-    previous_materials = list(previous_order.materials)
-    represented_material_signatures = {
+
+def _preserve_repair_order_payroll_material_rows(
+    previous_rows: list[dict[str, str]], next_rows: list[dict[str, str]]
+) -> tuple[list[dict[str, str]], bool]:
+    preserved_rows: list[dict[str, str]] = []
+    changed = False
+    represented_signatures = {
         signature
-        for source_row in next_order.materials
+        for source_row in next_rows
         for signature in (_material_salary_snapshot_signature(_row_from(source_row)),)
         if signature
     }
-    for index, source_row in enumerate(next_order.materials):
+    for index, source_row in enumerate(next_rows):
         row = _row_from(source_row)
         before = row.to_dict()
-        if index < len(previous_materials):
-            previous_row = _row_from(previous_materials[index])
+        if index < len(previous_rows):
+            previous_row = _row_from(previous_rows[index])
             previous_signature = _material_salary_snapshot_signature(previous_row)
             current_signature = _material_salary_snapshot_signature(row)
             if (
                 previous_signature
                 and current_signature != previous_signature
-                and previous_signature in represented_material_signatures
+                and previous_signature in represented_signatures
             ):
-                next_material_rows.append(before)
+                preserved_rows.append(before)
                 continue
             if previous_row.material_salary_accrued_at:
                 row.material_executor_id_snapshot = (
@@ -180,8 +182,22 @@ def preserve_repair_order_payroll_snapshots(
                         setattr(row, field, previous_value)
         after = row.to_dict()
         changed = changed or after != before
-        next_material_rows.append(after)
-    if not changed:
+        preserved_rows.append(after)
+    return preserved_rows, changed
+
+
+def preserve_repair_order_payroll_snapshots(
+    previous_order: RepairOrder, next_order: RepairOrder
+) -> RepairOrder:
+    if next_order.status != REPAIR_ORDER_STATUS_CLOSED:
+        return next_order
+    next_rows, works_changed = _preserve_repair_order_payroll_work_rows(
+        list(previous_order.works), list(next_order.works)
+    )
+    next_material_rows, materials_changed = _preserve_repair_order_payroll_material_rows(
+        list(previous_order.materials), list(next_order.materials)
+    )
+    if not works_changed and not materials_changed:
         return next_order
     return RepairOrder.from_dict(
         {**next_order.to_storage_dict(), "works": next_rows, "materials": next_material_rows}

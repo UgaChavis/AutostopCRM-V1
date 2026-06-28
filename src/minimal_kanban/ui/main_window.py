@@ -716,6 +716,68 @@ class MainWindow(QMainWindow):
             self._show_error(exc.message)
         return None
 
+    def _normalize_refresh_board_cards(
+        self,
+        cards: list[dict],
+        *,
+        valid_column_ids: set[str],
+        fallback_column_id: str,
+    ) -> list[dict]:
+        render_cards: list[dict] = []
+        seen_card_ids: set[str] = set()
+        for source_card in cards:
+            card_id = str(source_card.get("id") or "").strip()
+            if not card_id or card_id in seen_card_ids:
+                continue
+            seen_card_ids.add(card_id)
+            card = dict(source_card)
+            card["id"] = card_id
+            card_column = str(card.get("column") or "")
+            if card_column not in valid_column_ids:
+                if not fallback_column_id:
+                    continue
+                card_column = fallback_column_id
+            card["column"] = card_column
+            render_cards.append(card)
+        return render_cards
+
+    def _refresh_board_signature(
+        self, column_signature: tuple[tuple[str, str], ...], render_cards: list[dict]
+    ) -> tuple[object, ...]:
+        return tuple(
+            [column_signature]
+            + [
+                (
+                    card["id"],
+                    card["title"],
+                    card["description"],
+                    card["column"],
+                    card["archived"],
+                    card["deadline_timestamp"],
+                    card["updated_at"],
+                )
+                for card in render_cards
+            ]
+        )
+
+    def _refresh_board_widgets(
+        self, columns: list[dict], render_cards: list[dict]
+    ) -> dict[str, CardWidget]:
+        grouped = {column["id"]: [] for column in columns}
+        new_widgets: dict[str, CardWidget] = {}
+        for card in render_cards:
+            widget = self._card_widgets.get(card["id"])
+            if widget is None:
+                widget = CardWidget(card)
+            else:
+                widget.update_card(card)
+            grouped[card["column"]].append(widget)
+            new_widgets[card["id"]] = widget
+        self._card_widgets = new_widgets
+        for column in columns:
+            self.columns[column["id"]].set_cards(grouped[column["id"]])
+        return new_widgets
+
     def refresh_board(
         self,
         *,
@@ -737,63 +799,23 @@ class MainWindow(QMainWindow):
         column_signature = tuple((column["id"], column["label"]) for column in columns)
         valid_column_ids = {column_id for column_id, _ in column_signature}
         fallback_column_id = column_signature[0][0] if column_signature else ""
-        render_cards: list[dict] = []
-        seen_card_ids: set[str] = set()
-        for source_card in cards:
-            card_id = str(source_card.get("id") or "").strip()
-            if not card_id:
-                continue
-            if card_id in seen_card_ids:
-                continue
-            seen_card_ids.add(card_id)
-            card = dict(source_card)
-            card["id"] = card_id
-            card_column = str(card.get("column") or "")
-            if card_column not in valid_column_ids:
-                if not fallback_column_id:
-                    continue
-                card_column = fallback_column_id
-            card["column"] = card_column
-            render_cards.append(card)
+        render_cards = self._normalize_refresh_board_cards(
+            cards,
+            valid_column_ids=valid_column_ids,
+            fallback_column_id=fallback_column_id,
+        )
 
         self._sync_board_summary(columns=columns, cards=render_cards)
 
         if force or column_signature != self._column_signature:
             self._sync_columns(columns)
 
-        signature = tuple(
-            [column_signature]
-            + [
-                (
-                    card["id"],
-                    card["title"],
-                    card["description"],
-                    card["column"],
-                    card["archived"],
-                    card["deadline_timestamp"],
-                    card["updated_at"],
-                )
-                for card in render_cards
-            ]
-        )
+        signature = self._refresh_board_signature(column_signature, render_cards)
         if not force and signature == self._render_signature:
             return
         self._render_signature = signature
 
-        grouped = {column["id"]: [] for column in columns}
-        new_widgets: dict[str, CardWidget] = {}
-        for card in render_cards:
-            widget = self._card_widgets.get(card["id"])
-            if widget is None:
-                widget = CardWidget(card)
-            else:
-                widget.update_card(card)
-            grouped[card["column"]].append(widget)
-            new_widgets[card["id"]] = widget
-
-        self._card_widgets = new_widgets
-        for column in columns:
-            self.columns[column["id"]].set_cards(grouped[column["id"]])
+        self._refresh_board_widgets(columns, render_cards)
 
     def _sync_columns(self, columns: list[dict]) -> None:
         self.columns = {}

@@ -337,30 +337,18 @@ class CardServiceClientsMixin:
             sync_linked_cards = self._validated_optional_bool(
                 payload, "sync_linked_cards", default=True
             )
-            synced_card_ids: list[str] = []
-            if sync_linked_cards and next_vehicle.id:
-                for linked_card in cards:
-                    if (
-                        linked_card.client_id == client.id
-                        and linked_card.client_vehicle_id == next_vehicle.id
-                    ):
-                        if self._sync_card_vehicle_fields(
-                            linked_card, next_vehicle, overwrite=True
-                        ):
-                            self._touch_card(linked_card, actor_name)
-                            synced_card_ids.append(linked_card.id)
-                            self._append_event(
-                                events,
-                                actor_name=actor_name,
-                                source=source,
-                                action="card_client_vehicle_synced",
-                                message=f"{actor_name} обновил паспорт автомобиля из профиля клиента",
-                                card_id=linked_card.id,
-                                details={
-                                    "client_id": client.id,
-                                    "client_vehicle_id": next_vehicle.id,
-                                },
-                            )
+            synced_card_ids = (
+                self._sync_client_vehicle_linked_cards(
+                    client=client,
+                    vehicle=next_vehicle,
+                    cards=cards,
+                    actor_name=actor_name,
+                    source=source,
+                    events=events,
+                )
+                if sync_linked_cards
+                else []
+            )
             if changed or synced_card_ids:
                 client.updated_at = utc_now_iso()
                 if changed:
@@ -393,6 +381,40 @@ class CardServiceClientsMixin:
                     "synced_card_ids": synced_card_ids,
                 },
             }
+
+    def _sync_client_vehicle_linked_cards(
+        self,
+        *,
+        client: ClientProfile,
+        vehicle: ClientVehicle,
+        cards: list[Card],
+        actor_name: str,
+        source: str,
+        events: list[dict[str, Any]],
+    ) -> list[str]:
+        synced_card_ids: list[str] = []
+        if not vehicle.id:
+            return synced_card_ids
+        for linked_card in cards:
+            if linked_card.client_id != client.id or linked_card.client_vehicle_id != vehicle.id:
+                continue
+            if not self._sync_card_vehicle_fields(linked_card, vehicle, overwrite=True):
+                continue
+            self._touch_card(linked_card, actor_name)
+            synced_card_ids.append(linked_card.id)
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="card_client_vehicle_synced",
+                message=f"{actor_name} обновил паспорт автомобиля из профиля клиента",
+                card_id=linked_card.id,
+                details={
+                    "client_id": client.id,
+                    "client_vehicle_id": vehicle.id,
+                },
+            )
+        return synced_card_ids
 
     def delete_client_vehicle(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -865,38 +887,61 @@ class CardServiceClientsMixin:
         related.sort(key=lambda item: (item.updated_at, item.created_at, item.id), reverse=True)
         return related
 
+    def _client_ids_by_match_key(self, clients: list[ClientProfile]) -> dict[str, set[str]]:
+        client_ids_by_key: dict[str, set[str]] = {}
+        for client in clients:
+            for key in self._client_match_keys(client):
+                if key:
+                    client_ids_by_key.setdefault(key, set()).add(client.id)
+        return client_ids_by_key
+
+    def _append_client_related_card(
+        self,
+        related_by_client_id: dict[str, list[Card]],
+        seen_cards_by_client: dict[str, set[str]],
+        clients_by_id: dict[str, ClientProfile],
+        client_id: str,
+        card: Card,
+    ) -> None:
+        if client_id not in clients_by_id:
+            return
+        seen_cards = seen_cards_by_client.setdefault(client_id, set())
+        if card.id in seen_cards:
+            return
+        seen_cards.add(card.id)
+        related_by_client_id.setdefault(client_id, []).append(card)
+
     def _client_related_cards_map(
         self, clients: list[ClientProfile], cards: list[Card]
     ) -> dict[str, list[Card]]:
         if not clients:
             return {}
         clients_by_id = {client.id: client for client in clients}
-        client_ids_by_key: dict[str, set[str]] = {}
-        for client in clients:
-            for key in self._client_match_keys(client):
-                if key:
-                    client_ids_by_key.setdefault(key, set()).add(client.id)
+        client_ids_by_key = self._client_ids_by_match_key(clients)
 
         related_by_client_id: dict[str, list[Card]] = {client.id: [] for client in clients}
         seen_cards_by_client: dict[str, set[str]] = {client.id: set() for client in clients}
 
-        def add_card(client_id: str, card: Card) -> None:
-            if client_id not in clients_by_id:
-                return
-            seen_cards = seen_cards_by_client.setdefault(client_id, set())
-            if card.id in seen_cards:
-                return
-            seen_cards.add(card.id)
-            related_by_client_id.setdefault(client_id, []).append(card)
-
         for card in cards:
             if card.client_id:
-                add_card(card.client_id, card)
+                self._append_client_related_card(
+                    related_by_client_id,
+                    seen_cards_by_client,
+                    clients_by_id,
+                    card.client_id,
+                    card,
+                )
             matched_client_ids: set[str] = set()
             for key in self._card_client_values(card):
                 matched_client_ids.update(client_ids_by_key.get(key, set()))
             for client_id in matched_client_ids:
-                add_card(client_id, card)
+                self._append_client_related_card(
+                    related_by_client_id,
+                    seen_cards_by_client,
+                    clients_by_id,
+                    client_id,
+                    card,
+                )
 
         for related_cards in related_by_client_id.values():
             related_cards.sort(
@@ -905,59 +950,82 @@ class CardServiceClientsMixin:
             )
         return related_by_client_id
 
+    def _client_related_vehicle_fields_for_card(
+        self, card: Card, *, explicit_link: bool = False
+    ) -> list[str]:
+        fields = [
+            card.vehicle_display(),
+            card.vehicle_profile.make_display,
+            card.vehicle_profile.model_display,
+            card.vehicle_profile.registration_plate,
+            self._client_vehicle_search_vin(card.vehicle_profile.vin),
+            card.repair_order.vehicle,
+            card.repair_order.license_plate,
+            self._client_vehicle_search_vin(card.repair_order.vin),
+            card.repair_order.number,
+        ]
+        if explicit_link:
+            fields.extend(
+                [
+                    card.vehicle_profile.customer_name,
+                    card.vehicle_profile.customer_phone,
+                    *list(card.vehicle_profile.customer_phones or []),
+                    card.repair_order.client,
+                    card.repair_order.phone,
+                ]
+            )
+        return [field for field in fields if str(field or "").strip()]
+
+    def _append_client_related_vehicle_fields(
+        self,
+        related_fields: dict[str, list[str]],
+        seen_cards_by_client: dict[str, set[str]],
+        clients_by_id: dict[str, ClientProfile],
+        client_id: str,
+        card: Card,
+        *,
+        explicit_link: bool = False,
+    ) -> None:
+        if client_id not in clients_by_id:
+            return
+        seen_cards = seen_cards_by_client.setdefault(client_id, set())
+        if card.id in seen_cards:
+            return
+        seen_cards.add(card.id)
+        related_fields.setdefault(client_id, []).extend(
+            self._client_related_vehicle_fields_for_card(card, explicit_link=explicit_link)
+        )
+
     def _client_related_vehicle_fields_index(
         self, clients: list[ClientProfile], cards: list[Card]
     ) -> dict[str, list[str]]:
         clients_by_id = {client.id: client for client in clients}
-        client_ids_by_key: dict[str, set[str]] = {}
-        for client in clients:
-            for key in self._client_match_keys(client):
-                if key:
-                    client_ids_by_key.setdefault(key, set()).add(client.id)
+        client_ids_by_key = self._client_ids_by_match_key(clients)
 
         related_fields: dict[str, list[str]] = {}
         seen_cards_by_client: dict[str, set[str]] = {}
 
-        def add_card(client_id: str, card: Card, *, explicit_link: bool = False) -> None:
-            if client_id not in clients_by_id:
-                return
-            seen_cards = seen_cards_by_client.setdefault(client_id, set())
-            if card.id in seen_cards:
-                return
-            seen_cards.add(card.id)
-            fields = [
-                card.vehicle_display(),
-                card.vehicle_profile.make_display,
-                card.vehicle_profile.model_display,
-                card.vehicle_profile.registration_plate,
-                self._client_vehicle_search_vin(card.vehicle_profile.vin),
-                card.repair_order.vehicle,
-                card.repair_order.license_plate,
-                self._client_vehicle_search_vin(card.repair_order.vin),
-                card.repair_order.number,
-            ]
-            if explicit_link:
-                fields.extend(
-                    [
-                        card.vehicle_profile.customer_name,
-                        card.vehicle_profile.customer_phone,
-                        *list(card.vehicle_profile.customer_phones or []),
-                        card.repair_order.client,
-                        card.repair_order.phone,
-                    ]
-                )
-            related_fields.setdefault(client_id, []).extend(
-                field for field in fields if str(field or "").strip()
-            )
-
         for card in cards:
             if card.client_id:
-                add_card(card.client_id, card, explicit_link=True)
+                self._append_client_related_vehicle_fields(
+                    related_fields,
+                    seen_cards_by_client,
+                    clients_by_id,
+                    card.client_id,
+                    card,
+                    explicit_link=True,
+                )
             matched_client_ids: set[str] = set()
             for key in self._card_client_values(card):
                 matched_client_ids.update(client_ids_by_key.get(key, set()))
             for client_id in matched_client_ids:
-                add_card(client_id, card)
+                self._append_client_related_vehicle_fields(
+                    related_fields,
+                    seen_cards_by_client,
+                    clients_by_id,
+                    client_id,
+                    card,
+                )
 
         return related_fields
 
@@ -1005,22 +1073,54 @@ class CardServiceClientsMixin:
         for variant in query_variants:
             if not variant:
                 continue
-            for value in related_searchable:
-                if value == variant:
-                    score += 7
-                elif variant in value:
-                    score += 5
-                elif all(part in value for part in variant.split()):
-                    score += 3
-            compact_variant = re.sub(r"[\W_]+", "", variant)
-            if compact_variant and any(
-                compact_variant in value for value in related_compact_searchable
-            ):
+            score += self._score_client_related_search_variant(
+                variant,
+                related_searchable=related_searchable,
+                related_compact_searchable=related_compact_searchable,
+            )
+        score += self._score_client_related_phone_match(
+            query_digits=query_digits,
+            query_phone_variants=query_phone_variants,
+            related_phone_keys=related_phone_keys,
+        )
+        return score
+
+    def _score_client_related_search_variant(
+        self,
+        variant: str,
+        *,
+        related_searchable: list[str],
+        related_compact_searchable: list[str],
+    ) -> int:
+        score = 0
+        for value in related_searchable:
+            if value == variant:
+                score += 7
+            elif variant in value:
                 score += 5
-        if len(query_digits) >= 4 and related_phone_keys:
+            elif all(part in value for part in variant.split()):
+                score += 3
+        compact_variant = re.sub(r"[\W_]+", "", variant)
+        if compact_variant and any(
+            compact_variant in value for value in related_compact_searchable
+        ):
+            score += 5
+        return score
+
+    def _score_client_related_phone_match(
+        self,
+        *,
+        query_digits: str,
+        query_phone_variants: set[str],
+        related_phone_keys: set[str],
+    ) -> int:
+        if not related_phone_keys:
+            return 0
+        score = 0
+        if len(query_digits) >= 4:
             if any(query_digits in key or key in query_digits for key in related_phone_keys):
                 score += 10
-        if query_phone_variants and related_phone_keys:
+        if query_phone_variants:
             if any(
                 query_variant in related_key or related_key in query_variant
                 for query_variant in query_phone_variants
@@ -1061,72 +1161,93 @@ class CardServiceClientsMixin:
                 continue
             seen.add(key)
             vehicles.append({**payload, "card_id": ""})
-        for card in (
+        related_cards = (
             related_cards
             if related_cards is not None
             else self._client_related_cards(client, cards)
-        ):
-            vehicle = card.vehicle_display() or card.repair_order.vehicle
-            vin = card.vehicle_profile.vin or card.repair_order.vin
-            plate = card.vehicle_profile.registration_plate or card.repair_order.license_plate
-            year = str(card.vehicle_profile.production_year or "")
-            key = self._client_vehicle_identity_key(vehicle, vin, plate, year)
+        )
+        for card in related_cards:
+            payload = self._client_vehicle_payload_from_card(card)
+            key = self._client_vehicle_identity_key(
+                payload["vehicle"],
+                payload["vin"],
+                payload["license_plate"],
+                payload["year"],
+            )
             if not key or key in seen or key in deleted_keys:
                 continue
             seen.add(key)
-            vehicles.append(
-                {
-                    "id": card.client_vehicle_id,
-                    "vehicle": vehicle,
-                    "vin": vin,
-                    "license_plate": plate,
-                    "year": year,
-                    "mileage": str(card.vehicle_profile.mileage or card.repair_order.mileage or ""),
-                    "body_number": card.vehicle_profile.body_number,
-                    "chassis_number": card.vehicle_profile.chassis_number,
-                    "engine_code": card.vehicle_profile.engine_code,
-                    "engine_model": card.vehicle_profile.engine_model,
-                    "gearbox_type": card.vehicle_profile.gearbox_type,
-                    "gearbox_model": card.vehicle_profile.gearbox_model,
-                    "drivetrain": card.vehicle_profile.drivetrain,
-                    "card_id": card.id,
-                }
-            )
+            vehicles.append(payload)
         query_text = self._normalize_search_text(query)
         query_compact = re.sub(r"[\W_]+", "", query_text)
         query_digits = re.sub(r"\D+", "", query)
         if query_text or query_digits:
-
-            def vehicle_score(item: dict[str, str]) -> int:
-                score = 0
-                values = [
-                    item.get("vin", ""),
-                    item.get("license_plate", ""),
-                    item.get("body_number", ""),
-                    item.get("chassis_number", ""),
-                    item.get("vehicle", ""),
-                    item.get("brand", ""),
-                    item.get("model", ""),
-                    item.get("year", ""),
-                ]
-                for value in values:
-                    normalized = self._normalize_search_text(value)
-                    compact = re.sub(r"[\W_]+", "", normalized)
-                    digits = re.sub(r"\D+", "", value)
-                    if query_text and normalized == query_text:
-                        score += 20
-                    elif query_text and query_text in normalized:
-                        score += 8
-                    if query_compact and compact == query_compact:
-                        score += 18
-                    elif query_compact and query_compact in compact:
-                        score += 6
-                    if query_digits and digits and query_digits in digits:
-                        score += 10
-                return score
-
-            vehicles.sort(key=vehicle_score, reverse=True)
+            vehicles.sort(
+                key=lambda item: self._score_client_vehicle_match(
+                    item,
+                    query_text=query_text,
+                    query_compact=query_compact,
+                    query_digits=query_digits,
+                ),
+                reverse=True,
+            )
         return vehicles
+
+    def _client_vehicle_payload_from_card(self, card: Card) -> dict[str, str]:
+        vehicle = card.vehicle_display() or card.repair_order.vehicle
+        vin = card.vehicle_profile.vin or card.repair_order.vin
+        plate = card.vehicle_profile.registration_plate or card.repair_order.license_plate
+        year = str(card.vehicle_profile.production_year or "")
+        return {
+            "id": card.client_vehicle_id,
+            "vehicle": vehicle,
+            "vin": vin,
+            "license_plate": plate,
+            "year": year,
+            "mileage": str(card.vehicle_profile.mileage or card.repair_order.mileage or ""),
+            "body_number": card.vehicle_profile.body_number,
+            "chassis_number": card.vehicle_profile.chassis_number,
+            "engine_code": card.vehicle_profile.engine_code,
+            "engine_model": card.vehicle_profile.engine_model,
+            "gearbox_type": card.vehicle_profile.gearbox_type,
+            "gearbox_model": card.vehicle_profile.gearbox_model,
+            "drivetrain": card.vehicle_profile.drivetrain,
+            "card_id": card.id,
+        }
+
+    def _score_client_vehicle_match(
+        self,
+        item: dict[str, str],
+        *,
+        query_text: str,
+        query_compact: str,
+        query_digits: str,
+    ) -> int:
+        score = 0
+        for value in [
+            item.get("vin", ""),
+            item.get("license_plate", ""),
+            item.get("body_number", ""),
+            item.get("chassis_number", ""),
+            item.get("vehicle", ""),
+            item.get("brand", ""),
+            item.get("model", ""),
+            item.get("year", ""),
+        ]:
+            normalized = self._normalize_search_text(value)
+            compact = re.sub(r"[\W_]+", "", normalized)
+            digits = re.sub(r"\D+", "", value)
+            if query_text and normalized == query_text:
+                score += 20
+            elif query_text and query_text in normalized:
+                score += 8
+            if query_compact and compact == query_compact:
+                score += 18
+            elif query_compact and query_compact in compact:
+                score += 6
+            if query_digits and digits and query_digits in digits:
+                score += 10
+        return score
 
     def _client_orders(self, client: ClientProfile, cards: list[Card]) -> list[dict[str, Any]]:
         return [
@@ -1495,91 +1616,197 @@ class CardServiceClientsMixin:
         )
 
         if phone_like_query:
-            ranked: list[tuple[int, ClientProfile]] = []
-            for client in clients:
-                score = 0
-                indexed = client_search_index.get(client.id, {})
-                digits_blob = indexed.get("digits_blob", "")
-                direct_digit_values = indexed.get("direct_digit_values", set())
-                if direct_digit_values:
-                    if query_digits in direct_digit_values:
-                        score += 1000
-                    elif any(
-                        query_digits in value or value in query_digits
-                        for value in direct_digit_values
-                    ):
-                        score += 200
-                    if query_phone_variants.intersection(direct_digit_values):
-                        score += 1000
-                if digits_blob and query_digits in digits_blob:
-                    score += 10
-                score += self._score_client_related_search_fields(
-                    related_fields_by_client_id.get(client.id, []),
-                    query_variants=query_variants,
-                    query_digits=query_digits,
-                    query_phone_variants=query_phone_variants,
-                )
-                if score > 0:
-                    ranked.append((score, client))
-            ranked.sort(
-                key=lambda item: (item[0], item[1].updated_at, item[1].name()), reverse=True
-            )
-            return ranked
-
-        ranked: list[tuple[int, ClientProfile]] = []
-        cards = cards or []
-        for client in clients:
-            indexed = client_search_index.get(client.id, {})
-            searchable = indexed.get("searchable", [])
-            vehicle_searchable = indexed.get("vehicle_searchable", [])
-            compact_searchable = indexed.get("compact_searchable", [])
-            score = 0
-            for variant in query_variants:
-                if not variant:
-                    continue
-                for value in searchable:
-                    if value == variant:
-                        score += 8
-                    elif variant in value:
-                        score += 4
-                    elif all(part in value for part in variant.split()):
-                        score += 2
-                for value in vehicle_searchable:
-                    if value == variant:
-                        score += 7
-                    elif variant in value:
-                        score += 5
-                    elif all(part in value for part in variant.split()):
-                        score += 3
-                compact_variant = re.sub(r"[\W_]+", "", variant)
-                if compact_variant and any(
-                    compact_variant in value for value in compact_searchable
-                ):
-                    score += 5
-            if len(query_digits) >= 4:
-                phone_digits = " ".join(re.sub(r"\D+", "", phone) for phone in client.phones)
-                if query_digits in phone_digits:
-                    score += 10
-            if query_phone_variants:
-                client_phone_variants = indexed.get("phone_variants", set())
-                if client_phone_variants and any(
-                    query_variant in client_variant or client_variant in query_variant
-                    for query_variant in query_phone_variants
-                    for client_variant in client_phone_variants
-                ):
-                    score += 10
-                elif query_phone_variants.intersection(indexed.get("match_keys", set())):
-                    score += 10
-            score += self._score_client_related_search_fields(
-                related_fields_by_client_id.get(client.id, []),
-                query_variants=query_variants,
+            return self._rank_client_matches_phone_like(
+                clients,
                 query_digits=query_digits,
                 query_phone_variants=query_phone_variants,
+                client_search_index=client_search_index,
+                related_fields_by_client_id=related_fields_by_client_id,
+                query_variants=query_variants,
+            )
+
+        return self._rank_client_matches_text(
+            clients,
+            query_variants=query_variants,
+            query_digits=query_digits,
+            query_phone_variants=query_phone_variants,
+            client_search_index=client_search_index,
+            related_fields_by_client_id=related_fields_by_client_id,
+        )
+
+    def _rank_client_matches_phone_like(
+        self,
+        clients: list[ClientProfile],
+        *,
+        query_digits: str,
+        query_phone_variants: set[str],
+        client_search_index: dict[str, dict[str, Any]],
+        related_fields_by_client_id: dict[str, list[str]],
+        query_variants: list[str],
+    ) -> list[tuple[int, ClientProfile]]:
+        ranked: list[tuple[int, ClientProfile]] = []
+        for client in clients:
+            score = self._score_client_phone_like_match(
+                client,
+                query_digits=query_digits,
+                query_phone_variants=query_phone_variants,
+                client_search_index=client_search_index,
+                related_fields_by_client_id=related_fields_by_client_id,
+                query_variants=query_variants,
             )
             if score > 0:
                 ranked.append((score, client))
         ranked.sort(key=lambda item: (item[0], item[1].updated_at, item[1].name()), reverse=True)
         return ranked
+
+    def _score_client_phone_like_match(
+        self,
+        client: ClientProfile,
+        *,
+        query_digits: str,
+        query_phone_variants: set[str],
+        client_search_index: dict[str, dict[str, Any]],
+        related_fields_by_client_id: dict[str, list[str]],
+        query_variants: list[str],
+    ) -> int:
+        score = 0
+        indexed = client_search_index.get(client.id, {})
+        digits_blob = indexed.get("digits_blob", "")
+        direct_digit_values = indexed.get("direct_digit_values", set())
+        if direct_digit_values:
+            if query_digits in direct_digit_values:
+                score += 1000
+            elif any(
+                query_digits in value or value in query_digits for value in direct_digit_values
+            ):
+                score += 200
+            if query_phone_variants.intersection(direct_digit_values):
+                score += 1000
+        if digits_blob and query_digits in digits_blob:
+            score += 10
+        score += self._score_client_related_search_fields(
+            related_fields_by_client_id.get(client.id, []),
+            query_variants=query_variants,
+            query_digits=query_digits,
+            query_phone_variants=query_phone_variants,
+        )
+        return score
+
+    def _rank_client_matches_text(
+        self,
+        clients: list[ClientProfile],
+        *,
+        query_variants: list[str],
+        query_digits: str,
+        query_phone_variants: set[str],
+        client_search_index: dict[str, dict[str, Any]],
+        related_fields_by_client_id: dict[str, list[str]],
+    ) -> list[tuple[int, ClientProfile]]:
+        ranked: list[tuple[int, ClientProfile]] = []
+        for client in clients:
+            score = self._score_client_text_match(
+                client,
+                query_variants=query_variants,
+                query_digits=query_digits,
+                query_phone_variants=query_phone_variants,
+                client_search_index=client_search_index,
+                related_fields_by_client_id=related_fields_by_client_id,
+            )
+            if score > 0:
+                ranked.append((score, client))
+        ranked.sort(key=lambda item: (item[0], item[1].updated_at, item[1].name()), reverse=True)
+        return ranked
+
+    def _score_client_text_match(
+        self,
+        client: ClientProfile,
+        *,
+        query_variants: list[str],
+        query_digits: str,
+        query_phone_variants: set[str],
+        client_search_index: dict[str, dict[str, Any]],
+        related_fields_by_client_id: dict[str, list[str]],
+    ) -> int:
+        indexed = client_search_index.get(client.id, {})
+        searchable = indexed.get("searchable", [])
+        vehicle_searchable = indexed.get("vehicle_searchable", [])
+        compact_searchable = indexed.get("compact_searchable", [])
+        score = 0
+        score += self._score_client_text_variants(
+            query_variants,
+            searchable=searchable,
+            vehicle_searchable=vehicle_searchable,
+            compact_searchable=compact_searchable,
+        )
+        if len(query_digits) >= 4:
+            phone_digits = " ".join(re.sub(r"\D+", "", phone) for phone in client.phones)
+            if query_digits in phone_digits:
+                score += 10
+        if query_phone_variants:
+            client_phone_variants = indexed.get("phone_variants", set())
+            if client_phone_variants and any(
+                query_variant in client_variant or client_variant in query_variant
+                for query_variant in query_phone_variants
+                for client_variant in client_phone_variants
+            ):
+                score += 10
+            elif query_phone_variants.intersection(indexed.get("match_keys", set())):
+                score += 10
+        score += self._score_client_related_search_fields(
+            related_fields_by_client_id.get(client.id, []),
+            query_variants=query_variants,
+            query_digits=query_digits,
+            query_phone_variants=query_phone_variants,
+        )
+        return score
+
+    def _score_client_text_variants(
+        self,
+        query_variants: list[str],
+        *,
+        searchable: list[str],
+        vehicle_searchable: list[str],
+        compact_searchable: list[str],
+    ) -> int:
+        score = 0
+        for variant in query_variants:
+            if not variant:
+                continue
+            score += self._score_client_text_variant(
+                variant,
+                searchable=searchable,
+                vehicle_searchable=vehicle_searchable,
+                compact_searchable=compact_searchable,
+            )
+        return score
+
+    def _score_client_text_variant(
+        self,
+        variant: str,
+        *,
+        searchable: list[str],
+        vehicle_searchable: list[str],
+        compact_searchable: list[str],
+    ) -> int:
+        score = 0
+        for value in searchable:
+            if value == variant:
+                score += 8
+            elif variant in value:
+                score += 4
+            elif all(part in value for part in variant.split()):
+                score += 2
+        for value in vehicle_searchable:
+            if value == variant:
+                score += 7
+            elif variant in value:
+                score += 5
+            elif all(part in value for part in variant.split()):
+                score += 3
+        compact_variant = re.sub(r"[\W_]+", "", variant)
+        if compact_variant and any(compact_variant in value for value in compact_searchable):
+            score += 5
+        return score
 
     def _sync_card_client_fields(
         self, card: Card, client: ClientProfile, *, overwrite: bool = False
@@ -1602,15 +1829,33 @@ class CardServiceClientsMixin:
             if list(card.vehicle_profile.customer_phones) != client_phones:
                 card.vehicle_profile.customer_phones = client_phones
                 changed = True
-        if self._card_has_repair_order(card):
-            if client_name and (overwrite or not card.repair_order.client):
-                if card.repair_order.client != client_name:
-                    card.repair_order.client = client_name
-                    changed = True
-            if client_phone and (overwrite or not card.repair_order.phone):
-                if card.repair_order.phone != client_phone:
-                    card.repair_order.phone = client_phone
-                    changed = True
+        changed |= self._sync_card_repair_order_client_fields(
+            card,
+            client_name=client_name,
+            client_phone=client_phone,
+            overwrite=overwrite,
+        )
+        return changed
+
+    def _sync_card_repair_order_client_fields(
+        self,
+        card: Card,
+        *,
+        client_name: str,
+        client_phone: str,
+        overwrite: bool,
+    ) -> bool:
+        if not self._card_has_repair_order(card):
+            return False
+        changed = False
+        if client_name and (overwrite or not card.repair_order.client):
+            if card.repair_order.client != client_name:
+                card.repair_order.client = client_name
+                changed = True
+        if client_phone and (overwrite or not card.repair_order.phone):
+            if card.repair_order.phone != client_phone:
+                card.repair_order.phone = client_phone
+                changed = True
         return changed
 
     def _find_client_vehicle_or_none(

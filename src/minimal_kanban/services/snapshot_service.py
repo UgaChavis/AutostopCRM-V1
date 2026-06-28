@@ -482,6 +482,58 @@ class SnapshotService:
         self._append_markdown_block(lines, "description", card.get("description"))
         lines.append("")
 
+    def _board_content_markdown_column_lines(
+        self, column: Column, active_by_column: dict[str, list[dict]]
+    ) -> list[str]:
+        return [
+            f"### Column: {self._markdown_value(column.label)}",
+            f"column_id: {self._markdown_value(column.id)}",
+            f"position: {self._markdown_value(column.position)}",
+            f"active_cards: {len(active_by_column.get(column.id, []))}",
+            "",
+        ]
+
+    def _board_content_markdown_sticky_lines(self, sticky: dict, *, index: int) -> list[str]:
+        lines = [
+            f"### Sticky {index}: {self._markdown_value(sticky.get('short_id') or sticky.get('id'))}",
+            f"sticky_id: {self._markdown_value(sticky.get('id'))}",
+            f"short_id: {self._markdown_value(sticky.get('short_id'))}",
+            f"x: {self._markdown_value(sticky.get('x'))}",
+            f"y: {self._markdown_value(sticky.get('y'))}",
+            f"remaining_seconds: {self._markdown_value(sticky.get('remaining_seconds'))}",
+        ]
+        self._append_markdown_block(lines, "text", sticky.get("text"))
+        lines.append("")
+        return lines
+
+    def _append_board_content_markdown_cards(
+        self, lines: list[str], columns: list[Column], active_by_column: dict[str, list[dict]]
+    ) -> None:
+        lines.append("## Cards By Column")
+        if not any(active_by_column.values()):
+            lines.append("cards: []")
+            lines.append("")
+        for column in columns:
+            column_cards = active_by_column.get(column.id, [])
+            lines.append(f"### Column: {self._markdown_value(column.label)}")
+            lines.append(f"column_id: {self._markdown_value(column.id)}")
+            if not column_cards:
+                lines.append("cards: []")
+                lines.append("")
+                continue
+            for index, card in enumerate(column_cards, start=1):
+                self._append_markdown_card(lines, card, index=index)
+
+    def _append_board_content_markdown_stickies(
+        self, lines: list[str], stickies: list[dict]
+    ) -> None:
+        lines.append("## Stickies")
+        if not stickies:
+            lines.append("stickies: []")
+            return
+        for index, sticky in enumerate(stickies, start=1):
+            lines.extend(self._board_content_markdown_sticky_lines(sticky, index=index))
+
     def _build_board_content_markdown(
         self,
         columns: list[Column],
@@ -514,30 +566,9 @@ class SnapshotService:
         if not columns:
             lines.append("columns: []")
         for column in columns:
-            lines.extend(
-                [
-                    f"### Column: {self._markdown_value(column.label)}",
-                    f"column_id: {self._markdown_value(column.id)}",
-                    f"position: {self._markdown_value(column.position)}",
-                    f"active_cards: {len(active_by_column.get(column.id, []))}",
-                    "",
-                ]
-            )
+            lines.extend(self._board_content_markdown_column_lines(column, active_by_column))
 
-        lines.append("## Cards By Column")
-        if not active_cards:
-            lines.append("cards: []")
-            lines.append("")
-        for column in columns:
-            column_cards = active_by_column.get(column.id, [])
-            lines.append(f"### Column: {self._markdown_value(column.label)}")
-            lines.append(f"column_id: {self._markdown_value(column.id)}")
-            if not column_cards:
-                lines.append("cards: []")
-                lines.append("")
-                continue
-            for index, card in enumerate(column_cards, start=1):
-                self._append_markdown_card(lines, card, index=index)
+        self._append_board_content_markdown_cards(lines, columns, active_by_column)
 
         lines.append("## Archived Cards")
         if not archived_cards:
@@ -546,22 +577,7 @@ class SnapshotService:
         for index, card in enumerate(archived_cards, start=1):
             self._append_markdown_card(lines, card, index=index)
 
-        lines.append("## Stickies")
-        if not stickies:
-            lines.append("stickies: []")
-        for index, sticky in enumerate(stickies, start=1):
-            lines.extend(
-                [
-                    f"### Sticky {index}: {self._markdown_value(sticky.get('short_id') or sticky.get('id'))}",
-                    f"sticky_id: {self._markdown_value(sticky.get('id'))}",
-                    f"short_id: {self._markdown_value(sticky.get('short_id'))}",
-                    f"x: {self._markdown_value(sticky.get('x'))}",
-                    f"y: {self._markdown_value(sticky.get('y'))}",
-                    f"remaining_seconds: {self._markdown_value(sticky.get('remaining_seconds'))}",
-                ]
-            )
-            self._append_markdown_block(lines, "text", sticky.get("text"))
-            lines.append("")
+        self._append_board_content_markdown_stickies(lines, stickies)
         return "\n".join(lines).rstrip()
 
     def _build_structured_event_log_text(self, events: list[dict], meta: dict[str, Any]) -> str:
@@ -1836,12 +1852,9 @@ class SnapshotService:
             return f"{display_actor_name}{message[len(actor_name) :]}"
         return message
 
-    def _card_log_changes(self, event: dict[str, Any]) -> list[dict[str, Any]]:
-        details = event.get("details")
-        if not isinstance(details, dict) or not details:
-            return []
-
-        action = str(event.get("action") or "").strip()
+    def _card_log_changes_for_lifecycle_actions(
+        self, action: str, details: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         changes: list[dict[str, Any]] = []
 
         def add(field: str, before: Any = "", after: Any = "", label: str | None = None) -> None:
@@ -1864,7 +1877,19 @@ class SnapshotService:
             add("vehicle", before=details.get("before"), after=details.get("after"))
         elif action == "title_changed":
             add("title", before=details.get("before"), after=details.get("after"))
-        elif action == "description_changed":
+        return changes
+
+    def _card_log_changes_for_description_and_signal_actions(
+        self, action: str, details: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        changes: list[dict[str, Any]] = []
+
+        def add(field: str, before: Any = "", after: Any = "", label: str | None = None) -> None:
+            if self._card_log_is_empty_value(before) and self._card_log_is_empty_value(after):
+                return
+            changes.append(self._card_log_change(field, before=before, after=after, label=label))
+
+        if action == "description_changed":
             if "before" in details or "after" in details:
                 add("description", before=details.get("before"), after=details.get("after"))
             else:
@@ -1889,7 +1914,19 @@ class SnapshotService:
             )
             if "deadline_total_seconds" in details:
                 add("deadline", after=details.get("deadline_total_seconds"))
-        elif action == "attachment_added":
+        return changes
+
+    def _card_log_changes_for_tag_actions(
+        self, action: str, details: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        changes: list[dict[str, Any]] = []
+
+        def add(field: str, before: Any = "", after: Any = "", label: str | None = None) -> None:
+            if self._card_log_is_empty_value(before) and self._card_log_is_empty_value(after):
+                return
+            changes.append(self._card_log_change(field, before=before, after=after, label=label))
+
+        if action == "attachment_added":
             add("attachment", after=details.get("file_name"))
         elif action == "attachment_removed":
             add("attachment", before=details.get("file_name"))
@@ -1906,7 +1943,19 @@ class SnapshotService:
             )
         elif action == "tags_changed":
             add("tags", before=details.get("before"), after=details.get("after"))
-        elif action == "vehicle_profile_updated":
+        return changes
+
+    def _card_log_changes_for_payload_actions(
+        self, action: str, details: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        changes: list[dict[str, Any]] = []
+
+        def add(field: str, before: Any = "", after: Any = "", label: str | None = None) -> None:
+            if self._card_log_is_empty_value(before) and self._card_log_is_empty_value(after):
+                return
+            changes.append(self._card_log_change(field, before=before, after=after, label=label))
+
+        if action == "vehicle_profile_updated":
             if "before" in details or "after" in details:
                 add("vehicle_profile", before=details.get("before"), after=details.get("after"))
             elif details.get("changed_fields"):
@@ -1928,7 +1977,22 @@ class SnapshotService:
                 add("repair_order", after=summary)
         elif action == "cash_transaction_deleted":
             add("cash_transaction", before=details)
+        return changes
 
+    def _card_log_changes(self, event: dict[str, Any]) -> list[dict[str, Any]]:
+        details = event.get("details")
+        if not isinstance(details, dict) or not details:
+            return []
+
+        action = str(event.get("action") or "").strip()
+        changes: list[dict[str, Any]] = []
+        for handler in (
+            self._card_log_changes_for_lifecycle_actions,
+            self._card_log_changes_for_description_and_signal_actions,
+            self._card_log_changes_for_tag_actions,
+            self._card_log_changes_for_payload_actions,
+        ):
+            changes.extend(handler(action, details))
         return changes
 
     def _card_log_detail_text(

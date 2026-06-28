@@ -914,6 +914,105 @@ class CardServicePayrollMixin:
             "accrued_total_display": accrued_money["display"],
         }
 
+    def _employee_salary_report_totals_lines(self, totals: dict[str, object]) -> list[str]:
+        return [
+            "ИТОГО",
+            f"Заказ-нарядов:        {totals['repair_order_count']}",
+            f"Окладов:              {totals['base_salary_count']}",
+            f"Начислено окладом:    {totals['base_salary_total_display']}",
+            f"Выплат за смены:      {totals['shift_accrual_count']}",
+            f"Начислено сменами:    {totals['shift_accrual_total_display']}",
+            f"Работ:                {totals['work_count']}",
+            f"Стоимость работ:      {totals['work_total_display']}",
+            f"Материалы:            {totals['material_count']}",
+            f"Прибыль материалов:   {totals['material_profit_total_display']}",
+            f"Начислено с работ:    {totals['work_accrued_total_display']}",
+            f"Начислено с мат.:     {totals['material_accrued_total_display']}",
+            f"Начислено:            {totals['accrued_total_display']}",
+        ]
+
+    def _employee_salary_report_base_salary_lines(self, salary: dict[str, Any]) -> list[str]:
+        return [
+            "Оклад | " + f"{salary['created_at']} | " + f"начислено: {salary['amount_display']}"
+        ]
+
+    def _employee_salary_report_shift_lines(self, shift: dict[str, Any]) -> list[str]:
+        return [
+            "Смены | "
+            + f"{shift['created_at']} | "
+            + f"{shift['note']} | "
+            + f"начислено: {shift['amount_display']}"
+        ]
+
+    def _employee_salary_report_work_lines(self, work: dict[str, Any]) -> list[str]:
+        lines = [f"  - {work['name']}"]
+        if work["quantity"] or work["price"]:
+            lines.append(
+                f"    Кол-во: {work['quantity'] or '-'} | "
+                + f"Цена: {work['price_display'] or '-'}"
+            )
+        lines.append(f"    Стоимость: {work['total_display']}")
+        if work.get("scheme"):
+            lines.append(f"    Схема: {work['scheme']}")
+        lines.append(f"    Начислено: {work['accrued_display']}")
+        return lines
+
+    def _employee_salary_report_material_lines(self, material: dict[str, Any]) -> list[str]:
+        lines = [f"  - Материал: {material['name']}"]
+        if material["quantity"] or material["price"]:
+            lines.append(
+                f"    Кол-во: {material['quantity'] or '-'} | "
+                + f"Цена: {material['price_display'] or '-'} | "
+                + f"Закупка: {material['cost_price_display'] or '-'}"
+            )
+        lines.append(f"    Продажа: {material['total_display']}")
+        lines.append(f"    Закупка всего: {material['cost_total_display']}")
+        lines.append(f"    Прибыль: {material['profit_display']}")
+        lines.append(f"    Начислено: {material['accrued_display']}")
+        return lines
+
+    def _employee_salary_report_order_lines(self, order: dict[str, Any]) -> list[str]:
+        lines = [
+            "ЗН "
+            + f"{order['repair_order_number']} | {order['vehicle']} | "
+            + f"госномер: {order['license_plate']}"
+        ]
+        lines.append(
+            f"Работ: {order['work_count']} | "
+            + f"Стоимость работ: {order['work_total_display']} | "
+            + f"Материалов: {order['material_count']} | "
+            + f"Прибыль материалов: {order['material_profit_total_display']} | "
+            + f"Начислено: {order['accrued_total_display']}"
+        )
+        for work in order["works"]:
+            lines.extend(self._employee_salary_report_work_lines(work))
+        for material in order["materials"]:
+            lines.extend(self._employee_salary_report_material_lines(material))
+        lines.append("")
+        return lines
+
+    def _employee_salary_report_day_lines(self, day: dict[str, Any]) -> list[str]:
+        lines: list[str] = []
+        for salary in day.get("base_salary_accruals", []):
+            lines.extend(self._employee_salary_report_base_salary_lines(salary))
+        for shift in day.get("shift_accruals", []):
+            lines.extend(self._employee_salary_report_shift_lines(shift))
+        for order in day["repair_orders"]:
+            lines.extend(self._employee_salary_report_order_lines(order))
+        day_totals = day["totals"]
+        lines.append(
+            "Итого за день: "
+            + f"заказ-нарядов {day_totals['repair_order_count']}, "
+            + f"окладов {day_totals['base_salary_count']}, "
+            + f"смен {day_totals['shift_accrual_count']}, "
+            + f"работ {day_totals['work_count']}, "
+            + f"материалов {day_totals['material_count']}, "
+            + f"стоимость {day_totals['work_total_display']}, "
+            + f"прибыль материалов {day_totals['material_profit_total_display']}, "
+            + f"начислено {day_totals['accrued_total_display']}"
+        )
+        return lines
+
     def _employee_salary_report_text(
         self,
         *,
@@ -932,88 +1031,10 @@ class CardServicePayrollMixin:
         if not days:
             lines.append("За выбранный период начислений по закрытым заказ-нарядам нет.")
             return "\n".join(lines).strip()
-
-        lines.extend(
-            [
-                "ИТОГО",
-                f"Заказ-нарядов:        {totals['repair_order_count']}",
-                f"Окладов:              {totals['base_salary_count']}",
-                f"Начислено окладом:    {totals['base_salary_total_display']}",
-                f"Выплат за смены:      {totals['shift_accrual_count']}",
-                f"Начислено сменами:    {totals['shift_accrual_total_display']}",
-                f"Работ:                {totals['work_count']}",
-                f"Стоимость работ:      {totals['work_total_display']}",
-                f"Материалы:            {totals['material_count']}",
-                f"Прибыль материалов:   {totals['material_profit_total_display']}",
-                f"Начислено с работ:    {totals['work_accrued_total_display']}",
-                f"Начислено с мат.:     {totals['material_accrued_total_display']}",
-                f"Начислено:            {totals['accrued_total_display']}",
-            ]
-        )
+        lines.extend(self._employee_salary_report_totals_lines(totals))
         for day in days:
             lines.extend(["", str(day["label"]), ""])
-            for salary in day.get("base_salary_accruals", []):
-                lines.append(
-                    "Оклад | "
-                    + f"{salary['created_at']} | "
-                    + f"начислено: {salary['amount_display']}"
-                )
-            for shift in day.get("shift_accruals", []):
-                lines.append(
-                    "Смены | "
-                    + f"{shift['created_at']} | "
-                    + f"{shift['note']} | "
-                    + f"начислено: {shift['amount_display']}"
-                )
-            for order in day["repair_orders"]:
-                lines.append(
-                    "ЗН "
-                    + f"{order['repair_order_number']} | {order['vehicle']} | "
-                    + f"госномер: {order['license_plate']}"
-                )
-                lines.append(
-                    f"Работ: {order['work_count']} | "
-                    + f"Стоимость работ: {order['work_total_display']} | "
-                    + f"Материалов: {order['material_count']} | "
-                    + f"Прибыль материалов: {order['material_profit_total_display']} | "
-                    + f"Начислено: {order['accrued_total_display']}"
-                )
-                for work in order["works"]:
-                    lines.append(f"  - {work['name']}")
-                    if work["quantity"] or work["price"]:
-                        lines.append(
-                            f"    Кол-во: {work['quantity'] or '-'} | "
-                            + f"Цена: {work['price_display'] or '-'}"
-                        )
-                    lines.append(f"    Стоимость: {work['total_display']}")
-                    if work.get("scheme"):
-                        lines.append(f"    Схема: {work['scheme']}")
-                    lines.append(f"    Начислено: {work['accrued_display']}")
-                for material in order["materials"]:
-                    lines.append(f"  - Материал: {material['name']}")
-                    if material["quantity"] or material["price"]:
-                        lines.append(
-                            f"    Кол-во: {material['quantity'] or '-'} | "
-                            + f"Цена: {material['price_display'] or '-'} | "
-                            + f"Закупка: {material['cost_price_display'] or '-'}"
-                        )
-                    lines.append(f"    Продажа: {material['total_display']}")
-                    lines.append(f"    Закупка всего: {material['cost_total_display']}")
-                    lines.append(f"    Прибыль: {material['profit_display']}")
-                    lines.append(f"    Начислено: {material['accrued_display']}")
-                lines.append("")
-            day_totals = day["totals"]
-            lines.append(
-                "Итого за день: "
-                + f"заказ-нарядов {day_totals['repair_order_count']}, "
-                + f"окладов {day_totals['base_salary_count']}, "
-                + f"смен {day_totals['shift_accrual_count']}, "
-                + f"работ {day_totals['work_count']}, "
-                + f"материалов {day_totals['material_count']}, "
-                + f"стоимость {day_totals['work_total_display']}, "
-                + f"прибыль материалов {day_totals['material_profit_total_display']}, "
-                + f"начислено {day_totals['accrued_total_display']}"
-            )
+            lines.extend(self._employee_salary_report_day_lines(day))
         return "\n".join(lines).strip()
 
     def _build_employee_salary_report(
@@ -2115,26 +2136,21 @@ class CardServicePayrollMixin:
         self, order: RepairOrder, settings: dict[str, Any]
     ) -> RepairOrder:
         if order.status != REPAIR_ORDER_STATUS_CLOSED:
-            next_work_rows: list[dict[str, str]] = []
-            next_material_rows: list[dict[str, str]] = []
-            changed = False
-            for source_row in order.works:
-                row = RepairOrderRow.from_dict(
-                    source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
+            next_work_rows, work_rows_changed = self._apply_repair_order_payroll_snapshot_work_rows(
+                order,
+                employees_by_id={},
+                accrued_at=order.closed_at or self._repair_order_now(),
+                order_is_paid=False,
+            )
+            next_material_rows, material_rows_changed = (
+                self._apply_repair_order_payroll_snapshot_material_rows(
+                    order,
+                    employees_by_id={},
+                    accrued_at=order.closed_at or self._repair_order_now(),
+                    order_is_paid=False,
                 )
-                if self._work_has_salary_snapshot(row):
-                    changed = True
-                self._clear_work_salary_snapshot(row)
-                next_work_rows.append(row.to_dict())
-            for source_row in order.materials:
-                row = RepairOrderRow.from_dict(
-                    source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
-                )
-                if self._material_has_salary_snapshot(row):
-                    changed = True
-                self._clear_material_salary_snapshot(row)
-                next_material_rows.append(row.to_dict())
-            if not changed:
+            )
+            if not work_rows_changed and not material_rows_changed:
                 return order
             return RepairOrder.from_dict(
                 {
@@ -2144,16 +2160,55 @@ class CardServicePayrollMixin:
                 }
             )
         employees_by_id = {item["id"]: item for item in self._employees_from_settings(settings)}
-        next_work_rows: list[dict[str, str]] = []
-        accrued_at = order.closed_at or self._repair_order_now()
         order_is_paid = order.is_paid()
+        accrued_at = order.closed_at or self._repair_order_now()
+        next_work_rows, work_rows_changed = self._apply_repair_order_payroll_snapshot_work_rows(
+            order,
+            employees_by_id=employees_by_id,
+            accrued_at=accrued_at,
+            order_is_paid=order_is_paid,
+        )
+        next_material_rows, material_rows_changed = (
+            self._apply_repair_order_payroll_snapshot_material_rows(
+                order,
+                employees_by_id=employees_by_id,
+                accrued_at=accrued_at,
+                order_is_paid=order_is_paid,
+            )
+        )
+        if order_is_paid:
+            return RepairOrder.from_dict(
+                {
+                    **order.to_storage_dict(),
+                    "works": next_work_rows,
+                    "materials": next_material_rows,
+                }
+            )
+        if not work_rows_changed and not material_rows_changed:
+            return order
+        return RepairOrder.from_dict(
+            {**order.to_storage_dict(), "works": next_work_rows, "materials": next_material_rows}
+        )
+
+    def _apply_repair_order_payroll_snapshot_work_rows(
+        self,
+        order: RepairOrder,
+        *,
+        employees_by_id: dict[str, dict[str, Any]],
+        accrued_at: datetime,
+        order_is_paid: bool,
+    ) -> tuple[list[dict[str, str]], bool]:
+        next_rows: list[dict[str, str]] = []
+        changed = False
         for source_row in order.works:
             row = RepairOrderRow.from_dict(
                 source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
             )
             if not order_is_paid:
+                if self._work_has_salary_snapshot(row):
+                    changed = True
                 self._clear_work_salary_snapshot(row)
-                next_work_rows.append(row.to_dict())
+                next_rows.append(row.to_dict())
                 continue
             if row.salary_accrued_at:
                 row.work_executor_id_snapshot = row.work_executor_id_snapshot or row.executor_id
@@ -2163,12 +2218,12 @@ class CardServicePayrollMixin:
                 row.work_quantity_snapshot = row.work_quantity_snapshot or row.quantity
                 row.work_price_snapshot = row.work_price_snapshot or row.price
                 row.work_total_snapshot = row.work_total_snapshot or row.total
-                next_work_rows.append(row.to_dict())
+                next_rows.append(row.to_dict())
                 continue
             employee = employees_by_id.get(row.executor_id)
             if employee is None:
                 self._clear_work_salary_snapshot(row)
-                next_work_rows.append(row.to_dict())
+                next_rows.append(row.to_dict())
                 continue
             row.executor_name = employee["name"]
             row.work_executor_id_snapshot = employee["id"]
@@ -2197,15 +2252,28 @@ class CardServicePayrollMixin:
                 row.work_percent_snapshot = employee["work_percent"]
             row.salary_amount = self._format_payroll_decimal(salary_amount)
             row.salary_accrued_at = accrued_at
-            next_work_rows.append(row.to_dict())
-        next_material_rows: list[dict[str, str]] = []
+            next_rows.append(row.to_dict())
+        return next_rows, changed
+
+    def _apply_repair_order_payroll_snapshot_material_rows(
+        self,
+        order: RepairOrder,
+        *,
+        employees_by_id: dict[str, dict[str, Any]],
+        accrued_at: datetime,
+        order_is_paid: bool,
+    ) -> tuple[list[dict[str, str]], bool]:
+        next_rows: list[dict[str, str]] = []
+        changed = False
         for source_row in order.materials:
             row = RepairOrderRow.from_dict(
                 source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
             )
             if not order_is_paid:
+                if self._material_has_salary_snapshot(row):
+                    changed = True
                 self._clear_material_salary_snapshot(row)
-                next_material_rows.append(row.to_dict())
+                next_rows.append(row.to_dict())
                 continue
             if row.material_salary_accrued_at:
                 row.material_executor_id_snapshot = (
@@ -2215,13 +2283,13 @@ class CardServicePayrollMixin:
                     row.material_executor_name_snapshot or row.executor_name
                 )
                 row.material_quantity_snapshot = row.material_quantity_snapshot or row.quantity
-                next_material_rows.append(row.to_dict())
+                next_rows.append(row.to_dict())
                 continue
             employee = employees_by_id.get(row.executor_id)
             cost_total = self._material_cost_total(row)
             if employee is None or cost_total is None:
                 self._clear_material_salary_snapshot(row)
-                next_material_rows.append(row.to_dict())
+                next_rows.append(row.to_dict())
                 continue
             material_percent = self._parse_payroll_decimal(employee.get("material_percent", ""))
             profit = max(row.total_value() - cost_total, Decimal("0"))
@@ -2236,10 +2304,8 @@ class CardServicePayrollMixin:
             row.material_profit = self._format_payroll_decimal(profit)
             row.material_salary_amount = self._format_payroll_decimal(salary_amount)
             row.material_salary_accrued_at = accrued_at
-            next_material_rows.append(row.to_dict())
-        return RepairOrder.from_dict(
-            {**order.to_storage_dict(), "works": next_work_rows, "materials": next_material_rows}
-        )
+            next_rows.append(row.to_dict())
+        return next_rows, changed
 
     def _build_payroll_report(
         self,
