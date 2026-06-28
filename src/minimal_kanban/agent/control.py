@@ -466,6 +466,77 @@ class AgentControlService:
             metadata=metadata,
         )
 
+    def _run_due_scheduled_tasks(self, now_text: str) -> tuple[list[str], list[dict[str, str]]]:
+        launched: list[str] = []
+        failed: list[dict[str, str]] = []
+        for scheduled in self._storage.list_schedules():
+            if not bool(scheduled.get("active")):
+                continue
+            if str(scheduled.get("schedule_type", "once") or "once").strip().lower() == "on_create":
+                continue
+            next_run_at = str(scheduled.get("next_run_at", "") or "").strip()
+            if next_run_at and next_run_at > now_text:
+                continue
+            task_id = str(scheduled.get("id", "") or "").strip()
+            if not task_id or self._storage.has_active_task_for_schedule(task_id):
+                continue
+            try:
+                self._enqueue_scheduled_task(scheduled, source="agent_scheduler")
+                launched.append(task_id)
+            except Exception as exc:
+                failed.append({"task_id": task_id, "error": str(exc)})
+                self._storage.update_schedule(
+                    task_id,
+                    last_error=str(exc),
+                    updated_at=utc_now_iso(),
+                    next_run_at=self._next_run_at(scheduled, from_now=True),
+                )
+        return launched, failed
+
+    def _run_due_board_followups(self, *, force: bool) -> tuple[list[str], list[dict[str, str]]]:
+        launched: list[str] = []
+        failed: list[dict[str, str]] = []
+        assert self._board_service is not None
+        try:
+            payload = self._board_service.trigger_due_ai_followups()
+            launched.extend(
+                [str(item) for item in payload.get("launched", []) if str(item or "").strip()]
+            )
+            for item in payload.get("failed", []):
+                if isinstance(item, dict):
+                    failed.append(
+                        {
+                            "task_id": str(item.get("card_id", "") or "").strip(),
+                            "error": str(item.get("error", "") or "").strip(),
+                        }
+                    )
+        except Exception as exc:
+            failed.append({"task_id": "card_autofill", "error": str(exc)})
+        try:
+            board_control_payload = self._trigger_board_control(force=force)
+            launched.extend(
+                [
+                    str(item)
+                    for item in board_control_payload.get("launched", [])
+                    if str(item or "").strip()
+                ]
+            )
+            for item in board_control_payload.get("failed", []):
+                if isinstance(item, dict):
+                    failed.append(
+                        {
+                            "task_id": str(
+                                item.get("card_id", "")
+                                or item.get("task_id", "")
+                                or "board_control"
+                            ).strip(),
+                            "error": str(item.get("error", "") or "").strip(),
+                        }
+                    )
+        except Exception as exc:
+            failed.append({"task_id": "board_control", "error": str(exc)})
+        return launched, failed
+
     def trigger_scheduled_tasks(self, *, force: bool = False) -> dict[str, Any]:
         now_monotonic = time.monotonic()
         if (
@@ -478,77 +549,12 @@ class AgentControlService:
         self._last_scheduler_tick_monotonic = now_monotonic
         now_text = utc_now_iso()
         self._storage.update_status(last_scheduler_run_at=now_text)
-        launched: list[str] = []
-        failed: list[dict[str, str]] = []
         try:
-            for scheduled in self._storage.list_schedules():
-                if not bool(scheduled.get("active")):
-                    continue
-                if (
-                    str(scheduled.get("schedule_type", "once") or "once").strip().lower()
-                    == "on_create"
-                ):
-                    continue
-                next_run_at = str(scheduled.get("next_run_at", "") or "").strip()
-                if next_run_at and next_run_at > now_text:
-                    continue
-                task_id = str(scheduled.get("id", "") or "").strip()
-                if not task_id or self._storage.has_active_task_for_schedule(task_id):
-                    continue
-                try:
-                    self._enqueue_scheduled_task(scheduled, source="agent_scheduler")
-                    launched.append(task_id)
-                except Exception as exc:
-                    failed.append({"task_id": task_id, "error": str(exc)})
-                    self._storage.update_schedule(
-                        task_id,
-                        last_error=str(exc),
-                        updated_at=utc_now_iso(),
-                        next_run_at=self._next_run_at(scheduled, from_now=True),
-                    )
+            launched, failed = self._run_due_scheduled_tasks(now_text)
             if self._board_service is not None:
-                try:
-                    payload = self._board_service.trigger_due_ai_followups()
-                    launched.extend(
-                        [
-                            str(item)
-                            for item in payload.get("launched", [])
-                            if str(item or "").strip()
-                        ]
-                    )
-                    for item in payload.get("failed", []):
-                        if isinstance(item, dict):
-                            failed.append(
-                                {
-                                    "task_id": str(item.get("card_id", "") or "").strip(),
-                                    "error": str(item.get("error", "") or "").strip(),
-                                }
-                            )
-                except Exception as exc:
-                    failed.append({"task_id": "card_autofill", "error": str(exc)})
-                try:
-                    board_control_payload = self._trigger_board_control(force=force)
-                    launched.extend(
-                        [
-                            str(item)
-                            for item in board_control_payload.get("launched", [])
-                            if str(item or "").strip()
-                        ]
-                    )
-                    for item in board_control_payload.get("failed", []):
-                        if isinstance(item, dict):
-                            failed.append(
-                                {
-                                    "task_id": str(
-                                        item.get("card_id", "")
-                                        or item.get("task_id", "")
-                                        or "board_control"
-                                    ).strip(),
-                                    "error": str(item.get("error", "") or "").strip(),
-                                }
-                            )
-                except Exception as exc:
-                    failed.append({"task_id": "board_control", "error": str(exc)})
+                board_launched, board_failed = self._run_due_board_followups(force=force)
+                launched.extend(board_launched)
+                failed.extend(board_failed)
         except Exception as exc:
             self._storage.update_status(last_scheduler_error=str(exc))
             raise
@@ -873,24 +879,24 @@ class AgentControlService:
             lines.append("Trigger rules: " + ", ".join(trigger_reasons) + ".")
         return "\n".join(lines)
 
-    def _trigger_board_control(self, *, force: bool) -> dict[str, Any]:
+    def _board_control_preflight(self, *, force: bool) -> dict[str, Any] | None:
         if self._board_service is None:
-            return {"launched": [], "failed": []}
+            return None
         settings = self._board_control_settings()
         flags = get_ai_feature_flags()
         runtime = self._board_control_runtime()
         if not flags.board_control_enabled or not settings["enabled"]:
             runtime["running"] = False
             self._persist_board_control_runtime(runtime)
-            return {"launched": [], "failed": []}
+            return None
         now = utc_now()
         now_text = utc_now_iso()
         if runtime.get("running"):
-            return {"launched": [], "failed": []}
+            return None
         last_pass_at = parse_datetime(str(runtime.get("last_pass_at", "") or "").strip())
         interval_delta = timedelta(minutes=int(settings["interval_minutes"]))
         if not force and last_pass_at and now - last_pass_at < interval_delta:
-            return {"launched": [], "failed": []}
+            return None
         runtime.update(
             {
                 "running": True,
@@ -904,6 +910,21 @@ class AgentControlService:
             }
         )
         self._persist_board_control_runtime(runtime)
+        return {
+            "settings": settings,
+            "runtime": runtime,
+            "now": now,
+            "now_text": now_text,
+        }
+
+    def _trigger_board_control(self, *, force: bool) -> dict[str, Any]:
+        preflight = self._board_control_preflight(force=force)
+        if preflight is None:
+            return {"launched": [], "failed": []}
+        settings = preflight["settings"]
+        runtime = preflight["runtime"]
+        now = preflight["now"]
+        now_text = preflight["now_text"]
         launched: list[str] = []
         failed: list[dict[str, str]] = []
         cache = self._dict_or_empty(runtime.get("card_cache"))

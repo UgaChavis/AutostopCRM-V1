@@ -376,6 +376,46 @@ def build_client_data_quality_plan(state_file: Path | None = None) -> dict[str, 
         return _build_plan_from_state(_read_state(state_file), state_file)
 
 
+def _apply_phone_like_client_name_operation(
+    raw_clients: list[Any], operation: dict[str, Any]
+) -> int | None:
+    client_index = int(operation["client_index"])
+    try:
+        raw_client = raw_clients[client_index]
+    except (IndexError, TypeError):
+        return None
+    if not isinstance(raw_client, dict):
+        return None
+    current_name = _client_name(raw_client)
+    replacement_name = _text(operation.get("replacement_name"))
+    if not replacement_name or not _is_phone_like_text(current_name):
+        return None
+    if _is_phone_like_text(_client_full_name(raw_client)):
+        raw_client["last_name"] = ""
+        raw_client["first_name"] = ""
+        raw_client["middle_name"] = ""
+    raw_client["display_name"] = replacement_name
+    return client_index
+
+
+def _apply_invalid_vehicle_vin_operation(
+    raw_clients: list[Any], operation: dict[str, Any]
+) -> int | None:
+    client_index = int(operation["client_index"])
+    vehicle_index = int(operation["vehicle_index"])
+    try:
+        raw_vehicle = raw_clients[client_index]["vehicles"][vehicle_index]
+    except (IndexError, KeyError, TypeError):
+        return None
+    if not isinstance(raw_vehicle, dict):
+        return None
+    reason = invalid_client_vehicle_vin_reason(raw_vehicle.get("vin"))
+    if not reason or not _safe_fix_available(reason):
+        return None
+    raw_vehicle["vin"] = ""
+    return client_index
+
+
 def apply_client_data_quality_plan(
     state_file: Path | None = None,
     *,
@@ -402,41 +442,18 @@ def apply_client_data_quality_plan(
         touched_client_indexes: set[int] = set()
         for operation in operations_to_apply:
             kind = _text(operation.get("kind"))
-            client_index = int(operation["client_index"])
             if kind == "replace_phone_like_client_name":
-                try:
-                    raw_client = raw_clients[client_index]
-                except (IndexError, TypeError):
-                    continue
-                if not isinstance(raw_client, dict):
-                    continue
-                current_name = _client_name(raw_client)
-                replacement_name = _text(operation.get("replacement_name"))
-                if not replacement_name or not _is_phone_like_text(current_name):
-                    continue
-                if _is_phone_like_text(_client_full_name(raw_client)):
-                    raw_client["last_name"] = ""
-                    raw_client["first_name"] = ""
-                    raw_client["middle_name"] = ""
-                raw_client["display_name"] = replacement_name
-                applied_operations.append(operation)
-                touched_client_indexes.add(client_index)
+                touched_client_index = _apply_phone_like_client_name_operation(
+                    raw_clients, operation
+                )
+            elif kind == "clear_invalid_vehicle_vin":
+                touched_client_index = _apply_invalid_vehicle_vin_operation(raw_clients, operation)
+            else:
                 continue
-
-            if kind != "clear_invalid_vehicle_vin":
+            if touched_client_index is None:
                 continue
-            vehicle_index = int(operation["vehicle_index"])
-            try:
-                raw_vehicle = raw_clients[client_index]["vehicles"][vehicle_index]
-            except (IndexError, KeyError, TypeError):
-                continue
-            if not isinstance(raw_vehicle, dict):
-                continue
-            reason = invalid_client_vehicle_vin_reason(raw_vehicle.get("vin"))
-            if reason and _safe_fix_available(reason):
-                raw_vehicle["vin"] = ""
-                applied_operations.append(operation)
-                touched_client_indexes.add(client_index)
+            applied_operations.append(operation)
+            touched_client_indexes.add(touched_client_index)
 
         timestamp = utc_now_iso()
         for client_index in touched_client_indexes:

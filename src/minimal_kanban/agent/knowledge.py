@@ -431,7 +431,17 @@ def _build_document_excerpt(text: str, terms: list[str], *, max_chars: int = 120
         if any(term in lower for term in terms):
             matched_indexes.append(index)
     if not matched_indexes:
-        return _normalize_text("\n".join(lines[:12]))[:normalized_max_chars].strip()
+        return _normalize_excerpt_lines(lines[:12], normalized_max_chars)
+    return _normalize_excerpt_matches(lines, matched_indexes, normalized_max_chars)
+
+
+def _normalize_excerpt_lines(lines: list[str], normalized_max_chars: int) -> str:
+    return _normalize_text("\n".join(lines))[:normalized_max_chars].strip()
+
+
+def _normalize_excerpt_matches(
+    lines: list[str], matched_indexes: list[int], normalized_max_chars: int
+) -> str:
     collected: list[str] = []
     seen: set[str] = set()
     for index in matched_indexes[:3]:

@@ -304,11 +304,8 @@ def _ledger_duplicate_key(row: dict[str, Any]) -> tuple[str, ...]:
     )
 
 
-def _audit_report_totals(report: dict[str, Any], *, month: str) -> list[dict[str, Any]]:
-    issues: list[dict[str, Any]] = []
-    summaries = _summary_by_employee(report)
+def _detail_totals_by_employee(report: dict[str, Any]) -> dict[str, dict[str, Decimal]]:
     detail_totals: dict[str, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
-    detail_counts = Counter(_detail_duplicate_key(row) for row in _items(report.get("detail_rows")))
     for row in _items(report.get("detail_rows")):
         employee_id = str(row.get("employee_id") or "")
         if not employee_id:
@@ -324,31 +321,52 @@ def _audit_report_totals(report: dict[str, Any], *, month: str) -> list[dict[str
             detail_totals[employee_id]["work_accrued_total"] += amount
         elif row_type == "material":
             detail_totals[employee_id]["materials_accrued_total"] += amount
-            material_profit = _money(row.get("material_profit"))
-            material_percent = _money(row.get("material_percent"))
-            expected_amount = material_profit * material_percent / Decimal("100")
-            if _round_money(expected_amount) != _round_money(amount):
-                issues.append(
-                    _issue(
-                        code="payroll_material_salary_formula_mismatch",
-                        severity="error",
-                        message="Начисление по материалу не равно прибыль * процент сотрудника.",
-                        employee_id=employee_id,
-                        employee_name=str(row.get("employee_name") or ""),
-                        month=month,
-                        data={
-                            "card_id": row.get("card_id"),
-                            "repair_order_number": row.get("repair_order_number"),
-                            "material_name": row.get("material_name"),
-                            "material_profit": _format_money(material_profit),
-                            "material_percent": _format_money(material_percent),
-                            "expected_salary_amount": _format_money(expected_amount),
-                            "salary_amount": _format_money(amount),
-                        },
-                    )
-                )
+    return detail_totals
 
-    for employee_id, summary in summaries.items():
+
+def _audit_report_material_formula_issues(
+    report: dict[str, Any], *, month: str
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    for row in _items(report.get("detail_rows")):
+        if str(row.get("row_type") or "") != "material":
+            continue
+        employee_id = str(row.get("employee_id") or "")
+        if not employee_id:
+            continue
+        amount = _money(row.get("salary_amount"))
+        material_profit = _money(row.get("material_profit"))
+        material_percent = _money(row.get("material_percent"))
+        expected_amount = material_profit * material_percent / Decimal("100")
+        if _round_money(expected_amount) == _round_money(amount):
+            continue
+        issues.append(
+            _issue(
+                code="payroll_material_salary_formula_mismatch",
+                severity="error",
+                message="Начисление по материалу не равно прибыль * процент сотрудника.",
+                employee_id=employee_id,
+                employee_name=str(row.get("employee_name") or ""),
+                month=month,
+                data={
+                    "card_id": row.get("card_id"),
+                    "repair_order_number": row.get("repair_order_number"),
+                    "material_name": row.get("material_name"),
+                    "material_profit": _format_money(material_profit),
+                    "material_percent": _format_money(material_percent),
+                    "expected_salary_amount": _format_money(expected_amount),
+                    "salary_amount": _format_money(amount),
+                },
+            )
+        )
+    return issues
+
+
+def _audit_report_summary_issues(
+    report: dict[str, Any], *, month: str, detail_totals: dict[str, dict[str, Decimal]]
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    for employee_id, summary in _summary_by_employee(report).items():
         employee_name = str(summary.get("employee_name") or "")
         component_total = (
             _money(summary.get("base_salary_accrued_total"))
@@ -374,23 +392,29 @@ def _audit_report_totals(report: dict[str, Any], *, month: str) -> list[dict[str
             )
         for field_name, detail_value in detail_totals.get(employee_id, {}).items():
             summary_value = _money(summary.get(field_name))
-            if detail_value != summary_value:
-                issues.append(
-                    _issue(
-                        code="payroll_detail_total_mismatch",
-                        severity="error",
-                        message="Детализация зарплаты не сходится с итогом сотрудника.",
-                        employee_id=employee_id,
-                        employee_name=employee_name,
-                        month=month,
-                        data={
-                            "field": field_name,
-                            "detail_total": _format_money(detail_value),
-                            "summary_total": _format_money(summary_value),
-                        },
-                    )
+            if detail_value == summary_value:
+                continue
+            issues.append(
+                _issue(
+                    code="payroll_detail_total_mismatch",
+                    severity="error",
+                    message="Детализация зарплаты не сходится с итогом сотрудника.",
+                    employee_id=employee_id,
+                    employee_name=employee_name,
+                    month=month,
+                    data={
+                        "field": field_name,
+                        "detail_total": _format_money(detail_value),
+                        "summary_total": _format_money(summary_value),
+                    },
                 )
+            )
+    return issues
 
+
+def _audit_report_duplicate_issues(report: dict[str, Any], *, month: str) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    detail_counts = Counter(_detail_duplicate_key(row) for row in _items(report.get("detail_rows")))
     for key, count in detail_counts.items():
         if count <= 1 or not key[1]:
             continue
@@ -404,6 +428,15 @@ def _audit_report_totals(report: dict[str, Any], *, month: str) -> list[dict[str
                 data={"duplicate_count": count, "key": list(key)},
             )
         )
+    return issues
+
+
+def _audit_report_totals(report: dict[str, Any], *, month: str) -> list[dict[str, Any]]:
+    detail_totals = _detail_totals_by_employee(report)
+    issues: list[dict[str, Any]] = []
+    issues.extend(_audit_report_material_formula_issues(report, month=month))
+    issues.extend(_audit_report_summary_issues(report, month=month, detail_totals=detail_totals))
+    issues.extend(_audit_report_duplicate_issues(report, month=month))
     return issues
 
 
@@ -471,13 +504,7 @@ def _cards_by_id_from_list(payload: dict[str, Any]) -> dict[str, dict[str, Any]]
     return cards
 
 
-def _audit_work_card_formulas(
-    report: dict[str, Any],
-    *,
-    month: str,
-    cards_by_id: dict[str, dict[str, Any]],
-) -> list[dict[str, Any]]:
-    issues: list[dict[str, Any]] = []
+def _reported_work_card_totals(report: dict[str, Any]) -> dict[tuple[str, str], Decimal]:
     reported_totals: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
     for row in _items(report.get("detail_rows")):
         if str(row.get("row_type") or "") != "work":
@@ -487,9 +514,20 @@ def _audit_work_card_formulas(
         if not employee_id or not card_id:
             continue
         reported_totals[(employee_id, card_id)] += _money(row.get("salary_amount"))
+    return reported_totals
 
+
+def _stored_work_card_totals(
+    report: dict[str, Any],
+    *,
+    cards_by_id: dict[str, dict[str, Any]],
+    month: str,
+) -> tuple[dict[tuple[str, str], Decimal], list[dict[str, Any]]]:
+    issues: list[dict[str, Any]] = []
     stored_totals: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
-    for (employee_id, card_id), _reported_total in sorted(reported_totals.items()):
+    for (employee_id, card_id), _reported_total in sorted(
+        _reported_work_card_totals(report).items()
+    ):
         card = cards_by_id.get(card_id, {})
         repair_order = card.get("repair_order") if isinstance(card, dict) else {}
         if not isinstance(repair_order, dict):
@@ -500,9 +538,7 @@ def _audit_work_card_formulas(
             amount = _money(row.get("salary_amount"))
             stored_totals[(employee_id, card_id)] += amount
             expected = _expected_work_salary(row)
-            if expected is None:
-                continue
-            if _round_money(expected) == _round_money(amount):
+            if expected is None or _round_money(expected) == _round_money(amount):
                 continue
             issues.append(
                 _issue(
@@ -537,7 +573,16 @@ def _audit_work_card_formulas(
                     },
                 )
             )
+    return stored_totals, issues
 
+
+def _audit_work_card_total_mismatch_issues(
+    reported_totals: dict[tuple[str, str], Decimal],
+    stored_totals: dict[tuple[str, str], Decimal],
+    *,
+    month: str,
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
     for (employee_id, card_id), reported_total in sorted(reported_totals.items()):
         stored_total = stored_totals.get((employee_id, card_id), Decimal("0"))
         if _round_money(reported_total) == _round_money(stored_total):
@@ -556,6 +601,30 @@ def _audit_work_card_formulas(
                 },
             )
         )
+    return issues
+
+
+def _audit_work_card_formulas(
+    report: dict[str, Any],
+    *,
+    month: str,
+    cards_by_id: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    reported_totals = _reported_work_card_totals(report)
+    stored_totals, formula_issues = _stored_work_card_totals(
+        report,
+        cards_by_id=cards_by_id,
+        month=month,
+    )
+    issues: list[dict[str, Any]] = []
+    issues.extend(formula_issues)
+    issues.extend(
+        _audit_work_card_total_mismatch_issues(
+            reported_totals,
+            stored_totals,
+            month=month,
+        )
+    )
     return issues
 
 

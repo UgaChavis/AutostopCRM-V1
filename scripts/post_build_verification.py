@@ -342,6 +342,11 @@ def wait_for_sticky_remaining_drop(
     )
 
 
+def _require_api_condition(condition: bool, message: str) -> None:
+    if not condition:
+        raise VerificationError(message)
+
+
 def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) -> dict:
     report: dict[str, object] = {}
 
@@ -363,10 +368,11 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     listed_columns = assert_ok(status, columns_after_create, context="list_columns_after_create")[
         "columns"
     ]
-    if len(listed_columns) <= len(initial_columns) or not any(
-        column["id"] == custom_column_id for column in listed_columns
-    ):
-        raise VerificationError("Custom column was not added to the board.")
+    _require_api_condition(
+        len(listed_columns) > len(initial_columns)
+        and any(column["id"] == custom_column_id for column in listed_columns),
+        "Custom column was not added to the board.",
+    )
 
     status, created_sticky = send_request(
         base_url,
@@ -396,48 +402,66 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     report["create_card"] = created
     card = assert_ok(status, created, context="create_card")["card"]
     card_id = card["id"]
-    if card["status"] != "ok" or card["indicator"] != "green":
-        raise VerificationError("New card did not start in the expected green state.")
-    if "remaining_display" not in card or "deadline_timestamp" not in card:
-        raise VerificationError("Card response is missing countdown fields.")
+    _require_api_condition(
+        card["status"] == "ok" and card["indicator"] == "green",
+        "New card did not start in the expected green state.",
+    )
+    _require_api_condition(
+        "remaining_display" in card and "deadline_timestamp" in card,
+        "Card response is missing countdown fields.",
+    )
 
     status, moved = send_request(
         base_url, "/api/move_card", {"card_id": card_id, "column": custom_column_id}
     )
     report["move_card"] = moved
     moved_card = assert_ok(status, moved, context="move_card")["card"]
-    if moved_card["column"] != custom_column_id:
-        raise VerificationError("Card did not move into the custom column.")
+    _require_api_condition(
+        moved_card["column"] == custom_column_id,
+        "Card did not move into the custom column.",
+    )
 
     warning_card = wait_for_status(base_url, card_id, expected_status="warning")
     report["warning_state"] = warning_card
-    if warning_card["indicator"] != "yellow":
-        raise VerificationError("Warning state did not turn the signal yellow.")
+    _require_api_condition(
+        warning_card["indicator"] == "yellow",
+        "Warning state did not turn the signal yellow.",
+    )
 
     expired_card = wait_for_status(base_url, card_id, expected_status="expired")
     report["expired_state"] = expired_card
-    if expired_card["indicator"] != "red":
-        raise VerificationError("Expired state did not turn the signal red.")
-    if expired_card["remaining_seconds"] != 0:
-        raise VerificationError("Expired card must have remaining_seconds = 0.")
+    _require_api_condition(
+        expired_card["indicator"] == "red",
+        "Expired state did not turn the signal red.",
+    )
+    _require_api_condition(
+        expired_card["remaining_seconds"] == 0,
+        "Expired card must have remaining_seconds = 0.",
+    )
 
     status, archived = send_request(base_url, "/api/archive_card", {"card_id": card_id})
     report["archive_card"] = archived
     archived_card = assert_ok(status, archived, context="archive_card")["card"]
-    if not archived_card["archived"]:
-        raise VerificationError("Archiving the card did not set archived=true.")
+    _require_api_condition(
+        archived_card["archived"],
+        "Archiving the card did not set archived=true.",
+    )
 
     status, visible_cards = send_request(base_url, "/api/get_cards", {"include_archived": False})
     report["get_cards"] = visible_cards
     active_cards = assert_ok(status, visible_cards, context="get_cards")["cards"]
-    if any(item["id"] == card_id for item in active_cards):
-        raise VerificationError("Archived card is still visible in active cards.")
+    _require_api_condition(
+        not any(item["id"] == card_id for item in active_cards),
+        "Archived card is still visible in active cards.",
+    )
 
     status, with_archived = send_request(base_url, "/api/get_cards", {"include_archived": True})
     report["get_cards_with_archived"] = with_archived
     all_cards = assert_ok(status, with_archived, context="get_cards_with_archived")["cards"]
-    if not any(item["id"] == card_id and item["archived"] for item in all_cards):
-        raise VerificationError("Archived card is missing from include_archived=true.")
+    _require_api_condition(
+        any(item["id"] == card_id and item["archived"] for item in all_cards),
+        "Archived card is missing from include_archived=true.",
+    )
 
     long_title = "T" * 120
     long_description = "O" * 5000
@@ -452,8 +476,10 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     )
     report["create_long_card"] = long_card_response
     long_card = assert_ok(status, long_card_response, context="create_long_card")["card"]
-    if len(long_card["title"]) != 120 or len(long_card["description"]) != 5000:
-        raise VerificationError("Boundary-sized title/description were not saved intact.")
+    _require_api_condition(
+        len(long_card["title"]) == 120 and len(long_card["description"]) == 5000,
+        "Boundary-sized title/description were not saved intact.",
+    )
 
     status, found_cards = send_request(
         base_url,
@@ -462,21 +488,23 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     )
     report["search_cards"] = found_cards
     search_payload = assert_ok(status, found_cards, context="search_cards")
-    if not any(item["id"] == card_id for item in search_payload["cards"]):
-        raise VerificationError("Search did not find the created verification card.")
+    _require_api_condition(
+        any(item["id"] == card_id for item in search_payload["cards"]),
+        "Search did not find the created verification card.",
+    )
 
     status, board_snapshot_response = send_request(
         base_url, "/api/get_board_snapshot", method="GET"
     )
     report["board_snapshot"] = board_snapshot_response
     board_snapshot = assert_ok(status, board_snapshot_response, context="get_board_snapshot")
-    if (
+    _require_api_condition(
         _board_scale_value(
             board_snapshot["settings"].get("board_scale", 0), context="get_board_snapshot"
         )
-        != 1.0
-    ):
-        raise VerificationError("A fresh board should start with board_scale = 1.0.")
+        == 1.0,
+        "A fresh board should start with board_scale = 1.0.",
+    )
     _ = find_sticky(board_snapshot, sticky_id, context="get_board_snapshot")
 
     status, wall_response = send_request(
@@ -485,10 +513,14 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     report["gpt_wall"] = wall_response
     wall = assert_ok(status, wall_response, context="get_gpt_wall")
     assert_markdown_gpt_wall(wall, context="get_gpt_wall")
-    if not any(item["id"] == card_id for item in wall["cards"]):
-        raise VerificationError("GPT wall does not contain the created card.")
-    if not any(item["id"] == sticky_id for item in wall["stickies"]):
-        raise VerificationError("GPT wall does not contain the created sticky.")
+    _require_api_condition(
+        any(item["id"] == card_id for item in wall["cards"]),
+        "GPT wall does not contain the created card.",
+    )
+    _require_api_condition(
+        any(item["id"] == sticky_id for item in wall["stickies"]),
+        "GPT wall does not contain the created sticky.",
+    )
 
     status, board_scale_response = send_request(
         base_url,
@@ -498,13 +530,13 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     )
     report["update_board_settings"] = board_scale_response
     board_scale_payload = assert_ok(status, board_scale_response, context="update_board_settings")
-    if (
+    _require_api_condition(
         _board_scale_value(
             board_scale_payload["settings"].get("board_scale", 0), context="update_board_settings"
         )
-        != 1.25
-    ):
-        raise VerificationError("Board scale 1.25 was not persisted.")
+        == 1.25,
+        "Board scale 1.25 was not persisted.",
+    )
 
     status, moved_sticky_response = send_request(
         base_url,
@@ -513,8 +545,10 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     )
     report["move_sticky"] = moved_sticky_response
     moved_sticky = assert_ok(status, moved_sticky_response, context="move_sticky")["sticky"]
-    if moved_sticky["x"] != 260 or moved_sticky["y"] != 180:
-        raise VerificationError("Sticky was not moved to the new coordinates.")
+    _require_api_condition(
+        moved_sticky["x"] == 260 and moved_sticky["y"] == 180,
+        "Sticky was not moved to the new coordinates.",
+    )
 
     status, updated_sticky_response = send_request(
         base_url,
@@ -529,8 +563,10 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     )
     report["update_sticky"] = updated_sticky_response
     updated_sticky = assert_ok(status, updated_sticky_response, context="update_sticky")["sticky"]
-    if "15:00" not in updated_sticky["text"]:
-        raise VerificationError("Sticky text update was not applied.")
+    _require_api_condition(
+        "15:00" in updated_sticky["text"],
+        "Sticky text update was not applied.",
+    )
 
     status, updated_snapshot_response = send_request(
         base_url, "/api/get_board_snapshot", method="GET"
@@ -539,19 +575,21 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     updated_snapshot = assert_ok(
         status, updated_snapshot_response, context="get_board_snapshot_after_updates"
     )
-    if (
+    _require_api_condition(
         _board_scale_value(
             updated_snapshot["settings"].get("board_scale", 0),
             context="get_board_snapshot_after_updates",
         )
-        != 1.25
-    ):
-        raise VerificationError("Board snapshot does not reflect updated board scale.")
+        == 1.25,
+        "Board snapshot does not reflect updated board scale.",
+    )
     updated_snapshot_sticky = find_sticky(
         updated_snapshot, sticky_id, context="get_board_snapshot_after_updates"
     )
-    if "15:00" not in updated_snapshot_sticky["text"]:
-        raise VerificationError("Board snapshot does not reflect updated sticky text.")
+    _require_api_condition(
+        "15:00" in updated_snapshot_sticky["text"],
+        "Board snapshot does not reflect updated sticky text.",
+    )
 
     status, persistence_card_response = send_request(
         base_url,
@@ -608,87 +646,122 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     }
 
 
+def _assert_api_error_response(
+    status: int,
+    response: dict,
+    *,
+    expected_status: int,
+    expected_code: str,
+    message: str,
+) -> None:
+    error = response.get("error") if isinstance(response.get("error"), dict) else {}
+    actual_code = str(error.get("code") or "")
+    if status != expected_status or actual_code != expected_code:
+        raise VerificationError(message)
+
+
 def run_negative_api_checks(base_url: str, *, operator_headers: dict[str, str]) -> dict:
     report: dict[str, object] = {}
-
-    status, invalid_json = send_request(base_url, "/api/create_card", raw_body=b"{broken")
-    report["invalid_json"] = invalid_json
-    if status != 400 or invalid_json["error"]["code"] != "invalid_json":
-        raise VerificationError("API did not reject malformed JSON.")
-
-    status, invalid_type = send_request(base_url, "/api/create_card", ["not", "object"])
-    report["invalid_payload_type"] = invalid_type
-    if status != 400 or invalid_type["error"]["code"] != "validation_error":
-        raise VerificationError("API did not reject a non-object JSON body.")
-
-    status, empty_title = send_request(
-        base_url, "/api/create_card", {"title": "   ", "deadline": {"days": 1, "hours": 0}}
-    )
-    report["empty_title"] = empty_title
-    if status != 400 or empty_title["error"]["code"] != "validation_error":
-        raise VerificationError("API accepted an empty card title.")
-
-    status, invalid_bool = send_request(base_url, "/api/get_cards", {"include_archived": "false"})
-    report["invalid_bool"] = invalid_bool
-    if status != 400 or invalid_bool["error"]["code"] != "validation_error":
-        raise VerificationError("API accepted an invalid boolean field.")
-
-    status, empty_column_label = send_request(base_url, "/api/create_column", {"label": "   "})
-    report["empty_column_label"] = empty_column_label
-    if status != 400 or empty_column_label["error"]["code"] != "validation_error":
-        raise VerificationError("API accepted an empty column label.")
-
-    status, invalid_deadline_zero = send_request(
-        base_url,
-        "/api/create_card",
-        {"title": "Zero deadline", "deadline": {"days": 0, "hours": 0}},
-    )
-    report["invalid_deadline_zero"] = invalid_deadline_zero
-    if status != 400 or invalid_deadline_zero["error"]["code"] != "validation_error":
-        raise VerificationError("API accepted a zero card deadline.")
-
-    status, invalid_deadline_hour = send_request(
-        base_url,
-        "/api/create_card",
-        {"title": "Broken deadline", "deadline": {"days": 0, "hours": 24}},
-    )
-    report["invalid_deadline_hour"] = invalid_deadline_hour
-    if status != 400 or invalid_deadline_hour["error"]["code"] != "validation_error":
-        raise VerificationError("API accepted an invalid hours value.")
-
-    status, long_title = send_request(
-        base_url,
-        "/api/create_card",
-        {"title": "Z" * 121, "deadline": {"days": 1, "hours": 0}},
-    )
-    report["too_long_title"] = long_title
-    if status != 400 or long_title["error"]["code"] != "validation_error":
-        raise VerificationError("API accepted an overlong title.")
-
-    status, invalid_sticky_deadline = send_request(
-        base_url,
-        "/api/create_sticky",
-        {"text": "Broken sticky", "deadline": {"days": 0, "hours": 0}},
-    )
-    report["invalid_sticky_deadline"] = invalid_sticky_deadline
-    if status != 400 or invalid_sticky_deadline["error"]["code"] != "validation_error":
-        raise VerificationError("API accepted a zero sticky deadline.")
-
-    status, invalid_board_scale = send_request(
-        base_url,
-        "/api/update_board_settings",
-        {"board_scale": 2.0},
-        headers=operator_headers,
-    )
-    report["invalid_board_scale"] = invalid_board_scale
-    if status != 400 or invalid_board_scale["error"]["code"] != "validation_error":
-        raise VerificationError("API accepted an out-of-range board scale.")
-
-    status, missing_route = send_request(base_url, "/api/unknown", {}, method="POST")
-    report["unknown_route"] = missing_route
-    if status != 404 or missing_route["error"]["code"] != "not_found":
-        raise VerificationError("API did not report unknown routes correctly.")
-
+    cases = [
+        (
+            "invalid_json",
+            "/api/create_card",
+            {"raw_body": b"{broken"},
+            400,
+            "invalid_json",
+            "API did not reject malformed JSON.",
+        ),
+        (
+            "invalid_payload_type",
+            "/api/create_card",
+            {"payload": ["not", "object"]},
+            400,
+            "validation_error",
+            "API did not reject a non-object JSON body.",
+        ),
+        (
+            "empty_title",
+            "/api/create_card",
+            {"payload": {"title": "   ", "deadline": {"days": 1, "hours": 0}}},
+            400,
+            "validation_error",
+            "API accepted an empty card title.",
+        ),
+        (
+            "invalid_bool",
+            "/api/get_cards",
+            {"payload": {"include_archived": "false"}},
+            400,
+            "validation_error",
+            "API accepted an invalid boolean field.",
+        ),
+        (
+            "empty_column_label",
+            "/api/create_column",
+            {"payload": {"label": "   "}},
+            400,
+            "validation_error",
+            "API accepted an empty column label.",
+        ),
+        (
+            "invalid_deadline_zero",
+            "/api/create_card",
+            {"payload": {"title": "Zero deadline", "deadline": {"days": 0, "hours": 0}}},
+            400,
+            "validation_error",
+            "API accepted a zero card deadline.",
+        ),
+        (
+            "invalid_deadline_hour",
+            "/api/create_card",
+            {"payload": {"title": "Broken deadline", "deadline": {"days": 0, "hours": 24}}},
+            400,
+            "validation_error",
+            "API accepted an invalid hours value.",
+        ),
+        (
+            "too_long_title",
+            "/api/create_card",
+            {"payload": {"title": "Z" * 121, "deadline": {"days": 1, "hours": 0}}},
+            400,
+            "validation_error",
+            "API accepted an overlong title.",
+        ),
+        (
+            "invalid_sticky_deadline",
+            "/api/create_sticky",
+            {"payload": {"text": "Broken sticky", "deadline": {"days": 0, "hours": 0}}},
+            400,
+            "validation_error",
+            "API accepted a zero sticky deadline.",
+        ),
+        (
+            "invalid_board_scale",
+            "/api/update_board_settings",
+            {"payload": {"board_scale": 2.0}, "headers": operator_headers},
+            400,
+            "validation_error",
+            "API accepted an out-of-range board scale.",
+        ),
+        (
+            "unknown_route",
+            "/api/unknown",
+            {"payload": {}, "method": "POST"},
+            404,
+            "not_found",
+            "API did not report unknown routes correctly.",
+        ),
+    ]
+    for key, path, request_kwargs, expected_status, expected_code, message in cases:
+        status, response = send_request(base_url, path, **request_kwargs)
+        report[key] = response
+        _assert_api_error_response(
+            status,
+            response,
+            expected_status=expected_status,
+            expected_code=expected_code,
+            message=message,
+        )
     return report
 
 
@@ -774,6 +847,34 @@ def verify_persistence(
     return report
 
 
+def _wait_for_process_return_code(
+    process: subprocess.Popen, *, timeout_seconds: float, interval_seconds: float = 0.5
+) -> int | None:
+    deadline = time.time() + timeout_seconds
+    return_code = None
+    while time.time() < deadline:
+        return_code = process.poll()
+        if return_code is not None:
+            break
+        time.sleep(interval_seconds)
+    return return_code
+
+
+def _wait_for_log_file(log_file: Path, *, timeout_seconds: float) -> Path:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline and not log_file.exists():
+        time.sleep(0.5)
+    if not log_file.exists():
+        raise VerificationError("No log file was created after the forced startup failure.")
+    return log_file
+
+
+def _assert_startup_failure_logged(log_file: Path) -> None:
+    log_text = _read_log_tail_text(log_file)
+    if "failed_to_start_api" not in log_text:
+        raise VerificationError("Startup failure was not recorded in application logs.")
+
+
 def verify_startup_error_handling(executable: Path, appdata_root: Path) -> dict:
     blocker = None
     process = None
@@ -786,13 +887,7 @@ def verify_startup_error_handling(executable: Path, appdata_root: Path) -> dict:
             api_fallback_limit=1,
             extra_env={"MINIMAL_KANBAN_SUPPRESS_ERROR_DIALOGS": "1"},
         )
-        deadline = time.time() + 10
-        return_code = None
-        while time.time() < deadline:
-            return_code = process.poll()
-            if return_code is not None:
-                break
-            time.sleep(0.5)
+        return_code = _wait_for_process_return_code(process, timeout_seconds=10)
         if return_code == 0:
             raise VerificationError("Application exited with code 0 during forced startup failure.")
 
@@ -805,14 +900,7 @@ def verify_startup_error_handling(executable: Path, appdata_root: Path) -> dict:
             pass
 
         log_file = appdata_root / "Minimal Kanban" / "logs" / "minimal-kanban.log"
-        log_deadline = time.time() + 10
-        while time.time() < log_deadline and not log_file.exists():
-            time.sleep(0.5)
-        if not log_file.exists():
-            raise VerificationError("No log file was created after the forced startup failure.")
-        log_text = _read_log_tail_text(log_file)
-        if "failed_to_start_api" not in log_text:
-            raise VerificationError("Startup failure was not recorded in application logs.")
+        _assert_startup_failure_logged(_wait_for_log_file(log_file, timeout_seconds=10))
 
         forced_termination = False
         if return_code is None:

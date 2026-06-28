@@ -464,67 +464,204 @@ def _contains_route_text(text: str, route: str) -> bool:
     )
 
 
-def _check_api_guide_required_routes(root: Path) -> list[Issue]:
-    path = root / "API_GUIDE.md"
+def _missing_route_issues(
+    path: Path,
+    required_routes: tuple[tuple[str, str], ...],
+    *,
+    issue_code: str,
+    root: Path,
+) -> list[Issue]:
+    if not path.exists():
+        return []
+    text = _read_text(path)
     issues: list[Issue] = []
-
-    if path.exists():
-        text = _read_text(path)
-        for route, detail in API_GUIDE_REQUIRED_ROUTE_TEXT:
-            if not _contains_route_text(text, route):
-                issues.append(
-                    Issue(
-                        "api_guide_missing_route",
-                        _display_path(path, root),
-                        f"{detail}: {route}",
-                    )
+    for route, detail in required_routes:
+        if not _contains_route_text(text, route):
+            issues.append(
+                Issue(
+                    issue_code,
+                    _display_path(path, root),
+                    f"{detail}: {route}",
                 )
-        for required_text, detail in API_GUIDE_REQUIRED_TEXT:
-            if required_text not in text:
-                issues.append(
-                    Issue(
-                        "api_guide_missing_contract",
-                        _display_path(path, root),
-                        f"{detail}: {required_text}",
-                    )
-                )
-    mcp_guide = root / "MCP_GUIDE.md"
-    if mcp_guide.exists():
-        mcp_text = _read_text(mcp_guide)
-        for required_text, detail in MCP_GUIDE_REQUIRED_TEXT:
-            if required_text not in mcp_text:
-                issues.append(
-                    Issue(
-                        "mcp_guide_missing_contract",
-                        _display_path(mcp_guide, root),
-                        f"{detail}: {required_text}",
-                    )
-                )
-    chatgpt_setup = root / "CHATGPT_CONNECTOR_SETUP.md"
-    if chatgpt_setup.exists():
-        chatgpt_text = _read_text(chatgpt_setup)
-        for required_text, detail in CHATGPT_CONNECTOR_REQUIRED_TEXT:
-            if required_text not in chatgpt_text:
-                issues.append(
-                    Issue(
-                        "chatgpt_connector_setup_missing_contract",
-                        _display_path(chatgpt_setup, root),
-                        f"{detail}: {required_text}",
-                    )
-                )
-    runbook = root / "docs" / "OPERATIONS_RUNBOOK.md"
-    if runbook.exists():
-        runbook_text = _read_text(runbook)
-        for required_text, detail in RUNBOOK_REQUIRED_TEXT:
-            if required_text not in runbook_text:
-                issues.append(
-                    Issue(
-                        "runbook_missing_maintenance_contract",
-                        _display_path(runbook, root),
-                        f"{detail}: {required_text}",
-                    )
-                )
+            )
     return issues
+
+
+def _missing_text_issues(
+    path: Path,
+    required_texts: tuple[tuple[str, str], ...],
+    *,
+    issue_code: str,
+    root: Path,
+) -> list[Issue]:
+    if not path.exists():
+        return []
+    text = _read_text(path)
+    issues: list[Issue] = []
+    for required_text, detail in required_texts:
+        if required_text not in text:
+            issues.append(
+                Issue(
+                    issue_code,
+                    _display_path(path, root),
+                    f"{detail}: {required_text}",
+                )
+            )
+    return issues
+
+
+def _scan_existing_canonical_docs_for_forbidden_text(root: Path) -> list[Issue]:
+    issues: list[Issue] = []
+    for relative_path in CRM_CANONICAL_DOCS:
+        path = root / relative_path
+        if not path.exists():
+            continue
+        text = _read_text(path)
+        issues.extend(scan_forbidden_text(path, text, root=root))
+        issues.extend(scan_crm_only_forbidden_text(path, text, root=root))
+    return issues
+
+
+def _scan_retired_candidate_issues(root: Path) -> list[Issue]:
+    return [
+        Issue(
+            "retired_doc_candidate_present",
+            _display_path(retired_path, root),
+            "retired cleanup or agent artifact is still present",
+        )
+        for retired_path in _iter_retired_candidates(root)
+    ]
+
+
+def _scan_user_skill_doc_issues(root: Path) -> list[Issue]:
+    issues: list[Issue] = []
+    for path in _iter_user_skill_docs():
+        issues.extend(scan_forbidden_text(path, _read_text(path), root=root))
+    return issues
+
+
+def _scan_secret_bundle_issues(secret_bundle: Path, *, root: Path) -> list[Issue]:
+    issues: list[Issue] = []
+    for path in _iter_secret_bundle_docs(secret_bundle):
+        issues.extend(scan_forbidden_text(path, _read_text(path), root=root))
+    return issues
+
+
+def _manager_catalog_issues(
+    manager_catalog_path: Path,
+    manager_tools: set[str],
+    crm_tools: set[str],
+) -> list[Issue]:
+    issues: list[Issue] = []
+    if manager_catalog_path.exists():
+        manager_catalog = _load_json(manager_catalog_path)
+        catalog_tools = set(manager_catalog.get("all_tools", []))
+        catalog_count = manager_catalog.get("tool_count")
+        if catalog_count != len(manager_tools):
+            issues.append(
+                Issue(
+                    "manager_catalog_count_mismatch",
+                    str(manager_catalog_path),
+                    f"catalog has {catalog_count}, source has {len(manager_tools)}",
+                )
+            )
+        if catalog_tools != manager_tools:
+            issues.append(
+                Issue(
+                    "manager_catalog_tools_mismatch",
+                    str(manager_catalog_path),
+                    _tool_set_delta(catalog_tools, manager_tools),
+                )
+            )
+
+    crm_catalog_path = manager_catalog_path.parent / "crm_mcp_catalog.json"
+    if crm_catalog_path.exists():
+        crm_catalog = _load_json(crm_catalog_path)
+        tool_counts = crm_catalog.get("tool_counts", {})
+        expected_live_tools = crm_tools | manager_tools
+        expected_counts = {
+            "crm_base_tools": len(crm_tools),
+            "optional_autostop_manager_tools": len(manager_tools),
+            "production_tools_with_manager_mounted": len(expected_live_tools),
+        }
+        if tool_counts != expected_counts:
+            issues.append(
+                Issue(
+                    "crm_catalog_count_mismatch",
+                    str(crm_catalog_path),
+                    f"catalog has {tool_counts}, expected {expected_counts}",
+                )
+            )
+
+        live_tools = set(crm_catalog.get("live_tools_verified", []))
+        if live_tools != expected_live_tools:
+            issues.append(
+                Issue(
+                    "crm_catalog_live_tools_mismatch",
+                    str(crm_catalog_path),
+                    _tool_set_delta(live_tools, expected_live_tools),
+                )
+            )
+
+        optional_tools = set(
+            crm_catalog.get("tool_families", {}).get(
+                "optional_manager_memory_and_routing",
+                [],
+            )
+        )
+        if optional_tools != manager_tools:
+            issues.append(
+                Issue(
+                    "crm_catalog_optional_tools_mismatch",
+                    str(crm_catalog_path),
+                    _tool_set_delta(optional_tools, manager_tools),
+                )
+            )
+    return issues
+
+
+def _manager_doc_forbidden_issues(manager_root: Path) -> list[Issue]:
+    issues: list[Issue] = []
+    for relative_path in MANAGER_CANONICAL_DOCS:
+        path = manager_root / relative_path
+        if path.exists():
+            issues.extend(scan_forbidden_text(path, _read_text(path), root=manager_root))
+    return issues
+
+
+def _check_api_guide_required_routes(root: Path) -> list[Issue]:
+    return [
+        *_missing_route_issues(
+            root / "API_GUIDE.md",
+            API_GUIDE_REQUIRED_ROUTE_TEXT,
+            issue_code="api_guide_missing_route",
+            root=root,
+        ),
+        *_missing_text_issues(
+            root / "API_GUIDE.md",
+            API_GUIDE_REQUIRED_TEXT,
+            issue_code="api_guide_missing_contract",
+            root=root,
+        ),
+        *_missing_text_issues(
+            root / "MCP_GUIDE.md",
+            MCP_GUIDE_REQUIRED_TEXT,
+            issue_code="mcp_guide_missing_contract",
+            root=root,
+        ),
+        *_missing_text_issues(
+            root / "CHATGPT_CONNECTOR_SETUP.md",
+            CHATGPT_CONNECTOR_REQUIRED_TEXT,
+            issue_code="chatgpt_connector_setup_missing_contract",
+            root=root,
+        ),
+        *_missing_text_issues(
+            root / "docs" / "OPERATIONS_RUNBOOK.md",
+            RUNBOOK_REQUIRED_TEXT,
+            issue_code="runbook_missing_maintenance_contract",
+            root=root,
+        ),
+    ]
 
 
 def _check_quality_workflow_required_gates(root: Path) -> list[Issue]:
@@ -699,8 +836,6 @@ def _check_manager_docs_and_catalogs(
     )
 
     manager_tools_path = manager_root / "autostop_manager" / "mcp_tools.py"
-    manager_catalog_path = manager_root / "docs" / "agent" / "manager_mcp_catalog.json"
-    crm_catalog_path = manager_root / "docs" / "agent" / "crm_mcp_catalog.json"
 
     if not manager_tools_path.exists():
         return issues + [
@@ -708,76 +843,14 @@ def _check_manager_docs_and_catalogs(
         ]
 
     manager_tools = extract_decorated_tool_names(manager_tools_path)
-
-    if manager_catalog_path.exists():
-        manager_catalog = _load_json(manager_catalog_path)
-        catalog_tools = set(manager_catalog.get("all_tools", []))
-        catalog_count = manager_catalog.get("tool_count")
-        if catalog_count != len(manager_tools):
-            issues.append(
-                Issue(
-                    "manager_catalog_count_mismatch",
-                    str(manager_catalog_path),
-                    f"catalog has {catalog_count}, source has {len(manager_tools)}",
-                )
-            )
-        if catalog_tools != manager_tools:
-            issues.append(
-                Issue(
-                    "manager_catalog_tools_mismatch",
-                    str(manager_catalog_path),
-                    _tool_set_delta(catalog_tools, manager_tools),
-                )
-            )
-
-    if crm_catalog_path.exists():
-        crm_catalog = _load_json(crm_catalog_path)
-        tool_counts = crm_catalog.get("tool_counts", {})
-        expected_live_tools = crm_tools | manager_tools
-        expected_counts = {
-            "crm_base_tools": len(crm_tools),
-            "optional_autostop_manager_tools": len(manager_tools),
-            "production_tools_with_manager_mounted": len(expected_live_tools),
-        }
-        if tool_counts != expected_counts:
-            issues.append(
-                Issue(
-                    "crm_catalog_count_mismatch",
-                    str(crm_catalog_path),
-                    f"catalog has {tool_counts}, expected {expected_counts}",
-                )
-            )
-
-        live_tools = set(crm_catalog.get("live_tools_verified", []))
-        if live_tools != expected_live_tools:
-            issues.append(
-                Issue(
-                    "crm_catalog_live_tools_mismatch",
-                    str(crm_catalog_path),
-                    _tool_set_delta(live_tools, expected_live_tools),
-                )
-            )
-
-        optional_tools = set(
-            crm_catalog.get("tool_families", {}).get(
-                "optional_manager_memory_and_routing",
-                [],
-            )
+    issues.extend(
+        _manager_catalog_issues(
+            manager_root / "docs" / "agent" / "manager_mcp_catalog.json",
+            manager_tools,
+            crm_tools,
         )
-        if optional_tools != manager_tools:
-            issues.append(
-                Issue(
-                    "crm_catalog_optional_tools_mismatch",
-                    str(crm_catalog_path),
-                    _tool_set_delta(optional_tools, manager_tools),
-                )
-            )
-
-    for relative_path in MANAGER_CANONICAL_DOCS:
-        path = manager_root / relative_path
-        if path.exists():
-            issues.extend(scan_forbidden_text(path, _read_text(path), root=manager_root))
-
+    )
+    issues.extend(_manager_doc_forbidden_issues(manager_root))
     return issues
 
 
@@ -800,25 +873,12 @@ def audit(
     issues.extend(_check_required(CRM_CANONICAL_DOCS, root, "CRM"))
     issues.extend(_check_unclassified_tracked_docs(root))
     issues.extend(_check_dockerignore_keeps_canonical_markdown(root))
-    for relative_path in CRM_CANONICAL_DOCS:
-        path = root / relative_path
-        if path.exists():
-            text = _read_text(path)
-            issues.extend(scan_forbidden_text(path, text, root=root))
-            issues.extend(scan_crm_only_forbidden_text(path, text, root=root))
+    issues.extend(_scan_existing_canonical_docs_for_forbidden_text(root))
 
     issues.extend(_check_script_instruction_text(root))
     issues.extend(_check_api_guide_required_routes(root))
     issues.extend(_check_quality_workflow_required_gates(root))
-
-    for retired_path in _iter_retired_candidates(root):
-        issues.append(
-            Issue(
-                "retired_doc_candidate_present",
-                _display_path(retired_path, root),
-                "retired cleanup or agent artifact is still present",
-            )
-        )
+    issues.extend(_scan_retired_candidate_issues(root))
 
     try:
         crm_tools = load_crm_registry_tools(root)
@@ -847,8 +907,7 @@ def audit(
             )
 
     if include_skills:
-        for path in _iter_user_skill_docs():
-            issues.extend(scan_forbidden_text(path, _read_text(path), root=root))
+        issues.extend(_scan_user_skill_doc_issues(root))
 
     if secret_bundle is not None:
         secret_bundle = secret_bundle.resolve()
@@ -861,8 +920,7 @@ def audit(
                 )
             )
         else:
-            for path in _iter_secret_bundle_docs(secret_bundle):
-                issues.extend(scan_forbidden_text(path, _read_text(path), root=secret_bundle))
+            issues.extend(_scan_secret_bundle_issues(secret_bundle, root=secret_bundle))
 
     return issues
 

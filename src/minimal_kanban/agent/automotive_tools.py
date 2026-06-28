@@ -330,29 +330,9 @@ class AutomotiveLookupService:
             "source_group": [item.label for item in PARTS_PRICE_SOURCES],
         }
 
-    def _estimate_maintenance_uncached(
-        self, *, vehicle_context: dict[str, Any] | None, service_type: str
-    ) -> dict[str, Any]:
-        context = self._normalize_vehicle_context(vehicle_context)
-        normalized_service = self._normalize_service_type(service_type)
-        lower = normalized_service.casefold()
-        works = [{"name": "Диагностика и осмотр автомобиля", "quantity": "1"}]
-        materials = [
-            {"name": "Моторное масло", "quantity": "1"},
-            {"name": "Масляный фильтр", "quantity": "1"},
-        ]
-        notes = [
-            "Список работ и материалов предварительный.",
-            "Для точной цены по материалам используйте lookup_part_prices после уточнения каталожных номеров.",
-        ]
-        mileage_text = self._text(context.get("mileage"))
-        mileage_digits = str(mileage_text).replace(" ", "")
-        try:
-            mileage_value = (
-                int(mileage_digits) if mileage_digits and len(mileage_digits) <= 7 else 0
-            )
-        except (OverflowError, ValueError):
-            mileage_value = 0
+    def _append_maintenance_hint_rows(
+        self, works: list[dict[str, Any]], materials: list[dict[str, Any]], lower: str
+    ) -> None:
         if lower == "то" or self._contains_any(lower, _MAINTENANCE_HINTS):
             self._append_unique_rows(
                 works,
@@ -380,6 +360,10 @@ class AutomotiveLookupService:
                 materials, [{"name": "Комплект свечей зажигания", "quantity": "1"}]
             )
             self._append_unique_rows(works, [{"name": "Замена свечей зажигания", "quantity": "1"}])
+
+    def _append_maintenance_mileage_rows(
+        self, works: list[dict[str, Any]], materials: list[dict[str, Any]], mileage_value: int
+    ) -> None:
         if mileage_value >= 60_000:
             self._append_unique_rows(
                 materials,
@@ -404,6 +388,10 @@ class AutomotiveLookupService:
             )
         if mileage_value >= 120_000:
             self._append_unique_rows(works, [{"name": "Проверка масла АКПП/МКПП", "quantity": "1"}])
+
+    def _append_maintenance_context_notes(
+        self, notes: list[str], context: dict[str, Any], mileage_text: str
+    ) -> None:
         if context.get("vin"):
             notes.append(
                 "VIN доступен: можно выполнить точный подбор расходников и каталожных номеров."
@@ -419,6 +407,33 @@ class AutomotiveLookupService:
         coolant_capacity = self._text(context.get("coolant_capacity_l"))
         if coolant_capacity:
             notes.append(f"Объем охлаждающей жидкости: {coolant_capacity} л.")
+
+    def _estimate_maintenance_uncached(
+        self, *, vehicle_context: dict[str, Any] | None, service_type: str
+    ) -> dict[str, Any]:
+        context = self._normalize_vehicle_context(vehicle_context)
+        normalized_service = self._normalize_service_type(service_type)
+        lower = normalized_service.casefold()
+        works = [{"name": "Диагностика и осмотр автомобиля", "quantity": "1"}]
+        materials = [
+            {"name": "Моторное масло", "quantity": "1"},
+            {"name": "Масляный фильтр", "quantity": "1"},
+        ]
+        notes = [
+            "Список работ и материалов предварительный.",
+            "Для точной цены по материалам используйте lookup_part_prices после уточнения каталожных номеров.",
+        ]
+        mileage_text = self._text(context.get("mileage"))
+        mileage_digits = str(mileage_text).replace(" ", "")
+        try:
+            mileage_value = (
+                int(mileage_digits) if mileage_digits and len(mileage_digits) <= 7 else 0
+            )
+        except (OverflowError, ValueError):
+            mileage_value = 0
+        self._append_maintenance_hint_rows(works, materials, lower)
+        self._append_maintenance_mileage_rows(works, materials, mileage_value)
+        self._append_maintenance_context_notes(notes, context, mileage_text)
         return {
             "vehicle_context": context,
             "service_type": normalized_service,

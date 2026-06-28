@@ -639,6 +639,17 @@ def normalize_ai_autofill_log(value) -> list[dict[str, str]]:
 
 
 def normalize_money_minor(value, *, default: int = 0, minimum: int | None = None) -> int:
+    parsed = _parse_money_minor_value(value, default=default)
+    if parsed > MONEY_MINOR_ABS_MAX:
+        parsed = MONEY_MINOR_ABS_MAX
+    elif parsed < -MONEY_MINOR_ABS_MAX:
+        parsed = -MONEY_MINOR_ABS_MAX
+    if minimum is not None:
+        parsed = max(minimum, parsed)
+    return parsed
+
+
+def _parse_money_minor_value(value, *, default: int = 0) -> int:
     if isinstance(value, bool):
         parsed = default
     elif isinstance(value, int):
@@ -661,12 +672,6 @@ def normalize_money_minor(value, *, default: int = 0, minimum: int | None = None
                 parsed = int(round(parsed_float * 100)) if math.isfinite(parsed_float) else default
             except (OverflowError, TypeError, ValueError):
                 parsed = default
-    if parsed > MONEY_MINOR_ABS_MAX:
-        parsed = MONEY_MINOR_ABS_MAX
-    elif parsed < -MONEY_MINOR_ABS_MAX:
-        parsed = -MONEY_MINOR_ABS_MAX
-    if minimum is not None:
-        parsed = max(minimum, parsed)
     return parsed
 
 
