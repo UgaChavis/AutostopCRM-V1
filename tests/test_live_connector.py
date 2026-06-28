@@ -139,6 +139,36 @@ class LiveConnectorOutputTests(unittest.TestCase):
                     payload={"username": "admin", "password": "secret"},
                 )
 
+    def test_check_api_surface_uses_compact_read_routes(self) -> None:
+        module = load_live_connector_module()
+        calls: list[str] = []
+
+        def fake_api_request(base_url: str, path: str, **kwargs):
+            self.assertEqual(base_url, "http://127.0.0.1:41731")
+            self.assertIsNone(kwargs.get("bearer_token"))
+            calls.append(path)
+            if path == "/api/get_board_context":
+                return 200, {
+                    "ok": True,
+                    "data": {"context": {"board_name": "AutoStop", "columns_total": 3}},
+                }
+            if path == "/api/get_board_snapshot?compact=1&include_archive=0":
+                return 200, {"ok": True, "data": {"cards": [], "columns": []}}
+            if path == "/api/get_gpt_wall":
+                return 200, {"ok": True, "data": {"meta": {"active_cards": 0}}}
+            if path == "/api/list_repair_orders?compact=true&redact_private=true":
+                return 200, {"ok": True, "data": {"repair_orders": []}}
+            return 200, {"ok": True, "data": {}}
+
+        with patch.object(module, "_api_request", side_effect=fake_api_request):
+            result = module.check_api_surface("http://127.0.0.1:41731")
+
+        self.assertTrue(result["ok"])
+        self.assertIn("/api/get_board_snapshot?compact=1&include_archive=0", calls)
+        self.assertIn("/api/list_repair_orders?compact=true&redact_private=true", calls)
+        self.assertNotIn("/api/get_board_snapshot", calls)
+        self.assertNotIn("/api/list_repair_orders", calls)
+
     def test_check_site_rejects_redirect_without_following_it(self) -> None:
         module = load_live_connector_module()
         redirect = module.urllib.error.HTTPError(
