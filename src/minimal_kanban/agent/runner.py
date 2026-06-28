@@ -40,7 +40,13 @@ from .instructions import build_default_system_prompt
 from .openai_client import AgentModelError, OpenAIJsonAgentClient
 from .policy import ToolPolicyEngine
 from .runner_output import AgentRunnerOutputMixin
-from .scenarios import ScenarioContext, build_default_scenario_registry
+from .scenarios import (
+    ScenarioContext,
+    build_default_scenario_registry,
+)
+from .scenarios import (
+    ScenarioExecutionResult as ScenarioResult,
+)
 from .storage import AgentStorage
 from .tools import AgentToolExecutor, ExternalToolBudgetExceeded
 
@@ -947,6 +953,301 @@ class AgentRunner(AgentRunnerOutputMixin):
             return ["title", "description", "tags", "vehicle", "vehicle_profile"]
         return []
 
+    def _build_decision_loop_system_prompt(
+        self,
+        *,
+        task_type: str,
+        context_kind: str,
+        plan: PlanResult,
+        evidence: EvidenceResult,
+    ) -> str:
+        prompt_override = self._storage.read_prompt_text().strip()
+        memory_text = self._storage.read_memory_text().strip()
+        system_prompt = DEFAULT_SYSTEM_PROMPT
+        if prompt_override and prompt_override != DEFAULT_SYSTEM_PROMPT:
+            system_prompt = f"{system_prompt}\n\nLocal instructions:\n{prompt_override}"
+        if memory_text:
+            system_prompt = f"{system_prompt}\n\nPersistent memory:\n{memory_text}"
+        system_prompt = (
+            f"{system_prompt}\n\nAvailable tools:\n"
+            f"{self._tools.describe_for_prompt(task_type=task_type, context_kind=context_kind)}"
+        )
+        return f"{system_prompt}\n\n{self._contract_prompt_block(plan=plan, evidence=evidence)}"
+
+    def _handle_decision_loop_tool_call(
+        self,
+        *,
+        task: dict[str, Any],
+        run_id: str,
+        step: int,
+        tool_name: str,
+        args: dict[str, Any],
+        reason: str,
+        plan: PlanResult,
+        evidence: EvidenceResult,
+        cleanup_task: bool,
+        cleanup_card_id: str,
+        patch_result: PatchResult,
+        verify_result: VerifyResult,
+        applied_updates: list[str],
+        tool_results: list[ToolResult],
+        messages: list[dict[str, str]],
+        cleanup_update_applied: bool,
+    ) -> tuple[dict[str, Any], dict[str, Any], PatchResult, VerifyResult, bool]:
+        if tool_name in {
+            "update_card",
+            "update_repair_order",
+            "replace_repair_order_works",
+            "replace_repair_order_materials",
+        }:
+            args, result_payload, current_patch, verify_result = self._execute_contract_write_tool(
+                tool_name=tool_name,
+                args=args,
+                plan=plan,
+                cleanup_card_id=cleanup_card_id,
+            )
+            patch_result = self._merge_patch_results(patch_result, current_patch)
+        else:
+            result_payload = self._tools.execute(tool_name, args)
+        if (
+            cleanup_task
+            and tool_name == "update_card"
+            and str(args.get("card_id", "") or "").strip() == cleanup_card_id
+        ):
+            cleanup_update_applied = True
+            applied_updates.extend(self._summarize_applied_update(args, result_payload))
+        tool_results.append(
+            self._build_tool_result(
+                tool_name,
+                result_payload,
+                status="success",
+                reason=reason,
+                scenario_id=plan.scenario_id,
+                evidence_ref=evidence.raw_context_ref,
+            )
+        )
+        self._record_action(
+            task_id=task["id"],
+            run_id=run_id,
+            step=step,
+            tool_name=tool_name,
+            args=args,
+            reason=reason,
+            result_payload=result_payload,
+        )
+        messages.append(
+            {
+                "role": "assistant",
+                "content": _json_dumps(
+                    {"type": "tool", "tool": tool_name, "args": args, "reason": reason},
+                ),
+            }
+        )
+        messages.append(
+            {
+                "role": "user",
+                "content": f"TOOL RESULT {tool_name}:\n{self._tool_result_for_model(tool_name, result_payload)}",
+            }
+        )
+        return args, result_payload, patch_result, verify_result, cleanup_update_applied
+
+    def _load_card_autofill_related_context(
+        self,
+        *,
+        task: dict[str, Any],
+        run_id: str,
+        card_id: str,
+        purpose: str,
+        facts: dict[str, Any],
+        tool_calls: int,
+    ) -> int:
+        if purpose == "board_control" or not self._should_load_card_autofill_related_cards(facts):
+            return tool_calls
+        related_args = {
+            "query": self._related_cards_query(facts),
+            "include_archived": True,
+            "limit": 6,
+        }
+        related_payload = self._tools.execute("search_cards", related_args)
+        tool_calls += 1
+        self._record_action(
+            task_id=task["id"],
+            run_id=run_id,
+            step=tool_calls,
+            tool_name="search_cards",
+            args=related_args,
+            reason="Collect short board context for the same VIN or vehicle before autofill",
+            result_payload=related_payload,
+        )
+        facts["related_cards"] = self._extract_related_cards_from_search(
+            card_id=card_id,
+            payload=self._response_data(related_payload),
+        )
+        if facts["related_cards"]:
+            self._record_log_action(
+                task_id=task["id"],
+                run_id=run_id,
+                step=tool_calls,
+                level="INFO",
+                phase="analysis",
+                message=f"Контекст доски: найдено связанных карточек — {len(facts['related_cards'])}.",
+            )
+            related_vehicle_profile = self._best_related_vehicle_profile(facts)
+            if self._related_vehicle_profile_is_sparse(related_vehicle_profile):
+                related_card_id = str(
+                    facts["related_cards"][0].get("id", "")
+                    if isinstance(facts["related_cards"][0], dict)
+                    else ""
+                ).strip()
+                if related_card_id:
+                    related_context_args = {"card_id": related_card_id}
+                    related_context_payload = self._run_autofill_tool(
+                        task_id=task["id"],
+                        run_id=run_id,
+                        step=tool_calls + 1,
+                        tool_name="get_card_context",
+                        args=related_context_args,
+                        reason="Load the full same-VIN card context when search results are sparse",
+                    )
+                    tool_calls += 1
+                    if related_context_payload is not None:
+                        self._record_log_action(
+                            task_id=task["id"],
+                            run_id=run_id,
+                            step=tool_calls,
+                            level="INFO",
+                            phase="analysis",
+                            message="Выгружен полный контекст связанной same-VIN карточки.",
+                        )
+                        related_context_data = self._response_data(related_context_payload)
+                        related_context_card = (
+                            related_context_data.get("card")
+                            if isinstance(related_context_data.get("card"), dict)
+                            else related_context_data
+                        )
+                        related_profile = (
+                            related_context_card.get("vehicle_profile_compact")
+                            if isinstance(related_context_card, dict)
+                            and isinstance(
+                                related_context_card.get("vehicle_profile_compact"), dict
+                            )
+                            else {}
+                        )
+                        if not related_profile and isinstance(related_context_card, dict):
+                            related_profile = (
+                                related_context_card.get("vehicle_profile")
+                                if isinstance(related_context_card.get("vehicle_profile"), dict)
+                                else {}
+                            )
+                        if isinstance(related_profile, dict) and related_profile:
+                            facts["related_vehicle_profile"] = dict(related_profile)
+        return tool_calls
+
+    def _append_card_autofill_scenario_feedback(
+        self,
+        *,
+        task_id: str,
+        run_id: str,
+        scenario_name: str,
+        scenario_result: ScenarioResult,
+        state: dict[str, Any],
+        scenario_tool_calls: int,
+        scenario_notes: list[str],
+        scenario_warnings_normalized: list[str],
+    ) -> None:
+        state["scenario_feedback"].append(
+            {
+                "scenario_id": scenario_name,
+                "status": str(scenario_result.status or "").strip(),
+                "tool_calls_used": scenario_tool_calls,
+                "needs_followup": bool(scenario_result.needs_followup),
+                "followup_reason": str(
+                    getattr(scenario_result, "followup_reason", "") or ""
+                ).strip(),
+                "notes": scenario_notes,
+                "warnings": scenario_warnings_normalized,
+            }
+        )
+        if scenario_notes:
+            for note_text in scenario_notes[:3]:
+                self._record_log_action(
+                    task_id=task_id,
+                    run_id=run_id,
+                    step=max(state["tool_calls"], 1),
+                    level="INFO",
+                    phase="analysis",
+                    message=note_text,
+                )
+        if scenario_warnings_normalized:
+            state["scenario_warnings"].extend(scenario_warnings_normalized)
+            for warning_text in scenario_warnings_normalized[:3]:
+                self._record_log_action(
+                    task_id=task_id,
+                    run_id=run_id,
+                    step=max(state["tool_calls"], 1),
+                    level="WARN",
+                    phase="analysis",
+                    message=warning_text,
+                )
+
+    def _update_card_autofill_scenario_state(
+        self,
+        *,
+        scenario_result: ScenarioResult,
+        state: dict[str, Any],
+        scenario_tool_calls: int,
+    ) -> None:
+        state["tool_calls"] += scenario_tool_calls
+        if isinstance(scenario_result.orchestration_updates, dict):
+            state["orchestration_results"].update(scenario_result.orchestration_updates)
+        if isinstance(scenario_result.facts_updates, dict):
+            state["facts"].update(scenario_result.facts_updates)
+        if isinstance(scenario_result.tool_results, list):
+            state["tool_results"].extend(
+                item for item in scenario_result.tool_results if isinstance(item, ToolResult)
+            )
+        if scenario_result.needs_followup:
+            state["scenario_followup_requested"] = True
+            if not state["scenario_followup_reason"]:
+                state["scenario_followup_reason"] = str(
+                    getattr(scenario_result, "followup_reason", "") or ""
+                ).strip()
+        if scenario_result.patch:
+            normalized_patch = normalize_card_enrichment_patch(scenario_result.patch)
+            if normalized_patch:
+                state["patch_result"] = self._merge_patch_results(
+                    state["patch_result"],
+                    PatchResult(card_patch=normalized_patch),
+                )
+
+    def _apply_card_autofill_scenario_result(
+        self,
+        *,
+        task_id: str,
+        run_id: str,
+        scenario_name: str,
+        scenario_result: ScenarioResult,
+        state: dict[str, Any],
+    ) -> None:
+        scenario_tool_calls = self._safe_non_negative_int(scenario_result.tool_calls_used)
+        scenario_notes = self._safe_text_list(scenario_result.notes, limit=5)
+        scenario_warnings_normalized = self._safe_text_list(scenario_result.warnings, limit=5)
+        self._update_card_autofill_scenario_state(
+            scenario_result=scenario_result,
+            state=state,
+            scenario_tool_calls=scenario_tool_calls,
+        )
+        self._append_card_autofill_scenario_feedback(
+            task_id=task_id,
+            run_id=run_id,
+            scenario_name=scenario_name,
+            scenario_result=scenario_result,
+            state=state,
+            scenario_tool_calls=scenario_tool_calls,
+            scenario_notes=scenario_notes,
+            scenario_warnings_normalized=scenario_warnings_normalized,
+        )
+
     def _execute_decision_loop_task(
         self,
         task: dict[str, Any],
@@ -959,19 +1260,11 @@ class AgentRunner(AgentRunnerOutputMixin):
         plan: PlanResult,
         preloaded_context: dict[str, Any] | None = None,
     ) -> tuple[str, str, dict[str, Any], int, list[ToolResult], PatchResult, VerifyResult]:
-        prompt_override = self._storage.read_prompt_text().strip()
-        memory_text = self._storage.read_memory_text().strip()
-        system_prompt = DEFAULT_SYSTEM_PROMPT
-        if prompt_override and prompt_override != DEFAULT_SYSTEM_PROMPT:
-            system_prompt = f"{system_prompt}\n\nLocal instructions:\n{prompt_override}"
-        if memory_text:
-            system_prompt = f"{system_prompt}\n\nPersistent memory:\n{memory_text}"
-        system_prompt = (
-            f"{system_prompt}\n\nAvailable tools:\n"
-            f"{self._tools.describe_for_prompt(task_type=task_type, context_kind=context_kind)}"
-        )
-        system_prompt = (
-            f"{system_prompt}\n\n{self._contract_prompt_block(plan=plan, evidence=evidence)}"
+        system_prompt = self._build_decision_loop_system_prompt(
+            task_type=task_type,
+            context_kind=context_kind,
+            plan=plan,
+            evidence=evidence,
         )
         cleanup_task = task_type == "card_cleanup"
         cleanup_card_id = self._cleanup_card_id(metadata)
@@ -1098,62 +1391,25 @@ class AgentRunner(AgentRunnerOutputMixin):
                 args = {}
             reason = str(decision.get("reason", "") or "").strip()
             tool_calls += 1
-            if tool_name in {
-                "update_card",
-                "update_repair_order",
-                "replace_repair_order_works",
-                "replace_repair_order_materials",
-            }:
-                args, result_payload, current_patch, verify_result = (
-                    self._execute_contract_write_tool(
-                        tool_name=tool_name,
-                        args=args,
-                        plan=plan,
-                        cleanup_card_id=cleanup_card_id,
-                    )
-                )
-                patch_result = self._merge_patch_results(patch_result, current_patch)
-            else:
-                result_payload = self._tools.execute(tool_name, args)
-            if (
-                cleanup_task
-                and tool_name == "update_card"
-                and str(args.get("card_id", "") or "").strip() == cleanup_card_id
-            ):
-                cleanup_update_applied = True
-                applied_updates.extend(self._summarize_applied_update(args, result_payload))
-            tool_results.append(
-                self._build_tool_result(
-                    tool_name,
-                    result_payload,
-                    status="success",
+            args, result_payload, patch_result, verify_result, cleanup_update_applied = (
+                self._handle_decision_loop_tool_call(
+                    task=task,
+                    run_id=run_id,
+                    step=step,
+                    tool_name=tool_name,
+                    args=args,
                     reason=reason,
-                    scenario_id=plan.scenario_id,
-                    evidence_ref=evidence.raw_context_ref,
+                    plan=plan,
+                    evidence=evidence,
+                    cleanup_task=cleanup_task,
+                    cleanup_card_id=cleanup_card_id,
+                    patch_result=patch_result,
+                    verify_result=verify_result,
+                    applied_updates=applied_updates,
+                    tool_results=tool_results,
+                    messages=messages,
+                    cleanup_update_applied=cleanup_update_applied,
                 )
-            )
-            self._record_action(
-                task_id=task["id"],
-                run_id=run_id,
-                step=step,
-                tool_name=tool_name,
-                args=args,
-                reason=reason,
-                result_payload=result_payload,
-            )
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": _json_dumps(
-                        {"type": "tool", "tool": tool_name, "args": args, "reason": reason},
-                    ),
-                }
-            )
-            messages.append(
-                {
-                    "role": "user",
-                    "content": f"TOOL RESULT {tool_name}:\n{self._tool_result_for_model(tool_name, result_payload)}",
-                }
             )
         raise AgentModelError(
             f"Agent exceeded max steps ({self._max_steps}) without returning a final answer."
@@ -1184,88 +1440,14 @@ class AgentRunner(AgentRunnerOutputMixin):
                 phase="analysis",
                 message="VIN found.",
             )
-        if purpose != "board_control" and self._should_load_card_autofill_related_cards(facts):
-            related_args = {
-                "query": self._related_cards_query(facts),
-                "include_archived": True,
-                "limit": 6,
-            }
-            related_payload = self._tools.execute("search_cards", related_args)
-            tool_calls += 1
-            self._record_action(
-                task_id=task["id"],
-                run_id=run_id,
-                step=tool_calls,
-                tool_name="search_cards",
-                args=related_args,
-                reason="Collect short board context for the same VIN or vehicle before autofill",
-                result_payload=related_payload,
-            )
-            facts["related_cards"] = self._extract_related_cards_from_search(
-                card_id=card_id,
-                payload=self._response_data(related_payload),
-            )
-            if facts["related_cards"]:
-                self._record_log_action(
-                    task_id=task["id"],
-                    run_id=run_id,
-                    step=tool_calls,
-                    level="INFO",
-                    phase="analysis",
-                    message=f"Контекст доски: найдено связанных карточек — {len(facts['related_cards'])}.",
-                )
-                related_vehicle_profile = self._best_related_vehicle_profile(facts)
-                if self._related_vehicle_profile_is_sparse(related_vehicle_profile):
-                    related_card_id = str(
-                        facts["related_cards"][0].get("id", "")
-                        if isinstance(facts["related_cards"][0], dict)
-                        else ""
-                    ).strip()
-                    if related_card_id:
-                        related_context_args = {"card_id": related_card_id}
-                        related_context_payload = self._run_autofill_tool(
-                            task_id=task["id"],
-                            run_id=run_id,
-                            step=tool_calls + 1,
-                            tool_name="get_card_context",
-                            args=related_context_args,
-                            reason="Load the full same-VIN card context when search results are sparse",
-                        )
-                        tool_calls += 1
-                        if related_context_payload is not None:
-                            self._record_log_action(
-                                task_id=task["id"],
-                                run_id=run_id,
-                                step=tool_calls,
-                                level="INFO",
-                                phase="analysis",
-                                message="Выгружен полный контекст связанной same-VIN карточки.",
-                            )
-                            related_context_data = self._response_data(related_context_payload)
-                            related_context_card = (
-                                related_context_data.get("card")
-                                if isinstance(related_context_data.get("card"), dict)
-                                else related_context_data
-                            )
-                            related_profile = (
-                                related_context_card.get("vehicle_profile_compact")
-                                if isinstance(related_context_card, dict)
-                                and isinstance(
-                                    related_context_card.get("vehicle_profile_compact"), dict
-                                )
-                                else {}
-                            )
-                            if not related_profile and isinstance(related_context_card, dict):
-                                related_profile = (
-                                    related_context_card.get("vehicle_profile")
-                                    if isinstance(related_context_card.get("vehicle_profile"), dict)
-                                    else {}
-                                )
-                            if isinstance(related_profile, dict) and related_profile:
-                                facts["related_vehicle_profile"] = dict(related_profile)
-            plan_payload = (
-                facts.get("autofill_plan") if isinstance(facts.get("autofill_plan"), dict) else {}
-            )
+        tool_calls = self._load_card_autofill_related_context(
+            task=task,
+            run_id=run_id,
+            card_id=card_id,
+            purpose=purpose,
+            facts=facts,
+            tool_calls=tool_calls,
+        )
         plan_payload = (
             facts.get("autofill_plan") if isinstance(facts.get("autofill_plan"), dict) else {}
         )
@@ -1299,6 +1481,17 @@ class AgentRunner(AgentRunnerOutputMixin):
         scenario_followup_requested = False
         scenario_followup_reason = ""
         scenario_feedback: list[dict[str, Any]] = []
+        scenario_state = {
+            "tool_calls": tool_calls,
+            "orchestration_results": orchestration_results,
+            "patch_result": patch_result,
+            "tool_results": tool_results,
+            "scenario_feedback": scenario_feedback,
+            "scenario_warnings": scenario_warnings,
+            "scenario_followup_requested": scenario_followup_requested,
+            "scenario_followup_reason": scenario_followup_reason,
+            "facts": facts,
+        }
         for scenario in scenarios:
             scenario_name = str(scenario.get("name", "") or "").strip().lower()
             executor = self._scenario_registry.get(scenario_name)
@@ -1315,65 +1508,20 @@ class AgentRunner(AgentRunnerOutputMixin):
                     runtime=self,
                 )
             )
-            scenario_tool_calls = self._safe_non_negative_int(scenario_result.tool_calls_used)
-            scenario_notes = self._safe_text_list(scenario_result.notes, limit=5)
-            scenario_warnings_normalized = self._safe_text_list(scenario_result.warnings, limit=5)
-            tool_calls += scenario_tool_calls
-            if isinstance(scenario_result.orchestration_updates, dict):
-                orchestration_results.update(scenario_result.orchestration_updates)
-            if isinstance(scenario_result.facts_updates, dict):
-                facts.update(scenario_result.facts_updates)
-            if isinstance(scenario_result.tool_results, list):
-                tool_results.extend(
-                    item for item in scenario_result.tool_results if isinstance(item, ToolResult)
-                )
-            scenario_feedback.append(
-                {
-                    "scenario_id": scenario_name,
-                    "status": str(scenario_result.status or "").strip(),
-                    "tool_calls_used": scenario_tool_calls,
-                    "needs_followup": bool(scenario_result.needs_followup),
-                    "followup_reason": str(
-                        getattr(scenario_result, "followup_reason", "") or ""
-                    ).strip(),
-                    "notes": scenario_notes,
-                    "warnings": scenario_warnings_normalized,
-                }
+            self._apply_card_autofill_scenario_result(
+                task_id=task["id"],
+                run_id=run_id,
+                scenario_name=scenario_name,
+                scenario_result=scenario_result,
+                state=scenario_state,
             )
-            if scenario_notes:
-                for note_text in scenario_notes[:3]:
-                    self._record_log_action(
-                        task_id=task["id"],
-                        run_id=run_id,
-                        step=max(tool_calls, 1),
-                        level="INFO",
-                        phase="analysis",
-                        message=note_text,
-                    )
-            if scenario_warnings_normalized:
-                scenario_warnings.extend(scenario_warnings_normalized)
-                for warning_text in scenario_warnings_normalized[:3]:
-                    self._record_log_action(
-                        task_id=task["id"],
-                        run_id=run_id,
-                        step=max(tool_calls, 1),
-                        level="WARN",
-                        phase="analysis",
-                        message=warning_text,
-                    )
-            if scenario_result.needs_followup:
-                scenario_followup_requested = True
-                if not scenario_followup_reason:
-                    scenario_followup_reason = str(
-                        getattr(scenario_result, "followup_reason", "") or ""
-                    ).strip()
-            if scenario_result.patch:
-                normalized_patch = normalize_card_enrichment_patch(scenario_result.patch)
-                if normalized_patch:
-                    patch_result = self._merge_patch_results(
-                        patch_result,
-                        PatchResult(card_patch=normalized_patch),
-                    )
+        tool_calls = scenario_state["tool_calls"]
+        orchestration_results = scenario_state["orchestration_results"]
+        patch_result = scenario_state["patch_result"]
+        scenario_feedback = scenario_state["scenario_feedback"]
+        scenario_warnings = scenario_state["scenario_warnings"]
+        scenario_followup_requested = scenario_state["scenario_followup_requested"]
+        scenario_followup_reason = scenario_state["scenario_followup_reason"]
         facts["_scenario_feedback"] = scenario_feedback
         update_args, display_sections = self._compose_card_autofill_update(
             card_id=card_id,
@@ -1653,6 +1801,102 @@ class AgentRunner(AgentRunnerOutputMixin):
             state["repair_order"] = dict(card.get("repair_order") or {})
         return state
 
+    def _verify_contract_write_card_update(
+        self,
+        *,
+        before_card: dict[str, Any],
+        after_card: dict[str, Any],
+        patch: PatchResult,
+    ) -> tuple[list[str], list[str], bool, bool, int]:
+        warnings: list[str] = []
+        fields_changed: list[str] = []
+        manual_fields_preserved = True
+        expected_targets = len(patch.card_patch)
+        for field_name, expected_value in patch.card_patch.items():
+            if field_name == "vehicle_profile" and isinstance(expected_value, dict):
+                actual_profile = (
+                    after_card.get("vehicle_profile")
+                    if isinstance(after_card.get("vehicle_profile"), dict)
+                    else {}
+                )
+                if all(
+                    self._values_equal(actual_profile.get(key), value)
+                    for key, value in expected_value.items()
+                ):
+                    fields_changed.append("vehicle_profile")
+                else:
+                    warnings.append("vehicle_profile verification mismatch")
+                continue
+            actual_value = after_card.get(field_name)
+            if field_name == "description" and self._description_patch_applied(
+                actual_value, expected_value
+            ):
+                fields_changed.append(field_name)
+            elif self._values_equal(actual_value, expected_value):
+                fields_changed.append(field_name)
+            else:
+                warnings.append(f"{field_name} verification mismatch")
+        if "description" not in patch.card_patch:
+            previous_description = str(before_card.get("description", "") or "").strip()
+            current_description = str(after_card.get("description", "") or "").strip()
+            if previous_description != current_description:
+                manual_fields_preserved = False
+                warnings.append("description changed outside planned patch")
+        scenario_completed = (len(fields_changed) == expected_targets) or patch.is_empty()
+        return (
+            fields_changed,
+            warnings,
+            manual_fields_preserved,
+            scenario_completed,
+            expected_targets,
+        )
+
+    def _verify_contract_write_repair_order(
+        self,
+        *,
+        after_repair_order: dict[str, Any],
+        patch: PatchResult,
+    ) -> tuple[list[str], list[str], bool, int]:
+        warnings: list[str] = []
+        fields_changed: list[str] = []
+        expected_targets = len(patch.repair_order_patch)
+        for field_name, expected_value in patch.repair_order_patch.items():
+            if self._values_equal(after_repair_order.get(field_name), expected_value):
+                fields_changed.append(field_name)
+            else:
+                warnings.append(f"repair_order.{field_name} verification mismatch")
+        scenario_completed = len(fields_changed) == expected_targets
+        return fields_changed, warnings, scenario_completed, expected_targets
+
+    def _verify_contract_write_repair_order_rows(
+        self,
+        *,
+        tool_name: str,
+        after_repair_order: dict[str, Any],
+        patch: PatchResult,
+    ) -> tuple[list[str], list[str], bool, int]:
+        warnings: list[str] = []
+        fields_changed: list[str] = []
+        expected_rows = (
+            patch.repair_order_works
+            if tool_name == "replace_repair_order_works"
+            else patch.repair_order_materials
+        )
+        expected_targets = 1 if expected_rows else 0
+        actual_rows = after_repair_order.get(
+            "works" if tool_name == "replace_repair_order_works" else "materials"
+        )
+        if isinstance(actual_rows, list) and len(actual_rows) == len(expected_rows):
+            fields_changed.append(
+                "repair_order_works"
+                if tool_name == "replace_repair_order_works"
+                else "repair_order_materials"
+            )
+        else:
+            warnings.append(f"{tool_name} verification mismatch")
+        scenario_completed = len(fields_changed) == expected_targets
+        return fields_changed, warnings, scenario_completed, expected_targets
+
     def _verify_contract_write(
         self,
         *,
@@ -1676,65 +1920,29 @@ class AgentRunner(AgentRunnerOutputMixin):
             else {}
         )
         if tool_name == "update_card":
-            expected_targets = len(patch.card_patch)
-            for field_name, expected_value in patch.card_patch.items():
-                if field_name == "vehicle_profile" and isinstance(expected_value, dict):
-                    actual_profile = (
-                        after_card.get("vehicle_profile")
-                        if isinstance(after_card.get("vehicle_profile"), dict)
-                        else {}
-                    )
-                    if all(
-                        self._values_equal(actual_profile.get(key), value)
-                        for key, value in expected_value.items()
-                    ):
-                        fields_changed.append("vehicle_profile")
-                    else:
-                        warnings.append("vehicle_profile verification mismatch")
-                    continue
-                actual_value = after_card.get(field_name)
-                if field_name == "description" and self._description_patch_applied(
-                    actual_value, expected_value
-                ):
-                    fields_changed.append(field_name)
-                elif self._values_equal(actual_value, expected_value):
-                    fields_changed.append(field_name)
-                else:
-                    warnings.append(f"{field_name} verification mismatch")
-            if "description" not in patch.card_patch:
-                previous_description = str(before_card.get("description", "") or "").strip()
-                current_description = str(after_card.get("description", "") or "").strip()
-                if previous_description != current_description:
-                    manual_fields_preserved = False
-                    warnings.append("description changed outside planned patch")
-            scenario_completed = (len(fields_changed) == expected_targets) or patch.is_empty()
+            (
+                fields_changed,
+                warnings,
+                manual_fields_preserved,
+                scenario_completed,
+                expected_targets,
+            ) = self._verify_contract_write_card_update(
+                before_card=before_card, after_card=after_card, patch=patch
+            )
         elif tool_name == "update_repair_order":
-            expected_targets = len(patch.repair_order_patch)
-            for field_name, expected_value in patch.repair_order_patch.items():
-                if self._values_equal(after_repair_order.get(field_name), expected_value):
-                    fields_changed.append(field_name)
-                else:
-                    warnings.append(f"repair_order.{field_name} verification mismatch")
-            scenario_completed = len(fields_changed) == expected_targets
-        elif tool_name in {"replace_repair_order_works", "replace_repair_order_materials"}:
-            expected_rows = (
-                patch.repair_order_works
-                if tool_name == "replace_repair_order_works"
-                else patch.repair_order_materials
-            )
-            expected_targets = 1 if expected_rows else 0
-            actual_rows = after_repair_order.get(
-                "works" if tool_name == "replace_repair_order_works" else "materials"
-            )
-            if isinstance(actual_rows, list) and len(actual_rows) == len(expected_rows):
-                fields_changed.append(
-                    "repair_order_works"
-                    if tool_name == "replace_repair_order_works"
-                    else "repair_order_materials"
+            fields_changed, warnings, scenario_completed, expected_targets = (
+                self._verify_contract_write_repair_order(
+                    after_repair_order=after_repair_order, patch=patch
                 )
-            else:
-                warnings.append(f"{tool_name} verification mismatch")
-            scenario_completed = len(fields_changed) == expected_targets
+            )
+        elif tool_name in {"replace_repair_order_works", "replace_repair_order_materials"}:
+            fields_changed, warnings, scenario_completed, expected_targets = (
+                self._verify_contract_write_repair_order_rows(
+                    tool_name=tool_name,
+                    after_repair_order=after_repair_order,
+                    patch=patch,
+                )
+            )
         else:
             scenario_completed = False
         non_target_card_fields = {"title", "description", "tags", "vehicle"} - set(patch.card_patch)
@@ -1832,6 +2040,184 @@ class AgentRunner(AgentRunnerOutputMixin):
             followup_reason=merged_reason,
         )
 
+    def _verify_card_autofill_goal_vin_checks(
+        self,
+        *,
+        state: dict[str, Any],
+        plan: PlanResult,
+        facts: dict[str, Any],
+    ) -> None:
+        if (
+            "vin_enrichment" not in state["scenario_chain"]
+            or not str(facts.get("vin", "") or "").strip()
+        ):
+            return
+        vin_status = str(facts.get("vin_decode_status", "") or "").strip().lower()
+        if vin_status == "insufficient":
+            state["warnings"].append("vin enrichment blocked by sparse decoder output")
+            state["scenario_completed"] = False
+            state["needs_followup"] = bool(plan.followup_policy.get("enabled"))
+            state["followup_reason"] = state["followup_reason"] or "vin_decode_insufficient"
+            state["outcome_state"] = "blocked_missing_source_data"
+        elif vin_status == "failed":
+            state["warnings"].append(
+                "vin enrichment failed before confirmed vehicle facts were produced"
+            )
+            state["scenario_completed"] = False
+            state["needs_followup"] = bool(plan.followup_policy.get("enabled"))
+            state["followup_reason"] = state["followup_reason"] or "vin_decode_failed"
+            state["outcome_state"] = "blocked_missing_source_data"
+
+    def _verify_card_autofill_goal_parts_checks(
+        self,
+        *,
+        state: dict[str, Any],
+        plan: PlanResult,
+        facts: dict[str, Any],
+        orchestration_results: dict[str, Any],
+        verify_applied_ok: bool,
+    ) -> None:
+        if "parts_lookup" not in state["scenario_chain"]:
+            return
+        part_lookup = orchestration_results.get("find_part_numbers")
+        parts_evidence = self._scenario_evidence(facts, "parts_lookup")
+        if parts_evidence["trigger_found"] and not isinstance(part_lookup, dict):
+            state["warnings"].append("parts lookup did not produce an external result")
+            state["scenario_completed"] = False
+            state["needs_followup"] = bool(plan.followup_policy.get("enabled"))
+            state["followup_reason"] = state["followup_reason"] or "parts_lookup_failed"
+            state["outcome_state"] = (
+                "completed_partial" if verify_applied_ok else "blocked_missing_source_data"
+            )
+        elif isinstance(part_lookup, dict) and not self._part_lookup_has_useful_result(part_lookup):
+            state["warnings"].append("parts lookup completed without reliable candidate parts")
+            state["scenario_completed"] = False
+            state["needs_followup"] = bool(plan.followup_policy.get("enabled"))
+            state["followup_reason"] = state["followup_reason"] or "parts_lookup_insufficient"
+            state["outcome_state"] = (
+                "completed_partial" if verify_applied_ok else "blocked_missing_source_data"
+            )
+
+    def _verify_card_autofill_goal_dtc_checks(
+        self,
+        *,
+        state: dict[str, Any],
+        plan: PlanResult,
+        facts: dict[str, Any],
+        orchestration_results: dict[str, Any],
+        verify_applied_ok: bool,
+    ) -> None:
+        if "dtc_lookup" not in state["scenario_chain"]:
+            return
+        dtc_lookup = orchestration_results.get("decode_dtc")
+        dtc_evidence = self._scenario_evidence(facts, "dtc_lookup")
+        if dtc_evidence["trigger_found"] and not isinstance(dtc_lookup, dict):
+            state["warnings"].append("dtc lookup did not produce an external result")
+            state["scenario_completed"] = False
+            state["needs_followup"] = bool(plan.followup_policy.get("enabled"))
+            state["followup_reason"] = state["followup_reason"] or "dtc_lookup_failed"
+            state["outcome_state"] = (
+                "completed_partial" if verify_applied_ok else "blocked_missing_source_data"
+            )
+        elif isinstance(dtc_lookup, dict) and not self._search_payload_has_useful_result(
+            dtc_lookup
+        ):
+            state["warnings"].append("dtc lookup completed without a reliable diagnostic excerpt")
+            state["scenario_completed"] = False
+            state["needs_followup"] = bool(plan.followup_policy.get("enabled"))
+            state["followup_reason"] = state["followup_reason"] or "dtc_lookup_insufficient"
+            state["outcome_state"] = (
+                "completed_partial" if verify_applied_ok else "blocked_missing_source_data"
+            )
+
+    def _verify_card_autofill_goal_fault_checks(
+        self,
+        *,
+        state: dict[str, Any],
+        plan: PlanResult,
+        facts: dict[str, Any],
+        orchestration_results: dict[str, Any],
+        verify_applied_ok: bool,
+    ) -> None:
+        if "fault_research" not in state["scenario_chain"]:
+            return
+        fault_lookup = orchestration_results.get("search_fault_info")
+        fault_evidence = self._scenario_evidence(facts, "fault_research")
+        if (
+            fault_evidence["trigger_found"]
+            and fault_evidence["confidence_enough"]
+            and not isinstance(fault_lookup, dict)
+            and not facts.get("waiting_state")
+        ):
+            state["warnings"].append("fault research did not produce an external result")
+            state["scenario_completed"] = False
+            state["needs_followup"] = bool(plan.followup_policy.get("enabled"))
+            state["followup_reason"] = state["followup_reason"] or "fault_research_failed"
+            state["outcome_state"] = (
+                "completed_partial" if verify_applied_ok else "blocked_missing_source_data"
+            )
+        elif isinstance(fault_lookup, dict) and not self._search_payload_has_useful_result(
+            fault_lookup
+        ):
+            state["warnings"].append("fault research completed without a reliable symptom result")
+            state["scenario_completed"] = False
+            state["needs_followup"] = bool(plan.followup_policy.get("enabled"))
+            state["followup_reason"] = state["followup_reason"] or "fault_research_insufficient"
+            state["outcome_state"] = (
+                "completed_partial" if verify_applied_ok else "blocked_missing_source_data"
+            )
+
+    def _verify_card_autofill_goal_maintenance_checks(
+        self,
+        *,
+        state: dict[str, Any],
+        plan: PlanResult,
+        facts: dict[str, Any],
+        orchestration_results: dict[str, Any],
+        verify_applied_ok: bool,
+    ) -> None:
+        if "maintenance_lookup" not in state["scenario_chain"]:
+            return
+        maintenance_lookup = orchestration_results.get("estimate_maintenance")
+        maintenance_evidence = self._scenario_evidence(facts, "maintenance_lookup")
+        if maintenance_evidence["trigger_found"] and not isinstance(maintenance_lookup, dict):
+            state["warnings"].append("maintenance lookup did not produce an external result")
+            state["scenario_completed"] = False
+            state["needs_followup"] = bool(plan.followup_policy.get("enabled"))
+            state["followup_reason"] = state["followup_reason"] or "maintenance_lookup_failed"
+            state["outcome_state"] = (
+                "completed_partial" if verify_applied_ok else "blocked_missing_source_data"
+            )
+        elif isinstance(
+            maintenance_lookup, dict
+        ) and not self._maintenance_lookup_has_useful_result(maintenance_lookup):
+            state["warnings"].append("maintenance lookup completed without a usable service plan")
+            state["scenario_completed"] = False
+            state["needs_followup"] = bool(plan.followup_policy.get("enabled"))
+            state["followup_reason"] = state["followup_reason"] or "maintenance_lookup_insufficient"
+            state["outcome_state"] = (
+                "completed_partial" if verify_applied_ok else "blocked_missing_source_data"
+            )
+
+    def _verify_card_autofill_goal_primary_adjustments(
+        self,
+        *,
+        state: dict[str, Any],
+        orchestration_results: dict[str, Any],
+    ) -> None:
+        if (
+            state["primary"] == "parts_lookup"
+            and orchestration_results.get("find_part_numbers")
+            and state["outcome_state"] == "completed_no_write"
+        ):
+            state["outcome_state"] = "completed_partial"
+        if (
+            state["primary"] == "fault_research"
+            and orchestration_results.get("search_fault_info")
+            and state["outcome_state"] == "completed_no_write"
+        ):
+            state["outcome_state"] = "completed_partial"
+
     def _verify_card_autofill_goal(
         self,
         *,
@@ -1840,144 +2226,61 @@ class AgentRunner(AgentRunnerOutputMixin):
         facts: dict[str, Any],
         orchestration_results: dict[str, Any],
     ) -> VerifyResult:
-        warnings = list(verify.warnings)
-        followup_reason = str(verify.followup_reason or "").strip()
-        outcome_state = str(verify.outcome_state or "").strip() or "unknown"
-        scenario_completed = bool(verify.scenario_completed)
-        needs_followup = bool(verify.needs_followup)
-        scenario_chain = [
-            str(item or "").strip().lower()
-            for item in plan.scenario_chain
-            if str(item or "").strip()
-        ]
-        primary = str(plan.scenario_id or "").strip().lower()
-        if "vin_enrichment" in scenario_chain and str(facts.get("vin", "") or "").strip():
-            vin_status = str(facts.get("vin_decode_status", "") or "").strip().lower()
-            if vin_status == "insufficient":
-                warnings.append("vin enrichment blocked by sparse decoder output")
-                scenario_completed = False
-                needs_followup = bool(plan.followup_policy.get("enabled"))
-                followup_reason = followup_reason or "vin_decode_insufficient"
-                outcome_state = "blocked_missing_source_data"
-            elif vin_status == "failed":
-                warnings.append(
-                    "vin enrichment failed before confirmed vehicle facts were produced"
-                )
-                scenario_completed = False
-                needs_followup = bool(plan.followup_policy.get("enabled"))
-                followup_reason = followup_reason or "vin_decode_failed"
-                outcome_state = "blocked_missing_source_data"
-        if "parts_lookup" in scenario_chain:
-            part_lookup = orchestration_results.get("find_part_numbers")
-            parts_evidence = self._scenario_evidence(facts, "parts_lookup")
-            if parts_evidence["trigger_found"] and not isinstance(part_lookup, dict):
-                warnings.append("parts lookup did not produce an external result")
-                scenario_completed = False
-                needs_followup = bool(plan.followup_policy.get("enabled"))
-                followup_reason = followup_reason or "parts_lookup_failed"
-                outcome_state = (
-                    "completed_partial" if verify.applied_ok else "blocked_missing_source_data"
-                )
-            elif isinstance(part_lookup, dict) and not self._part_lookup_has_useful_result(
-                part_lookup
-            ):
-                warnings.append("parts lookup completed without reliable candidate parts")
-                scenario_completed = False
-                needs_followup = bool(plan.followup_policy.get("enabled"))
-                followup_reason = followup_reason or "parts_lookup_insufficient"
-                outcome_state = (
-                    "completed_partial" if verify.applied_ok else "blocked_missing_source_data"
-                )
-        if (
-            primary == "parts_lookup"
-            and orchestration_results.get("find_part_numbers")
-            and outcome_state == "completed_no_write"
-        ):
-            outcome_state = "completed_partial"
-        if "dtc_lookup" in scenario_chain:
-            dtc_lookup = orchestration_results.get("decode_dtc")
-            dtc_evidence = self._scenario_evidence(facts, "dtc_lookup")
-            if dtc_evidence["trigger_found"] and not isinstance(dtc_lookup, dict):
-                warnings.append("dtc lookup did not produce an external result")
-                scenario_completed = False
-                needs_followup = bool(plan.followup_policy.get("enabled"))
-                followup_reason = followup_reason or "dtc_lookup_failed"
-                outcome_state = (
-                    "completed_partial" if verify.applied_ok else "blocked_missing_source_data"
-                )
-            elif isinstance(dtc_lookup, dict) and not self._search_payload_has_useful_result(
-                dtc_lookup
-            ):
-                warnings.append("dtc lookup completed without a reliable diagnostic excerpt")
-                scenario_completed = False
-                needs_followup = bool(plan.followup_policy.get("enabled"))
-                followup_reason = followup_reason or "dtc_lookup_insufficient"
-                outcome_state = (
-                    "completed_partial" if verify.applied_ok else "blocked_missing_source_data"
-                )
-        if "fault_research" in scenario_chain:
-            fault_lookup = orchestration_results.get("search_fault_info")
-            fault_evidence = self._scenario_evidence(facts, "fault_research")
-            if (
-                fault_evidence["trigger_found"]
-                and fault_evidence["confidence_enough"]
-                and not isinstance(fault_lookup, dict)
-                and not facts.get("waiting_state")
-            ):
-                warnings.append("fault research did not produce an external result")
-                scenario_completed = False
-                needs_followup = bool(plan.followup_policy.get("enabled"))
-                followup_reason = followup_reason or "fault_research_failed"
-                outcome_state = (
-                    "completed_partial" if verify.applied_ok else "blocked_missing_source_data"
-                )
-            elif isinstance(fault_lookup, dict) and not self._search_payload_has_useful_result(
-                fault_lookup
-            ):
-                warnings.append("fault research completed without a reliable symptom result")
-                scenario_completed = False
-                needs_followup = bool(plan.followup_policy.get("enabled"))
-                followup_reason = followup_reason or "fault_research_insufficient"
-                outcome_state = (
-                    "completed_partial" if verify.applied_ok else "blocked_missing_source_data"
-                )
-        if "maintenance_lookup" in scenario_chain:
-            maintenance_lookup = orchestration_results.get("estimate_maintenance")
-            maintenance_evidence = self._scenario_evidence(facts, "maintenance_lookup")
-            if maintenance_evidence["trigger_found"] and not isinstance(maintenance_lookup, dict):
-                warnings.append("maintenance lookup did not produce an external result")
-                scenario_completed = False
-                needs_followup = bool(plan.followup_policy.get("enabled"))
-                followup_reason = followup_reason or "maintenance_lookup_failed"
-                outcome_state = (
-                    "completed_partial" if verify.applied_ok else "blocked_missing_source_data"
-                )
-            elif isinstance(
-                maintenance_lookup, dict
-            ) and not self._maintenance_lookup_has_useful_result(maintenance_lookup):
-                warnings.append("maintenance lookup completed without a usable service plan")
-                scenario_completed = False
-                needs_followup = bool(plan.followup_policy.get("enabled"))
-                followup_reason = followup_reason or "maintenance_lookup_insufficient"
-                outcome_state = (
-                    "completed_partial" if verify.applied_ok else "blocked_missing_source_data"
-                )
-        if (
-            primary == "fault_research"
-            and orchestration_results.get("search_fault_info")
-            and outcome_state == "completed_no_write"
-        ):
-            outcome_state = "completed_partial"
+        state = {
+            "warnings": list(verify.warnings),
+            "followup_reason": str(verify.followup_reason or "").strip(),
+            "outcome_state": str(verify.outcome_state or "").strip() or "unknown",
+            "scenario_completed": bool(verify.scenario_completed),
+            "needs_followup": bool(verify.needs_followup),
+            "scenario_chain": [
+                str(item or "").strip().lower()
+                for item in plan.scenario_chain
+                if str(item or "").strip()
+            ],
+            "primary": str(plan.scenario_id or "").strip().lower(),
+        }
+        self._verify_card_autofill_goal_vin_checks(state=state, plan=plan, facts=facts)
+        self._verify_card_autofill_goal_parts_checks(
+            state=state,
+            plan=plan,
+            facts=facts,
+            orchestration_results=orchestration_results,
+            verify_applied_ok=verify.applied_ok,
+        )
+        self._verify_card_autofill_goal_dtc_checks(
+            state=state,
+            plan=plan,
+            facts=facts,
+            orchestration_results=orchestration_results,
+            verify_applied_ok=verify.applied_ok,
+        )
+        self._verify_card_autofill_goal_fault_checks(
+            state=state,
+            plan=plan,
+            facts=facts,
+            orchestration_results=orchestration_results,
+            verify_applied_ok=verify.applied_ok,
+        )
+        self._verify_card_autofill_goal_maintenance_checks(
+            state=state,
+            plan=plan,
+            facts=facts,
+            orchestration_results=orchestration_results,
+            verify_applied_ok=verify.applied_ok,
+        )
+        self._verify_card_autofill_goal_primary_adjustments(
+            state=state, orchestration_results=orchestration_results
+        )
         return VerifyResult(
             applied_ok=bool(verify.applied_ok),
             fields_changed=list(verify.fields_changed),
             manual_fields_preserved=bool(verify.manual_fields_preserved),
-            scenario_completed=scenario_completed,
-            needs_followup=needs_followup,
-            outcome_state=outcome_state,
-            warnings=warnings,
+            scenario_completed=bool(state["scenario_completed"]),
+            needs_followup=bool(state["needs_followup"]),
+            outcome_state=str(state["outcome_state"]),
+            warnings=list(state["warnings"]),
             context_ref=verify.context_ref,
-            followup_reason=followup_reason,
+            followup_reason=str(state["followup_reason"]),
         )
 
     def _part_lookup_has_useful_result(self, payload: dict[str, Any]) -> bool:
@@ -3233,215 +3536,178 @@ class AgentRunner(AgentRunnerOutputMixin):
             scope_payload["error"] = str(exc)
         return "Execution scope:\n" + _json_dumps(scope_payload, indent=2)
 
-    def _compose_card_autofill_update(
-        self,
-        *,
-        card_id: str,
-        facts: dict[str, Any],
-        orchestration_results: dict[str, Any],
-    ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
-        card = facts["card"]
-        current_description = str(card.get("description", "") or "").strip()
-        decoded_vin = orchestration_results.get("decode_vin")
-        vin_decode_status = str(facts.get("vin_decode_status", "") or "").strip().lower()
-        related_vehicle_profile = self._best_related_vehicle_profile(facts)
-        related_vehicle_facts = self._related_vehicle_profile_to_vin_facts(related_vehicle_profile)
-        resolved_vin_payload = dict(related_vehicle_facts) if related_vehicle_facts else {}
-        for key, value in decoded_vin.items() if isinstance(decoded_vin, dict) else []:
-            if key == "engine_power_hp":
-                if value not in (None, "", 0) and not resolved_vin_payload.get(key):
-                    resolved_vin_payload[key] = value
-                continue
-            if value and not str(resolved_vin_payload.get(key, "") or "").strip():
-                resolved_vin_payload[key] = value
-        effective_vin_status = vin_decode_status
-        if related_vehicle_facts and vin_decode_status != "success":
-            effective_vin_status = "success"
-            facts["vin_decode_status"] = "success"
-        vehicle_patch = self._autofill_vehicle_patch(
-            facts=facts,
-            decoded_vin=resolved_vin_payload,
-            vin_decode_status=effective_vin_status,
-            fallback_vehicle_profile=related_vehicle_profile,
+    def _compose_card_autofill_vin_vehicle_bits(
+        self, resolved_vin_payload: dict[str, Any], vehicle_patch: dict[str, Any]
+    ) -> list[str]:
+        bits: list[str] = []
+        if resolved_vin_payload.get("make"):
+            bits.append(str(resolved_vin_payload.get("make", "") or "").strip())
+        if resolved_vin_payload.get("model"):
+            bits.append(str(resolved_vin_payload.get("model", "") or "").strip())
+        if resolved_vin_payload.get("model_year"):
+            bits.append(str(resolved_vin_payload.get("model_year", "") or "").strip())
+        if resolved_vin_payload.get("engine_model") and "engine_model" in vehicle_patch:
+            bits.append(f"двигатель: {resolved_vin_payload.get('engine_model')}")
+        if resolved_vin_payload.get("engine_power_hp") and "engine_power_hp" in vehicle_patch:
+            bits.append(f"мощность: {resolved_vin_payload.get('engine_power_hp')} л.с.")
+        gearbox_text = (
+            resolved_vin_payload.get("gearbox_model")
+            or resolved_vin_payload.get("transmission")
+            or resolved_vin_payload.get("gearbox_type")
         )
-        vehicle_label_patch = self._autofill_vehicle_label_patch(
-            facts=facts,
-            decoded_vin=resolved_vin_payload,
-            vin_decode_status=effective_vin_status,
-            fallback_vehicle_profile=related_vehicle_profile,
-        )
-        ai_lines: list[str] = []
-        if effective_vin_status == "success" and isinstance(resolved_vin_payload, dict):
-            vin_bits: list[str] = []
-            if resolved_vin_payload.get("make"):
-                vin_bits.append(str(resolved_vin_payload.get("make", "") or "").strip())
-            if resolved_vin_payload.get("model"):
-                vin_bits.append(str(resolved_vin_payload.get("model", "") or "").strip())
-            if resolved_vin_payload.get("model_year"):
-                vin_bits.append(str(resolved_vin_payload.get("model_year", "") or "").strip())
-            if resolved_vin_payload.get("engine_model") and "engine_model" in vehicle_patch:
-                vin_bits.append(f"двигатель: {resolved_vin_payload.get('engine_model')}")
-            if resolved_vin_payload.get("engine_power_hp") and "engine_power_hp" in vehicle_patch:
-                vin_bits.append(f"мощность: {resolved_vin_payload.get('engine_power_hp')} л.с.")
-            gearbox_text = (
+        if gearbox_text and "gearbox_model" in vehicle_patch:
+            bits.append(f"КПП: {gearbox_text}")
+        if resolved_vin_payload.get("drive_type") and "drivetrain" in vehicle_patch:
+            bits.append(f"привод: {resolved_vin_payload.get('drive_type')}")
+        if resolved_vin_payload.get("plant_country"):
+            bits.append(f"сборка: {resolved_vin_payload.get('plant_country')}")
+        return bits
+
+    def _compose_card_autofill_vin_web_bits(
+        self, resolved_vin_payload: dict[str, Any]
+    ) -> list[str]:
+        web_enrichment_fields = [
+            str(item or "").strip()
+            for item in (
+                resolved_vin_payload.get("web_enrichment_fields")
+                if isinstance(resolved_vin_payload.get("web_enrichment_fields"), list)
+                else []
+            )
+            if str(item or "").strip()
+        ]
+        if not web_enrichment_fields:
+            return []
+        web_bits: list[str] = []
+        for field_name in web_enrichment_fields:
+            if field_name == "engine_model" and resolved_vin_payload.get("engine_model"):
+                web_bits.append(f"двигатель: {resolved_vin_payload.get('engine_model')}")
+            elif field_name == "engine_power_hp" and resolved_vin_payload.get("engine_power_hp"):
+                web_bits.append(f"мощность: {resolved_vin_payload.get('engine_power_hp')} л.с.")
+            elif field_name == "gearbox_model" and (
                 resolved_vin_payload.get("gearbox_model")
                 or resolved_vin_payload.get("transmission")
                 or resolved_vin_payload.get("gearbox_type")
-            )
-            if gearbox_text and "gearbox_model" in vehicle_patch:
-                vin_bits.append(f"КПП: {gearbox_text}")
-            if resolved_vin_payload.get("drive_type") and "drivetrain" in vehicle_patch:
-                vin_bits.append(f"привод: {resolved_vin_payload.get('drive_type')}")
-            if resolved_vin_payload.get("plant_country"):
-                vin_bits.append(f"сборка: {resolved_vin_payload.get('plant_country')}")
-            if vin_bits:
-                ai_lines.append("По VIN подтверждено: " + ", ".join(vin_bits) + ".")
-            web_enrichment_fields = [
-                str(item or "").strip()
-                for item in (
-                    resolved_vin_payload.get("web_enrichment_fields")
-                    if isinstance(resolved_vin_payload.get("web_enrichment_fields"), list)
-                    else []
-                )
-                if str(item or "").strip()
-            ]
-            if web_enrichment_fields:
-                web_bits: list[str] = []
-                for field_name in web_enrichment_fields:
-                    if field_name == "engine_model" and resolved_vin_payload.get("engine_model"):
-                        web_bits.append(f"двигатель: {resolved_vin_payload.get('engine_model')}")
-                    elif field_name == "engine_power_hp" and resolved_vin_payload.get(
-                        "engine_power_hp"
-                    ):
-                        web_bits.append(
-                            f"мощность: {resolved_vin_payload.get('engine_power_hp')} л.с."
-                        )
-                    elif field_name == "gearbox_model" and (
-                        resolved_vin_payload.get("gearbox_model")
-                        or resolved_vin_payload.get("transmission")
-                        or resolved_vin_payload.get("gearbox_type")
-                    ):
-                        web_bits.append(
-                            f"КПП: {resolved_vin_payload.get('gearbox_model') or resolved_vin_payload.get('transmission') or resolved_vin_payload.get('gearbox_type')}"
-                        )
-                    elif field_name == "drive_type" and resolved_vin_payload.get("drive_type"):
-                        web_bits.append(f"привод: {resolved_vin_payload.get('drive_type')}")
-                    elif field_name == "make_display" and resolved_vin_payload.get("make"):
-                        web_bits.append(f"марка: {resolved_vin_payload.get('make')}")
-                    elif field_name == "model_display" and resolved_vin_payload.get("model"):
-                        web_bits.append(f"модель: {resolved_vin_payload.get('model')}")
-                    elif field_name == "production_year" and resolved_vin_payload.get("model_year"):
-                        web_bits.append(f"год: {resolved_vin_payload.get('model_year')}")
-                if web_bits:
-                    ai_lines.append(
-                        "Дополнительно по интернету подтверждено: " + ", ".join(web_bits) + "."
-                    )
-        elif facts.get("vin") and facts.get("vin_decode_attempted"):
-            if vin_decode_status == "insufficient":
-                ai_lines.append(
-                    "Найден VIN, выполнена внешняя расшифровка, но данных недостаточно для уверенного заполнения модели и агрегатов."
-                )
-            elif vin_decode_status == "failed":
-                ai_lines.append(
-                    "Найден VIN, выполнена попытка внешней расшифровки, но сервис не вернул пригодный результат."
-                )
-        part_lookup = orchestration_results.get("find_part_numbers")
-        if isinstance(part_lookup, dict) and facts["part_queries"]:
-            primary_part, analog_parts = self._summarize_part_matches(part_lookup)
-            if primary_part:
-                part_line = f"{facts['part_queries'][0].capitalize()}: OEM {primary_part}"
-                if analog_parts:
-                    part_line += f"; аналоги: {analog_parts}."
-                else:
-                    part_line += "."
-                price_lookup = orchestration_results.get("estimate_price_ru")
-                if isinstance(price_lookup, dict):
-                    price_line = self._summarize_price_summary(price_lookup)
-                    if price_line:
-                        part_line += f" {price_line}"
-                ai_lines.append(part_line)
-            else:
-                missing_bits = self._humanize_missing_vehicle_fields(
-                    facts["missing_vehicle_fields"]
-                )
-                if missing_bits:
-                    ai_lines.append(
-                        f"Следующему исполнителю: для точного подбора {facts['part_queries'][0]} уточнить {missing_bits}."
-                    )
-        maintenance = orchestration_results.get("estimate_maintenance")
-        if isinstance(maintenance, dict):
-            works = maintenance.get("works") if isinstance(maintenance.get("works"), list) else []
-            materials = (
-                maintenance.get("materials")
-                if isinstance(maintenance.get("materials"), list)
-                else []
-            )
-            works_preview = ", ".join(
-                str(item.get("name", "") or "").strip()
-                for item in works[:3]
-                if isinstance(item, dict) and str(item.get("name", "") or "").strip()
-            )
-            materials_preview = ", ".join(
-                str(item.get("name", "") or "").strip()
-                for item in materials[:4]
-                if isinstance(item, dict) and str(item.get("name", "") or "").strip()
-            )
-            service_type_label = str(maintenance.get("service_type", "ТО") or "ТО").strip()
-            if (
-                str(facts.get("maintenance_result_origin", "") or "").strip().lower()
-                == "local_heuristic"
             ):
-                line = f"Сервисная подсказка по {service_type_label}:"
+                web_bits.append(
+                    f"КПП: {resolved_vin_payload.get('gearbox_model') or resolved_vin_payload.get('transmission') or resolved_vin_payload.get('gearbox_type')}"
+                )
+            elif field_name == "drive_type" and resolved_vin_payload.get("drive_type"):
+                web_bits.append(f"привод: {resolved_vin_payload.get('drive_type')}")
+            elif field_name == "make_display" and resolved_vin_payload.get("make"):
+                web_bits.append(f"марка: {resolved_vin_payload.get('make')}")
+            elif field_name == "model_display" and resolved_vin_payload.get("model"):
+                web_bits.append(f"модель: {resolved_vin_payload.get('model')}")
+            elif field_name == "production_year" and resolved_vin_payload.get("model_year"):
+                web_bits.append(f"год: {resolved_vin_payload.get('model_year')}")
+        return web_bits
+
+    def _compose_card_autofill_vin_failure_lines(
+        self, facts: dict[str, Any], vin_decode_status: str
+    ) -> list[str]:
+        if not facts.get("vin") or not facts.get("vin_decode_attempted"):
+            return []
+        if vin_decode_status == "insufficient":
+            return [
+                "Найден VIN, выполнена внешняя расшифровка, но данных недостаточно для уверенного заполнения модели и агрегатов."
+            ]
+        if vin_decode_status == "failed":
+            return [
+                "Найден VIN, выполнена попытка внешней расшифровки, но сервис не вернул пригодный результат."
+            ]
+        return []
+
+    def _compose_card_autofill_part_lines(
+        self, facts: dict[str, Any], orchestration_results: dict[str, Any]
+    ) -> list[str]:
+        part_lookup = orchestration_results.get("find_part_numbers")
+        if not isinstance(part_lookup, dict) or not facts["part_queries"]:
+            return []
+        primary_part, analog_parts = self._summarize_part_matches(part_lookup)
+        if primary_part:
+            part_line = f"{facts['part_queries'][0].capitalize()}: OEM {primary_part}"
+            if analog_parts:
+                part_line += f"; аналоги: {analog_parts}."
             else:
-                line = f"{service_type_label}:"
-            if works_preview:
-                line += f" работы — {works_preview}."
-            if materials_preview:
-                line += f" Расходники — {materials_preview}."
-            notes_preview = "; ".join(
-                str(item or "").strip()
-                for item in (
-                    maintenance.get("notes") if isinstance(maintenance.get("notes"), list) else []
-                )[:2]
-                if str(item or "").strip()
-            )
-            if notes_preview:
-                line += f" {notes_preview}"
-            ai_lines.append(line)
+                part_line += "."
+            price_lookup = orchestration_results.get("estimate_price_ru")
+            if isinstance(price_lookup, dict):
+                price_line = self._summarize_price_summary(price_lookup)
+                if price_line:
+                    part_line += f" {price_line}"
+            return [part_line]
+        missing_bits = self._humanize_missing_vehicle_fields(facts["missing_vehicle_fields"])
+        if missing_bits:
+            return [
+                f"Следующему исполнителю: для точного подбора {facts['part_queries'][0]} уточнить {missing_bits}."
+            ]
+        return []
+
+    def _compose_card_autofill_maintenance_lines(
+        self, facts: dict[str, Any], orchestration_results: dict[str, Any]
+    ) -> list[str]:
+        maintenance = orchestration_results.get("estimate_maintenance")
+        if not isinstance(maintenance, dict):
+            return []
+        works = maintenance.get("works") if isinstance(maintenance.get("works"), list) else []
+        materials = (
+            maintenance.get("materials") if isinstance(maintenance.get("materials"), list) else []
+        )
+        works_preview = ", ".join(
+            str(item.get("name", "") or "").strip()
+            for item in works[:3]
+            if isinstance(item, dict) and str(item.get("name", "") or "").strip()
+        )
+        materials_preview = ", ".join(
+            str(item.get("name", "") or "").strip()
+            for item in materials[:4]
+            if isinstance(item, dict) and str(item.get("name", "") or "").strip()
+        )
+        service_type_label = str(maintenance.get("service_type", "ТО") or "ТО").strip()
+        line = (
+            f"Сервисная подсказка по {service_type_label}:"
+            if str(facts.get("maintenance_result_origin", "") or "").strip().lower()
+            == "local_heuristic"
+            else f"{service_type_label}:"
+        )
+        if works_preview:
+            line += f" работы — {works_preview}."
+        if materials_preview:
+            line += f" Расходники — {materials_preview}."
+        notes_preview = "; ".join(
+            str(item or "").strip()
+            for item in (
+                maintenance.get("notes") if isinstance(maintenance.get("notes"), list) else []
+            )[:2]
+            if str(item or "").strip()
+        )
+        if notes_preview:
+            line += f" {notes_preview}"
+        return [line] if line.strip() != f"{service_type_label}:" else []
+
+    def _compose_card_autofill_diagnostic_lines(
+        self, facts: dict[str, Any], orchestration_results: dict[str, Any]
+    ) -> list[str]:
+        lines: list[str] = []
         dtc_result = orchestration_results.get("decode_dtc")
         if isinstance(dtc_result, dict) and facts["dtc_codes"]:
             snippet = self._first_search_snippet(dtc_result)
             if snippet:
-                ai_lines.append(f"DTC {facts['dtc_codes'][0]}: {snippet}")
+                lines.append(f"DTC {facts['dtc_codes'][0]}: {snippet}")
         fault_result = orchestration_results.get("search_fault_info")
         if isinstance(fault_result, dict):
             snippet = self._first_search_snippet(fault_result)
             if snippet:
-                ai_lines.append(f"По симптомам: {snippet}")
-        oem_notes_patch = self._compose_vehicle_profile_oem_notes(
-            facts=facts,
-            orchestration_results=orchestration_results,
-            current_oem_notes=str(facts["vehicle_profile"].get("oem_notes", "") or ""),
-        )
-        if oem_notes_patch:
-            vehicle_patch["oem_notes"] = oem_notes_patch
-        ai_lines.extend(
-            self._compose_card_autofill_follow_up_lines(
-                facts=facts, orchestration_results=orchestration_results
-            )
-        )
-        filtered_ai_lines = [
-            line for line in ai_lines if self._line_has_new_information(current_description, line)
-        ]
-        if not filtered_ai_lines and not vehicle_patch and not vehicle_label_patch:
-            return None, []
-        update_args: dict[str, Any] = {"card_id": card_id}
-        if filtered_ai_lines:
-            update_args["description"] = "ИИ:\n- " + "\n- ".join(filtered_ai_lines)
-        if vehicle_label_patch:
-            update_args["vehicle"] = vehicle_label_patch
-        if vehicle_patch:
-            update_args["vehicle_profile"] = vehicle_patch
+                lines.append(f"По симптомам: {snippet}")
+        return lines
+
+    def _compose_card_autofill_display_sections(
+        self,
+        *,
+        vehicle_patch: dict[str, Any],
+        vehicle_label_patch: str,
+        related_cards: list[dict[str, Any]],
+        filtered_ai_lines: list[str],
+    ) -> list[dict[str, Any]]:
         display_sections: list[dict[str, Any]] = []
         if vehicle_patch:
             display_sections.append(
@@ -3468,9 +3734,6 @@ class AgentRunner(AgentRunnerOutputMixin):
             display_sections.append(
                 {"title": "Обновлен ярлык авто", "body": "", "items": [vehicle_label_patch]}
             )
-        related_cards = (
-            facts.get("related_cards") if isinstance(facts.get("related_cards"), list) else []
-        )
         if related_cards:
             display_sections.append(
                 {
@@ -3495,6 +3758,111 @@ class AgentRunner(AgentRunnerOutputMixin):
             display_sections.append(
                 {"title": "Добавлено в карточку", "body": "", "items": filtered_ai_lines[:6]}
             )
+        return display_sections
+
+    def _compose_card_autofill_vin_context(
+        self,
+        *,
+        facts: dict[str, Any],
+        decoded_vin: dict[str, Any] | None,
+        related_vehicle_profile: dict[str, Any],
+        vin_decode_status: str,
+    ) -> tuple[dict[str, Any], str]:
+        related_vehicle_facts = self._related_vehicle_profile_to_vin_facts(related_vehicle_profile)
+        resolved_vin_payload = dict(related_vehicle_facts) if related_vehicle_facts else {}
+        for key, value in decoded_vin.items() if isinstance(decoded_vin, dict) else []:
+            if key == "engine_power_hp":
+                if value not in (None, "", 0) and not resolved_vin_payload.get(key):
+                    resolved_vin_payload[key] = value
+                continue
+            if value and not str(resolved_vin_payload.get(key, "") or "").strip():
+                resolved_vin_payload[key] = value
+        effective_vin_status = vin_decode_status
+        if related_vehicle_facts and vin_decode_status != "success":
+            effective_vin_status = "success"
+            facts["vin_decode_status"] = "success"
+        return resolved_vin_payload, effective_vin_status
+
+    def _compose_card_autofill_update(
+        self,
+        *,
+        card_id: str,
+        facts: dict[str, Any],
+        orchestration_results: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+        card = facts["card"]
+        current_description = str(card.get("description", "") or "").strip()
+        decoded_vin = orchestration_results.get("decode_vin")
+        vin_decode_status = str(facts.get("vin_decode_status", "") or "").strip().lower()
+        related_vehicle_profile = self._best_related_vehicle_profile(facts)
+        resolved_vin_payload, effective_vin_status = self._compose_card_autofill_vin_context(
+            facts=facts,
+            decoded_vin=decoded_vin,
+            related_vehicle_profile=related_vehicle_profile,
+            vin_decode_status=vin_decode_status,
+        )
+        vehicle_patch = self._autofill_vehicle_patch(
+            facts=facts,
+            decoded_vin=resolved_vin_payload,
+            vin_decode_status=effective_vin_status,
+            fallback_vehicle_profile=related_vehicle_profile,
+        )
+        vehicle_label_patch = self._autofill_vehicle_label_patch(
+            facts=facts,
+            decoded_vin=resolved_vin_payload,
+            vin_decode_status=effective_vin_status,
+            fallback_vehicle_profile=related_vehicle_profile,
+        )
+        ai_lines: list[str] = []
+        ai_lines.extend(
+            self._compose_card_autofill_vin_vehicle_bits(resolved_vin_payload, vehicle_patch)
+            if effective_vin_status == "success" and isinstance(resolved_vin_payload, dict)
+            else []
+        )
+        if effective_vin_status == "success" and isinstance(resolved_vin_payload, dict):
+            web_bits = self._compose_card_autofill_vin_web_bits(resolved_vin_payload)
+            if web_bits:
+                ai_lines.append(
+                    "Дополнительно по интернету подтверждено: " + ", ".join(web_bits) + "."
+                )
+        ai_lines.extend(self._compose_card_autofill_vin_failure_lines(facts, vin_decode_status))
+        ai_lines.extend(self._compose_card_autofill_part_lines(facts, orchestration_results))
+        ai_lines.extend(self._compose_card_autofill_maintenance_lines(facts, orchestration_results))
+        ai_lines.extend(self._compose_card_autofill_diagnostic_lines(facts, orchestration_results))
+        oem_notes_patch = self._compose_vehicle_profile_oem_notes(
+            facts=facts,
+            orchestration_results=orchestration_results,
+            current_oem_notes=str(facts["vehicle_profile"].get("oem_notes", "") or ""),
+            vehicle_patch=vehicle_patch,
+        )
+        if oem_notes_patch:
+            vehicle_patch["oem_notes"] = oem_notes_patch
+        ai_lines.extend(
+            self._compose_card_autofill_follow_up_lines(
+                facts=facts, orchestration_results=orchestration_results
+            )
+        )
+        filtered_ai_lines = [
+            line for line in ai_lines if self._line_has_new_information(current_description, line)
+        ]
+        if not filtered_ai_lines and not vehicle_patch and not vehicle_label_patch:
+            return None, []
+        update_args: dict[str, Any] = {"card_id": card_id}
+        if filtered_ai_lines:
+            update_args["description"] = "ИИ:\n- " + "\n- ".join(filtered_ai_lines)
+        if vehicle_label_patch:
+            update_args["vehicle"] = vehicle_label_patch
+        if vehicle_patch:
+            update_args["vehicle_profile"] = vehicle_patch
+        related_cards = (
+            facts.get("related_cards") if isinstance(facts.get("related_cards"), list) else []
+        )
+        display_sections = self._compose_card_autofill_display_sections(
+            vehicle_patch=vehicle_patch,
+            vehicle_label_patch=vehicle_label_patch,
+            related_cards=related_cards,
+            filtered_ai_lines=filtered_ai_lines,
+        )
         return update_args, display_sections
 
     def _autofill_vehicle_label_patch(
@@ -3549,6 +3917,245 @@ class AgentRunner(AgentRunnerOutputMixin):
             return ""
         return candidate
 
+    def _autofill_vehicle_patch_set_field(
+        self,
+        patch: dict[str, Any],
+        existing: dict[str, Any],
+        autofilled_fields: list[str],
+        field_sources: dict[str, str],
+        field_name: str,
+        value: Any,
+        *,
+        source: str,
+    ) -> bool:
+        text = str(value or "").strip()
+        if not text or str(existing.get(field_name, "") or "").strip():
+            return False
+        if field_name == "production_year":
+            parsed_year = normalize_vehicle_int(text)
+            if parsed_year is None:
+                return False
+            patch[field_name] = parsed_year
+        elif field_name == "engine_power_hp":
+            parsed_power = normalize_vehicle_float(text)
+            if parsed_power is None or parsed_power > 3000:
+                return False
+            patch[field_name] = int(round(parsed_power))
+        else:
+            patch[field_name] = text
+        autofilled_fields.append(field_name)
+        field_sources[field_name] = source
+        return True
+
+    def _autofill_vehicle_patch_apply_primary_fields(
+        self,
+        *,
+        patch: dict[str, Any],
+        existing: dict[str, Any],
+        autofilled_fields: list[str],
+        field_sources: dict[str, str],
+        facts: dict[str, Any],
+        decoded_vin: dict[str, Any],
+    ) -> None:
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "vin",
+            decoded_vin.get("vin") or facts["vin"],
+            source="official_vin_decode_nhtsa",
+        )
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "make_display",
+            decoded_vin.get("make"),
+            source="official_vin_decode_nhtsa",
+        )
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "model_display",
+            decoded_vin.get("model"),
+            source="official_vin_decode_nhtsa",
+        )
+        if not str(existing.get("production_year", "") or "").strip():
+            year_value = normalize_vehicle_int(decoded_vin.get("model_year"))
+            if year_value:
+                patch["production_year"] = year_value
+                autofilled_fields.append("production_year")
+                field_sources["production_year"] = "official_vin_decode_nhtsa"
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "engine_model",
+            decoded_vin.get("engine_model"),
+            source="official_vin_decode_nhtsa",
+        )
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "engine_power_hp",
+            decoded_vin.get("engine_power_hp"),
+            source="official_vin_decode_nhtsa",
+        )
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "gearbox_model",
+            decoded_vin.get("gearbox_model"),
+            source="official_vin_decode_nhtsa",
+        )
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "gearbox_type",
+            decoded_vin.get("gearbox_type") or decoded_vin.get("transmission"),
+            source="official_vin_decode_nhtsa",
+        )
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "drivetrain",
+            decoded_vin.get("drive_type"),
+            source="official_vin_decode_nhtsa",
+        )
+
+    def _autofill_vehicle_patch_apply_fallback_fields(
+        self,
+        *,
+        patch: dict[str, Any],
+        existing: dict[str, Any],
+        autofilled_fields: list[str],
+        field_sources: dict[str, str],
+        fallback_profile: dict[str, Any],
+    ) -> None:
+        if not fallback_profile:
+            return
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "vin",
+            fallback_profile.get("vin"),
+            source="same_vin_board_context",
+        )
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "make_display",
+            fallback_profile.get("make_display"),
+            source="same_vin_board_context",
+        )
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "model_display",
+            fallback_profile.get("model_display"),
+            source="same_vin_board_context",
+        )
+        if not str(existing.get("production_year", "") or "").strip():
+            fallback_year = normalize_vehicle_int(fallback_profile.get("production_year"))
+            if fallback_year:
+                patch["production_year"] = fallback_year
+                autofilled_fields.append("production_year")
+                field_sources["production_year"] = "same_vin_board_context"
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "engine_model",
+            fallback_profile.get("engine_model"),
+            source="same_vin_board_context",
+        )
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "engine_power_hp",
+            fallback_profile.get("engine_power_hp"),
+            source="same_vin_board_context",
+        )
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "gearbox_model",
+            fallback_profile.get("gearbox_model"),
+            source="same_vin_board_context",
+        )
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "gearbox_type",
+            fallback_profile.get("gearbox_type") or fallback_profile.get("gearbox_model"),
+            source="same_vin_board_context",
+        )
+        self._autofill_vehicle_patch_set_field(
+            patch,
+            existing,
+            autofilled_fields,
+            field_sources,
+            "drivetrain",
+            fallback_profile.get("drivetrain"),
+            source="same_vin_board_context",
+        )
+
+    def _autofill_vehicle_patch_finalize_metadata(
+        self,
+        *,
+        patch: dict[str, Any],
+        decoded_vin: dict[str, Any],
+        web_source_urls: list[str],
+        web_enrichment_fields: set[str],
+        fallback_profile: dict[str, Any],
+        autofilled_fields: list[str],
+        field_sources: dict[str, str],
+    ) -> None:
+        source_summary_parts = ["official VIN decode"]
+        if web_source_urls:
+            source_summary_parts.append("web VIN enrichment")
+        if fallback_profile:
+            source_summary_parts.append("same VIN board context")
+        patch["source_summary"] = " + ".join(source_summary_parts)
+        patch["source_confidence"] = 0.82 if web_source_urls or fallback_profile else 0.78
+        patch["autofilled_fields"] = autofilled_fields
+        patch["field_sources"] = field_sources
+        source_refs = [str(decoded_vin.get("source_url", "") or "").strip(), *web_source_urls]
+        if fallback_profile:
+            source_refs.append("same_vin_board_context")
+        patch["source_links_or_refs"] = [item for item in source_refs if item]
+        if web_enrichment_fields:
+            patch["web_enrichment_fields"] = sorted(web_enrichment_fields)
+        patch["data_completion_state"] = (
+            "mostly_autofilled" if len(autofilled_fields) >= 3 else "partially_autofilled"
+        )
+
     def _autofill_vehicle_patch(
         self,
         *,
@@ -3584,133 +4191,142 @@ class AgentRunner(AgentRunnerOutputMixin):
         fallback_profile = (
             fallback_vehicle_profile if isinstance(fallback_vehicle_profile, dict) else {}
         )
-
-        def _set_if_missing(field_name: str, value: Any, *, source: str) -> None:
-            text = str(value or "").strip()
-            if not text or str(existing.get(field_name, "") or "").strip():
-                return
-            if field_name == "production_year":
-                parsed_year = normalize_vehicle_int(text)
-                if parsed_year is None:
-                    return
-                patch[field_name] = parsed_year
-            elif field_name == "engine_power_hp":
-                parsed_power = normalize_vehicle_float(text)
-                if parsed_power is None or parsed_power > 3000:
-                    return
-                patch[field_name] = int(round(parsed_power))
-            else:
-                patch[field_name] = text
-            autofilled_fields.append(field_name)
-            field_sources[field_name] = source
-
-        _set_if_missing(
-            "vin", decoded_vin.get("vin") or facts["vin"], source="official_vin_decode_nhtsa"
+        self._autofill_vehicle_patch_apply_primary_fields(
+            patch=patch,
+            existing=existing,
+            autofilled_fields=autofilled_fields,
+            field_sources=field_sources,
+            facts=facts,
+            decoded_vin=decoded_vin,
         )
-        if fallback_profile:
-            _set_if_missing(
-                "vin",
-                fallback_profile.get("vin"),
-                source="same_vin_board_context",
-            )
-        _set_if_missing("make_display", decoded_vin.get("make"), source="official_vin_decode_nhtsa")
-        if fallback_profile:
-            _set_if_missing(
-                "make_display",
-                fallback_profile.get("make_display"),
-                source="same_vin_board_context",
-            )
-        _set_if_missing(
-            "model_display", decoded_vin.get("model"), source="official_vin_decode_nhtsa"
+        self._autofill_vehicle_patch_apply_fallback_fields(
+            patch=patch,
+            existing=existing,
+            autofilled_fields=autofilled_fields,
+            field_sources=field_sources,
+            fallback_profile=fallback_profile,
         )
-        if fallback_profile:
-            _set_if_missing(
-                "model_display",
-                fallback_profile.get("model_display"),
-                source="same_vin_board_context",
-            )
-        if not str(existing.get("production_year", "") or "").strip():
-            year_value = normalize_vehicle_int(decoded_vin.get("model_year"))
-            if year_value:
-                patch["production_year"] = year_value
-                autofilled_fields.append("production_year")
-                field_sources["production_year"] = "official_vin_decode_nhtsa"
-            elif fallback_profile:
-                fallback_year = normalize_vehicle_int(fallback_profile.get("production_year"))
-                if fallback_year:
-                    patch["production_year"] = fallback_year
-                    autofilled_fields.append("production_year")
-                    field_sources["production_year"] = "same_vin_board_context"
-        _set_if_missing(
-            "engine_model", decoded_vin.get("engine_model"), source="official_vin_decode_nhtsa"
-        )
-        if fallback_profile:
-            _set_if_missing(
-                "engine_model",
-                fallback_profile.get("engine_model"),
-                source="same_vin_board_context",
-            )
-        _set_if_missing(
-            "engine_power_hp",
-            decoded_vin.get("engine_power_hp"),
-            source="official_vin_decode_nhtsa",
-        )
-        if fallback_profile:
-            _set_if_missing(
-                "engine_power_hp",
-                fallback_profile.get("engine_power_hp"),
-                source="same_vin_board_context",
-            )
-        _set_if_missing(
-            "gearbox_model", decoded_vin.get("gearbox_model"), source="official_vin_decode_nhtsa"
-        )
-        if fallback_profile:
-            _set_if_missing(
-                "gearbox_model",
-                fallback_profile.get("gearbox_model"),
-                source="same_vin_board_context",
-            )
-        _set_if_missing(
-            "gearbox_type",
-            decoded_vin.get("gearbox_type") or decoded_vin.get("transmission"),
-            source="official_vin_decode_nhtsa",
-        )
-        if fallback_profile:
-            _set_if_missing(
-                "gearbox_type",
-                fallback_profile.get("gearbox_type") or fallback_profile.get("gearbox_model"),
-                source="same_vin_board_context",
-            )
-        _set_if_missing(
-            "drivetrain", decoded_vin.get("drive_type"), source="official_vin_decode_nhtsa"
-        )
-        if fallback_profile:
-            _set_if_missing(
-                "drivetrain",
-                fallback_profile.get("drivetrain"),
-                source="same_vin_board_context",
-            )
         if not patch:
             return {}
-        source_summary_parts = ["official VIN decode"]
-        if web_source_urls:
-            source_summary_parts.append("web VIN enrichment")
-        if fallback_profile:
-            source_summary_parts.append("same VIN board context")
-        patch["source_summary"] = " + ".join(source_summary_parts)
-        patch["source_confidence"] = 0.82 if web_source_urls or fallback_profile else 0.78
-        patch["autofilled_fields"] = autofilled_fields
-        patch["field_sources"] = field_sources
-        source_refs = [str(decoded_vin.get("source_url", "") or "").strip(), *web_source_urls]
-        if fallback_profile:
-            source_refs.append("same_vin_board_context")
-        patch["source_links_or_refs"] = [item for item in source_refs if item]
-        if web_enrichment_fields:
-            patch["web_enrichment_fields"] = sorted(web_enrichment_fields)
-        patch["data_completion_state"] = (
-            "mostly_autofilled" if len(autofilled_fields) >= 3 else "partially_autofilled"
+        self._autofill_vehicle_patch_finalize_metadata(
+            patch=patch,
+            decoded_vin=decoded_vin,
+            web_source_urls=web_source_urls,
+            web_enrichment_fields=web_enrichment_fields,
+            fallback_profile=fallback_profile,
+            autofilled_fields=autofilled_fields,
+            field_sources=field_sources,
         )
         return patch
+
+    def _compose_vehicle_profile_vin_note_lines(
+        self, decoded_vin: dict[str, Any], vehicle_patch: dict[str, Any]
+    ) -> list[str]:
+        vin_bits: list[str] = []
+        for label, key in (
+            ("марка", "make"),
+            ("модель", "model"),
+            ("год", "model_year"),
+            ("двигатель", "engine_model"),
+            ("мощность", "engine_power_hp"),
+            ("КПП", "transmission"),
+            ("привод", "drive_type"),
+        ):
+            if key == "engine_model" and "engine_model" not in vehicle_patch:
+                continue
+            if key == "engine_power_hp" and "engine_power_hp" not in vehicle_patch:
+                continue
+            if key == "transmission" and "gearbox_model" not in vehicle_patch:
+                continue
+            if key == "drive_type" and "drivetrain" not in vehicle_patch:
+                continue
+            value = str(decoded_vin.get(key, "") or "").strip()
+            if value:
+                vin_bits.append(f"{label}: {value}")
+        if not vin_bits:
+            return []
+        return ["VIN decode: " + "; ".join(vin_bits[:5]) + "."]
+
+    def _compose_vehicle_profile_web_enrichment_note_lines(
+        self, decoded_vin: dict[str, Any]
+    ) -> list[str]:
+        web_bits = self._compose_vehicle_profile_web_enrichment_bits(decoded_vin)
+        if not web_bits:
+            return []
+        return ["Web VIN enrichment: " + "; ".join(web_bits) + "."]
+
+    def _compose_vehicle_profile_part_note_lines(
+        self, facts: dict[str, Any], orchestration_results: dict[str, Any]
+    ) -> list[str]:
+        part_lookup = orchestration_results.get("find_part_numbers")
+        if not isinstance(part_lookup, dict) or not facts.get("part_queries"):
+            return []
+        primary_part, analog_parts = self._summarize_part_matches(part_lookup)
+        if not primary_part:
+            return []
+        part_line = f"Запчасть {facts['part_queries'][0]}: OEM {primary_part}"
+        if analog_parts:
+            part_line += f"; аналоги: {analog_parts}."
+        else:
+            part_line += "."
+        price_lookup = orchestration_results.get("estimate_price_ru")
+        if isinstance(price_lookup, dict):
+            price_line = self._summarize_price_summary(price_lookup)
+            if price_line:
+                part_line += f" {price_line}"
+        return [part_line]
+
+    def _compose_vehicle_profile_maintenance_note_lines(
+        self, facts: dict[str, Any], orchestration_results: dict[str, Any]
+    ) -> list[str]:
+        maintenance = orchestration_results.get("estimate_maintenance")
+        if not isinstance(maintenance, dict):
+            return []
+        works = maintenance.get("works") if isinstance(maintenance.get("works"), list) else []
+        materials = (
+            maintenance.get("materials") if isinstance(maintenance.get("materials"), list) else []
+        )
+        works_preview = ", ".join(
+            str(item.get("name", "") or "").strip()
+            for item in works[:3]
+            if isinstance(item, dict) and str(item.get("name", "") or "").strip()
+        )
+        materials_preview = ", ".join(
+            str(item.get("name", "") or "").strip()
+            for item in materials[:4]
+            if isinstance(item, dict) and str(item.get("name", "") or "").strip()
+        )
+        service_type_label = str(maintenance.get("service_type", "ТО") or "ТО").strip()
+        origin = str(facts.get("maintenance_result_origin", "") or "").strip().lower()
+        prefix = (
+            f"Сервисная подсказка по {service_type_label}"
+            if origin == "local_heuristic"
+            else service_type_label
+        )
+        line = f"{prefix}:"
+        if works_preview:
+            line += f" работы — {works_preview}."
+        if materials_preview:
+            line += f" расходники — {materials_preview}."
+        if line.strip() == f"{prefix}:":
+            return []
+        return [line]
+
+    def _compose_vehicle_profile_diagnostic_note_lines(
+        self, facts: dict[str, Any], orchestration_results: dict[str, Any]
+    ) -> list[str]:
+        lines: list[str] = []
+        dtc_result = orchestration_results.get("decode_dtc")
+        if isinstance(dtc_result, dict) and facts["dtc_codes"]:
+            snippet = self._first_search_snippet(dtc_result)
+            if snippet:
+                lines.append(f"DTC {facts['dtc_codes'][0]}: {snippet}")
+        fault_result = orchestration_results.get("search_fault_info")
+        if isinstance(fault_result, dict):
+            snippet = self._first_search_snippet(fault_result)
+            if snippet:
+                lines.append(f"Симптомы: {snippet}")
+        return lines
 
     def _compose_vehicle_profile_oem_notes(
         self,
@@ -3718,115 +4334,21 @@ class AgentRunner(AgentRunnerOutputMixin):
         facts: dict[str, Any],
         orchestration_results: dict[str, Any],
         current_oem_notes: str,
+        vehicle_patch: dict[str, Any],
     ) -> str:
         notes: list[str] = []
         decoded_vin = orchestration_results.get("decode_vin")
         vin_decode_status = str(facts.get("vin_decode_status", "") or "").strip().lower()
         if vin_decode_status == "success" and isinstance(decoded_vin, dict):
-            vin_bits: list[str] = []
-            for label, key in (
-                ("марка", "make"),
-                ("модель", "model"),
-                ("год", "model_year"),
-                ("двигатель", "engine_model"),
-                ("мощность", "engine_power_hp"),
-                ("КПП", "transmission"),
-                ("привод", "drive_type"),
-            ):
-                value = str(decoded_vin.get(key, "") or "").strip()
-                if value:
-                    vin_bits.append(f"{label}: {value}")
-            if vin_bits:
-                notes.append("VIN decode: " + "; ".join(vin_bits[:5]) + ".")
-            web_enrichment_fields = [
-                str(item or "").strip()
-                for item in (
-                    decoded_vin.get("web_enrichment_fields")
-                    if isinstance(decoded_vin.get("web_enrichment_fields"), list)
-                    else []
-                )
-                if str(item or "").strip()
-            ]
-            if web_enrichment_fields:
-                web_bits: list[str] = []
-                for field_name in web_enrichment_fields:
-                    if field_name == "make_display" and decoded_vin.get("make"):
-                        web_bits.append(f"марка: {decoded_vin.get('make')}")
-                    elif field_name == "model_display" and decoded_vin.get("model"):
-                        web_bits.append(f"модель: {decoded_vin.get('model')}")
-                    elif field_name == "production_year" and decoded_vin.get("model_year"):
-                        web_bits.append(f"год: {decoded_vin.get('model_year')}")
-                    elif field_name == "engine_model" and decoded_vin.get("engine_model"):
-                        web_bits.append(f"двигатель: {decoded_vin.get('engine_model')}")
-                    elif field_name == "engine_power_hp" and decoded_vin.get("engine_power_hp"):
-                        web_bits.append(f"мощность: {decoded_vin.get('engine_power_hp')} л.с.")
-                    elif field_name == "gearbox_model" and (
-                        decoded_vin.get("gearbox_model") or decoded_vin.get("transmission")
-                    ):
-                        web_bits.append(
-                            f"КПП: {decoded_vin.get('gearbox_model') or decoded_vin.get('transmission')}"
-                        )
-                    elif field_name == "drive_type" and decoded_vin.get("drive_type"):
-                        web_bits.append(f"привод: {decoded_vin.get('drive_type')}")
-                if web_bits:
-                    notes.append("Web VIN enrichment: " + "; ".join(web_bits) + ".")
-        part_lookup = orchestration_results.get("find_part_numbers")
-        if isinstance(part_lookup, dict) and facts.get("part_queries"):
-            primary_part, analog_parts = self._summarize_part_matches(part_lookup)
-            if primary_part:
-                part_line = f"Запчасть {facts['part_queries'][0]}: OEM {primary_part}"
-                if analog_parts:
-                    part_line += f"; аналоги: {analog_parts}."
-                else:
-                    part_line += "."
-                price_lookup = orchestration_results.get("estimate_price_ru")
-                if isinstance(price_lookup, dict):
-                    price_line = self._summarize_price_summary(price_lookup)
-                    if price_line:
-                        part_line += f" {price_line}"
-                notes.append(part_line)
-        maintenance = orchestration_results.get("estimate_maintenance")
-        if isinstance(maintenance, dict):
-            works = maintenance.get("works") if isinstance(maintenance.get("works"), list) else []
-            materials = (
-                maintenance.get("materials")
-                if isinstance(maintenance.get("materials"), list)
-                else []
-            )
-            works_preview = ", ".join(
-                str(item.get("name", "") or "").strip()
-                for item in works[:3]
-                if isinstance(item, dict) and str(item.get("name", "") or "").strip()
-            )
-            materials_preview = ", ".join(
-                str(item.get("name", "") or "").strip()
-                for item in materials[:4]
-                if isinstance(item, dict) and str(item.get("name", "") or "").strip()
-            )
-            service_type_label = str(maintenance.get("service_type", "ТО") or "ТО").strip()
-            origin = str(facts.get("maintenance_result_origin", "") or "").strip().lower()
-            prefix = (
-                f"Сервисная подсказка по {service_type_label}"
-                if origin == "local_heuristic"
-                else service_type_label
-            )
-            line = f"{prefix}:"
-            if works_preview:
-                line += f" работы — {works_preview}."
-            if materials_preview:
-                line += f" расходники — {materials_preview}."
-            if line.strip() != f"{prefix}:":
-                notes.append(line)
-        dtc_result = orchestration_results.get("decode_dtc")
-        if isinstance(dtc_result, dict) and facts["dtc_codes"]:
-            snippet = self._first_search_snippet(dtc_result)
-            if snippet:
-                notes.append(f"DTC {facts['dtc_codes'][0]}: {snippet}")
-        fault_result = orchestration_results.get("search_fault_info")
-        if isinstance(fault_result, dict):
-            snippet = self._first_search_snippet(fault_result)
-            if snippet:
-                notes.append(f"Симптомы: {snippet}")
+            notes.extend(self._compose_vehicle_profile_vin_note_lines(decoded_vin, vehicle_patch))
+            notes.extend(self._compose_vehicle_profile_web_enrichment_note_lines(decoded_vin))
+        notes.extend(self._compose_vehicle_profile_part_note_lines(facts, orchestration_results))
+        notes.extend(
+            self._compose_vehicle_profile_maintenance_note_lines(facts, orchestration_results)
+        )
+        notes.extend(
+            self._compose_vehicle_profile_diagnostic_note_lines(facts, orchestration_results)
+        )
         unique_notes = [
             line for line in notes if self._line_has_new_information(current_oem_notes, line)
         ]
@@ -3836,6 +4358,42 @@ class AgentRunner(AgentRunnerOutputMixin):
             part for part in [current_oem_notes.strip(), *unique_notes] if part
         )
         return normalize_vehicle_notes(merged_notes, limit=1200)
+
+    def _compose_vehicle_profile_web_enrichment_bits(
+        self, decoded_vin: dict[str, Any]
+    ) -> list[str]:
+        web_enrichment_fields = [
+            str(item or "").strip()
+            for item in (
+                decoded_vin.get("web_enrichment_fields")
+                if isinstance(decoded_vin.get("web_enrichment_fields"), list)
+                else []
+            )
+            if str(item or "").strip()
+        ]
+        if not web_enrichment_fields:
+            return []
+        web_bits: list[str] = []
+        for field_name in web_enrichment_fields:
+            if field_name == "make_display" and decoded_vin.get("make"):
+                web_bits.append(f"марка: {decoded_vin.get('make')}")
+            elif field_name == "model_display" and decoded_vin.get("model"):
+                web_bits.append(f"модель: {decoded_vin.get('model')}")
+            elif field_name == "production_year" and decoded_vin.get("model_year"):
+                web_bits.append(f"год: {decoded_vin.get('model_year')}")
+            elif field_name == "engine_model" and decoded_vin.get("engine_model"):
+                web_bits.append(f"двигатель: {decoded_vin.get('engine_model')}")
+            elif field_name == "engine_power_hp" and decoded_vin.get("engine_power_hp"):
+                web_bits.append(f"мощность: {decoded_vin.get('engine_power_hp')} л.с.")
+            elif field_name == "gearbox_model" and (
+                decoded_vin.get("gearbox_model") or decoded_vin.get("transmission")
+            ):
+                web_bits.append(
+                    f"КПП: {decoded_vin.get('gearbox_model') or decoded_vin.get('transmission')}"
+                )
+            elif field_name == "drive_type" and decoded_vin.get("drive_type"):
+                web_bits.append(f"привод: {decoded_vin.get('drive_type')}")
+        return web_bits
 
     def _humanize_missing_vehicle_fields(self, fields: list[str]) -> str:
         mapping = {

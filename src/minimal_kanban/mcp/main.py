@@ -77,6 +77,156 @@ def _runtime_bind_host(configured_host: str | None, *, env_explicit: bool) -> st
     return host
 
 
+def _resolve_api_bearer_token(settings) -> str | None:
+    if os.environ.get("MINIMAL_KANBAN_API_BEARER_TOKEN") is not None:
+        return get_api_bearer_token()
+    if settings.local_api.local_api_auth_mode == "bearer":
+        return (
+            settings.local_api.local_api_bearer_token
+            or settings.auth.local_api_bearer_token
+            or settings.auth.access_token
+            or get_api_bearer_token()
+        )
+    return None
+
+
+def _resolve_api_base_url(settings, api_bearer_token: str | None, logger) -> str | None:
+    if (
+        os.environ.get("MINIMAL_KANBAN_BOARD_API_URL") is not None
+        or os.environ.get("MINIMAL_KANBAN_API_BASE_URL") is not None
+    ):
+        configured_api_base_url = get_board_api_url()
+    elif settings.general.use_local_api or settings.local_api.local_api_base_url_override:
+        configured_api_base_url = settings.local_api.effective_local_api_url
+    else:
+        configured_api_base_url = None
+    api_base_url = _reachable_board_api_url(
+        configured_api_base_url,
+        bearer_token=api_bearer_token,
+        logger=logger,
+    )
+    if not api_base_url:
+        api_base_url = get_board_api_url() or discover_board_api(bearer_token=api_bearer_token)
+    return api_base_url
+
+
+def _start_embedded_api_runtime(
+    settings,
+    logger,
+    api_bearer_token: str | None,
+    api_base_url: str | None,
+):
+    if api_base_url:
+        logger.info("using_existing_board_api url=%s", api_base_url)
+        return None, None, api_base_url
+
+    store = JsonStore(logger=logger)
+    service = CardService(store, logger)
+    seeded_demo = service.ensure_demo_board()
+    if seeded_demo:
+        logger.info("embedded_api_demo_seeded=true")
+    operator_activity_service = OperatorActivityService(logger=logger)
+    operator_service = OperatorAuthService(
+        store, service, activity_service=operator_activity_service, logger=logger
+    )
+    resolved_api_host = _runtime_bind_host(
+        get_api_host()
+        if os.environ.get("MINIMAL_KANBAN_API_HOST") is not None
+        else settings.local_api.local_api_host,
+        env_explicit=os.environ.get("MINIMAL_KANBAN_API_HOST") is not None,
+    )
+    embedded_api_server = ApiServer(
+        service,
+        logger,
+        operator_service=operator_service,
+        host=resolved_api_host,
+        start_port=get_api_port()
+        if os.environ.get("MINIMAL_KANBAN_API_PORT") is not None
+        else settings.local_api.local_api_port,
+        bearer_token=api_bearer_token,
+    )
+    embedded_api_server.start()
+    embedded_agent_control = start_embedded_agent_runtime(
+        service=service,
+        logger=logger,
+        board_api_url=embedded_api_server.base_url,
+    )
+    logger.info("embedded_api_started_for_mcp url=%s", embedded_api_server.base_url)
+    return embedded_api_server, embedded_agent_control, embedded_api_server.base_url
+
+
+def _resolve_mcp_runtime_config(
+    settings,
+) -> tuple[str, int, str, str | None, str | None, str | None]:
+    if os.environ.get("MINIMAL_KANBAN_MCP_BEARER_TOKEN") is not None:
+        mcp_bearer_token = get_mcp_bearer_token()
+    elif settings.mcp.mcp_auth_mode == "bearer":
+        mcp_bearer_token = (
+            settings.mcp.mcp_bearer_token
+            or settings.auth.mcp_bearer_token
+            or settings.auth.access_token
+            or get_mcp_bearer_token()
+        )
+    else:
+        mcp_bearer_token = None
+
+    if os.environ.get("MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL") is not None:
+        mcp_public_base_url = get_mcp_public_base_url()
+    else:
+        mcp_public_base_url = (
+            settings.mcp.public_https_base_url
+            or get_mcp_public_base_url()
+            or settings.mcp.tunnel_url
+            or None
+        )
+
+    if os.environ.get("MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL") is not None:
+        mcp_public_endpoint_url = get_mcp_public_endpoint_url()
+    else:
+        mcp_public_endpoint_url = settings.mcp.full_mcp_url_override or None
+
+    resolved_mcp_host = _runtime_bind_host(
+        get_mcp_host()
+        if os.environ.get("MINIMAL_KANBAN_MCP_HOST") is not None
+        else settings.mcp.mcp_host,
+        env_explicit=os.environ.get("MINIMAL_KANBAN_MCP_HOST") is not None,
+    )
+    resolved_mcp_port = (
+        get_mcp_port()
+        if os.environ.get("MINIMAL_KANBAN_MCP_PORT") is not None
+        else settings.mcp.mcp_port
+    )
+    resolved_mcp_path = (
+        get_mcp_path()
+        if os.environ.get("MINIMAL_KANBAN_MCP_PATH") is not None
+        else settings.mcp.mcp_path
+    )
+    return (
+        resolved_mcp_host,
+        resolved_mcp_port,
+        resolved_mcp_path,
+        mcp_bearer_token,
+        mcp_public_base_url,
+        mcp_public_endpoint_url,
+    )
+
+
+def _install_mcp_stop_handlers() -> list[bool]:
+    stop_requested = [False]
+
+    def _stop_requested(_signum, _frame) -> None:
+        stop_requested[0] = True
+
+    signal.signal(signal.SIGINT, _stop_requested)
+    signal.signal(signal.SIGTERM, _stop_requested)
+    return stop_requested
+
+
+def _wait_for_mcp_shutdown(stop_requested: list[bool]) -> None:
+    while not stop_requested[0]:
+        time.sleep(0.2)
+
+
 def run() -> int:
     logger = configure_logging()
     embedded_api_server: ApiServer | None = None
@@ -86,115 +236,23 @@ def run() -> int:
         settings_store = SettingsStore(logger=logger)
         settings_service = SettingsService(settings_store, logger)
         settings = settings_service.load()
-
-        if os.environ.get("MINIMAL_KANBAN_API_BEARER_TOKEN") is not None:
-            api_bearer_token = get_api_bearer_token()
-        elif settings.local_api.local_api_auth_mode == "bearer":
-            api_bearer_token = (
-                settings.local_api.local_api_bearer_token
-                or settings.auth.local_api_bearer_token
-                or settings.auth.access_token
-                or get_api_bearer_token()
-            )
-        else:
-            api_bearer_token = None
-
-        if (
-            os.environ.get("MINIMAL_KANBAN_BOARD_API_URL") is not None
-            or os.environ.get("MINIMAL_KANBAN_API_BASE_URL") is not None
-        ):
-            configured_api_base_url = get_board_api_url()
-        elif settings.general.use_local_api or settings.local_api.local_api_base_url_override:
-            configured_api_base_url = settings.local_api.effective_local_api_url
-        else:
-            configured_api_base_url = None
-        api_base_url = _reachable_board_api_url(
-            configured_api_base_url,
-            bearer_token=api_bearer_token,
-            logger=logger,
+        api_bearer_token = _resolve_api_bearer_token(settings)
+        api_base_url = _resolve_api_base_url(settings, api_bearer_token, logger)
+        embedded_api_server, embedded_agent_control, api_base_url = _start_embedded_api_runtime(
+            settings,
+            logger,
+            api_bearer_token,
+            api_base_url,
         )
-        if not api_base_url:
-            api_base_url = get_board_api_url() or discover_board_api(bearer_token=api_bearer_token)
-        if not api_base_url:
-            store = JsonStore(logger=logger)
-            service = CardService(store, logger)
-            seeded_demo = service.ensure_demo_board()
-            if seeded_demo:
-                logger.info("embedded_api_demo_seeded=true")
-            operator_activity_service = OperatorActivityService(logger=logger)
-            operator_service = OperatorAuthService(
-                store, service, activity_service=operator_activity_service, logger=logger
-            )
-            resolved_api_host = _runtime_bind_host(
-                get_api_host()
-                if os.environ.get("MINIMAL_KANBAN_API_HOST") is not None
-                else settings.local_api.local_api_host,
-                env_explicit=os.environ.get("MINIMAL_KANBAN_API_HOST") is not None,
-            )
-            embedded_api_server = ApiServer(
-                service,
-                logger,
-                operator_service=operator_service,
-                host=resolved_api_host,
-                start_port=get_api_port()
-                if os.environ.get("MINIMAL_KANBAN_API_PORT") is not None
-                else settings.local_api.local_api_port,
-                bearer_token=api_bearer_token,
-            )
-            embedded_api_server.start()
-            embedded_agent_control = start_embedded_agent_runtime(
-                service=service,
-                logger=logger,
-                board_api_url=embedded_api_server.base_url,
-            )
-            api_base_url = embedded_api_server.base_url
-            logger.info("embedded_api_started_for_mcp url=%s", api_base_url)
-        else:
-            logger.info("using_existing_board_api url=%s", api_base_url)
 
-        if os.environ.get("MINIMAL_KANBAN_MCP_BEARER_TOKEN") is not None:
-            mcp_bearer_token = get_mcp_bearer_token()
-        elif settings.mcp.mcp_auth_mode == "bearer":
-            mcp_bearer_token = (
-                settings.mcp.mcp_bearer_token
-                or settings.auth.mcp_bearer_token
-                or settings.auth.access_token
-                or get_mcp_bearer_token()
-            )
-        else:
-            mcp_bearer_token = None
-
-        if os.environ.get("MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL") is not None:
-            mcp_public_base_url = get_mcp_public_base_url()
-        else:
-            mcp_public_base_url = (
-                settings.mcp.public_https_base_url
-                or get_mcp_public_base_url()
-                or settings.mcp.tunnel_url
-                or None
-            )
-
-        if os.environ.get("MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL") is not None:
-            mcp_public_endpoint_url = get_mcp_public_endpoint_url()
-        else:
-            mcp_public_endpoint_url = settings.mcp.full_mcp_url_override or None
-
-        resolved_mcp_host = _runtime_bind_host(
-            get_mcp_host()
-            if os.environ.get("MINIMAL_KANBAN_MCP_HOST") is not None
-            else settings.mcp.mcp_host,
-            env_explicit=os.environ.get("MINIMAL_KANBAN_MCP_HOST") is not None,
-        )
-        resolved_mcp_port = (
-            get_mcp_port()
-            if os.environ.get("MINIMAL_KANBAN_MCP_PORT") is not None
-            else settings.mcp.mcp_port
-        )
-        resolved_mcp_path = (
-            get_mcp_path()
-            if os.environ.get("MINIMAL_KANBAN_MCP_PATH") is not None
-            else settings.mcp.mcp_path
-        )
+        (
+            resolved_mcp_host,
+            resolved_mcp_port,
+            resolved_mcp_path,
+            mcp_bearer_token,
+            mcp_public_base_url,
+            mcp_public_endpoint_url,
+        ) = _resolve_mcp_runtime_config(settings)
         resolved_auth_mode = "bearer" if mcp_bearer_token else "none"
         logger.info(
             "mcp.main.config board_api_url=%s host=%s port=%s path=%s auth_mode=%s public_base_url=%s public_endpoint_url=%s",
@@ -234,17 +292,8 @@ def run() -> int:
             logger.exception("mcp.main.start_failed error=%s", exc)
             return 1
 
-        stop_requested = False
-
-        def _stop_requested(_signum, _frame) -> None:
-            nonlocal stop_requested
-            stop_requested = True
-
-        signal.signal(signal.SIGINT, _stop_requested)
-        signal.signal(signal.SIGTERM, _stop_requested)
-
-        while not stop_requested:
-            time.sleep(0.2)
+        stop_requested = _install_mcp_stop_handlers()
+        _wait_for_mcp_shutdown(stop_requested)
 
         return 0
     finally:

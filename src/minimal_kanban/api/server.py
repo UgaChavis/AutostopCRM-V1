@@ -100,6 +100,57 @@ ACTIVE_INLINE_MIME_TYPES = frozenset(
     }
 )
 
+READONLY_GET_ROUTES = frozenset(
+    {
+        "/api/list_columns",
+        "/api/get_cards",
+        "/api/get_card",
+        "/api/get_board_revision",
+        "/api/get_board_snapshot",
+        "/api/get_board_context",
+        "/api/review_board",
+        "/api/get_board_content",
+        "/api/get_board_events",
+        "/api/list_cashboxes",
+        "/api/get_cash_journal",
+        "/api/finance_audit",
+        "/api/repair_order_number_audit",
+        "/api/list_employees",
+        "/api/list_clients",
+        "/api/search_clients",
+        "/api/get_client",
+        "/api/get_client_stats",
+        "/api/suggest_clients_for_card",
+        "/api/get_payroll_report",
+        "/api/get_employee_salary_ledger",
+        "/api/get_employee_salary_report",
+        "/api/get_employee_salary_reconciliation",
+        "/api/get_cashbox",
+        "/api/get_gpt_wall",
+        "/api/agent_status",
+        "/api/agent_tasks",
+        "/api/agent_actions",
+        "/api/agent_scheduled_tasks",
+        "/api/get_card_log",
+        "/api/search_cards",
+        "/api/list_archived_cards",
+        "/api/list_overdue_cards",
+        "/api/list_repair_orders",
+        "/api/get_operator_profile",
+        "/api/list_operator_users",
+        "/api/get_operator_user_report",
+        "/api/list_operator_activity",
+        "/api/get_operator_activity_details",
+        "/api/get_operator_activity_aggregates",
+        "/api/export_operator_activity",
+        "/api/list_shared_files",
+        "/api/get_shared_file_info",
+        "/api/list_inventory_items",
+        "/api/get_inventory_item",
+        "/api/list_inventory_movements",
+    }
+)
+
 
 def _reject_json_constant(value: str) -> None:
     raise ValueError(f"Non-standard JSON numeric constant: {value}")
@@ -630,6 +681,7 @@ class ApiServer:
         proxied_write_routes = set(PROXIED_WRITE_ROUTES)
         operator_session_routes = set(OPERATOR_SESSION_ROUTES)
         admin_only_routes = set(ADMIN_ONLY_ROUTES)
+        readonly_routes = set(READONLY_GET_ROUTES)
         if operator_service is not None:
             routes.update(build_operator_routes(operator_service))
             operator_session_routes.update(admin_only_routes)
@@ -723,120 +775,11 @@ class ApiServer:
                         request_id, exc.status_code, exc.code, exc.message, exc.details
                     )
                     return
-                if route in {"/", "/index.html"}:
-                    self._serve_board(request_id)
+                if self._serve_static_route(route, request_id):
                     return
-                if route == "/favicon.ico":
-                    body = _static_asset_bytes("favicon.ico")
-                    self._send_bytes_response(
-                        body,
-                        content_type="image/x-icon",
-                        request_id=request_id,
-                        route=route,
-                        cache_control="public, max-age=86400, immutable",
-                    )
+                if self._serve_authenticated_get_route(route, request_id, query):
                     return
-                if route == "/favicon.png":
-                    body = _static_asset_bytes("favicon.png")
-                    self._send_bytes_response(
-                        body,
-                        content_type="image/png",
-                        request_id=request_id,
-                        route=route,
-                        cache_control="public, max-age=86400, immutable",
-                    )
-                    return
-                if route == "/api/health":
-                    body = _json_response(
-                        ok=True,
-                        data={
-                            "status": "ok",
-                            "base_url": api_server.base_url,
-                            "bind_host": self.server.server_address[0],
-                            "auth_required": bool(bearer_token),
-                        },
-                        error=None,
-                        request_id=request_id,
-                    )
-                    self._send_bytes_response(
-                        body,
-                        content_type="application/json",
-                        request_id=request_id,
-                        route=route,
-                    )
-                    return
-                if route == "/api/attachment":
-                    if not self._authenticate(request_id, query):
-                        return
-                    self._serve_attachment(request_id, query)
-                    return
-                if route == "/api/shared_file":
-                    if not self._authenticate(request_id, query):
-                        return
-                    self._serve_shared_file(request_id, query)
-                    return
-                if route == "/api/repair_order_text":
-                    if not self._authenticate(request_id, query):
-                        return
-                    self._serve_repair_order_text(request_id, query)
-                    return
-                if route == "/employee_salary_reconciliation_print":
-                    if not self._authenticate(request_id, query):
-                        return
-                    self._serve_employee_salary_reconciliation_print(request_id, query)
-                    return
-                readonly_routes = {
-                    "/api/list_columns",
-                    "/api/get_cards",
-                    "/api/get_card",
-                    "/api/get_board_revision",
-                    "/api/get_board_snapshot",
-                    "/api/get_board_context",
-                    "/api/review_board",
-                    "/api/get_board_content",
-                    "/api/get_board_events",
-                    "/api/list_cashboxes",
-                    "/api/get_cash_journal",
-                    "/api/finance_audit",
-                    "/api/repair_order_number_audit",
-                    "/api/list_employees",
-                    "/api/list_clients",
-                    "/api/search_clients",
-                    "/api/get_client",
-                    "/api/get_client_stats",
-                    "/api/suggest_clients_for_card",
-                    "/api/get_payroll_report",
-                    "/api/get_employee_salary_ledger",
-                    "/api/get_employee_salary_report",
-                    "/api/get_employee_salary_reconciliation",
-                    "/api/get_cashbox",
-                    "/api/get_gpt_wall",
-                    "/api/agent_status",
-                    "/api/agent_tasks",
-                    "/api/agent_actions",
-                    "/api/agent_scheduled_tasks",
-                    "/api/get_card_log",
-                    "/api/search_cards",
-                    "/api/list_archived_cards",
-                    "/api/list_overdue_cards",
-                    "/api/list_repair_orders",
-                    "/api/get_operator_profile",
-                    "/api/list_operator_users",
-                    "/api/get_operator_user_report",
-                    "/api/list_operator_activity",
-                    "/api/get_operator_activity_details",
-                    "/api/get_operator_activity_aggregates",
-                    "/api/export_operator_activity",
-                    "/api/list_shared_files",
-                    "/api/get_shared_file_info",
-                    "/api/list_inventory_items",
-                    "/api/get_inventory_item",
-                    "/api/list_inventory_movements",
-                }
-                if route in readonly_routes:
-                    if not self._authenticate(request_id, query):
-                        return
-                    self._dispatch(route, request_id, query)
+                if self._serve_readonly_get_route(route, request_id, query):
                     return
                 self._not_found(request_id)
 
@@ -1408,6 +1351,113 @@ class ApiServer:
                     headers["Vary"] = "Accept-Encoding"
                 return body, headers
 
+            def _route_is_static(self, route: str) -> bool:
+                return route in {"/", "/index.html", "/favicon.ico", "/favicon.png", "/api/health"}
+
+            def _serve_static_route(self, route: str, request_id: str) -> bool:
+                if route in {"/", "/index.html"}:
+                    self._serve_board(request_id)
+                    return True
+                if route == "/favicon.ico":
+                    body = _static_asset_bytes("favicon.ico")
+                    self._send_bytes_response(
+                        body,
+                        content_type="image/x-icon",
+                        request_id=request_id,
+                        route=route,
+                        cache_control="public, max-age=86400, immutable",
+                    )
+                    return True
+                if route == "/favicon.png":
+                    body = _static_asset_bytes("favicon.png")
+                    self._send_bytes_response(
+                        body,
+                        content_type="image/png",
+                        request_id=request_id,
+                        route=route,
+                        cache_control="public, max-age=86400, immutable",
+                    )
+                    return True
+                if route == "/api/health":
+                    body = _json_response(
+                        ok=True,
+                        data={
+                            "status": "ok",
+                            "base_url": api_server.base_url,
+                            "bind_host": self.server.server_address[0],
+                            "auth_required": bool(bearer_token),
+                        },
+                        error=None,
+                        request_id=request_id,
+                    )
+                    self._send_bytes_response(
+                        body,
+                        content_type="application/json",
+                        request_id=request_id,
+                        route=route,
+                    )
+                    return True
+                return False
+
+            def _serve_authenticated_get_route(
+                self, route: str, request_id: str, query: dict
+            ) -> bool:
+                if route == "/api/attachment":
+                    if not self._authenticate(request_id, query):
+                        return True
+                    self._serve_attachment(request_id, query)
+                    return True
+                if route == "/api/shared_file":
+                    if not self._authenticate(request_id, query):
+                        return True
+                    self._serve_shared_file(request_id, query)
+                    return True
+                if route == "/api/repair_order_text":
+                    if not self._authenticate(request_id, query):
+                        return True
+                    self._serve_repair_order_text(request_id, query)
+                    return True
+                if route == "/employee_salary_reconciliation_print":
+                    if not self._authenticate(request_id, query):
+                        return True
+                    self._serve_employee_salary_reconciliation_print(request_id, query)
+                    return True
+                return False
+
+            def _serve_readonly_get_route(self, route: str, request_id: str, query: dict) -> bool:
+                if route not in readonly_routes:
+                    return False
+                if not self._authenticate(request_id, query):
+                    return True
+                self._dispatch(route, request_id, query)
+                return True
+
+            def _operator_context_payload_with_session(
+                self, route: str, payload: dict, session: dict | None
+            ) -> dict:
+                next_payload = dict(payload)
+                if session is not None:
+                    next_payload["_operator_session"] = session
+                    if route not in operator_session_routes and route not in admin_only_routes:
+                        next_payload["actor_name"] = session["username"]
+                return next_payload
+
+            def _operator_context_payload_reject(
+                self,
+                request_id: str,
+                *,
+                status: HTTPStatus,
+                code: str,
+                message: str,
+            ) -> None:
+                self._send_error_response(
+                    request_id,
+                    status,
+                    code,
+                    message,
+                    {"auth_type": "operator_session"},
+                )
+
             def _operator_context_payload(
                 self, route: str, payload: dict, request_id: str
             ) -> dict | None:
@@ -1416,62 +1466,49 @@ class ApiServer:
                 session = operator_service.resolve_session(
                     self.headers.get("X-Operator-Session", "")
                 )
-                next_payload = dict(payload)
-                if session is not None:
-                    next_payload["_operator_session"] = session
-                    if route not in operator_session_routes and route not in admin_only_routes:
-                        next_payload["actor_name"] = session["username"]
+                next_payload = self._operator_context_payload_with_session(route, payload, session)
                 if route in admin_only_routes:
                     if session is None:
-                        self._send_error_response(
+                        self._operator_context_payload_reject(
                             request_id,
-                            HTTPStatus.UNAUTHORIZED,
-                            "unauthorized",
-                            "Нужен вход администратора.",
-                            {"auth_type": "operator_session"},
+                            status=HTTPStatus.UNAUTHORIZED,
+                            code="unauthorized",
+                            message="Нужен вход администратора.",
                         )
                         return None
                     if not session.get("is_admin"):
-                        self._send_error_response(
+                        self._operator_context_payload_reject(
                             request_id,
-                            HTTPStatus.FORBIDDEN,
-                            "forbidden",
-                            "Нужны права администратора.",
-                            {"auth_type": "operator_session"},
+                            status=HTTPStatus.FORBIDDEN,
+                            code="forbidden",
+                            message="Нужны права администратора.",
                         )
                         return None
                     return next_payload
                 if route in operator_session_routes:
                     if session is None:
-                        self._send_error_response(
+                        self._operator_context_payload_reject(
                             request_id,
-                            HTTPStatus.UNAUTHORIZED,
-                            "unauthorized",
-                            "Нужен вход оператора.",
-                            {"auth_type": "operator_session"},
+                            status=HTTPStatus.UNAUTHORIZED,
+                            code="unauthorized",
+                            message="Нужен вход оператора.",
                         )
                         return None
                     return next_payload
-                # Reverse-proxy deployments forward X-Forwarded-For/X-Real-IP
-                # to this local API. In that proxied scenario, block anonymous
-                # mutating or expensive operator-only routes while leaving
-                # direct localhost/MCP calls intact.
                 if route in proxied_write_routes and session is None and self._is_proxied_request():
-                    self._send_error_response(
+                    self._operator_context_payload_reject(
                         request_id,
-                        HTTPStatus.UNAUTHORIZED,
-                        "unauthorized",
-                        "Нужен вход оператора.",
-                        {"auth_type": "operator_session"},
+                        status=HTTPStatus.UNAUTHORIZED,
+                        code="unauthorized",
+                        message="Нужен вход оператора.",
                     )
                     return None
                 if str(next_payload.get("source", "")).strip().lower() == "ui" and session is None:
-                    self._send_error_response(
+                    self._operator_context_payload_reject(
                         request_id,
-                        HTTPStatus.UNAUTHORIZED,
-                        "unauthorized",
-                        "Нужен вход оператора.",
-                        {"auth_type": "operator_session"},
+                        status=HTTPStatus.UNAUTHORIZED,
+                        code="unauthorized",
+                        message="Нужен вход оператора.",
                     )
                     return None
                 return next_payload

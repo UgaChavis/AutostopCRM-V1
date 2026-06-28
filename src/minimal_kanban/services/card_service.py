@@ -2034,33 +2034,19 @@ class CardService(
                 details={"field": "card_id"},
             )
         response_mode = self._validated_response_mode(payload, default="compact")
-        patch: dict[str, Any] = {"card_id": card_id, "response_mode": response_mode}
-        for field in ("vehicle", "title", "description", "deadline", "tags", "vehicle_profile"):
-            if field in payload:
-                patch[field] = payload[field]
-        if "expected_updated_at" in payload:
-            patch["expected_updated_at"] = payload.get("expected_updated_at")
         refresh_summary = self._validated_optional_bool(payload, "refresh_summary", default=False)
-        explicit_summary = normalize_text(
-            payload.get("summary", payload.get("board_summary")),
-            default="",
-            limit=CARD_BOARD_SUMMARY_LIMIT,
-        )
         with self._lock:
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], card_id)
             self._ensure_not_archived(card)
             column_labels = self._column_labels(bundle["columns"])
-            generated_summary = explicit_summary or (
-                self._manager_generated_board_summary(card, column_labels)
-                if refresh_summary
-                else ""
+            patch, planned_fields, generated_summary, dry_run_item = self._cleanup_card_plan(
+                payload=payload,
+                card=card,
+                column_labels=column_labels,
+                response_mode=response_mode,
+                refresh_summary=refresh_summary,
             )
-            planned_fields = [field for field in patch if field not in {"card_id", "response_mode"}]
-            if generated_summary:
-                planned_fields.append("board_summary")
-            dry_run_item = self._manager_card_item(card, column_labels, now=utc_now())
-            dry_run_item["planned_fields"] = planned_fields
             if mode == "dry_run":
                 return self._manager_operation_result(
                     "cleanup_card",
@@ -2160,49 +2146,17 @@ class CardService(
                     )
                 item["planned_changes"] = planned_changes
                 if mode == "apply" and planned_changes:
-                    changed = False
-                    if "tags" in planned_changes:
-                        try:
-                            changed = (
-                                self._update_tags(
-                                    card,
-                                    planned_changes["tags"],
-                                    events,
-                                    actor_name,
-                                    source,
-                                )
-                                or changed
-                            )
-                        except ServiceError as exc:
-                            errors.append(
-                                {
-                                    "card_id": card.id,
-                                    "code": exc.code,
-                                    "message": exc.message,
-                                }
-                            )
-                    if "deadline" in planned_changes:
-                        changed = (
-                            self._update_deadline(
-                                card,
-                                {"total_seconds": target_seconds},
-                                events,
-                                actor_name,
-                                source,
-                            )
-                            or changed
-                        )
-                    if "board_summary" in planned_changes:
-                        changed = (
-                            self._manager_set_board_summary(
-                                card,
-                                planned_changes["board_summary"],
-                                events,
-                                actor_name,
-                                source,
-                            )
-                            or changed
-                        )
+                    changed, card_errors = self._apply_ready_unpaid_card_changes(
+                        card=card,
+                        planned_changes=planned_changes,
+                        events=events,
+                        actor_name=actor_name,
+                        source=source,
+                        target_seconds=target_seconds,
+                        refresh_summary=refresh_summary,
+                        column_labels=column_labels,
+                    )
+                    errors.extend(card_errors)
                     if changed:
                         if card not in changed_cards:
                             self._touch_card(card, actor_name)
@@ -2337,20 +2291,10 @@ class CardService(
                     {"code": "invalid_rollback_action", "message": "Action must be object."}
                 )
                 continue
-            card_id = normalize_text(action.get("card_id"), default="", limit=128)
-            restore = action.get("restore")
-            if not card_id or not isinstance(restore, dict):
-                errors.append(
-                    {
-                        "code": "invalid_rollback_action",
-                        "message": "Action must contain card_id and restore object.",
-                    }
-                )
+            card_id, patch, error = self._rollback_manager_run_patch(action, actor_name)
+            if error is not None:
+                errors.append(error)
                 continue
-            patch = {"card_id": card_id, "actor_name": actor_name, "response_mode": "compact"}
-            for field in ("vehicle", "title", "description", "deadline", "tags", "vehicle_profile"):
-                if field in restore:
-                    patch[field] = restore[field]
             try:
                 result = self.update_card(patch)
                 if (result.get("meta") or {}).get("changed"):
@@ -2384,6 +2328,102 @@ class CardService(
                 ],
             }
             return build_repair_order_number_audit(state)
+
+    def _rollback_manager_run_patch(
+        self, action: dict[str, Any], actor_name: str
+    ) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None]:
+        card_id = normalize_text(action.get("card_id"), default="", limit=128)
+        restore = action.get("restore")
+        if not card_id or not isinstance(restore, dict):
+            return (
+                "",
+                None,
+                {
+                    "code": "invalid_rollback_action",
+                    "message": "Action must contain card_id and restore object.",
+                },
+            )
+        patch = {"card_id": card_id, "actor_name": actor_name, "response_mode": "compact"}
+        for field in ("vehicle", "title", "description", "deadline", "tags", "vehicle_profile"):
+            if field in restore:
+                patch[field] = restore[field]
+        return card_id, patch, None
+
+    def _cleanup_card_plan(
+        self,
+        *,
+        payload: dict[str, Any],
+        card: Card,
+        column_labels: dict[str, str],
+        response_mode: str,
+        refresh_summary: bool,
+    ) -> tuple[dict[str, Any], list[str], str, dict[str, Any]]:
+        patch: dict[str, Any] = {"card_id": card.id, "response_mode": response_mode}
+        for field in ("vehicle", "title", "description", "deadline", "tags", "vehicle_profile"):
+            if field in payload:
+                patch[field] = payload[field]
+        if "expected_updated_at" in payload:
+            patch["expected_updated_at"] = payload.get("expected_updated_at")
+        explicit_summary = normalize_text(
+            payload.get("summary", payload.get("board_summary")),
+            default="",
+            limit=CARD_BOARD_SUMMARY_LIMIT,
+        )
+        generated_summary = explicit_summary or (
+            self._manager_generated_board_summary(card, column_labels) if refresh_summary else ""
+        )
+        planned_fields = [field for field in patch if field not in {"card_id", "response_mode"}]
+        if generated_summary:
+            planned_fields.append("board_summary")
+        dry_run_item = self._manager_card_item(card, column_labels, now=utc_now())
+        dry_run_item["planned_fields"] = planned_fields
+        return patch, planned_fields, generated_summary, dry_run_item
+
+    def _apply_ready_unpaid_card_changes(
+        self,
+        *,
+        card: Card,
+        planned_changes: dict[str, Any],
+        events: list[dict[str, Any]],
+        actor_name: str,
+        source: str,
+        target_seconds: int,
+        refresh_summary: bool,
+        column_labels: dict[str, str],
+    ) -> tuple[bool, list[dict[str, Any]]]:
+        changed = False
+        errors: list[dict[str, Any]] = []
+        if "tags" in planned_changes:
+            try:
+                changed = (
+                    self._update_tags(card, planned_changes["tags"], events, actor_name, source)
+                    or changed
+                )
+            except ServiceError as exc:
+                errors.append({"card_id": card.id, "code": exc.code, "message": exc.message})
+        if "deadline" in planned_changes:
+            changed = (
+                self._update_deadline(
+                    card,
+                    {"total_seconds": target_seconds},
+                    events,
+                    actor_name,
+                    source,
+                )
+                or changed
+            )
+        if "board_summary" in planned_changes:
+            changed = (
+                self._manager_set_board_summary(
+                    card,
+                    planned_changes["board_summary"],
+                    events,
+                    actor_name,
+                    source,
+                )
+                or changed
+            )
+        return changed, errors
 
     def get_card_context(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -6368,6 +6408,21 @@ class CardService(
         order_name = normalize_text(card.repair_order.client, default="", limit=80)
         if order_name:
             return order_name
+        normalized_match = self._extract_customer_name_from_text_sources(
+            (
+                card.description,
+                card.repair_order.reason,
+                card.repair_order.comment,
+                card.repair_order.note,
+                card.vehicle_profile.oem_notes,
+            )
+        )
+        if normalized_match:
+            return normalized_match
+        normalized_match = self._extract_customer_name_from_analysis(card)
+        return normalized_match or fallback
+
+    def _extract_customer_name_from_text_sources(self, text_sources: tuple[str, ...]) -> str:
         blocked_tokens = {
             "ТЕЛЕФОН",
             "PHONE",
@@ -6395,25 +6450,43 @@ class CardService(
                 return ""
             return " ".join(part[:1].upper() + part[1:].lower() for part in parts)[:80]
 
-        for line in self._repair_text_lines(
-            card.description,
-            card.repair_order.reason,
-            card.repair_order.comment,
-            card.repair_order.note,
-            card.vehicle_profile.oem_notes,
-        ):
+        for line in self._repair_text_lines(*text_sources):
             match = _CUSTOMER_NAME_PATTERN.search(line)
             if not match:
                 continue
             normalized_match = _normalize_match(str(match.group(1) or ""))
             if normalized_match:
                 return normalized_match
+        return ""
 
+    def _extract_customer_name_from_analysis(self, card: Card) -> str:
+        blocked_tokens = {
+            "ТЕЛЕФОН",
+            "PHONE",
+            "VIN",
+            "ГОСНОМЕР",
+            "ПРОБЕГ",
+            "MILEAGE",
+            "ФАКТЫ",
+            "СУТЬ",
+            "ДАННЫЕ",
+            "РАБОТЫ",
+            "ПРОВЕРКИ",
+        }
         match = _CUSTOMER_NAME_PATTERN.search(self._repair_analysis_text(card))
         if not match:
-            return fallback
-        normalized_match = _normalize_match(str(match.group(1) or ""))
-        return normalized_match or fallback
+            return ""
+        parts: list[str] = []
+        for part in str(match.group(1) or "").strip().split():
+            normalized = str(part or "").strip()
+            if not normalized:
+                continue
+            if normalized.upper().strip(":.,-") in blocked_tokens:
+                break
+            parts.append(normalized)
+        if not parts:
+            return ""
+        return " ".join(part[:1].upper() + part[1:].lower() for part in parts)[:80]
 
     def _repair_analysis_text(self, card: Card) -> str:
         return "\n".join(
