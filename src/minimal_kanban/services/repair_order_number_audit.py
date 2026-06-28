@@ -111,8 +111,14 @@ def _iter_order_cards(state: dict[str, Any]) -> list[tuple[dict[str, Any], dict[
     return result
 
 
-def build_repair_order_number_audit(state: dict[str, Any]) -> dict[str, Any]:
-    order_cards = _iter_order_cards(state)
+def _collect_repair_order_number_issues(
+    order_cards: list[tuple[dict[str, Any], dict[str, Any]]],
+) -> tuple[
+    list[dict[str, Any]],
+    dict[str, list[tuple[dict[str, Any], dict[str, Any]]]],
+    list[tuple[datetime, int, dict[str, Any], dict[str, Any]]],
+    dict[int, list[tuple[datetime, dict[str, Any], dict[str, Any]]]],
+]:
     issues: list[dict[str, Any]] = []
     numbers: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
     numeric_orders: list[tuple[datetime, int, dict[str, Any], dict[str, Any]]] = []
@@ -131,26 +137,9 @@ def build_repair_order_number_audit(state: dict[str, Any]) -> dict[str, Any]:
                 )
             )
             continue
+
         numbers.setdefault(_number_key(number), []).append((card, order))
-        if number.isdigit():
-            numeric_number = _parse_order_number(number)
-            if numeric_number is None:
-                issues.append(
-                    _issue(
-                        "nonnumeric_number",
-                        "warning",
-                        "Номер заказ-наряда не может быть обработан как числовой.",
-                        card_id=card_id,
-                        repair_order_number=number,
-                    )
-                )
-            else:
-                opened_at = _sort_datetime(card, order)
-                numeric_orders.append((opened_at, numeric_number, card, order))
-                numeric_orders_by_number.setdefault(numeric_number, []).append(
-                    (opened_at, card, order)
-                )
-        else:
+        if not number.isdigit():
             issues.append(
                 _issue(
                     "nonnumeric_number",
@@ -160,7 +149,32 @@ def build_repair_order_number_audit(state: dict[str, Any]) -> dict[str, Any]:
                     repair_order_number=number,
                 )
             )
+            continue
 
+        numeric_number = _parse_order_number(number)
+        if numeric_number is None:
+            issues.append(
+                _issue(
+                    "nonnumeric_number",
+                    "warning",
+                    "Номер заказ-наряда не может быть обработан как числовой.",
+                    card_id=card_id,
+                    repair_order_number=number,
+                )
+            )
+            continue
+
+        opened_at = _sort_datetime(card, order)
+        numeric_orders.append((opened_at, numeric_number, card, order))
+        numeric_orders_by_number.setdefault(numeric_number, []).append((opened_at, card, order))
+
+    return issues, numbers, numeric_orders, numeric_orders_by_number
+
+
+def _append_duplicate_number_issues(
+    numbers: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]],
+    issues: list[dict[str, Any]],
+) -> None:
     for same_number_cards in numbers.values():
         if len(same_number_cards) < 2:
             continue
@@ -175,6 +189,11 @@ def build_repair_order_number_audit(state: dict[str, Any]) -> dict[str, Any]:
             )
         )
 
+
+def _append_number_gap_issues(
+    numeric_orders_by_number: dict[int, list[tuple[datetime, dict[str, Any], dict[str, Any]]]],
+    issues: list[dict[str, Any]],
+) -> None:
     previous_number: int | None = None
     for number in sorted(numeric_orders_by_number):
         if previous_number is not None and number - previous_number > 1:
@@ -209,6 +228,11 @@ def build_repair_order_number_audit(state: dict[str, Any]) -> dict[str, Any]:
             )
         previous_number = number
 
+
+def _append_number_time_inversion_issues(
+    numeric_orders: list[tuple[datetime, int, dict[str, Any], dict[str, Any]]],
+    issues: list[dict[str, Any]],
+) -> None:
     max_seen_number = 0
     for opened_at, number, card, order in sorted(
         numeric_orders,
@@ -233,6 +257,12 @@ def build_repair_order_number_audit(state: dict[str, Any]) -> dict[str, Any]:
             )
         max_seen_number = max(max_seen_number, number)
 
+
+def _append_payment_number_issues(
+    state: dict[str, Any],
+    order_cards: list[tuple[dict[str, Any], dict[str, Any]]],
+    issues: list[dict[str, Any]],
+) -> None:
     transactions_by_id = {
         _text(transaction.get("id")): transaction
         for transaction in _state_transactions(state)
@@ -289,6 +319,17 @@ def build_repair_order_number_audit(state: dict[str, Any]) -> dict[str, Any]:
                         },
                     )
                 )
+
+
+def build_repair_order_number_audit(state: dict[str, Any]) -> dict[str, Any]:
+    order_cards = _iter_order_cards(state)
+    issues, numbers, numeric_orders, numeric_orders_by_number = _collect_repair_order_number_issues(
+        order_cards
+    )
+    _append_duplicate_number_issues(numbers, issues)
+    _append_number_gap_issues(numeric_orders_by_number, issues)
+    _append_number_time_inversion_issues(numeric_orders, issues)
+    _append_payment_number_issues(state, order_cards, issues)
 
     counts_by_code: dict[str, int] = {}
     counts_by_severity = {"error": 0, "warning": 0, "info": 0}

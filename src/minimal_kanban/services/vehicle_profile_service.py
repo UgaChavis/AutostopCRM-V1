@@ -526,23 +526,9 @@ class VehicleProfileService:
         result.warnings = self._normalize_warnings(result.warnings)
         return result
 
-    def _parse_text_payload(
-        self,
-        raw_text: str,
-        *,
-        explicit_vehicle: str = "",
-        explicit_title: str = "",
-        explicit_description: str = "",
-    ) -> tuple[VehicleProfile, dict[str, str], list[str]]:
-        text = str(raw_text or "").strip()
-        profile = VehicleProfile(raw_input_text=text)
-        warnings: list[str] = []
-        if not text and not explicit_vehicle:
-            return profile, {"title": explicit_title, "description": explicit_description}, warnings
-
-        combined_text = " ".join(part for part in (explicit_vehicle, text) if part).strip()
-        upper_text = combined_text.upper()
-
+    def _populate_text_payload_identifiers(
+        self, profile: VehicleProfile, combined_text: str, upper_text: str
+    ) -> None:
         vin_match = VIN_SOFT_PATTERN.search(upper_text)
         if vin_match:
             profile.vin = soft_normalize_vin(vin_match.group(1))
@@ -563,17 +549,26 @@ class VehicleProfileService:
         if customer_name:
             profile.customer_name = customer_name
 
-        detected_make = ""
+    def _populate_text_payload_make(self, profile: VehicleProfile, upper_text: str) -> str:
         for canonical_make, aliases in _MAKE_ALIASES.items():
             if any(
                 re.search(rf"\b{re.escape(alias)}\b", upper_text, re.IGNORECASE)
                 for alias in aliases
             ):
-                detected_make = canonical_make
-                break
-        if detected_make:
-            profile.make_display = self._display_make(detected_make)
+                profile.make_display = self._display_make(canonical_make)
+                return canonical_make
+        return ""
 
+    def _populate_text_payload_model_and_engine(
+        self,
+        profile: VehicleProfile,
+        *,
+        text: str,
+        explicit_vehicle: str,
+        combined_text: str,
+        upper_text: str,
+        detected_make: str,
+    ) -> None:
         model_source_text = text or explicit_vehicle or combined_text
         model_match = self._detect_model(model_source_text, detected_make)
         if model_match:
@@ -614,6 +609,9 @@ class VehicleProfileService:
         if power_match:
             profile.engine_power_hp = normalize_vehicle_int(power_match.group(1))
 
+    def _populate_text_payload_transmission(
+        self, profile: VehicleProfile, combined_text: str, upper_text: str
+    ) -> None:
         for gearbox_type, pattern in _GEARBOX_PATTERNS:
             if re.search(pattern, upper_text, re.IGNORECASE):
                 profile.gearbox_type = gearbox_type
@@ -628,6 +626,9 @@ class VehicleProfileService:
             if gearbox_model_hint and self._looks_like_gearbox_model(gearbox_model_hint):
                 profile.gearbox_model = gearbox_model_hint
 
+    def _populate_text_payload_powertrain_and_misc(
+        self, profile: VehicleProfile, combined_text: str, upper_text: str
+    ) -> None:
         for drivetrain, pattern in _DRIVETRAIN_PATTERNS:
             if re.search(pattern, upper_text, re.IGNORECASE):
                 profile.drivetrain = drivetrain
@@ -646,14 +647,16 @@ class VehicleProfileService:
         if bolt_match:
             profile.wheel_bolt_pattern = bolt_match.group(1).replace(",", ".").upper()
 
-        non_empty_fields = {
-            field_name
-            for field_name in VEHICLE_PRIMARY_FIELDS
-            if not self._is_empty_vehicle_value(getattr(profile, field_name))
-        }
-        profile.manual_fields = sorted(non_empty_fields)
-        profile.data_completion_state = "manually_entered"
-
+    def _build_text_payload_metadata(
+        self,
+        profile: VehicleProfile,
+        *,
+        text: str,
+        combined_text: str,
+        explicit_title: str,
+        explicit_description: str,
+        warnings: list[str],
+    ) -> tuple[str, str]:
         title_candidate = explicit_title.strip()
         description_candidate = explicit_description.strip()
         if not title_candidate:
@@ -665,6 +668,53 @@ class VehicleProfileService:
             warnings.append(
                 "VIN выглядит неполным: автодополнение из интернета может быть ограничено."
             )
+
+        return title_candidate, description_candidate
+
+    def _parse_text_payload(
+        self,
+        raw_text: str,
+        *,
+        explicit_vehicle: str = "",
+        explicit_title: str = "",
+        explicit_description: str = "",
+    ) -> tuple[VehicleProfile, dict[str, str], list[str]]:
+        text = str(raw_text or "").strip()
+        profile = VehicleProfile(raw_input_text=text)
+        warnings: list[str] = []
+        if not text and not explicit_vehicle:
+            return profile, {"title": explicit_title, "description": explicit_description}, warnings
+
+        combined_text = " ".join(part for part in (explicit_vehicle, text) if part).strip()
+        upper_text = combined_text.upper()
+        self._populate_text_payload_identifiers(profile, combined_text, upper_text)
+        detected_make = self._populate_text_payload_make(profile, upper_text)
+        self._populate_text_payload_model_and_engine(
+            profile,
+            text=text,
+            explicit_vehicle=explicit_vehicle,
+            combined_text=combined_text,
+            upper_text=upper_text,
+            detected_make=detected_make,
+        )
+        self._populate_text_payload_transmission(profile, combined_text, upper_text)
+        self._populate_text_payload_powertrain_and_misc(profile, combined_text, upper_text)
+
+        non_empty_fields = {
+            field_name
+            for field_name in VEHICLE_PRIMARY_FIELDS
+            if not self._is_empty_vehicle_value(getattr(profile, field_name))
+        }
+        profile.manual_fields = sorted(non_empty_fields)
+        profile.data_completion_state = "manually_entered"
+        title_candidate, description_candidate = self._build_text_payload_metadata(
+            profile,
+            text=text,
+            combined_text=combined_text,
+            explicit_title=explicit_title,
+            explicit_description=explicit_description,
+            warnings=warnings,
+        )
 
         return profile, {"title": title_candidate, "description": description_candidate}, warnings
 
@@ -856,61 +906,74 @@ class VehicleProfileService:
             return "Mercedes-Benz"
         return normalized.title()
 
-    def _detect_model(self, text: str, detected_make: str) -> str:
+    def _detect_model_from_catalog(self, text: str, detected_make: str) -> str:
         upper_text = text.upper()
-        if detected_make == "MAZDA" and re.search(r"\bCX[\s-]?5\b", upper_text, re.IGNORECASE):
-            return "CX-5"
         for entry in _CATALOG_ENTRIES:
             if detected_make and self._slug(entry.make_display) != self._slug(detected_make):
                 continue
             for alias in entry.model_aliases:
                 if re.search(rf"\b{re.escape(alias)}\b", upper_text, re.IGNORECASE):
                     return normalize_vehicle_text(entry.model_display)
+        return ""
 
+    def _detect_model_from_make_alias(self, text: str, detected_make: str) -> str:
+        upper_text = text.upper()
+        for alias in _MAKE_ALIASES.get(detected_make, ()):
+            if not alias or alias not in upper_text:
+                continue
+            tail = upper_text.split(alias, 1)[1]
+            tokens = [token for token in _MAKE_MODEL_SPLIT_PATTERN.split(tail) if token]
+            model_tokens: list[str] = []
+            for token in tokens:
+                if _YEAR_PATTERN.fullmatch(token):
+                    break
+                if token in {
+                    "VIN",
+                    "ПРОБЛЕМА",
+                    "ЖАЛОБА",
+                    "НЕИСПРАВНОСТЬ",
+                    "SPECS",
+                    "SPECIFICATIONS",
+                    "SPEC",
+                    "REVIEW",
+                    "DATA",
+                    "PERFORMANCE",
+                    "PHOTOS",
+                    "WARRANTY",
+                    "TECHNICAL",
+                    "DIMENSIONS",
+                    "FUEL",
+                    "CONSUMPTION",
+                    "CATALOG",
+                    "QUATTRO",
+                    "SEDAN",
+                    "COUPE",
+                    "CABRIOLET",
+                    "HATCHBACK",
+                    "SPORTBACK",
+                    "TOURING",
+                }:
+                    break
+                if token.isdigit() and model_tokens:
+                    break
+                model_tokens.append(token)
+                if len(model_tokens) >= 3:
+                    break
+            if model_tokens:
+                return self._compose_model_tokens(model_tokens)
+        return ""
+
+    def _detect_model(self, text: str, detected_make: str) -> str:
+        upper_text = text.upper()
+        if detected_make == "MAZDA" and re.search(r"\bCX[\s-]?5\b", upper_text, re.IGNORECASE):
+            return "CX-5"
+        catalog_match = self._detect_model_from_catalog(text, detected_make)
+        if catalog_match:
+            return catalog_match
         if detected_make:
-            make_aliases = _MAKE_ALIASES.get(detected_make, ())
-            for alias in make_aliases:
-                if alias and alias in upper_text:
-                    tail = upper_text.split(alias, 1)[1]
-                    tokens = [token for token in _MAKE_MODEL_SPLIT_PATTERN.split(tail) if token]
-                    model_tokens: list[str] = []
-                    for token in tokens:
-                        if _YEAR_PATTERN.fullmatch(token):
-                            break
-                        if token in {
-                            "VIN",
-                            "ПРОБЛЕМА",
-                            "ЖАЛОБА",
-                            "НЕИСПРАВНОСТЬ",
-                            "SPECS",
-                            "SPECIFICATIONS",
-                            "SPEC",
-                            "REVIEW",
-                            "DATA",
-                            "PERFORMANCE",
-                            "PHOTOS",
-                            "WARRANTY",
-                            "TECHNICAL",
-                            "DIMENSIONS",
-                            "FUEL",
-                            "CONSUMPTION",
-                            "CATALOG",
-                            "QUATTRO",
-                            "SEDAN",
-                            "COUPE",
-                            "CABRIOLET",
-                            "HATCHBACK",
-                            "SPORTBACK",
-                            "TOURING",
-                        }:
-                            break
-                        if token.isdigit() and model_tokens:
-                            break
-                        model_tokens.append(token)
-                        if len(model_tokens) >= 3:
-                            break
-                    if model_tokens:
-                        return self._compose_model_tokens(model_tokens)
+            make_alias_match = self._detect_model_from_make_alias(text, detected_make)
+            if make_alias_match:
+                return make_alias_match
         return ""
 
     def _compose_model_tokens(self, tokens: list[str]) -> str:

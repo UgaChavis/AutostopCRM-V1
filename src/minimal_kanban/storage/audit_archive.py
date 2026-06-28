@@ -165,6 +165,39 @@ class AuditArchiveStore:
         handle.seek(offset)
         return previous == b"\n"
 
+    def _consume_archive_buffer(
+        self,
+        archive_file: Path,
+        buffer: bytes,
+        *,
+        allow_trailing_partial: bool,
+        skipping_oversized: bool,
+    ) -> tuple[bytes, bool, list[str]]:
+        lines: list[str] = []
+        while True:
+            newline_index = buffer.find(b"\n")
+            if newline_index < 0:
+                if len(buffer) > AUDIT_ARCHIVE_LINE_MAX_BYTES:
+                    self._log_archive_line_too_large(archive_file)
+                    buffer = b""
+                    skipping_oversized = True
+                break
+
+            raw_line = buffer[:newline_index]
+            buffer = buffer[newline_index + 1 :]
+            if raw_line.endswith(b"\r"):
+                raw_line = raw_line[:-1]
+            line = self._decode_archive_line(archive_file, raw_line)
+            if line:
+                lines.append(line)
+
+        if allow_trailing_partial and buffer and not skipping_oversized:
+            line = self._decode_archive_line(archive_file, buffer.rstrip(b"\r"))
+            if line:
+                lines.append(line)
+            buffer = b""
+        return buffer, skipping_oversized, lines
+
     def _iter_archive_window(
         self,
         archive_file: Path,
@@ -185,35 +218,23 @@ class AuditArchiveStore:
                 break
             bytes_read += len(chunk)
 
-            while chunk:
-                if skipping_oversized:
-                    newline_index = chunk.find(b"\n")
-                    if newline_index < 0:
-                        chunk = b""
-                        continue
-                    chunk = chunk[newline_index + 1 :]
-                    skipping_oversized = False
-                    buffer = b""
+            if skipping_oversized:
+                newline_index = chunk.find(b"\n")
+                if newline_index < 0:
                     continue
+                chunk = chunk[newline_index + 1 :]
+                skipping_oversized = False
+                buffer = b""
 
-                buffer += chunk
-                chunk = b""
-                while True:
-                    newline_index = buffer.find(b"\n")
-                    if newline_index < 0:
-                        if len(buffer) > AUDIT_ARCHIVE_LINE_MAX_BYTES:
-                            self._log_archive_line_too_large(archive_file)
-                            buffer = b""
-                            skipping_oversized = True
-                        break
-
-                    raw_line = buffer[:newline_index]
-                    buffer = buffer[newline_index + 1 :]
-                    if raw_line.endswith(b"\r"):
-                        raw_line = raw_line[:-1]
-                    line = self._decode_archive_line(archive_file, raw_line)
-                    if line:
-                        yield line
+            buffer += chunk
+            buffer, skipping_oversized, lines = self._consume_archive_buffer(
+                archive_file,
+                buffer,
+                allow_trailing_partial=False,
+                skipping_oversized=skipping_oversized,
+            )
+            for line in lines:
+                yield line
 
         if allow_trailing_partial and buffer and not skipping_oversized:
             line = self._decode_archive_line(archive_file, buffer.rstrip(b"\r"))

@@ -784,73 +784,87 @@ class OperatorAuthService:
             "attachments_removed": 0,
             "board_actions_total": 0,
         }
-        action_entries: list[dict[str, Any]] = []
-        activity_rows = self._recent_activity_rows(username)
-        if activity_rows:
-            for item in activity_rows:
-                timestamp = parse_datetime(item.get("timestamp"))
-                if timestamp is None or timestamp < window_start:
-                    continue
-                action = str(item.get("action") or "").strip() or "operator_action"
-                if action == "card_opened":
-                    stats["cards_opened"] += 1
-                action_entries.append(
-                    {
-                        "timestamp": timestamp.isoformat(),
-                        "action": action,
-                        "message": str(
-                            item.get("summary") or item.get("action_label") or "Действие оператора."
-                        ).strip()
-                        or "Действие оператора.",
-                        "card_id": str(item.get("object_id") or "").strip()
-                        if item.get("object_type") == "card"
-                        else "",
-                    }
-                )
-        else:
-            for item in self._prune_action_history(user.get(ACTION_HISTORY_KEY)):
-                timestamp = parse_datetime(item.get("timestamp"))
-                if timestamp is None or timestamp < window_start:
-                    continue
-                action = str(item.get("action") or "").strip() or "operator_action"
-                if action == "card_opened":
-                    stats["cards_opened"] += 1
-                action_entries.append(
-                    {
-                        "timestamp": timestamp.isoformat(),
-                        "action": action,
-                        "message": str(item.get("message") or "Действие оператора.").strip()
-                        or "Действие оператора.",
-                        "card_id": str(item.get("card_id") or "").strip(),
-                    }
-                )
+        action_entries, opened_cards = self._collect_user_action_entries(
+            username, window_start=window_start, fallback_history=user.get(ACTION_HISTORY_KEY)
+        )
+        stats["cards_opened"] += opened_cards
         event_activity = event_activity_index.get(actor)
-        if event_activity:
-            event_stats = event_activity.get("stats") or {}
-            for key in (
-                "cards_created",
-                "cards_archived",
-                "card_moves",
-                "repair_orders_updated",
-                "attachments_added",
-                "attachments_removed",
-                "board_actions_total",
-            ):
-                stats[key] = min(
-                    OPERATOR_STAT_MAX,
-                    stats[key]
-                    + normalize_int(
-                        event_stats.get(key),
-                        default=0,
-                        minimum=0,
-                        maximum=OPERATOR_STAT_MAX,
-                    ),
-                )
-            action_entries.extend(event_activity.get("actions") or [])
+        self._merge_event_activity_stats(stats, action_entries, event_activity=event_activity)
         action_entries = self._sort_action_entries(action_entries, reverse=True)
         recent_actions = action_entries[:12]
         stats["activity_total"] = stats["board_actions_total"] + stats["cards_opened"]
         return {"stats": stats, "recent_actions": recent_actions, "all_actions": action_entries}
+
+    def _collect_user_action_entries(
+        self,
+        username: str,
+        *,
+        window_start,
+        fallback_history,
+    ) -> tuple[list[dict[str, Any]], int]:
+        action_entries: list[dict[str, Any]] = []
+        opened_cards = 0
+        activity_rows = self._recent_activity_rows(username)
+        rows = activity_rows if activity_rows else self._prune_action_history(fallback_history)
+        for item in rows:
+            timestamp = parse_datetime(item.get("timestamp"))
+            if timestamp is None or timestamp < window_start:
+                continue
+            action = str(item.get("action") or "").strip() or "operator_action"
+            if action == "card_opened":
+                opened_cards += 1
+            message = (
+                str(
+                    item.get("summary") or item.get("action_label") or "Действие оператора."
+                ).strip()
+                if activity_rows
+                else str(item.get("message") or "Действие оператора.").strip()
+            ) or "Действие оператора."
+            card_id = (
+                str(item.get("object_id") or "").strip()
+                if activity_rows and item.get("object_type") == "card"
+                else str(item.get("card_id") or "").strip()
+            )
+            action_entries.append(
+                {
+                    "timestamp": timestamp.isoformat(),
+                    "action": action,
+                    "message": message,
+                    "card_id": card_id,
+                }
+            )
+        return action_entries, opened_cards
+
+    def _merge_event_activity_stats(
+        self,
+        stats: dict[str, int],
+        action_entries: list[dict[str, Any]],
+        *,
+        event_activity: dict[str, Any] | None,
+    ) -> None:
+        if not event_activity:
+            return
+        event_stats = event_activity.get("stats") or {}
+        for key in (
+            "cards_created",
+            "cards_archived",
+            "card_moves",
+            "repair_orders_updated",
+            "attachments_added",
+            "attachments_removed",
+            "board_actions_total",
+        ):
+            stats[key] = min(
+                OPERATOR_STAT_MAX,
+                stats[key]
+                + normalize_int(
+                    event_stats.get(key),
+                    default=0,
+                    minimum=0,
+                    maximum=OPERATOR_STAT_MAX,
+                ),
+            )
+        action_entries.extend(event_activity.get("actions") or [])
 
     def _recent_activity_rows(self, username: str) -> list[dict[str, Any]]:
         if self._activity_service is None:

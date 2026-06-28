@@ -13,6 +13,138 @@ from .automotive_tools import AutomotiveLookupService
 
 _AGENT_TOOL_INT_ABS_MAX = 1_000_000_000
 
+CORE_BOARD_TOOL_NAMES = frozenset(
+    {
+        "ping_connector",
+        "review_board",
+        "list_columns",
+        "get_board_snapshot",
+        "get_board_content",
+        "get_board_events",
+        "get_gpt_wall",
+        "search_cards",
+        "get_card",
+        "get_card_context",
+        "list_repair_orders",
+        "get_repair_order",
+        "list_cashboxes",
+        "get_cash_journal",
+        "get_cashbox",
+    }
+)
+CARD_UPDATE_TOOL_NAMES = frozenset(
+    {
+        "get_card",
+        "get_card_context",
+        "update_card",
+        "move_card",
+        "mark_card_ready",
+        "archive_card",
+        "restore_card",
+    }
+)
+REPAIR_ORDER_TOOL_NAMES = frozenset(
+    {
+        "get_repair_order",
+        "download_repair_order_print_pdf",
+        "update_repair_order",
+        "replace_repair_order_works",
+        "replace_repair_order_materials",
+        "set_repair_order_status",
+    }
+)
+CASHBOX_TOOL_NAMES = frozenset(
+    {
+        "list_cashboxes",
+        "get_cash_journal",
+        "get_cashbox",
+        "create_cashbox",
+        "delete_cashbox",
+        "create_cash_transaction",
+    }
+)
+AUTOMOTIVE_TOOL_NAMES = frozenset(
+    {
+        "decode_vin",
+        "find_part_numbers",
+        "search_part_numbers",
+        "estimate_price_ru",
+        "lookup_part_prices",
+        "decode_dtc",
+        "search_fault_info",
+        "estimate_maintenance",
+        "search_web",
+        "fetch_page_excerpt",
+    }
+)
+CARD_CONTEXT_EXTRA_TOOL_NAMES = frozenset(
+    {
+        "get_card_context",
+        "update_card",
+        "get_repair_order",
+        "download_repair_order_print_pdf",
+        "get_board_content",
+        "get_board_events",
+        "get_gpt_wall",
+    }
+)
+TASK_TYPE_ALLOWED_TOOL_NAMES = {
+    "board_review": CORE_BOARD_TOOL_NAMES,
+    "card_cleanup": CORE_BOARD_TOOL_NAMES
+    | CARD_UPDATE_TOOL_NAMES
+    | REPAIR_ORDER_TOOL_NAMES
+    | AUTOMOTIVE_TOOL_NAMES,
+    "vin_decode": CARD_UPDATE_TOOL_NAMES
+    | frozenset({"get_repair_order", "decode_vin", "search_web", "fetch_page_excerpt"}),
+    "parts_lookup": CARD_UPDATE_TOOL_NAMES
+    | frozenset(
+        {
+            "get_repair_order",
+            "decode_vin",
+            "find_part_numbers",
+            "search_part_numbers",
+            "estimate_price_ru",
+            "lookup_part_prices",
+            "decode_dtc",
+            "search_fault_info",
+            "search_web",
+            "fetch_page_excerpt",
+        }
+    ),
+    "maintenance_estimate": CARD_UPDATE_TOOL_NAMES
+    | frozenset(
+        {
+            "get_repair_order",
+            "estimate_maintenance",
+            "search_part_numbers",
+            "lookup_part_prices",
+            "decode_vin",
+        }
+    ),
+    "dtc_lookup": CARD_UPDATE_TOOL_NAMES
+    | frozenset(
+        {
+            "get_repair_order",
+            "decode_dtc",
+            "search_fault_info",
+            "search_web",
+            "fetch_page_excerpt",
+        }
+    ),
+    "full_card_enrichment": CORE_BOARD_TOOL_NAMES
+    | frozenset(
+        {
+            "update_card",
+            "update_repair_order",
+            "replace_repair_order_works",
+            "replace_repair_order_materials",
+        }
+    )
+    | AUTOMOTIVE_TOOL_NAMES,
+    "repair_order_assist": CARD_UPDATE_TOOL_NAMES | REPAIR_ORDER_TOOL_NAMES | AUTOMOTIVE_TOOL_NAMES,
+    "cash_review": CORE_BOARD_TOOL_NAMES | CASHBOX_TOOL_NAMES,
+}
+
 
 def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
     if depth <= 0:
@@ -744,135 +876,7 @@ class AgentToolExecutor:
         normalized_type = str(task_type or "").strip().lower()
         normalized_context = str(context_kind or "").strip().lower()
         all_tools = {item.name for item in self.definitions}
-        core_board = {
-            "ping_connector",
-            "review_board",
-            "list_columns",
-            "get_board_snapshot",
-            "get_board_content",
-            "get_board_events",
-            "get_gpt_wall",
-            "search_cards",
-            "get_card",
-            "get_card_context",
-            "list_repair_orders",
-            "get_repair_order",
-            "list_cashboxes",
-            "get_cash_journal",
-            "get_cashbox",
-        }
-        card_update = {
-            "get_card",
-            "get_card_context",
-            "update_card",
-            "move_card",
-            "mark_card_ready",
-            "archive_card",
-            "restore_card",
-        }
-        repair_order = {
-            "get_repair_order",
-            "download_repair_order_print_pdf",
-            "update_repair_order",
-            "replace_repair_order_works",
-            "replace_repair_order_materials",
-            "set_repair_order_status",
-        }
-        cashboxes = {
-            "list_cashboxes",
-            "get_cash_journal",
-            "get_cashbox",
-            "create_cashbox",
-            "delete_cashbox",
-            "create_cash_transaction",
-        }
-        automotive = {
-            "decode_vin",
-            "find_part_numbers",
-            "search_part_numbers",
-            "estimate_price_ru",
-            "lookup_part_prices",
-            "decode_dtc",
-            "search_fault_info",
-            "estimate_maintenance",
-            "search_web",
-            "fetch_page_excerpt",
-        }
-
-        if normalized_type == "board_review":
-            allowed = core_board
-        elif normalized_type == "card_cleanup":
-            allowed = core_board | card_update | repair_order | automotive
-        elif normalized_type == "vin_decode":
-            allowed = (
-                card_update
-                | {"get_repair_order"}
-                | {"decode_vin", "search_web", "fetch_page_excerpt"}
-            )
-        elif normalized_type == "parts_lookup":
-            allowed = (
-                card_update
-                | {"get_repair_order"}
-                | {
-                    "decode_vin",
-                    "find_part_numbers",
-                    "search_part_numbers",
-                    "estimate_price_ru",
-                    "lookup_part_prices",
-                    "decode_dtc",
-                    "search_fault_info",
-                    "search_web",
-                    "fetch_page_excerpt",
-                }
-            )
-        elif normalized_type == "maintenance_estimate":
-            allowed = (
-                card_update
-                | {"get_repair_order"}
-                | {
-                    "estimate_maintenance",
-                    "search_part_numbers",
-                    "lookup_part_prices",
-                    "decode_vin",
-                }
-            )
-        elif normalized_type == "dtc_lookup":
-            allowed = (
-                card_update
-                | {"get_repair_order"}
-                | {
-                    "decode_dtc",
-                    "search_fault_info",
-                    "search_web",
-                    "fetch_page_excerpt",
-                }
-            )
-        elif normalized_type == "full_card_enrichment":
-            allowed = (
-                core_board
-                | {
-                    "update_card",
-                    "update_repair_order",
-                    "replace_repair_order_works",
-                    "replace_repair_order_materials",
-                }
-                | automotive
-            )
-        elif normalized_type == "repair_order_assist":
-            allowed = card_update | repair_order | automotive
-        elif normalized_type == "cash_review":
-            allowed = core_board | cashboxes
-        else:
-            allowed = all_tools
-
+        allowed = set(TASK_TYPE_ALLOWED_TOOL_NAMES.get(normalized_type, all_tools))
         if normalized_context == "card":
-            allowed |= {
-                "get_card_context",
-                "update_card",
-                "get_repair_order",
-                "download_repair_order_print_pdf",
-                "get_board_content",
-                "get_board_events",
-                "get_gpt_wall",
-            }
+            allowed |= CARD_CONTEXT_EXTRA_TOOL_NAMES
         return tool_name in allowed

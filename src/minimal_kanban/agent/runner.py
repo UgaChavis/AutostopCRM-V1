@@ -887,30 +887,36 @@ class AgentRunner(AgentRunnerOutputMixin):
         if task_type == "repair_order_assist":
             return ["repair_order_assistance"]
         if context_kind == "card":
-            if task_type == "vin_decode":
-                return [item for item in autofill_scenarios if item == "vin_enrichment"] or [
-                    "vin_enrichment"
-                ]
-            if task_type == "parts_lookup":
-                return [
-                    item
-                    for item in autofill_scenarios
-                    if item in {"vin_enrichment", "parts_lookup", "normalization"}
-                ] or ["parts_lookup", "normalization"]
-            if task_type == "maintenance_estimate":
-                return [
-                    item
-                    for item in autofill_scenarios
-                    if item in {"vin_enrichment", "maintenance_lookup", "normalization"}
-                ] or ["maintenance_lookup", "normalization"]
-            if task_type == "dtc_lookup":
-                return [
-                    item
-                    for item in autofill_scenarios
-                    if item in {"dtc_lookup", "fault_research", "normalization"}
-                ] or ["dtc_lookup", "normalization"]
-            if task_type == "card_cleanup":
-                return autofill_scenarios or ["normalization"]
+            return self._scenario_chain_for_card_context(task_type, autofill_scenarios)
+        return ["freeform_manual"]
+
+    def _scenario_chain_for_card_context(
+        self, task_type: str, autofill_scenarios: list[str]
+    ) -> list[str]:
+        if task_type == "vin_decode":
+            return [item for item in autofill_scenarios if item == "vin_enrichment"] or [
+                "vin_enrichment"
+            ]
+        if task_type == "parts_lookup":
+            return [
+                item
+                for item in autofill_scenarios
+                if item in {"vin_enrichment", "parts_lookup", "normalization"}
+            ] or ["parts_lookup", "normalization"]
+        if task_type == "maintenance_estimate":
+            return [
+                item
+                for item in autofill_scenarios
+                if item in {"vin_enrichment", "maintenance_lookup", "normalization"}
+            ] or ["maintenance_lookup", "normalization"]
+        if task_type == "dtc_lookup":
+            return [
+                item
+                for item in autofill_scenarios
+                if item in {"dtc_lookup", "fault_research", "normalization"}
+            ] or ["dtc_lookup", "normalization"]
+        if task_type == "card_cleanup":
+            return autofill_scenarios or ["normalization"]
         return ["freeform_manual"]
 
     def _suggest_allowed_write_targets(
@@ -1494,100 +1500,122 @@ class AgentRunner(AgentRunnerOutputMixin):
     ) -> tuple[dict[str, Any], dict[str, Any], PatchResult, VerifyResult]:
         normalized_tool = str(tool_name or "").strip()
         if normalized_tool == "update_card":
-            card_id = str(args.get("card_id", "") or cleanup_card_id or "").strip()
-            if not card_id:
-                raise AgentModelError("update_card requires card_id in contract writer.")
-            patch = PatchResult(
-                card_patch={
-                    key: value
-                    for key, value in args.items()
-                    if key in {"title", "description", "tags", "vehicle", "vehicle_profile"}
-                }
+            return self._execute_contract_write_update_card(
+                args=args, plan=plan, cleanup_card_id=cleanup_card_id
             )
-            filtered_patch = self._policy.filter_patch(plan, patch)
-            if not filtered_patch.card_patch:
-                raise AgentModelError(
-                    "Contract policy rejected card write outside allowed targets."
-                )
-            write_args = {"card_id": card_id, **filtered_patch.card_patch}
-            if plan.execution_mode == "structured_card":
-                write_args = self._normalize_card_autofill_update(write_args)
-            before_state = self._read_verification_state(card_id)
-            result_payload = self._tools.execute("update_card", write_args)
-            verify = self._verify_contract_write(
-                tool_name=normalized_tool,
-                card_id=card_id,
-                before_state=before_state,
-                patch=filtered_patch,
-                plan=plan,
-            )
-            return write_args, result_payload, filtered_patch, verify
         if normalized_tool == "update_repair_order":
-            card_id = str(args.get("card_id", "") or cleanup_card_id or "").strip()
-            if not card_id:
-                raise AgentModelError("update_repair_order requires card_id in contract writer.")
-            patch = PatchResult(repair_order_patch=dict(args.get("repair_order") or {}))
-            filtered_patch = self._policy.filter_patch(plan, patch)
-            if not filtered_patch.repair_order_patch:
-                raise AgentModelError(
-                    "Contract policy rejected repair order write outside allowed targets."
-                )
-            before_state = self._read_verification_state(card_id)
-            current_repair_order = (
-                before_state.get("repair_order")
-                if isinstance(before_state.get("repair_order"), dict)
-                else {}
+            return self._execute_contract_write_update_repair_order(
+                args=args, plan=plan, cleanup_card_id=cleanup_card_id
             )
-            merged_repair_order = dict(current_repair_order)
-            merged_repair_order.update(filtered_patch.repair_order_patch)
-            write_args = {"card_id": card_id, "repair_order": merged_repair_order}
-            result_payload = self._tools.execute("update_repair_order", write_args)
-            verify = self._verify_contract_write(
-                tool_name=normalized_tool,
-                card_id=card_id,
-                before_state=before_state,
-                patch=filtered_patch,
-                plan=plan,
-            )
-            return write_args, result_payload, filtered_patch, verify
         if normalized_tool in {"replace_repair_order_works", "replace_repair_order_materials"}:
-            card_id = str(args.get("card_id", "") or cleanup_card_id or "").strip()
-            if not card_id:
-                raise AgentModelError(f"{normalized_tool} requires card_id in contract writer.")
-            rows = [
-                dict(item)
-                for item in (args.get("rows") if isinstance(args.get("rows"), list) else [])
-                if isinstance(item, dict)
-            ]
-            patch = PatchResult(
-                repair_order_works=rows if normalized_tool == "replace_repair_order_works" else [],
-                repair_order_materials=rows
-                if normalized_tool == "replace_repair_order_materials"
-                else [],
+            return self._execute_contract_write_replace_repair_order_rows(
+                tool_name=normalized_tool, args=args, plan=plan, cleanup_card_id=cleanup_card_id
             )
-            filtered_patch = self._policy.filter_patch(plan, patch)
-            expected_rows = (
-                filtered_patch.repair_order_works
-                if normalized_tool == "replace_repair_order_works"
-                else filtered_patch.repair_order_materials
-            )
-            if not expected_rows:
-                raise AgentModelError(
-                    "Contract policy rejected repair order rows write outside allowed targets."
-                )
-            before_state = self._read_verification_state(card_id)
-            write_args = {"card_id": card_id, "rows": expected_rows}
-            result_payload = self._tools.execute(normalized_tool, write_args)
-            verify = self._verify_contract_write(
-                tool_name=normalized_tool,
-                card_id=card_id,
-                before_state=before_state,
-                patch=filtered_patch,
-                plan=plan,
-            )
-            return write_args, result_payload, filtered_patch, verify
         result_payload = self._tools.execute(normalized_tool, args)
         return args, result_payload, PatchResult(), VerifyResult(applied_ok=False)
+
+    def _execute_contract_write_update_card(
+        self, *, args: dict[str, Any], plan: PlanResult, cleanup_card_id: str
+    ) -> tuple[dict[str, Any], dict[str, Any], PatchResult, VerifyResult]:
+        card_id = str(args.get("card_id", "") or cleanup_card_id or "").strip()
+        if not card_id:
+            raise AgentModelError("update_card requires card_id in contract writer.")
+        patch = PatchResult(
+            card_patch={
+                key: value
+                for key, value in args.items()
+                if key in {"title", "description", "tags", "vehicle", "vehicle_profile"}
+            }
+        )
+        filtered_patch = self._policy.filter_patch(plan, patch)
+        if not filtered_patch.card_patch:
+            raise AgentModelError("Contract policy rejected card write outside allowed targets.")
+        write_args = {"card_id": card_id, **filtered_patch.card_patch}
+        if plan.execution_mode == "structured_card":
+            write_args = self._normalize_card_autofill_update(write_args)
+        before_state = self._read_verification_state(card_id)
+        result_payload = self._tools.execute("update_card", write_args)
+        verify = self._verify_contract_write(
+            tool_name="update_card",
+            card_id=card_id,
+            before_state=before_state,
+            patch=filtered_patch,
+            plan=plan,
+        )
+        return write_args, result_payload, filtered_patch, verify
+
+    def _execute_contract_write_update_repair_order(
+        self, *, args: dict[str, Any], plan: PlanResult, cleanup_card_id: str
+    ) -> tuple[dict[str, Any], dict[str, Any], PatchResult, VerifyResult]:
+        card_id = str(args.get("card_id", "") or cleanup_card_id or "").strip()
+        if not card_id:
+            raise AgentModelError("update_repair_order requires card_id in contract writer.")
+        patch = PatchResult(repair_order_patch=dict(args.get("repair_order") or {}))
+        filtered_patch = self._policy.filter_patch(plan, patch)
+        if not filtered_patch.repair_order_patch:
+            raise AgentModelError(
+                "Contract policy rejected repair order write outside allowed targets."
+            )
+        before_state = self._read_verification_state(card_id)
+        current_repair_order = (
+            before_state.get("repair_order")
+            if isinstance(before_state.get("repair_order"), dict)
+            else {}
+        )
+        merged_repair_order = dict(current_repair_order)
+        merged_repair_order.update(filtered_patch.repair_order_patch)
+        write_args = {"card_id": card_id, "repair_order": merged_repair_order}
+        result_payload = self._tools.execute("update_repair_order", write_args)
+        verify = self._verify_contract_write(
+            tool_name="update_repair_order",
+            card_id=card_id,
+            before_state=before_state,
+            patch=filtered_patch,
+            plan=plan,
+        )
+        return write_args, result_payload, filtered_patch, verify
+
+    def _execute_contract_write_replace_repair_order_rows(
+        self,
+        *,
+        tool_name: str,
+        args: dict[str, Any],
+        plan: PlanResult,
+        cleanup_card_id: str,
+    ) -> tuple[dict[str, Any], dict[str, Any], PatchResult, VerifyResult]:
+        card_id = str(args.get("card_id", "") or cleanup_card_id or "").strip()
+        if not card_id:
+            raise AgentModelError(f"{tool_name} requires card_id in contract writer.")
+        rows = [
+            dict(item)
+            for item in (args.get("rows") if isinstance(args.get("rows"), list) else [])
+            if isinstance(item, dict)
+        ]
+        patch = PatchResult(
+            repair_order_works=rows if tool_name == "replace_repair_order_works" else [],
+            repair_order_materials=rows if tool_name == "replace_repair_order_materials" else [],
+        )
+        filtered_patch = self._policy.filter_patch(plan, patch)
+        expected_rows = (
+            filtered_patch.repair_order_works
+            if tool_name == "replace_repair_order_works"
+            else filtered_patch.repair_order_materials
+        )
+        if not expected_rows:
+            raise AgentModelError(
+                "Contract policy rejected repair order rows write outside allowed targets."
+            )
+        before_state = self._read_verification_state(card_id)
+        write_args = {"card_id": card_id, "rows": expected_rows}
+        result_payload = self._tools.execute(tool_name, write_args)
+        verify = self._verify_contract_write(
+            tool_name=tool_name,
+            card_id=card_id,
+            before_state=before_state,
+            patch=filtered_patch,
+            plan=plan,
+        )
+        return write_args, result_payload, filtered_patch, verify
 
     def _read_verification_state(self, card_id: str) -> dict[str, Any]:
         state: dict[str, Any] = {}
@@ -2823,6 +2851,13 @@ class AgentRunner(AgentRunnerOutputMixin):
         )
         if name == "vin_enrichment":
             return "" if evidence.get("vin_found") else "no VIN in card"
+        if name in {"parts_lookup", "maintenance_lookup", "dtc_lookup"}:
+            return self._scenario_skip_reason_lookup(name, evidence)
+        if name == "fault_research":
+            return self._scenario_skip_reason_fault_research(evidence, facts)
+        return ""
+
+    def _scenario_skip_reason_lookup(self, name: str, evidence: dict[str, Any]) -> str:
         if name == "parts_lookup":
             if not evidence.get("part_query_found"):
                 return "no explicit part in card"
@@ -2835,15 +2870,16 @@ class AgentRunner(AgentRunnerOutputMixin):
             if not evidence.get("mileage_found") and not evidence.get("maintenance_scope_found"):
                 return "maintenance trigger is too weak"
             return ""
-        if name == "dtc_lookup":
-            return "" if evidence.get("dtc_found") else "no DTC in card"
-        if name == "fault_research":
-            if not evidence.get("fault_symptoms_found"):
-                return "no isolated symptom trigger"
-            if facts.get("waiting_state"):
-                return "card is in waiting state"
-            return "covered by stronger scenarios"
-        return ""
+        return "" if evidence.get("dtc_found") else "no DTC in card"
+
+    def _scenario_skip_reason_fault_research(
+        self, evidence: dict[str, Any], facts: dict[str, Any]
+    ) -> str:
+        if not evidence.get("fault_symptoms_found"):
+            return "no isolated symptom trigger"
+        if facts.get("waiting_state"):
+            return "card is in waiting state"
+        return "covered by stronger scenarios"
 
     def _card_autofill_can_run_parts_lookup(self, facts: dict[str, Any]) -> bool:
         if not facts.get("vin"):
@@ -3956,25 +3992,33 @@ class AgentRunner(AgentRunnerOutputMixin):
         facts: dict[str, Any],
     ) -> str:
         if applied_updates:
-            parts: list[str] = []
-            if "decode_vin" in orchestration_results:
-                parts.append("VIN")
-                decoded_vin = orchestration_results.get("decode_vin")
-                if isinstance(decoded_vin, dict) and (
-                    decoded_vin.get("web_source_urls") or decoded_vin.get("web_enrichment_fields")
-                ):
-                    parts.append("веб")
-            if "find_part_numbers" in orchestration_results:
-                parts.append("запчасти")
-            if "estimate_maintenance" in orchestration_results:
-                parts.append("ТО")
-            if "decode_dtc" in orchestration_results:
-                parts.append("DTC")
-            if "search_fault_info" in orchestration_results:
-                parts.append("симптомы")
-            if parts:
-                return "Карточка дополнена: " + ", ".join(parts) + "."
-            return "Карточка дополнена по автосопровождению."
+            return self._autofill_result_summary_for_updates(orchestration_results)
+        return self._autofill_result_summary_for_no_updates(facts, orchestration_results)
+
+    def _autofill_result_summary_for_updates(self, orchestration_results: dict[str, Any]) -> str:
+        parts: list[str] = []
+        if "decode_vin" in orchestration_results:
+            parts.append("VIN")
+            decoded_vin = orchestration_results.get("decode_vin")
+            if isinstance(decoded_vin, dict) and (
+                decoded_vin.get("web_source_urls") or decoded_vin.get("web_enrichment_fields")
+            ):
+                parts.append("веб")
+        if "find_part_numbers" in orchestration_results:
+            parts.append("запчасти")
+        if "estimate_maintenance" in orchestration_results:
+            parts.append("ТО")
+        if "decode_dtc" in orchestration_results:
+            parts.append("DTC")
+        if "search_fault_info" in orchestration_results:
+            parts.append("симптомы")
+        if parts:
+            return "Карточка дополнена: " + ", ".join(parts) + "."
+        return "Карточка дополнена по автосопровождению."
+
+    def _autofill_result_summary_for_no_updates(
+        self, facts: dict[str, Any], orchestration_results: dict[str, Any]
+    ) -> str:
         vin_status = str(facts.get("vin_decode_status", "") or "").strip().lower()
         if facts.get("vin") and facts.get("vin_decode_attempted"):
             if vin_status == "insufficient":
@@ -4080,6 +4124,9 @@ class AgentRunner(AgentRunnerOutputMixin):
         text = self._normalized_task_text(str(task.get("task_text", "") or ""))
         if self._is_card_cleanup_task(task, metadata):
             return "card_cleanup"
+        return self._classify_task_from_text(text)
+
+    def _classify_task_from_text(self, text: str) -> str:
         if "vin" in text or "расшифру" in text or "decode vin" in text:
             return "vin_decode"
         if "dtc" in text or _AUTOFILL_DTC_PATTERN.search(text.upper()):

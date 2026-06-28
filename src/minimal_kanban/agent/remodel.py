@@ -968,37 +968,50 @@ def build_ai_entry_surface_registry() -> AiEntrySurfaceRegistry:
     return AiEntrySurfaceRegistry(LEGACY_DEACTIVATION_MAP)
 
 
-def _entry_rollout_state(
-    entry: AiEntrySurfaceDefinition, flags: AiFeatureFlags, mode_config: AiModeConfig
+def _entry_backend_rollout_state(
+    entry: AiEntrySurfaceDefinition,
+    flags: AiFeatureFlags,
+    *,
+    replacement_enabled: bool,
+    replacement_primary: bool,
 ) -> AiEntryExposureState:
-    if entry.surface_kind == AiEntrySurfaceKind.STATUS:
-        return AiEntryExposureState.ACTIVE
-    if entry.entry_id == "agent_enqueue_task_api":
-        return AiEntryExposureState.ACTIVE
-    replacement_enabled = _entry_has_enabled_replacement(entry, mode_config)
-    replacement_primary = _entry_has_primary_replacement(entry, mode_config)
-    if entry.surface_kind == AiEntrySurfaceKind.BACKEND:
-        if entry.entry_id in {
-            "agent_scheduled_tasks_api",
-            "set_card_ai_autofill_api",
-            "card_created_auto_trigger",
-        }:
-            if replacement_primary:
-                return AiEntryExposureState.REPLACED
-            if replacement_enabled:
-                return AiEntryExposureState.GATED
-            return (
-                AiEntryExposureState.LEGACY_ONLY
-                if flags.legacy_ux_enabled
-                else AiEntryExposureState.HIDDEN
-            )
-        return AiEntryExposureState.ACTIVE
-    if entry.surface_kind == AiEntrySurfaceKind.FUTURE:
-        if entry.entry_id == "future_card_enrichment_trigger" and replacement_enabled:
-            return AiEntryExposureState.ACTIVE
-        if replacement_enabled or replacement_primary:
+    if entry.entry_id in {
+        "agent_scheduled_tasks_api",
+        "set_card_ai_autofill_api",
+        "card_created_auto_trigger",
+    }:
+        if replacement_primary:
+            return AiEntryExposureState.REPLACED
+        if replacement_enabled:
             return AiEntryExposureState.GATED
-        return AiEntryExposureState.HIDDEN
+        return (
+            AiEntryExposureState.LEGACY_ONLY
+            if flags.legacy_ux_enabled
+            else AiEntryExposureState.HIDDEN
+        )
+    return AiEntryExposureState.ACTIVE
+
+
+def _entry_future_rollout_state(
+    entry: AiEntrySurfaceDefinition,
+    *,
+    replacement_enabled: bool,
+    replacement_primary: bool,
+) -> AiEntryExposureState:
+    if entry.entry_id == "future_card_enrichment_trigger" and replacement_enabled:
+        return AiEntryExposureState.ACTIVE
+    if replacement_enabled or replacement_primary:
+        return AiEntryExposureState.GATED
+    return AiEntryExposureState.HIDDEN
+
+
+def _entry_standard_rollout_state(
+    entry: AiEntrySurfaceDefinition,
+    flags: AiFeatureFlags,
+    *,
+    replacement_enabled: bool,
+    replacement_primary: bool,
+) -> AiEntryExposureState:
     if replacement_primary:
         return AiEntryExposureState.REPLACED
     if replacement_enabled:
@@ -1018,6 +1031,36 @@ def _entry_rollout_state(
     if entry.deactivation_policy == AiEntryDeactivationPolicy.LATER_HIDE:
         return AiEntryExposureState.HIDDEN
     return AiEntryExposureState.HIDDEN
+
+
+def _entry_rollout_state(
+    entry: AiEntrySurfaceDefinition, flags: AiFeatureFlags, mode_config: AiModeConfig
+) -> AiEntryExposureState:
+    if entry.surface_kind == AiEntrySurfaceKind.STATUS:
+        return AiEntryExposureState.ACTIVE
+    if entry.entry_id == "agent_enqueue_task_api":
+        return AiEntryExposureState.ACTIVE
+    replacement_enabled = _entry_has_enabled_replacement(entry, mode_config)
+    replacement_primary = _entry_has_primary_replacement(entry, mode_config)
+    if entry.surface_kind == AiEntrySurfaceKind.BACKEND:
+        return _entry_backend_rollout_state(
+            entry,
+            flags,
+            replacement_enabled=replacement_enabled,
+            replacement_primary=replacement_primary,
+        )
+    if entry.surface_kind == AiEntrySurfaceKind.FUTURE:
+        return _entry_future_rollout_state(
+            entry,
+            replacement_enabled=replacement_enabled,
+            replacement_primary=replacement_primary,
+        )
+    return _entry_standard_rollout_state(
+        entry,
+        flags,
+        replacement_enabled=replacement_enabled,
+        replacement_primary=replacement_primary,
+    )
 
 
 def get_ai_entry_surface_map() -> dict[str, dict[str, Any]]:

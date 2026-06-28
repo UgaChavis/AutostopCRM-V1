@@ -26,6 +26,56 @@ def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
     return str(value)
 
 
+def _clean_display_text(value: Any, *, limit: int) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return text[:limit].strip()
+
+
+def _clean_display_items(value: Any, *, item_limit: int = 220, max_items: int = 8) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items: list[str] = []
+    for entry in value:
+        text = _clean_display_text(entry, limit=item_limit)
+        if text:
+            items.append(text)
+        if len(items) >= max_items:
+            break
+    return items
+
+
+def _normalize_display_sections(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(payload.get("sections"), list):
+        return []
+    sections: list[dict[str, Any]] = []
+    for entry in payload["sections"]:
+        if not isinstance(entry, dict):
+            continue
+        section = {
+            "title": _clean_display_text(entry.get("title"), limit=72),
+            "body": _clean_display_text(entry.get("body"), limit=500),
+            "items": _clean_display_items(entry.get("items")),
+        }
+        if section["title"] or section["body"] or section["items"]:
+            sections.append(section)
+        if len(sections) >= 6:
+            break
+    return sections
+
+
+def _fallback_display_payload(summary: str, result: str) -> dict[str, Any]:
+    return {
+        "emoji": "",
+        "title": _clean_display_text(summary, limit=96),
+        "summary": _clean_display_text(result, limit=500),
+        "tone": "success",
+        "sections": [],
+        "actions": [],
+    }
+
+
 class AgentRunnerOutputMixin:
     def _normalize_display_payload(
         self,
@@ -36,47 +86,16 @@ class AgentRunnerOutputMixin:
     ) -> dict[str, Any]:
         raw_display = decision.get("display")
         payload = raw_display if isinstance(raw_display, dict) else {}
-
-        def _clean_text(value: Any, *, limit: int = 400) -> str:
-            text = str(value or "").strip()
-            if not text:
-                return ""
-            return text[:limit].strip()
-
-        def _clean_items(value: Any) -> list[str]:
-            if not isinstance(value, list):
-                return []
-            items: list[str] = []
-            for entry in value:
-                text = _clean_text(entry, limit=220)
-                if text:
-                    items.append(text)
-                if len(items) >= 8:
-                    break
-            return items
-
-        sections: list[dict[str, Any]] = []
-        if isinstance(payload.get("sections"), list):
-            for entry in payload["sections"]:
-                if not isinstance(entry, dict):
-                    continue
-                section = {
-                    "title": _clean_text(entry.get("title"), limit=72),
-                    "body": _clean_text(entry.get("body"), limit=500),
-                    "items": _clean_items(entry.get("items")),
-                }
-                if section["title"] or section["body"] or section["items"]:
-                    sections.append(section)
-                if len(sections) >= 6:
-                    break
-
-        emoji = _clean_text(payload.get("emoji"), limit=6)
-        title = _clean_text(payload.get("title"), limit=96) or _clean_text(summary, limit=96)
-        lead = _clean_text(payload.get("summary"), limit=320)
-        tone = _clean_text(payload.get("tone"), limit=16).lower()
+        sections = _normalize_display_sections(payload)
+        emoji = _clean_display_text(payload.get("emoji"), limit=6)
+        title = _clean_display_text(payload.get("title"), limit=96) or _clean_display_text(
+            summary, limit=96
+        )
+        lead = _clean_display_text(payload.get("summary"), limit=320)
+        tone = _clean_display_text(payload.get("tone"), limit=16).lower()
         if tone not in {"info", "success", "warning", "error"}:
             tone = "success"
-        actions = _clean_items(payload.get("actions"))[:4]
+        actions = _clean_display_items(payload.get("actions"))[:4]
         normalized = {
             "emoji": emoji,
             "title": title,
@@ -92,14 +111,7 @@ class AgentRunnerOutputMixin:
             or normalized["actions"]
         ):
             return normalized
-        return {
-            "emoji": "",
-            "title": _clean_text(summary, limit=96),
-            "summary": _clean_text(result, limit=500),
-            "tone": "success",
-            "sections": [],
-            "actions": [],
-        }
+        return _fallback_display_payload(summary, result)
 
     def _preview_payload(self, payload: dict[str, Any]) -> str:
         text = json.dumps(_json_safe_value(payload), ensure_ascii=False, indent=2, allow_nan=False)

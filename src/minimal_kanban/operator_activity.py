@@ -608,34 +608,38 @@ class OperatorActivityService:
                     discarded = handle.readline(OPERATOR_ACTIVITY_JSONL_LINE_MAX_BYTES + 1)
                     if discarded and not discarded.endswith(b"\n"):
                         self._discard_jsonl_line_tail(handle)
-                    if self._logger is not None:
-                        self._logger.warning(
-                            "operator_activity_jsonl_tail_used path=%s size=%s limit=%s",
-                            path,
-                            size,
-                            OPERATOR_ACTIVITY_JSONL_TAIL_MAX_BYTES,
-                        )
+                        if self._logger is not None:
+                            self._logger.warning(
+                                "operator_activity_jsonl_tail_used path=%s size=%s limit=%s",
+                                path,
+                                size,
+                                OPERATOR_ACTIVITY_JSONL_TAIL_MAX_BYTES,
+                            )
                 for raw_line in self._iter_jsonl_lines(handle):
-                    try:
-                        line = raw_line.decode("utf-8").strip()
-                    except UnicodeDecodeError:
-                        if self._logger is not None:
-                            self._logger.warning("operator_activity_bad_utf8 path=%s", path)
-                        continue
-                    if not line:
-                        continue
-                    try:
-                        payload = json.loads(line, parse_constant=_reject_json_constant)
-                    except (ValueError, RecursionError):
-                        if self._logger is not None:
-                            self._logger.warning("operator_activity_bad_json path=%s", path)
-                        continue
-                    if isinstance(payload, dict):
+                    payload = self._decode_jsonl_record(path, raw_line)
+                    if payload is not None:
                         rows.append(payload)
         except OSError as exc:
             if self._logger is not None:
                 self._logger.warning("operator_activity_read_failed path=%s error=%s", path, exc)
         return rows
+
+    def _decode_jsonl_record(self, path: Path, raw_line: bytes) -> dict[str, Any] | None:
+        try:
+            line = raw_line.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            if self._logger is not None:
+                self._logger.warning("operator_activity_bad_utf8 path=%s", path)
+            return None
+        if not line:
+            return None
+        try:
+            payload = json.loads(line, parse_constant=_reject_json_constant)
+        except (ValueError, RecursionError):
+            if self._logger is not None:
+                self._logger.warning("operator_activity_bad_json path=%s", path)
+            return None
+        return payload if isinstance(payload, dict) else None
 
     def _iter_jsonl_lines(self, handle: BinaryIO) -> Iterator[bytes]:
         while True:
