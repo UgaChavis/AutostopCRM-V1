@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 from PySide6.QtCore import QUrl, Signal
@@ -77,6 +78,7 @@ WINDOW_SUBTITLE = (
 SECTION_GENERAL = "Общие флаги"
 SECTION_LOCAL_API = "Локальный API"
 SECTION_MCP = "MCP"
+SETTINGS_EXPORT_FILE_MAX_BYTES = 2 * 1024 * 1024
 SECTION_OPENAI = "OpenAI / GPT"
 SECTION_AUTH = "Авторизация и секреты"
 SECTION_DIAGNOSTICS = "Проверки и диагностика"
@@ -1801,7 +1803,27 @@ class SettingsWindow(QDialog):
 
     def _write_export_file(self, path: str | Path, payload: str, success_message: str) -> None:
         target_path = Path(path)
-        target_path.write_text(payload, encoding="utf-8")
+        if len(payload.encode("utf-8")) > SETTINGS_EXPORT_FILE_MAX_BYTES:
+            self._set_status(
+                (
+                    "Не удалось экспортировать файл: размер данных превышает "
+                    f"{SETTINGS_EXPORT_FILE_MAX_BYTES} байт."
+                ),
+                tone="error",
+            )
+            return
+        tmp_path = target_path.with_name(f".{target_path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path.write_text(payload, encoding="utf-8")
+            tmp_path.replace(target_path)
+        except OSError as exc:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            self._set_status(f"Не удалось экспортировать файл: {exc}", tone="error")
+            return
         self._set_status(success_message.format(path=target_path), tone="success")
 
     def _export_payload_file(

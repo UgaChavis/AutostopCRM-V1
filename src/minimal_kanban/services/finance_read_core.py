@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -147,8 +148,16 @@ class FinanceReadCore:
 def _validated_offset(value: Any, *, default: int = 0, maximum: int = 1_000_000) -> int:
     if value in (None, ""):
         return default
-    try:
-        offset = int(value)
-    except (TypeError, ValueError):
+    if isinstance(value, bool):
         return default
-    return max(0, min(maximum, offset))
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return default
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return default
+    if numeric <= 0:
+        return 0
+    if numeric > maximum:
+        return maximum
+    return int(numeric)

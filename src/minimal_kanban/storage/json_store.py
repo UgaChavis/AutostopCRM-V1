@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import threading
 import time
 from copy import deepcopy
@@ -8,6 +9,7 @@ from datetime import timedelta
 from logging import Logger
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from ..config import get_app_data_dir, get_state_file
 from ..models import (
@@ -30,8 +32,11 @@ from ..models import (
 from ..services.ready_column import ensure_ready_column
 from ..texts import COLUMN_LABELS_RU
 from .file_lock import ProcessFileLock
+from .limited_io import read_text_limited
 
 SLOW_STORAGE_OPERATION_MS = 250.0
+_JSON_SAFE_MAX_DEPTH = 8
+JSON_STORE_STATE_MAX_BYTES = 100 * 1024 * 1024
 
 
 def default_columns() -> list[Column]:
@@ -39,6 +44,39 @@ def default_columns() -> list[Column]:
     for position, column_id in enumerate(DEFAULT_COLUMN_IDS):
         columns.append(Column(id=column_id, label=COLUMN_LABELS_RU[column_id], position=position))
     return columns
+
+
+def _json_safe_value(value: Any, *, depth: int = _JSON_SAFE_MAX_DEPTH) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else 0.0
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _json_safe_dict(value: Any) -> dict[str, Any]:
+    safe = _json_safe_value(value)
+    return safe if isinstance(safe, dict) else {}
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _domain_items(value: Any, expected_type: type) -> list[Any]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, expected_type)]
 
 
 DEFAULT_STATE = {
@@ -231,6 +269,7 @@ class JsonStore:
                     inventory_movements or [], normalized_inventory_items
                 )
                 normalized_events = self._normalize_events_payload(events)
+                normalized_settings = self._normalize_settings_payload(settings)
                 state = {
                     "schema_version": DEFAULT_STATE["schema_version"],
                     "columns": [column.to_dict() for column in normalized_columns],
@@ -249,9 +288,7 @@ class JsonStore:
                         movement.to_storage_dict() for movement in normalized_inventory_movements
                     ],
                     "events": [event.to_dict() for event in normalized_events],
-                    "settings": settings
-                    if isinstance(settings, dict)
-                    else deepcopy(DEFAULT_STATE["settings"]),
+                    "settings": normalized_settings,
                 }
                 bundle = {
                     "columns": normalized_columns,
@@ -263,7 +300,7 @@ class JsonStore:
                     "inventory_items": normalized_inventory_items,
                     "inventory_movements": normalized_inventory_movements,
                     "events": normalized_events,
-                    "settings": state["settings"],
+                    "settings": normalized_settings,
                 }
                 self._write_state(state)
                 self._read_cache_signature = self._state_signature()
@@ -319,7 +356,10 @@ class JsonStore:
 
     def set_setting(self, key: str, value) -> None:
         bundle = self.read_bundle()
-        bundle["settings"][key] = value
+        normalized_key = str(key or "").strip()
+        if not normalized_key:
+            return
+        bundle["settings"][normalized_key] = _json_safe_value(value)
         self.write_bundle(
             columns=bundle["columns"],
             cards=bundle["cards"],
@@ -377,8 +417,11 @@ class JsonStore:
         if not self._state_file.exists():
             return deepcopy(DEFAULT_STATE)
         try:
-            return json.loads(self._state_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError):
+            payload = json.loads(
+                self._read_state_text(),
+                parse_constant=_reject_json_constant,
+            )
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError):
             backup = self._corrupted_backup_path()
             self._log_warning(
                 "Файл состояния поврежден, выполняется резервное копирование: %s",
@@ -388,6 +431,22 @@ class JsonStore:
             raise StateFileCorruptedError(
                 f"Файл состояния поврежден и сохранен как {backup.name}."
             ) from None
+        if not isinstance(payload, dict):
+            backup = self._corrupted_backup_path()
+            self._log_warning(
+                "Файл состояния имеет некорректный корневой тип, выполняется резервное копирование: %s",
+                backup.name,
+            )
+            self._state_file.replace(backup)
+            raise StateFileCorruptedError(f"Файл состояния поврежден и сохранен как {backup.name}.")
+        return payload
+
+    def _read_state_text(self) -> str:
+        return read_text_limited(
+            self._state_file,
+            max_bytes=JSON_STORE_STATE_MAX_BYTES,
+            label="state file",
+        )
 
     def _corrupted_backup_path(self) -> Path:
         backup = self._state_file.with_suffix(".corrupted.json")
@@ -401,10 +460,21 @@ class JsonStore:
         return self._state_file.with_name(f"{stem}.corrupted-{time.time_ns()}.json")
 
     def _write_state(self, state: dict) -> None:
-        payload = json.dumps(state, ensure_ascii=False, separators=(",", ":"))
-        temp_file = self._state_file.with_suffix(".tmp")
-        temp_file.write_text(payload, encoding="utf-8")
-        temp_file.replace(self._state_file)
+        safe_state = _json_safe_dict(state)
+        payload = json.dumps(
+            safe_state,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        if len(payload.encode("utf-8")) > JSON_STORE_STATE_MAX_BYTES:
+            raise ValueError("state file is too large")
+        temp_file = self._state_file.with_name(f".{self._state_file.name}.{uuid4().hex}.tmp")
+        try:
+            temp_file.write_text(payload, encoding="utf-8")
+            temp_file.replace(self._state_file)
+        finally:
+            temp_file.unlink(missing_ok=True)
 
     def _state_signature(self) -> tuple[int, int] | None:
         try:
@@ -455,7 +525,7 @@ class JsonStore:
                 continue
             try:
                 column = Column.from_dict(item, fallback_position=index)
-            except (TypeError, ValueError):
+            except (OverflowError, TypeError, ValueError):
                 repaired = True
                 self._log_warning(
                     "Пропущена некорректная колонка с индексом %s в state.json.", index
@@ -487,7 +557,7 @@ class JsonStore:
         normalized: list[Column] = []
         seen_ids: set[str] = set()
         seen_labels: set[str] = set()
-        for position, column in enumerate(columns):
+        for position, column in enumerate(_domain_items(columns, Column)):
             candidate = Column.from_dict(column.to_dict(), fallback_position=position)
             if candidate.id in seen_ids or candidate.label.casefold() in seen_labels:
                 continue
@@ -536,15 +606,16 @@ class JsonStore:
     def _normalize_cards_payload(self, cards: list[Card], columns: list[Column]) -> list[Card]:
         valid_columns = {column.id for column in columns}
         default_column = columns[0].id
-        normalized = [
-            Card.from_dict(
-                card.to_storage_dict(),
-                valid_columns=valid_columns,
-                default_column=default_column,
-                fallback_position=index,
+        normalized: list[Card] = []
+        for index, card in enumerate(_domain_items(cards, Card)):
+            normalized.append(
+                Card.from_dict(
+                    card.to_storage_dict(),
+                    valid_columns=valid_columns,
+                    default_column=default_column,
+                    fallback_position=index,
+                )
             )
-            for index, card in enumerate(cards)
-        ]
         normalized, _ = self._apply_card_retention(normalized)
         self._normalize_card_positions(normalized)
         return normalized
@@ -601,7 +672,7 @@ class JsonStore:
                 continue
             try:
                 client = ClientProfile.from_dict(item)
-            except (TypeError, ValueError):
+            except (OverflowError, TypeError, ValueError):
                 repaired = True
                 self._log_warning("Пропущен некорректный клиент с индексом %s в state.json.", index)
                 continue
@@ -619,7 +690,7 @@ class JsonStore:
     def _normalize_clients_payload(self, clients: list[ClientProfile]) -> list[ClientProfile]:
         normalized: list[ClientProfile] = []
         seen_ids: set[str] = set()
-        for client in clients:
+        for client in _domain_items(clients, ClientProfile):
             candidate = ClientProfile.from_dict(client.to_storage_dict())
             if candidate.id in seen_ids:
                 continue
@@ -647,7 +718,7 @@ class JsonStore:
                 continue
             try:
                 sticky = StickyNote.from_dict(item)
-            except (TypeError, ValueError):
+            except (OverflowError, TypeError, ValueError):
                 repaired = True
                 self._log_warning("Пропущен некорректный стикер с индексом %s в state.json.", index)
                 continue
@@ -675,7 +746,7 @@ class JsonStore:
                 continue
             try:
                 cashbox = CashBox.from_dict(item)
-            except (TypeError, ValueError):
+            except (OverflowError, TypeError, ValueError):
                 repaired = True
                 continue
             if cashbox.order != index:
@@ -708,7 +779,7 @@ class JsonStore:
                 continue
             try:
                 transaction = CashTransaction.from_dict(item)
-            except (TypeError, ValueError):
+            except (OverflowError, TypeError, ValueError):
                 repaired = True
                 continue
             if transaction.id in seen_ids or transaction.cashbox_id not in valid_cashbox_ids:
@@ -733,7 +804,7 @@ class JsonStore:
                 continue
             try:
                 inventory_item = InventoryItem.from_dict(item)
-            except (TypeError, ValueError):
+            except (OverflowError, TypeError, ValueError):
                 repaired = True
                 continue
             if inventory_item.id in seen_ids:
@@ -763,7 +834,7 @@ class JsonStore:
                 continue
             try:
                 movement = InventoryMovement.from_dict(item)
-            except (TypeError, ValueError):
+            except (OverflowError, TypeError, ValueError):
                 repaired = True
                 continue
             if movement.id in seen_ids or movement.item_id not in valid_item_ids:
@@ -777,7 +848,7 @@ class JsonStore:
     def _normalize_stickies_payload(self, stickies: list[StickyNote]) -> list[StickyNote]:
         normalized: list[StickyNote] = []
         seen_ids: set[str] = set()
-        for sticky in stickies:
+        for sticky in _domain_items(stickies, StickyNote):
             candidate = StickyNote.from_dict(sticky.to_storage_dict())
             if candidate.id in seen_ids:
                 continue
@@ -801,7 +872,7 @@ class JsonStore:
                 continue
             try:
                 event = AuditEvent.from_dict(item)
-            except (TypeError, ValueError):
+            except (OverflowError, TypeError, ValueError):
                 repaired = True
                 self._log_warning("Пропущена некорректная запись журнала с индексом %s.", index)
                 continue
@@ -814,7 +885,12 @@ class JsonStore:
         return events, repaired
 
     def _normalize_events_payload(self, events: list[AuditEvent]) -> list[AuditEvent]:
-        normalized = [AuditEvent.from_dict(event.to_dict()) for event in events]
+        normalized: list[AuditEvent] = []
+        for event in _domain_items(events, AuditEvent):
+            try:
+                normalized.append(AuditEvent.from_dict(_json_safe_dict(event.to_dict())))
+            except (OverflowError, TypeError, ValueError):
+                continue
         normalized, _ = self._apply_event_retention(normalized)
         return normalized
 
@@ -823,7 +899,8 @@ class JsonStore:
         seen_ids: set[str] = set()
         seen_names: set[str] = set()
         ordered_cashboxes = sorted(
-            cashboxes, key=lambda item: (item.order, item.name.casefold(), item.id)
+            _domain_items(cashboxes, CashBox),
+            key=lambda item: (item.order, item.name.casefold(), item.id),
         )
         for index, item in enumerate(ordered_cashboxes):
             if not isinstance(item, CashBox):
@@ -851,9 +928,7 @@ class JsonStore:
         normalized: list[CashTransaction] = []
         valid_cashbox_ids = {item.id for item in cashboxes}
         seen_ids: set[str] = set()
-        for item in transactions:
-            if not isinstance(item, CashTransaction):
-                continue
+        for item in _domain_items(transactions, CashTransaction):
             if item.id in seen_ids or item.cashbox_id not in valid_cashbox_ids:
                 continue
             seen_ids.add(item.id)
@@ -867,7 +942,7 @@ class JsonStore:
         normalized: list[InventoryItem] = []
         seen_ids: set[str] = set()
         ordered_items = sorted(
-            inventory_items,
+            _domain_items(inventory_items, InventoryItem),
             key=lambda item: (item.name.casefold(), item.catalog_number.casefold(), item.id),
         )
         for item in ordered_items:
@@ -888,9 +963,7 @@ class JsonStore:
         normalized: list[InventoryMovement] = []
         valid_item_ids = {item.id for item in inventory_items}
         seen_ids: set[str] = set()
-        for item in movements:
-            if not isinstance(item, InventoryMovement):
-                continue
+        for item in _domain_items(movements, InventoryMovement):
             if item.id in seen_ids or item.item_id not in valid_item_ids:
                 continue
             seen_ids.add(item.id)
@@ -924,16 +997,23 @@ class JsonStore:
         if not isinstance(settings, dict):
             self._log_warning("Повреждено поле settings в state.json, настройки будут сброшены.")
             return deepcopy(DEFAULT_STATE["settings"]), True
+        normalized = self._normalize_settings_payload(settings)
+        repaired = normalized != settings
+        return normalized, repaired
+
+    def _normalize_settings_payload(self, settings: Any) -> dict[str, Any]:
+        if not isinstance(settings, dict):
+            return deepcopy(DEFAULT_STATE["settings"])
+        safe_settings = _json_safe_dict(settings)
         normalized = deepcopy(DEFAULT_STATE["settings"])
-        normalized.update(settings)
-        board_control_settings = settings.get("ai_board_control", {})
+        normalized.update(safe_settings)
+        board_control_settings = safe_settings.get("ai_board_control", {})
         if not isinstance(board_control_settings, dict):
             board_control_settings = {}
         normalized_board_control = deepcopy(DEFAULT_STATE["settings"]["ai_board_control"])
-        normalized_board_control.update(board_control_settings)
+        normalized_board_control.update(_json_safe_dict(board_control_settings))
         normalized["ai_board_control"] = normalized_board_control
-        repaired = normalized != settings
-        return normalized, repaired
+        return normalized
 
     def _log_warning(self, message: str, *args) -> None:
         if self._logger is not None:

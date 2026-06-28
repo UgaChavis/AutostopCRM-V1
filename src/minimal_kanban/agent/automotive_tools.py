@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from copy import deepcopy
 from typing import Any
@@ -9,8 +10,10 @@ from urllib.parse import quote
 import httpx
 
 from .source_registry import PARTS_CATALOG_SOURCES, PARTS_PRICE_SOURCES, trusted_domains
-from .web_tools import DuckDuckGoSearchClient, InternetToolError
+from .web_tools import DuckDuckGoSearchClient, InternetToolError, _normalize_seconds
 
+AUTOMOTIVE_VIN_RESPONSE_MAX_BYTES = 1 * 1024 * 1024
+AUTOMOTIVE_PRICE_MAX_RUB = 100_000_000
 _PART_NUMBER_PATTERN = re.compile(r"\b[A-Z0-9-]{5,18}\b")
 
 
@@ -57,17 +60,48 @@ _PART_QUERY_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
 class AutomotiveLookupService:
     def __init__(self, *, timeout_seconds: float = 12.0) -> None:
-        self._timeout_seconds = timeout_seconds
-        self._search = DuckDuckGoSearchClient(timeout_seconds=timeout_seconds)
+        self._timeout_seconds = _normalize_seconds(
+            timeout_seconds, default=12.0, minimum=1.0, maximum=60.0
+        )
+        self._search = DuckDuckGoSearchClient(timeout_seconds=self._timeout_seconds)
         self._task_cache: dict[str, dict[str, Any]] = {}
 
     def reset_task_cache(self) -> None:
         self._task_cache.clear()
 
     def _cache_key(self, method_name: str, payload: dict[str, Any]) -> str:
-        return f"{method_name}:{json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'), default=str)}"
+        encoded = json.dumps(
+            _json_safe_value(payload),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        return f"{method_name}:{encoded}"
 
     def _cached_result(self, method_name: str, payload: dict[str, Any], factory) -> dict[str, Any]:
         cache_key = self._cache_key(method_name, payload)
@@ -93,11 +127,16 @@ class AutomotiveLookupService:
     ) -> dict[str, Any]:
         normalized_query = self._required_query(part_query)
         context = self._normalize_vehicle_context(vehicle_context)
+        normalized_limit = self._normalize_limit(limit, default=8, maximum=12)
         return self._cached_result(
             "search_part_numbers",
-            {"vehicle_context": context, "part_query": normalized_query, "limit": int(limit or 8)},
+            {
+                "vehicle_context": context,
+                "part_query": normalized_query,
+                "limit": normalized_limit,
+            },
             lambda: self._search_part_numbers_uncached(
-                context=context, normalized_query=normalized_query, limit=limit
+                context=context, normalized_query=normalized_query, limit=normalized_limit
             ),
         )
 
@@ -120,15 +159,16 @@ class AutomotiveLookupService:
     ) -> dict[str, Any]:
         normalized_query = self._required_query(part_number_or_query)
         context = self._normalize_vehicle_context(vehicle_context)
+        normalized_limit = self._normalize_limit(limit, default=8, maximum=12)
         return self._cached_result(
             "lookup_part_prices",
             {
                 "vehicle_context": context,
                 "part_number_or_query": normalized_query,
-                "limit": int(limit or 8),
+                "limit": normalized_limit,
             },
             lambda: self._lookup_part_prices_uncached(
-                context=context, normalized_query=normalized_query, limit=limit
+                context=context, normalized_query=normalized_query, limit=normalized_limit
             ),
         )
 
@@ -174,12 +214,22 @@ class AutomotiveLookupService:
             with httpx.Client(
                 timeout=self._timeout_seconds, headers={"User-Agent": "Mozilla/5.0 AutoStopCRM/1.0"}
             ) as client:
-                response = client.get(url, follow_redirects=True)
-                response.raise_for_status()
+                with client.stream("GET", url, follow_redirects=False) as response:
+                    response.raise_for_status()
+                    raw_response = self._read_response_bytes(
+                        response,
+                        max_bytes=AUTOMOTIVE_VIN_RESPONSE_MAX_BYTES,
+                    )
         except httpx.HTTPError as exc:
             raise InternetToolError(f"VIN decode failed: {exc}") from exc
-        payload = response.json()
-        results = payload.get("Results") or []
+        try:
+            payload = json.loads(
+                raw_response.decode("utf-8"),
+                parse_constant=_reject_json_constant,
+            )
+        except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+            raise InternetToolError("VIN decode returned invalid JSON.") from exc
+        results = payload.get("Results") if isinstance(payload, dict) else []
         row = results[0] if isinstance(results, list) and results else {}
         if not isinstance(row, dict):
             row = {}
@@ -203,6 +253,14 @@ class AutomotiveLookupService:
             "source": "NHTSA vPIC",
             "source_url": url,
         }
+
+    def _read_response_bytes(self, response: httpx.Response, *, max_bytes: int) -> bytes:
+        chunks = bytearray()
+        for chunk in response.iter_bytes(chunk_size=max_bytes + 1):
+            chunks.extend(chunk)
+            if len(chunks) > max_bytes:
+                raise InternetToolError("VIN decode response is too large.")
+        return bytes(chunks)
 
     def _search_part_numbers_uncached(
         self, *, context: dict[str, Any], normalized_query: str, limit: int
@@ -288,9 +346,12 @@ class AutomotiveLookupService:
             "Для точной цены по материалам используйте lookup_part_prices после уточнения каталожных номеров.",
         ]
         mileage_text = self._text(context.get("mileage"))
+        mileage_digits = str(mileage_text).replace(" ", "")
         try:
-            mileage_value = int(str(mileage_text).replace(" ", "")) if mileage_text else 0
-        except ValueError:
+            mileage_value = (
+                int(mileage_digits) if mileage_digits and len(mileage_digits) <= 7 else 0
+            )
+        except (OverflowError, ValueError):
             mileage_value = 0
         if lower == "то" or self._contains_any(lower, _MAINTENANCE_HINTS):
             self._append_unique_rows(
@@ -373,15 +434,16 @@ class AutomotiveLookupService:
         normalized_domains = sorted(
             {str(item or "").strip() for item in (allowed_domains or []) if str(item or "").strip()}
         )
+        normalized_limit = self._normalize_limit(limit, default=5, maximum=10)
         return self._cached_result(
             "search_web",
             {
                 "query": normalized_query,
-                "limit": int(limit or 5),
+                "limit": normalized_limit,
                 "allowed_domains": normalized_domains,
             },
             lambda: self._search_web_uncached(
-                query=normalized_query, limit=limit, allowed_domains=normalized_domains
+                query=normalized_query, limit=normalized_limit, allowed_domains=normalized_domains
             ),
         )
 
@@ -399,10 +461,13 @@ class AutomotiveLookupService:
             if isinstance(vehicle_context, dict)
             else (vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()})
         )
+        normalized_limit = self._normalize_limit(limit, default=5, maximum=10)
         return self._cached_result(
             "decode_dtc",
-            {"code": normalized_code, "vehicle_context": context, "limit": int(limit or 5)},
-            lambda: self._decode_dtc_uncached(code=normalized_code, context=context, limit=limit),
+            {"code": normalized_code, "vehicle_context": context, "limit": normalized_limit},
+            lambda: self._decode_dtc_uncached(
+                code=normalized_code, context=context, limit=normalized_limit
+            ),
         )
 
     def search_fault_info(
@@ -419,20 +484,24 @@ class AutomotiveLookupService:
             if isinstance(vehicle_context, dict)
             else (vehicle if isinstance(vehicle, dict) else {"vehicle": str(vehicle or "").strip()})
         )
+        normalized_limit = self._normalize_limit(limit, default=5, maximum=10)
         return self._cached_result(
             "search_fault_info",
-            {"query": normalized_query, "vehicle_context": context, "limit": int(limit or 5)},
+            {"query": normalized_query, "vehicle_context": context, "limit": normalized_limit},
             lambda: self._search_fault_info_uncached(
-                query=normalized_query, context=context, limit=limit
+                query=normalized_query, context=context, limit=normalized_limit
             ),
         )
 
     def fetch_page_excerpt(self, *, url: str, max_chars: int = 2500) -> dict[str, Any]:
         normalized_url = str(url or "").strip()
+        normalized_max_chars = self._normalize_limit(max_chars, default=2500, maximum=8000)
         return self._cached_result(
             "fetch_page_excerpt",
-            {"url": normalized_url, "max_chars": int(max_chars or 2500)},
-            lambda: self._fetch_page_excerpt_uncached(url=normalized_url, max_chars=max_chars),
+            {"url": normalized_url, "max_chars": normalized_max_chars},
+            lambda: self._fetch_page_excerpt_uncached(
+                url=normalized_url, max_chars=normalized_max_chars
+            ),
         )
 
     def _search_web_uncached(
@@ -491,6 +560,21 @@ class AutomotiveLookupService:
         if not text:
             raise InternetToolError("part query is required")
         return text
+
+    def _normalize_limit(self, value: Any, *, default: int, minimum: int = 1, maximum: int) -> int:
+        if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
+            return default
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return default
+        if not math.isfinite(numeric) or not numeric.is_integer():
+            return default
+        if numeric < minimum:
+            return default
+        if numeric > maximum:
+            return maximum
+        return int(numeric)
 
     def _normalize_vehicle_context(self, vehicle_context: dict[str, Any] | None) -> dict[str, Any]:
         payload = vehicle_context if isinstance(vehicle_context, dict) else {}
@@ -741,8 +825,14 @@ class AutomotiveLookupService:
         if not normalized:
             return None
         try:
-            return int(round(float(normalized)))
-        except (TypeError, ValueError):
+            parsed = float(normalized)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(parsed) or parsed <= 0 or parsed > AUTOMOTIVE_PRICE_MAX_RUB:
+            return None
+        try:
+            return int(round(parsed))
+        except (TypeError, ValueError, OverflowError):
             return None
 
     def _normalize_service_type(self, value: str) -> str:

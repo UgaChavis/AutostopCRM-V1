@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 from collections.abc import Callable
@@ -8,14 +9,14 @@ from datetime import UTC, datetime
 from logging import Logger
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 from uuid import uuid4
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 from ..config import (
     get_mcp_bearer_token,
@@ -75,6 +76,15 @@ _AUTOSTOP_MANAGER_WRITE_TOOLS = frozenset(
 )
 
 
+def _reject_bool_int(value: Any) -> Any:
+    if isinstance(value, bool):
+        raise ValueError("boolean values are not valid integer parameters")
+    return value
+
+
+McpInt = Annotated[int | float | str, BeforeValidator(_reject_bool_int)]
+
+
 def _try_register_autostop_manager_tools(server: FastMCP, logger: Logger) -> None:
     configured_path = os.environ.get("AUTOSTOP_MANAGER_PATH", "").strip()
     repo_root = Path(__file__).resolve().parents[3]
@@ -116,11 +126,11 @@ class DeadlinePayload(BaseModel):
         }
     )
 
-    days: int = Field(default=0, ge=0, le=365, description="Whole days in the deadline delta.")
-    hours: int = Field(default=0, ge=0, le=23, description="Hours in the deadline delta.")
-    minutes: int = Field(default=0, ge=0, le=59, description="Minutes in the deadline delta.")
-    seconds: int = Field(default=0, ge=0, le=59, description="Seconds in the deadline delta.")
-    total_seconds: int = Field(
+    days: McpInt = Field(default=0, ge=0, le=365, description="Whole days in the deadline delta.")
+    hours: McpInt = Field(default=0, ge=0, le=23, description="Hours in the deadline delta.")
+    minutes: McpInt = Field(default=0, ge=0, le=59, description="Minutes in the deadline delta.")
+    seconds: McpInt = Field(default=0, ge=0, le=59, description="Seconds in the deadline delta.")
+    total_seconds: McpInt = Field(
         default=0,
         ge=0,
         le=31_536_000,
@@ -129,7 +139,7 @@ class DeadlinePayload(BaseModel):
 
 
 class StickyDeadlinePayload(DeadlinePayload):
-    total_seconds: int = Field(default=0, ge=0, le=31_536_000)
+    total_seconds: McpInt = Field(default=0, ge=0, le=31_536_000)
 
 
 class TagPayload(BaseModel):
@@ -296,17 +306,38 @@ class ClientPatchPayload(BaseModel):
     vehicles: list[ClientVehiclePayload] | None = None
 
 
+def _deadline_part_value(value: Any, *, maximum: int) -> int:
+    if isinstance(value, bool):
+        return 0
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return 0
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return 0
+    if numeric <= 0:
+        return 0
+    if numeric > maximum:
+        return maximum
+    return int(numeric)
+
+
 def _resolved_create_card_deadline(deadline: DeadlinePayload | None) -> dict[str, int]:
     if deadline is None:
         return {"days": 1, "hours": 0, "minutes": 0, "seconds": 0}
     payload = deadline.model_dump()
-    if int(payload.get("total_seconds", 0) or 0) > 0:
-        return payload
-    if not any(
-        int(payload.get(part, 0) or 0) > 0 for part in ("days", "hours", "minutes", "seconds")
-    ):
+    resolved = {
+        "days": _deadline_part_value(payload.get("days"), maximum=365),
+        "hours": _deadline_part_value(payload.get("hours"), maximum=23),
+        "minutes": _deadline_part_value(payload.get("minutes"), maximum=59),
+        "seconds": _deadline_part_value(payload.get("seconds"), maximum=59),
+        "total_seconds": _deadline_part_value(payload.get("total_seconds"), maximum=31_536_000),
+    }
+    if resolved["total_seconds"] > 0:
+        return resolved
+    if not any(resolved.get(part, 0) > 0 for part in ("days", "hours", "minutes", "seconds")):
         return {"days": 1, "hours": 0, "minutes": 0, "seconds": 0}
-    return payload
+    return resolved
 
 
 class JsonEnvelope(BaseModel):
@@ -351,16 +382,34 @@ _CANONICAL_TOOL_PATH_PREFIX = "/AutoStopCRM"
 
 
 def _base_url_from_endpoint(url: str | None) -> str | None:
-    if not url:
+    normalized_url = _absolute_http_url(url)
+    if not normalized_url:
         return None
-    parsed = urlsplit(url)
-    if not parsed.scheme or not parsed.netloc:
-        return None
+    parsed = urlsplit(normalized_url)
     return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
 
 
+def _absolute_http_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    normalized_url = str(url).strip().rstrip("/")
+    if not normalized_url:
+        return None
+    try:
+        parsed = urlsplit(normalized_url)
+        parsed.port
+    except ValueError:
+        return None
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    return normalized_url
+
+
 def _connector_name_from_url(url: str) -> str:
-    host = (urlsplit(url).hostname or "local").strip().lower()
+    try:
+        host = (urlsplit(url).hostname or "local").strip().lower()
+    except ValueError:
+        host = "local"
     sanitized = "".join(char if char.isalnum() else "-" for char in host).strip("-")
     sanitized = sanitized or "local"
     return f"autostopcrm-this-board-only-{sanitized}"
@@ -507,15 +556,19 @@ def create_mcp_server(
     resolved_port = port or get_mcp_port()
     resolved_path = path or get_mcp_path()
     resolved_token = bearer_token if bearer_token is not None else get_mcp_bearer_token()
-    resource_url = (public_endpoint_url or "").strip().rstrip("/")
+    raw_resource_url = (public_endpoint_url or "").strip().rstrip("/")
+    resource_url = _absolute_http_url(raw_resource_url) or ""
     server_base_url = (
-        public_base_url
+        _absolute_http_url(public_base_url)
         or _base_url_from_endpoint(resource_url)
-        or get_mcp_public_base_url()
+        or _absolute_http_url(get_mcp_public_base_url())
         or f"http://{resolved_host}:{resolved_port}"
     ).rstrip("/")
     effective_resource_url = resource_url or f"{server_base_url}{resolved_path}"
-    connector_name = _connector_name_from_url(effective_resource_url)
+    connector_name_url = (
+        raw_resource_url if raw_resource_url and not resource_url else effective_resource_url
+    )
+    connector_name = _connector_name_from_url(connector_name_url)
     connector_identity = {
         "connector_name": connector_name,
         "product_name": "AutoStop CRM",
@@ -633,14 +686,105 @@ def create_mcp_server(
                     ensure_ascii=False,
                     separators=(",", ":"),
                     default=str,
+                    allow_nan=False,
                 ).encode("utf-8")
             )
-        except (TypeError, ValueError):
+        except (OverflowError, TypeError, ValueError):
             return 0
+
+    def _dict_or_empty(value: Any) -> dict[str, Any]:
+        return dict(value) if isinstance(value, dict) else {}
+
+    def _normalize_board_response(
+        response: Any,
+        *,
+        error_code: str = "board_api_malformed_response",
+    ) -> dict[str, Any]:
+        if not isinstance(response, dict):
+            return {
+                "ok": False,
+                "data": None,
+                "error": {
+                    "code": error_code,
+                    "message": "Board API returned a malformed response envelope.",
+                    "response_type": type(response).__name__,
+                },
+            }
+        payload = dict(response)
+        payload["ok"] = bool(payload.get("ok", False))
+        data = payload.get("data")
+        if data is not None and not isinstance(data, dict):
+            return {
+                "ok": False,
+                "data": None,
+                "error": {
+                    "code": error_code,
+                    "message": "Board API returned non-object response data.",
+                    "data_type": type(data).__name__,
+                },
+                "meta": _dict_or_empty(payload.get("meta")),
+            }
+        error = payload.get("error")
+        if error is not None and not isinstance(error, dict):
+            payload["error"] = {
+                "code": "board_api_error",
+                "message": str(error),
+            }
+        elif error is None and not payload["ok"]:
+            payload["error"] = {
+                "code": "board_api_error",
+                "message": "Board API request failed without a structured error.",
+            }
+        if "meta" in payload:
+            payload["meta"] = _dict_or_empty(payload.get("meta"))
+        return payload
+
+    def _malformed_board_response(
+        tool_name: str,
+        started_at: float,
+        *,
+        exc: Exception,
+        applied_params: dict[str, Any] | None = None,
+    ) -> JsonEnvelope:
+        return _relay_error(
+            tool_name,
+            {
+                "code": "board_api_malformed_response",
+                "message": "Board API returned a response this MCP tool could not normalize.",
+                "details": type(exc).__name__,
+            },
+            meta=_timed_meta(
+                tool_name,
+                started_at,
+                meta={"applied_params": applied_params} if applied_params else None,
+            ),
+        )
+
+    def _normalize_limit(
+        value: Any,
+        *,
+        default: int,
+        minimum: int = 1,
+        maximum: int | None = None,
+    ) -> int:
+        if isinstance(value, bool):
+            value = default
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError, OverflowError):
+            numeric = float(default)
+        if not math.isfinite(numeric) or not numeric.is_integer():
+            numeric = float(default)
+        if numeric < minimum:
+            return minimum
+        if maximum is not None and numeric > maximum:
+            return maximum
+        normalized = int(numeric)
+        return normalized
 
     def _attach_response_meta(tool_name: str, response: dict) -> dict:
         payload = dict(response)
-        meta = dict(payload.get("meta") or {})
+        meta = _dict_or_empty(payload.get("meta"))
         meta.setdefault("tool", tool_name)
         meta.setdefault("response_mode", "default")
         payload["meta"] = meta
@@ -736,7 +880,7 @@ def create_mcp_server(
         started_at = perf_counter()
         applied_params = {key: value for key, value in (params or {}).items() if value is not None}
         try:
-            response = dict(fetcher())
+            response = _normalize_board_response(fetcher())
         except BoardApiTransportError as exc:
             return _relay_error(
                 tool_name,
@@ -750,9 +894,24 @@ def create_mcp_server(
                     meta={"applied_params": applied_params} if applied_params else None,
                 ),
             )
+        except (OverflowError, TypeError, ValueError) as exc:
+            return _malformed_board_response(
+                tool_name,
+                started_at,
+                exc=exc,
+                applied_params=applied_params,
+            )
         if transform is not None:
-            response = transform(response)
-        response_meta = dict(response.get("meta") or {})
+            try:
+                response = _normalize_board_response(transform(response))
+            except (AttributeError, KeyError, OverflowError, TypeError, ValueError) as exc:
+                return _malformed_board_response(
+                    tool_name,
+                    started_at,
+                    exc=exc,
+                    applied_params=applied_params,
+                )
+        response_meta = _dict_or_empty(response.get("meta"))
         data_payload = response.get("data") if isinstance(response.get("data"), dict) else {}
         data_meta = data_payload.get("meta") if isinstance(data_payload, dict) else {}
         if isinstance(data_meta, dict):
@@ -778,7 +937,7 @@ def create_mcp_server(
         if not response.get("ok") or not isinstance(response.get("data"), dict):
             return response
         data = dict(response["data"])
-        meta = dict(data.get("meta") or {})
+        meta = _dict_or_empty(data.get("meta"))
         meta.setdefault("schema_version", CONNECTOR_SCHEMA_VERSION)
         for key, value in fields.items():
             if value is not None:
@@ -798,6 +957,7 @@ def create_mcp_server(
             return response
         data = dict(response["data"])
         cards = data.get("cards") if isinstance(data.get("cards"), list) else []
+        source_meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
         return _with_data_meta(
             {**response, "data": data},
             response_mode=response_mode,
@@ -805,7 +965,7 @@ def create_mcp_server(
             include_archived=include_archived,
             compact=compact,
             returned=len(cards),
-            has_more=bool((data.get("meta") or {}).get("has_more", False)),
+            has_more=bool(source_meta.get("has_more", False)),
         )
 
     def _with_text_section_meta(
@@ -867,9 +1027,18 @@ def create_mcp_server(
         fetcher: Callable[[], dict[str, Any]], *, error_code: str
     ) -> dict[str, Any]:
         try:
-            return fetcher()
+            return _normalize_board_response(fetcher())
         except BoardApiTransportError as exc:
             return _transport_error_response(error_code, exc)
+        except (OverflowError, TypeError, ValueError) as exc:
+            return {
+                "ok": False,
+                "error": {
+                    "code": "board_api_malformed_response",
+                    "message": "Board API returned a malformed response envelope.",
+                    "details": type(exc).__name__,
+                },
+            }
 
     def _safe_health() -> dict[str, Any]:
         return _safe_board_call(board_api.health, error_code="board_api_unreachable")
@@ -973,7 +1142,9 @@ def create_mcp_server(
         lines.append("recommended_bootstrap: bootstrap_context -> get_runtime_status -> writes")
         return "\n".join(lines) + "\n"
 
-    def _enrich_gpt_wall_response(response: dict[str, Any]) -> dict[str, Any]:
+    def _enrich_gpt_wall_response(response: Any) -> dict[str, Any]:
+        if not isinstance(response, dict):
+            return _normalize_board_response(response)
         if not response.get("ok") or not isinstance(response.get("data"), dict):
             return response
         data = dict(response["data"])
@@ -1188,12 +1359,14 @@ def create_mcp_server(
     )
     def bootstrap_context(
         include_archived: bool = False,
-        event_limit: int = 50,
+        event_limit: McpInt = 50,
         compact: bool = True,
     ) -> JsonEnvelope:
         started_at = perf_counter()
         effective_event_limit = (
-            min(max(1, event_limit), GPT_WALL_AGENT_EVENT_LIMIT) if compact else event_limit
+            _normalize_limit(event_limit, default=50, maximum=GPT_WALL_AGENT_EVENT_LIMIT)
+            if compact
+            else _normalize_limit(event_limit, default=50, maximum=5000)
         )
         wall_response = _safe_gpt_wall(
             include_archived=include_archived,
@@ -1386,8 +1559,8 @@ def create_mcp_server(
     def create_sticky(
         text: str,
         deadline: StickyDeadlinePayload,
-        x: int = 0,
-        y: int = 0,
+        x: McpInt = 0,
+        y: McpInt = 0,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
@@ -1483,9 +1656,9 @@ def create_mcp_server(
         card_id: str,
         attachment_id: str,
         mode: Literal["preview", "text", "base64", "auto"] = "preview",
-        max_chars: int = 12_000,
+        max_chars: McpInt = 12_000,
         include_base64: bool = False,
-        max_base64_bytes: int = 1_048_576,
+        max_base64_bytes: McpInt = 1_048_576,
     ) -> JsonEnvelope:
         return _relay_board_call(
             "read_card_attachment",
@@ -1562,7 +1735,7 @@ def create_mcp_server(
     def download_shared_file(
         file_id: str,
         include_base64: bool = True,
-        max_base64_bytes: int = 2_097_152,
+        max_base64_bytes: McpInt = 2_097_152,
     ) -> JsonEnvelope:
         return _relay_board_call(
             "download_shared_file",
@@ -1595,8 +1768,8 @@ def create_mcp_server(
         file_name: str,
         content_base64: str,
         mime_type: str = "application/octet-stream",
-        x: int = 0,
-        y: int = 0,
+        x: McpInt = 0,
+        y: McpInt = 0,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
@@ -1660,20 +1833,21 @@ def create_mcp_server(
     )
     def get_card_context(
         card_id: str,
-        event_limit: int = 20,
+        event_limit: McpInt = 20,
         include_repair_order_text: bool = True,
         view_mode: Literal["agent", "full"] = "agent",
     ) -> JsonEnvelope:
+        effective_event_limit = _normalize_limit(event_limit, default=20, maximum=200)
         return _relay_board_call(
             "get_card_context",
             lambda: board_api.get_card_context(
                 card_id,
-                event_limit=event_limit,
+                event_limit=effective_event_limit,
                 include_repair_order_text=include_repair_order_text,
             ),
             params={
                 "card_id": card_id,
-                "event_limit": event_limit,
+                "event_limit": effective_event_limit,
                 "include_repair_order_text": include_repair_order_text,
                 "view_mode": view_mode,
             },
@@ -1682,7 +1856,7 @@ def create_mcp_server(
                 response_mode="agent_context" if view_mode == "agent" else "full",
                 view_mode=view_mode,
                 extra={
-                    "event_limit": event_limit,
+                    "event_limit": effective_event_limit,
                     "include_repair_order_text": include_repair_order_text,
                 },
             ),
@@ -1699,19 +1873,22 @@ def create_mcp_server(
         structured_output=True,
     )
     def get_board_snapshot(
-        archive_limit: int = 10,
+        archive_limit: McpInt = 10,
         compact: bool = False,
         include_archive: bool = True,
     ) -> JsonEnvelope:
+        effective_archive_limit = (
+            _normalize_limit(archive_limit, default=30, maximum=50) if include_archive else 0
+        )
         return _relay_board_call(
             "get_board_snapshot",
             lambda: board_api.get_board_snapshot(
-                archive_limit=archive_limit,
+                archive_limit=effective_archive_limit,
                 compact=compact,
                 include_archive=include_archive,
             ),
             params={
-                "archive_limit": archive_limit,
+                "archive_limit": effective_archive_limit,
                 "compact": compact,
                 "include_archive": include_archive,
             },
@@ -1719,7 +1896,7 @@ def create_mcp_server(
                 response,
                 response_mode="snapshot",
                 view_mode="compact" if compact else "full",
-                archive_limit=archive_limit,
+                archive_limit=effective_archive_limit,
                 include_archive=include_archive,
                 compact=compact,
             ),
@@ -1758,20 +1935,30 @@ def create_mcp_server(
         structured_output=True,
     )
     def review_board(
-        stale_hours: int = 48,
-        overload_threshold: int = 5,
-        priority_limit: int = 5,
-        recent_event_limit: int = 10,
+        stale_hours: McpInt = 48,
+        overload_threshold: McpInt = 5,
+        priority_limit: McpInt = 5,
+        recent_event_limit: McpInt = 10,
     ) -> JsonEnvelope:
+        effective_stale_hours = _normalize_limit(stale_hours, default=48, maximum=720)
+        effective_overload_threshold = _normalize_limit(overload_threshold, default=5, maximum=100)
+        effective_priority_limit = _normalize_limit(priority_limit, default=5, maximum=20)
+        effective_recent_event_limit = _normalize_limit(recent_event_limit, default=10, maximum=50)
         return _relay_board_call(
             "review_board",
             lambda: board_api.review_board(
-                stale_hours=stale_hours,
-                overload_threshold=overload_threshold,
-                priority_limit=priority_limit,
-                recent_event_limit=recent_event_limit,
+                stale_hours=effective_stale_hours,
+                overload_threshold=effective_overload_threshold,
+                priority_limit=effective_priority_limit,
+                recent_event_limit=effective_recent_event_limit,
             ),
             error_code="review_board_unreachable",
+            params={
+                "stale_hours": effective_stale_hours,
+                "overload_threshold": effective_overload_threshold,
+                "priority_limit": effective_priority_limit,
+                "recent_event_limit": effective_recent_event_limit,
+            },
         )
 
     @server.tool(
@@ -1782,11 +1969,12 @@ def create_mcp_server(
         annotations=_read_tool_annotations("Manager Board Scan"),
         structured_output=True,
     )
-    def manager_board_scan(limit: int = 50) -> JsonEnvelope:
+    def manager_board_scan(limit: McpInt = 50) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=50, maximum=200)
         return _relay_board_call(
             "manager_board_scan",
-            lambda: board_api.manager_board_scan(limit=limit),
-            params={"limit": limit},
+            lambda: board_api.manager_board_scan(limit=effective_limit),
+            params={"limit": effective_limit},
             transform=lambda response: _with_data_meta(
                 response,
                 response_mode="manager_board_scan",
@@ -1802,11 +1990,12 @@ def create_mcp_server(
         annotations=_read_tool_annotations("Ready Unpaid Cards"),
         structured_output=True,
     )
-    def list_ready_unpaid_cards(limit: int = 50) -> JsonEnvelope:
+    def list_ready_unpaid_cards(limit: McpInt = 50) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=50, maximum=200)
         return _relay_board_call(
             "list_ready_unpaid_cards",
-            lambda: board_api.list_ready_unpaid_cards(limit=limit),
-            params={"limit": limit},
+            lambda: board_api.list_ready_unpaid_cards(limit=effective_limit),
+            params={"limit": effective_limit},
             transform=lambda response: _with_data_meta(
                 response,
                 response_mode="ready_unpaid_cards",
@@ -1822,11 +2011,12 @@ def create_mcp_server(
         annotations=_read_tool_annotations("Triage Inbox Cards"),
         structured_output=True,
     )
-    def triage_inbox_cards(limit: int = 50) -> JsonEnvelope:
+    def triage_inbox_cards(limit: McpInt = 50) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=50, maximum=200)
         return _relay_board_call(
             "triage_inbox_cards",
-            lambda: board_api.triage_inbox_cards(limit=limit),
-            params={"limit": limit},
+            lambda: board_api.triage_inbox_cards(limit=effective_limit),
+            params={"limit": effective_limit},
             transform=lambda response: _with_data_meta(
                 response,
                 response_mode="inbox_triage",
@@ -1843,12 +2033,13 @@ def create_mcp_server(
         structured_output=True,
     )
     def list_cards_missing_manager_data(
-        limit: int = 50, kinds: list[str] | None = None
+        limit: McpInt = 50, kinds: list[str] | None = None
     ) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=50, maximum=200)
         return _relay_board_call(
             "list_cards_missing_manager_data",
-            lambda: board_api.list_cards_missing_manager_data(limit=limit, kinds=kinds),
-            params={"limit": limit, "kinds": kinds},
+            lambda: board_api.list_cards_missing_manager_data(limit=effective_limit, kinds=kinds),
+            params={"limit": effective_limit, "kinds": kinds},
             transform=lambda response: _with_data_meta(
                 response,
                 response_mode="missing_manager_data",
@@ -1864,11 +2055,12 @@ def create_mcp_server(
         annotations=_read_tool_annotations("Repair Order Consistency Audit"),
         structured_output=True,
     )
-    def audit_repair_order_consistency(limit: int = 50) -> JsonEnvelope:
+    def audit_repair_order_consistency(limit: McpInt = 50) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=50, maximum=200)
         return _relay_board_call(
             "audit_repair_order_consistency",
-            lambda: board_api.audit_repair_order_consistency(limit=limit),
-            params={"limit": limit},
+            lambda: board_api.audit_repair_order_consistency(limit=effective_limit),
+            params={"limit": effective_limit},
             transform=lambda response: _with_data_meta(
                 response,
                 response_mode="repair_order_consistency_audit",
@@ -1885,20 +2077,22 @@ def create_mcp_server(
         structured_output=True,
     )
     def audit_client_links(
-        limit: int = 50,
-        candidate_limit: int = 3,
+        limit: McpInt = 50,
+        candidate_limit: McpInt = 3,
         redact_private: bool = True,
     ) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=50, maximum=200)
+        effective_candidate_limit = _normalize_limit(candidate_limit, default=3, maximum=10)
         return _relay_board_call(
             "audit_client_links",
             lambda: board_api.audit_client_links(
-                limit=limit,
-                candidate_limit=candidate_limit,
+                limit=effective_limit,
+                candidate_limit=effective_candidate_limit,
                 redact_private=redact_private,
             ),
             params={
-                "limit": limit,
-                "candidate_limit": candidate_limit,
+                "limit": effective_limit,
+                "candidate_limit": effective_candidate_limit,
                 "redact_private": redact_private,
             },
             transform=lambda response: _with_data_meta(
@@ -1917,12 +2111,13 @@ def create_mcp_server(
         annotations=_read_tool_annotations("List Cashboxes"),
         structured_output=True,
     )
-    def list_cashboxes(limit: int = 200) -> JsonEnvelope:
+    def list_cashboxes(limit: McpInt = 200) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=200, maximum=1000)
         return _relay_board_call(
             "list_cashboxes",
-            lambda: board_api.list_cashboxes(limit=limit),
+            lambda: board_api.list_cashboxes(limit=effective_limit),
             error_code="cashboxes_unreachable",
-            params={"limit": limit},
+            params={"limit": effective_limit},
             transform=lambda response: _with_data_meta(
                 response,
                 response_mode="list",
@@ -1940,12 +2135,14 @@ def create_mcp_server(
         annotations=_read_tool_annotations("Get Cash Journal"),
         structured_output=True,
     )
-    def get_cash_journal(months: int = 3, limit: int = 5000) -> JsonEnvelope:
+    def get_cash_journal(months: McpInt = 3, limit: McpInt = 5000) -> JsonEnvelope:
+        effective_months = _normalize_limit(months, default=3, maximum=12)
+        effective_limit = _normalize_limit(limit, default=5000, maximum=10000)
         return _relay_board_call(
             "get_cash_journal",
-            lambda: board_api.get_cash_journal(months=months, limit=limit),
+            lambda: board_api.get_cash_journal(months=effective_months, limit=effective_limit),
             error_code="cash_journal_unreachable",
-            params={"months": months, "limit": limit},
+            params={"months": effective_months, "limit": effective_limit},
         )
 
     @server.tool(
@@ -1957,16 +2154,25 @@ def create_mcp_server(
         structured_output=True,
     )
     def get_cashbox(
-        cashbox_id: str, transaction_limit: int = 300, transaction_offset: int = 0
+        cashbox_id: str, transaction_limit: McpInt = 300, transaction_offset: McpInt = 0
     ) -> JsonEnvelope:
+        effective_transaction_limit = _normalize_limit(transaction_limit, default=300, maximum=5000)
+        effective_transaction_offset = _normalize_limit(
+            transaction_offset, default=0, minimum=0, maximum=1_000_000
+        )
         return _relay_board_call(
             "get_cashbox",
             lambda: board_api.get_cashbox(
                 cashbox_id,
-                transaction_limit=transaction_limit,
-                transaction_offset=transaction_offset,
+                transaction_limit=effective_transaction_limit,
+                transaction_offset=effective_transaction_offset,
             ),
             error_code="cashbox_unreachable",
+            params={
+                "cashbox_id": cashbox_id,
+                "transaction_limit": effective_transaction_limit,
+                "transaction_offset": effective_transaction_offset,
+            },
         )
 
     @server.tool(
@@ -2008,7 +2214,7 @@ def create_mcp_server(
     def create_cash_transaction(
         cashbox_id: str,
         direction: Literal["income", "expense"],
-        amount_minor: int | None = None,
+        amount_minor: McpInt | None = None,
         amount: str | None = None,
         note: str = "",
         actor_name: str | None = None,
@@ -2034,12 +2240,13 @@ def create_mcp_server(
         annotations=_read_tool_annotations("List Inventory Items"),
         structured_output=True,
     )
-    def list_inventory_items(query: str | None = None, limit: int = 200) -> JsonEnvelope:
+    def list_inventory_items(query: str | None = None, limit: McpInt = 200) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=200, maximum=500)
         return _relay_board_call(
             "list_inventory_items",
-            lambda: board_api.list_inventory_items(query=query, limit=limit),
+            lambda: board_api.list_inventory_items(query=query, limit=effective_limit),
             error_code="inventory_unreachable",
-            params={"query": query, "limit": limit},
+            params={"query": query, "limit": effective_limit},
         )
 
     @server.tool(
@@ -2048,12 +2255,13 @@ def create_mcp_server(
         annotations=_read_tool_annotations("Search Inventory Items"),
         structured_output=True,
     )
-    def search_inventory_items(query: str = "", limit: int = 50) -> JsonEnvelope:
+    def search_inventory_items(query: str = "", limit: McpInt = 50) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=50, maximum=500)
         return _relay_board_call(
             "search_inventory_items",
-            lambda: board_api.search_inventory_items(query=query, limit=limit),
+            lambda: board_api.search_inventory_items(query=query, limit=effective_limit),
             error_code="inventory_unreachable",
-            params={"query": query, "limit": limit},
+            params={"query": query, "limit": effective_limit},
         )
 
     @server.tool(
@@ -2082,15 +2290,16 @@ def create_mcp_server(
     def list_inventory_movements(
         item_id: str | None = None,
         card_id: str | None = None,
-        limit: int = 200,
+        limit: McpInt = 200,
     ) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=200, maximum=500)
         return _relay_board_call(
             "list_inventory_movements",
             lambda: board_api.list_inventory_movements(
-                item_id=item_id, card_id=card_id, limit=limit
+                item_id=item_id, card_id=card_id, limit=effective_limit
             ),
             error_code="inventory_unreachable",
-            params={"item_id": item_id, "card_id": card_id, "limit": limit},
+            params={"item_id": item_id, "card_id": card_id, "limit": effective_limit},
         )
 
     @server.tool(
@@ -2169,7 +2378,7 @@ def create_mcp_server(
         item_id: str,
         card_id: str,
         quantity: str,
-        row_index: int | None = None,
+        row_index: McpInt | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
@@ -2265,20 +2474,21 @@ def create_mcp_server(
         structured_output=True,
     )
     def get_board_events(
-        event_limit: int = 100,
+        event_limit: McpInt = 100,
         include_archived: bool = True,
         view_mode: Literal["audit", "full"] = "audit",
     ) -> JsonEnvelope:
+        effective_event_limit = _normalize_limit(event_limit, default=100, maximum=5000)
         return _relay_board_call(
             "get_board_events",
             lambda: board_api.get_board_events(
-                event_limit=event_limit,
+                event_limit=effective_event_limit,
                 include_archived=include_archived,
                 view_mode=view_mode,
             ),
             error_code="board_events_unreachable",
             params={
-                "event_limit": event_limit,
+                "event_limit": effective_event_limit,
                 "include_archived": include_archived,
                 "view_mode": view_mode,
             },
@@ -2287,7 +2497,7 @@ def create_mcp_server(
                 response_mode="audit",
                 view_mode=view_mode,
                 extra={
-                    "event_limit": event_limit,
+                    "event_limit": effective_event_limit,
                     "include_archived": include_archived,
                     "text_format": "markdown",
                     "section_kind": "event_log",
@@ -2307,12 +2517,14 @@ def create_mcp_server(
     )
     def get_gpt_wall(
         include_archived: bool = True,
-        event_limit: int = 100,
+        event_limit: McpInt = 100,
         view_mode: Literal["agent", "full"] = "agent",
     ) -> JsonEnvelope:
         compact_cards = view_mode == "agent"
         effective_event_limit = (
-            min(max(1, event_limit), GPT_WALL_AGENT_EVENT_LIMIT) if compact_cards else event_limit
+            _normalize_limit(event_limit, default=100, maximum=GPT_WALL_AGENT_EVENT_LIMIT)
+            if compact_cards
+            else _normalize_limit(event_limit, default=100, maximum=5000)
         )
         return _relay_board_call(
             "get_gpt_wall",
@@ -2354,14 +2566,14 @@ def create_mcp_server(
     )
     def get_card_log(
         card_id: str,
-        limit: int | None = None,
+        limit: McpInt | None = None,
         compact: bool = False,
         include_full_details: bool = False,
         view_mode: Literal["audit", "full"] = "audit",
     ) -> JsonEnvelope:
         effective_limit = limit
         if compact:
-            effective_limit = 50 if effective_limit is None else min(max(1, effective_limit), 1000)
+            effective_limit = _normalize_limit(effective_limit, default=50, maximum=1000)
         return _relay_board_call(
             "get_card_log",
             lambda: board_api.get_card_log(
@@ -2394,11 +2606,12 @@ def create_mcp_server(
         annotations=_read_tool_annotations("List Clients"),
         structured_output=True,
     )
-    def list_clients(limit: int = 100, include_stats: bool = True) -> JsonEnvelope:
+    def list_clients(limit: McpInt = 100, include_stats: bool = True) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=100, maximum=1000)
         return _relay_board_call(
             "list_clients",
-            lambda: board_api.list_clients(limit=limit, include_stats=include_stats),
-            params={"limit": limit, "include_stats": include_stats},
+            lambda: board_api.list_clients(limit=effective_limit, include_stats=include_stats),
+            params={"limit": effective_limit, "include_stats": include_stats},
             transform=lambda response: _with_data_meta(
                 response,
                 response_mode="client_list",
@@ -2414,11 +2627,12 @@ def create_mcp_server(
         annotations=_read_tool_annotations("Search Clients"),
         structured_output=True,
     )
-    def search_clients(query: str = "", limit: int = 10) -> JsonEnvelope:
+    def search_clients(query: str = "", limit: McpInt = 10) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=10, maximum=100)
         return _relay_board_call(
             "search_clients",
-            lambda: board_api.search_clients(query=query, limit=limit),
-            params={"query": query, "limit": limit},
+            lambda: board_api.search_clients(query=query, limit=effective_limit),
+            params={"query": query, "limit": effective_limit},
             transform=lambda response: _with_data_meta(
                 response,
                 response_mode="client_search",
@@ -2434,11 +2648,12 @@ def create_mcp_server(
         annotations=_read_tool_annotations("Get Client"),
         structured_output=True,
     )
-    def get_client(client_id: str, order_limit: int = 30) -> JsonEnvelope:
+    def get_client(client_id: str, order_limit: McpInt = 30) -> JsonEnvelope:
+        effective_order_limit = _normalize_limit(order_limit, default=30, maximum=200)
         return _relay_board_call(
             "get_client",
-            lambda: board_api.get_client(client_id, order_limit=order_limit),
-            params={"client_id": client_id, "order_limit": order_limit},
+            lambda: board_api.get_client(client_id, order_limit=effective_order_limit),
+            params={"client_id": client_id, "order_limit": effective_order_limit},
             transform=lambda response: _with_data_meta(
                 response,
                 response_mode="client_profile",
@@ -2634,12 +2849,13 @@ def create_mcp_server(
         structured_output=True,
     )
     def suggest_clients_for_card(
-        card_id: str, query: str | None = None, limit: int = 8
+        card_id: str, query: str | None = None, limit: McpInt = 8
     ) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=8, maximum=30)
         return _relay_board_call(
             "suggest_clients_for_card",
-            lambda: board_api.suggest_clients_for_card(card_id, query=query, limit=limit),
-            params={"card_id": card_id, "query": query, "limit": limit},
+            lambda: board_api.suggest_clients_for_card(card_id, query=query, limit=effective_limit),
+            params={"card_id": card_id, "query": query, "limit": effective_limit},
             transform=lambda response: _with_data_meta(
                 response,
                 response_mode="client_suggestions",
@@ -2656,7 +2872,7 @@ def create_mcp_server(
         structured_output=True,
     )
     def list_repair_orders(
-        limit: int = 50,
+        limit: McpInt = 50,
         status: Literal["open", "ready", "closed", "all"] = "open",
         query: str | None = None,
         sort_by: Literal["number", "opened_at", "closed_at"] | None = None,
@@ -2664,10 +2880,11 @@ def create_mcp_server(
         compact: bool = False,
         redact_private: bool = False,
     ) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=300, maximum=300)
         return _relay_board_call(
             "list_repair_orders",
             lambda: board_api.list_repair_orders(
-                limit=limit,
+                limit=effective_limit,
                 status=status,
                 query=query,
                 sort_by=sort_by,
@@ -2676,7 +2893,7 @@ def create_mcp_server(
                 redact_private=redact_private,
             ),
             params={
-                "limit": limit,
+                "limit": effective_limit,
                 "status": status,
                 "query": query,
                 "sort_by": sort_by,
@@ -2813,11 +3030,12 @@ def create_mcp_server(
         annotations=_read_tool_annotations("Archived Cards"),
         structured_output=True,
     )
-    def list_archived_cards(limit: int = 10, compact: bool = False) -> JsonEnvelope:
+    def list_archived_cards(limit: McpInt = 10, compact: bool = False) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=30, maximum=100)
         return _relay_board_call(
             "list_archived_cards",
-            lambda: board_api.list_archived_cards(limit=limit, compact=compact),
-            params={"limit": limit, "compact": compact},
+            lambda: board_api.list_archived_cards(limit=effective_limit, compact=compact),
+            params={"limit": effective_limit, "compact": compact},
             transform=lambda response: _with_cards_list_meta(
                 response,
                 include_archived=True,
@@ -2841,8 +3059,9 @@ def create_mcp_server(
         tag: str | None = None,
         indicator: Literal["green", "yellow", "red"] | None = None,
         status: Literal["ok", "warning", "critical", "expired"] | None = None,
-        limit: int = 20,
+        limit: McpInt = 20,
     ) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=20, maximum=100)
         return _relay_board_call(
             "search_cards",
             lambda: board_api.search_cards(
@@ -2852,7 +3071,7 @@ def create_mcp_server(
                 tag=tag,
                 indicator=indicator,
                 status=status,
-                limit=limit,
+                limit=effective_limit,
             ),
             params={
                 "query": query,
@@ -2861,7 +3080,7 @@ def create_mcp_server(
                 "tag": tag,
                 "indicator": indicator,
                 "status": status,
-                "limit": limit,
+                "limit": effective_limit,
             },
             transform=lambda response: _with_data_meta(
                 response,
@@ -2979,29 +3198,41 @@ def create_mcp_server(
     )
     def bulk_set_deadline_if_below(
         mode: Literal["dry_run", "apply"] = "dry_run",
-        min_total_seconds: int = 172800,
-        target_total_seconds: int = 172800,
-        limit: int = 200,
+        min_total_seconds: McpInt = 172800,
+        target_total_seconds: McpInt = 172800,
+        limit: McpInt = 200,
         include_archived: bool = False,
         card_ids: list[str] | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
+        effective_min_total_seconds = _normalize_limit(
+            min_total_seconds, default=172800, maximum=31_536_000
+        )
+        effective_target_total_seconds = _normalize_limit(
+            target_total_seconds,
+            default=effective_min_total_seconds,
+            maximum=31_536_000,
+        )
+        effective_target_total_seconds = max(
+            effective_target_total_seconds, effective_min_total_seconds
+        )
+        effective_limit = _normalize_limit(limit, default=200, maximum=1000)
         return _relay_board_call(
             "bulk_set_deadline_if_below",
             lambda: board_api.bulk_set_deadline_if_below(
                 mode=mode,
-                min_total_seconds=min_total_seconds,
-                target_total_seconds=target_total_seconds,
-                limit=limit,
+                min_total_seconds=effective_min_total_seconds,
+                target_total_seconds=effective_target_total_seconds,
+                limit=effective_limit,
                 include_archived=include_archived,
                 card_ids=card_ids,
                 actor_name=actor_name,
             ),
             params={
                 "mode": mode,
-                "min_total_seconds": min_total_seconds,
-                "target_total_seconds": target_total_seconds,
-                "limit": limit,
+                "min_total_seconds": effective_min_total_seconds,
+                "target_total_seconds": effective_target_total_seconds,
+                "limit": effective_limit,
                 "include_archived": include_archived,
                 "card_ids": card_ids,
             },
@@ -3022,17 +3253,18 @@ def create_mcp_server(
     )
     def bulk_refresh_board_summaries(
         mode: Literal["dry_run", "apply"] = "dry_run",
-        limit: int = 100,
+        limit: McpInt = 100,
         only_missing: bool = False,
         only_stale: bool = False,
         card_ids: list[str] | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=100, maximum=500)
         return _relay_board_call(
             "bulk_refresh_board_summaries",
             lambda: board_api.bulk_refresh_board_summaries(
                 mode=mode,
-                limit=limit,
+                limit=effective_limit,
                 only_missing=only_missing,
                 only_stale=only_stale,
                 card_ids=card_ids,
@@ -3040,7 +3272,7 @@ def create_mcp_server(
             ),
             params={
                 "mode": mode,
-                "limit": limit,
+                "limit": effective_limit,
                 "only_missing": only_missing,
                 "only_stale": only_stale,
                 "card_ids": card_ids,
@@ -3115,24 +3347,30 @@ def create_mcp_server(
     )
     def apply_ready_unpaid_followups(
         mode: Literal["dry_run", "apply"] = "dry_run",
-        target_total_seconds: int = 172800,
-        limit: int = 50,
+        target_total_seconds: McpInt = 172800,
+        limit: McpInt = 50,
         refresh_summary: bool = True,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
+        effective_target_total_seconds = _normalize_limit(
+            target_total_seconds,
+            default=172800,
+            maximum=31_536_000,
+        )
+        effective_limit = _normalize_limit(limit, default=50, maximum=200)
         return _relay_board_call(
             "apply_ready_unpaid_followups",
             lambda: board_api.apply_ready_unpaid_followups(
                 mode=mode,
-                target_total_seconds=target_total_seconds,
-                limit=limit,
+                target_total_seconds=effective_target_total_seconds,
+                limit=effective_limit,
                 refresh_summary=refresh_summary,
                 actor_name=actor_name,
             ),
             params={
                 "mode": mode,
-                "target_total_seconds": target_total_seconds,
-                "limit": limit,
+                "target_total_seconds": effective_target_total_seconds,
+                "limit": effective_limit,
                 "refresh_summary": refresh_summary,
             },
             transform=lambda response: _with_data_meta(
@@ -3155,18 +3393,43 @@ def create_mcp_server(
         payload: dict[str, Any] | None = None,
         mode: Literal["dry_run", "apply"] = "dry_run",
         actor_name: str | None = None,
-        limit: int | None = None,
+        limit: McpInt | None = None,
     ) -> JsonEnvelope:
+        operation_key = str(operation or "")
+        manager_operation_limit_maximums = {
+            "manager_board_scan": 200,
+            "list_ready_unpaid_cards": 200,
+            "triage_inbox_cards": 200,
+            "list_cards_missing_manager_data": 200,
+            "audit_repair_order_consistency": 200,
+            "audit_client_links": 200,
+            "bulk_set_deadline_if_below": 1000,
+            "bulk_refresh_board_summaries": 500,
+            "apply_ready_unpaid_followups": 200,
+        }
+        effective_limit_maximum = manager_operation_limit_maximums.get(operation_key, 200)
+        effective_limit = (
+            _normalize_limit(limit, default=50, maximum=effective_limit_maximum)
+            if limit is not None
+            else None
+        )
+        effective_payload = dict(payload) if isinstance(payload, dict) else payload
+        if isinstance(effective_payload, dict) and "limit" in effective_payload:
+            effective_payload["limit"] = _normalize_limit(
+                effective_payload.get("limit"),
+                default=50,
+                maximum=effective_limit_maximum,
+            )
         return _relay_board_call(
             "run_manager_operation",
             lambda: board_api.run_manager_operation(
                 operation=operation,
-                payload=payload,
+                payload=effective_payload,
                 mode=mode,
                 actor_name=actor_name,
-                limit=limit,
+                limit=effective_limit,
             ),
-            params={"operation": operation, "mode": mode, "limit": limit},
+            params={"operation": operation, "mode": mode, "limit": effective_limit},
             transform=lambda response: _with_data_meta(
                 response,
                 response_mode="manager_operation",

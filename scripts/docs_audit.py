@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+GIT_COMMAND_TIMEOUT_SECONDS = 15
+DOCS_AUDIT_TEXT_MAX_BYTES = 2 * 1024 * 1024
 
 CRM_CANONICAL_DOCS = (
     "API_GUIDE.md",
@@ -121,6 +123,16 @@ FORBIDDEN_TEXT_PATTERNS = (
         "stale_smoke_credentials",
         re.compile(r"--operator-username\s+admin\s+--operator-password\s+admin"),
         "default admin smoke credentials are documented; use smoke env variables",
+    ),
+    (
+        "stale_smoke_credentials",
+        re.compile(r"MINIMAL_KANBAN_DEFAULT_ADMIN_(?:USERNAME|PASSWORD):-admin"),
+        "deploy smoke falls back to default admin credentials; require AUTOSTOP_SMOKE_OPERATOR_*",
+    ),
+    (
+        "stale_smoke_credentials",
+        re.compile(r"--operator-(?:username|password)\"?,\s*default=\"admin"),
+        "operator smoke CLI flag defaults to admin; use smoke env variables or explicit options",
     ),
     (
         "stale_public_http",
@@ -303,7 +315,15 @@ def _display_path(path: Path, root: Path) -> str:
 
 
 def _read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8", errors="replace")
+    with path.open("rb") as handle:
+        raw = handle.read(DOCS_AUDIT_TEXT_MAX_BYTES + 1)
+    if len(raw) > DOCS_AUDIT_TEXT_MAX_BYTES:
+        raise ValueError(f"docs audit file is too large: {path}")
+    return raw.decode("utf-8", errors="replace")
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
 
 
 def _iter_git_tracked_files(root: Path) -> list[Path]:
@@ -312,9 +332,11 @@ def _iter_git_tracked_files(root: Path) -> list[Path]:
             ["git", "-C", str(root), "ls-files"],
             check=True,
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             text=True,
+            timeout=GIT_COMMAND_TIMEOUT_SECONDS,
         )
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return []
     return [root / line.strip() for line in completed.stdout.splitlines() if line.strip()]
 
@@ -349,6 +371,33 @@ def _check_unclassified_tracked_docs(root: Path) -> list[Issue]:
                 "tracked documentation file is not classified in docs_audit",
             )
         )
+    return issues
+
+
+def _check_dockerignore_keeps_canonical_markdown(root: Path) -> list[Issue]:
+    path = root / ".dockerignore"
+    if not path.exists():
+        return []
+    rules = {
+        line.strip()
+        for line in _read_text(path).splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    if "*.md" not in rules:
+        return []
+    issues: list[Issue] = []
+    for relative_path in CRM_CANONICAL_DOCS:
+        if not relative_path.endswith(".md"):
+            continue
+        keep_rule = f"!{relative_path}"
+        if keep_rule not in rules:
+            issues.append(
+                Issue(
+                    "dockerignore_missing_canonical_doc",
+                    _display_path(path, root),
+                    f"Docker image excludes canonical documentation: {keep_rule}",
+                )
+            )
     return issues
 
 
@@ -580,8 +629,10 @@ def extract_decorated_tool_names(path: Path) -> set[str]:
 
 
 def _load_json(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
+    try:
+        data = json.loads(_read_text(path), parse_constant=_reject_json_constant)
+    except RecursionError as exc:
+        raise ValueError(f"{path} JSON is too deeply nested") from exc
     if not isinstance(data, dict):
         raise ValueError(f"{path} must contain a JSON object")
     return data
@@ -748,6 +799,7 @@ def audit(
 
     issues.extend(_check_required(CRM_CANONICAL_DOCS, root, "CRM"))
     issues.extend(_check_unclassified_tracked_docs(root))
+    issues.extend(_check_dockerignore_keeps_canonical_markdown(root))
     for relative_path in CRM_CANONICAL_DOCS:
         path = root / relative_path
         if path.exists():
@@ -840,7 +892,14 @@ def main(argv: list[str] | None = None) -> int:
 
     issues = audit(ROOT, manager_root=args.manager_root, secret_bundle=args.secret_bundle)
     if args.format == "json":
-        print(json.dumps([asdict(issue) for issue in issues], ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                [asdict(issue) for issue in issues],
+                ensure_ascii=False,
+                indent=2,
+                allow_nan=False,
+            )
+        )
     else:
         _print_text(issues)
     return 1 if issues else 0

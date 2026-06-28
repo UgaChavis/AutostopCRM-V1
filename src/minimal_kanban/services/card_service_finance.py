@@ -1624,11 +1624,12 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
         allow_sign: bool = False,
         force_negative: bool = False,
     ) -> str:
-        signed_value = -abs(int(amount_minor)) if force_negative else int(amount_minor)
+        normalized = self._cash_journal_minor_value(amount_minor)
+        signed_value = -abs(normalized) if force_negative else normalized
         return self._cashbox_rounded_money_text(signed_value, signed=allow_sign or force_negative)
 
-    def _cashbox_rounded_money_text(self, amount_minor: int, *, signed: bool = False) -> str:
-        value = int(amount_minor)
+    def _cashbox_rounded_money_text(self, amount_minor: object, *, signed: bool = False) -> str:
+        value = self._cash_journal_minor_value(amount_minor)
         rounded_rubles = (abs(value) + 50) // 100
         formatted = f"{rounded_rubles:,}".replace(",", " ") + " ₽"
         if rounded_rubles == 0:
@@ -1641,6 +1642,14 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
 
     def _cash_journal_money_text(self, amount_minor: int, *, signed: bool = False) -> str:
         return self._cashbox_rounded_money_text(amount_minor, signed=signed)
+
+    def _cash_journal_minor_value(self, value: object) -> int:
+        return model_helpers.normalize_int(
+            value,
+            default=0,
+            minimum=-model_helpers.MONEY_MINOR_ABS_MAX,
+            maximum=model_helpers.MONEY_MINOR_ABS_MAX,
+        )
 
     def _cash_transaction_source_label(self, transaction: CashTransaction) -> str:
         transaction_kind = self._cash_transaction_kind_label(transaction.transaction_kind)
@@ -1727,7 +1736,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 repair_order_context=(repair_order_transaction_context or {}).get(item.id),
             )
             direction_sign = 1 if item.direction == "income" else -1
-            signed_amount_minor = int(item.amount_minor) * direction_sign
+            signed_amount_minor = self._cash_journal_minor_value(item.amount_minor) * direction_sign
             if created_at is not None:
                 iso_year, iso_week, _ = created_at.isocalendar()
                 date_label = created_at.date().isoformat()
@@ -1823,22 +1832,22 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
 
     def _cash_journal_totals(self, entries: list[dict[str, object]]) -> dict[str, object]:
         income_minor = sum(
-            int(item.get("amount_minor") or 0)
+            self._cash_journal_minor_value(item.get("amount_minor"))
             for item in entries
             if item.get("direction") == "income"
         )
         expense_minor = sum(
-            int(item.get("amount_minor") or 0)
+            self._cash_journal_minor_value(item.get("amount_minor"))
             for item in entries
             if item.get("direction") == "expense"
         )
         external_income_minor = sum(
-            int(item.get("amount_minor") or 0)
+            self._cash_journal_minor_value(item.get("amount_minor"))
             for item in entries
             if item.get("direction") == "income" and item.get("source_label") != "перемещение"
         )
         external_expense_minor = sum(
-            int(item.get("amount_minor") or 0)
+            self._cash_journal_minor_value(item.get("amount_minor"))
             for item in entries
             if item.get("direction") == "expense" and item.get("source_label") != "перемещение"
         )
@@ -1922,7 +1931,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 continue
             balances_by_date.setdefault(transaction_date_key, {}).setdefault(cashbox_id, 0)
             balances_by_date[transaction_date_key][cashbox_id] += (
-                int(transaction.amount_minor) * direction_sign
+                self._cash_journal_minor_value(transaction.amount_minor) * direction_sign
             )
         day_keys = sorted(
             {
@@ -1943,7 +1952,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 date_deltas = balances_by_date[transaction_dates[transaction_date_index]]
                 for cashbox_id, delta_minor in date_deltas.items():
                     running_balances.setdefault(cashbox_id, 0)
-                    running_balances[cashbox_id] += int(delta_minor)
+                    running_balances[cashbox_id] += self._cash_journal_minor_value(delta_minor)
                 transaction_date_index += 1
             opening_balances_by_day[day_key] = dict(running_balances)
         for day in days:
@@ -1953,7 +1962,8 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 cashbox_labels,
             )
             opening_total_minor = sum(
-                int(item.get("balance_minor") or 0) for item in opening_balances
+                self._cash_journal_minor_value(item.get("balance_minor"))
+                for item in opening_balances
             )
             day["opening_balances"] = opening_balances
             day["opening_total_minor"] = opening_total_minor
@@ -1977,7 +1987,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 direction_sign = 1 if transaction.direction == "income" else -1
                 balances_by_id.setdefault(transaction.cashbox_id, 0)
                 balances_by_id[transaction.cashbox_id] += (
-                    int(transaction.amount_minor) * direction_sign
+                    self._cash_journal_minor_value(transaction.amount_minor) * direction_sign
                 )
         return self._cash_journal_balance_rows(balances_by_id, cashbox_labels)
 
@@ -1990,12 +2000,12 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             {
                 "cashbox_id": cashbox_id,
                 "cashbox_name": cashbox_name,
-                "balance_minor": int(balances_by_id.get(cashbox_id) or 0),
-                "balance_display": self._cashbox_rounded_money_text(
-                    int(balances_by_id.get(cashbox_id) or 0)
-                ),
+                "balance_minor": self._cash_journal_minor_value(balances_by_id.get(cashbox_id)),
+                "balance_display": self._cashbox_rounded_money_text(balances_by_id.get(cashbox_id)),
                 "balance_sign": (
-                    "negative" if int(balances_by_id.get(cashbox_id) or 0) < 0 else "positive"
+                    "negative"
+                    if self._cash_journal_minor_value(balances_by_id.get(cashbox_id)) < 0
+                    else "positive"
                 ),
             }
             for cashbox_id, cashbox_name in cashbox_labels
@@ -2026,6 +2036,13 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
     def _cash_journal_week_label(self, week_key: str) -> str:
         try:
             year_text, week_text = week_key.split("-W", 1)
+            if (
+                not year_text.isdecimal()
+                or not week_text.isdecimal()
+                or len(year_text) != 4
+                or len(week_text) > 2
+            ):
+                return week_key
             start = datetime.fromisocalendar(int(year_text), int(week_text), 1)
             end = datetime.fromisocalendar(int(year_text), int(week_text), 7)
         except (ValueError, TypeError):
@@ -2184,7 +2201,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
     def _cash_journal_transfer_row(
         self, source: dict[str, object], target: dict[str, object]
     ) -> dict[str, str]:
-        amount = self._cash_journal_money_text(int(source.get("amount_minor") or 0))
+        amount = self._cash_journal_money_text(source.get("amount_minor"))
         line = (
             f"- {source.get('time_short') or '--:--'} | перемещение {amount} | "
             + f"{source.get('cashbox_name')} → {target.get('cashbox_name')}"

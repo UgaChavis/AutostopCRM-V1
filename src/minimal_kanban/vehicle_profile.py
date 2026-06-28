@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -88,6 +89,7 @@ VEHICLE_RAW_TEXT_LIMIT = 6000
 VEHICLE_SOURCE_LINK_LIMIT = 12
 VEHICLE_SOURCE_LINK_TEXT_LIMIT = 240
 VEHICLE_CUSTOMER_PHONES_LIMIT = 3
+VEHICLE_INT_MAX_VALUE = 1_000_000_000
 VIN_SOFT_PATTERN = re.compile(r"\b([A-HJ-NPR-Z0-9]{11,17})\b", re.IGNORECASE)
 _VIN_ALLOWED_PATTERN = re.compile(r"^[A-HJ-NPR-Z0-9]+$", re.IGNORECASE)
 
@@ -129,6 +131,17 @@ def normalize_vehicle_phones(value) -> list[str]:
     return phones
 
 
+def _vehicle_phone_items(primary: Any, values: Any) -> list[Any]:
+    items: list[Any] = []
+    if primary not in (None, ""):
+        items.append(primary)
+    if isinstance(values, list):
+        items.extend(values)
+    elif isinstance(values, str):
+        items.append(values)
+    return items
+
+
 def normalize_license_plate(value, *, limit: int = VEHICLE_TEXT_LIMIT) -> str:
     return normalize_vehicle_text(value, limit=limit).lower()
 
@@ -143,16 +156,19 @@ def normalize_vehicle_raw_text(value, *, limit: int = VEHICLE_RAW_TEXT_LIMIT) ->
     return text[:limit]
 
 
-def normalize_vehicle_int(value) -> int | None:
+def normalize_vehicle_int(value, *, maximum: int = VEHICLE_INT_MAX_VALUE) -> int | None:
     if value in (None, ""):
         return None
     if isinstance(value, bool):
         return None
-    try:
-        parsed = int(str(value).strip())
-    except (TypeError, ValueError):
+    raw = str(value).strip()
+    if len(raw.lstrip("+-")) > 12:
         return None
-    if parsed <= 0:
+    try:
+        parsed = int(raw)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if parsed <= 0 or parsed > maximum:
         return None
     return parsed
 
@@ -163,14 +179,16 @@ def normalize_vehicle_float(value) -> float | None:
     if isinstance(value, bool):
         return None
     raw = str(value).strip().replace(",", ".")
+    if re.search(r"\d\s*[eE]\s*[+-]?\d", raw):
+        return None
     raw = re.sub(r"[^0-9.]+", "", raw)
     if not raw:
         return None
     try:
         parsed = float(raw)
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         return None
-    if parsed <= 0:
+    if not math.isfinite(parsed) or parsed <= 0:
         return None
     return round(parsed, 2)
 
@@ -241,10 +259,29 @@ def normalize_source_confidence(value) -> float:
         return 0.0
     try:
         parsed = float(str(value).strip().replace(",", "."))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    if not math.isfinite(parsed):
         return 0.0
     parsed = max(0.0, min(1.0, parsed))
     return round(parsed, 2)
+
+
+def normalize_vehicle_warnings(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raw_items: list[Any] = [value]
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        return []
+    warnings: list[str] = []
+    for raw_warning in raw_items:
+        warning = normalize_vehicle_text(raw_warning, limit=200)
+        if warning and warning not in warnings:
+            warnings.append(warning)
+    return warnings
 
 
 def normalize_completion_state(value) -> VehicleCompletionState:
@@ -351,7 +388,7 @@ class VehicleProfile:
     def __post_init__(self) -> None:
         self.customer_phone = normalize_vehicle_text(self.customer_phone)
         self.customer_phones = normalize_vehicle_phones(
-            [self.customer_phone, *list(self.customer_phones or [])]
+            _vehicle_phone_items(self.customer_phone, self.customer_phones)
         )
         self.customer_phone = (
             self.customer_phones[0] if self.customer_phones else self.customer_phone
@@ -400,18 +437,24 @@ class VehicleProfile:
 
     def to_dict(self) -> dict[str, Any]:
         vin, vin_is_suspect, vin_warnings = soft_validate_vin(self.vin)
-        warnings = list(self.warnings)
+        warnings = normalize_vehicle_warnings(self.warnings)
         for warning in vin_warnings:
             if warning not in warnings:
                 warnings.append(warning)
+        customer_phones = normalize_vehicle_phones(
+            _vehicle_phone_items(self.customer_phone, self.customer_phones)
+        )
+        customer_phone = (
+            customer_phones[0] if customer_phones else normalize_vehicle_text(self.customer_phone)
+        )
         return {
             "make_display": self.make_display,
             "model_display": self.model_display,
             "generation_or_platform": self.generation_or_platform,
             "production_year": self.production_year,
             "mileage": self.mileage,
-            "customer_phone": self.customer_phone,
-            "customer_phones": list(self.customer_phones),
+            "customer_phone": customer_phone,
+            "customer_phones": customer_phones,
             "customer_name": self.customer_name,
             "vin": vin,
             "registration_plate": self.registration_plate,
@@ -439,13 +482,13 @@ class VehicleProfile:
             "wheel_bolt_pattern": self.wheel_bolt_pattern,
             "oem_notes": self.oem_notes,
             "source_summary": self.source_summary,
-            "source_confidence": self.source_confidence,
-            "source_links_or_refs": list(self.source_links_or_refs),
+            "source_confidence": normalize_source_confidence(self.source_confidence),
+            "source_links_or_refs": normalize_vehicle_links(self.source_links_or_refs),
             "data_completion_state": self.data_completion_state,
-            "manual_fields": list(self.manual_fields),
-            "autofilled_fields": list(self.autofilled_fields),
-            "tentative_fields": list(self.tentative_fields),
-            "field_sources": dict(self.field_sources),
+            "manual_fields": normalize_vehicle_field_names(self.manual_fields),
+            "autofilled_fields": normalize_vehicle_field_names(self.autofilled_fields),
+            "tentative_fields": normalize_vehicle_field_names(self.tentative_fields),
+            "field_sources": normalize_vehicle_field_sources(self.field_sources),
             "raw_input_text": self.raw_input_text,
             "raw_image_text": self.raw_image_text,
             "image_parse_status": self.image_parse_status,
@@ -493,13 +536,7 @@ class VehicleProfile:
         registration_plate = normalize_license_plate(payload.get("registration_plate"))
         if not registration_plate and "registration_plate" not in payload:
             registration_plate = normalize_license_plate(payload.get("license_plate"))
-        warnings: list[str] = []
-        for raw_warning in (
-            payload.get("warnings", []) if isinstance(payload.get("warnings"), list) else []
-        ):
-            warning = normalize_vehicle_text(raw_warning, limit=200)
-            if warning and warning not in warnings:
-                warnings.append(warning)
+        warnings = normalize_vehicle_warnings(payload.get("warnings"))
         for warning in vin_warnings:
             if warning not in warnings:
                 warnings.append(warning)

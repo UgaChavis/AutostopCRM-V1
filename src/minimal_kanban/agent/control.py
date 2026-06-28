@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import threading
 import time
 import uuid
@@ -24,6 +25,7 @@ DEFAULT_BOARD_CONTROL_SETTINGS = {
     "interval_minutes": 20,
     "cooldown_minutes": 60,
 }
+MAX_AGENT_SCHEDULE_INTERVAL_VALUE = 525_600
 DEFAULT_BOARD_CONTROL_STATUS = {
     "running": False,
     "last_pass_at": "",
@@ -40,6 +42,8 @@ DEFAULT_BOARD_CONTROL_STATUS = {
 }
 BOARD_CONTROL_TRACE_LIMIT = 24
 BOARD_CONTROL_CACHE_LIMIT = 120
+MAX_AGENT_SCHEDULER_INTERVAL_SECONDS = 3600.0
+MAX_BOARD_CONTROL_COUNTER_VALUE = 1_000_000_000
 
 
 class AgentControlService:
@@ -52,7 +56,9 @@ class AgentControlService:
     ) -> None:
         self._storage = storage
         self._board_service: Any | None = None
-        self._scheduler_interval_seconds = max(5.0, float(scheduler_interval_seconds))
+        self._scheduler_interval_seconds = self._normalize_seconds(
+            scheduler_interval_seconds, default=20.0, minimum=5.0
+        )
         self._scheduler_poll_throttle_seconds = min(self._scheduler_interval_seconds, 5.0)
         self._scheduler_stop = threading.Event()
         self._scheduler_thread: threading.Thread | None = None
@@ -442,7 +448,7 @@ class AgentControlService:
             },
             "board_control": {
                 "card_id": card_id,
-                "trigger_reasons": list(payload.get("trigger_reasons") or []),
+                "trigger_reasons": self._bounded_text_list(payload.get("trigger_reasons"), limit=8),
                 "allowed_actions": [
                     "normalize_description",
                     "fill_safe_vehicle_fields",
@@ -670,12 +676,20 @@ class AgentControlService:
             "last_success_at": str(runtime.get("last_success_at", "") or "").strip(),
             "last_error": str(runtime.get("last_error", "") or "").strip(),
             "last_baseline_at": str(runtime.get("last_baseline_at", "") or "").strip(),
-            "considered_count": int(runtime.get("considered_count", 0) or 0),
-            "triggered_count": int(runtime.get("triggered_count", 0) or 0),
-            "enqueued_count": int(runtime.get("enqueued_count", 0) or 0),
-            "written_count": int(runtime.get("written_count", 0) or 0),
-            "error_count": int(runtime.get("error_count", 0) or 0),
-            "recent_traces": list(runtime.get("recent_traces") or [])[:BOARD_CONTROL_TRACE_LIMIT],
+            "considered_count": self._bounded_int(
+                runtime.get("considered_count"), default=0, minimum=0
+            ),
+            "triggered_count": self._bounded_int(
+                runtime.get("triggered_count"), default=0, minimum=0
+            ),
+            "enqueued_count": self._bounded_int(
+                runtime.get("enqueued_count"), default=0, minimum=0
+            ),
+            "written_count": self._bounded_int(runtime.get("written_count"), default=0, minimum=0),
+            "error_count": self._bounded_int(runtime.get("error_count"), default=0, minimum=0),
+            "recent_traces": self._bounded_dict_list(
+                runtime.get("recent_traces"), limit=BOARD_CONTROL_TRACE_LIMIT
+            ),
         }
 
     def _board_control_settings(self) -> dict[str, Any]:
@@ -690,8 +704,12 @@ class AgentControlService:
                 settings.update(payload)
         return {
             "enabled": bool(settings.get("enabled")),
-            "interval_minutes": max(5, min(240, int(settings.get("interval_minutes", 20) or 20))),
-            "cooldown_minutes": max(5, min(1440, int(settings.get("cooldown_minutes", 60) or 60))),
+            "interval_minutes": self._bounded_int(
+                settings.get("interval_minutes"), default=20, minimum=5, maximum=240
+            ),
+            "cooldown_minutes": self._bounded_int(
+                settings.get("cooldown_minutes"), default=60, minimum=5, maximum=1440
+            ),
         }
 
     def _board_control_runtime(self, status: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -703,20 +721,20 @@ class AgentControlService:
         )
         normalized = dict(DEFAULT_BOARD_CONTROL_STATUS)
         normalized.update(runtime)
-        normalized["recent_traces"] = list(normalized.get("recent_traces") or [])[
-            :BOARD_CONTROL_TRACE_LIMIT
-        ]
-        normalized["card_cache"] = dict(normalized.get("card_cache") or {})
+        normalized["recent_traces"] = self._bounded_dict_list(
+            normalized.get("recent_traces"), limit=BOARD_CONTROL_TRACE_LIMIT
+        )
+        normalized["card_cache"] = self._dict_or_empty(normalized.get("card_cache"))
         return normalized
 
     def _persist_board_control_runtime(self, runtime: dict[str, Any]) -> dict[str, Any]:
         normalized = dict(DEFAULT_BOARD_CONTROL_STATUS)
         normalized.update(runtime if isinstance(runtime, dict) else {})
-        normalized["recent_traces"] = list(normalized.get("recent_traces") or [])[
-            :BOARD_CONTROL_TRACE_LIMIT
-        ]
+        normalized["recent_traces"] = self._bounded_dict_list(
+            normalized.get("recent_traces"), limit=BOARD_CONTROL_TRACE_LIMIT
+        )
         normalized["card_cache"] = self._trim_board_control_cache(
-            dict(normalized.get("card_cache") or {})
+            self._dict_or_empty(normalized.get("card_cache"))
         )
         self._storage.update_status(board_control=normalized)
         return normalized
@@ -739,9 +757,15 @@ class AgentControlService:
         return {card_id: payload for card_id, payload in items[:BOARD_CONTROL_CACHE_LIMIT]}
 
     def _append_board_control_trace(self, runtime: dict[str, Any], trace: dict[str, Any]) -> None:
-        traces = list(runtime.get("recent_traces") or [])
-        traces.insert(0, trace)
+        traces = self._bounded_dict_list(
+            runtime.get("recent_traces"), limit=BOARD_CONTROL_TRACE_LIMIT
+        )
+        traces.insert(0, dict(trace) if isinstance(trace, dict) else {})
         runtime["recent_traces"] = traces[:BOARD_CONTROL_TRACE_LIMIT]
+
+    def _increment_board_control_counter(self, runtime: dict[str, Any], key: str) -> None:
+        current = self._bounded_int(runtime.get(key), default=0, minimum=0)
+        runtime[key] = min(MAX_BOARD_CONTROL_COUNTER_VALUE, current + 1)
 
     def _flatten_board_snapshot_cards(
         self, snapshot_payload: dict[str, Any]
@@ -833,11 +857,7 @@ class AgentControlService:
 
     def _build_board_control_prompt(self, payload: dict[str, Any]) -> str:
         heading = str(payload.get("card_heading", "") or payload.get("title", "") or "").strip()
-        trigger_reasons = [
-            str(item or "").strip()
-            for item in payload.get("trigger_reasons", [])
-            if str(item or "").strip()
-        ]
+        trigger_reasons = self._bounded_text_list(payload.get("trigger_reasons"), limit=8)
         lines = [
             "Выполни тихий bounded сценарий board_control для одной карточки автосервиса.",
             "Следуй контракту: read -> evidence -> plan -> tools -> patch -> write -> verify.",
@@ -886,7 +906,7 @@ class AgentControlService:
         self._persist_board_control_runtime(runtime)
         launched: list[str] = []
         failed: list[dict[str, str]] = []
-        cache = dict(runtime.get("card_cache") or {})
+        cache = self._dict_or_empty(runtime.get("card_cache"))
         try:
             snapshot_payload = self._board_service.get_board_snapshot(
                 {"compact": True, "include_archive": False}
@@ -949,7 +969,7 @@ class AgentControlService:
                         },
                     )
                     continue
-                runtime["triggered_count"] = int(runtime.get("triggered_count", 0) or 0) + 1
+                self._increment_board_control_counter(runtime, "triggered_count")
                 task = self.enqueue_board_control_task(
                     {
                         "card_id": card_id,
@@ -974,7 +994,7 @@ class AgentControlService:
                     )
                     continue
                 launched.append(str(task.get("id", "") or "").strip())
-                runtime["enqueued_count"] = int(runtime.get("enqueued_count", 0) or 0) + 1
+                self._increment_board_control_counter(runtime, "enqueued_count")
                 cache_entry.update(
                     {
                         "last_fingerprint": str(
@@ -1010,7 +1030,10 @@ class AgentControlService:
         except Exception as exc:
             runtime["running"] = False
             runtime["last_error"] = str(exc)
-            runtime["error_count"] = int(runtime.get("error_count", 0) or 0) + 1
+            current_error_count = self._bounded_int(
+                runtime.get("error_count"), default=0, minimum=0
+            )
+            runtime["error_count"] = min(MAX_BOARD_CONTROL_COUNTER_VALUE, current_error_count + 1)
             self._persist_board_control_runtime(runtime)
             failed.append({"task_id": "board_control", "error": str(exc)})
             return {"launched": launched, "failed": failed}
@@ -1178,17 +1201,94 @@ class AgentControlService:
         }
 
     def _normalize_limit(self, value: Any, *, default: int, minimum: int, maximum: int) -> int:
-        try:
-            normalized = int(value if value not in {None, ""} else default)
-        except (TypeError, ValueError):
-            normalized = default
-        return min(max(normalized, minimum), maximum)
+        return self._bounded_int(value, default=default, minimum=minimum, maximum=maximum)
 
     def _normalize_interval_value(self, value: Any) -> int:
+        return self._bounded_int(
+            value,
+            default=1,
+            minimum=1,
+            maximum=MAX_AGENT_SCHEDULE_INTERVAL_VALUE,
+        )
+
+    def _bounded_int(
+        self,
+        value: Any,
+        *,
+        default: int,
+        minimum: int,
+        maximum: int | None = None,
+    ) -> int:
+        if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
+            normalized = default
+        else:
+            try:
+                numeric = float(default if value is None or value == "" else value)
+            except (OverflowError, TypeError, ValueError):
+                numeric = float(default)
+            if not math.isfinite(numeric) or not numeric.is_integer():
+                numeric = float(default)
+            if numeric < minimum:
+                return minimum
+            if maximum is not None and numeric > maximum:
+                return maximum
+            if maximum is None and numeric > MAX_BOARD_CONTROL_COUNTER_VALUE:
+                return MAX_BOARD_CONTROL_COUNTER_VALUE
+            normalized = int(numeric)
+        normalized = max(normalized, minimum)
+        if maximum is not None:
+            normalized = min(normalized, maximum)
+        return normalized
+
+    def _dict_or_empty(self, value: Any) -> dict[str, Any]:
+        return dict(value) if isinstance(value, dict) else {}
+
+    def _bounded_dict_list(self, value: Any, *, limit: int) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            return []
+        items: list[dict[str, Any]] = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            items.append(dict(item))
+            if len(items) >= limit:
+                break
+        return items
+
+    def _bounded_text_list(self, value: Any, *, limit: int) -> list[str]:
+        if isinstance(value, str):
+            raw_items: list[Any] = [value]
+        elif isinstance(value, list):
+            raw_items = value
+        else:
+            return []
+        items: list[str] = []
+        for raw in raw_items:
+            text = str(raw or "").strip()
+            if not text:
+                continue
+            items.append(text)
+            if len(items) >= limit:
+                break
+        return items
+
+    def _normalize_seconds(
+        self,
+        value: Any,
+        *,
+        default: float,
+        minimum: float,
+        maximum: float = MAX_AGENT_SCHEDULER_INTERVAL_SECONDS,
+    ) -> float:
+        if isinstance(value, bool):
+            return max(minimum, default)
         try:
-            return max(1, int(value or 1))
-        except (TypeError, ValueError):
-            return 1
+            normalized = float(default if value is None or value == "" else value)
+        except (OverflowError, TypeError, ValueError):
+            normalized = default
+        if not math.isfinite(normalized):
+            normalized = default
+        return min(maximum, max(minimum, normalized))
 
     def _as_bool(self, value: Any) -> bool:
         if isinstance(value, bool):

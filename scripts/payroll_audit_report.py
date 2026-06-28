@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -12,6 +13,78 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 UrlOpen = Callable[[urllib.request.Request, float], Any]
+AUDIT_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+
+
+def _urlopen_no_redirect(request: urllib.request.Request, timeout: float) -> Any:
+    return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, str | bool | int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(key): _json_safe_value(item, depth=depth - 1) for key, item in value.items()}
+    if isinstance(value, list | tuple | set):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _json_dumps(payload: Any) -> str:
+    return json.dumps(
+        _json_safe_value(payload),
+        ensure_ascii=False,
+        indent=2,
+        allow_nan=False,
+    )
+
+
+def _bounded_int(value: object, *, default: int, minimum: int = 0, maximum: int) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return default
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return default
+    if numeric < minimum:
+        return minimum
+    if numeric > maximum:
+        return maximum
+    return int(numeric)
+
+
+def _bounded_timeout_seconds(value: object) -> float:
+    if isinstance(value, bool):
+        return 15.0
+    try:
+        numeric = float(15.0 if value is None or value == "" else value)
+    except (OverflowError, TypeError, ValueError):
+        return 15.0
+    if not math.isfinite(numeric):
+        return 15.0
+    if numeric < 1.0:
+        return 1.0
+    if numeric > 300.0:
+        return 300.0
+    return numeric
 
 
 def _url(base_url: str, path: str, query: dict[str, object] | None = None) -> str:
@@ -21,22 +94,44 @@ def _url(base_url: str, path: str, query: dict[str, object] | None = None) -> st
     return target
 
 
+def _read_response_body(response) -> bytes:
+    raw = response.read(AUDIT_RESPONSE_MAX_BYTES + 1)
+    if len(raw) > AUDIT_RESPONSE_MAX_BYTES:
+        raise ValueError("payroll audit response is too large")
+    return raw
+
+
+def _load_audit_response(raw_body: bytes) -> dict[str, Any]:
+    try:
+        payload = json.loads(raw_body.decode("utf-8"), parse_constant=_reject_json_constant)
+    except RecursionError as exc:
+        raise ValueError("payroll audit response JSON is too deeply nested") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("payroll audit response must be a JSON object")
+    return payload
+
+
 def _fetch_json(
     base_url: str,
     path: str,
     *,
     query: dict[str, object] | None = None,
     timeout: float = 15.0,
-    urlopen: UrlOpen = urllib.request.urlopen,
+    urlopen: UrlOpen = _urlopen_no_redirect,
 ) -> dict[str, Any]:
     request = urllib.request.Request(
         _url(base_url, path, query),
         headers={"Accept": "application/json"},
         method="GET",
     )
-    with urlopen(request, timeout=timeout) as response:
-        raw_body = response.read()
-    return json.loads(raw_body.decode("utf-8"))
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            raw_body = _read_response_body(response)
+    except urllib.error.HTTPError as exc:
+        if 300 <= exc.code < 400:
+            raise ValueError("payroll audit response redirected") from exc
+        raise
+    return _load_audit_response(raw_body)
 
 
 def _data(payload: dict[str, Any]) -> dict[str, Any]:
@@ -73,6 +168,20 @@ def _round_money(value: Decimal) -> Decimal:
 def _bool_text(value: Any) -> bool:
     raw = str(value or "").strip().casefold()
     return raw in {"1", "true", "yes", "y", "on", "да"}
+
+
+def _journal_total_matches(value: Any, row_count: int) -> bool:
+    if value is None or value == "":
+        return True
+    if isinstance(value, bool):
+        return False
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return False
+    if not math.isfinite(numeric) or not numeric.is_integer() or numeric > 1_000_000_000:
+        return False
+    return int(numeric) == row_count
 
 
 def _percent(value: Any) -> Decimal:
@@ -477,7 +586,7 @@ def _audit_ledger(ledger: dict[str, Any], employee: dict[str, Any]) -> list[dict
             )
         )
     journal_rows = _items(ledger.get("journal_rows"))
-    if int(ledger.get("journal_total") or len(journal_rows)) != len(journal_rows):
+    if not _journal_total_matches(ledger.get("journal_total"), len(journal_rows)):
         issues.append(
             _issue(
                 code="payroll_ledger_journal_count_mismatch",
@@ -514,12 +623,13 @@ def build_payroll_audit(
     months_back: int = 1,
     ledger_months: int = 6,
     timeout: float = 15.0,
-    urlopen: UrlOpen = urllib.request.urlopen,
+    urlopen: UrlOpen | None = None,
     reference: datetime | None = None,
 ) -> dict[str, Any]:
+    safe_urlopen = urlopen or _urlopen_no_redirect
     issues: list[dict[str, Any]] = []
     employees_payload = _fetch_json(
-        base_url, "/api/list_employees", timeout=timeout, urlopen=urlopen
+        base_url, "/api/list_employees", timeout=timeout, urlopen=safe_urlopen
     )
     employees = _items(_data(employees_payload).get("employees"))
     employee_ids = {str(employee.get("id") or "") for employee in employees}
@@ -530,7 +640,7 @@ def build_payroll_audit(
             "/api/get_payroll_report",
             query={"month": month},
             timeout=timeout,
-            urlopen=urlopen,
+            urlopen=safe_urlopen,
         )
         report = _data(report_payload)
         card_ids = _work_detail_card_ids(report)
@@ -542,7 +652,7 @@ def build_payroll_audit(
                     "/api/get_cards",
                     query={"include_archived": "true"},
                     timeout=timeout,
-                    urlopen=urlopen,
+                    urlopen=safe_urlopen,
                 )
                 all_cards_by_id = _cards_by_id_from_list(_data(cards_payload))
             cards_by_id.update(all_cards_by_id)
@@ -552,7 +662,7 @@ def build_payroll_audit(
                     "/api/get_card",
                     query={"card_id": card_id},
                     timeout=timeout,
-                    urlopen=urlopen,
+                    urlopen=safe_urlopen,
                 )
                 card = _data(card_payload).get("card")
                 if isinstance(card, dict):
@@ -576,7 +686,7 @@ def build_payroll_audit(
             "/api/get_employee_salary_ledger",
             query={"employee_id": employee_id, "months": ledger_months},
             timeout=timeout,
-            urlopen=urlopen,
+            urlopen=safe_urlopen,
         )
         issues.extend(_audit_ledger(_data(ledger_payload), employee))
 
@@ -646,12 +756,16 @@ def _format_text(result: dict[str, Any], *, issue_limit: int) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read-only AutoStop CRM payroll audit report.")
     parser.add_argument("--base-url", default="https://crm.autostopcrm.ru")
-    parser.add_argument("--months-back", type=int, default=1)
-    parser.add_argument("--ledger-months", type=int, default=6)
-    parser.add_argument("--timeout", type=float, default=15.0)
+    parser.add_argument("--months-back", default=1)
+    parser.add_argument("--ledger-months", default=6)
+    parser.add_argument("--timeout", default=15.0)
     parser.add_argument("--format", choices=("json", "text"), default="text")
-    parser.add_argument("--issue-limit", type=int, default=50)
+    parser.add_argument("--issue-limit", default=50)
     args = parser.parse_args()
+    args.months_back = _bounded_int(args.months_back, default=1, minimum=1, maximum=24)
+    args.ledger_months = _bounded_int(args.ledger_months, default=6, minimum=1, maximum=24)
+    args.issue_limit = _bounded_int(args.issue_limit, default=50, minimum=0, maximum=500)
+    args.timeout = _bounded_timeout_seconds(args.timeout)
 
     try:
         result = build_payroll_audit(
@@ -660,11 +774,11 @@ def main() -> int:
             ledger_months=args.ledger_months,
             timeout=args.timeout,
         )
-    except urllib.error.URLError as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False, indent=2))
+    except (urllib.error.URLError, ValueError) as exc:
+        print(_json_dumps({"ok": False, "error": str(exc)}))
         return 2
     if args.format == "json":
-        print(json.dumps({"ok": True, **result}, ensure_ascii=False, indent=2))
+        print(_json_dumps({"ok": True, **result}))
     else:
         print(_format_text(result, issue_limit=args.issue_limit))
     return 0

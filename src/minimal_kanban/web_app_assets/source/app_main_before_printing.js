@@ -1306,7 +1306,7 @@
       const style = element.style || {};
       if (kind === 'bold') {
         const rawWeight = String(style.fontWeight || '').trim();
-        return tag === 'B' || tag === 'STRONG' || rawWeight === 'bold' || Number(rawWeight) >= 600;
+        return tag === 'B' || tag === 'STRONG' || rawWeight === 'bold' || finiteNumber(rawWeight) >= 600;
       }
       if (kind === 'italic') return tag === 'I' || tag === 'EM' || String(style.fontStyle || '').trim() === 'italic';
       if (kind === 'underline') return tag === 'U' || String(style.textDecorationLine || style.textDecoration || '').includes('underline');
@@ -1348,12 +1348,12 @@
 
     function syncCardDescriptionSourceFromEditor() {
       if (!els.cardDescription || !els.cardDescriptionEditor) return;
-      const maxLength = Number(els.cardDescription.maxLength || DESCRIPTION_MAX_LENGTH) || DESCRIPTION_MAX_LENGTH;
+      const maxLength = Math.max(0, finiteNumber(els.cardDescription.maxLength, DESCRIPTION_MAX_LENGTH));
       els.cardDescription.value = descriptionEditorToMarkdown(els.cardDescriptionEditor).slice(0, maxLength);
     }
 
     function setCardDescriptionValue(value) {
-      const maxLength = Number(els.cardDescription?.maxLength || DESCRIPTION_MAX_LENGTH) || DESCRIPTION_MAX_LENGTH;
+      const maxLength = Math.max(0, finiteNumber(els.cardDescription?.maxLength, DESCRIPTION_MAX_LENGTH));
       const nextValue = String(value || '').slice(0, maxLength);
       if (els.cardDescription) els.cardDescription.value = nextValue;
       state.cardDescriptionLoading = false;
@@ -1796,14 +1796,14 @@
 
     function aiCompactTrimList(list, limit = 0) {
       if (!Array.isArray(list)) return [];
-      const normalizedLimit = Number(limit || 0);
+      const normalizedLimit = finiteNumber(limit);
       if (!Number.isFinite(normalizedLimit) || normalizedLimit <= 0) return list.slice();
       return list.slice(0, normalizedLimit);
     }
 
     function aiCompactTrimText(source, fallback = '', limit = 160) {
       const value = aiWallDigestShortText(source, fallback);
-      const normalizedLimit = Number(limit || 0);
+      const normalizedLimit = finiteNumber(limit);
       if (!Number.isFinite(normalizedLimit) || normalizedLimit <= 0 || value.length <= normalizedLimit) return value;
       return value.slice(0, Math.max(0, normalizedLimit - 1)).replace(/[,.;:-]+$/, '') + '…';
     }
@@ -2066,8 +2066,8 @@
         wall_digest_key_facts: aiCompactTrimList(Array.isArray(digest?.key_facts) ? digest.key_facts : [], 4),
         wall_digest_notable_changes: aiCompactTrimList(Array.isArray(digest?.notable_changes) ? digest.notable_changes : [], 3),
         wall_digest_available: Boolean(digest?.has_wall),
-        attachment_count: Number(sourceCard?.attachment_count ?? 0) || 0,
-        events_count: Number(sourceCard?.events_count ?? 0) || 0,
+        attachment_count: finiteNonNegativeNumber(sourceCard?.attachment_count),
+        events_count: finiteNonNegativeNumber(sourceCard?.events_count),
         vehicle_profile_compact: vehicleProfileCompact || (vehicleProfile && typeof vehicleProfile === 'object'
           ? aiCompactPickFields(vehicleProfile, [
             'make_display',
@@ -2249,7 +2249,7 @@
           fileExtension ? fileExtension.replace(/^\./, '').toUpperCase() : '',
           mimeType.startsWith('image/') ? 'IMAGE' : '',
           mimeType === 'application/pdf' ? 'PDF' : '',
-          attachment.size_bytes !== undefined ? formatBytes(Number(attachment.size_bytes || 0)) : '',
+          attachment.size_bytes !== undefined ? formatBytes(finiteNonNegativeNumber(attachment.size_bytes)) : '',
         ].filter(Boolean).join(' · '), '', AI_COMPACT_CONTEXT_LIMITS.attachment_label);
         const aiReady = Boolean(fileName || fileTypeLabel || attachment.size_bytes !== undefined);
         return {
@@ -2262,7 +2262,7 @@
           content_hint: contentHint || (aiReady ? 'AI-READY' : 'NOT READY'),
           ai_ready: aiReady,
           has_text_hint: Boolean(fileExtension && ['.txt', '.doc', '.docx', '.pdf'].includes(fileExtension.toLowerCase()) || String(fileName || '').toLowerCase().includes('scan') || String(fileName || '').toLowerCase().includes('photo')),
-          size_bytes: Number(attachment.size_bytes ?? 0) || 0,
+          size_bytes: finiteNonNegativeNumber(attachment.size_bytes),
           created_at: String(attachment.created_at || attachment.created || '').trim(),
         };
       });
@@ -4243,8 +4243,8 @@
       const clients = Array.isArray(state.clients) ? state.clients : [];
       if (els.clientsMeta) {
         const meta = state.clientsMetaState || {};
-        const total = Number(meta.total);
-        const returned = Number(meta.returned);
+        const total = finiteNumber(meta.total, NaN);
+        const returned = finiteNumber(meta.returned, NaN);
         const hasMore = Boolean(meta.has_more);
         if (state.clientsQuery) {
           if (Number.isFinite(total)) {
@@ -4337,7 +4337,7 @@
     }
 
     function removeClientPhoneField(index) {
-      const normalizedIndex = Number(index);
+      const normalizedIndex = finiteNumber(index, NaN);
       if (!Number.isInteger(normalizedIndex) || normalizedIndex <= 0) return;
       const inputs = Array.from(els.clientPhoneFields?.querySelectorAll('[data-client-phone-input]') || []);
       const values = inputs.map((input) => input.value);
@@ -4393,7 +4393,7 @@
     }
 
     function removeClientEmailField(index) {
-      const normalizedIndex = Number(index);
+      const normalizedIndex = finiteNumber(index, NaN);
       if (!Number.isInteger(normalizedIndex) || normalizedIndex <= 0) return;
       const inputs = Array.from(els.clientEmailFields?.querySelectorAll('[data-client-email-input]') || []);
       const values = inputs.map((input) => input.value);
@@ -4537,7 +4537,7 @@
         ? orders.map((order) => {
           const statusKey = normalizeRepairOrderStatus(order?.status);
           const statusLabel = repairOrderStatusLabel(statusKey);
-          const totalLabel = repairOrderFormatRubles(order?.grand_total || 0);
+          const totalLabel = repairOrderFormatRubles(order?.grand_total ?? 0);
           const orderMeta = [formatDate(order.opened_at || order.date), order.vehicle].filter(Boolean).join(' · ') || 'ДАННЫЕ О ЗАКАЗ-НАРЯДЕ ОТСУТСТВУЮТ';
           return '<button class="client-mini client-mini--order" type="button" data-open-repair-order-card="' + escapeHtml(order.card_id || '') + '">' +
             '<div class="client-mini__order-head"><strong class="client-mini__order-number">№ ' + escapeHtml(order.number || '-') + '</strong><span class="client-mini__order-status" data-status="' + escapeHtml(statusKey) + '">' + escapeHtml(statusLabel.toUpperCase()) + '</span></div>' +
@@ -4602,7 +4602,7 @@
     async function loadClients({ openModal = false } = {}) {
       const query = String(els.clientsSearchInput?.value || state.clientsQuery || '').trim();
       state.clientsQuery = query;
-      const requestSeq = (state.clientsRequestSeq || 0) + 1;
+      const requestSeq = Math.trunc(finiteNonNegativeNumber(state.clientsRequestSeq)) + 1;
       state.clientsRequestSeq = requestSeq;
       state.clientsMetaState = null;
       if (els.clientsMeta) els.clientsMeta.textContent = query ? 'ПОИСК ПО ВСЕМ КЛИЕНТАМ...' : 'ЗАГРУЗКА КРАТКОГО СПИСКА...';
@@ -4869,7 +4869,7 @@
         const identity = [vehicle?.license_plate, vehicle?.vin].filter(Boolean).join(' · ');
         return identity ? (vehicleName + ' · ' + identity) : vehicleName;
       });
-      const total = Number(client?.stats?.vehicles_total ?? vehicles.length);
+      const total = finiteNonNegativeNumber(client?.stats?.vehicles_total, vehicles.length);
       if (total > visible.length) visible.push('+' + (total - visible.length) + ' авто');
       return visible.join(' / ');
     }
@@ -5010,7 +5010,7 @@
       if (current.stats || next.stats) {
         merged.stats = { ...(current.stats || {}), ...(next.stats || {}) };
         const totals = [current.stats?.vehicles_total, next.stats?.vehicles_total]
-          .map((value) => Number(value))
+          .map((value) => finiteNumber(value, NaN))
           .filter((value) => Number.isFinite(value));
         if (totals.length) merged.stats.vehicles_total = Math.max(...totals);
       }
@@ -5201,7 +5201,7 @@
         const fullProfileLoaded = Array.isArray(state.clientSuggestionProfiles?.[client?.id]?.vehicles);
         const vehicles = clientSuggestionVehicles(client);
         const visibleVehicles = fullProfileLoaded ? vehicles : vehicles.slice(0, 3);
-        const total = Number(client?.stats?.vehicles_total ?? vehicles.length);
+        const total = finiteNonNegativeNumber(client?.stats?.vehicles_total, vehicles.length);
         const loadMore = !fullProfileLoaded && total > visibleVehicles.length
           ? '<button class="client-match-load" type="button" data-load-client-vehicles="' + escapeHtml(client.id || '') + '">ПОКАЗАТЬ ВСЕ АВТО (' + escapeHtml(String(total)) + ')</button>'
           : '';
@@ -5276,8 +5276,10 @@
         if (selectedVehicle.vehicle) profile.display_name = selectedVehicle.vehicle;
         if (selectedVehicle.brand) profile.make_display = selectedVehicle.brand;
         if (selectedVehicle.model) profile.model_display = selectedVehicle.model;
-        if (selectedVehicle.year && /^\d+$/.test(String(selectedVehicle.year))) profile.production_year = Number(selectedVehicle.year);
-        if (selectedVehicle.mileage && /^\d+$/.test(String(selectedVehicle.mileage))) profile.mileage = Number(selectedVehicle.mileage);
+        const selectedYear = normalizeVehicleNumber(selectedVehicle.year, { integer: true });
+        const selectedMileage = normalizeVehicleNumber(selectedVehicle.mileage, { integer: true });
+        if (selectedYear !== null && selectedYear >= 0) profile.production_year = selectedYear;
+        if (selectedMileage !== null && selectedMileage >= 0) profile.mileage = selectedMileage;
         if (selectedVehicle.license_plate) profile.registration_plate = selectedVehicle.license_plate;
         if (selectedVehicle.vin) profile.vin = selectedVehicle.vin;
         if (selectedVehicle.body_number) profile.body_number = selectedVehicle.body_number;
@@ -5449,7 +5451,7 @@
     }
 
     function archivedCardsTotal() {
-      const metaTotal = Number(state.snapshot?.meta?.archived_cards_total ?? NaN);
+      const metaTotal = finiteNumber(state.snapshot?.meta?.archived_cards_total, NaN);
       if (Number.isFinite(metaTotal) && metaTotal >= 0) return metaTotal;
       return Array.isArray(state.archiveCards) ? state.archiveCards.length : 0;
     }
@@ -5772,7 +5774,8 @@
     }
 
     function employeeSalaryReconciliationDefaultDateFrom(daysValue) {
-      const days = Number.parseInt(String(daysValue || '30'), 10);
+      const rawDaysValue = daysValue === undefined || daysValue === null || daysValue === '' ? '30' : daysValue;
+      const days = Number.parseInt(String(rawDaysValue), 10);
       const safeDays = Number.isFinite(days) && days > 0 ? Math.min(days, 366) : 30;
       const date = new Date();
       date.setDate(date.getDate() - safeDays);
@@ -5804,7 +5807,7 @@
         const dateTo = String(state.employeeSalaryReconciliationDateTo || '').trim();
         return dateFrom && dateTo ? (dateFrom + ' - ' + dateTo) : 'выбранные даты';
       }
-      return 'последние ' + String(employeeSalaryReconciliationNormalizedDays() || 30) + ' дн.';
+      return 'последние ' + String(employeeSalaryReconciliationNormalizedDays() ?? 30) + ' дн.';
     }
 
     function employeeSalaryReconciliationQueryParams(employeeId, { strict = false } = {}) {
@@ -5887,7 +5890,7 @@
 
     function handleEmployeeSalaryReconciliationPeriodChange() {
       state.employeeSalaryReconciliationPeriodMode = els.employeeSalaryReconciliationPeriodMode?.value === 'dates' ? 'dates' : 'days';
-      state.employeeSalaryReconciliationDays = String(employeeSalaryReconciliationNormalizedDays() || 30);
+      state.employeeSalaryReconciliationDays = String(employeeSalaryReconciliationNormalizedDays() ?? 30);
       state.employeeSalaryReconciliationDateFrom = String(els.employeeSalaryReconciliationDateFromInput?.value || state.employeeSalaryReconciliationDateFrom || '').trim();
       state.employeeSalaryReconciliationDateTo = String(els.employeeSalaryReconciliationDateToInput?.value || state.employeeSalaryReconciliationDateTo || '').trim();
       syncEmployeeSalaryReconciliationPeriodUi();
@@ -6098,7 +6101,7 @@
     function renderEmployeeSalaryCashboxOptions() {
       if (!els.employeeSalaryCashboxSelect) return;
       const items = (Array.isArray(state.cashboxes) ? state.cashboxes : []).slice().sort((left, right) => {
-        const orderDiff = Number(left?.order || 0) - Number(right?.order || 0);
+        const orderDiff = finiteNumber(left?.order) - finiteNumber(right?.order);
         if (orderDiff) return orderDiff;
         return String(left?.name || '').localeCompare(String(right?.name || ''), 'ru', { sensitivity: 'base' });
       });
@@ -6150,8 +6153,8 @@
         els.employeeSalaryBalance.textContent = String(sheet?.balance_display || sheet?.balance_total || '0');
       }
       if (els.employeeSalaryJournalMeta) {
-        const periods = sheet?.period_months || 6;
-        const rows = sheet?.journal_total || 0;
+        const periods = finiteNonNegativeNumber(sheet?.period_months, 6);
+        const rows = finiteNonNegativeNumber(sheet?.journal_total);
         els.employeeSalaryJournalMeta.textContent = 'ПЕРИОД ' + periods + ' МЕС. · СТРОК ' + rows;
       }
       if (els.employeeSalarySummary) {
@@ -6253,9 +6256,9 @@
           els.employeeSalaryReportMeta.textContent = 'ЗАГРУЗКА ОТЧЁТА...';
         } else {
           const periodLabel = String(report?.period?.label || report?.meta?.month || currentEmployeeSalaryReportMonth()).trim();
-          const orderCount = Number(report?.totals?.repair_order_count || 0);
-          const workCount = Number(report?.totals?.work_count || 0);
-          const materialCount = Number(report?.totals?.material_count || 0);
+          const orderCount = finiteNonNegativeNumber(report?.totals?.repair_order_count);
+          const workCount = finiteNonNegativeNumber(report?.totals?.work_count);
+          const materialCount = finiteNonNegativeNumber(report?.totals?.material_count);
           els.employeeSalaryReportMeta.textContent = 'ПЕРИОД: ' + periodLabel + ' · ЗН: ' + String(orderCount) + ' · РАБОТ: ' + String(workCount) + ' · МАТ.: ' + String(materialCount);
         }
       }
@@ -7668,7 +7671,7 @@
         stateValue = 'error';
       }
       if (els.agentStatusLabel) {
-        const pendingTotal = Number(queue.pending_total || 0);
+        const pendingTotal = finiteNonNegativeNumber(queue.pending_total);
         els.agentStatusLabel.textContent = pendingTotal > 0 ? (stateLabel + ' · ' + pendingTotal) : stateLabel;
         els.agentStatusLabel.dataset.state = stateValue;
       }
@@ -7955,7 +7958,7 @@
       const scheduleType = String(task?.schedule_type || 'once').trim().toLowerCase();
       if (scheduleType === 'on_create') return 'ON CREATE';
       if (scheduleType !== 'interval') return 'ОДИН РАЗ';
-      const value = Math.max(1, Number(task?.interval_value || 1) || 1);
+      const value = Math.max(1, finiteNumber(task?.interval_value, 1));
       return value + ' ' + (String(task?.interval_unit || 'minute').trim().toLowerCase() === 'hour' ? 'Ч' : 'МИН');
     }
 
@@ -8025,7 +8028,10 @@
       renderAgentScheduledColumns(state.agentScheduledColumns || []);
       if (els.agentTaskScopeColumnInput) els.agentTaskScopeColumnInput.value = String(task.scope_column || '');
       if (els.agentTaskScheduleTypeInput) els.agentTaskScheduleTypeInput.value = String(task.schedule_type || 'once');
-      if (els.agentTaskIntervalValueInput) els.agentTaskIntervalValueInput.value = String(task.interval_value || 1);
+      if (els.agentTaskIntervalValueInput) {
+        const intervalValue = finiteNumber(task.interval_value, 1);
+        els.agentTaskIntervalValueInput.value = String(intervalValue > 0 ? intervalValue : 1);
+      }
       if (els.agentTaskIntervalUnitInput) els.agentTaskIntervalUnitInput.value = String(task.interval_unit || 'minute');
       if (els.agentTaskActiveInput) els.agentTaskActiveInput.checked = Boolean(task.active);
       if (els.agentTaskFormMeta) els.agentTaskFormMeta.textContent = agentScheduledTaskFormMetaText(task);
@@ -8086,7 +8092,7 @@
         scope_card_id: scopeType === 'current_card' ? String(state.agentTaskScopeCardId || '').trim() : '',
         scope_card_label: scopeType === 'current_card' ? String(state.agentTaskScopeCardLabel || '').trim() : '',
         schedule_type: String(els.agentTaskScheduleTypeInput?.value || 'once').trim(),
-        interval_value: Number(els.agentTaskIntervalValueInput?.value || 1) || 1,
+        interval_value: Math.max(1, finiteNumber(els.agentTaskIntervalValueInput?.value, 1)),
         interval_unit: String(els.agentTaskIntervalUnitInput?.value || 'minute').trim(),
         active: Boolean(els.agentTaskActiveInput?.checked),
       };
@@ -8104,8 +8110,8 @@
         state.agentScheduledColumns = Array.isArray(columnsData?.columns) ? columnsData.columns : (state.snapshot?.columns || []);
         renderAgentScheduledColumns(state.agentScheduledColumns);
         renderAgentScheduledTasks(state.agentScheduledTasks);
-        const activeTotal = Number(statusData?.scheduled?.active_total || 0);
-        const pausedTotal = Number(statusData?.scheduled?.paused_total || 0);
+        const activeTotal = finiteNonNegativeNumber(statusData?.scheduled?.active_total);
+        const pausedTotal = finiteNonNegativeNumber(statusData?.scheduled?.paused_total);
         const total = state.agentScheduledTasks.length;
         const busyTotal = state.agentScheduledTasks.filter((item) => Boolean(item?.busy)).length;
         if (els.agentTasksMeta) {
@@ -8788,10 +8794,6 @@
       }
     }
 
-    /* Legacy pre-session operator helper removed.
-      return requireOperatorSession();
-    */
-
     function normalizeConnectionState(value) {
       const normalized = String(value || '').trim().toLowerCase();
       return ['online', 'pending', 'offline'].includes(normalized) ? normalized : '';
@@ -8828,7 +8830,7 @@
     }
 
     function shiftMobileView(direction) {
-      const delta = Number(direction || 0);
+      const delta = finiteNumber(direction);
       if (!delta) return;
       const currentIndex = mobileViewIndex(state.mobileView);
       const nextIndex = Math.max(0, Math.min(MOBILE_VIEW_ORDER.length - 1, currentIndex + (delta > 0 ? 1 : -1)));
@@ -8846,8 +8848,8 @@
       if (mobileSwipeIgnoredTarget(event.target)) return;
       const touch = event.touches[0];
       state.mobileSwipe.active = true;
-      state.mobileSwipe.startX = Number(touch.clientX || 0);
-      state.mobileSwipe.startY = Number(touch.clientY || 0);
+      state.mobileSwipe.startX = finiteNumber(touch.clientX);
+      state.mobileSwipe.startY = finiteNumber(touch.clientY);
     }
 
     function handleMobileShellTouchEnd(event) {
@@ -8855,8 +8857,8 @@
       state.mobileSwipe.active = false;
       const touch = event?.changedTouches?.[0];
       if (!touch) return;
-      const deltaX = Number(touch.clientX || 0) - Number(state.mobileSwipe.startX || 0);
-      const deltaY = Number(touch.clientY || 0) - Number(state.mobileSwipe.startY || 0);
+      const deltaX = finiteNumber(touch.clientX) - finiteNumber(state.mobileSwipe.startX);
+      const deltaY = finiteNumber(touch.clientY) - finiteNumber(state.mobileSwipe.startY);
       const absX = Math.abs(deltaX);
       const absY = Math.abs(deltaY);
       if (absX < 72 || absX < absY * 1.2) return;
@@ -8986,15 +8988,15 @@
     function mobileCardDeadlineInput(card) {
       const directDeadline = card?.deadline && typeof card.deadline === 'object' ? card.deadline : null;
       if (directDeadline) {
-        const days = Number(directDeadline.days || 0);
-        const hours = Number(directDeadline.hours || 0);
-        const minutes = Number(directDeadline.minutes || 0);
-        const seconds = Number(directDeadline.seconds || 0);
+        const days = clampSignalPart('days', finiteNumber(directDeadline.days));
+        const hours = clampSignalPart('hours', finiteNumber(directDeadline.hours));
+        const minutes = Math.max(0, Math.min(59, finiteNumber(directDeadline.minutes)));
+        const seconds = Math.max(0, Math.min(59, finiteNumber(directDeadline.seconds)));
         if ((days * 86400) + (hours * 3600) + (minutes * 60) + seconds > 0) {
           return { days, hours, minutes, seconds };
         }
       }
-      const totalSeconds = Number(card.deadline_total_seconds ?? card.remaining_seconds ?? 86400);
+      const totalSeconds = finiteNumber(card.deadline_total_seconds ?? card.remaining_seconds, 86400);
       return secondsToParts(totalSeconds > 0 ? totalSeconds : 86400);
     }
 
@@ -9009,8 +9011,8 @@
       const fallback = mobileCardDeadlineInput(card || {});
       if (!els.mobileCardDeadlineDays || !els.mobileCardDeadlineHours) return fallback;
       const fallbackTotal = (fallback.days * 86400) + (fallback.hours * 3600) + (fallback.minutes * 60) + fallback.seconds;
-      const days = clampSignalPart('days', Number(els.mobileCardDeadlineDays?.value || 0));
-      const hours = clampSignalPart('hours', Number(els.mobileCardDeadlineHours?.value || 0));
+      const days = clampSignalPart('days', finiteNumber(els.mobileCardDeadlineDays?.value));
+      const hours = clampSignalPart('hours', finiteNumber(els.mobileCardDeadlineHours?.value));
       const total = (days * 86400) + (hours * 3600);
       if (total > 0) return { days, hours, minutes: 0, seconds: 0 };
       if (fallbackTotal > 0) return fallback;
@@ -9110,7 +9112,7 @@
         const existsOnDisk = attachmentExistsOnDisk(item);
         const metaParts = [];
         if (item?.created_at) metaParts.push(formatDate(item.created_at));
-        if (item?.size_bytes !== undefined) metaParts.push(formatBytes(item.size_bytes || 0));
+        if (item?.size_bytes !== undefined) metaParts.push(formatBytes(item.size_bytes ?? 0));
         const metaText = metaParts.join(' · ') || 'ФАЙЛ КАРТОЧКИ';
         const removeDisabledAttr = state.mobileCardFilesBusy ? ' disabled' : '';
         const downloadUrl = withAccessToken(mobileCardAttachmentDownloadPath(cardId, attachmentId));
@@ -9253,11 +9255,11 @@
     }
 
     function mobileCardJournalLoadKey(cardId, limit = state.mobileCardJournalLimit) {
-      return String(cardId || '').trim() + ':' + Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(limit || CARD_JOURNAL_INITIAL_LIMIT)));
+      return String(cardId || '').trim() + ':' + Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, finiteNumber(limit, CARD_JOURNAL_INITIAL_LIMIT)));
     }
 
     function mobileCardJournalRequestUrl(cardId, limit = state.mobileCardJournalLimit) {
-      const safeLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(limit || CARD_JOURNAL_INITIAL_LIMIT)));
+      const safeLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, finiteNumber(limit, CARD_JOURNAL_INITIAL_LIMIT)));
       return '/api/get_card_log?card_id=' + encodeURIComponent(cardId) + '&compact=1&limit=' + safeLimit;
     }
 
@@ -9304,8 +9306,8 @@
       const entries = cardJournalEntriesFromPayload(data);
       const meta = data.meta || {};
       const totals = data.totals || {};
-      const returned = Number(totals.count ?? meta.events_returned ?? entries.length ?? 0);
-      const total = Number(meta.events_total ?? returned);
+      const returned = finiteNumber(totals.count ?? meta.events_returned ?? entries.length ?? 0);
+      const total = finiteNumber(meta.events_total, returned);
       return returned === total ? String(total) : (returned + '/' + total);
     }
 
@@ -9314,8 +9316,8 @@
       const payload = state.mobileCardJournalPayload || { entries: [], meta: {} };
       const meta = payload.meta || {};
       const entries = cardJournalEntriesFromPayload(payload);
-      const total = Number(meta.events_total ?? entries.length ?? 0);
-      const currentLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(meta.limit || state.mobileCardJournalLimit || CARD_JOURNAL_INITIAL_LIMIT)));
+      const total = finiteNumber(meta.events_total, entries.length);
+      const currentLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, finiteNumber(meta.limit ?? state.mobileCardJournalLimit, CARD_JOURNAL_INITIAL_LIMIT)));
       const nextLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, total || CARD_JOURNAL_MAX_LIMIT, currentLimit + CARD_JOURNAL_LIMIT_STEP);
       const hasMore = Boolean(meta.has_more) && nextLimit > currentLimit;
       els.mobileCardJournal.innerHTML = state.mobileCardJournalLoading
@@ -9336,7 +9338,7 @@
         renderMobileCardJournal();
         return null;
       }
-      const normalizedLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(limit || CARD_JOURNAL_INITIAL_LIMIT)));
+      const normalizedLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, finiteNumber(limit, CARD_JOURNAL_INITIAL_LIMIT)));
       const loadKey = mobileCardJournalLoadKey(cardId, normalizedLimit);
       if (!force && state.mobileCardJournalLoadedFor === loadKey) return state.mobileCardJournalPayload;
       state.mobileCardJournalLimit = normalizedLimit;
@@ -9525,7 +9527,7 @@
       if (target.matches('[data-mobile-card-deadline-field]')) {
         const fieldName = target.getAttribute('data-mobile-card-deadline-field');
         if (fieldName === 'days' || fieldName === 'hours') {
-          target.value = String(clampSignalPart(fieldName, Number(target.value || 0)));
+          target.value = String(clampSignalPart(fieldName, finiteNumber(target.value)));
         }
         syncMobileCardDeadlinePreview();
         return;
@@ -9542,7 +9544,7 @@
       const journalMoreButton = target.closest('[data-mobile-card-journal-more]');
       if (journalMoreButton && els.mobileCardDetail?.contains(journalMoreButton)) {
         event.preventDefault();
-        const nextLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(journalMoreButton.getAttribute('data-mobile-card-journal-more') || 0)));
+        const nextLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, finiteNumber(journalMoreButton.getAttribute('data-mobile-card-journal-more'))));
         if (nextLimit > state.mobileCardJournalLimit) {
           state.mobileCardJournalLoadedFor = '';
           loadMobileCardJournal({ force: true, limit: nextLimit });
@@ -9673,13 +9675,13 @@
         els.mobileCashboxDetail.innerHTML = '<div class="mobile-empty">ВЫБЕРИТЕ ИЛИ СОЗДАЙТЕ КАССУ.</div>';
       } else {
         const stats = state.activeCashbox?.statistics || activeCashbox.statistics || {};
-        const balanceMinor = Number(stats.balance_minor ?? activeCashbox?.statistics?.balance_minor ?? 0);
+        const balanceMinor = finiteNumber(stats.balance_minor ?? activeCashbox?.statistics?.balance_minor);
         const transactions = filteredCashboxTransactions().slice(0, 5);
         const transactionHtml = transactions.length
           ? '<div class="mobile-cashbox-transactions">' + transactions.map((item) => {
               const direction = item?.direction === 'expense' ? 'expense' : 'income';
               const note = String(item?.note || '').trim() || 'Без комментария';
-              const amount = cashboxFormatMinorAmount(item?.amount_minor || 0).replace(/^-/, '');
+              const amount = cashboxFormatMinorAmount(item?.amount_minor ?? 0).replace(/^-/, '');
               return '<div class="mobile-cashbox-transaction">'
                 + '<span>' + escapeHtml(note) + '</span>'
                 + '<strong class="mobile-cashbox-transaction__amount" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(direction === 'expense' ? '-' : '+') + escapeHtml(amount) + '</strong>'
@@ -9691,8 +9693,8 @@
             + '<div class="mobile-cashbox-detail__balance" data-balance-sign="' + escapeHtml(cashboxBalanceSign(balanceMinor)) + '">' + escapeHtml(stats.balance_display || cashboxFormatMinorAmount(balanceMinor)) + '</div>'
           + '</div>'
           + '<div class="mobile-cashbox-detail__stats">'
-            + '<div class="mobile-cashbox-stat"><span>Приход</span><strong>' + escapeHtml(stats.income_total_display || cashboxFormatMinorAmount(stats.income_total_minor || 0)) + '</strong></div>'
-            + '<div class="mobile-cashbox-stat"><span>Списание</span><strong>' + escapeHtml(stats.expense_total_display || cashboxFormatMinorAmount(stats.expense_total_minor || 0)) + '</strong></div>'
+            + '<div class="mobile-cashbox-stat"><span>Приход</span><strong>' + escapeHtml(stats.income_total_display || cashboxFormatMinorAmount(stats.income_total_minor ?? 0)) + '</strong></div>'
+            + '<div class="mobile-cashbox-stat"><span>Списание</span><strong>' + escapeHtml(stats.expense_total_display || cashboxFormatMinorAmount(stats.expense_total_minor ?? 0)) + '</strong></div>'
             + '<div class="mobile-cashbox-stat"><span>Операции</span><strong>' + escapeHtml(String(stats.transactions_total ?? transactions.length ?? 0)) + '</strong></div>'
           + '</div>'
           + transactionHtml;
@@ -9919,7 +9921,7 @@
           + ' data-mobile-repair-order-payment-cashbox-name="' + escapeHtml(normalized.cashbox_name) + '"'
           + ' data-mobile-repair-order-payment-cash-transaction-id="' + escapeHtml(normalized.cash_transaction_id) + '">'
         + '<div class="mobile-repair-order-payment-row__body">'
-          + '<div class="mobile-repair-order-payment-row__line"><span>' + escapeHtml(note) + '</span><strong>' + escapeHtml(repairOrderFormatRubles(normalized.amount || 0)) + '</strong></div>'
+          + '<div class="mobile-repair-order-payment-row__line"><span>' + escapeHtml(note) + '</span><strong>' + escapeHtml(repairOrderFormatRubles(normalized.amount ?? 0)) + '</strong></div>'
           + '<div class="mobile-repair-order-payment-row__meta">' + escapeHtml(method + ' · ' + cashboxName + ' · ' + paidAt) + '</div>'
         + '</div>'
         + '<button class="mobile-action mobile-action--ghost mobile-repair-order-payment-remove" type="button" data-mobile-repair-order-payment-remove="' + escapeHtml(paymentId) + '" title="Удалить оплату">×</button>'
@@ -10310,7 +10312,7 @@
           return '<' + tagName + ' class="mobile-client-mini" type="button" data-mobile-client-order-card="' + escapeHtml(cardId) + '">'
             + '<strong>№ ' + escapeHtml(order?.number || '-') + ' · ' + escapeHtml(statusLabel) + '</strong>'
             + '<span>' + escapeHtml(mobileClientOrderMeta(order)) + '</span>'
-            + '<span>' + escapeHtml(repairOrderFormatRubles(order?.grand_total || 0)) + '</span>'
+            + '<span>' + escapeHtml(repairOrderFormatRubles(order?.grand_total ?? 0)) + '</span>'
           + '</' + tagName + '>';
         }).join('')
         : '<div class="mobile-client-detail__empty">ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.</div>';
@@ -10341,8 +10343,8 @@
       }
       const clients = Array.isArray(state.clients) ? state.clients : [];
       const meta = state.clientsMetaState || {};
-      const total = Number(meta.total);
-      const returned = Number(meta.returned);
+      const total = finiteNumber(meta.total, NaN);
+      const returned = finiteNumber(meta.returned, NaN);
       if (els.mobileClientsMeta) {
         if (state.mobileClientsLoading) {
           els.mobileClientsMeta.textContent = 'ЗАГРУЗКА...';
@@ -10461,8 +10463,8 @@
     function mobileEmployeeAccrualMeta(row) {
       const parts = [];
       if (row?.closed_at) parts.push(formatDate(row.closed_at));
-      const worksCount = Number(row?.works_count || 0);
-      const materialsCount = Number(row?.materials_count || 0);
+      const worksCount = finiteNonNegativeNumber(row?.works_count);
+      const materialsCount = finiteNonNegativeNumber(row?.materials_count);
       if (worksCount > 0) parts.push('РАБОТ: ' + String(worksCount));
       if (String(row?.work_total || '').trim() && String(row?.work_total || '0') !== '0') {
         parts.push('РАБОТЫ ' + mobileEmployeeMoneyText(row.work_total));
@@ -10525,7 +10527,7 @@
           return '<div class="mobile-employee-accrual">'
             + '<strong>' + escapeHtml(mobileEmployeeAccrualTitle(row)) + '</strong>'
             + '<span>' + escapeHtml(mobileEmployeeAccrualMeta(row)) + '</span>'
-            + '<span>НАЧИСЛЕНО ' + escapeHtml(mobileEmployeeMoneyText(row?.salary_amount || 0)) + '</span>'
+            + '<span>НАЧИСЛЕНО ' + escapeHtml(mobileEmployeeMoneyText(row?.salary_amount ?? 0)) + '</span>'
           + '</div>';
         }).join('')
         : '<div class="mobile-employee-detail__empty">НАЧИСЛЕНИЙ ЗА МЕСЯЦ ПОКА НЕТ.</div>';
@@ -10538,9 +10540,9 @@
         + '</div>'
         + '<div class="mobile-employee-kpis">'
           + '<div class="mobile-employee-kpi"><span>К выплате</span><strong>' + escapeHtml(mobileEmployeeMoneyText(balance)) + '</strong></div>'
-          + '<div class="mobile-employee-kpi"><span>Начислено</span><strong>' + escapeHtml(mobileEmployeeMoneyText(summary.total_salary || summary.accrued_total || 0)) + '</strong></div>'
-          + '<div class="mobile-employee-kpi"><span>Работы</span><strong>' + escapeHtml(String(summary.works_count || 0)) + ' / ' + escapeHtml(mobileEmployeeMoneyText(summary.work_accrued_total || 0)) + '</strong></div>'
-          + '<div class="mobile-employee-kpi"><span>Материалы</span><strong>' + escapeHtml(String(summary.materials_count || 0)) + ' / ' + escapeHtml(mobileEmployeeMoneyText(summary.materials_accrued_total || 0)) + '</strong></div>'
+          + '<div class="mobile-employee-kpi"><span>Начислено</span><strong>' + escapeHtml(mobileEmployeeMoneyText(summary.total_salary ?? summary.accrued_total ?? 0)) + '</strong></div>'
+          + '<div class="mobile-employee-kpi"><span>Работы</span><strong>' + escapeHtml(String(finiteNonNegativeNumber(summary.works_count))) + ' / ' + escapeHtml(mobileEmployeeMoneyText(summary.work_accrued_total ?? 0)) + '</strong></div>'
+          + '<div class="mobile-employee-kpi"><span>Материалы</span><strong>' + escapeHtml(String(finiteNonNegativeNumber(summary.materials_count))) + ' / ' + escapeHtml(mobileEmployeeMoneyText(summary.materials_accrued_total ?? 0)) + '</strong></div>'
         + '</div>'
         + '<section class="mobile-employee-detail__section"><h4>Последние начисления</h4>' + detailsHtml + '</section>';
     }
@@ -10732,7 +10734,7 @@
       const storage = state.sharedFilesStorage || {};
       const total = Array.isArray(files) ? files.length : 0;
       if (storage.limit_bytes) {
-        return formatBytes(storage.used_bytes || 0) + ' / ' + formatBytes(storage.limit_bytes || 0) + ' · ' + total + ' ФАЙЛ.';
+        return formatBytes(storage.used_bytes ?? 0) + ' / ' + formatBytes(storage.limit_bytes ?? 0) + ' · ' + total + ' ФАЙЛ.';
       }
       return total ? (total + ' ФАЙЛ.') : 'ФАЙЛОВ ПОКА НЕТ';
     }
@@ -10876,7 +10878,7 @@
     }
 
     function mobileMoreClientsTotal() {
-      const metaTotal = Number(state.clientsMetaState?.total ?? NaN);
+      const metaTotal = finiteNumber(state.clientsMetaState?.total, NaN);
       if (Number.isFinite(metaTotal) && metaTotal >= 0) return metaTotal;
       return Array.isArray(state.clients) ? state.clients.length : 0;
     }
@@ -10889,7 +10891,7 @@
       const files = Array.isArray(state.sharedFiles) ? state.sharedFiles : [];
       const storage = state.sharedFilesStorage || {};
       const storageText = storage.limit_bytes
-        ? formatBytes(storage.used_bytes || 0) + ' / ' + formatBytes(storage.limit_bytes || 0)
+        ? formatBytes(storage.used_bytes ?? 0) + ' / ' + formatBytes(storage.limit_bytes ?? 0)
         : (files.length ? (String(files.length) + ' файл.') : 'Файлов пока нет');
       const loadState = state.mobileMoreLoading
         ? 'ОБНОВЛЯЕТСЯ'
@@ -10907,7 +10909,7 @@
         {
           id: 'employees',
           title: 'Сотрудники',
-          value: String(activeEmployees || employees.length || 0),
+          value: String(finiteNonNegativeNumber(activeEmployees, employees.length)),
           status: loadState,
           detail: employees.length
             ? ('Активных: ' + activeEmployees + ' из ' + employees.length)
@@ -11282,7 +11284,7 @@
 
     function reuseBoardSearchCache(query) {
       const key = boardSearchCacheKey(query);
-      const ageMs = Date.now() - Number(state.boardSearch.completedAt || 0);
+      const ageMs = Date.now() - finiteNumber(state.boardSearch.completedAt);
       if (!key || key !== state.boardSearch.completedQuery || ageMs > BOARD_SEARCH_CACHE_TTL_MS) return false;
       state.boardSearch.results = Array.isArray(state.boardSearch.completedResults)
         ? state.boardSearch.completedResults.slice()
@@ -11316,7 +11318,7 @@
         setBoardSearchOpen(false);
         return;
       }
-      const total = Number(state.boardSearch.meta?.total_matches ?? results.length) || 0;
+      const total = finiteNonNegativeNumber(state.boardSearch.meta?.total_matches, results.length);
       const metaText = state.boardSearch.loading
         ? 'ИЩЕМ ПО АКТИВНОЙ ДОСКЕ...'
         : results.length
@@ -11429,7 +11431,7 @@
 
     async function openBoardSearchResult(index) {
       const results = Array.isArray(state.boardSearch.results) ? state.boardSearch.results : [];
-      const normalizedIndex = Math.max(0, Math.min(results.length - 1, Number(index) || 0));
+      const normalizedIndex = Math.max(0, Math.min(results.length - 1, finiteNonNegativeNumber(index)));
       const cardId = String(results[normalizedIndex]?.id || '').trim();
       if (!cardId) return;
       clearBoardSearchState({ keepInput: true });
@@ -11467,7 +11469,7 @@
     function handleBoardSearchResultsClick(event) {
       const button = event.target.closest('[data-board-search-card-id]');
       if (!button) return;
-      const index = Number(button.dataset.boardSearchIndex || 0);
+      const index = finiteNonNegativeNumber(button.dataset.boardSearchIndex);
       openBoardSearchResult(index);
     }
 
@@ -11548,6 +11550,15 @@
       return Math.min(1.5, Math.max(0.5, Math.round(numeric * 100) / 100));
     }
 
+    function finiteNumber(value, fallback = 0) {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : fallback;
+    }
+
+    function finiteNonNegativeNumber(value, fallback = 0) {
+      return Math.max(0, finiteNumber(value, fallback));
+    }
+
     function applyBoardScale(value, { syncInput = false } = {}) {
       const scale = normalizeBoardScale(value);
       state.boardScale = scale;
@@ -11596,8 +11607,8 @@
     function clampBoardScroll(left = els.boardScroll.scrollLeft, top = els.boardScroll.scrollTop) {
       const maxLeft = Math.max(0, els.boardScroll.scrollWidth - els.boardScroll.clientWidth);
       const maxTop = Math.max(0, els.boardScroll.scrollHeight - els.boardScroll.clientHeight);
-      const rawLeft = Number(left);
-      const rawTop = Number(top);
+      const rawLeft = finiteNumber(left, NaN);
+      const rawTop = finiteNumber(top, NaN);
       const safeLeft = Number.isFinite(rawLeft) ? rawLeft : els.boardScroll.scrollLeft;
       const safeTop = Number.isFinite(rawTop) ? rawTop : els.boardScroll.scrollTop;
       const nextLeft = Math.min(maxLeft, Math.max(0, safeLeft));
@@ -11652,17 +11663,17 @@
     function boardCanvasOffsets() {
       const styles = getComputedStyle(els.board);
       return {
-        left: Number.parseFloat(styles.getPropertyValue('--board-gutter-left')) || 0,
-        top: Number.parseFloat(styles.getPropertyValue('--board-gutter-top')) || 0,
+        left: finiteNonNegativeNumber(styles.getPropertyValue('--board-gutter-left')),
+        top: finiteNonNegativeNumber(styles.getPropertyValue('--board-gutter-top')),
       };
     }
 
     function zoomBoardTo(value, { syncInput = false, anchor = null } = {}) {
-      const previous = state.boardScale || 1;
+      const previous = normalizeBoardScale(state.boardScale);
       const next = normalizeBoardScale(value);
       const targetAnchor = anchor || boardViewportAnchor();
-      const anchorX = Math.max(0, Number(targetAnchor.x || 0));
-      const anchorY = Math.max(0, Number(targetAnchor.y || 0));
+      const anchorX = finiteNonNegativeNumber(targetAnchor.x);
+      const anchorY = finiteNonNegativeNumber(targetAnchor.y);
       const previousLeft = els.boardScroll.scrollLeft;
       const previousTop = els.boardScroll.scrollTop;
       const previousOffsets = boardCanvasOffsets();
@@ -11756,7 +11767,7 @@
     }
 
     function secondsToParts(total) {
-      const safe = Math.max(0, Number(total || 0));
+      const safe = finiteNonNegativeNumber(total);
       if (!safe) {
         return { days: 0, hours: 0, minutes: 0, seconds: 0 };
       }
@@ -11771,8 +11782,8 @@
 
     function deadlineInput() {
       return {
-        days: Number(els.signalDays.value || 0),
-        hours: Number(els.signalHours.value || 0),
+        days: clampSignalPart('days', els.signalDays.value),
+        hours: clampSignalPart('hours', els.signalHours.value),
         minutes: 0,
         seconds: 0,
       };
@@ -11780,31 +11791,31 @@
 
     function clampSignalPart(kind, value) {
       const limit = kind === 'days' ? 365 : 23;
-      return Math.max(0, Math.min(limit, value));
+      return Math.max(0, Math.min(limit, finiteNumber(value)));
     }
 
     function setSignalPartValue(kind, value) {
       const input = kind === 'days' ? els.signalDays : els.signalHours;
       if (!input) return;
-      const nextValue = clampSignalPart(kind, Number(value || 0));
+      const nextValue = clampSignalPart(kind, finiteNumber(value));
       input.value = String(nextValue);
     }
 
     function signalPartValue(kind) {
       const input = kind === 'days' ? els.signalDays : els.signalHours;
-      return clampSignalPart(kind, Number(input?.value || 0));
+      return clampSignalPart(kind, finiteNumber(input?.value));
     }
 
     function adjustSignalPart(kind, delta) {
-      setSignalPartValue(kind, signalPartValue(kind) + Number(delta || 0));
+      setSignalPartValue(kind, signalPartValue(kind) + finiteNumber(delta));
       renderSignalPreview();
       scheduleCardSaveDirtyStateSync();
     }
 
     function stickyDeadlineInput() {
       return {
-        days: Number(els.stickyDays.value || 0),
-        hours: Number(els.stickyHours.value || 0),
+        days: clampSignalPart('days', els.stickyDays.value),
+        hours: clampSignalPart('hours', els.stickyHours.value),
         minutes: 0,
         seconds: 0,
       };
@@ -11851,11 +11862,11 @@
       const textarea = els.agentTaskInput;
       if (!textarea) return;
       const style = window.getComputedStyle(textarea);
-      const lineHeight = Math.max(20, parseFloat(style.lineHeight || '22'));
-      const paddingTop = parseFloat(style.paddingTop || '0');
-      const paddingBottom = parseFloat(style.paddingBottom || '0');
-      const borderTop = parseFloat(style.borderTopWidth || '0');
-      const borderBottom = parseFloat(style.borderBottomWidth || '0');
+      const lineHeight = Math.max(20, finiteNumber(style.lineHeight, 22));
+      const paddingTop = finiteNonNegativeNumber(style.paddingTop);
+      const paddingBottom = finiteNonNegativeNumber(style.paddingBottom);
+      const borderTop = finiteNonNegativeNumber(style.borderTopWidth);
+      const borderBottom = finiteNonNegativeNumber(style.borderBottomWidth);
       const chromeHeight = paddingTop + paddingBottom + borderTop + borderBottom;
       const text = String(textarea.value || '').trim();
       const lineCount = text ? text.split(/\r?\n/).length : 0;
@@ -11870,11 +11881,11 @@
       const editor = els.cardDescriptionEditor;
       if (!editor) return;
       const style = window.getComputedStyle(editor);
-      const lineHeight = Math.max(22, parseFloat(style.lineHeight || '24'));
-      const paddingTop = parseFloat(style.paddingTop || '0');
-      const paddingBottom = parseFloat(style.paddingBottom || '0');
-      const borderTop = parseFloat(style.borderTopWidth || '0');
-      const borderBottom = parseFloat(style.borderBottomWidth || '0');
+      const lineHeight = Math.max(22, finiteNumber(style.lineHeight, 24));
+      const paddingTop = finiteNonNegativeNumber(style.paddingTop);
+      const paddingBottom = finiteNonNegativeNumber(style.paddingBottom);
+      const borderTop = finiteNonNegativeNumber(style.borderTopWidth);
+      const borderBottom = finiteNonNegativeNumber(style.borderBottomWidth);
       const chromeHeight = paddingTop + paddingBottom + borderTop + borderBottom;
       const text = String(els.cardDescription?.value || editor.innerText || '').trim();
       const lineCount = text ? text.split(/\r?\n/).length : 0;
@@ -11886,9 +11897,9 @@
       const overviewMeta = overviewMain?.querySelector('.overview-main__meta');
       const descriptionHead = editor.closest('.field--description')?.querySelector('.description-field-head');
       const mainStyle = overviewMain ? window.getComputedStyle(overviewMain) : null;
-      const mainGap = mainStyle ? parseFloat(mainStyle.rowGap || mainStyle.gap || '0') || 0 : 0;
+      const mainGap = mainStyle ? finiteNonNegativeNumber(mainStyle.rowGap || mainStyle.gap) : 0;
       const metaStyle = overviewMeta ? window.getComputedStyle(overviewMeta) : null;
-      const configuredMetaReserve = metaStyle ? parseFloat(metaStyle.getPropertyValue('--card-meta-panel-height')) || 0 : 0;
+      const configuredMetaReserve = metaStyle ? finiteNonNegativeNumber(metaStyle.getPropertyValue('--card-meta-panel-height')) : 0;
       const measuredMetaReserve = overviewMeta?.getBoundingClientRect().height || 0;
       const metaReserveHeight = configuredMetaReserve > 0 ? configuredMetaReserve : measuredMetaReserve;
       const reserveHeight =
@@ -11918,25 +11929,25 @@
       return 'СТИКЕР / ' + String(sticky?.id || '').slice(0, 8).toUpperCase();
     }
 
-    function stickyRenderPosition(value, scale = state.boardScale || 1) {
-      return Math.max(0, Math.round(Number(value || 0) * scale));
+    function stickyRenderPosition(value, scale = normalizeBoardScale(state.boardScale)) {
+      return Math.max(0, Math.round(finiteNumber(value) * normalizeBoardScale(scale)));
     }
 
     function stickyDurationMarkup(sticky) {
-      return durationToMarkup(sticky.remaining_seconds || 0, true);
+      return durationToMarkup(sticky.remaining_seconds ?? 0, true);
     }
 
     function stickyToStyle(sticky) {
-      const scale = state.boardScale || 1;
+      const scale = normalizeBoardScale(state.boardScale);
       const left = stickyRenderPosition(sticky.x, scale);
       const top = stickyRenderPosition(sticky.y, scale);
-      const opacity = Number(sticky.opacity ?? 0.9);
+      const opacity = Math.min(1, Math.max(0.2, finiteNumber(sticky.opacity, 0.9)));
       const toneClass = opacity <= 0.6 ? 'high' : (opacity <= 0.75 ? 'mid' : 'low');
       return { left, top, opacity, toneClass };
     }
 
     function getStickyComposerPlacement() {
-      const scale = state.boardScale || 1;
+      const scale = normalizeBoardScale(state.boardScale);
       const left = (els.boardScroll.scrollLeft + Math.min(220, els.boardScroll.clientWidth * 0.22)) / scale;
       const top = (els.boardScroll.scrollTop + Math.min(140, els.boardScroll.clientHeight * 0.16)) / scale;
       return {
@@ -11962,7 +11973,7 @@
         els.board.style.minHeight = '';
         return;
       }
-      const scale = state.boardScale || 1;
+      const scale = normalizeBoardScale(state.boardScale);
       applyBoardCanvasLayout();
       els.board.style.minWidth = '';
       els.board.style.minHeight = '';
@@ -11975,8 +11986,8 @@
       let maxRight = naturalWidth + viewportSlackX;
       let maxBottom = naturalHeight + viewportSlackY;
       (state.snapshot?.stickies || []).forEach((sticky) => {
-        maxRight = Math.max(maxRight, Math.round((Number(sticky.x || 0) + stickyWidth + 24) * scale));
-        maxBottom = Math.max(maxBottom, Math.round((Number(sticky.y || 0) + stickyHeight + 24) * scale));
+        maxRight = Math.max(maxRight, Math.round((finiteNonNegativeNumber(sticky.x) + stickyWidth + 24) * scale));
+        maxBottom = Math.max(maxBottom, Math.round((finiteNonNegativeNumber(sticky.y) + stickyHeight + 24) * scale));
       });
       els.board.style.minWidth = Math.max(naturalWidth, maxRight) + 'px';
       els.board.style.minHeight = Math.max(naturalHeight, maxBottom) + 'px';
@@ -12026,7 +12037,7 @@
         if (!normalized) return;
         tagsByLabel.set(normalized.label, normalized);
       });
-      return Array.from(tagsByLabel.values()).slice(0, Math.max(1, Number(limit) || 1));
+      return Array.from(tagsByLabel.values()).slice(0, Math.max(1, finiteNumber(limit, 1)));
     }
 
     function normalizeDraftTags(items, fallbackColor = 'green') {
@@ -12346,6 +12357,9 @@
     function normalizeVehicleNumber(rawValue, { integer = false } = {}) {
       const value = String(rawValue ?? '').trim().replace(',', '.');
       if (!value) return null;
+      if (integer && !/^-?\d+$/.test(value)) return null;
+      if (integer && value.replace(/^-/, '').length > 12) return null;
+      if (!integer && value.replace(/^-/, '').length > 24) return null;
       const parsed = integer ? Number.parseInt(value, 10) : Number.parseFloat(value);
       return Number.isFinite(parsed) ? parsed : null;
     }
@@ -12376,7 +12390,7 @@
 
     function splitVehicleDisplayName(value, productionYear = null) {
       let text = String(value || '').trim().replace(/\s+/g, ' ');
-      const year = Number(productionYear || 0);
+      const year = finiteNumber(productionYear);
       if (year && text.endsWith(String(year))) text = text.slice(0, -String(year).length).trim();
       if (!text) return { make_display: '', model_display: '' };
       const parts = text.split(/\s+/, 2);
@@ -12510,7 +12524,7 @@
     }
 
     function removeVehicleCustomerPhoneField(index) {
-      const normalizedIndex = Number(index);
+      const normalizedIndex = finiteNumber(index, NaN);
       if (!Number.isInteger(normalizedIndex) || normalizedIndex <= 0) return;
       const inputs = Array.from(document.querySelectorAll('#vehicleCustomerPhoneFields [data-vehicle-phone-input]'));
       const values = inputs.map((input) => input.value);
@@ -12673,7 +12687,7 @@
     }
 
     function removeCardClientCreatePhoneField(index) {
-      const normalizedIndex = Number(index);
+      const normalizedIndex = finiteNumber(index, NaN);
       if (!Number.isInteger(normalizedIndex) || normalizedIndex <= 0) return;
       const values = Array.from(document.querySelectorAll('#cardClientCreatePhoneFields [data-card-client-phone-input]')).map((input) => input.value);
       values.splice(normalizedIndex, 1);
@@ -13984,7 +13998,7 @@
               + '<div class="repair-order-payment-row__line">' + escapeHtml(note) + '</div>'
               + '<div class="repair-order-payment-row__subline">' + escapeHtml('Когда: ' + paidAt + ' | Кем: ' + actorName + ' | Касса: ' + cashboxName + ' | ' + paymentStatus + serviceHint) + '</div>'
             + '</div>'
-            + '<div class="repair-order-payment-row__amount">' + escapeHtml(repairOrderFormatMoney(item?.amount || 0)) + '</div>'
+            + '<div class="repair-order-payment-row__amount">' + escapeHtml(repairOrderFormatMoney(item?.amount ?? 0)) + '</div>'
             + '<button class="btn btn--ghost repair-order-payment-row__remove" type="button" data-remove-repair-order-payment="' + escapeHtml(item.id) + '" aria-label="Удалить оплату">&times;</button>'
             + '</div>';
         }).join('') : '<div class="cashboxes-empty">Оплат пока нет.</div>';
@@ -14461,7 +14475,7 @@
       els.cardModalTitle.title = modalHeading;
       els.cardVehicle.value = currentCard?.vehicle || '';
       els.cardTitle.value = currentCard?.title || '';
-      const parts = secondsToParts(currentCard?.remaining_seconds || 86400);
+      const parts = secondsToParts(currentCard?.remaining_seconds ?? 86400);
       els.signalDays.value = parts.days;
       els.signalHours.value = parts.hours;
       renderSignalPreview();
@@ -14570,7 +14584,7 @@
     }
 
     function formatBytes(value) {
-      const size = Number(value || 0);
+      const size = finiteNonNegativeNumber(value);
       if (size >= 1024 * 1024) return (size / (1024 * 1024)).toFixed(1) + ' МБ';
       if (size >= 1024) return Math.round(size / 1024) + ' КБ';
       return size + ' Б';
@@ -14901,7 +14915,7 @@
             const missingNoteHtml = existsOnDisk
               ? ''
               : '<div class="file-row__missing-note">Файл отсутствует на диске сервера. Запись сохранена в карточке.</div>';
-            return '<div class="file-row' + (previewOpen ? ' is-previewing' : '') + (existsOnDisk ? '' : ' is-missing') + '">' + thumbnailHtml + '<div class="file-row__body"><div class="file-row__title">' + escapeHtml(item.file_name) + '</div><div class="log-row__meta">' + escapeHtml(formatDate(item.created_at)) + ' · ' + escapeHtml(formatBytes(item.size_bytes || 0)) + '</div>' + missingNoteHtml + '<div class="file-row__actions">' + previewButtonHtml + downloadButtonHtml + '<button class="btn btn--danger" type="button" data-remove-file="' + escapeHtml(item.id) + '">УДАЛИТЬ</button></div></div></div>';
+            return '<div class="file-row' + (previewOpen ? ' is-previewing' : '') + (existsOnDisk ? '' : ' is-missing') + '">' + thumbnailHtml + '<div class="file-row__body"><div class="file-row__title">' + escapeHtml(item.file_name) + '</div><div class="log-row__meta">' + escapeHtml(formatDate(item.created_at)) + ' · ' + escapeHtml(formatBytes(item.size_bytes ?? 0)) + '</div>' + missingNoteHtml + '<div class="file-row__actions">' + previewButtonHtml + downloadButtonHtml + '<button class="btn btn--danger" type="button" data-remove-file="' + escapeHtml(item.id) + '">УДАЛИТЬ</button></div></div></div>';
           }).join('')
         : '<div class="log-row__meta">ФАЙЛОВ НЕТ.</div>';
       syncFilePreview(card);
@@ -14989,7 +15003,7 @@
     }
 
     function formatJournalEventCount(count) {
-      const value = Number(count || 0);
+      const value = finiteNumber(count);
       const lastDigit = value % 10;
       const lastTwo = value % 100;
       if (lastDigit === 1 && lastTwo !== 11) return value + ' СОБЫТИЕ';
@@ -14998,7 +15012,7 @@
     }
 
     function cardJournalPluralRu(count, one, few, many) {
-      const value = Math.abs(Number(count || 0));
+      const value = Math.abs(finiteNumber(count));
       const lastDigit = value % 10;
       const lastTwo = value % 100;
       if (lastDigit === 1 && lastTwo !== 11) return one;
@@ -15007,7 +15021,7 @@
     }
 
     function cardJournalCountText(count, one, few, many) {
-      const value = Number(count || 0);
+      const value = finiteNumber(count);
       return value + ' ' + cardJournalPluralRu(value, one, few, many);
     }
 
@@ -15034,7 +15048,7 @@
         const day = byDay.get(key);
         day.entries.push(entry);
         day.count += 1;
-        day.changes += Number(entry?.change_count || 0);
+        day.changes += finiteNumber(entry?.change_count);
         if (entry?.has_deletion) day.deletions += 1;
       });
       return Array.from(byDay.values()).sort((left, right) => String(right.key).localeCompare(String(left.key)));
@@ -15200,9 +15214,9 @@
       const entries = cardJournalEntriesFromPayload(data);
       const payloadDays = Array.isArray(data.days) ? data.days : [];
       const days = payloadDays.some((day) => Array.isArray(day?.entries) && day.entries.length) ? payloadDays : buildCardJournalDays(entries);
-      const returned = Number(totals.count ?? meta.events_returned ?? entries.length ?? 0);
-      const total = Number(meta.events_total ?? returned);
-      const currentLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(0, Number(meta.limit || state.cardJournalLimit || returned || CARD_JOURNAL_INITIAL_LIMIT)));
+      const returned = finiteNonNegativeNumber(totals.count ?? meta.events_returned, entries.length);
+      const total = finiteNonNegativeNumber(meta.events_total, returned);
+      const currentLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(0, finiteNumber(meta.limit ?? state.cardJournalLimit ?? returned, CARD_JOURNAL_INITIAL_LIMIT)));
       const nextLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, total || CARD_JOURNAL_MAX_LIMIT, currentLimit + CARD_JOURNAL_LIMIT_STEP);
       const totalLabel = cardJournalCountText(total, 'событие', 'события', 'событий');
       const returnedLabel = returned === total ? totalLabel : 'показано ' + returned + ' из ' + totalLabel;
@@ -16085,7 +16099,7 @@
 
     function pruneCardSeenSuppressions(nowMs = Date.now()) {
       for (const [cardId, suppression] of state.cardSeenSuppressions.entries()) {
-        const suppressedAtMs = Number(suppression?.suppressed_at_ms || 0);
+        const suppressedAtMs = finiteNonNegativeNumber(suppression?.suppressed_at_ms);
         if (!suppressedAtMs || nowMs - suppressedAtMs > CARD_SEEN_SUPPRESSION_TTL_MS) {
           state.cardSeenSuppressions.delete(cardId);
         }
@@ -16353,8 +16367,8 @@
       const previousColumnId = String(previousCard.column || '').trim();
       const nextColumnId = String(suppressedNextCard.column || '').trim();
       if (previousColumnId && previousColumnId === nextColumnId) {
-        const previousPosition = Number(previousCard.position ?? NaN);
-        const nextPosition = Number(suppressedNextCard.position ?? NaN);
+        const previousPosition = finiteNumber(previousCard.position, NaN);
+        const nextPosition = finiteNumber(suppressedNextCard.position, NaN);
         const samePosition = previousPosition === nextPosition || (Number.isNaN(previousPosition) && Number.isNaN(nextPosition));
         if (samePosition && replaceBoardCardElement(suppressedNextCard)) return;
         const cardsByColumn = buildBoardCardsByColumn(state.snapshot);
@@ -16403,7 +16417,7 @@
       state.backgroundSnapshotTimer = window.setTimeout(() => {
         state.backgroundSnapshotTimer = null;
         refreshSnapshot(showSuccess);
-      }, Math.max(0, Number(delay) || 0));
+      }, Math.max(0, finiteNumber(delay)));
     }
 
     function clearUnreadHoverTimer(cardId) {
@@ -16561,16 +16575,16 @@
     }
 
     function cardJournalLoadKey(cardId, limit = state.cardJournalLimit) {
-      return String(cardId || '').trim() + ':' + Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(limit || CARD_JOURNAL_INITIAL_LIMIT)));
+      return String(cardId || '').trim() + ':' + Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, finiteNumber(limit, CARD_JOURNAL_INITIAL_LIMIT)));
     }
 
     function cardJournalRequestUrl(cardId, limit = state.cardJournalLimit) {
-      const safeLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(limit || CARD_JOURNAL_INITIAL_LIMIT)));
+      const safeLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, finiteNumber(limit, CARD_JOURNAL_INITIAL_LIMIT)));
       return '/api/get_card_log?card_id=' + encodeURIComponent(cardId) + '&compact=1&limit=' + safeLimit;
     }
 
     function handleCardJournalLoadMore(trigger) {
-      const nextLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, Number(trigger?.dataset?.cardJournalLoadMore || 0)));
+      const nextLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, finiteNumber(trigger?.dataset?.cardJournalLoadMore)));
       if (!nextLimit || nextLimit <= state.cardJournalLimit) return;
       state.cardJournalLimit = nextLimit;
       state.cardJournalLoadedFor = '';
@@ -16819,7 +16833,7 @@
     async function deleteColumnFromButton(button) {
       const columnId = button.dataset.deleteColumn;
       const columnLabel = button.dataset.columnLabel || columnId || 'столбец';
-      const cardsCount = Number(button.dataset.cardCount || '0');
+      const cardsCount = finiteNonNegativeNumber(button.dataset.cardCount);
       if (button.hasAttribute('disabled')) {
         if (String(columnLabel || '').trim().toLowerCase() === READY_COLUMN_LABEL.toLowerCase()) {
           setStatus('КОЛОНКУ «ГОТОВЫЕ АВТОМОБИЛИ» УДАЛЯТЬ НЕЛЬЗЯ.', true);
@@ -16926,7 +16940,7 @@
     }
 
     function openBoardSettings() {
-      applyBoardScale(state.boardScale || 1, { syncInput: true });
+      applyBoardScale(normalizeBoardScale(state.boardScale), { syncInput: true });
       syncBoardControlSettingsForm();
       pushModal('settings', els.boardSettingsModal);
     }
@@ -16937,8 +16951,8 @@
         : {};
       return {
         enabled: Boolean(snapshotSettings.enabled),
-        interval_minutes: Math.max(5, Math.min(240, Number(snapshotSettings.interval_minutes || 20) || 20)),
-        cooldown_minutes: Math.max(5, Math.min(1440, Number(snapshotSettings.cooldown_minutes || 60) || 60)),
+        interval_minutes: Math.max(5, Math.min(240, finiteNumber(snapshotSettings.interval_minutes, 20))),
+        cooldown_minutes: Math.max(5, Math.min(1440, finiteNumber(snapshotSettings.cooldown_minutes, 60))),
       };
     }
 
@@ -16962,8 +16976,8 @@
       if (!els.boardControlToggle && !els.boardControlIntervalInput && !els.boardControlCooldownInput) return null;
       return {
         enabled: Boolean(els.boardControlToggle?.checked),
-        interval_minutes: Math.max(5, Math.min(240, Number(els.boardControlIntervalInput?.value || 20) || 20)),
-        cooldown_minutes: Math.max(5, Math.min(1440, Number(els.boardControlCooldownInput?.value || 60) || 60)),
+        interval_minutes: Math.max(5, Math.min(240, finiteNumber(els.boardControlIntervalInput?.value, 20))),
+        cooldown_minutes: Math.max(5, Math.min(1440, finiteNumber(els.boardControlCooldownInput?.value, 60))),
       };
     }
 
@@ -17046,8 +17060,8 @@
       const catalog = String(item?.catalog_number || '').trim();
       if (catalog) parts.push(catalog);
       parts.push(inventoryDisplayQuantity(item));
-      parts.push('закуп ' + repairOrderFormatRubles(item?.cost_price || 0));
-      parts.push('прод ' + repairOrderFormatRubles(item?.sale_price || 0));
+      parts.push('закуп ' + repairOrderFormatRubles(item?.cost_price ?? 0));
+      parts.push('прод ' + repairOrderFormatRubles(item?.sale_price ?? 0));
       return parts.join(' · ');
     }
 
@@ -17092,8 +17106,8 @@
         + '<td><button class="inventory-table__select" type="button" data-inventory-item-id="' + escapeHtml(itemId) + '">' + escapeHtml(item?.name || 'Позиция без названия') + '</button></td>'
         + '<td class="inventory-table__mono">' + escapeHtml(item?.catalog_number || '-') + '</td>'
         + '<td class="inventory-table__number">' + escapeHtml(inventoryDisplayQuantity(item)) + '</td>'
-        + '<td class="inventory-table__number">' + escapeHtml(repairOrderFormatRubles(item?.cost_price || 0)) + '</td>'
-        + '<td class="inventory-table__number">' + escapeHtml(repairOrderFormatRubles(item?.sale_price || 0)) + '</td>'
+        + '<td class="inventory-table__number">' + escapeHtml(repairOrderFormatRubles(item?.cost_price ?? 0)) + '</td>'
+        + '<td class="inventory-table__number">' + escapeHtml(repairOrderFormatRubles(item?.sale_price ?? 0)) + '</td>'
         + '<td class="inventory-table__mono">' + escapeHtml(inventoryUpdatedText(item)) + '</td>'
       + '</tr>';
     }
@@ -17122,7 +17136,7 @@
     function inventoryMovementPriceText(movement) {
       const kind = String(movement?.kind || '');
       const value = kind === 'incoming' ? movement?.cost_price : movement?.sale_price;
-      return repairOrderFormatRubles(value || 0);
+      return repairOrderFormatRubles(value ?? 0);
     }
 
     function inventoryMovementQuantityText(movement) {
@@ -17602,7 +17616,7 @@
     }
 
     function repairOrderInventoryRememberedRowIndex() {
-      const parsed = Number.parseInt(String(state.repairOrderInventoryRowIndex || ''), 10);
+      const parsed = finiteNumber(state.repairOrderInventoryRowIndex, -1);
       const rows = repairOrderMaterialRowElements();
       return Number.isInteger(parsed) && parsed >= 0 && parsed < rows.length ? parsed : -1;
     }
@@ -17684,7 +17698,7 @@
     }
 
     function repairOrderInventoryRowFromItem(item, quantity) {
-      const salePrice = repairOrderParseNumber(item?.sale_price || 0) ?? 0;
+      const salePrice = repairOrderParseNumber(item?.sale_price ?? 0) ?? 0;
       return normalizeRepairOrderRow({
         name: item?.name || '',
         catalog_number: item?.catalog_number || '',
@@ -17700,7 +17714,7 @@
 
     function setRepairOrderMaterialRow(rowData, targetIndex) {
       const rows = readRepairOrderRows('materials');
-      let index = Number.parseInt(String(targetIndex ?? rows.length), 10);
+      let index = finiteNumber(targetIndex, rows.length);
       if (!Number.isInteger(index) || index < 0) index = rows.length;
       if (index > rows.length) index = rows.length;
       if (index === rows.length) rows.push(rowData);
@@ -17899,7 +17913,7 @@
     }
 
     function cashboxFormatMinorAmount(value) {
-      const amount = Number(value || 0);
+      const amount = finiteNumber(value);
       const rounded = Math.round(Math.abs(amount) / 100);
       const sign = amount < 0 && rounded > 0 ? '-' : '';
       return sign + rounded.toLocaleString('ru-RU', {
@@ -17958,7 +17972,7 @@
       let expenseMinor = 0;
       let lastTransactionAt = '';
       items.forEach((item) => {
-        const amountMinor = Number(item?.amount_minor || 0);
+        const amountMinor = finiteNumber(item?.amount_minor);
         if (item?.direction === 'expense') expenseMinor += amountMinor;
         else incomeMinor += amountMinor;
         if (item?.created_at && (!lastTransactionAt || String(item.created_at) > lastTransactionAt)) {
@@ -18026,7 +18040,7 @@
     }
 
     function cashboxBalanceMinor(cashbox) {
-      return Number(cashbox?.statistics?.balance_minor || 0);
+      return finiteNumber(cashbox?.statistics?.balance_minor);
     }
 
     function cashboxBalanceDisplay(cashbox) {
@@ -18035,7 +18049,7 @@
     }
 
     function cashboxBalanceSign(balanceMinor) {
-      return Number(balanceMinor || 0) < 0 ? 'negative' : 'positive';
+      return finiteNumber(balanceMinor) < 0 ? 'negative' : 'positive';
     }
 
     function invalidateCashboxesCache() {
@@ -18083,7 +18097,7 @@
       const index = items.findIndex((item) => item.id === targetId);
       if (index < 0) return '__end__';
       const rect = row.getBoundingClientRect();
-      const before = Number(clientY) < (rect.top + rect.height / 2);
+      const before = finiteNumber(clientY) < (rect.top + rect.height / 2);
       if (before) return targetId;
       return items[index + 1]?.id || '__end__';
     }
@@ -18095,7 +18109,7 @@
       if (index >= 0) nextItems[index] = cashbox;
       else nextItems.push(cashbox);
       nextItems.sort((left, right) => {
-        const orderDiff = Number(left?.order || 0) - Number(right?.order || 0);
+        const orderDiff = finiteNumber(left?.order) - finiteNumber(right?.order);
         if (orderDiff) return orderDiff;
         const nameDiff = String(left?.name || '').localeCompare(String(right?.name || ''), 'ru', { sensitivity: 'base' });
         if (nameDiff) return nameDiff;
@@ -18141,7 +18155,7 @@
         const flags = cashJournalLinkFlags(item);
         const contextLabel = 'Источник: ' + sourceLabel + (linkParts.length ? ' · ' + linkParts.join(' · ') : '');
         const contextHtml = escapeHtml(contextLabel) + (flags.length ? '<div class="cashbox-journal-link-flags">' + flags.map((flag) => '<span class="cashbox-journal-link-flag">' + escapeHtml(flag) + '</span>').join('') + '</div>' : '');
-        const absoluteAmount = cashboxFormatMinorAmount(item?.amount_minor || 0).replace(/^-/, '');
+        const absoluteAmount = cashboxFormatMinorAmount(item?.amount_minor ?? 0).replace(/^-/, '');
         const canCancel = cashboxTransactionCanBeCancelled(item);
         const cancelHtml = canCancel
           ? '<button class="cashbox-transaction__cancel" type="button" data-cashbox-transaction-cancel="' + escapeHtml(item.id || '') + '" title="Отменить платеж" aria-label="Отменить платеж">&times;</button>'
@@ -18154,7 +18168,7 @@
           + '</div>';
       }).join('') : '<div class="cashboxes-empty">ПО ФИЛЬТРУ НИЧЕГО НЕ НАЙДЕНО.</div>';
       const hasMore = Boolean(meta?.has_more);
-      const total = Number(meta?.transactions_total || transactions.length || 0);
+      const total = finiteNonNegativeNumber(meta?.transactions_total, transactions.length);
       const moreHtml = hasMore
         ? '<button class="btn btn--ghost cashbox-transactions__more" type="button" data-cashbox-transactions-load-more="true">ПОКАЗАТЬ ЕЩЁ · ' + escapeHtml(String(transactions.length)) + '/' + escapeHtml(String(total)) + '</button>'
         : '';
@@ -18228,7 +18242,7 @@
       const ownsLoadContext = !loadContext;
       if (!loadContext) loadContext = beginCashboxesLoad();
       try {
-        const transactionOffset = Math.max(0, Number(offset || 0));
+        const transactionOffset = finiteNonNegativeNumber(offset);
         const data = await api('/api/get_cashbox?cashbox_id=' + encodeURIComponent(normalizedId) + '&transaction_limit=' + CASHBOX_TRANSACTION_PAGE_SIZE + '&transaction_offset=' + transactionOffset + '&compact=true', {
           signal: loadContext.controller.signal,
         });
@@ -18424,16 +18438,16 @@
     }
 
     function cashJournalSingleTransferDisplay(incomeMinor, expenseMinor) {
-      const transferMinor = Math.max(Math.abs(Number(incomeMinor || 0)), Math.abs(Number(expenseMinor || 0)));
+      const transferMinor = Math.max(Math.abs(finiteNumber(incomeMinor)), Math.abs(finiteNumber(expenseMinor)));
       return cashboxFormatMinorAmount(transferMinor);
     }
 
     function cashJournalTransferSummaryText(transferMinor, count) {
-      return cashboxFormatMinorAmount(transferMinor) + ' · ' + String(Number(count || 0)) + ' оп.';
+      return cashboxFormatMinorAmount(transferMinor) + ' · ' + String(finiteNumber(count)) + ' оп.';
     }
 
     function cashJournalSignedAmountDisplay(amountMinor) {
-      const amount = Number(amountMinor || 0);
+      const amount = finiteNumber(amountMinor);
       return (amount > 0 ? '+' : '') + cashboxFormatMinorAmount(amount);
     }
 
@@ -18517,8 +18531,9 @@
       if (candidate?.direction === item?.direction) return false;
       const sameDate = cashJournalEntryDateKey(candidate) === cashJournalEntryDateKey(item);
       const sameTime = String(candidate?.time_short || '') === String(item?.time_short || '');
-      const sameAmount = Number(candidate?.amount_minor || 0) === Number(item?.amount_minor || 0);
-      if (!sameDate || !sameTime || !sameAmount || !Number(item?.amount_minor || 0)) return false;
+      const amountMinor = finiteNumber(item?.amount_minor);
+      const sameAmount = finiteNumber(candidate?.amount_minor) === amountMinor;
+      if (!sameDate || !sameTime || !sameAmount || !amountMinor) return false;
       const itemActor = cashJournalLegacyTransferActorKey(item);
       const candidateActor = cashJournalLegacyTransferActorKey(candidate);
       if (itemActor && candidateActor && itemActor !== candidateActor) return false;
@@ -18606,7 +18621,7 @@
     }
 
     function cashJournalDateFromKey(key) {
-      const parts = String(key || '').split('-').map((part) => Number(part));
+      const parts = String(key || '').split('-').map((part) => finiteNumber(part, NaN));
       if (parts.length < 3 || parts.some((part) => Number.isNaN(part))) return null;
       return new Date(parts[0], parts[1] - 1, parts[2]);
     }
@@ -18720,7 +18735,7 @@
       let transferIncomeMinor = 0;
       let transferExpenseMinor = 0;
       (Array.isArray(entries) ? entries : []).forEach((item) => {
-        const amount = Math.abs(Number(item?.amount_minor || 0));
+        const amount = Math.abs(finiteNumber(item?.amount_minor));
         const isTransfer = item?.source_label === 'перемещение';
         if (item?.direction === 'expense') {
           if (isTransfer) transferExpenseMinor += amount;
@@ -18772,13 +18787,13 @@
     }
 
     function cashJournalDaySummaryHtml(day) {
-      const transferIncomeMinor = Number(day?.transfer_income_minor || 0);
-      const transferExpenseMinor = Number(day?.transfer_expense_minor || 0);
-      const balanceMinor = Number(day?.balance_minor || 0);
-      const operationCount = Number(day?.count || cashJournalDisplayRows(day?.entries || []).length || 0);
+      const transferIncomeMinor = finiteNumber(day?.transfer_income_minor);
+      const transferExpenseMinor = finiteNumber(day?.transfer_expense_minor);
+      const balanceMinor = finiteNumber(day?.balance_minor);
+      const operationCount = finiteNumber(day?.count, cashJournalDisplayRows(day?.entries || []).length);
       const parts = [
-        'приход ' + String(day?.external_income_display || cashboxFormatMinorAmount(day?.external_income_minor || 0)),
-        'расход ' + String(day?.external_expense_display || cashboxFormatMinorAmount(day?.external_expense_minor || 0)),
+        'приход ' + String(day?.external_income_display || cashboxFormatMinorAmount(day?.external_income_minor ?? 0)),
+        'расход ' + String(day?.external_expense_display || cashboxFormatMinorAmount(day?.external_expense_minor ?? 0)),
         'дельта ' + String(day?.balance_display || cashJournalSignedAmountDisplay(balanceMinor)),
       ];
       if (transferIncomeMinor || transferExpenseMinor) {
@@ -18789,8 +18804,8 @@
     }
 
     function cashJournalDayCompactSummaryHtml(day) {
-      const balanceMinor = Number(day?.balance_minor || 0);
-      const operationCount = Number(day?.count || cashJournalDisplayRows(day?.entries || []).length || 0);
+      const balanceMinor = finiteNumber(day?.balance_minor);
+      const operationCount = finiteNumber(day?.count, cashJournalDisplayRows(day?.entries || []).length);
       const balanceText = String(day?.balance_display || cashJournalSignedAmountDisplay(balanceMinor));
       const sign = balanceMinor < 0 ? 'negative' : 'positive';
       return '<span data-balance-sign="' + escapeHtml(sign) + '">' + escapeHtml(balanceText) + ' · ' + escapeHtml(String(operationCount)) + ' оп.</span>';
@@ -18813,7 +18828,7 @@
         + '<summary><span class="cashbox-journal-opening__title">Остатки на начало дня</span>' + (totalText ? ' · ' + escapeHtml(totalText) : '') + '</summary>'
         + '<div class="cashbox-journal-opening__grid">'
         + balances.map((item) => {
-          const balanceMinor = Number(item?.balance_minor || 0);
+          const balanceMinor = finiteNumber(item?.balance_minor);
           const sign = String(item?.balance_sign || (balanceMinor < 0 ? 'negative' : 'positive'));
           const display = String(item?.balance_display || cashboxFormatMinorAmount(balanceMinor));
           return '<div class="cashbox-journal-balance">'
@@ -18831,7 +18846,7 @@
       const visualDirection = source === 'перемещение' ? 'transfer' : direction;
       const typeLabel = cashJournalDisplayTypeLabel(visualDirection);
       const note = cashJournalEntryNoteText(item);
-      const amount = String(item?.signed_amount_display || ((direction === 'expense' ? '-' : '+') + cashboxFormatMinorAmount(item?.amount_minor || 0).replace(/^-/, '')));
+      const amount = String(item?.signed_amount_display || ((direction === 'expense' ? '-' : '+') + cashboxFormatMinorAmount(item?.amount_minor ?? 0).replace(/^-/, '')));
       const actor = String(item?.actor_label || item?.actor_name || '').trim();
       const actorText = actor && actor !== 'СИСТЕМА' ? actor : '';
       const flags = cashJournalLinkFlags(item);
@@ -18851,7 +18866,7 @@
     }
 
     function renderCashJournalTransferEntry(source, target) {
-      const amount = cashboxFormatMinorAmount(source?.amount_minor || target?.amount_minor || 0);
+      const amount = cashboxFormatMinorAmount(source?.amount_minor ?? target?.amount_minor ?? 0);
       const note = cashJournalTransferNote(source) || cashJournalTransferNote(target);
       const actor = String(source?.actor_label || source?.actor_name || target?.actor_label || target?.actor_name || '').trim();
       const actorText = actor && actor !== 'СИСТЕМА' ? actor : '';
@@ -18905,18 +18920,18 @@
     function cashJournalCurrentTotalMinor(data) {
       const cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
       if (cashboxes.length) {
-        return cashboxes.reduce((sum, cashbox) => sum + Number(cashbox?.statistics?.balance_minor || 0), 0);
+        return cashboxes.reduce((sum, cashbox) => sum + finiteNumber(cashbox?.statistics?.balance_minor), 0);
       }
-      return Number(data?.totals?.balance_minor || 0);
+      return finiteNumber(data?.totals?.balance_minor);
     }
 
     function renderCashJournalCurrentBalances(data) {
       const cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
       if (!cashboxes.length) return '<div class="cashbox-journal-empty">Текущие остатки касс не загружены.</div>';
-      const hasNegative = cashboxes.some((cashbox) => Number(cashbox?.statistics?.balance_minor || 0) < 0);
+      const hasNegative = cashboxes.some((cashbox) => finiteNumber(cashbox?.statistics?.balance_minor) < 0);
       const expanded = Boolean(state.cashboxJournalBalancesExpanded);
       const rows = cashboxes.map((cashbox) => {
-        const balanceMinor = Number(cashbox?.statistics?.balance_minor || 0);
+        const balanceMinor = finiteNumber(cashbox?.statistics?.balance_minor);
         const sign = String(cashbox?.statistics?.balance_sign || (balanceMinor < 0 ? 'negative' : 'positive'));
         const display = String(cashbox?.statistics?.balance_display || cashboxFormatMinorAmount(balanceMinor));
         return '<div class="cashbox-journal-balance-chip" data-balance-sign="' + escapeHtml(sign) + '">'
@@ -19013,9 +19028,9 @@
     }
 
     function cashJournalOperationCountText(renderedRowCount, visibleRowCount, totalRowCount) {
-      const rendered = Number(renderedRowCount || 0);
-      const visible = Number(visibleRowCount || 0);
-      const total = Number(totalRowCount || 0);
+      const rendered = finiteNonNegativeNumber(renderedRowCount);
+      const visible = finiteNonNegativeNumber(visibleRowCount);
+      const total = finiteNonNegativeNumber(totalRowCount);
       if (rendered < visible) {
         return String(rendered) + ' из ' + String(visible) + ' операций';
       }
@@ -19027,7 +19042,7 @@
 
     function renderCashJournalToolbar(data, renderedRowCount, visibleRowCount, totalRowCount) {
       const meta = data?.meta || {};
-      const periodText = String(meta?.months || 3) + ' мес.';
+      const periodText = String(finiteNonNegativeNumber(meta?.months, 3)) + ' мес.';
       return '<div class="cashbox-journal-toolbar">'
         + '<div class="cashbox-journal-toolbar__status">' + escapeHtml(periodText + ' · ' + cashJournalOperationCountText(renderedRowCount, visibleRowCount, totalRowCount)) + '</div>'
         + '<div class="cashbox-journal-toolbar__total">Общий остаток<strong>' + escapeHtml(cashboxFormatMinorAmount(cashJournalCurrentTotalMinor(data))) + '</strong></div>'
@@ -19035,13 +19050,13 @@
     }
 
     function cashJournalStatsRowHtml(item, periodKind = '') {
-      const balanceMinor = Number(item?.balance_minor || 0);
-      const transferMinor = Math.max(Math.abs(Number(item?.transfer_income_minor || 0)), Math.abs(Number(item?.transfer_expense_minor || 0)));
+      const balanceMinor = finiteNumber(item?.balance_minor);
+      const transferMinor = Math.max(Math.abs(finiteNumber(item?.transfer_income_minor)), Math.abs(finiteNumber(item?.transfer_expense_minor)));
       const labelText = String(item?.label || item?.key || 'Период');
-      const incomeText = String(item?.external_income_display || cashboxFormatMinorAmount(item?.external_income_minor || 0));
-      const expenseText = String(item?.external_expense_display || cashboxFormatMinorAmount(item?.external_expense_minor || 0));
+      const incomeText = String(item?.external_income_display || cashboxFormatMinorAmount(item?.external_income_minor ?? 0));
+      const expenseText = String(item?.external_expense_display || cashboxFormatMinorAmount(item?.external_expense_minor ?? 0));
       const balanceText = String(item?.balance_display || cashboxFormatMinorAmount(balanceMinor));
-      const transferText = cashJournalTransferSummaryText(transferMinor, item?.count || 0);
+      const transferText = cashJournalTransferSummaryText(transferMinor, item?.count ?? 0);
       const periodKey = String(item?.key || item?.date || item?.week_key || item?.month_key || '').trim();
       const ariaText = labelText + ': приход ' + incomeText + ', расход ' + expenseText + ', итог ' + balanceText + ', перемещения ' + transferText;
       return '<button class="cashbox-journal-stats-row" type="button" data-cash-journal-period-kind="' + escapeHtml(periodKind) + '" data-cash-journal-period-key="' + escapeHtml(periodKey) + '" data-cash-journal-period-label="' + escapeHtml(labelText) + '" aria-label="' + escapeHtml(ariaText) + '">'
@@ -19078,15 +19093,15 @@
       const totals = data?.totals || {};
       const meta = data?.meta || {};
       const shownText = String(totals?.count ?? meta?.returned ?? 0) + ' из ' + String(meta?.total ?? totals?.count ?? 0);
-      const balanceMinor = Number(totals?.balance_minor || 0);
-      const transferMinor = Math.max(Math.abs(Number(totals?.transfer_income_minor || 0)), Math.abs(Number(totals?.transfer_expense_minor || 0)));
+      const balanceMinor = finiteNumber(totals?.balance_minor);
+      const transferMinor = Math.max(Math.abs(finiteNumber(totals?.transfer_income_minor)), Math.abs(finiteNumber(totals?.transfer_expense_minor)));
       const summaryHtml = '<div class="cashbox-journal-summary">'
-        + cashJournalStatHtml('Период', 'последние ' + String(meta?.months || 3) + ' мес.')
+        + cashJournalStatHtml('Период', 'последние ' + String(finiteNonNegativeNumber(meta?.months, 3)) + ' мес.')
         + cashJournalStatHtml('Операции', shownText)
-        + cashJournalStatHtml('Поступления', String(totals?.external_income_display || cashboxFormatMinorAmount(totals?.external_income_minor || 0)))
-        + cashJournalStatHtml('Списания', String(totals?.external_expense_display || cashboxFormatMinorAmount(totals?.external_expense_minor || 0)), 'negative')
+        + cashJournalStatHtml('Поступления', String(totals?.external_income_display || cashboxFormatMinorAmount(totals?.external_income_minor ?? 0)))
+        + cashJournalStatHtml('Списания', String(totals?.external_expense_display || cashboxFormatMinorAmount(totals?.external_expense_minor ?? 0)), 'negative')
         + cashJournalStatHtml('Итог периода', String(totals?.balance_display || cashboxFormatMinorAmount(balanceMinor)), balanceMinor < 0 ? 'negative' : 'positive')
-        + cashJournalStatHtml('Перемещения', cashJournalTransferSummaryText(transferMinor, totals?.count || meta?.returned || 0))
+        + cashJournalStatHtml('Перемещения', cashJournalTransferSummaryText(transferMinor, totals?.count ?? meta?.returned ?? 0))
         + '</div>';
       return '<div class="cashbox-journal-view cashbox-journal-view--stats">'
         + summaryHtml
@@ -19097,7 +19112,7 @@
     }
 
     function cashJournalVisibleRowLimit() {
-      const limit = Number(state.cashboxJournalVisibleRowLimit || 0);
+      const limit = finiteNonNegativeNumber(state.cashboxJournalVisibleRowLimit);
       return Math.max(CASH_JOURNAL_RENDER_BATCH_SIZE, Number.isFinite(limit) ? limit : CASH_JOURNAL_RENDER_BATCH_SIZE);
     }
 
@@ -19123,7 +19138,7 @@
     }
 
     function cashJournalLoadMoreText(renderedRowCount, filteredRowCount) {
-      const remaining = Math.max(0, Number(filteredRowCount || 0) - Number(renderedRowCount || 0));
+      const remaining = Math.max(0, finiteNonNegativeNumber(filteredRowCount) - finiteNonNegativeNumber(renderedRowCount));
       return 'Показать еще ' + String(Math.min(CASH_JOURNAL_RENDER_BATCH_SIZE, remaining));
     }
 
@@ -19138,7 +19153,7 @@
       const meta = data?.meta || {};
       const visibleRowCount = filteredRows.length;
       const renderedRowCount = renderedRows.length;
-      const limitNotice = Number(meta?.total || 0) > Number(meta?.returned || 0)
+      const limitNotice = finiteNonNegativeNumber(meta?.total) > finiteNonNegativeNumber(meta?.returned)
         ? '<div class="cashbox-journal-status-line">Показана часть операций. Для полной выгрузки увеличьте лимит журнала.</div>'
         : '';
       const renderNotice = renderedRowCount < visibleRowCount
@@ -19495,7 +19510,7 @@
     }
 
     function cashboxTransferAmountMinor() {
-      const parsed = repairOrderParseNumber(els.cashboxTransferAmountInput?.value || state.cashboxTransferDraft?.amount || '');
+      const parsed = repairOrderParseNumber(els.cashboxTransferAmountInput?.value ?? state.cashboxTransferDraft?.amount ?? '');
       if (parsed === null || parsed <= 0) return null;
       return Math.round(parsed * 100);
     }
@@ -19715,7 +19730,7 @@
         return;
       }
       state.cashboxCancelTransactionId = String(transaction.id || '').trim();
-      const amount = cashboxFormatMinorAmount(transaction.amount_minor || 0).replace(/^-/, '');
+      const amount = cashboxFormatMinorAmount(transaction.amount_minor ?? 0).replace(/^-/, '');
       const note = String(transaction.note || '').trim() || 'Без комментария';
       if (els.cashboxCancelMeta) {
         els.cashboxCancelMeta.textContent = note + ' · ' + amount;
@@ -19767,7 +19782,7 @@
     }
 
     async function handleCashboxesListClick(event) {
-      if (Date.now() < Number(state.cashboxDragIgnoreClicksUntil || 0)) return;
+      if (Date.now() < finiteNonNegativeNumber(state.cashboxDragIgnoreClicksUntil)) return;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       const row = target.closest('[data-cashbox-id]');
@@ -19894,7 +19909,7 @@
       state.stickyDraft = existing;
       els.stickyModalTitle.textContent = existing ? ('СТИКЕР / ' + String(existing.id).slice(0, 8).toUpperCase()) : 'НОВЫЙ СТИКЕР';
       els.stickyText.value = existing?.text || '';
-      const parts = secondsToParts(existing?.deadline_total_seconds || 4 * 3600);
+      const parts = secondsToParts(existing?.deadline_total_seconds ?? 4 * 3600);
       els.stickyDays.value = parts.days ?? 0;
       els.stickyHours.value = parts.hours ?? 4;
       pushModal('sticky', els.stickyModal);
@@ -20041,7 +20056,7 @@
     }
 
     async function saveBoardScale() {
-      const scale = normalizeBoardScale(Number(els.boardScaleInput.value) / 100);
+      const scale = normalizeBoardScale(finiteNumber(els.boardScaleInput.value, 100) / 100);
       applyBoardScale(scale, { syncInput: true });
       persistStoredBoardScale(scale);
       const aiBoardControl = readBoardControlSettingsForm();
@@ -20077,8 +20092,8 @@
         active: true,
         pointerId: event.pointerId,
         stickyId,
-        startX: Number(current.x || 0),
-        startY: Number(current.y || 0),
+        startX: finiteNonNegativeNumber(current.x),
+        startY: finiteNonNegativeNumber(current.y),
         startClientX: event.clientX,
         startClientY: event.clientY,
         moved: false,
@@ -20090,7 +20105,7 @@
     function moveStickyDrag(event) {
       const drag = state.stickyDrag;
       if (!drag.active || drag.pointerId !== event.pointerId) return;
-      const scale = state.boardScale || 1;
+      const scale = normalizeBoardScale(state.boardScale);
       const dx = event.clientX - drag.startClientX;
       const dy = event.clientY - drag.startClientY;
       if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
@@ -20121,7 +20136,7 @@
         moved: false,
       };
       if (!drag.moved) return;
-      const scale = state.boardScale || 1;
+      const scale = normalizeBoardScale(state.boardScale);
       const dx = event.clientX - drag.startClientX;
       const dy = event.clientY - drag.startClientY;
       const nextX = Math.max(0, Math.round(drag.startX + (dx / scale)));
@@ -20188,7 +20203,7 @@
     function sharedFileMetaParts(file) {
       return [
         sharedFileKindLabel(file),
-        formatBytes(file?.size_bytes || 0),
+        formatBytes(file?.size_bytes ?? 0),
         file?.updated_at ? formatDate(file.updated_at) : '',
       ].filter(Boolean);
     }
@@ -20221,8 +20236,8 @@
         els.sharedFilesDesktop.innerHTML = '<div class="shared-files-empty">ФАЙЛОВ ПОКА НЕТ.</div>';
       } else {
         els.sharedFilesDesktop.innerHTML = laidOutFiles.map((file) => {
-          const x = Math.max(0, Number(file.x ?? 0) || 0);
-          const y = Math.max(0, Number(file.y ?? 0) || 0);
+          const x = finiteNonNegativeNumber(file.x);
+          const y = finiteNonNegativeNumber(file.y);
           const activeClass = file.id === state.sharedFilesActiveId ? ' is-active' : '';
           const name = String(file.original_name || 'Файл');
           const metaParts = sharedFileMetaParts(file);
@@ -20236,7 +20251,7 @@
       }
       const storage = state.sharedFilesStorage || {};
       if (els.sharedFilesMeta) {
-        els.sharedFilesMeta.textContent = formatBytes(storage.used_bytes || 0) + ' / ' + formatBytes(storage.limit_bytes || 0) + ' · ' + files.length + ' ФАЙЛ.';
+        els.sharedFilesMeta.textContent = formatBytes(storage.used_bytes ?? 0) + ' / ' + formatBytes(storage.limit_bytes ?? 0) + ' · ' + files.length + ' ФАЙЛ.';
       }
       updateSharedFilesActions();
     }
@@ -20279,8 +20294,8 @@
     }
 
     function normalizeSharedFilesDropPoint(point) {
-      const x = Number(point?.x);
-      const y = Number(point?.y);
+      const x = finiteNumber(point?.x, NaN);
+      const y = finiteNumber(point?.y, NaN);
       if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
       return { x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)) };
     }
@@ -20303,13 +20318,13 @@
     }
 
     function sharedFilesGridSlotFromPoint(x, y) {
-      const col = Math.max(0, Math.round((Number(x) - 24) / 116));
-      const row = Math.max(0, Math.round((Number(y) - 24) / 126));
+      const col = Math.max(0, Math.round((finiteNumber(x) - 24) / 116));
+      const row = Math.max(0, Math.round((finiteNumber(y) - 24) / 126));
       return row * 7 + col;
     }
 
     function sharedFilesGridPointFromSlot(slot) {
-      const index = Math.max(0, Math.floor(Number(slot) || 0));
+      const index = Math.max(0, Math.floor(finiteNumber(slot)));
       return {
         x: 24 + (index % 7) * 116,
         y: 24 + Math.floor(index / 7) * 126,
@@ -20332,7 +20347,9 @@
       });
       const occupied = new Set();
       return orderedFiles.map((file, index) => {
-        const hasStoredPosition = Number.isFinite(Number(file?.x)) && Number.isFinite(Number(file?.y));
+        const storedX = finiteNumber(file?.x, NaN);
+        const storedY = finiteNumber(file?.y, NaN);
+        const hasStoredPosition = Number.isFinite(storedX) && Number.isFinite(storedY);
         let slot = hasStoredPosition ? sharedFilesGridSlotFromPoint(file.x, file.y) : index;
         while (occupied.has(slot)) slot += 1;
         occupied.add(slot);
@@ -20348,8 +20365,8 @@
 
     function sharedFilesStoredSlot(file) {
       if (!file) return Number.MAX_SAFE_INTEGER;
-      const x = Number(file.x);
-      const y = Number(file.y);
+      const x = finiteNumber(file.x, NaN);
+      const y = finiteNumber(file.y, NaN);
       if (!Number.isFinite(x) || !Number.isFinite(y)) return Number.MAX_SAFE_INTEGER;
       return sharedFilesGridSlotFromPoint(x, y);
     }
@@ -20665,8 +20682,8 @@
       const basePoint = point
         ? point
         : {
-            x: Math.max(24, Number(source?.x || 24) + 32),
-            y: Math.max(24, Number(source?.y || 24) + 32),
+            x: Math.max(24, finiteNumber(source?.x, 24) + 32),
+            y: Math.max(24, finiteNumber(source?.y, 24) + 32),
           };
       const snappedPoint = sharedFilesSnapPointToGrid(basePoint.x, basePoint.y);
       try {
@@ -20756,8 +20773,8 @@
       const icon = els.sharedFilesDesktop?.querySelector('[data-shared-file-id="' + CSS.escape(drag.fileId) + '"]');
       if (icon instanceof HTMLElement) icon.classList.remove('is-dragging');
       if (!(icon instanceof HTMLElement) || !drag.moved) return;
-      const x = Number(icon.dataset.dragX || 0) || 0;
-      const y = Number(icon.dataset.dragY || 0) || 0;
+      const x = finiteNonNegativeNumber(icon.dataset.dragX);
+      const y = finiteNonNegativeNumber(icon.dataset.dragY);
       try {
         const data = await api('/api/update_shared_file_position', {
           method: 'POST',

@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
-import shutil
 import sys
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -20,6 +21,9 @@ from minimal_kanban.config import get_state_file
 from minimal_kanban.models import AuditEvent, ClientProfile, utc_now_iso
 from minimal_kanban.storage.file_lock import ProcessFileLock
 from minimal_kanban.storage.json_store import DEFAULT_STATE
+from minimal_kanban.storage.limited_io import copy_file_limited
+
+STATE_FILE_MAX_BYTES = 100 * 1024 * 1024
 
 _VIN_PLACEHOLDER_KEYS = {
     "ABSENT",
@@ -37,6 +41,28 @@ _SAFE_FIX_REASONS = {"empty_compact", "placeholder", "repeated_character"}
 
 def _text(value: object) -> str:
     return str(value or "").strip()
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
 
 
 def _normalize_search_text(value: object) -> str:
@@ -85,23 +111,84 @@ def _safe_fix_available(reason: str) -> bool:
     return reason in _SAFE_FIX_REASONS
 
 
+def _bounded_issue_limit(value: object) -> int:
+    if isinstance(value, bool):
+        return 50
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return 50
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return 50
+    if numeric < 0:
+        return 0
+    if numeric > 500:
+        return 500
+    return int(numeric)
+
+
 def _read_state(state_file: Path) -> dict[str, Any]:
     if not state_file.exists():
         return deepcopy(DEFAULT_STATE)
-    return json.loads(state_file.read_text(encoding="utf-8"))
+    try:
+        state = json.loads(
+            _read_state_text(state_file),
+            parse_constant=_reject_json_constant,
+        )
+    except RecursionError as exc:
+        raise ValueError("client data quality state file JSON is too deeply nested") from exc
+    if not isinstance(state, dict):
+        raise ValueError("state file must contain a JSON object")
+    return state
+
+
+def _read_state_text(state_file: Path) -> str:
+    with state_file.open("rb") as handle:
+        raw = handle.read(STATE_FILE_MAX_BYTES + 1)
+    if len(raw) > STATE_FILE_MAX_BYTES:
+        raise ValueError("client data quality state file is too large")
+    return raw.decode("utf-8")
 
 
 def _write_state(state_file: Path, state: dict[str, Any]) -> None:
-    payload = json.dumps(state, ensure_ascii=False, separators=(",", ":"))
-    temp_file = state_file.with_suffix(".tmp")
-    temp_file.write_text(payload, encoding="utf-8")
-    temp_file.replace(state_file)
+    payload = json.dumps(
+        _json_safe_value(state),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    if len(payload.encode("utf-8")) > STATE_FILE_MAX_BYTES:
+        raise ValueError("client data quality state file is too large")
+    temp_file = state_file.with_name(f".{state_file.name}.{uuid4().hex}.tmp")
+    try:
+        temp_file.write_text(payload, encoding="utf-8")
+        temp_file.replace(state_file)
+    finally:
+        temp_file.unlink(missing_ok=True)
+
+
+def _backup_state_file(state_file: Path) -> Path:
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    backup_file = state_file.with_name(f"{state_file.name}.backup-client-data-quality-{timestamp}")
+    counter = 2
+    while backup_file.exists():
+        backup_file = state_file.with_name(
+            f"{state_file.name}.backup-client-data-quality-{timestamp}-{counter:03d}"
+        )
+        counter += 1
+    copy_file_limited(
+        state_file,
+        backup_file,
+        max_bytes=STATE_FILE_MAX_BYTES,
+        label="client data quality state file",
+    )
+    return backup_file
 
 
 def _client_name(raw_client: dict[str, Any]) -> str:
     try:
         return ClientProfile.from_dict(raw_client).name()
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return _text(raw_client.get("display_name") or raw_client.get("last_name")) or "Без имени"
 
 
@@ -308,11 +395,7 @@ def apply_client_data_quality_plan(
         if not operations_to_apply:
             return {**plan, "read_only": False, "applied": False, "backup_file": ""}
 
-        backup_file = state_file.with_name(
-            f"{state_file.name}.backup-client-data-quality-"
-            f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
-        )
-        shutil.copy2(state_file, backup_file)
+        backup_file = _backup_state_file(state_file)
 
         raw_clients = state.get("clients") if isinstance(state.get("clients"), list) else []
         applied_operations: list[dict[str, Any]] = []
@@ -453,18 +536,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--backup", action="store_true", help="Required with --apply.")
     parser.add_argument("--format", choices={"text", "json"}, default="text")
-    parser.add_argument("--issue-limit", type=int, default=50)
+    parser.add_argument("--issue-limit", default=50)
     args = parser.parse_args(argv)
+    args.issue_limit = _bounded_issue_limit(args.issue_limit)
 
     if args.apply and not args.backup:
         parser.error("--apply requires --backup")
-    result = (
-        apply_client_data_quality_plan(args.state_file, backup=args.backup)
-        if args.apply
-        else build_client_data_quality_plan(args.state_file)
-    )
+    try:
+        result = (
+            apply_client_data_quality_plan(args.state_file, backup=args.backup)
+            if args.apply
+            else build_client_data_quality_plan(args.state_file)
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        payload = {"ok": False, "error": str(exc)}
+        if args.format == "json":
+            print(json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False))
+        else:
+            print(f"ok: False\nerror: {exc}")
+        return 2
     if args.format == "json":
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        print(json.dumps(_json_safe_value(result), ensure_ascii=False, indent=2, allow_nan=False))
     else:
         print(_format_text(result, issue_limit=args.issue_limit))
     return 0

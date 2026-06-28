@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -15,6 +16,7 @@ if str(SRC) not in sys.path:
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+import normalize_cashboxes_after_safe_fix as normalization_module
 from normalize_cashboxes_after_safe_fix import (
     NORMALIZATION_KIND,
     NORMALIZATION_NOTE,
@@ -66,6 +68,33 @@ def _transaction(
 
 
 class CashboxNormalizationTests(unittest.TestCase):
+    def test_money_minor_rejects_bool_fractional_and_non_finite_values(self) -> None:
+        self.assertEqual(normalization_module._money_minor(True), 0)
+        self.assertEqual(normalization_module._money_minor(False), 0)
+        self.assertEqual(normalization_module._money_minor(1.5), 0)
+        self.assertEqual(normalization_module._money_minor(float("inf")), 0)
+        self.assertEqual(normalization_module._money_minor(1e308), 0)
+        self.assertEqual(normalization_module._money_minor(""), 0)
+        self.assertEqual(normalization_module._money_minor("12500"), 12500)
+
+    def test_money_display_falls_back_for_invalid_values(self) -> None:
+        self.assertEqual(normalization_module._money_display(float("inf")), "0,00 ₽")
+        self.assertEqual(normalization_module._money_display(1e308), "0,00 ₽")
+        self.assertEqual(normalization_module._money_display("broken"), "0,00 ₽")
+
+    def test_expected_source_count_bounds_reject_huge_values(self) -> None:
+        self.assertEqual(normalization_module._bounded_expected_source_count(1e308), 10_000)
+        self.assertEqual(normalization_module._bounded_expected_source_count(-1e308), 0)
+        self.assertEqual(normalization_module._bounded_expected_source_count("bad"), 16)
+
+    def test_read_json_rejects_deeply_nested_state_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_file = Path(temp_dir) / "state.json"
+            state_file.write_text("[" * 5000 + "]" * 5000, encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "JSON is too deeply nested"):
+                normalization_module._read_json(state_file)
+
     def _state(self, *, include_existing_correction: bool = True) -> dict[str, object]:
         state = copy.deepcopy(DEFAULT_STATE)
         cashboxes = [
@@ -154,6 +183,80 @@ class CashboxNormalizationTests(unittest.TestCase):
         self.assertNotIn("Алексей Снаб", adjustments)
         self.assertEqual(totals["Алексей Снаб"]["existing_correction_minor"], _minor(85545))
 
+    def test_state_reader_rejects_nonstandard_json_constants(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_file = Path(temp_dir) / "state.json"
+            state_file.write_text('{"cash_transactions":[{"amount_minor":NaN}]}', encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "Unsupported JSON constant"):
+                run_normalization(
+                    state_file=state_file,
+                    expected_source_count=None,
+                )
+
+    def test_state_reader_rejects_oversized_state_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_file = Path(temp_dir) / "state.json"
+            state_file.write_text("x" * 16, encoding="utf-8")
+
+            with patch.object(normalization_module, "STATE_FILE_MAX_BYTES", 8):
+                with self.assertRaisesRegex(
+                    ValueError, "cashbox normalization state file is too large"
+                ):
+                    run_normalization(
+                        state_file=state_file,
+                        expected_source_count=None,
+                    )
+
+    def test_archive_reader_skips_nonstandard_json_constant_lines(self) -> None:
+        state = self._state()
+        archived_event = state["events"].pop()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            archive_dir = Path(temp_dir) / "audit-archive"
+            archive_dir.mkdir()
+            (archive_dir / "2026-05.jsonl").write_text(
+                '{"event":{"id":"bad","details":{"score":NaN}}}\n'
+                + json.dumps({"event": archived_event}, ensure_ascii=False)
+                + "\n",
+                encoding="utf-8",
+            )
+
+            plan = calculate_normalization_plan(
+                state,
+                archive_dir=archive_dir,
+                expected_source_count=16,
+            )
+
+        self.assertEqual(plan["event"]["id"], TARGET_EVENT_ID)
+        self.assertEqual(plan["summary"]["source_transactions"], 16)
+
+    def test_archive_reader_skips_oversized_and_bad_utf8_lines(self) -> None:
+        state = self._state()
+        archived_event = state["events"].pop()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            archive_dir = Path(temp_dir) / "audit-archive"
+            archive_dir.mkdir()
+            valid_line = json.dumps({"event": archived_event}, ensure_ascii=False).encode("utf-8")
+            line_limit = len(valid_line) + 128
+            (archive_dir / "2026-05.jsonl").write_bytes(
+                b'{"event":{"id":"oversized","details":{"payload":"'
+                + (b"x" * (line_limit + 256))
+                + b'"}}\n'
+                + b"\xff\xfe\x00\n"
+                + valid_line
+                + b"\n"
+            )
+
+            with patch.object(normalization_module, "ARCHIVE_EVENT_LINE_MAX_BYTES", line_limit):
+                plan = calculate_normalization_plan(
+                    state,
+                    archive_dir=archive_dir,
+                    expected_source_count=16,
+                )
+
+        self.assertEqual(plan["event"]["id"], TARGET_EVENT_ID)
+        self.assertEqual(plan["summary"]["source_transactions"], 16)
+
     def test_apply_creates_backup_and_three_normalization_expenses(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             state_file = Path(temp_dir) / "state.json"
@@ -177,6 +280,34 @@ class CashboxNormalizationTests(unittest.TestCase):
             self.assertEqual(len(created), 3)
             self.assertEqual({item["note"] for item in created}, {NORMALIZATION_NOTE})
             self.assertEqual(sum(int(item["amount_minor"]) for item in created), _minor(70365))
+
+    def test_apply_backup_does_not_overwrite_existing_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_file = Path(temp_dir) / "state.json"
+            state_file.write_text(json.dumps(self._state(), ensure_ascii=False), encoding="utf-8")
+            backup_dir = state_file.parent / "backups"
+            backup_dir.mkdir()
+            existing_backup = (
+                backup_dir / "state-before-cashbox-normalization-20260601T010203Z.json"
+            )
+            existing_backup.write_text("previous backup", encoding="utf-8")
+
+            with (
+                patch.object(
+                    normalization_module.time,
+                    "strftime",
+                    return_value="20260601T010203Z",
+                ),
+                patch.object(normalization_module.time, "gmtime", return_value=object()),
+            ):
+                result = run_normalization(state_file=state_file, apply=True, backup=True)
+
+            backup_file = (
+                backup_dir / "state-before-cashbox-normalization-20260601T010203Z-002.json"
+            )
+            self.assertEqual(existing_backup.read_text(encoding="utf-8"), "previous backup")
+            self.assertEqual(Path(result["backup"]["path"]), backup_file)
+            self.assertTrue(backup_file.exists())
 
 
 if __name__ == "__main__":

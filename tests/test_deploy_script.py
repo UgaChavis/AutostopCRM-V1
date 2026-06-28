@@ -19,8 +19,18 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn('if [[ -f "$ROOT_DIR/.env" ]]; then', script)
         self.assertLess(
             script.index('if [[ -f "$ROOT_DIR/.env" ]]; then'),
-            script.index('SMOKE_OPERATOR_USERNAME="${AUTOSTOP_SMOKE_OPERATOR_USERNAME'),
+            script.index('SMOKE_OPERATOR_USERNAME="${AUTOSTOP_SMOKE_OPERATOR_USERNAME:?'),
         )
+        self.assertIn(
+            'SMOKE_OPERATOR_USERNAME="${AUTOSTOP_SMOKE_OPERATOR_USERNAME:?set smoke username}"',
+            script,
+        )
+        self.assertIn(
+            'SMOKE_OPERATOR_PASSWORD="${AUTOSTOP_SMOKE_OPERATOR_PASSWORD:?set smoke password}"',
+            script,
+        )
+        self.assertNotIn("MINIMAL_KANBAN_DEFAULT_ADMIN_USERNAME:-admin", script)
+        self.assertNotIn("MINIMAL_KANBAN_DEFAULT_ADMIN_PASSWORD:-admin", script)
 
     def test_compose_declares_only_primary_crm_service(self) -> None:
         compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
@@ -53,7 +63,9 @@ class DeployScriptTests(unittest.TestCase):
             'DEPLOY_LOCK_PATH="${AUTOSTOP_DEPLOY_LOCK_PATH:-$ROOT_DIR/.autostop-deploy.lock}"',
             script,
         )
+        self.assertIn('exec {DEPLOY_LOCK_FD}>"$DEPLOY_LOCK_PATH"', script)
         self.assertIn('flock -n "$DEPLOY_LOCK_FD"', script)
+        self.assertNotIn("eval ", script)
 
     def test_deploy_lock_file_is_ignored(self) -> None:
         gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")

@@ -397,7 +397,7 @@
       if (removeRepairOrderRowButton) {
         removeRepairOrderRow(
           removeRepairOrderRowButton.dataset.removeRepairOrderRow,
-          Number(removeRepairOrderRowButton.dataset.rowIndex || '-1')
+          finiteNumber(removeRepairOrderRowButton.dataset.rowIndex, -1)
         );
         return;
       }
@@ -446,14 +446,6 @@
     document.addEventListener('pointerup', endStickyDrag);
     document.addEventListener('pointercancel', endStickyDrag);
 
-    /* Legacy pre-session operator listeners removed.
-      const actor = els.identityInput.value.trim().toUpperCase();
-      if (!actor) return setStatus('НУЖНО УКАЗАТЬ ИМЯ ОПЕРАТОРА.', true);
-      state.actor = actor;
-      sessionStorage.setItem('legacy-operator-unused', actor);
-      ensureActor();
-    });
-    */
     function remountElement(key) {
       const element = els[key];
       if (!element) return null;

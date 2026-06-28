@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "docs_audit.py"
@@ -39,7 +40,31 @@ class DocsAuditTests(unittest.TestCase):
         self.assertIn("!API_GUIDE.md", rules)
         self.assertIn("!MCP_GUIDE.md", rules)
         self.assertIn("!CHATGPT_CONNECTOR_SETUP.md", rules)
+        self.assertIn("!docs/OPERATIONS_RUNBOOK.md", rules)
         self.assertIn("!docs/SERVER_MAP.md", rules)
+
+    def test_docs_audit_detects_missing_dockerignore_canonical_markdown_keep_rule(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            (temp_root / ".dockerignore").write_text(
+                "*.md\n!README.md\n",
+                encoding="utf-8",
+            )
+
+            issues = module._check_dockerignore_keeps_canonical_markdown(temp_root)
+
+        self.assertEqual(
+            {
+                "Docker image excludes canonical documentation: !API_GUIDE.md",
+                "Docker image excludes canonical documentation: !CHATGPT_CONNECTOR_SETUP.md",
+                "Docker image excludes canonical documentation: !MCP_GUIDE.md",
+                "Docker image excludes canonical documentation: !docs/OPERATIONS_RUNBOOK.md",
+                "Docker image excludes canonical documentation: !docs/SERVER_MAP.md",
+            },
+            {issue.detail for issue in issues},
+        )
 
     def test_scan_forbidden_text_detects_stale_references(self) -> None:
         module = load_docs_audit_module()
@@ -50,6 +75,7 @@ class DocsAuditTests(unittest.TestCase):
             "and ssh -i ~/.ssh/codex_autostopcrm. "
             "Run AUTOSTOP_GIT_BRANCH=autostopcrm-v1 ./deploy.sh, "
             "--operator-username admin --operator-password admin, "
+            "SMOKE_OPERATOR_USERNAME=${AUTOSTOP_SMOKE_OPERATOR_USERNAME:-${MINIMAL_KANBAN_DEFAULT_ADMIN_USERNAME:-admin}}, "
             "and --site-url http://crm.autostopcrm.ru.",
             root=ROOT,
         )
@@ -350,6 +376,51 @@ class DocsAuditTests(unittest.TestCase):
             )
 
         self.assertEqual([], issues)
+
+    def test_load_json_rejects_non_standard_constants(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "catalog.json"
+            path.write_text('{"tool_count": NaN}', encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"):
+                module._load_json(path)
+
+    def test_load_json_rejects_deeply_nested_files(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "catalog.json"
+            path.write_text("[" * 5000 + "0" + "]" * 5000, encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "JSON is too deeply nested"):
+                module._load_json(path)
+
+    def test_read_text_rejects_oversized_files(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "huge.md"
+            path.write_text("x" * 16, encoding="utf-8")
+
+            with patch.object(module, "DOCS_AUDIT_TEXT_MAX_BYTES", 8):
+                with self.assertRaisesRegex(ValueError, "docs audit file is too large"):
+                    module._read_text(path)
+
+    def test_git_inventory_timeout_returns_empty_tracked_file_list(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            with patch.object(
+                module.subprocess,
+                "run",
+                side_effect=subprocess.TimeoutExpired(["git"], timeout=1),
+            ) as run:
+                self.assertEqual([], module._iter_git_tracked_files(temp_root))
+
+        self.assertIs(run.call_args.kwargs["stdin"], module.subprocess.DEVNULL)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import gzip
+import hmac
 import html
 import json
 import logging
+import math
 import re
 import socket
 import sys
@@ -32,6 +34,7 @@ from ..services.card_service import CardService
 from ..services.errors import ServiceError
 from ..services.shared_files_service import SharedFilesService
 from ..storage.json_store import StateFileCorruptedError
+from ..storage.limited_io import read_bytes_limited
 from ..system_clipboard import ClipboardUnavailableError, list_clipboard_file_paths
 from ..web_assets import BOARD_WEB_APP_HTML
 from .route_registry import (
@@ -57,6 +60,63 @@ QUIET_SUCCESS_ROUTES = frozenset(
 JSON_GZIP_MIN_BYTES = 1024
 MAX_JSON_BODY_BYTES = 25 * 1024 * 1024
 OVERSIZED_JSON_DRAIN_BYTES = 1024 * 1024
+API_FILE_RESPONSE_MAX_BYTES = 32 * 1024 * 1024
+STATIC_ASSET_MAX_BYTES = 1 * 1024 * 1024
+MAX_QUERY_STRING_BYTES = 16 * 1024
+MAX_QUERY_FIELDS = 128
+BOOLEAN_QUERY_KEYS = frozenset(
+    {
+        "allow_linked",
+        "compact",
+        "compact_groups",
+        "create_vehicle_from_card",
+        "dry_run",
+        "include_archive",
+        "include_archived",
+        "include_base64",
+        "include_full_details",
+        "include_markdown",
+        "include_removed",
+        "include_repair_order_text",
+        "include_stats",
+        "only_missing",
+        "only_stale",
+        "overwrite",
+        "overwrite_card_fields",
+        "redact_private",
+        "refresh_summary",
+        "sync_fields",
+        "sync_linked_cards",
+        "sync_vehicle_fields",
+    }
+)
+ACTIVE_INLINE_MIME_TYPES = frozenset(
+    {
+        "application/xhtml+xml",
+        "application/xml",
+        "image/svg+xml",
+        "text/html",
+        "text/xml",
+    }
+)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Non-standard JSON numeric constant: {value}")
+
+
+def _json_safe_value(value: object, *, depth: int = 8) -> object:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, str | bool | int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(key): _json_safe_value(item, depth=depth - 1) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
 
 
 def _json_response(
@@ -75,18 +135,102 @@ def _json_response(
             "timestamp": datetime.now(UTC).isoformat(),
         },
     }
-    return json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    return json.dumps(
+        _json_safe_value(payload),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
 
 
 def _success_log_level(route: str) -> int:
     return logging.DEBUG if route in QUIET_SUCCESS_ROUTES else logging.INFO
 
 
-def _shared_file_clipboard_position(value: object, *, default: int = 24) -> int:
+def _safe_request_target(value: object) -> str:
     try:
-        return max(0, int(float(str(value))))
-    except (TypeError, ValueError):
+        parsed = urlsplit(str(value or ""))
+    except ValueError:
+        return "<invalid-request-target>"
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?<redacted>"
+    if parsed.fragment:
+        path = f"{path}#<redacted>"
+    return path
+
+
+def _request_target_parts(value: object):
+    try:
+        return urlsplit(str(value or ""))
+    except ValueError:
+        return None
+
+
+def _origin_default_port(scheme: str) -> int | None:
+    if scheme == "http":
+        return 80
+    if scheme == "https":
+        return 443
+    return None
+
+
+def _same_host_cors_origin(origin: object, host: object) -> str:
+    raw_origin = str(origin or "").strip()
+    raw_host = str(host or "").strip()
+    if not raw_origin or not raw_host:
+        return ""
+    try:
+        origin_parts = urlsplit(raw_origin)
+        host_parts = urlsplit(f"//{raw_host}")
+    except ValueError:
+        return ""
+    scheme = origin_parts.scheme.lower()
+    if scheme not in {"http", "https"} or not origin_parts.netloc:
+        return ""
+    origin_host = (origin_parts.hostname or "").lower().rstrip(".")
+    request_host = (host_parts.hostname or "").lower().rstrip(".")
+    if not origin_host or origin_host != request_host:
+        return ""
+    default_port = _origin_default_port(scheme)
+    try:
+        origin_port = origin_parts.port or default_port
+        request_port = host_parts.port or default_port
+    except ValueError:
+        return ""
+    if origin_port != request_port:
+        return ""
+    return f"{scheme}://{origin_parts.netloc.lower()}"
+
+
+def _shared_file_clipboard_position(value: object, *, default: int = 24) -> int:
+    if isinstance(value, bool):
         return default
+    try:
+        parsed = float(str(value))
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if not math.isfinite(parsed) or not parsed.is_integer():
+        return default
+    if parsed > 100_000:
+        return 100_000
+    try:
+        return max(0, int(parsed))
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
+def _content_length_header(value: object) -> int | None:
+    text = "0" if value is None or value == "" else str(value).strip()
+    if not text:
+        return 0
+    sign = -1 if text.startswith("-") else 1
+    digits = text[1:] if text[:1] in {"+", "-"} else text
+    if not digits.isdecimal():
+        return None
+    max_digits = len(str(MAX_JSON_BODY_BYTES))
+    if len(digits) > max_digits:
+        return sign * (MAX_JSON_BODY_BYTES + 1)
+    return sign * int(digits)
 
 
 def _ascii_download_name(file_name: str, *, fallback: str = "attachment") -> str:
@@ -107,9 +251,35 @@ def _content_disposition_header(file_name: str, *, disposition: str) -> str:
     )
 
 
+def _is_active_inline_mime_type(value: object) -> bool:
+    mime_type = str(value or "").split(";", 1)[0].strip().lower()
+    return mime_type in ACTIVE_INLINE_MIME_TYPES or mime_type.endswith("+xml")
+
+
+def _shared_file_response_metadata(
+    file_meta: dict[str, object], *, disposition: str
+) -> tuple[str, str]:
+    content_type = str(file_meta.get("mime_type") or "application/octet-stream")
+    if disposition == "inline" and _is_active_inline_mime_type(content_type):
+        return "attachment", "application/octet-stream"
+    return disposition, content_type
+
+
+def _read_bounded_file_response(path: Path) -> bytes:
+    return read_bytes_limited(
+        path,
+        max_bytes=API_FILE_RESPONSE_MAX_BYTES,
+        label="API file response",
+    )
+
+
 @cache
 def _static_asset_bytes(file_name: str) -> bytes:
-    return (STATIC_DIR / file_name).read_bytes()
+    return read_bytes_limited(
+        STATIC_DIR / file_name,
+        max_bytes=STATIC_ASSET_MAX_BYTES,
+        label="static asset",
+    )
 
 
 @cache
@@ -479,12 +649,20 @@ class ApiServer:
             sys_version = ""
 
             def do_OPTIONS(self) -> None:
+                if self.headers.get("Origin") and not self._cors_allowed_origin():
+                    self.send_response(HTTPStatus.FORBIDDEN)
+                    self._send_headers("application/json", 0)
+                    return
                 self.send_response(HTTPStatus.NO_CONTENT)
                 self._send_headers("application/json", 0)
 
             def do_HEAD(self) -> None:
                 request_id = str(uuid.uuid4())
-                parsed = urlsplit(self.path)
+                parsed = _request_target_parts(self.path)
+                if parsed is None:
+                    self.send_response(HTTPStatus.BAD_REQUEST)
+                    self._send_headers("application/json", 0)
+                    return
                 route = parsed.path
                 if route in {"/", "/index.html"}:
                     body = _board_html_bytes()
@@ -528,9 +706,23 @@ class ApiServer:
 
             def do_GET(self) -> None:
                 request_id = str(uuid.uuid4())
-                parsed = urlsplit(self.path)
+                parsed = _request_target_parts(self.path)
+                if parsed is None:
+                    self._send_error_response(
+                        request_id,
+                        HTTPStatus.BAD_REQUEST,
+                        "validation_error",
+                        "Адрес запроса имеет некорректный формат.",
+                    )
+                    return
                 route = parsed.path
-                query = self._query_payload(parsed.query)
+                try:
+                    query = self._query_payload(parsed.query)
+                except ServiceError as exc:
+                    self._send_error_response(
+                        request_id, exc.status_code, exc.code, exc.message, exc.details
+                    )
+                    return
                 if route in {"/", "/index.html"}:
                     self._serve_board(request_id)
                     return
@@ -650,18 +842,34 @@ class ApiServer:
 
             def do_POST(self) -> None:
                 request_id = str(uuid.uuid4())
-                route = urlsplit(self.path).path
+                parsed = _request_target_parts(self.path)
+                if parsed is None:
+                    self._send_error_response(
+                        request_id,
+                        HTTPStatus.BAD_REQUEST,
+                        "validation_error",
+                        "Адрес запроса имеет некорректный формат.",
+                    )
+                    return
+                route = parsed.path
                 if route not in self.ROUTES:
                     self._not_found(request_id)
                     return
-                try:
-                    content_length = int(self.headers.get("Content-Length", "0") or "0")
-                except ValueError:
+                content_length = _content_length_header(self.headers.get("Content-Length", "0"))
+                if content_length is None:
                     self._send_error_response(
                         request_id,
                         HTTPStatus.BAD_REQUEST,
                         "validation_error",
                         "Заголовок Content-Length имеет некорректное значение.",
+                    )
+                    return
+                if content_length < 0:
+                    self._send_error_response(
+                        request_id,
+                        HTTPStatus.BAD_REQUEST,
+                        "validation_error",
+                        "Заголовок Content-Length не может быть отрицательным.",
                     )
                     return
                 if content_length > MAX_JSON_BODY_BYTES:
@@ -683,8 +891,11 @@ class ApiServer:
                     return
                 raw_body = self.rfile.read(content_length) if content_length > 0 else b"{}"
                 try:
-                    payload = json.loads(raw_body.decode("utf-8") or "{}")
-                except json.JSONDecodeError:
+                    payload = json.loads(
+                        raw_body.decode("utf-8") or "{}",
+                        parse_constant=_reject_json_constant,
+                    )
+                except (UnicodeDecodeError, ValueError, RecursionError):
                     self._send_error_response(
                         request_id,
                         HTTPStatus.BAD_REQUEST,
@@ -714,16 +925,48 @@ class ApiServer:
                     remaining -= len(chunk)
 
             def _query_payload(self, query_string: str) -> dict:
-                parsed = parse_qs(query_string, keep_blank_values=True)
+                query_size_bytes = len(query_string.encode("utf-8", errors="surrogatepass"))
+                if query_size_bytes > MAX_QUERY_STRING_BYTES:
+                    raise ServiceError(
+                        "request_too_large",
+                        "Строка запроса превышает допустимый лимит.",
+                        status_code=HTTPStatus.REQUEST_URI_TOO_LONG,
+                        details={
+                            "max_size_bytes": MAX_QUERY_STRING_BYTES,
+                            "query_size_bytes": query_size_bytes,
+                        },
+                    )
+                try:
+                    parsed = parse_qs(
+                        query_string,
+                        keep_blank_values=True,
+                        max_num_fields=MAX_QUERY_FIELDS,
+                    )
+                except ValueError as exc:
+                    raise ServiceError(
+                        "request_too_large",
+                        "Строка запроса содержит слишком много параметров.",
+                        status_code=HTTPStatus.REQUEST_URI_TOO_LONG,
+                        details={"max_fields": MAX_QUERY_FIELDS},
+                    ) from exc
                 payload: dict[str, object] = {}
                 for key, values in parsed.items():
                     if not values:
                         continue
                     value = values[-1]
+                    if key == "access_token":
+                        payload[key] = value
+                        continue
                     lowered = value.lower()
-                    if lowered in {"true", "1", "yes", "y"}:
+                    if key in BOOLEAN_QUERY_KEYS and lowered in {"true", "1", "yes", "y", "on"}:
                         payload[key] = True
-                    elif lowered in {"false", "0", "no", "n"}:
+                    elif key in BOOLEAN_QUERY_KEYS and lowered in {
+                        "false",
+                        "0",
+                        "no",
+                        "n",
+                        "off",
+                    }:
                         payload[key] = False
                     else:
                         payload[key] = value
@@ -749,7 +992,7 @@ class ApiServer:
                         str(payload.get("card_id", "")),
                         str(payload.get("attachment_id", "")),
                     )
-                    body = path.read_bytes()
+                    body = _read_bounded_file_response(path)
                     self._send_bytes_response(
                         body,
                         content_type=attachment.mime_type or "application/octet-stream",
@@ -774,21 +1017,32 @@ class ApiServer:
                         "not_found",
                         "Файл не найден на диске.",
                     )
+                except ValueError:
+                    self._send_error_response(
+                        request_id,
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                        "validation_error",
+                        "Файл слишком большой для скачивания через API.",
+                    )
 
             def _serve_shared_file(self, request_id: str, payload: dict) -> None:
                 try:
                     path, file_meta = shared_files_service.get_shared_file_download(
                         str(payload.get("file_id", ""))
                     )
-                    body = path.read_bytes()
+                    body = _read_bounded_file_response(path)
                     disposition = (
                         "inline"
                         if str(payload.get("disposition", "")).strip().lower() == "inline"
                         else "attachment"
                     )
+                    disposition, content_type = _shared_file_response_metadata(
+                        file_meta,
+                        disposition=disposition,
+                    )
                     self._send_bytes_response(
                         body,
-                        content_type=str(file_meta.get("mime_type") or "application/octet-stream"),
+                        content_type=content_type,
                         request_id=request_id,
                         route=urlsplit(self.path).path,
                         extra_headers={
@@ -810,13 +1064,20 @@ class ApiServer:
                         "not_found",
                         "Файл не найден на диске.",
                     )
+                except ValueError:
+                    self._send_error_response(
+                        request_id,
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                        "validation_error",
+                        "Файл слишком большой для скачивания через API.",
+                    )
 
             def _serve_repair_order_text(self, request_id: str, payload: dict) -> None:
                 try:
                     path, file_name = service.get_repair_order_text_download(
                         str(payload.get("card_id", ""))
                     )
-                    body = path.read_bytes()
+                    body = _read_bounded_file_response(path)
                     self._send_bytes_response(
                         body,
                         content_type="text/plain; charset=utf-8",
@@ -841,18 +1102,33 @@ class ApiServer:
                         "not_found",
                         "Файл заказ-наряда не найден на диске.",
                     )
+                except ValueError:
+                    self._send_error_response(
+                        request_id,
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                        "validation_error",
+                        "Файл заказ-наряда слишком большой для скачивания через API.",
+                    )
 
             def _authenticate(self, request_id: str, query: dict | None = None) -> bool:
                 if not bearer_token:
                     return True
                 auth_header = self.headers.get("Authorization", "")
-                if auth_header == f"Bearer {bearer_token}":
+                if hmac.compare_digest(auth_header, f"Bearer {bearer_token}"):
                     return True
-                query_payload = (
-                    query if query is not None else self._query_payload(urlsplit(self.path).query)
-                )
-                access_token = str(query_payload.get("access_token", "") or "").strip()
-                if access_token == bearer_token:
+                try:
+                    query_payload = (
+                        query
+                        if query is not None
+                        else self._query_payload(urlsplit(self.path).query)
+                    )
+                    access_token = str(query_payload.get("access_token", "") or "").strip()
+                except ServiceError as exc:
+                    self._send_error_response(
+                        request_id, exc.status_code, exc.code, exc.message, exc.details
+                    )
+                    return False
+                if hmac.compare_digest(access_token, bearer_token):
                     return True
                 self._send_error_response(
                     request_id,
@@ -1019,14 +1295,14 @@ class ApiServer:
                     )
                     self._write_body(
                         response_body,
-                        route=self.path,
+                        route=_safe_request_target(self.path),
                         request_id=request_id,
                         status_code=status_code,
                     )
                 except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                     logger.warning(
                         "api_client_disconnected route=%s request_id=%s status=%s",
-                        self.path,
+                        _safe_request_target(self.path),
                         request_id,
                         status_code,
                     )
@@ -1071,7 +1347,7 @@ class ApiServer:
                     HTTPStatus.NOT_FOUND,
                     "not_found",
                     "Указанный маршрут API не найден.",
-                    {"path": self.path},
+                    {"path": _safe_request_target(self.path)},
                 )
 
             def _send_headers(
@@ -1087,16 +1363,28 @@ class ApiServer:
                 self.send_header("Cache-Control", cache_control)
                 self.send_header("Connection", "close")
                 self.close_connection = True
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.send_header(
-                    "Access-Control-Allow-Headers",
-                    "Content-Type, Authorization, X-Operator-Session",
-                )
-                self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+                provided_headers = {key.casefold() for key in (extra_headers or {})}
+                if "x-content-type-options" not in provided_headers:
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                cors_origin = self._cors_allowed_origin()
+                if cors_origin and "access-control-allow-origin" not in provided_headers:
+                    self.send_header("Access-Control-Allow-Origin", cors_origin)
+                    self.send_header("Vary", "Origin")
+                    self.send_header(
+                        "Access-Control-Allow-Headers",
+                        "Content-Type, Authorization, X-Operator-Session",
+                    )
+                    self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
                 for header, value in (extra_headers or {}).items():
                     if value:
                         self.send_header(header, value)
                 self.end_headers()
+
+            def _cors_allowed_origin(self) -> str:
+                return _same_host_cors_origin(
+                    self.headers.get("Origin", ""),
+                    self.headers.get("Host", ""),
+                )
 
             def _prepare_response_body(
                 self,

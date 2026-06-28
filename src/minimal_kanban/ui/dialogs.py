@@ -73,7 +73,7 @@ class CardDialog(QDialog):
         initial_hours = default_hours
         if initial:
             initial_days, initial_hours = split_seconds_to_days_hours(
-                int(initial.get("remaining_seconds", 0))
+                initial.get("remaining_seconds", 0)
             )
         self._initial_deadline = (initial_days, initial_hours)
         self._is_edit = is_edit

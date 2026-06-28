@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import re
 import urllib.error
 import urllib.parse
@@ -13,6 +14,69 @@ from ..config import get_api_port, get_api_port_fallback_limit
 
 class BoardApiTransportError(RuntimeError):
     pass
+
+
+def _normalize_timeout_seconds(value: object, *, default: float = 10.0) -> float:
+    if isinstance(value, bool):
+        value = default
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError):
+        numeric = default
+    if not math.isfinite(numeric) or numeric <= 0:
+        numeric = default
+    return min(max(numeric, 0.1), 60.0)
+
+
+def _normalize_int(
+    value: object,
+    *,
+    default: int,
+    minimum: int = 0,
+    maximum: int | None = None,
+) -> int:
+    if isinstance(value, bool):
+        value = default
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError):
+        numeric = float(default)
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        numeric = float(default)
+    if numeric < minimum:
+        return minimum
+    if maximum is not None and numeric > maximum:
+        return maximum
+    normalized = int(numeric)
+    return normalized
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Non-standard JSON numeric constant: {value}")
+
+
+def _authorization_bearer_header(token: str | None) -> str | None:
+    normalized = str(token or "").strip()
+    if not normalized:
+        return None
+    if "\r" in normalized or "\n" in normalized:
+        raise BoardApiTransportError("Некорректный bearer token локального API.")
+    return f"Bearer {normalized}"
+
+
+_MAX_API_RESPONSE_BYTES = 32 * 1024 * 1024
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+
+
+def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float):
+    return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
 
 
 SUPPORTED_PRINT_DOCUMENT_TYPES = {
@@ -159,7 +223,7 @@ class BoardApiClient:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self._bearer_token = bearer_token
-        self._timeout_seconds = timeout_seconds
+        self._timeout_seconds = _normalize_timeout_seconds(timeout_seconds)
         self._logger = logger
         self._default_source = default_source
 
@@ -243,9 +307,13 @@ class BoardApiClient:
                 "card_id": card_id,
                 "attachment_id": attachment_id,
                 "mode": mode,
-                "max_chars": max_chars,
+                "max_chars": _normalize_int(max_chars, default=12_000, minimum=1, maximum=50_000),
                 "include_base64": include_base64,
-                "max_base64_bytes": max_base64_bytes,
+                "max_base64_bytes": _normalize_int(
+                    max_base64_bytes,
+                    default=1_048_576,
+                    maximum=4_194_304,
+                ),
             },
         )
 
@@ -296,7 +364,11 @@ class BoardApiClient:
             {
                 "file_id": file_id,
                 "include_base64": include_base64,
-                "max_base64_bytes": max_base64_bytes,
+                "max_base64_bytes": _normalize_int(
+                    max_base64_bytes,
+                    default=2_097_152,
+                    maximum=8_388_608,
+                ),
             },
         )
 
@@ -669,9 +741,13 @@ class BoardApiClient:
     ) -> dict:
         payload: dict[str, object] = {"cashbox_id": cashbox_id}
         if transaction_limit is not None:
-            payload["transaction_limit"] = transaction_limit
+            payload["transaction_limit"] = _normalize_int(
+                transaction_limit, default=300, minimum=1, maximum=5000
+            )
         if transaction_offset is not None:
-            payload["transaction_offset"] = transaction_offset
+            payload["transaction_offset"] = _normalize_int(
+                transaction_offset, default=0, maximum=1_000_000
+            )
         return self._request("/api/get_cashbox", payload)
 
     def create_cashbox(self, name: str, *, actor_name: str | None = None) -> dict:
@@ -1345,14 +1421,17 @@ class BoardApiClient:
         if not isinstance(deadline, dict):
             return {"days": 1, "hours": 0, "minutes": 0, "seconds": 0}
         normalized = {
-            "days": int(deadline.get("days", 0) or 0),
-            "hours": int(deadline.get("hours", 0) or 0),
-            "minutes": int(deadline.get("minutes", 0) or 0),
-            "seconds": int(deadline.get("seconds", 0) or 0),
+            "days": self._normalize_deadline_part(deadline.get("days"), maximum=365),
+            "hours": self._normalize_deadline_part(deadline.get("hours"), maximum=23),
+            "minutes": self._normalize_deadline_part(deadline.get("minutes"), maximum=59),
+            "seconds": self._normalize_deadline_part(deadline.get("seconds"), maximum=59),
         }
         if not any(normalized.values()):
             return {"days": 1, "hours": 0, "minutes": 0, "seconds": 0}
         return normalized
+
+    def _normalize_deadline_part(self, value: object, *, maximum: int) -> int:
+        return _normalize_int(value, default=0, maximum=maximum)
 
     def _request(
         self,
@@ -1364,24 +1443,40 @@ class BoardApiClient:
     ) -> dict:
         data = None
         if payload is not None:
-            data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            try:
+                data = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            except (OverflowError, TypeError, ValueError) as exc:
+                message = f"Нельзя сериализовать JSON payload для {path}."
+                raise BoardApiTransportError(message) from exc
         headers = {"Content-Type": "application/json"}
-        if self._bearer_token:
-            headers["Authorization"] = f"Bearer {self._bearer_token}"
-        request = urllib.request.Request(
-            self._compose_url(path),
-            data=data,
-            headers=headers,
-            method=method,
-        )
+        authorization_header = _authorization_bearer_header(self._bearer_token)
+        if authorization_header:
+            headers["Authorization"] = authorization_header
         try:
-            with urllib.request.urlopen(request, timeout=self._timeout_seconds) as response:
-                parsed = self._parse_json_payload(response.read(), path=path)
+            request = urllib.request.Request(
+                self._compose_url(path),
+                data=data,
+                headers=headers,
+                method=method,
+            )
+        except (TypeError, ValueError) as exc:
+            message = f"Некорректный URL локального API для {path}."
+            raise BoardApiTransportError(message) from exc
+        try:
+            with _urlopen_no_redirect(request, timeout=self._timeout_seconds) as response:
+                parsed = self._parse_json_payload(
+                    self._read_response_body(response, path=path), path=path
+                )
                 self._log("board_api_request path=%s status=%s", path, response.status)
                 return parsed
         except urllib.error.HTTPError as exc:
+            if 300 <= exc.code < 400:
+                message = f"Локальный API вернул перенаправление для {path}."
+                raise BoardApiTransportError(message) from exc
             try:
-                payload = self._parse_json_payload(exc.read(), path=path)
+                payload = self._parse_json_payload(
+                    self._read_response_body(exc, path=path), path=path
+                )
                 self._log(
                     "board_api_request path=%s status=%s error=%s",
                     path,
@@ -1391,20 +1486,30 @@ class BoardApiClient:
                 return payload
             finally:
                 exc.close()
-        except (urllib.error.URLError, TimeoutError) as exc:
+        except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
             if str(method or "POST").strip().upper() == "GET" and _allow_retry:
                 self._log("board_api_request path=%s retry_after_transport_error=%s", path, exc)
                 return self._request(path, payload, method=method, _allow_retry=False)
             message = f"Не удалось подключиться к локальному API по адресу {self.base_url}."
             raise BoardApiTransportError(message) from exc
 
+    def _read_response_body(self, response, *, path: str) -> bytes:
+        raw = response.read(_MAX_API_RESPONSE_BYTES + 1)
+        if len(raw) > _MAX_API_RESPONSE_BYTES:
+            message = f"Локальный API вернул слишком большой JSON для {path}."
+            raise BoardApiTransportError(message)
+        return raw
+
     def _parse_json_payload(self, raw: bytes, *, path: str) -> dict:
         try:
             decoded = raw.decode("utf-8")
-            parsed = json.loads(decoded)
-        except (UnicodeDecodeError, json.JSONDecodeError) as parse_error:
+            parsed = json.loads(decoded, parse_constant=_reject_json_constant)
+        except (UnicodeDecodeError, ValueError, RecursionError) as parse_error:
             message = f"Локальный API вернул некорректный JSON для {path}."
             raise BoardApiTransportError(message) from parse_error
+        if not isinstance(parsed, dict):
+            message = f"Локальный API вернул JSON не-объект для {path}."
+            raise BoardApiTransportError(message)
         return parsed
 
     def _log(self, message: str, *args) -> None:

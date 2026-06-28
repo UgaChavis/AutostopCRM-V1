@@ -1,7 +1,49 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
+
+
+def _safe_confidence(value: Any) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    if not math.isfinite(parsed):
+        return 0.0
+    return round(max(0.0, min(1.0, parsed)), 2)
+
+
+def _safe_dict(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _safe_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _safe_text_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw_items: list[Any] = [value]
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        return []
+    items: list[str] = []
+    for raw in raw_items:
+        text = _safe_text(raw)
+        if text:
+            items.append(text)
+    return items
+
+
+def _safe_dict_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
 
 
 @dataclass(frozen=True)
@@ -16,13 +58,13 @@ class FactEvidence:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "name": self.name,
+            "name": _safe_text(self.name),
             "value": self.value,
             "status": str(self.status or "absent"),
             "source": str(self.source or "unknown"),
-            "confidence": float(self.confidence),
-            "conflicts": list(self.conflicts),
-            "notes": list(self.notes),
+            "confidence": _safe_confidence(self.confidence),
+            "conflicts": _safe_text_list(self.conflicts),
+            "notes": _safe_text_list(self.notes),
         }
 
 
@@ -40,28 +82,30 @@ class EvidenceResult:
     raw_context_ref: str = ""
 
     def to_dict(self) -> dict[str, Any]:
+        fact_evidence = _safe_dict(self.fact_evidence)
+        scenario_signals = _safe_dict(self.scenario_signals)
         return {
-            "context_kind": self.context_kind,
-            "card_id": self.card_id,
-            "confirmed_facts": dict(self.confirmed_facts),
+            "context_kind": _safe_text(self.context_kind),
+            "card_id": _safe_text(self.card_id),
+            "confirmed_facts": _safe_dict(self.confirmed_facts),
             "fact_evidence": {
                 str(name): value.to_dict()
-                for name, value in self.fact_evidence.items()
+                for name, value in fact_evidence.items()
                 if isinstance(value, FactEvidence)
             },
-            "missing_data": list(self.missing_data),
+            "missing_data": _safe_text_list(self.missing_data),
             "scenario_signals": {
                 str(name): {
                     "trigger_found": bool(signal.get("trigger_found")),
                     "confidence_enough": bool(signal.get("confidence_enough")),
                 }
-                for name, signal in self.scenario_signals.items()
+                for name, signal in scenario_signals.items()
                 if isinstance(signal, dict)
             },
-            "sensitive_fields": list(self.sensitive_fields),
-            "allowed_write_targets": list(self.allowed_write_targets),
-            "summary": self.summary,
-            "raw_context_ref": self.raw_context_ref,
+            "sensitive_fields": _safe_text_list(self.sensitive_fields),
+            "allowed_write_targets": _safe_text_list(self.allowed_write_targets),
+            "summary": _safe_text(self.summary),
+            "raw_context_ref": _safe_text(self.raw_context_ref),
         }
 
 
@@ -84,20 +128,20 @@ class PlanResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "scenario_id": self.scenario_id,
-            "scenario_chain": list(self.scenario_chain),
-            "execution_mode": self.execution_mode,
-            "needs_external_tools": self.needs_external_tools,
-            "required_tools": list(self.required_tools),
-            "optional_tools": list(self.optional_tools),
-            "tool_order": list(self.tool_order),
-            "allowed_write_targets": list(self.allowed_write_targets),
-            "forbidden_write_targets": list(self.forbidden_write_targets),
-            "stop_conditions": list(self.stop_conditions),
-            "followup_policy": dict(self.followup_policy),
-            "confidence_mode": self.confidence_mode,
-            "write_mode": self.write_mode,
-            "notes": list(self.notes),
+            "scenario_id": _safe_text(self.scenario_id),
+            "scenario_chain": _safe_text_list(self.scenario_chain),
+            "execution_mode": _safe_text(self.execution_mode),
+            "needs_external_tools": bool(self.needs_external_tools),
+            "required_tools": _safe_text_list(self.required_tools),
+            "optional_tools": _safe_text_list(self.optional_tools),
+            "tool_order": _safe_text_list(self.tool_order),
+            "allowed_write_targets": _safe_text_list(self.allowed_write_targets),
+            "forbidden_write_targets": _safe_text_list(self.forbidden_write_targets),
+            "stop_conditions": _safe_text_list(self.stop_conditions),
+            "followup_policy": _safe_dict(self.followup_policy),
+            "confidence_mode": _safe_text(self.confidence_mode),
+            "write_mode": _safe_text(self.write_mode),
+            "notes": _safe_text_list(self.notes),
         }
 
 
@@ -114,14 +158,14 @@ class ToolResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "tool_name": self.tool_name,
-            "status": self.status,
-            "source_type": self.source_type,
-            "confidence": float(self.confidence),
-            "data": dict(self.data),
-            "raw_ref": self.raw_ref,
-            "evidence_ref": self.evidence_ref,
-            "reason": self.reason,
+            "tool_name": _safe_text(self.tool_name),
+            "status": _safe_text(self.status),
+            "source_type": _safe_text(self.source_type),
+            "confidence": _safe_confidence(self.confidence),
+            "data": _safe_dict(self.data),
+            "raw_ref": _safe_text(self.raw_ref),
+            "evidence_ref": _safe_text(self.evidence_ref),
+            "reason": _safe_text(self.reason),
         }
 
 
@@ -148,16 +192,12 @@ class PatchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "card_patch": dict(self.card_patch),
-            "repair_order_patch": dict(self.repair_order_patch),
-            "repair_order_works": [
-                dict(item) for item in self.repair_order_works if isinstance(item, dict)
-            ],
-            "repair_order_materials": [
-                dict(item) for item in self.repair_order_materials if isinstance(item, dict)
-            ],
-            "append_only_notes": list(self.append_only_notes),
-            "warnings": list(self.warnings),
+            "card_patch": _safe_dict(self.card_patch),
+            "repair_order_patch": _safe_dict(self.repair_order_patch),
+            "repair_order_works": _safe_dict_list(self.repair_order_works),
+            "repair_order_materials": _safe_dict_list(self.repair_order_materials),
+            "append_only_notes": _safe_text_list(self.append_only_notes),
+            "warnings": _safe_text_list(self.warnings),
             "human_review_needed": bool(self.human_review_needed),
         }
 
@@ -177,14 +217,14 @@ class VerifyResult:
     def to_dict(self) -> dict[str, Any]:
         return {
             "applied_ok": bool(self.applied_ok),
-            "fields_changed": list(self.fields_changed),
+            "fields_changed": _safe_text_list(self.fields_changed),
             "manual_fields_preserved": bool(self.manual_fields_preserved),
             "scenario_completed": bool(self.scenario_completed),
             "needs_followup": bool(self.needs_followup),
-            "outcome_state": self.outcome_state,
-            "warnings": list(self.warnings),
-            "context_ref": self.context_ref,
-            "followup_reason": self.followup_reason,
+            "outcome_state": _safe_text(self.outcome_state),
+            "warnings": _safe_text_list(self.warnings),
+            "context_ref": _safe_text(self.context_ref),
+            "followup_reason": _safe_text(self.followup_reason),
         }
 
 
@@ -201,16 +241,17 @@ class OrchestrationTrace:
     verify: VerifyResult = field(default_factory=lambda: VerifyResult(applied_ok=False))
 
     def to_dict(self) -> dict[str, Any]:
+        tool_results = self.tool_results if isinstance(self.tool_results, list) else []
         return {
-            "version": self.version,
-            "trigger": dict(self.trigger),
-            "context_snapshot_id": self.context_snapshot_id,
+            "version": _safe_text(self.version),
+            "trigger": _safe_dict(self.trigger),
+            "context_snapshot_id": _safe_text(self.context_snapshot_id),
             "evidence": self.evidence.to_dict(),
             "plan": self.plan.to_dict(),
-            "scenario_feedback": [
-                dict(item) for item in self.scenario_feedback if isinstance(item, dict)
+            "scenario_feedback": _safe_dict_list(self.scenario_feedback),
+            "tool_results": [
+                item.to_dict() for item in tool_results if isinstance(item, ToolResult)
             ],
-            "tool_results": [item.to_dict() for item in self.tool_results],
             "patch": self.patch.to_dict(),
             "verify": self.verify.to_dict(),
         }

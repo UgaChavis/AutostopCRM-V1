@@ -31,13 +31,17 @@ from .services.card_service import CardService
 from .services.errors import ServiceError
 from .storage.file_lock import ProcessFileLock
 from .storage.json_store import JsonStore
+from .storage.limited_io import read_text_limited
 
 USER_ROLE_VALUES = frozenset({"operator", "admin"})
+OPERATOR_AUTH_STATE_MAX_BYTES = 1 * 1024 * 1024
 PASSWORD_MIN_LENGTH = 4
 PASSWORD_HASH_ITERATIONS = 200_000
+PASSWORD_HASH_MAX_ITERATIONS = 1_000_000
 SESSION_TTL_DAYS = 30
 STATS_WINDOW_DAYS = 15
 OPEN_COUNT_KEY = "cards_opened"
+OPERATOR_STAT_MAX = 1_000_000_000
 ACTION_HISTORY_KEY = "action_history"
 ACTION_HISTORY_RETENTION_DAYS = 15
 LEGACY_DEFAULT_ADMIN_PASSWORDS = ("admin123",)
@@ -71,10 +75,20 @@ def _password_hash(password: str, *, salt: str | None = None) -> str:
 def _verify_password(password: str, password_hash: str) -> bool:
     try:
         algorithm, raw_iterations, salt, expected = password_hash.split("$", 3)
+        if not raw_iterations.isdecimal() or len(raw_iterations) > len(
+            str(PASSWORD_HASH_MAX_ITERATIONS)
+        ):
+            return False
         iterations = int(raw_iterations)
-    except ValueError:
+    except (OverflowError, ValueError):
         return False
-    if algorithm != "pbkdf2_sha256" or iterations < 1 or not salt or not expected:
+    if (
+        algorithm != "pbkdf2_sha256"
+        or iterations < 1
+        or iterations > PASSWORD_HASH_MAX_ITERATIONS
+        or not salt
+        or not expected
+    ):
         return False
     actual = hashlib.pbkdf2_hmac(
         "sha256",
@@ -87,6 +101,10 @@ def _verify_password(password: str, password_hash: str) -> bool:
 
 def _truthy_env(name: str) -> bool:
     return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
 
 
 class OperatorAuthService:
@@ -227,7 +245,7 @@ class OperatorAuthService:
         return {"users": rows, "meta": {"total": len(rows)}}
 
     def save_user(self, payload: dict | None = None) -> dict:
-        self._required_admin_session(payload)
+        session = self._required_admin_session(payload)
         payload = payload or {}
         username = self._validated_username(payload.get("username"))
         password = self._validated_password(payload.get("password"))
@@ -258,10 +276,22 @@ class OperatorAuthService:
                     existing["stats"] = {OPEN_COUNT_KEY: 0}
                 if not isinstance(existing.get(ACTION_HISTORY_KEY), list):
                     existing[ACTION_HISTORY_KEY] = []
+                current_session_token = (
+                    str(session.get("token") or "") if session["username"] == username else ""
+                )
+                state["sessions"] = [
+                    item
+                    for item in state["sessions"]
+                    if item.get("username") != username
+                    or (
+                        current_session_token
+                        and hmac.compare_digest(str(item.get("token") or ""), current_session_token)
+                    )
+                ]
             self._write_state(state)
             snapshot = deepcopy(existing)
         self._record_activity_safe(
-            username=self._required_admin_session(payload)["username"],
+            username=session["username"],
             module="admin",
             action="operator_user_saved",
             action_label="Сохранил пользователя",
@@ -482,7 +512,7 @@ class OperatorAuthService:
         with self._lock:
             state = self._read_normalized_state()
             for item in state["sessions"]:
-                if item.get("token") != raw_token:
+                if not hmac.compare_digest(str(item.get("token") or ""), raw_token):
                     continue
                 user = self._find_user(state["users"], item.get("username"))
                 if user is None:
@@ -528,7 +558,16 @@ class OperatorAuthService:
                 return
             if counter_key:
                 stats = user.setdefault("stats", {})
-                stats[counter_key] = normalize_int(stats.get(counter_key), default=0, minimum=0) + 1
+                stats[counter_key] = min(
+                    OPERATOR_STAT_MAX,
+                    normalize_int(
+                        stats.get(counter_key),
+                        default=0,
+                        minimum=0,
+                        maximum=OPERATOR_STAT_MAX,
+                    )
+                    + 1,
+                )
             history = self._prune_action_history(user.get(ACTION_HISTORY_KEY))
             history.append(
                 {
@@ -797,7 +836,16 @@ class OperatorAuthService:
                 "attachments_removed",
                 "board_actions_total",
             ):
-                stats[key] += normalize_int(event_stats.get(key), default=0, minimum=0)
+                stats[key] = min(
+                    OPERATOR_STAT_MAX,
+                    stats[key]
+                    + normalize_int(
+                        event_stats.get(key),
+                        default=0,
+                        minimum=0,
+                        maximum=OPERATOR_STAT_MAX,
+                    ),
+                )
             action_entries.extend(event_activity.get("actions") or [])
         action_entries = self._sort_action_entries(action_entries, reverse=True)
         recent_actions = action_entries[:12]
@@ -1101,16 +1149,22 @@ class OperatorAuthService:
             return state
         changed = False
         try:
-            payload = json.loads(self._users_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+            payload = json.loads(
+                self._read_users_text(),
+                parse_constant=_reject_json_constant,
+            )
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError, ValueError, RecursionError):
             backup = self._corrupted_users_backup_path()
             self._users_file.replace(backup)
             state = self._bootstrap_state()
             self._write_state(state)
             return state
         if not isinstance(payload, dict):
-            payload = {}
-            changed = True
+            backup = self._corrupted_users_backup_path()
+            self._users_file.replace(backup)
+            state = self._bootstrap_state()
+            self._write_state(state)
+            return state
         raw_users = payload.get("users")
         raw_sessions = payload.get("sessions")
         users = self._normalize_users(raw_users)
@@ -1136,6 +1190,19 @@ class OperatorAuthService:
         if changed or payload.get("schema_version") != 1:
             self._write_state(state)
         return state
+
+    def _read_users_text(self) -> str:
+        return read_text_limited(
+            self._users_file,
+            max_bytes=OPERATOR_AUTH_STATE_MAX_BYTES,
+            label="operator users file",
+        )
+
+    def _state_payload_text(self, state: dict[str, Any]) -> str:
+        payload = json.dumps(state, ensure_ascii=False, indent=2, allow_nan=False)
+        if len(payload.encode("utf-8")) > OPERATOR_AUTH_STATE_MAX_BYTES:
+            raise ValueError("operator users file is too large")
+        return payload
 
     def _normalize_users(self, raw_users) -> list[dict[str, Any]]:
         if not isinstance(raw_users, list):
@@ -1171,7 +1238,10 @@ class OperatorAuthService:
                     "employee_id": employee_id,
                     "stats": {
                         OPEN_COUNT_KEY: normalize_int(
-                            (stats or {}).get(OPEN_COUNT_KEY), default=0, minimum=0
+                            (stats or {}).get(OPEN_COUNT_KEY),
+                            default=0,
+                            minimum=0,
+                            maximum=OPERATOR_STAT_MAX,
                         )
                     },
                     ACTION_HISTORY_KEY: self._prune_action_history(item.get(ACTION_HISTORY_KEY)),
@@ -1215,10 +1285,15 @@ class OperatorAuthService:
         return normalized
 
     def _write_state(self, state: dict[str, Any]) -> None:
-        payload = json.dumps(state, ensure_ascii=False, indent=2)
-        temp_file = self._users_file.with_suffix(".tmp")
-        temp_file.write_text(payload, encoding="utf-8")
-        temp_file.replace(self._users_file)
+        payload = self._state_payload_text(state)
+        temp_file = self._users_file.with_name(
+            f".{self._users_file.name}.{secrets.token_hex(8)}.tmp"
+        )
+        try:
+            temp_file.write_text(payload, encoding="utf-8")
+            temp_file.replace(self._users_file)
+        finally:
+            temp_file.unlink(missing_ok=True)
 
     def _user_snapshot(self, users: list[dict[str, Any]], username) -> dict[str, Any] | None:
         user = self._find_user(users, username)

@@ -4,17 +4,85 @@ import argparse
 import gzip
 import json
 import logging
+import math
 import statistics
 import tempfile
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+PERF_PROBE_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
+PERF_PROBE_MAX_ITERATIONS = 100
+PERF_PROBE_MAX_THRESHOLD = 3_600_000.0
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+
+
+def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float):
+    return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, str | bool | int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, list | tuple | set):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _json_dumps(payload: Any) -> str:
+    return json.dumps(_json_safe_value(payload), ensure_ascii=False, indent=2, allow_nan=False)
+
+
+def _read_response_body(response) -> bytes:
+    raw = response.read(PERF_PROBE_RESPONSE_MAX_BYTES + 1)
+    if len(raw) > PERF_PROBE_RESPONSE_MAX_BYTES:
+        raise ValueError("perf probe response is too large")
+    return raw
+
+
+def _decompress_gzip_body(raw_body: bytes) -> bytes:
+    with gzip.GzipFile(fileobj=BytesIO(raw_body)) as stream:
+        body = stream.read(PERF_PROBE_RESPONSE_MAX_BYTES + 1)
+    if len(body) > PERF_PROBE_RESPONSE_MAX_BYTES:
+        raise ValueError("perf probe gzip response is too large after decompression")
+    return body
+
+
+def _load_response_json(raw_body: bytes, *, context: str) -> dict[str, Any]:
+    try:
+        payload_data = json.loads(raw_body.decode("utf-8"), parse_constant=_reject_json_constant)
+    except RecursionError as exc:
+        raise ValueError(f"{context} JSON is too deeply nested") from exc
+    if not isinstance(payload_data, dict):
+        raise ValueError(f"{context} must be a JSON object")
+    return payload_data
 
 
 @dataclass(frozen=True)
@@ -97,7 +165,7 @@ def request_json(
     if gzip_ok:
         headers["Accept-Encoding"] = "gzip"
     if payload is not None:
-        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        data = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
     request = urllib.request.Request(
         _url(base_url, path),
         data=data,
@@ -106,12 +174,12 @@ def request_json(
     )
     started_at = time.perf_counter()
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw_body = response.read()
+        with _urlopen_no_redirect(request, timeout=timeout) as response:
+            raw_body = _read_response_body(response)
             duration_ms = (time.perf_counter() - started_at) * 1000
             encoding = str(response.headers.get("Content-Encoding", "") or "")
-            body = gzip.decompress(raw_body) if encoding.lower() == "gzip" else raw_body
-            payload_data = json.loads(body.decode("utf-8"))
+            body = _decompress_gzip_body(raw_body) if encoding.lower() == "gzip" else raw_body
+            payload_data = _load_response_json(body, context="API response")
             return payload_data, ProbeResult(
                 label=path,
                 status=response.status,
@@ -121,11 +189,13 @@ def request_json(
                 server_timing=str(response.headers.get("Server-Timing", "") or ""),
             )
     except urllib.error.HTTPError as exc:
-        raw_body = exc.read()
+        if 300 <= exc.code < 400:
+            raise ValueError(f"API request redirected: {path}") from exc
+        raw_body = _read_response_body(exc)
         duration_ms = (time.perf_counter() - started_at) * 1000
         encoding = str(exc.headers.get("Content-Encoding", "") or "")
-        body = gzip.decompress(raw_body) if encoding.lower() == "gzip" else raw_body
-        payload_data = json.loads(body.decode("utf-8"))
+        body = _decompress_gzip_body(raw_body) if encoding.lower() == "gzip" else raw_body
+        payload_data = _load_response_json(body, context="API error response")
         return payload_data, ProbeResult(
             label=path,
             status=exc.code,
@@ -191,7 +261,7 @@ def evaluate_thresholds(
     rows_by_label = {str(row.get("label") or ""): row for row in rows}
     violations: list[dict[str, object]] = []
     for threshold_key, max_value in thresholds.items():
-        if max_value <= 0:
+        if not math.isfinite(max_value) or max_value <= 0:
             continue
         label, _, metric = threshold_key.rpartition(".")
         row = rows_by_label.get(label)
@@ -212,6 +282,38 @@ def evaluate_thresholds(
     return violations
 
 
+def _bounded_threshold(value: object, *, default: float = 0.0) -> float:
+    if isinstance(value, bool):
+        return default
+    try:
+        numeric = float(default if value is None or value == "" else value)
+    except (OverflowError, TypeError, ValueError):
+        return default
+    if not math.isfinite(numeric):
+        return default
+    if numeric < 0:
+        return 0.0
+    if numeric > PERF_PROBE_MAX_THRESHOLD:
+        return PERF_PROBE_MAX_THRESHOLD
+    return numeric
+
+
+def _bounded_iterations(value: object, *, default: int = 3) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return default
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return default
+    if numeric < 1:
+        return 1
+    if numeric > PERF_PROBE_MAX_ITERATIONS:
+        return PERF_PROBE_MAX_ITERATIONS
+    return int(numeric)
+
+
 def first_card_id(snapshot_payload: dict[str, Any], fallback: str = "") -> str:
     cards = snapshot_payload.get("data", {}).get("cards", [])
     if isinstance(cards, list) and cards:
@@ -229,25 +331,34 @@ def main() -> int:
         action="store_true",
         help="Start a temporary local API server with synthetic data and probe it.",
     )
-    parser.add_argument("--iterations", type=int, default=3)
+    parser.add_argument("--iterations", default=3)
     parser.add_argument("--card-id", default="")
-    parser.add_argument("--max-snapshot-identity-ms", type=float, default=0.0)
-    parser.add_argument("--max-snapshot-identity-bytes", type=float, default=0.0)
-    parser.add_argument("--max-snapshot-gzip-ms", type=float, default=0.0)
-    parser.add_argument("--max-snapshot-gzip-bytes", type=float, default=0.0)
-    parser.add_argument("--max-revision-ms", type=float, default=0.0)
-    parser.add_argument("--max-get-card-ms", type=float, default=0.0)
+    parser.add_argument("--max-snapshot-identity-ms", default=0.0)
+    parser.add_argument("--max-snapshot-identity-bytes", default=0.0)
+    parser.add_argument("--max-snapshot-gzip-ms", default=0.0)
+    parser.add_argument("--max-snapshot-gzip-bytes", default=0.0)
+    parser.add_argument("--max-revision-ms", default=0.0)
+    parser.add_argument("--max-get-card-ms", default=0.0)
     args = parser.parse_args()
 
-    local_server = start_local_temp_server() if args.local_temp_server else None
-    base_url = local_server.base_url if local_server is not None else args.base_url
+    local_server: LocalTempServer | None = None
+    base_url = args.base_url
+    iterations = _bounded_iterations(args.iterations)
+    args.max_snapshot_identity_ms = _bounded_threshold(args.max_snapshot_identity_ms)
+    args.max_snapshot_identity_bytes = _bounded_threshold(args.max_snapshot_identity_bytes)
+    args.max_snapshot_gzip_ms = _bounded_threshold(args.max_snapshot_gzip_ms)
+    args.max_snapshot_gzip_bytes = _bounded_threshold(args.max_snapshot_gzip_bytes)
+    args.max_revision_ms = _bounded_threshold(args.max_revision_ms)
+    args.max_get_card_ms = _bounded_threshold(args.max_get_card_ms)
     try:
+        local_server = start_local_temp_server() if args.local_temp_server else None
+        base_url = local_server.base_url if local_server is not None else args.base_url
         rows: list[dict[str, Any]] = []
         snapshot_payload, results = measure(
             base_url,
             "snapshot.identity",
             "/api/get_board_snapshot?compact=1&include_archive=0",
-            iterations=args.iterations,
+            iterations=iterations,
         )
         rows.append(summarize(results))
 
@@ -255,7 +366,7 @@ def main() -> int:
             base_url,
             "snapshot.gzip",
             "/api/get_board_snapshot?compact=1&include_archive=0",
-            iterations=args.iterations,
+            iterations=iterations,
             gzip_ok=True,
         )
         rows.append(summarize(results))
@@ -264,7 +375,7 @@ def main() -> int:
             base_url,
             "revision",
             "/api/get_board_revision?compact=1&include_archive=0",
-            iterations=args.iterations,
+            iterations=iterations,
         )
         rows.append(summarize(results))
 
@@ -274,34 +385,48 @@ def main() -> int:
                 base_url,
                 "get_card",
                 "/api/get_card",
-                iterations=args.iterations,
+                iterations=iterations,
                 method="POST",
                 payload={"card_id": card_id},
             )
             rows.append(summarize(results))
+
+        thresholds = {
+            "snapshot.identity.avg_ms": args.max_snapshot_identity_ms,
+            "snapshot.identity.bytes": args.max_snapshot_identity_bytes,
+            "snapshot.gzip.avg_ms": args.max_snapshot_gzip_ms,
+            "snapshot.gzip.bytes": args.max_snapshot_gzip_bytes,
+            "revision.avg_ms": args.max_revision_ms,
+            "get_card.avg_ms": args.max_get_card_ms,
+        }
+        violations = evaluate_thresholds(rows, thresholds)
+        output = {
+            "base_url": base_url,
+            "local_temp_server": bool(args.local_temp_server),
+            "iterations": iterations,
+            "rows": rows,
+            "threshold_status": "failed" if violations else "passed",
+            "violations": violations,
+        }
+        print(_json_dumps(output))
+        return 1 if violations else 0
+    except (
+        OSError,
+        TimeoutError,
+        urllib.error.URLError,
+        json.JSONDecodeError,
+        gzip.BadGzipFile,
+        ValueError,
+    ) as exc:
+        print(
+            _json_dumps(
+                {"ok": False, "base_url": base_url, "error": str(exc)},
+            )
+        )
+        return 2
     finally:
         if local_server is not None:
             local_server.stop()
-
-    thresholds = {
-        "snapshot.identity.avg_ms": args.max_snapshot_identity_ms,
-        "snapshot.identity.bytes": args.max_snapshot_identity_bytes,
-        "snapshot.gzip.avg_ms": args.max_snapshot_gzip_ms,
-        "snapshot.gzip.bytes": args.max_snapshot_gzip_bytes,
-        "revision.avg_ms": args.max_revision_ms,
-        "get_card.avg_ms": args.max_get_card_ms,
-    }
-    violations = evaluate_thresholds(rows, thresholds)
-    output = {
-        "base_url": base_url,
-        "local_temp_server": bool(args.local_temp_server),
-        "iterations": args.iterations,
-        "rows": rows,
-        "threshold_status": "failed" if violations else "passed",
-        "violations": violations,
-    }
-    print(json.dumps(output, ensure_ascii=False, indent=2))
-    return 1 if violations else 0
 
 
 if __name__ == "__main__":

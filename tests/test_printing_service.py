@@ -2,11 +2,15 @@ from __future__ import annotations
 
 # ruff: noqa: E402
 import html
+import json
 import sys
 import tempfile
 import threading
 import unittest
 from decimal import Decimal
+
+# ruff: noqa: E402
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,11 +20,25 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.models import Card, ClientProfile
+from minimal_kanban.printing import service as printing_service_module
 from minimal_kanban.printing.defaults import PRINT_BASE_STYLES
-from minimal_kanban.printing.models import SUPPORTED_PRINT_DOCUMENT_TYPES
-from minimal_kanban.printing.pdf import _html_to_plain_text, render_html_to_pdf_bytes
-from minimal_kanban.printing.service import PrintModuleError, PrintModuleService
-from minimal_kanban.printing.template_engine import render_template
+from minimal_kanban.printing.models import SUPPORTED_PRINT_DOCUMENT_TYPES, PrintModuleSettings
+from minimal_kanban.printing.pdf import (
+    PdfRenderError,
+    _html_to_plain_text,
+    _parse_json_object,
+    _read_generated_pdf_bytes,
+    _read_pdf_cli_stdin,
+    render_html_to_pdf_bytes,
+)
+from minimal_kanban.printing.printers import _normalize_copy_count
+from minimal_kanban.printing.service import (
+    PrintModuleError,
+    PrintModuleService,
+    _money_display,
+    _money_words_display,
+)
+from minimal_kanban.printing.template_engine import TemplateRenderError, render_template
 
 
 def build_card() -> Card:
@@ -220,6 +238,26 @@ class PrintingServiceTests(unittest.TestCase):
         )
         self.assertTrue(inspection_document["supports_form_fill"])
 
+    def test_print_settings_copies_reject_bool_fractional_and_non_finite_values(self) -> None:
+        bad_values = (True, False, 1.5, float("inf"))
+
+        for value in bad_values:
+            with self.subTest(value=value):
+                settings = PrintModuleSettings.from_dict({"copies": value})
+                self.assertEqual(settings.copies, 1)
+
+        self.assertEqual(PrintModuleSettings.from_dict({"copies": "3"}).copies, 3)
+        self.assertEqual(PrintModuleSettings.from_dict({"copies": "9" * 80}).copies, 1)
+        self.assertEqual(PrintModuleSettings.from_dict({"copies": "30"}).copies, 20)
+
+    def test_printer_backend_copy_count_rejects_invalid_values(self) -> None:
+        for value in (True, 1.5, float("inf"), "bad"):
+            with self.subTest(value=value):
+                self.assertEqual(_normalize_copy_count(value), 1)
+        self.assertEqual(_normalize_copy_count("9" * 80), 1)
+        self.assertEqual(_normalize_copy_count("3"), 3)
+        self.assertEqual(_normalize_copy_count("30"), 20)
+
     def test_manual_document_profile_uses_builtin_templates_without_card(self) -> None:
         profile = self.service.manual_document_profile(
             {
@@ -408,6 +446,24 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual([row.name for row in profile.card.repair_order.works], ["Диагностика"])
         self.assertEqual(profile.client.inn if profile.client else "", "2468555444")
 
+    def test_manual_document_profile_preserves_explicit_zero_line_item_values(self) -> None:
+        profile = self.service.manual_document_profile(
+            {
+                "client": {"display_name": "ООО Нулевые Значения"},
+                "works": [{"name": "Гарантийная проверка", "quantity": 0, "price": 0, "total": 0}],
+                "materials": [{"name": "Крепеж", "quantity": 0, "price": 0}],
+            }
+        )
+
+        work = profile.card.repair_order.works[0]
+        material = profile.card.repair_order.materials[0]
+
+        self.assertEqual(work.quantity, "0")
+        self.assertEqual(work.price, "0")
+        self.assertEqual(work.total, "0")
+        self.assertEqual(material.quantity, "0")
+        self.assertEqual(material.price, "0")
+
     def test_manual_invoice_can_render_without_vat(self) -> None:
         profile = self.service.manual_document_profile(
             {
@@ -475,6 +531,19 @@ class PrintingServiceTests(unittest.TestCase):
             context["service"]["brand_logo_data_uri"].startswith("data:image/png;base64,")
         )
 
+    def test_brand_logo_reader_ignores_oversized_asset(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            logo_path = Path(temp_dir) / "logo.png"
+            logo_path.write_bytes(b"x" * 16)
+
+            printing_service_module._brand_logo_data_uri.cache_clear()
+            with (
+                patch.object(printing_service_module, "_BRAND_LOGO_PATH", logo_path),
+                patch.object(printing_service_module, "PRINT_BRAND_LOGO_MAX_BYTES", 8),
+            ):
+                self.assertEqual(printing_service_module._brand_logo_data_uri(), "")
+            printing_service_module._brand_logo_data_uri.cache_clear()
+
     def test_preview_returns_selected_documents_and_missing_fields(self) -> None:
         preview = self.service.preview_documents(
             self.card,
@@ -534,6 +603,64 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("15 235,29", preview["documents"][1]["pages"][0]["html"])
         self.assertIn("Сумма прописью", preview["documents"][1]["pages"][0]["html"])
         self.assertEqual(preview["documents"][0]["missing_fields"], [])
+
+    def test_preview_accepts_scalar_document_id_and_ignores_malformed_template_maps(
+        self,
+    ) -> None:
+        preview = self.service.preview_documents(
+            self.card,
+            selected_document_ids="invoice",
+            active_document_id="invoice",
+            selected_template_ids=["not-a-map"],
+            template_overrides=["not-a-map"],
+        )
+
+        self.assertEqual(preview["active_document_id"], "invoice")
+        self.assertEqual([item["id"] for item in preview["documents"]], ["invoice"])
+        self.assertIn("Счет на оплату", preview["documents"][0]["pages"][0]["html"])
+
+    def test_template_overrides_are_filtered_by_supported_document_type(self) -> None:
+        preview = self.service.preview_documents(
+            self.card,
+            selected_document_ids=["invoice"],
+            active_document_id="invoice",
+            template_overrides={
+                "invoice": '<div class="document-page"><h1>Черновой шаблон</h1></div>',
+                "unknown": '<div class="document-page"><h1>Wrong</h1></div>',
+            },
+        )
+
+        html = preview["documents"][0]["pages"][0]["html"]
+
+        self.assertIn("Черновой шаблон", html)
+        self.assertNotIn("Wrong", html)
+
+    def test_deeply_nested_template_override_returns_template_error(self) -> None:
+        deep_template = "{{#card}}" * 100 + "x" + "{{/card}}" * 100
+
+        with self.assertRaises(PrintModuleError) as context:
+            self.service.preview_documents(
+                self.card,
+                selected_document_ids=["repair_order"],
+                active_document_id="repair_order",
+                template_overrides={"repair_order": deep_template},
+            )
+
+        self.assertEqual(context.exception.code, "template_error")
+        self.assertIn("Слишком глубокая вложенность", context.exception.message)
+
+    def test_oversized_template_override_is_rejected_without_truncation(self) -> None:
+        with patch("minimal_kanban.printing.service.PRINT_TEMPLATE_CONTENT_MAX_CHARS", 32):
+            with self.assertRaises(PrintModuleError) as context:
+                self.service.preview_documents(
+                    self.card,
+                    selected_document_ids=["invoice"],
+                    active_document_id="invoice",
+                    template_overrides={"invoice": "<div>" + ("x" * 64) + "</div>"},
+                )
+
+        self.assertEqual(context.exception.code, "validation_error")
+        self.assertEqual(context.exception.details["max_size_chars"], 32)
 
     def test_repair_order_template_renders_reception_phone_and_signatures(self) -> None:
         preview = self.service.preview_documents(
@@ -1539,6 +1666,23 @@ class PrintingServiceTests(unittest.TestCase):
         )
         self.assertEqual(rendered, "<li>один</li><li>два</li>")
 
+    def test_template_engine_rejects_deeply_nested_sections(self) -> None:
+        deep_template = "{{#a}}" * 100 + "x" + "{{/a}}" * 100
+
+        with self.assertRaisesRegex(
+            TemplateRenderError,
+            "Слишком глубокая вложенность секций шаблона",
+        ):
+            render_template(deep_template, {"a": True})
+
+    def test_money_formatting_rejects_non_finite_values_and_rounds_half_up(self) -> None:
+        self.assertEqual(_money_display("1.005"), "1,01")
+        self.assertEqual(_money_display("NaN"), "—")
+        self.assertEqual(_money_display("Infinity"), "—")
+        self.assertEqual(_money_display("1e999999"), "—")
+        self.assertEqual(_money_words_display("NaN"), "—")
+        self.assertEqual(_money_words_display("1e999999"), "—")
+
     def test_template_crud_duplicate_default_and_delete(self) -> None:
         saved = self.service.save_template(
             document_type="repair_order",
@@ -1560,6 +1704,52 @@ class PrintingServiceTests(unittest.TestCase):
 
         deleted = self.service.delete_template(template_id=template_id)
         self.assertTrue(deleted["deleted"])
+
+    def test_save_template_rejects_oversized_content_without_truncation(self) -> None:
+        with patch("minimal_kanban.printing.service.PRINT_TEMPLATE_CONTENT_MAX_CHARS", 32):
+            with self.assertRaises(PrintModuleError) as context:
+                self.service.save_template(
+                    document_type="repair_order",
+                    name="Большой шаблон",
+                    content="<section>" + ("x" * 64) + "</section>",
+                )
+
+        self.assertEqual(context.exception.code, "validation_error")
+        self.assertEqual(context.exception.details["max_size_chars"], 32)
+        self.assertEqual(self.service._read_custom_templates(), [])
+
+    def test_custom_template_reader_skips_duplicate_ids_and_builtin_id_collisions(self) -> None:
+        now = "2026-06-01T10:00:00+00:00"
+        custom_template = {
+            "id": "custom:repair_order:duplicate",
+            "document_type": "repair_order",
+            "name": "Дубликат",
+            "content": '<div class="document-page">A</div>',
+            "created_at": now,
+            "updated_at": now,
+            "source": "custom",
+        }
+        builtin_collision = {
+            **custom_template,
+            "id": "builtin:repair_order:standard",
+            "name": "Подмена встроенного",
+        }
+        self.service._templates_path.write_text(
+            json.dumps([builtin_collision, custom_template, custom_template], ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        templates = self.service._read_custom_templates()
+
+        self.assertEqual([item.id for item in templates], ["custom:repair_order:duplicate"])
+
+    def test_custom_template_reader_rejects_nonstandard_json_constants(self) -> None:
+        self.service._templates_path.write_text(
+            '[{"id":"custom:repair_order:bad","document_type":"repair_order","score":NaN}]',
+            encoding="utf-8",
+        )
+
+        self.assertEqual(self.service._read_custom_templates(), [])
 
     def test_export_and_print_use_pdf_and_printer_backends(self) -> None:
         with patch(
@@ -1608,6 +1798,85 @@ class PrintingServiceTests(unittest.TestCase):
             )
 
         self.assertEqual(print_backend.call_args.kwargs["orientation"], "landscape")
+
+    def test_export_file_name_removes_path_and_windows_reserved_characters(self) -> None:
+        self.card.repair_order.number = r"..\bad/name:*?<>|"
+
+        with patch(
+            "minimal_kanban.printing.service.render_html_to_pdf_bytes",
+            return_value=b"%PDF-1.4 test",
+        ):
+            _, file_name, _ = self.service.export_documents_pdf(
+                self.card,
+                selected_document_ids=["invoice"],
+            )
+
+        self.assertEqual(file_name, "autostopcrm-invoice-bad-name.pdf")
+        self.assertNotRegex(file_name, r'[<>:"/\\|?*]')
+
+    def test_json_write_sanitizes_non_finite_values_and_writes_valid_json(self) -> None:
+        self.service._write_inspection_sheet_form_map(
+            {"card-print-1": {"client": float("nan"), "planned_work_rows": [float("inf")]}}
+        )
+
+        raw = self.service._inspection_sheet_forms_path.read_text(encoding="utf-8")
+        parsed = json.loads(raw)
+
+        self.assertNotIn("NaN", raw)
+        self.assertNotIn("Infinity", raw)
+        self.assertEqual(parsed["card-print-1"]["client"], 0.0)
+        self.assertEqual(parsed["card-print-1"]["planned_work_rows"], [0.0])
+
+    def test_template_write_rejects_payload_that_reader_would_ignore_as_oversized(self) -> None:
+        self.service.save_template(
+            document_type="repair_order",
+            name="Small template",
+            content="<section>OK</section>",
+        )
+        templates_path = self.service._templates_path
+        original = templates_path.read_text(encoding="utf-8")
+
+        with patch("minimal_kanban.printing.service.PRINT_JSON_FILE_MAX_BYTES", 512):
+            with self.assertRaises(PrintModuleError) as context:
+                self.service.save_template(
+                    document_type="repair_order",
+                    name="Huge template",
+                    content="<section>" + ("x" * 2048) + "</section>",
+                )
+
+        self.assertEqual(context.exception.code, "validation_error")
+        self.assertEqual(templates_path.read_text(encoding="utf-8"), original)
+        self.assertEqual(list(templates_path.parent.glob("*.tmp")), [])
+
+    def test_inspection_sheet_form_reader_ignores_oversized_json_file(self) -> None:
+        self.service._inspection_sheet_forms_path.write_text(
+            json.dumps(
+                {"card-print-1": {"client": "Oversized client", "padding": "x" * 64}},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        with patch("minimal_kanban.printing.service.PRINT_JSON_FILE_MAX_BYTES", 8):
+            loaded = self.service.get_inspection_sheet_form(self.card)
+
+        self.assertFalse(loaded["meta"]["has_saved_draft"])
+        self.assertNotEqual(loaded["form"]["client"], "Oversized client")
+
+    def test_inspection_sheet_form_reader_uses_bounded_binary_read(self) -> None:
+        self.service._inspection_sheet_forms_path.write_text(
+            json.dumps(
+                {"card-print-1": {"client": "Saved client"}},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        with patch.object(Path, "read_text", side_effect=AssertionError("must not read text")):
+            loaded = self.service.get_inspection_sheet_form(self.card)
+
+        self.assertTrue(loaded["meta"]["has_saved_draft"])
+        self.assertEqual(loaded["form"]["client"], "Saved client")
 
     def test_print_requires_printer_selection_when_direct_print_requested(self) -> None:
         with self.assertRaises(PrintModuleError) as context:
@@ -1671,6 +1940,56 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual(pdf_bytes, b"%PDF-1.4 webengine")
         webengine.assert_called_once()
         legacy_qt.assert_not_called()
+
+    def test_pdf_json_parser_rejects_nonstandard_constants(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"):
+            _parse_json_object('{"content_base64": NaN}', label="Qt subprocess response")
+
+    def test_pdf_json_parser_rejects_non_object_payload(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Qt subprocess response must be a JSON object"):
+            _parse_json_object("[]", label="Qt subprocess response")
+
+    def test_pdf_json_parser_uses_stable_message_for_invalid_json(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Qt subprocess response must contain valid JSON"):
+            _parse_json_object("{not-json", label="Qt subprocess response")
+
+    def test_pdf_json_parser_rejects_deeply_nested_payload(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Qt subprocess response must contain valid JSON"):
+            _parse_json_object("[" * 5000 + "]" * 5000, label="Qt subprocess response")
+
+    def test_pdf_cli_stdin_reader_rejects_oversized_request(self) -> None:
+        with patch("minimal_kanban.printing.pdf.PDF_CLI_STDIN_MAX_BYTES", 4):
+            with self.assertRaisesRegex(ValueError, "Qt subprocess request is too large"):
+                _read_pdf_cli_stdin(BytesIO(b"12345"))
+
+    def test_generated_pdf_reader_rejects_oversized_pdf_before_loading(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pdf_path = Path(temp_dir) / "oversized.pdf"
+            pdf_path.write_bytes(b"%PDF" + (b"x" * 16))
+
+            with (
+                patch("minimal_kanban.printing.pdf.PDF_OUTPUT_MAX_BYTES", 8),
+                patch.object(Path, "read_bytes", side_effect=AssertionError("must not load file")),
+            ):
+                with self.assertRaisesRegex(PdfRenderError, "слишком большой PDF"):
+                    _read_generated_pdf_bytes(pdf_path, label="Qt")
+
+    def test_pdf_renderer_falls_back_from_oversized_preferred_pdf(self) -> None:
+        with (
+            patch("minimal_kanban.printing.pdf._should_use_qt_renderer", return_value=True),
+            patch(
+                "minimal_kanban.printing.pdf._should_use_qt_subprocess_renderer", return_value=False
+            ),
+            patch("minimal_kanban.printing.pdf.PDF_OUTPUT_MAX_BYTES", 4096),
+            patch(
+                "minimal_kanban.printing.pdf._render_preferred_qt_pdf_bytes",
+                return_value=b"%PDF" + (b"x" * 4096),
+            ),
+        ):
+            pdf_bytes = render_html_to_pdf_bytes("<h1>Fallback</h1>")
+
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+        self.assertLessEqual(len(pdf_bytes), 4096)
 
     def test_pdf_renderer_falls_back_safely_from_worker_thread(self) -> None:
         result: dict[str, bytes] = {}

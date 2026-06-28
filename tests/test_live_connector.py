@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -31,6 +32,33 @@ class LegacyConsoleStdout:
         self.buffer.write(text.encode(self.encoding))
 
 
+class FakeResponse:
+    def __init__(self, payload: bytes, *, status: int = 200) -> None:
+        self._payload = payload
+        self.status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        _ = (exc_type, exc, tb)
+
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            return self._payload
+        return self._payload[:size]
+
+
+class OversizedResponse(FakeResponse):
+    def __init__(self, *, status: int = 200) -> None:
+        super().__init__(b"", status=status)
+
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            size = 1
+        return b"x" * size
+
+
 class LiveConnectorOutputTests(unittest.TestCase):
     def test_emit_output_writes_json_as_utf8_even_on_legacy_console(self) -> None:
         module = load_live_connector_module()
@@ -46,6 +74,140 @@ class LiveConnectorOutputTests(unittest.TestCase):
         raw = fake_stdout.buffer.getvalue()
         self.assertTrue(raw.endswith(b"\n"))
         self.assertEqual(json.loads(raw.decode("utf-8")), json.loads(payload))
+
+    def test_api_request_rejects_oversized_response(self) -> None:
+        module = load_live_connector_module()
+
+        with patch.object(
+            module,
+            "_urlopen_no_redirect",
+            return_value=OversizedResponse(),
+        ):
+            with self.assertRaisesRegex(ValueError, "Live connector response is too large"):
+                module._api_request("http://127.0.0.1:41731", "/api/health")
+
+    def test_api_request_rejects_nonstandard_json_constants(self) -> None:
+        module = load_live_connector_module()
+
+        with patch.object(
+            module,
+            "_urlopen_no_redirect",
+            return_value=FakeResponse(b'{"ok": true, "score": NaN}'),
+        ):
+            with self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"):
+                module._api_request("http://127.0.0.1:41731", "/api/health")
+
+    def test_api_request_rejects_deeply_nested_json_response(self) -> None:
+        module = load_live_connector_module()
+        deep_json = ("[" * 5000 + "0" + "]" * 5000).encode("utf-8")
+
+        with patch.object(
+            module,
+            "_urlopen_no_redirect",
+            return_value=FakeResponse(deep_json),
+        ):
+            with self.assertRaisesRegex(ValueError, "API response JSON is too deeply nested"):
+                module._api_request("http://127.0.0.1:41731", "/api/health")
+
+    def test_api_request_rejects_non_object_json_response(self) -> None:
+        module = load_live_connector_module()
+
+        with patch.object(
+            module,
+            "_urlopen_no_redirect",
+            return_value=FakeResponse(b"[]"),
+        ):
+            with self.assertRaisesRegex(ValueError, "API response must be a JSON object"):
+                module._api_request("http://127.0.0.1:41731", "/api/health")
+
+    def test_api_request_rejects_redirect_response(self) -> None:
+        module = load_live_connector_module()
+        redirect = module.urllib.error.HTTPError(
+            url="http://127.0.0.1:41731/api/login_operator",
+            code=302,
+            msg="Found",
+            hdrs={"Location": "https://example.test/login"},
+            fp=None,
+        )
+
+        with patch.object(module, "_urlopen_no_redirect", side_effect=redirect):
+            with self.assertRaisesRegex(ValueError, "API request redirected"):
+                module._api_request(
+                    "http://127.0.0.1:41731",
+                    "/api/login_operator",
+                    method="POST",
+                    payload={"username": "admin", "password": "secret"},
+                )
+
+    def test_check_site_rejects_redirect_without_following_it(self) -> None:
+        module = load_live_connector_module()
+        redirect = module.urllib.error.HTTPError(
+            url="http://example.test/",
+            code=302,
+            msg="Found",
+            hdrs={"Location": "https://example.test/login"},
+            fp=None,
+        )
+
+        with (
+            patch.object(module, "_urlopen_no_redirect", side_effect=redirect) as opener,
+            patch.object(module.urllib.request, "urlopen") as urlopen,
+        ):
+            result = module.check_site("http://example.test")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status_code"], 302)
+        self.assertEqual(result["error"], "site_probe_redirected")
+        self.assertEqual(opener.call_count, 1)
+        urlopen.assert_not_called()
+
+    def test_url_helpers_handle_malformed_urls_without_crashing(self) -> None:
+        module = load_live_connector_module()
+
+        self.assertEqual(module._fallback_http_url("https://[::1"), "")
+        self.assertEqual(module._classify_probe_url("http://[::1"), "unknown")
+        self.assertEqual(module._classify_probe_url("http://localhost.:41731"), "local")
+
+        result = module.check_site("http://[::1", expect_https=True)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "site_url_invalid")
+
+    def test_json_dumps_sanitizes_non_finite_numbers(self) -> None:
+        module = load_live_connector_module()
+
+        encoded = module._json_dumps({"ok": True, "score": float("nan"), "items": [float("inf")]})
+
+        self.assertEqual(json.loads(encoded), {"ok": True, "score": None, "items": [None]})
+        self.assertNotIn("NaN", encoded)
+        self.assertNotIn("Infinity", encoded)
+
+    def test_json_dumps_handles_self_referential_payload(self) -> None:
+        module = load_live_connector_module()
+        payload: dict[str, object] = {"ok": True}
+        payload["self"] = payload
+
+        encoded = module._json_dumps(payload)
+        decoded = json.loads(encoded)
+        node = decoded
+        for _ in range(9):
+            node = node["self"]
+
+        self.assertIsInstance(node, str)
+
+    def test_load_settings_uses_defaults_for_oversized_settings_file(self) -> None:
+        module = load_live_connector_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_file = Path(temp_dir) / "settings.json"
+            settings_file.write_text("x" * 16, encoding="utf-8")
+
+            with (
+                patch.object(module, "LIVE_CONNECTOR_SETTINGS_MAX_BYTES", 8),
+                patch.object(module, "get_settings_file", return_value=settings_file),
+            ):
+                settings = module.load_settings()
+
+        self.assertEqual(settings, module.IntegrationSettings.defaults())
 
 
 if __name__ == "__main__":

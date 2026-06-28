@@ -3,9 +3,9 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import math
 import mimetypes
 import os
-import shutil
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -18,10 +18,12 @@ from uuid import uuid4
 from ..config import get_shared_files_dir, get_shared_files_index_file
 from ..models import normalize_actor_name, normalize_file_name, normalize_int
 from ..storage.file_lock import ProcessFileLock
+from ..storage.limited_io import copy_file_limited, read_bytes_limited, read_text_limited
 from .errors import ServiceError
 
 SHARED_FILES_STORAGE_LIMIT_BYTES = 500 * 1024 * 1024
 SHARED_FILES_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+SHARED_FILES_INDEX_MAX_BYTES = 2 * 1024 * 1024
 SHARED_FILES_INDEX_SCHEMA_VERSION = 1
 _FETCH_BASE64_DEFAULT_BYTES = 2 * 1024 * 1024
 _FETCH_BASE64_MAX_BYTES = 8 * 1024 * 1024
@@ -60,7 +62,7 @@ class SharedFile:
             original_name=original_name,
             stored_name=stored_name,
             extension=extension,
-            size_bytes=normalize_int(payload.get("size_bytes"), default=0, minimum=0),
+            size_bytes=_normalize_byte_count(payload.get("size_bytes")),
             created_at=created_at or _utc_now_iso(),
             updated_at=updated_at or _utc_now_iso(),
             x=_normalize_position(payload.get("x")),
@@ -100,8 +102,16 @@ class SharedFilesService:
         self._storage_dir = storage_dir or get_shared_files_dir()
         self._index_file = index_file or get_shared_files_index_file()
         self._logger = logger
-        self._storage_limit_bytes = max(1, int(storage_limit_bytes))
-        self._max_upload_bytes = max(1, int(max_upload_bytes))
+        self._storage_limit_bytes = _normalize_byte_limit(
+            storage_limit_bytes,
+            default=SHARED_FILES_STORAGE_LIMIT_BYTES,
+            maximum=SHARED_FILES_STORAGE_LIMIT_BYTES,
+        )
+        self._max_upload_bytes = _normalize_byte_limit(
+            max_upload_bytes,
+            default=SHARED_FILES_MAX_UPLOAD_BYTES,
+            maximum=SHARED_FILES_MAX_UPLOAD_BYTES,
+        )
         self._lock = threading.RLock()
         self._process_lock = ProcessFileLock(self._index_file.with_suffix(".lock"))
         self._storage_dir.mkdir(parents=True, exist_ok=True)
@@ -145,7 +155,6 @@ class SharedFilesService:
             file_id = str(uuid4())
             stored_name = self._unique_stored_name(file_id, PurePath(file_name).suffix)
             file_path = self._storage_path(stored_name)
-            file_path.write_bytes(content)
             now = _utc_now_iso()
             item = SharedFile(
                 id=file_id,
@@ -160,7 +169,14 @@ class SharedFilesService:
                 mime_type=mime_type,
             )
             files.append(item)
-            self._write_index(files)
+            index_text = self._index_payload_text(files)
+            try:
+                self._write_file_bytes_atomic(file_path, content)
+                self._write_index(files, payload_text=index_text)
+            except Exception:
+                if self._storage_path_can_unlink(file_path):
+                    file_path.unlink()
+                raise
             self._audit(
                 "shared_file_uploaded",
                 actor_name=actor_name,
@@ -182,12 +198,13 @@ class SharedFilesService:
         x = _normalize_position(payload.get("x"))
         y = _normalize_position(payload.get("y"))
         source_size = source_path.stat().st_size
+        self._ensure_single_upload_size(source_size, field="path")
         with self._locked_files(write=True) as files:
             self._ensure_storage_capacity(files, source_size)
+            copy_limit = self._copy_capacity_limit(files)
             file_id = str(uuid4())
             stored_name = self._unique_stored_name(file_id, PurePath(file_name).suffix)
             file_path = self._storage_path(stored_name)
-            shutil.copyfile(source_path, file_path)
             now = _utc_now_iso()
             item = SharedFile(
                 id=file_id,
@@ -202,7 +219,21 @@ class SharedFilesService:
                 mime_type=mime_type,
             )
             files.append(item)
-            self._write_index(files)
+            index_text = self._index_payload_text(files)
+            try:
+                copied_size = self._copy_file_atomic(
+                    source_path,
+                    file_path,
+                    max_bytes=copy_limit,
+                )
+                item.size_bytes = copied_size
+                if copied_size != source_size:
+                    index_text = self._index_payload_text(files)
+                self._write_index(files, payload_text=index_text)
+            except Exception:
+                if self._storage_path_can_unlink(file_path):
+                    file_path.unlink()
+                raise
             self._audit(
                 "shared_file_uploaded",
                 actor_name=actor_name,
@@ -242,7 +273,7 @@ class SharedFilesService:
             file_path = self._storage_path(item.stored_name)
             remaining = [candidate for candidate in files if candidate.id != item.id]
             files[:] = remaining
-            if file_path.exists():
+            if self._storage_path_can_unlink(file_path):
                 file_path.unlink()
             self._write_index(remaining)
             self._audit(
@@ -265,7 +296,7 @@ class SharedFilesService:
                 "clipboard": {
                     "source_id": item.id,
                     "file_name": item.original_name,
-                    "size_bytes": item.size_bytes,
+                    "size_bytes": self._effective_file_size(item),
                 },
                 "file": self._public_file_dict(item),
             }
@@ -279,19 +310,20 @@ class SharedFilesService:
         with self._locked_files(write=True) as files:
             source_file = self._find_file(files, source_id)
             source_path = self._require_file_on_disk(source_file)
-            self._ensure_storage_capacity(files, source_file.size_bytes)
+            source_size = self._file_size_on_disk(source_path, fallback=source_file.size_bytes)
+            self._ensure_storage_capacity(files, source_size)
+            copy_limit = self._copy_capacity_limit(files)
             file_id = str(uuid4())
             original_name = self._copy_name(source_file.original_name, files)
             stored_name = self._unique_stored_name(file_id, source_file.extension)
             target_path = self._storage_path(stored_name)
-            shutil.copyfile(source_path, target_path)
             now = _utc_now_iso()
             item = SharedFile(
                 id=file_id,
                 original_name=original_name,
                 stored_name=stored_name,
                 extension=_normalized_extension(PurePath(original_name).suffix),
-                size_bytes=source_file.size_bytes,
+                size_bytes=source_size,
                 created_at=now,
                 updated_at=now,
                 x=x,
@@ -301,7 +333,21 @@ class SharedFilesService:
                 source_id=source_file.id,
             )
             files.append(item)
-            self._write_index(files)
+            index_text = self._index_payload_text(files)
+            try:
+                copied_size = self._copy_file_atomic(
+                    source_path,
+                    target_path,
+                    max_bytes=copy_limit,
+                )
+                item.size_bytes = copied_size
+                if copied_size != source_size:
+                    index_text = self._index_payload_text(files)
+                self._write_index(files, payload_text=index_text)
+            except Exception:
+                if self._storage_path_can_unlink(target_path):
+                    target_path.unlink()
+                raise
             self._audit(
                 "shared_file_copied",
                 actor_name=actor_name,
@@ -325,25 +371,37 @@ class SharedFilesService:
     def fetch_shared_file(self, payload: dict | None = None) -> dict:
         payload = payload or {}
         include_base64 = _normalize_bool(payload.get("include_base64"), default=True)
-        max_base64_bytes = min(
-            _FETCH_BASE64_MAX_BYTES,
-            max(
-                0,
-                normalize_int(payload.get("max_base64_bytes"), default=_FETCH_BASE64_DEFAULT_BYTES),
-            ),
+        max_base64_bytes = normalize_int(
+            payload.get("max_base64_bytes"),
+            default=_FETCH_BASE64_DEFAULT_BYTES,
+            minimum=0,
+            maximum=_FETCH_BASE64_MAX_BYTES,
         )
         with self._locked_files() as files:
             item = self._find_file(files, payload.get("file_id"))
             path = self._require_file_on_disk(item)
+            actual_size = path.stat().st_size
             content: dict[str, Any] = {
                 "base64_included": False,
-                "size_bytes": item.size_bytes,
+                "size_bytes": actual_size,
                 "max_base64_bytes": max_base64_bytes,
             }
-            if include_base64 and item.size_bytes <= max_base64_bytes:
-                content["base64"] = base64.b64encode(path.read_bytes()).decode("ascii")
-                content["base64_included"] = True
-                content["encoding"] = "base64"
+            if include_base64 and actual_size <= max_base64_bytes:
+                try:
+                    payload = read_bytes_limited(
+                        path,
+                        max_bytes=max_base64_bytes,
+                        label="shared file content",
+                    )
+                except ValueError:
+                    try:
+                        content["size_bytes"] = path.stat().st_size
+                    except OSError:
+                        pass
+                else:
+                    content["base64"] = base64.b64encode(payload).decode("ascii")
+                    content["base64_included"] = True
+                    content["encoding"] = "base64"
             return {
                 "file": self._public_file_dict(item),
                 "content": content,
@@ -426,21 +484,27 @@ class SharedFilesService:
                 details={"field": "content_base64"},
             ) from None
         if len(content) > self._max_upload_bytes:
+            self._ensure_single_upload_size(len(content), field="content_base64")
+        return content
+
+    def _ensure_single_upload_size(self, size_bytes: int, *, field: str) -> None:
+        incoming_bytes = _normalize_byte_count(size_bytes)
+        if incoming_bytes > self._max_upload_bytes:
             raise ServiceError(
                 "upload_too_large",
                 "Файл превышает лимит одной загрузки.",
                 status_code=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
                 details={
-                    "field": "content_base64",
+                    "field": field,
                     "max_size_bytes": self._max_upload_bytes,
-                    "incoming_bytes": len(content),
+                    "incoming_bytes": incoming_bytes,
                 },
             )
-        return content
 
     def _ensure_storage_capacity(self, files: list[SharedFile], additional_bytes: int) -> None:
         used = self._used_bytes(files)
-        if used + max(0, int(additional_bytes)) > self._storage_limit_bytes:
+        incoming_bytes = _normalize_byte_count(additional_bytes)
+        if used + incoming_bytes > self._storage_limit_bytes:
             raise ServiceError(
                 "storage_limit_exceeded",
                 "Общее хранилище файлов заполнено.",
@@ -448,7 +512,7 @@ class SharedFilesService:
                 details={
                     "used_bytes": used,
                     "limit_bytes": self._storage_limit_bytes,
-                    "incoming_bytes": max(0, int(additional_bytes)),
+                    "incoming_bytes": incoming_bytes,
                 },
             )
 
@@ -472,7 +536,7 @@ class SharedFilesService:
 
     def _require_file_on_disk(self, item: SharedFile) -> Path:
         path = self._storage_path(item.stored_name)
-        if not path.exists() or not path.is_file():
+        if not self._storage_is_regular_file(path):
             raise ServiceError(
                 "not_found",
                 "Файл не найден на диске.",
@@ -483,9 +547,12 @@ class SharedFilesService:
 
     def _public_file_dict(self, item: SharedFile) -> dict[str, Any]:
         payload = item.to_dict()
+        payload["size_bytes"] = self._effective_file_size(item)
         payload["download_path"] = f"/api/shared_file?file_id={item.id}"
         payload["open_path"] = f"/api/shared_file?file_id={item.id}&disposition=inline"
-        payload["exists_on_disk"] = self._storage_path(item.stored_name).exists()
+        payload["exists_on_disk"] = self._storage_is_regular_file(
+            self._storage_path(item.stored_name)
+        )
         return payload
 
     def _storage_payload(self, files: list[SharedFile]) -> dict[str, Any]:
@@ -499,20 +566,50 @@ class SharedFilesService:
         }
 
     def _used_bytes(self, files: list[SharedFile]) -> int:
-        return sum(max(0, int(item.size_bytes)) for item in files)
+        return sum(self._effective_file_size(item) for item in files)
+
+    def _effective_file_size(self, item: SharedFile) -> int:
+        metadata_size = _normalize_byte_count(item.size_bytes)
+        try:
+            path = self._storage_path(item.stored_name)
+        except ServiceError:
+            return metadata_size
+        if not self._storage_is_regular_file(path):
+            return metadata_size
+        return max(metadata_size, self._file_size_on_disk(path, fallback=metadata_size))
+
+    def _file_size_on_disk(self, path: Path, *, fallback: int = 0) -> int:
+        try:
+            return _normalize_byte_count(path.stat().st_size)
+        except OSError:
+            return _normalize_byte_count(fallback)
 
     def _storage_path(self, stored_name: str) -> Path:
         safe_name = normalize_file_name(stored_name)
         if not safe_name or safe_name != stored_name or PurePath(safe_name).name != safe_name:
             raise ServiceError("validation_error", "Некорректное имя файла на диске.")
         root = self._storage_dir.resolve(strict=False)
-        path = (self._storage_dir / safe_name).resolve(strict=False)
+        path = root / safe_name
         try:
             if os.path.commonpath([str(root), str(path)]) != str(root):
                 raise ValueError
         except ValueError:
             raise ServiceError("validation_error", "Некорректный путь файла.") from None
-        return self._storage_dir / safe_name
+        return path
+
+    def _storage_is_regular_file(self, path: Path) -> bool:
+        try:
+            if path.is_symlink():
+                return False
+            return path.is_file()
+        except OSError:
+            return False
+
+    def _storage_path_can_unlink(self, path: Path) -> bool:
+        try:
+            return path.is_symlink() or path.is_file()
+        except OSError:
+            return False
 
     def _unique_stored_name(self, file_id: str, extension: str) -> str:
         safe_extension = _normalized_extension(extension)
@@ -540,8 +637,11 @@ class SharedFilesService:
             self._write_index([])
             return []
         try:
-            raw = json.loads(self._index_file.read_text(encoding="utf-8") or "{}")
-        except (OSError, json.JSONDecodeError):
+            raw = json.loads(
+                self._read_index_text() or "{}",
+                parse_constant=_reject_json_constant,
+            )
+        except (OSError, ValueError, json.JSONDecodeError, RecursionError):
             raise ServiceError(
                 "storage_error",
                 "Не удалось прочитать индекс общего хранилища файлов.",
@@ -562,14 +662,82 @@ class SharedFilesService:
             files.append(item)
         return files
 
-    def _write_index(self, files: list[SharedFile]) -> None:
+    def _read_index_text(self) -> str:
+        return read_text_limited(
+            self._index_file,
+            max_bytes=SHARED_FILES_INDEX_MAX_BYTES,
+            label="shared files index",
+        )
+
+    def _index_payload_text(self, files: list[SharedFile]) -> str:
         payload = {
             "schema_version": SHARED_FILES_INDEX_SCHEMA_VERSION,
             "files": [item.to_dict() for item in files],
         }
-        temp_file = self._index_file.with_suffix(".tmp")
-        temp_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        temp_file.replace(self._index_file)
+        text = json.dumps(
+            _json_safe_value(payload),
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+        )
+        if len(text.encode("utf-8")) > SHARED_FILES_INDEX_MAX_BYTES:
+            raise ServiceError(
+                "storage_limit_exceeded",
+                "Индекс общего хранилища файлов достиг лимита.",
+                status_code=HTTPStatus.CONFLICT,
+                details={
+                    "field": "shared_files_index",
+                    "max_size_bytes": SHARED_FILES_INDEX_MAX_BYTES,
+                },
+            )
+        return text
+
+    def _write_index(self, files: list[SharedFile], *, payload_text: str | None = None) -> None:
+        text = payload_text if payload_text is not None else self._index_payload_text(files)
+        temp_file = self._index_file.with_name(f".{self._index_file.name}.{uuid4().hex}.tmp")
+        try:
+            temp_file.write_text(text, encoding="utf-8")
+            temp_file.replace(self._index_file)
+        finally:
+            temp_file.unlink(missing_ok=True)
+
+    def _write_file_bytes_atomic(self, path: Path, content: bytes) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_file = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            temp_file.write_bytes(content)
+            temp_file.replace(path)
+        finally:
+            temp_file.unlink(missing_ok=True)
+
+    def _copy_capacity_limit(self, files: list[SharedFile]) -> int:
+        free_capacity = self._storage_limit_bytes - self._used_bytes(files)
+        return min(self._max_upload_bytes, max(0, free_capacity))
+
+    def _copy_file_atomic(self, source_path: Path, path: Path, *, max_bytes: int) -> int:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_file = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            bytes_copied = copy_file_limited(
+                source_path,
+                temp_file,
+                max_bytes=max_bytes,
+                label="shared file upload",
+            )
+            temp_file.replace(path)
+            return bytes_copied
+        except ValueError as exc:
+            raise ServiceError(
+                "upload_too_large",
+                "Файл превышает допустимый размер.",
+                status_code=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                details={
+                    "field": "path",
+                    "max_size_bytes": max_bytes,
+                },
+            ) from exc
+        finally:
+            temp_file.unlink(missing_ok=True)
 
     def _locked_files(self, *, write: bool = False):
         service = self
@@ -619,7 +787,15 @@ def _normalize_iso(value: Any) -> str:
 
 
 def _normalize_position(value: Any) -> int:
-    return min(100_000, normalize_int(value, default=0, minimum=0))
+    return normalize_int(value, default=0, minimum=0, maximum=100_000)
+
+
+def _normalize_byte_limit(value: Any, *, default: int, maximum: int) -> int:
+    return normalize_int(value, default=default, minimum=1, maximum=maximum)
+
+
+def _normalize_byte_count(value: Any) -> int:
+    return normalize_int(value, default=0, minimum=0, maximum=SHARED_FILES_STORAGE_LIMIT_BYTES)
 
 
 def _normalize_mime_type(value: Any) -> str:
@@ -653,3 +829,25 @@ def _normalize_bool(value: Any, *, default: bool) -> bool:
     if text in {"false", "0", "no", "n"}:
         return False
     return default
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else 0.0
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)

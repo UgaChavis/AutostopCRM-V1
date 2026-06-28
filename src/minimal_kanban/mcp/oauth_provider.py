@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import hmac
 import json
+import math
 import secrets
 import threading
 import time
 from logging import Logger
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from mcp.server.auth.provider import (
     AccessToken,
@@ -13,17 +16,30 @@ from mcp.server.auth.provider import (
     AuthorizationParams,
     OAuthAuthorizationServerProvider,
     RefreshToken,
+    RegistrationError,
+    TokenError,
     construct_redirect_uri,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from pydantic import ValidationError
 
 from ..config import get_app_data_dir, get_mcp_oauth_state_file
 from ..storage.file_lock import ProcessFileLock
+from ..storage.limited_io import read_text_limited
 
 DEFAULT_KANBAN_SCOPES = ("kanban:read", "kanban:write")
+_DEFAULT_KANBAN_SCOPE_SET = set(DEFAULT_KANBAN_SCOPES)
 AUTHORIZATION_CODE_TTL_SECONDS = 300
 ACCESS_TOKEN_TTL_SECONDS = 12 * 60 * 60
 REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
+OAUTH_EXPIRATION_MAX_SECONDS = 4_102_444_800  # 2100-01-01T00:00:00Z
+OAUTH_STATE_MAX_BYTES = 1 * 1024 * 1024
+CHATGPT_OAUTH_REDIRECT_PATH_PREFIX = "/connector/oauth/"
+CHATGPT_LEGACY_OAUTH_REDIRECT_PATH = "/connector_platform_oauth_redirect"
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Non-standard JSON numeric constant: {value}")
 
 
 class EmbeddedOAuthAuthorizationServerProvider(
@@ -66,12 +82,17 @@ class EmbeddedOAuthAuthorizationServerProvider(
         payload = state["clients"].get(client_id)
         if not isinstance(payload, dict):
             return None
-        return OAuthClientInformationFull.model_validate(payload)
+        try:
+            return OAuthClientInformationFull.model_validate(payload)
+        except ValidationError:
+            return None
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
-        state = self._read_state()
         if not client_info.client_id:
             raise ValueError("client_id is required")
+        self._validate_client_redirect_uris(client_info)
+
+        state = self._read_state()
         state["clients"][client_info.client_id] = client_info.model_dump(
             mode="json", exclude_none=True
         )
@@ -119,7 +140,10 @@ class EmbeddedOAuthAuthorizationServerProvider(
         payload = state["authorization_codes"].get(authorization_code)
         if not isinstance(payload, dict):
             return None
-        return AuthorizationCode.model_validate(payload)
+        try:
+            return AuthorizationCode.model_validate(payload)
+        except ValidationError:
+            return None
 
     async def exchange_authorization_code(
         self,
@@ -129,30 +153,51 @@ class EmbeddedOAuthAuthorizationServerProvider(
         if not client.client_id:
             raise ValueError("client_id is required")
 
-        access_token = self._issue_access_token(
-            client_id=client.client_id,
-            scopes=authorization_code.scopes,
-            resource=authorization_code.resource,
-        )
-        refresh_token = self._issue_refresh_token(
-            client_id=client.client_id,
-            scopes=authorization_code.scopes,
-            resource=authorization_code.resource,
-        )
+        token_error: TokenError | None = None
+        with self._lock:
+            with self._process_lock.acquire():
+                state = self._prune_state(self._read_state_unlocked())
+                stored_code = self._load_stored_authorization_code(state, authorization_code.code)
+                if stored_code is None or stored_code.client_id != client.client_id:
+                    token_error = TokenError(
+                        "invalid_grant",
+                        "authorization code does not exist",
+                    )
+                elif stored_code.expires_at < time.time():
+                    state["authorization_codes"].pop(stored_code.code, None)
+                    self._write_state_unlocked(state)
+                    token_error = TokenError(
+                        "invalid_grant",
+                        "authorization code has expired",
+                    )
+                else:
+                    access_token = self._issue_access_token(
+                        client_id=client.client_id,
+                        scopes=stored_code.scopes,
+                        resource=stored_code.resource,
+                    )
+                    refresh_token = self._issue_refresh_token(
+                        client_id=client.client_id,
+                        scopes=stored_code.scopes,
+                        resource=stored_code.resource,
+                    )
 
-        state = self._read_state()
-        state["authorization_codes"].pop(authorization_code.code, None)
-        state["access_tokens"][access_token.token] = access_token.model_dump(
-            mode="json", exclude_none=True
-        )
-        state["refresh_tokens"][refresh_token.token] = refresh_token.model_dump(
-            mode="json", exclude_none=True
-        )
-        self._write_state(state)
+                    state["authorization_codes"].pop(stored_code.code, None)
+                    state["access_tokens"][access_token.token] = access_token.model_dump(
+                        mode="json", exclude_none=True
+                    )
+                    state["refresh_tokens"][refresh_token.token] = refresh_token.model_dump(
+                        mode="json", exclude_none=True
+                    )
+                    self._write_state_unlocked(state)
+
+        if token_error is not None:
+            raise token_error
+
         self._log(
             "oauth.exchange_code client_id=%s resource=%s",
             client.client_id,
-            authorization_code.resource,
+            stored_code.resource,
         )
         return OAuthToken(
             access_token=access_token.token,
@@ -170,7 +215,10 @@ class EmbeddedOAuthAuthorizationServerProvider(
         payload = state["refresh_tokens"].get(refresh_token)
         if not isinstance(payload, dict):
             return None
-        return RefreshToken.model_validate(payload)
+        try:
+            return RefreshToken.model_validate(payload)
+        except ValidationError:
+            return None
 
     async def exchange_refresh_token(
         self,
@@ -181,26 +229,46 @@ class EmbeddedOAuthAuthorizationServerProvider(
         if not client.client_id:
             raise ValueError("client_id is required")
 
-        access_token = self._issue_access_token(
-            client_id=client.client_id,
-            scopes=scopes,
-            resource=self._resource_url,
-        )
-        rotated_refresh = self._issue_refresh_token(
-            client_id=client.client_id,
-            scopes=scopes,
-            resource=self._resource_url,
-        )
+        token_error: TokenError | None = None
+        with self._lock:
+            with self._process_lock.acquire():
+                state = self._prune_state(self._read_state_unlocked())
+                stored_refresh = self._load_stored_refresh_token(state, refresh_token.token)
+                if stored_refresh is None or stored_refresh.client_id != client.client_id:
+                    token_error = TokenError("invalid_grant", "refresh token does not exist")
+                elif stored_refresh.expires_at and stored_refresh.expires_at < int(time.time()):
+                    state["refresh_tokens"].pop(stored_refresh.token, None)
+                    self._write_state_unlocked(state)
+                    token_error = TokenError("invalid_grant", "refresh token has expired")
+                else:
+                    try:
+                        scopes = self._normalize_refresh_scopes(scopes, stored_refresh)
+                    except TokenError as exc:
+                        token_error = exc
+                    else:
+                        access_token = self._issue_access_token(
+                            client_id=client.client_id,
+                            scopes=scopes,
+                            resource=self._resource_url,
+                        )
+                        rotated_refresh = self._issue_refresh_token(
+                            client_id=client.client_id,
+                            scopes=scopes,
+                            resource=self._resource_url,
+                        )
 
-        state = self._read_state()
-        state["refresh_tokens"].pop(refresh_token.token, None)
-        state["access_tokens"][access_token.token] = access_token.model_dump(
-            mode="json", exclude_none=True
-        )
-        state["refresh_tokens"][rotated_refresh.token] = rotated_refresh.model_dump(
-            mode="json", exclude_none=True
-        )
-        self._write_state(state)
+                        state["refresh_tokens"].pop(stored_refresh.token, None)
+                        state["access_tokens"][access_token.token] = access_token.model_dump(
+                            mode="json", exclude_none=True
+                        )
+                        state["refresh_tokens"][rotated_refresh.token] = rotated_refresh.model_dump(
+                            mode="json", exclude_none=True
+                        )
+                        self._write_state_unlocked(state)
+
+        if token_error is not None:
+            raise token_error
+
         self._log(
             "oauth.exchange_refresh client_id=%s scopes=%s", client.client_id, ",".join(scopes)
         )
@@ -211,12 +279,91 @@ class EmbeddedOAuthAuthorizationServerProvider(
             scope=" ".join(scopes),
         )
 
+    def _load_stored_authorization_code(
+        self, state: dict[str, dict], code: str
+    ) -> AuthorizationCode | None:
+        payload = state["authorization_codes"].get(code)
+        if not isinstance(payload, dict):
+            return None
+        try:
+            return AuthorizationCode.model_validate(payload)
+        except ValidationError:
+            return None
+
+    def _load_stored_refresh_token(self, state: dict[str, dict], token: str) -> RefreshToken | None:
+        payload = state["refresh_tokens"].get(token)
+        if not isinstance(payload, dict):
+            return None
+        try:
+            return RefreshToken.model_validate(payload)
+        except ValidationError:
+            return None
+
+    def _normalize_refresh_scopes(
+        self, requested_scopes: list[str], refresh_token: RefreshToken
+    ) -> list[str]:
+        scopes = self._normalize_scope_values(requested_scopes)
+        if requested_scopes and not scopes:
+            raise TokenError("invalid_scope", "requested scopes are not valid")
+
+        refresh_scopes = self._normalize_scope_values(refresh_token.scopes)
+        if scopes:
+            refresh_scope_set = set(refresh_scopes)
+            for scope in scopes:
+                if scope not in refresh_scope_set:
+                    raise TokenError(
+                        "invalid_scope",
+                        f"cannot request scope `{scope}` not provided by refresh token",
+                    )
+            return scopes
+        return refresh_scopes
+
+    def _validate_client_redirect_uris(self, client_info: OAuthClientInformationFull) -> None:
+        redirect_uris = client_info.redirect_uris or []
+        if not redirect_uris:
+            raise RegistrationError(
+                "invalid_redirect_uri",
+                "at least one ChatGPT connector redirect_uri is required",
+            )
+        rejected = [
+            str(redirect_uri)
+            for redirect_uri in redirect_uris
+            if not self._is_allowed_chatgpt_redirect_uri(redirect_uri)
+        ]
+        if rejected:
+            raise RegistrationError(
+                "invalid_redirect_uri",
+                "redirect_uri must be a ChatGPT connector OAuth redirect URI",
+            )
+
+    def _is_allowed_chatgpt_redirect_uri(self, redirect_uri: object) -> bool:
+        raw_uri = str(redirect_uri or "").strip()
+        if not raw_uri:
+            return False
+        try:
+            parsed = urlsplit(raw_uri)
+        except ValueError:
+            return False
+        if parsed.scheme.lower() != "https":
+            return False
+        if (parsed.hostname or "").lower() != "chatgpt.com":
+            return False
+        try:
+            port = parsed.port
+        except ValueError:
+            return False
+        if port is not None or parsed.fragment:
+            return False
+        return parsed.path == CHATGPT_LEGACY_OAUTH_REDIRECT_PATH or parsed.path.startswith(
+            CHATGPT_OAUTH_REDIRECT_PATH_PREFIX
+        )
+
     async def load_access_token(self, token: str) -> AccessToken | None:
         secret = (token or "").strip()
         if not secret:
             return None
 
-        if self._legacy_bearer_token and secret == self._legacy_bearer_token:
+        if self._legacy_bearer_token and hmac.compare_digest(secret, self._legacy_bearer_token):
             return AccessToken(
                 token=secret,
                 client_id="minimal-kanban-legacy",
@@ -229,7 +376,10 @@ class EmbeddedOAuthAuthorizationServerProvider(
         payload = state["access_tokens"].get(secret)
         if not isinstance(payload, dict):
             return None
-        return AccessToken.model_validate(payload)
+        try:
+            return AccessToken.model_validate(payload)
+        except ValidationError:
+            return None
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         state = self._read_state()
@@ -245,6 +395,7 @@ class EmbeddedOAuthAuthorizationServerProvider(
     def _issue_access_token(
         self, *, client_id: str, scopes: list[str], resource: str | None
     ) -> AccessToken:
+        scopes = self._normalize_scope_values(scopes)
         return AccessToken(
             token=self._generate_secret("mkat"),
             client_id=client_id,
@@ -268,13 +419,30 @@ class EmbeddedOAuthAuthorizationServerProvider(
         requested_scopes: list[str] | None,
         client: OAuthClientInformationFull,
     ) -> list[str]:
-        if requested_scopes:
-            return list(requested_scopes)
-        if client.scope:
-            scopes = [scope.strip() for scope in client.scope.split(" ") if scope.strip()]
-            if scopes:
-                return scopes
+        scopes = self._normalize_scope_values(requested_scopes)
+        if scopes:
+            return scopes
+        scopes = self._normalize_scope_values(client.scope)
+        if scopes:
+            return scopes
         return list(DEFAULT_KANBAN_SCOPES)
+
+    def _normalize_scope_values(self, value: object) -> list[str]:
+        if isinstance(value, str):
+            raw_values: object = value.replace(",", " ").split()
+        elif isinstance(value, (list, tuple, set)):
+            raw_values = value
+        else:
+            raw_values = []
+        scopes: list[str] = []
+        seen: set[str] = set()
+        for item in raw_values:
+            scope = str(item or "").strip()
+            if scope not in _DEFAULT_KANBAN_SCOPE_SET or scope in seen:
+                continue
+            seen.add(scope)
+            scopes.append(scope)
+        return scopes
 
     def _read_state(self) -> dict[str, dict]:
         with self._lock:
@@ -294,11 +462,12 @@ class EmbeddedOAuthAuthorizationServerProvider(
         if not self._state_file.exists():
             return self._default_state()
         try:
-            payload = json.loads(self._state_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            backup = self._state_file.with_suffix(".corrupted.json")
-            if backup.exists():
-                backup.unlink()
+            payload = json.loads(
+                self._read_state_text(),
+                parse_constant=_reject_json_constant,
+            )
+        except (OSError, UnicodeDecodeError, ValueError, RecursionError):
+            backup = self._corrupted_backup_path()
             self._state_file.replace(backup)
             self._log("oauth.state_corrupted backup=%s", backup.name)
             return self._default_state()
@@ -325,11 +494,45 @@ class EmbeddedOAuthAuthorizationServerProvider(
             ),
         }
 
+    def _read_state_text(self) -> str:
+        return read_text_limited(
+            self._state_file,
+            max_bytes=OAUTH_STATE_MAX_BYTES,
+            label="OAuth state file",
+        )
+
+    def _corrupted_backup_path(self) -> Path:
+        backup = self._state_file.with_suffix(".corrupted.json")
+        if not backup.exists():
+            return backup
+        stem = self._state_file.with_suffix("").name
+        for index in range(2, 1000):
+            candidate = self._state_file.with_name(f"{stem}.corrupted-{index}.json")
+            if not candidate.exists():
+                return candidate
+        return self._state_file.with_name(f"{stem}.corrupted-{time.time_ns()}.json")
+
+    def _state_payload_text(self, state: dict[str, dict]) -> str:
+        payload = json.dumps(
+            self._json_safe_value(state),
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+        )
+        if len(payload.encode("utf-8")) > OAUTH_STATE_MAX_BYTES:
+            raise ValueError("OAuth state file is too large")
+        return payload
+
     def _write_state_unlocked(self, state: dict[str, dict]) -> None:
-        payload = json.dumps(state, ensure_ascii=False, indent=2)
-        temp_file = self._state_file.with_suffix(".tmp")
-        temp_file.write_text(payload, encoding="utf-8")
-        temp_file.replace(self._state_file)
+        payload = self._state_payload_text(state)
+        temp_file = self._state_file.with_name(
+            f".{self._state_file.name}.{secrets.token_hex(8)}.tmp"
+        )
+        try:
+            temp_file.write_text(payload, encoding="utf-8")
+            temp_file.replace(self._state_file)
+        finally:
+            temp_file.unlink(missing_ok=True)
 
     def _prune_state(self, state: dict[str, dict]) -> dict[str, dict]:
         now = int(time.time())
@@ -339,7 +542,7 @@ class EmbeddedOAuthAuthorizationServerProvider(
         for key, value in state.get("authorization_codes", {}).items():
             if not isinstance(value, dict):
                 continue
-            expires_at = float(value.get("expires_at") or 0)
+            expires_at = self._float_or_zero(value.get("expires_at"))
             if expires_at > time.time():
                 pruned["authorization_codes"][key] = value
 
@@ -347,17 +550,60 @@ class EmbeddedOAuthAuthorizationServerProvider(
             if not isinstance(value, dict):
                 continue
             expires_at = value.get("expires_at")
-            if expires_at is None or int(expires_at) >= now:
+            if expires_at is None or self._int_or_zero(expires_at) >= now:
                 pruned["access_tokens"][key] = value
 
         for key, value in state.get("refresh_tokens", {}).items():
             if not isinstance(value, dict):
                 continue
             expires_at = value.get("expires_at")
-            if expires_at is None or int(expires_at) >= now:
+            if expires_at is None or self._int_or_zero(expires_at) >= now:
                 pruned["refresh_tokens"][key] = value
 
         return pruned
+
+    def _json_safe_value(self, value: object, *, depth: int = 8) -> object:
+        if depth <= 0:
+            return str(value)
+        if value is None or isinstance(value, str | bool | int):
+            return value
+        if isinstance(value, float):
+            return value if math.isfinite(value) else None
+        if isinstance(value, dict):
+            return {
+                str(key): self._json_safe_value(item, depth=depth - 1)
+                for key, item in value.items()
+            }
+        if isinstance(value, (list, tuple, set)):
+            return [self._json_safe_value(item, depth=depth - 1) for item in value]
+        return str(value)
+
+    def _float_or_zero(self, value: object) -> float:
+        if isinstance(value, bool):
+            return 0.0
+        try:
+            parsed = float(0 if value is None or value == "" else value)
+        except (TypeError, ValueError, OverflowError):
+            return 0.0
+        if not math.isfinite(parsed) or parsed > OAUTH_EXPIRATION_MAX_SECONDS:
+            return 0.0
+        return parsed
+
+    def _int_or_zero(self, value: object) -> int:
+        if isinstance(value, bool):
+            return 0
+        try:
+            parsed = float(0 if value is None or value == "" else value)
+        except (TypeError, ValueError, OverflowError):
+            return 0
+        if not math.isfinite(parsed) or parsed > OAUTH_EXPIRATION_MAX_SECONDS:
+            return 0
+        if parsed <= 0:
+            return 0
+        try:
+            return int(parsed)
+        except (TypeError, ValueError, OverflowError):
+            return 0
 
     def _default_state(self) -> dict[str, dict]:
         return {

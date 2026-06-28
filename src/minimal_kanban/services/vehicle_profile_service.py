@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import math
 import re
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -14,6 +16,7 @@ from ..vehicle_profile import (
     VIN_SOFT_PATTERN,
     VehicleProfile,
     build_vehicle_display,
+    normalize_source_confidence,
     normalize_vehicle_field_names,
     normalize_vehicle_float,
     normalize_vehicle_int,
@@ -42,6 +45,14 @@ _MAKE_ALIASES: dict[str, tuple[str, ...]] = {
     "AUDI": ("AUDI", "АУДИ"),
     "LEXUS": ("LEXUS", "ЛЕКСУС"),
 }
+
+NHTSA_VIN_RESPONSE_MAX_BYTES = 1 * 1024 * 1024
+VEHICLE_PROFILE_HTTP_TIMEOUT_MAX_SECONDS = 60.0
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
 
 _GEARBOX_PATTERNS: tuple[tuple[str, str], ...] = (
     ("CVT", r"\bCVT\b|ВАРИАТОР"),
@@ -306,9 +317,21 @@ _CATALOG_ENTRIES: tuple[VehicleCatalogEntry, ...] = (
 )
 
 
+def _normalize_timeout_seconds(value: Any, *, default: float = 12.0) -> float:
+    if isinstance(value, bool):
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if not math.isfinite(parsed):
+        return default
+    return min(max(parsed, 1.0), VEHICLE_PROFILE_HTTP_TIMEOUT_MAX_SECONDS)
+
+
 class VehicleProfileService:
     def __init__(self, *, timeout_seconds: float = 12.0) -> None:
-        self._timeout_seconds = timeout_seconds
+        self._timeout_seconds = _normalize_timeout_seconds(timeout_seconds)
 
     def normalize_profile_payload(
         self,
@@ -463,7 +486,7 @@ class VehicleProfileService:
         result.autofilled_fields = sorted(normalize_vehicle_field_names(list(autofilled_fields)))
         result.tentative_fields = sorted(normalize_vehicle_field_names(list(tentative_fields)))
         result.data_completion_state = self._derive_completion_state(result)
-        result.source_confidence = round(max(0.0, min(1.0, result.source_confidence)), 2)
+        result.source_confidence = normalize_source_confidence(result.source_confidence)
         return result, changed_fields
 
     def finalize_profile_metadata(self, profile: VehicleProfile) -> VehicleProfile:
@@ -495,10 +518,11 @@ class VehicleProfileService:
             inferred_summary = self._infer_source_summary(result)
             if inferred_summary:
                 result.source_summary = inferred_summary
+        result.source_confidence = normalize_source_confidence(result.source_confidence)
         if result.source_confidence <= 0:
             result.source_confidence = self._derive_confidence(result)
         else:
-            result.source_confidence = round(max(0.0, min(1.0, result.source_confidence)), 2)
+            result.source_confidence = normalize_source_confidence(result.source_confidence)
         result.warnings = self._normalize_warnings(result.warnings)
         return result
 
@@ -650,10 +674,17 @@ class VehicleProfileService:
             return None
         url = f"https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValuesExtended/{normalized_vin}?format=json"
         try:
-            response = httpx.get(url, timeout=self._timeout_seconds)
-            response.raise_for_status()
-            payload = response.json()
+            with httpx.stream(
+                "GET", url, timeout=self._timeout_seconds, follow_redirects=False
+            ) as response:
+                response.raise_for_status()
+                payload = json.loads(
+                    self._read_response_text(response, max_bytes=NHTSA_VIN_RESPONSE_MAX_BYTES),
+                    parse_constant=_reject_json_constant,
+                )
         except Exception:
+            return None
+        if not isinstance(payload, dict):
             return None
         results = payload.get("Results")
         if not isinstance(results, list) or not results:
@@ -705,6 +736,20 @@ class VehicleProfileService:
             field_name: "official_vin_decode_nhtsa" for field_name in profile.autofilled_fields
         }
         return profile if not profile.is_empty() else None
+
+    def _read_response_text(
+        self, response: httpx.Response, *, max_bytes: int = NHTSA_VIN_RESPONSE_MAX_BYTES
+    ) -> str:
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in response.iter_bytes(chunk_size=max_bytes + 1):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > max_bytes:
+                raise ValueError(f"NHTSA response is too large ({max_bytes} byte limit)")
+            chunks.append(chunk)
+        return b"".join(chunks).decode("utf-8", errors="replace")
 
     def _enrich_from_catalog(self, profile: VehicleProfile) -> VehicleProfile | None:
         if not profile.make_display or not profile.model_display:
@@ -802,7 +847,8 @@ class VehicleProfileService:
         kw = normalize_vehicle_float(kw_value)
         if not kw:
             return None
-        return int(round(kw * 1.34102))
+        hp_from_kw = int(round(kw * 1.34102))
+        return hp_from_kw if 0 < hp_from_kw <= 3000 else None
 
     def _display_make(self, make: str) -> str:
         normalized = normalize_vehicle_text(make)
@@ -1004,7 +1050,7 @@ class VehicleProfileService:
         return profile.data_completion_state or "manually_entered"
 
     def _derive_confidence(self, profile: VehicleProfile) -> float:
-        base = profile.source_confidence
+        base = normalize_source_confidence(profile.source_confidence)
         if profile.autofilled_fields:
             base = max(base, 0.48)
             if len(profile.autofilled_fields) >= 6:

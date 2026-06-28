@@ -20,11 +20,13 @@ from PySide6.QtWidgets import (
 from ..connection_card import (
     build_board_share_url,
     derive_board_root_url,
+    resolve_connector_auth_mode,
     resolve_local_api_bearer_token,
 )
 from ..desktop_connector_files import write_connector_files
 from ..services.card_service import CardService
 from ..services.errors import ServiceError
+from ..settings_models import is_http_url
 from ..settings_service import SettingsService
 from ..texts import (
     API_LABEL_PREFIX,
@@ -480,7 +482,11 @@ class MainWindow(QMainWindow):
         self._copy_text(value, success_message)
 
     def _open_url(self, url: str, *, success_message: str) -> None:
-        webbrowser.open(url)
+        normalized_url = str(url or "").strip()
+        if not is_http_url(normalized_url):
+            self._set_status_text("Не удалось открыть ссылку: URL должен быть HTTP(S).")
+            return
+        webbrowser.open(normalized_url)
         self._set_status_text(success_message)
 
     def _open_optional_url(self, url: str, *, missing_message: str, success_message: str) -> None:
@@ -520,7 +526,7 @@ class MainWindow(QMainWindow):
             write_connector_files(
                 mcp_url,
                 local_api_url,
-                auth_mode=current_settings.mcp.mcp_auth_mode,
+                auth_mode=resolve_connector_auth_mode(current_settings),
             )
             QGuiApplication.clipboard().setText(mcp_url)
         except OSError:
@@ -728,9 +734,30 @@ class MainWindow(QMainWindow):
         if cards is None:
             return
 
-        self._sync_board_summary(columns=columns, cards=cards)
-
         column_signature = tuple((column["id"], column["label"]) for column in columns)
+        valid_column_ids = {column_id for column_id, _ in column_signature}
+        fallback_column_id = column_signature[0][0] if column_signature else ""
+        render_cards: list[dict] = []
+        seen_card_ids: set[str] = set()
+        for source_card in cards:
+            card_id = str(source_card.get("id") or "").strip()
+            if not card_id:
+                continue
+            if card_id in seen_card_ids:
+                continue
+            seen_card_ids.add(card_id)
+            card = dict(source_card)
+            card["id"] = card_id
+            card_column = str(card.get("column") or "")
+            if card_column not in valid_column_ids:
+                if not fallback_column_id:
+                    continue
+                card_column = fallback_column_id
+            card["column"] = card_column
+            render_cards.append(card)
+
+        self._sync_board_summary(columns=columns, cards=render_cards)
+
         if force or column_signature != self._column_signature:
             self._sync_columns(columns)
 
@@ -746,7 +773,7 @@ class MainWindow(QMainWindow):
                     card["deadline_timestamp"],
                     card["updated_at"],
                 )
-                for card in cards
+                for card in render_cards
             ]
         )
         if not force and signature == self._render_signature:
@@ -755,9 +782,7 @@ class MainWindow(QMainWindow):
 
         grouped = {column["id"]: [] for column in columns}
         new_widgets: dict[str, CardWidget] = {}
-        for card in cards:
-            if card["column"] not in grouped and columns:
-                card["column"] = columns[0]["id"]
+        for card in render_cards:
             widget = self._card_widgets.get(card["id"])
             if widget is None:
                 widget = CardWidget(card)

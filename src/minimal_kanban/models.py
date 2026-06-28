@@ -44,6 +44,7 @@ VALID_INVENTORY_MOVEMENT_KINDS: tuple[InventoryMovementKind, ...] = (
 DEFAULT_INDICATOR: Indicator = "green"
 DEFAULT_TAG_COLOR: TagColor = "green"
 DEFAULT_DEADLINE_TOTAL_SECONDS = 24 * 3600
+MAX_DEADLINE_TOTAL_SECONDS = 365 * 24 * 3600
 WARNING_THRESHOLD_RATIO = 0.6
 CRITICAL_THRESHOLD_RATIO = 0.15
 BLINK_THRESHOLD_RATIO = 0.05
@@ -85,6 +86,11 @@ REPAIR_ORDER_FILE_RETENTION_LIMIT = 300
 MAX_ATTACHMENT_SIZE_BYTES = 15 * 1024 * 1024
 CARD_AI_AUTOFILL_LOG_LIMIT = 24
 DEFAULT_BUSINESS_TIMEZONE = "Asia/Krasnoyarsk"
+POSITION_MAX_VALUE = 1_000_000
+COUNTER_MAX_VALUE = 1_000_000
+NORMALIZE_INT_ABS_MAX = 1_000_000_000_000
+MONEY_MINOR_ABS_MAX = 100_000_000_000_000
+REPAIR_ORDER_ROW_INDEX_MAX = 100_000
 _COLUMN_ID_PATTERN = re.compile(r"[^a-z0-9_]+")
 _SPACES_PATTERN = re.compile(r"\s+")
 _CARD_COMPACT_VIN_LABEL_PATTERN = re.compile(r"(?i)\bVIN\s*[:=]?\s*[A-Z0-9-]{6,24}\b")
@@ -96,6 +102,24 @@ _CARD_COMPACT_EMAIL_PATTERN = re.compile(r"\b[\w.+-]+@[\w.-]+\.\w+\b", re.IGNORE
 _CARD_DESCRIPTION_UNDERLINE_PATTERN = re.compile(r"\+\+([\s\S]+?)\+\+")
 _CARD_DESCRIPTION_BOLD_PATTERN = re.compile(r"\*\*([\s\S]+?)\*\*")
 _CARD_DESCRIPTION_ITALIC_PATTERN = re.compile(r"(^|[^*])\*([^*\n]+?)\*(?!\*)")
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
 
 
 def utc_now() -> datetime:
@@ -173,13 +197,33 @@ def normalize_bool(value, *, default: bool = False) -> bool:
     return default
 
 
-def normalize_int(value, *, default: int = 0, minimum: int | None = None) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
+def normalize_int(
+    value,
+    *,
+    default: int = 0,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int:
+    if isinstance(value, bool):
         parsed = default
+    else:
+        try:
+            numeric = float(value)
+        except (OverflowError, TypeError, ValueError):
+            numeric = float(default)
+        if not math.isfinite(numeric) or not numeric.is_integer():
+            numeric = float(default)
+        if minimum is not None and numeric < minimum:
+            return minimum
+        if maximum is not None and numeric > maximum:
+            return maximum
+        if maximum is None and abs(numeric) > NORMALIZE_INT_ABS_MAX:
+            numeric = float(default)
+        parsed = int(numeric)
     if minimum is not None:
         parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
     return parsed
 
 
@@ -600,23 +644,39 @@ def normalize_money_minor(value, *, default: int = 0, minimum: int | None = None
     elif isinstance(value, int):
         parsed = value
     elif isinstance(value, float):
-        parsed = int(round(value * 100))
+        if not math.isfinite(value):
+            parsed = default
+        else:
+            try:
+                parsed = int(round(value * 100))
+            except (OverflowError, ValueError):
+                parsed = default
     else:
         text = "" if value is None else str(value).strip().replace(" ", "").replace(",", ".")
         if not text:
             parsed = default
         else:
             try:
-                parsed = int(round(float(text) * 100))
-            except (TypeError, ValueError):
+                parsed_float = float(text)
+                parsed = int(round(parsed_float * 100)) if math.isfinite(parsed_float) else default
+            except (OverflowError, TypeError, ValueError):
                 parsed = default
+    if parsed > MONEY_MINOR_ABS_MAX:
+        parsed = MONEY_MINOR_ABS_MAX
+    elif parsed < -MONEY_MINOR_ABS_MAX:
+        parsed = -MONEY_MINOR_ABS_MAX
     if minimum is not None:
         parsed = max(minimum, parsed)
     return parsed
 
 
 def format_money_minor(value: int) -> str:
-    normalized = int(value)
+    normalized = normalize_int(
+        value,
+        default=0,
+        minimum=-MONEY_MINOR_ABS_MAX,
+        maximum=MONEY_MINOR_ABS_MAX,
+    )
     sign = "-" if normalized < 0 else ""
     amount = abs(normalized) / 100
     return sign + f"{amount:,.2f}".replace(",", " ").replace(".", ",") + " ₽"
@@ -739,8 +799,38 @@ def indicator_from_status(status: Status) -> Indicator:
     return "green"
 
 
-def _clamp_ratio(value: float) -> float:
-    return max(0.0, min(1.0, float(value)))
+def _clamp_ratio(value: object) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(numeric):
+        return 0.0
+    return max(0.0, min(1.0, numeric))
+
+
+def _normalize_positive_seconds(value: object, *, default: int) -> int:
+    return normalize_int(
+        value,
+        default=default,
+        minimum=1,
+        maximum=MAX_DEADLINE_TOTAL_SECONDS,
+    )
+
+
+def _normalize_non_negative_seconds(value: object) -> int:
+    return normalize_int(value, default=0, minimum=0, maximum=MAX_DEADLINE_TOTAL_SECONDS)
+
+
+def _normalize_deadline_heat_bucket(bucket: object) -> int:
+    return normalize_int(
+        bucket,
+        default=0,
+        minimum=0,
+        maximum=DEADLINE_HEAT_BUCKET_COUNT,
+    )
 
 
 def _interpolate_channel(start: int, end: int, ratio: float) -> int:
@@ -768,8 +858,13 @@ def _rgb_to_rgba(rgb: tuple[int, int, int], alpha: float) -> str:
 
 
 def calculate_deadline_progress_ratio(remaining_seconds: int, total_seconds: int) -> float:
-    total = max(1, int(total_seconds))
-    remaining = max(0, int(remaining_seconds))
+    total = _normalize_positive_seconds(total_seconds, default=DEFAULT_DEADLINE_TOTAL_SECONDS)
+    remaining = normalize_int(
+        remaining_seconds,
+        default=0,
+        minimum=0,
+        maximum=MAX_DEADLINE_TOTAL_SECONDS,
+    )
     return _clamp_ratio(1.0 - (remaining / total))
 
 
@@ -784,7 +879,7 @@ def calculate_deadline_progress_bucket(progress_ratio: float) -> int:
 
 
 def deadline_heat_rgb_for_bucket(bucket: int) -> tuple[int, int, int]:
-    bounded_bucket = max(0, min(DEADLINE_HEAT_BUCKET_COUNT, int(bucket)))
+    bounded_bucket = _normalize_deadline_heat_bucket(bucket)
     ratio = bounded_bucket / DEADLINE_HEAT_BUCKET_COUNT
     return _interpolate_rgb(DEADLINE_HEAT_START_RGB, DEADLINE_HEAT_END_RGB, ratio)
 
@@ -794,25 +889,25 @@ def deadline_heat_color_for_bucket(bucket: int) -> str:
 
 
 def deadline_heat_border_color_for_bucket(bucket: int) -> str:
-    bounded_bucket = max(0, min(DEADLINE_HEAT_BUCKET_COUNT, int(bucket)))
+    bounded_bucket = _normalize_deadline_heat_bucket(bucket)
     ratio = bounded_bucket / DEADLINE_HEAT_BUCKET_COUNT
     return _rgb_to_rgba(deadline_heat_rgb_for_bucket(bounded_bucket), 0.34 + (ratio * 0.54))
 
 
 def deadline_heat_ring_color_for_bucket(bucket: int) -> str:
-    bounded_bucket = max(0, min(DEADLINE_HEAT_BUCKET_COUNT, int(bucket)))
+    bounded_bucket = _normalize_deadline_heat_bucket(bucket)
     ratio = bounded_bucket / DEADLINE_HEAT_BUCKET_COUNT
     return _rgb_to_rgba(deadline_heat_rgb_for_bucket(bounded_bucket), 0.08 + (ratio * 0.26))
 
 
 def deadline_heat_glow_color_for_bucket(bucket: int) -> str:
-    bounded_bucket = max(0, min(DEADLINE_HEAT_BUCKET_COUNT, int(bucket)))
+    bounded_bucket = _normalize_deadline_heat_bucket(bucket)
     ratio = bounded_bucket / DEADLINE_HEAT_BUCKET_COUNT
     return _rgb_to_rgba(deadline_heat_rgb_for_bucket(bounded_bucket), 0.04 + (ratio * 0.24))
 
 
 def format_remaining_seconds(seconds: int) -> str:
-    total_seconds = max(0, int(seconds))
+    total_seconds = _normalize_non_negative_seconds(seconds)
     days, remainder = divmod(total_seconds, 24 * 3600)
     hours, remainder = divmod(remainder, 3600)
     minutes, secs = divmod(remainder, 60)
@@ -828,7 +923,7 @@ def short_entity_id(value, *, prefix: str) -> str:
 
 
 def split_seconds_to_days_hours(seconds: int) -> tuple[int, int]:
-    total_seconds = max(0, int(seconds))
+    total_seconds = _normalize_non_negative_seconds(seconds)
     if total_seconds == 0:
         return 0, 1
     rounded_hours = max(1, math.ceil(total_seconds / 3600))
@@ -855,7 +950,12 @@ class Column:
             raise TypeError("Column payload must be a dictionary.")
         column_id = normalize_column_id(payload.get("id"))
         label = normalize_text(payload.get("label"), limit=COLUMN_LABEL_LIMIT)
-        position = normalize_int(payload.get("position"), default=fallback_position, minimum=0)
+        position = normalize_int(
+            payload.get("position"),
+            default=fallback_position,
+            minimum=0,
+            maximum=POSITION_MAX_VALUE,
+        )
         if not column_id or not label:
             raise ValueError("Column id and label are required.")
         return cls(id=column_id, label=label, position=position)
@@ -904,7 +1004,12 @@ class Attachment:
             mime_type=normalize_text(
                 payload.get("mime_type"), default="application/octet-stream", limit=100
             ),
-            size_bytes=normalize_int(payload.get("size_bytes"), default=0, minimum=0),
+            size_bytes=normalize_int(
+                payload.get("size_bytes"),
+                default=0,
+                minimum=0,
+                maximum=MAX_ATTACHMENT_SIZE_BYTES,
+            ),
             created_at=created_at.isoformat(),
             created_by=normalize_actor_name(payload.get("created_by"), default="СИСТЕМА"),
             removed=normalize_bool(payload.get("removed"), default=False),
@@ -929,7 +1034,11 @@ class StickyNote:
     def deadline_datetime(self) -> datetime:
         deadline = parse_datetime(self.deadline_timestamp)
         if deadline is None:
-            deadline = utc_now() + timedelta(seconds=max(1, int(self.deadline_total_seconds)))
+            deadline = utc_now() + timedelta(
+                seconds=_normalize_positive_seconds(
+                    self.deadline_total_seconds, default=STICKY_DEFAULT_TOTAL_SECONDS
+                )
+            )
             self.deadline_timestamp = deadline.isoformat()
         return deadline
 
@@ -939,11 +1048,13 @@ class StickyNote:
         return max(0, int((self.deadline_datetime() - reference_time).total_seconds()))
 
     def remaining_ratio(self, reference_time: datetime | None = None) -> float:
-        total = max(1, int(self.deadline_total_seconds))
+        total = _normalize_positive_seconds(
+            self.deadline_total_seconds, default=STICKY_DEFAULT_TOTAL_SECONDS
+        )
         return self.remaining_seconds(reference_time) / total
 
     def opacity(self, reference_time: datetime | None = None) -> float:
-        ratio = max(0.0, min(1.0, self.remaining_ratio(reference_time)))
+        ratio = _clamp_ratio(self.remaining_ratio(reference_time))
         return round(0.5 + (0.4 * ratio), 3)
 
     def to_dict(self, reference_time: datetime | None = None) -> dict:
@@ -987,6 +1098,7 @@ class StickyNote:
             payload.get("deadline_total_seconds"),
             default=STICKY_DEFAULT_TOTAL_SECONDS,
             minimum=1,
+            maximum=MAX_DEADLINE_TOTAL_SECONDS,
         )
         deadline = parse_datetime(payload.get("deadline_timestamp"))
         if deadline is None:
@@ -994,8 +1106,8 @@ class StickyNote:
         return cls(
             id=normalize_entity_id(payload.get("id")),
             text=normalize_text(payload.get("text"), default="ЗАМЕТКА", limit=STICKY_TEXT_LIMIT),
-            x=normalize_int(payload.get("x"), default=0, minimum=0),
-            y=normalize_int(payload.get("y"), default=0, minimum=0),
+            x=normalize_int(payload.get("x"), default=0, minimum=0, maximum=200_000),
+            y=normalize_int(payload.get("y"), default=0, minimum=0, maximum=200_000),
             created_at=created_at.isoformat(),
             updated_at=updated_at.isoformat(),
             deadline_timestamp=deadline.isoformat(),
@@ -1083,7 +1195,7 @@ class CashBox:
         name = normalize_text(payload.get("name"), limit=CASHBOX_NAME_LIMIT)
         if not name:
             raise ValueError("Cash box name is required.")
-        order = normalize_int(payload.get("order"), default=0, minimum=0)
+        order = normalize_int(payload.get("order"), default=0, minimum=0, maximum=10_000)
         return cls(
             id=normalize_entity_id(payload.get("id")),
             name=name,
@@ -1352,7 +1464,10 @@ class InventoryMovement:
                 payload.get("repair_order_number"), default="", limit=40
             ),
             repair_order_row_index=normalize_int(
-                payload.get("repair_order_row_index"), default=-1, minimum=-1
+                payload.get("repair_order_row_index"),
+                default=-1,
+                minimum=-1,
+                maximum=REPAIR_ORDER_ROW_INDEX_MAX,
             ),
             related_movement_id=normalize_text(
                 payload.get("related_movement_id"), default="", limit=128
@@ -1590,14 +1705,24 @@ class Card:
         self.client_id = normalize_text(self.client_id, default="", limit=128)
         self.client_vehicle_id = normalize_text(self.client_vehicle_id, default="", limit=128)
         self.tags = normalize_tags(self.tags)
-        self.position = normalize_int(self.position, default=0, minimum=0)
+        self.position = normalize_int(
+            self.position,
+            default=0,
+            minimum=0,
+            maximum=POSITION_MAX_VALUE,
+        )
         self.seen_by_users = normalize_seen_by_users(self.seen_by_users)
         self.ai_autofill_active = normalize_bool(self.ai_autofill_active, default=False)
         self.ai_autofill_until = normalize_text(self.ai_autofill_until, default="", limit=64)
         self.ai_autofill_prompt = normalize_text(self.ai_autofill_prompt, default="", limit=800)
         self.ai_next_run_at = normalize_text(self.ai_next_run_at, default="", limit=64)
         self.last_ai_run_at = normalize_text(self.last_ai_run_at, default="", limit=64)
-        self.ai_run_count = normalize_int(self.ai_run_count, default=0, minimum=0)
+        self.ai_run_count = normalize_int(
+            self.ai_run_count,
+            default=0,
+            minimum=0,
+            maximum=COUNTER_MAX_VALUE,
+        )
         self.last_card_fingerprint = normalize_text(
             self.last_card_fingerprint, default="", limit=128
         )
@@ -1606,7 +1731,11 @@ class Card:
     def deadline_datetime(self) -> datetime:
         deadline = parse_datetime(self.deadline_timestamp)
         if deadline is None:
-            deadline = utc_now() + timedelta(seconds=max(1, int(self.deadline_total_seconds)))
+            deadline = utc_now() + timedelta(
+                seconds=_normalize_positive_seconds(
+                    self.deadline_total_seconds, default=DEFAULT_DEADLINE_TOTAL_SECONDS
+                )
+            )
             self.deadline_timestamp = deadline.isoformat()
         return deadline
 
@@ -1616,7 +1745,9 @@ class Card:
         return max(0, int((self.deadline_datetime() - reference_time).total_seconds()))
 
     def remaining_ratio(self, reference_time: datetime | None = None) -> float:
-        total = max(1, int(self.deadline_total_seconds))
+        total = _normalize_positive_seconds(
+            self.deadline_total_seconds, default=DEFAULT_DEADLINE_TOTAL_SECONDS
+        )
         return self.remaining_seconds(reference_time) / total
 
     def deadline_progress_ratio(self, reference_time: datetime | None = None) -> float:
@@ -1748,7 +1879,13 @@ class Card:
                 for attachment in self.attachments
             ],
         }
-        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        raw = json.dumps(
+            _json_safe_value(payload),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
         return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:24]
 
     def board_summary_stale(self) -> bool:
@@ -1829,7 +1966,12 @@ class Card:
             "tags": self.tag_labels(),
             "tag_items": self.tag_items(),
             "attachment_count": len(self.active_attachments()),
-            "events_count": max(0, int(events_count)),
+            "events_count": normalize_int(
+                events_count,
+                default=0,
+                minimum=0,
+                maximum=COUNTER_MAX_VALUE,
+            ),
             "is_unread": self.is_unread_for(viewer_username),
             "has_unseen_update": self.has_unseen_update_for(viewer_username),
             "ai_autofill_active": self.ai_autofill_active,
@@ -1912,6 +2054,7 @@ class Card:
             payload.get("deadline_total_seconds"),
             default=DEFAULT_DEADLINE_TOTAL_SECONDS,
             minimum=1,
+            maximum=MAX_DEADLINE_TOTAL_SECONDS,
         )
         deadline = parse_datetime(payload.get("deadline_timestamp"))
         if deadline is None:
@@ -1923,7 +2066,7 @@ class Card:
             for item in attachments_payload:
                 try:
                     attachments.append(Attachment.from_dict(item))
-                except (TypeError, ValueError):
+                except (OverflowError, TypeError, ValueError):
                     continue
 
         vehicle = normalize_text(payload.get("vehicle"), default="", limit=CARD_VEHICLE_LIMIT)
@@ -1963,7 +2106,12 @@ class Card:
             column=normalize_column(
                 payload.get("column"), valid_columns=valid_columns, default=default_column
             ),
-            position=normalize_int(payload.get("position"), default=fallback_position, minimum=0),
+            position=normalize_int(
+                payload.get("position"),
+                default=fallback_position,
+                minimum=0,
+                maximum=POSITION_MAX_VALUE,
+            ),
             archived=archived,
             created_at=created_at.isoformat(),
             updated_at=updated_at.isoformat(),
@@ -1989,7 +2137,12 @@ class Card:
             ),
             ai_next_run_at=normalize_text(payload.get("ai_next_run_at"), default="", limit=64),
             last_ai_run_at=normalize_text(payload.get("last_ai_run_at"), default="", limit=64),
-            ai_run_count=normalize_int(payload.get("ai_run_count"), default=0, minimum=0),
+            ai_run_count=normalize_int(
+                payload.get("ai_run_count"),
+                default=0,
+                minimum=0,
+                maximum=COUNTER_MAX_VALUE,
+            ),
             last_card_fingerprint=normalize_text(
                 payload.get("last_card_fingerprint"), default="", limit=128
             ),

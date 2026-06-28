@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -9,6 +10,30 @@ from ..mcp.client import BoardApiClient
 from ..models import normalize_bool
 from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
 from .automotive_tools import AutomotiveLookupService
+
+_AGENT_TOOL_INT_ABS_MAX = 1_000_000_000
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _json_dumps(payload: Any) -> str:
+    return json.dumps(_json_safe_value(payload), ensure_ascii=False, allow_nan=False)
 
 
 @dataclass(frozen=True)
@@ -351,7 +376,7 @@ class AgentToolExecutor:
             ):
                 continue
             lines.append(f"- {item.name}: {item.description}")
-            lines.append(f"  args: {json.dumps(item.args_schema, ensure_ascii=False)}")
+            lines.append(f"  args: {_json_dumps(item.args_schema)}")
         return "\n".join(lines)
 
     def execute(self, tool_name: str, args: dict[str, Any] | None) -> dict[str, Any]:
@@ -674,10 +699,17 @@ class AgentToolExecutor:
     def _maybe_int(self, value: Any) -> int | None:
         if value is None or value == "":
             return None
-        try:
-            return int(value)
-        except (TypeError, ValueError):
+        if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
             return None
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(numeric) or not numeric.is_integer():
+            return None
+        if abs(numeric) > _AGENT_TOOL_INT_ABS_MAX:
+            return None
+        return int(numeric)
 
     def _maybe_bool(self, value: Any, *, default: bool) -> bool:
         return normalize_bool(value, default=default)

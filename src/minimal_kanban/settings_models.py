@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ipaddress
+import math
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
@@ -16,6 +18,7 @@ from .config import (
 )
 
 SETTINGS_SCHEMA_VERSION = 3
+NORMALIZE_INT_ABS_MAX = 1_000_000_000_000
 SECRET_REDACTION = "[скрыто]"
 CONNECTION_STATUS_VALUES = ("not_tested", "success", "failed", "skipped", "warning")
 AUTH_MODE_VALUES = ("none", "bearer")
@@ -46,6 +49,13 @@ def normalize_text(value, *, default: str = "", limit: int | None = None) -> str
     return text
 
 
+def normalize_secret(value, *, default: str = "", limit: int = 500) -> str:
+    secret = normalize_text(value, default=default, limit=limit)
+    if any(character.isspace() for character in secret):
+        return default
+    return secret
+
+
 def normalize_bool(value, *, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
@@ -63,10 +73,22 @@ def normalize_bool(value, *, default: bool = False) -> bool:
 def normalize_int(
     value, *, default: int, minimum: int | None = None, maximum: int | None = None
 ) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
+    if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
         parsed = default
+    else:
+        try:
+            numeric = float(value)
+        except (OverflowError, TypeError, ValueError):
+            numeric = float(default)
+        if not math.isfinite(numeric) or not numeric.is_integer():
+            numeric = float(default)
+        if minimum is not None and numeric < minimum:
+            return default
+        if maximum is not None and numeric > maximum:
+            return default
+        if maximum is None and abs(numeric) > NORMALIZE_INT_ABS_MAX:
+            return default
+        parsed = int(numeric)
     if minimum is not None and parsed < minimum:
         return default
     if maximum is not None and parsed > maximum:
@@ -83,7 +105,12 @@ def normalize_choice(value, *, values: tuple[str, ...], default: str) -> str:
 
 def normalize_host(value, *, default: str) -> str:
     host = normalize_text(value, default=default, limit=255)
-    if " " in host:
+    if (
+        any(character.isspace() for character in host)
+        or any(separator in host for separator in ("/", "\\", "?", "#", "@"))
+        or "]:" in host
+        or host.count(":") == 1
+    ):
         return default
     return host
 
@@ -146,6 +173,7 @@ def unique_strings(values) -> list[str]:
 def is_http_url(value: str) -> bool:
     try:
         parsed = urlsplit(value)
+        parsed.port
     except ValueError:
         return False
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
@@ -154,8 +182,17 @@ def is_http_url(value: str) -> bool:
 def is_external_http_url(value: str) -> bool:
     if not is_http_url(value):
         return False
-    host = (urlsplit(value).hostname or "").lower()
-    return host not in {"127.0.0.1", "localhost", ""}
+    try:
+        host = (urlsplit(value).hostname or "").strip().lower().rstrip(".")
+    except ValueError:
+        return False
+    if not host or host == "localhost" or host.endswith(".localhost"):
+        return False
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return not (address.is_loopback or address.is_unspecified)
 
 
 def normalize_url(value, *, default: str = "", limit: int = 500) -> str:
@@ -167,7 +204,7 @@ def build_http_url(host: str, port: int, path: str = "") -> str:
     clean_path = path.strip()
     if clean_path and not clean_path.startswith("/"):
         clean_path = f"/{clean_path}"
-    return f"http://{host}:{port}{clean_path}"
+    return f"http://{_header_host(host)}:{port}{clean_path}"
 
 
 def build_endpoint_from_base(base_url: str, path: str) -> str:
@@ -179,7 +216,7 @@ def build_endpoint_from_base(base_url: str, path: str) -> str:
 
 
 def _header_host(hostname: str) -> str:
-    host = normalize_text(hostname, default="", limit=255)
+    host = normalize_text(hostname, default="", limit=255).rstrip(".")
     if ":" in host and not host.startswith("["):
         return f"[{host}]"
     return host
@@ -310,7 +347,7 @@ class LocalApiSettings:
         payload = payload if isinstance(payload, dict) else {}
         legacy_general = legacy_general if isinstance(legacy_general, dict) else {}
         legacy_credentials = legacy_credentials if isinstance(legacy_credentials, dict) else {}
-        token = normalize_text(
+        token = normalize_secret(
             payload.get("local_api_bearer_token", legacy_credentials.get("local_api_bearer_token")),
             default="",
             limit=500,
@@ -434,7 +471,7 @@ class McpSettings:
         payload = payload if isinstance(payload, dict) else {}
         legacy_mcp = legacy_mcp if isinstance(legacy_mcp, dict) else {}
         legacy_credentials = legacy_credentials if isinstance(legacy_credentials, dict) else {}
-        token = normalize_text(
+        token = normalize_secret(
             payload.get("mcp_bearer_token", legacy_credentials.get("mcp_bearer_token")),
             default="",
             limit=500,
@@ -577,8 +614,8 @@ class AuthSettings:
     ) -> AuthSettings:
         payload = payload if isinstance(payload, dict) else {}
         legacy_credentials = legacy_credentials if isinstance(legacy_credentials, dict) else {}
-        access_token = normalize_text(payload.get("access_token"), default="", limit=500)
-        local_api_bearer_token = normalize_text(
+        access_token = normalize_secret(payload.get("access_token"), default="", limit=500)
+        local_api_bearer_token = normalize_secret(
             payload.get(
                 "local_api_bearer_token",
                 legacy_credentials.get(
@@ -588,7 +625,7 @@ class AuthSettings:
             default="",
             limit=500,
         )
-        mcp_bearer_token = normalize_text(
+        mcp_bearer_token = normalize_secret(
             payload.get(
                 "mcp_bearer_token",
                 legacy_credentials.get("mcp_bearer_token", getattr(mcp, "mcp_bearer_token", "")),
@@ -596,7 +633,7 @@ class AuthSettings:
             default="",
             limit=500,
         )
-        openai_api_key = normalize_text(
+        openai_api_key = normalize_secret(
             payload.get("openai_api_key", legacy_credentials.get("openai_api_key")),
             default="",
             limit=500,
@@ -775,7 +812,10 @@ class IntegrationSettings:
 
         return cls(
             schema_version=normalize_int(
-                payload.get("schema_version"), default=SETTINGS_SCHEMA_VERSION, minimum=1
+                payload.get("schema_version"),
+                default=SETTINGS_SCHEMA_VERSION,
+                minimum=1,
+                maximum=SETTINGS_SCHEMA_VERSION,
             ),
             general=GeneralSettings.from_dict(
                 payload.get("general"), legacy_general=legacy_general

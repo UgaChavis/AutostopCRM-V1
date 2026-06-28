@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import shutil
+import math
 import statistics
 import sys
 import tempfile
@@ -20,12 +20,43 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.config import get_state_file
 from minimal_kanban.storage.json_store import JsonStore
+from minimal_kanban.storage.limited_io import copy_file_limited
+
+STATE_SIZE_REPORT_STATE_MAX_BYTES = 100 * 1024 * 1024
+STATE_SIZE_REPORT_MAX_BENCHMARK_ITERATIONS = 1000
 
 
 def json_bytes(value: Any) -> int:
     return len(
-        json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
+        json.dumps(
+            _json_safe_value(value),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
     )
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
 
 
 def percentile(values: list[float], ratio: float) -> float:
@@ -46,8 +77,41 @@ def summarize(samples: list[float]) -> dict[str, float]:
     }
 
 
+def _bounded_iterations(value: object, *, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return default
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return default
+    if numeric < 0:
+        return 0
+    if numeric > STATE_SIZE_REPORT_MAX_BENCHMARK_ITERATIONS:
+        return STATE_SIZE_REPORT_MAX_BENCHMARK_ITERATIONS
+    return int(numeric)
+
+
 def load_state(state_file: Path) -> dict[str, Any]:
-    return json.loads(state_file.read_text(encoding="utf-8"))
+    try:
+        state = json.loads(
+            _read_state_text(state_file),
+            parse_constant=_reject_json_constant,
+        )
+    except RecursionError as exc:
+        raise ValueError("state size report state file JSON is too deeply nested") from exc
+    if not isinstance(state, dict):
+        raise ValueError("state file must contain a JSON object")
+    return state
+
+
+def _read_state_text(state_file: Path) -> str:
+    with state_file.open("rb") as handle:
+        raw = handle.read(STATE_SIZE_REPORT_STATE_MAX_BYTES + 1)
+    if len(raw) > STATE_SIZE_REPORT_STATE_MAX_BYTES:
+        raise ValueError("state size report state file is too large")
+    return raw.decode("utf-8")
 
 
 def section_report(state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -89,7 +153,12 @@ def benchmark_state_file(state_file: Path, *, iterations: int) -> dict[str, Any]
     logger.addHandler(logging.NullHandler())
     with tempfile.TemporaryDirectory(prefix="autostop-state-report-") as temp_dir:
         temp_state = Path(temp_dir) / "state.json"
-        shutil.copy2(state_file, temp_state)
+        copy_file_limited(
+            state_file,
+            temp_state,
+            max_bytes=STATE_SIZE_REPORT_STATE_MAX_BYTES,
+            label="state size report state file",
+        )
         store = JsonStore(state_file=temp_state, logger=logger)
         read_samples: list[float] = []
         write_samples: list[float] = []
@@ -158,16 +227,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Report AutoStop CRM state.json size and write/read timing."
     )
     parser.add_argument("--state-file", type=Path, default=get_state_file())
-    parser.add_argument("--benchmark-iterations", type=int, default=0)
+    parser.add_argument("--benchmark-iterations", default=0)
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    report = build_report(args.state_file, benchmark_iterations=max(0, args.benchmark_iterations))
+    try:
+        report = build_report(
+            args.state_file,
+            benchmark_iterations=_bounded_iterations(args.benchmark_iterations),
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(
+            json.dumps(
+                {"ok": False, "error": str(exc)},
+                ensure_ascii=False,
+                indent=2,
+                allow_nan=False,
+            )
+        )
+        return 2
     if args.json:
-        print(json.dumps(report, ensure_ascii=False, indent=2))
+        print(json.dumps(_json_safe_value(report), ensure_ascii=False, indent=2, allow_nan=False))
     else:
         print_text_report(report)
     return 0

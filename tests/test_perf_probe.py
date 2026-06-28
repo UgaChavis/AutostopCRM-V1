@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import importlib.util
 import io
 import json
@@ -21,6 +22,25 @@ def load_perf_probe_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+class FakeHttpResponse:
+    status = 200
+
+    def __init__(self, body: bytes, *, headers: dict[str, str] | None = None) -> None:
+        self._body = body
+        self.headers = headers or {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        _ = (exc_type, exc, tb)
+
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            return self._body
+        return self._body[:size]
 
 
 class PerfProbeTests(unittest.TestCase):
@@ -59,6 +79,116 @@ class PerfProbeTests(unittest.TestCase):
                 },
             ],
         )
+
+        self.assertEqual(
+            module.evaluate_thresholds(rows, {"snapshot.gzip.avg_ms": float("inf")}),
+            [],
+        )
+
+    def test_iterations_are_bounded_before_probe_loop(self) -> None:
+        module = load_perf_probe_module()
+
+        self.assertEqual(module._bounded_iterations(1e308), 100)
+        self.assertEqual(module._bounded_iterations(0), 1)
+        self.assertEqual(module._bounded_iterations("bad"), 3)
+        self.assertEqual(module._bounded_threshold(1e308), module.PERF_PROBE_MAX_THRESHOLD)
+        self.assertEqual(module._bounded_threshold(-1), 0.0)
+        self.assertEqual(module._bounded_threshold("bad"), 0.0)
+
+    def test_request_json_rejects_nonstandard_json_constants(self) -> None:
+        module = load_perf_probe_module()
+
+        with patch.object(
+            module,
+            "_urlopen_no_redirect",
+            return_value=FakeHttpResponse(b'{"ok": true, "data": NaN}'),
+        ):
+            with self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"):
+                module.request_json("https://crm.autostopcrm.ru", "/api/health")
+
+    def test_request_json_rejects_deeply_nested_response(self) -> None:
+        module = load_perf_probe_module()
+        deep_json = ("[" * 5000 + "0" + "]" * 5000).encode("utf-8")
+
+        with patch.object(
+            module,
+            "_urlopen_no_redirect",
+            return_value=FakeHttpResponse(deep_json),
+        ):
+            with self.assertRaisesRegex(ValueError, "API response JSON is too deeply nested"):
+                module.request_json("https://crm.autostopcrm.ru", "/api/health")
+
+    def test_request_json_rejects_oversized_response(self) -> None:
+        module = load_perf_probe_module()
+
+        with (
+            patch.object(module, "PERF_PROBE_RESPONSE_MAX_BYTES", 4),
+            patch.object(
+                module,
+                "_urlopen_no_redirect",
+                return_value=FakeHttpResponse(b"12345"),
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "perf probe response is too large"):
+                module.request_json("https://crm.autostopcrm.ru", "/api/health")
+
+    def test_request_json_rejects_oversized_decompressed_gzip_response(self) -> None:
+        module = load_perf_probe_module()
+        compressed = gzip.compress(b'{"data":"' + (b"x" * 128) + b'"}')
+
+        with (
+            patch.object(module, "PERF_PROBE_RESPONSE_MAX_BYTES", 64),
+            patch.object(
+                module,
+                "_urlopen_no_redirect",
+                return_value=FakeHttpResponse(
+                    compressed,
+                    headers={"Content-Encoding": "gzip"},
+                ),
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "gzip response is too large"):
+                module.request_json("https://crm.autostopcrm.ru", "/api/health")
+
+    def test_request_json_rejects_redirect_response(self) -> None:
+        module = load_perf_probe_module()
+        redirect = module.urllib.error.HTTPError(
+            url="https://crm.autostopcrm.ru/api/open_card",
+            code=302,
+            msg="Found",
+            hdrs={"Location": "https://example.test/api/open_card"},
+            fp=None,
+        )
+
+        with patch.object(module, "_urlopen_no_redirect", side_effect=redirect):
+            with self.assertRaisesRegex(ValueError, "API request redirected"):
+                module.request_json(
+                    "https://crm.autostopcrm.ru",
+                    "/api/open_card",
+                    method="POST",
+                    payload={"card_id": "card-1"},
+                )
+
+    def test_json_dumps_sanitizes_nonfinite_values(self) -> None:
+        module = load_perf_probe_module()
+
+        encoded = module._json_dumps({"ok": True, "avg_ms": float("nan")})
+
+        self.assertNotIn("NaN", encoded)
+        self.assertEqual(json.loads(encoded), {"ok": True, "avg_ms": None})
+
+    def test_json_dumps_handles_self_referential_payload(self) -> None:
+        module = load_perf_probe_module()
+        payload: dict[str, object] = {"ok": True}
+        payload["self"] = payload
+
+        encoded = module._json_dumps(payload)
+        decoded = json.loads(encoded)
+        node = decoded
+        for _ in range(8):
+            node = node["self"]
+
+        self.assertIsInstance(node, str)
 
     def test_main_returns_nonzero_when_thresholds_are_exceeded(self) -> None:
         module = load_perf_probe_module()
@@ -143,6 +273,43 @@ class PerfProbeTests(unittest.TestCase):
         self.assertTrue(payload["local_temp_server"])
         self.assertEqual(payload["base_url"], fake_server.base_url)
         self.assertEqual(set(seen_base_urls), {fake_server.base_url})
+
+    def test_main_reports_probe_errors_and_stops_temporary_server(self) -> None:
+        module = load_perf_probe_module()
+
+        class FakeLocalServer:
+            base_url = "http://127.0.0.1:42751"
+
+            def __init__(self) -> None:
+                self.stopped = False
+
+            def stop(self) -> None:
+                self.stopped = True
+
+        fake_server = FakeLocalServer()
+        stdout = io.StringIO()
+        with (
+            patch.object(module, "start_local_temp_server", return_value=fake_server),
+            patch.object(
+                module,
+                "measure",
+                side_effect=json.JSONDecodeError("bad json", "{", 0),
+            ),
+            patch.object(
+                sys,
+                "argv",
+                ["perf_probe.py", "--local-temp-server", "--iterations", "1"],
+            ),
+            redirect_stdout(stdout),
+        ):
+            exit_code = module.main()
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 2)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["base_url"], fake_server.base_url)
+        self.assertIn("bad json", payload["error"])
+        self.assertTrue(fake_server.stopped)
 
 
 if __name__ == "__main__":

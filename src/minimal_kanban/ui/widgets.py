@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime
 
 from PySide6.QtCore import QMimeData, QPoint, Qt, Signal
@@ -32,6 +33,18 @@ INDICATOR_STYLE = {
 TITLE_MAX_LINES = 2
 DESCRIPTION_MIN_LINES = 6
 DESCRIPTION_MAX_LINES = 9
+
+
+def _safe_card_int(value: object, *, default: int = 0, minimum: int = 0, maximum: int) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return default
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return default
+    return min(maximum, max(minimum, int(numeric)))
 
 
 def _card_frame_stylesheet(border_color: str) -> str:
@@ -183,9 +196,15 @@ class CardWidget(QFrame):
         self.deadline_label.setText(format_deadline_preview(card["deadline_timestamp"]))
         self.timer_label.setText(card["remaining_display"])
 
+        deadline_bucket = _safe_card_int(
+            card.get("deadline_progress_bucket"), default=0, minimum=0, maximum=20
+        )
+        deadline_step = _safe_card_int(
+            card.get("deadline_progress_step_percent"), default=0, minimum=0, maximum=100
+        )
         self.setProperty("status", card["status"])
-        self.setProperty("deadlineBucket", int(card.get("deadline_progress_bucket", 0)))
-        self.setProperty("deadlineStep", int(card.get("deadline_progress_step_percent", 0)))
+        self.setProperty("deadlineBucket", deadline_bucket)
+        self.setProperty("deadlineStep", deadline_step)
         self.setProperty(
             "deadlineHeatColor", card.get("deadline_heat_color", INDICATOR_STYLE[card["indicator"]])
         )
@@ -200,11 +219,10 @@ class CardWidget(QFrame):
         self.timer_label.setStyleSheet(f"color: {timer_color};")
 
         heat_color = str(card.get("deadline_heat_color") or INDICATOR_STYLE[card["indicator"]])
-        bucket = int(card.get("deadline_progress_bucket", 0))
         shadow_color = QColor(heat_color)
-        shadow_color.setAlpha(min(210, 48 + (bucket * 7)))
+        shadow_color.setAlpha(min(210, 48 + (deadline_bucket * 7)))
         self._shadow_effect.setColor(shadow_color)
-        self._shadow_effect.setBlurRadius(12 + bucket)
+        self._shadow_effect.setBlurRadius(12 + deadline_bucket)
         self.setStyleSheet(_card_frame_stylesheet(heat_color))
 
         indicator_color = INDICATOR_STYLE[card["indicator"]]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, fields
 from typing import Any
 
@@ -21,6 +22,20 @@ def _clean_text(value: Any, *, limit: int = 4000) -> str:
 
 def _clean_multiline(value: Any, *, limit: int = 120_000) -> str:
     return str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()[:limit]
+
+
+def _normalize_copy_count(value: Any) -> int:
+    if isinstance(value, bool):
+        return 1
+    if isinstance(value, str) and len(value.strip()) > 6:
+        return 1
+    try:
+        numeric = float(1 if value is None or value == "" else value)
+    except (OverflowError, TypeError, ValueError):
+        return 1
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return 1
+    return max(1, min(20, int(numeric)))
 
 
 def _clean_table_rows(value: Any, *, limit_rows: int = 80) -> list[dict[str, str]]:
@@ -157,10 +172,7 @@ class PrintModuleSettings:
 
     def __post_init__(self) -> None:
         self.default_printer = _clean_text(self.default_printer, limit=120)
-        try:
-            self.copies = max(1, min(20, int(self.copies)))
-        except (TypeError, ValueError):
-            self.copies = 1
+        self.copies = _normalize_copy_count(self.copies)
         self.paper_size = _clean_text(self.paper_size, limit=20).upper() or "A4"
         orientation = _clean_text(self.orientation, limit=20).lower()
         self.orientation = "landscape" if orientation == "landscape" else "portrait"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -10,17 +11,42 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import uuid
 from dataclasses import dataclass
 from logging import Logger
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .settings_models import IntegrationSettings
+from .settings_models import IntegrationSettings, build_http_url
+from .storage.limited_io import read_text_limited
 
 DEFAULT_NGROK_API_URL = "http://127.0.0.1:4040/api/tunnels"
 DEFAULT_TUNNEL_PROVIDER_ORDER = ("cloudflared", "ngrok")
 TRYCLOUDFLARE_URL_PATTERN = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com", re.IGNORECASE)
 NGROK_URL_PATTERN = re.compile(r"https://[a-z0-9.-]+\.ngrok-free\.dev", re.IGNORECASE)
+NGROK_INSPECT_RESPONSE_MAX_BYTES = 1 * 1024 * 1024
+TUNNEL_STATE_MAX_BYTES = 128 * 1024
+TUNNEL_LOG_TAIL_MAX_BYTES = 256 * 1024
+MAX_TUNNEL_PROCESS_ID = 2_147_483_647
+LOCAL_TUNNEL_TARGET_HOSTS = {"127.0.0.1", "localhost", "0.0.0.0", "::1", "::"}
+WILDCARD_TUNNEL_TARGET_HOSTS = {"0.0.0.0", "::"}
+LOOPBACK_TUNNEL_TARGET_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+
+
+def _urlopen_no_redirect(url: str, *, timeout: float):
+    return _NO_REDIRECT_OPENER.open(url, timeout=timeout)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
 
 
 @dataclass(slots=True, frozen=True)
@@ -107,12 +133,23 @@ class TunnelRuntimeController:
             try:
                 process.terminate()
                 process.wait(timeout=8)
-            except Exception:
+            except Exception as terminate_exc:
+                self._logger.warning(
+                    "tunnel.process_terminate_failed provider=%s pid=%s error=%s",
+                    provider or "unknown",
+                    getattr(process, "pid", None),
+                    terminate_exc,
+                )
                 try:
                     process.kill()
                     process.wait(timeout=5)
-                except Exception:
-                    pass
+                except Exception as kill_exc:
+                    self._logger.warning(
+                        "tunnel.process_kill_failed provider=%s pid=%s error=%s",
+                        provider or "unknown",
+                        getattr(process, "pid", None),
+                        kill_exc,
+                    )
         elif persisted_pid is not None and self._is_pid_alive(persisted_pid):
             self._terminate_pid(persisted_pid)
         self._clear_persisted_state()
@@ -317,7 +354,7 @@ class TunnelRuntimeController:
         return process
 
     def _target_base_url(self, settings: IntegrationSettings) -> str:
-        return f"http://{settings.mcp.mcp_host}:{settings.mcp.mcp_port}"
+        return build_http_url(settings.mcp.mcp_host, settings.mcp.mcp_port)
 
     def _wait_for_public_url(
         self, provider: str, settings: IntegrationSettings, *, timeout_seconds: float = 25.0
@@ -365,17 +402,70 @@ class TunnelRuntimeController:
 
     def _fetch_tunnels_payload(self) -> dict:
         try:
-            with urllib.request.urlopen(self._inspect_api_url, timeout=2) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError):
+            with _urlopen_no_redirect(self._inspect_api_url, timeout=2) as response:
+                raw = response.read(NGROK_INSPECT_RESPONSE_MAX_BYTES + 1)
+                if len(raw) > NGROK_INSPECT_RESPONSE_MAX_BYTES:
+                    return {}
+                payload = json.loads(
+                    raw.decode("utf-8"),
+                    parse_constant=_reject_json_constant,
+                )
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            json.JSONDecodeError,
+            ValueError,
+            RecursionError,
+        ):
             return {}
+        return payload if isinstance(payload, dict) else {}
 
     def _matches_target(self, addr: str, *, target_host: str, target_port: int) -> bool:
-        if f":{target_port}" not in addr:
+        parsed = self._split_target_addr(addr)
+        if parsed is None:
             return False
-        if target_host and target_host in addr:
+        host, port = parsed
+        if port != target_port:
+            return False
+        normalized_target_host = self._normalize_host_for_match(target_host)
+        if not normalized_target_host or normalized_target_host in WILDCARD_TUNNEL_TARGET_HOSTS:
+            return host in LOCAL_TUNNEL_TARGET_HOSTS
+        if normalized_target_host in LOOPBACK_TUNNEL_TARGET_HOSTS:
+            return host in LOCAL_TUNNEL_TARGET_HOSTS
+        return host == normalized_target_host
+
+    def _split_target_addr(self, addr: str) -> tuple[str, int] | None:
+        raw_addr = str(addr or "").strip()
+        if not raw_addr:
+            return None
+        if "://" not in raw_addr:
+            raw_addr = f"http://{raw_addr}"
+        try:
+            parsed = urlsplit(raw_addr)
+            host = self._normalize_host_for_match(parsed.hostname or "")
+            port = parsed.port
+        except ValueError:
+            return None
+        if not host or port is None:
+            return None
+        return host, port
+
+    def _normalize_host_for_match(self, value: str) -> str:
+        return str(value or "").strip().strip("[]").lower().rstrip(".")
+
+    def _is_valid_public_tunnel_url(self, provider: str, public_url: str) -> bool:
+        try:
+            parsed = urlsplit(str(public_url or "").strip())
+        except ValueError:
+            return False
+        host = (parsed.hostname or "").lower()
+        if parsed.scheme != "https" or not host:
+            return False
+        if provider == "cloudflared":
+            return host.endswith(".trycloudflare.com") and host != "api.trycloudflare.com"
+        if provider == "ngrok":
             return True
-        return any(candidate in addr for candidate in ("127.0.0.1", "localhost", "0.0.0.0"))
+        return False
 
     def _find_provider_executable(self, provider: str) -> str | None:
         if provider == "cloudflared":
@@ -404,8 +494,9 @@ class TunnelRuntimeController:
 
     def _first_existing_executable(self, candidates: list[str]) -> str | None:
         for candidate in candidates:
-            if candidate and Path(candidate).exists():
-                return candidate
+            normalized = str(candidate or "").strip().strip('"')
+            if normalized and Path(normalized).is_file():
+                return normalized
         return None
 
     def _create_log_file_path(self) -> Path:
@@ -427,7 +518,11 @@ class TunnelRuntimeController:
         public_url = str(payload.get("public_url") or "").strip().rstrip("/")
         pid = self._normalize_pid(payload.get("pid"))
         target_port = self._normalize_pid(payload.get("target_port"))
-        if provider not in {"cloudflared", "ngrok"} or not public_url or pid is None:
+        if (
+            provider not in {"cloudflared", "ngrok"}
+            or not self._is_valid_public_tunnel_url(provider, public_url)
+            or pid is None
+        ):
             self._clear_persisted_state()
             return None
         if target_port is not None and target_port != settings.mcp.mcp_port:
@@ -468,10 +563,20 @@ class TunnelRuntimeController:
         if not self._state_file_path.exists():
             return {}
         try:
-            payload = json.loads(self._state_file_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError, ValueError):
+            payload = json.loads(
+                self._read_persisted_state_text(),
+                parse_constant=_reject_json_constant,
+            )
+        except (OSError, json.JSONDecodeError, ValueError, RecursionError):
             return {}
         return payload if isinstance(payload, dict) else {}
+
+    def _read_persisted_state_text(self) -> str:
+        return read_text_limited(
+            self._state_file_path,
+            max_bytes=TUNNEL_STATE_MAX_BYTES,
+            label="tunnel state file",
+        )
 
     def _write_persisted_state(
         self, *, provider: str, public_url: str, pid: int, target_port: int | None
@@ -488,11 +593,26 @@ class TunnelRuntimeController:
             "saved_at": time.time(),
         }
         try:
-            self._state_file_path.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+            self._state_file_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = self._state_file_path.with_name(
+                f".{self._state_file_path.name}.{uuid.uuid4().hex}.tmp"
             )
-        except OSError:
+            try:
+                tmp_path.write_text(self._persisted_state_payload_text(payload), encoding="utf-8")
+                tmp_path.replace(self._state_file_path)
+            finally:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        except (OSError, ValueError):
             self._logger.warning("tunnel.persist_state_failed path=%s", self._state_file_path)
+
+    def _persisted_state_payload_text(self, payload: dict[str, object]) -> str:
+        text = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False)
+        if len(text.encode("utf-8")) > TUNNEL_STATE_MAX_BYTES:
+            raise ValueError("tunnel state file is too large")
+        return text
 
     def _clear_persisted_state(self) -> None:
         try:
@@ -506,11 +626,17 @@ class TunnelRuntimeController:
         return self._normalize_pid(payload.get("pid"))
 
     def _normalize_pid(self, value) -> int | None:
-        try:
-            pid = int(value)
-        except (TypeError, ValueError):
+        if isinstance(value, bool):
             return None
-        return pid if pid > 0 else None
+        try:
+            numeric = float(value)
+        except (OverflowError, TypeError, ValueError):
+            return None
+        if not math.isfinite(numeric) or not numeric.is_integer():
+            return None
+        if numeric <= 0 or numeric > MAX_TUNNEL_PROCESS_ID:
+            return None
+        return int(numeric)
 
     def _current_pid(self) -> int | None:
         if (
@@ -538,6 +664,7 @@ class TunnelRuntimeController:
                 stdin=subprocess.DEVNULL,
                 check=False,
                 creationflags=creationflags,
+                timeout=10,
             )
             return
         try:
@@ -549,9 +676,19 @@ class TunnelRuntimeController:
         if self._log_file_path is None or not self._log_file_path.exists():
             return ""
         try:
-            return self._log_file_path.read_text(encoding="utf-8", errors="replace").strip()
+            return self._read_log_tail_text().strip()
         except OSError:
             return ""
+
+    def _read_log_tail_text(self) -> str:
+        if self._log_file_path is None:
+            return ""
+        size = self._log_file_path.stat().st_size
+        with self._log_file_path.open("rb") as handle:
+            if size > TUNNEL_LOG_TAIL_MAX_BYTES:
+                handle.seek(-TUNNEL_LOG_TAIL_MAX_BYTES, os.SEEK_END)
+            content = handle.read(TUNNEL_LOG_TAIL_MAX_BYTES)
+        return content.decode("utf-8", errors="replace")
 
     def _extract_cloudflared_url_from_log(self) -> str:
         return self._extract_pattern_from_log(
@@ -568,12 +705,13 @@ class TunnelRuntimeController:
         if not text:
             return ""
         blocked = {host.lower() for host in (disallowed_hosts or set())}
+        selected = ""
         for match in pattern.finditer(text):
             candidate = match.group(0).rstrip("/")
             host = (urlsplit(candidate).hostname or "").lower()
             if host and host not in blocked:
-                return candidate
-        return ""
+                selected = candidate
+        return selected
 
     def _cleanup_log_file(self) -> None:
         path = self._log_file_path

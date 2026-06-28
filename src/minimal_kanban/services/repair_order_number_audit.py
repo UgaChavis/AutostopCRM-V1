@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from datetime import UTC, datetime
 from typing import Any
@@ -8,6 +9,8 @@ from ..models import parse_business_datetime
 from ..repair_order import RepairOrder
 
 DEFAULT_NOTE_RE = re.compile(r"заказ-наряд\s*№\s*(?P<number>\S+)", re.IGNORECASE)
+MAX_REPAIR_ORDER_NUMBER_DIGITS = 12
+MAX_REPAIR_ORDER_AUDIT_COUNT = 1_000_000_000
 
 
 def _text(value: object) -> str:
@@ -16,6 +19,16 @@ def _text(value: object) -> str:
 
 def _number_key(value: object) -> str:
     return _text(value).casefold()
+
+
+def _parse_order_number(value: str) -> int | None:
+    text = str(value or "").strip()
+    if not text.isdecimal() or len(text) > MAX_REPAIR_ORDER_NUMBER_DIGITS:
+        return None
+    try:
+        return int(text)
+    except (OverflowError, ValueError):
+        return None
 
 
 def _repair_order_from_payload(order: dict[str, Any]) -> RepairOrder:
@@ -120,10 +133,23 @@ def build_repair_order_number_audit(state: dict[str, Any]) -> dict[str, Any]:
             continue
         numbers.setdefault(_number_key(number), []).append((card, order))
         if number.isdigit():
-            numeric_number = int(number)
-            opened_at = _sort_datetime(card, order)
-            numeric_orders.append((opened_at, numeric_number, card, order))
-            numeric_orders_by_number.setdefault(numeric_number, []).append((opened_at, card, order))
+            numeric_number = _parse_order_number(number)
+            if numeric_number is None:
+                issues.append(
+                    _issue(
+                        "nonnumeric_number",
+                        "warning",
+                        "Номер заказ-наряда не может быть обработан как числовой.",
+                        card_id=card_id,
+                        repair_order_number=number,
+                    )
+                )
+            else:
+                opened_at = _sort_datetime(card, order)
+                numeric_orders.append((opened_at, numeric_number, card, order))
+                numeric_orders_by_number.setdefault(numeric_number, []).append(
+                    (opened_at, card, order)
+                )
         else:
             issues.append(
                 _issue(
@@ -316,15 +342,17 @@ def format_repair_order_number_audit_text(payload: dict[str, Any], *, issue_limi
     summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
     issues = data.get("issues") if isinstance(data.get("issues"), list) else []
-    issues_total = int(summary.get("issues_total") or len(issues))
-    safe_fix_count = int(summary.get("safe_fix_count") or 0)
-    review_required = int(summary.get("review_required_count") or (issues_total - safe_fix_count))
+    issues_total = _safe_non_negative_int(summary.get("issues_total"), default=len(issues))
+    safe_fix_count = _safe_non_negative_int(summary.get("safe_fix_count"), default=0)
+    review_required = _safe_non_negative_int(
+        summary.get("review_required_count"), default=issues_total - safe_fix_count
+    )
     lines = [
         "AutoStop CRM repair order number audit",
         f"schema: {meta.get('schema_version', '')}",
         f"read_only: {bool(meta.get('read_only'))}",
         f"dry_run: {bool(meta.get('dry_run'))}",
-        f"orders: {int(summary.get('orders_total') or 0)}",
+        f"orders: {_safe_non_negative_int(summary.get('orders_total'), default=0)}",
         f"issues: {issues_total}",
         f"safe_fixes_available: {safe_fix_count}",
         f"review_required: {review_required}",
@@ -354,13 +382,33 @@ def _format_counts(value: object) -> str:
         return ""
     parts: list[str] = []
     for key in sorted(value):
-        count = value.get(key)
-        try:
-            number = int(count)
-        except (TypeError, ValueError):
+        number = _coerce_non_negative_int(value.get(key))
+        if number is None:
             continue
         parts.append(f"{key}={number}")
     return ", ".join(parts)
+
+
+def _coerce_non_negative_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return None
+    if numeric > MAX_REPAIR_ORDER_AUDIT_COUNT:
+        return MAX_REPAIR_ORDER_AUDIT_COUNT
+    if numeric < 0:
+        return 0
+    number = int(numeric)
+    return max(0, number)
+
+
+def _safe_non_negative_int(value: object, *, default: int) -> int:
+    parsed = _coerce_non_negative_int(value)
+    return max(0, default) if parsed is None else parsed
 
 
 def format_repair_order_number_issue_context(issue: dict[str, Any]) -> str:

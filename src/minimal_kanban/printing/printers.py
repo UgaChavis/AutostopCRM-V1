@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import threading
 
@@ -65,6 +66,20 @@ def list_printers(*, default_name: str = "") -> list[dict[str, object]]:
     return printers
 
 
+def _normalize_copy_count(value: object) -> int:
+    if isinstance(value, bool):
+        return 1
+    if isinstance(value, str) and len(value.strip()) > 6:
+        return 1
+    try:
+        numeric = float(1 if value is None or value == "" else value)
+    except (OverflowError, TypeError, ValueError):
+        return 1
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return 1
+    return max(1, min(20, int(numeric)))
+
+
 def print_html(
     html: str,
     *,
@@ -101,7 +116,7 @@ def print_html(
 
     printer = QPrinter(printer_info, QPrinter.PrinterMode.HighResolution)
     printer.setDocName(str(title or "AutoStop CRM"))
-    printer.setCopyCount(max(1, min(20, int(copies or 1))))
+    printer.setCopyCount(_normalize_copy_count(copies))
     page_sizes = {
         "A4": QPageSize(QPageSize.PageSizeId.A4),
         "A5": QPageSize(QPageSize.PageSizeId.A5),

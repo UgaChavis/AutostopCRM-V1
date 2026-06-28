@@ -1,13 +1,31 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import unittest
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "perf_workflows.py"
+
+
+class FakeResponse:
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+
+    def __enter__(self) -> FakeResponse:
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        return None
+
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            return self._payload
+        return self._payload[:size]
 
 
 def load_perf_workflows() -> ModuleType:
@@ -97,6 +115,61 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         self.assertEqual(summary["server_timing"][-1], "app;dur=20.0")
         self.assertEqual(summary["ui_perf_entries"][-1]["name"], "api:/api/get_card")
 
+    def test_summarize_and_thresholds_tolerate_invalid_numeric_values(self) -> None:
+        summary = self.module.summarize_samples(
+            [
+                {"duration_ms": "bad", "request_count": True, "payload_bytes": "bad"},
+                {"duration_ms": "125.5", "request_count": "4", "payload_bytes": "2048"},
+            ],
+            scenario="open_card",
+        )
+        args = SimpleNamespace(
+            max_open_card_ms=100,
+            max_save_card_ms=0,
+            max_move_card_ms=0,
+            max_open_modal_ms=0,
+            max_backend_write_ms=0,
+        )
+
+        violations = self.module.evaluate_thresholds(
+            [{"scenario": "open_card", "avg_ms": "bad"}, summary],
+            args,
+        )
+
+        self.assertEqual(summary["avg_ms"], 62.8)
+        self.assertEqual(summary["request_count"], 2)
+        self.assertEqual(summary["payload_bytes"], 1024)
+        self.assertEqual(violations, [])
+
+    def test_response_payload_bytes_ignores_invalid_values(self) -> None:
+        self.assertEqual(
+            self.module._response_payload_bytes(
+                [
+                    {"bytes": "1024"},
+                    {"bytes": float("inf")},
+                    {"bytes": "10.5"},
+                    {"bytes": True},
+                    {"bytes": "512"},
+                    {"bytes": 1e308},
+                ]
+            ),
+            1_000_001_536,
+        )
+
+    def test_cli_numeric_bounds_reject_huge_values(self) -> None:
+        self.assertEqual(self.module._bounded_iterations(1e308), 100)
+        self.assertEqual(self.module._bounded_iterations("bad"), 3)
+        self.assertEqual(self.module._bounded_port(1e308, default=42831), 65535)
+        self.assertEqual(self.module._bounded_port(0, default=42831), 42831)
+        self.assertEqual(
+            self.module._bounded_float(1e308, default=0.0, maximum=3_600_000.0),
+            3_600_000.0,
+        )
+        self.assertEqual(
+            self.module._bounded_float("bad", default=5.0, maximum=3_600_000.0),
+            5.0,
+        )
+
     def test_ranked_findings_maps_slow_rows_to_actionable_areas(self) -> None:
         findings = self.module.ranked_findings(
             [
@@ -148,6 +221,18 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             self.module.format_failed_request(Request()),
             "POST http://127.0.0.1:42731/api/update_card net::ERR_CONNECTION_RESET",
         )
+
+    def test_json_request_rejects_oversized_response(self) -> None:
+        with (
+            patch.object(self.module, "PERF_WORKFLOW_RESPONSE_MAX_BYTES", 4),
+            patch.object(
+                self.module,
+                "_urlopen_no_redirect",
+                return_value=FakeResponse(b"12345"),
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "performance workflow response is too large"):
+                self.module.json_request("https://crm.autostopcrm.ru", "/api/health")
 
     def test_failed_workflow_rows_are_reported_as_findings_and_violations(self) -> None:
         row = self.module.failed_row(
@@ -224,6 +309,103 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         self.assertEqual(row["scenario"], "browser_workflows")
         self.assertTrue(row["failed"])
         self.assertEqual(violations[0]["metric"], "workflow_error")
+
+    def test_browser_timeout_seconds_rejects_invalid_values(self) -> None:
+        self.assertEqual(
+            self.module.browser_timeout_seconds(
+                SimpleNamespace(browser_timeout_seconds=float("inf"))
+            ),
+            self.module.DEFAULT_BROWSER_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(
+            self.module.browser_timeout_seconds(SimpleNamespace(browser_timeout_seconds="bad")),
+            self.module.DEFAULT_BROWSER_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(
+            self.module.browser_timeout_seconds(SimpleNamespace(browser_timeout_seconds=0)),
+            30.0,
+        )
+        self.assertEqual(
+            self.module.browser_timeout_seconds(SimpleNamespace(browser_timeout_seconds=1e308)),
+            3600.0,
+        )
+
+    def test_json_request_rejects_non_standard_constants(self) -> None:
+        with patch.object(
+            self.module,
+            "_urlopen_no_redirect",
+            return_value=FakeResponse(b'{"ok": true, "duration_ms": NaN}'),
+        ):
+            with self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"):
+                self.module.json_request("http://127.0.0.1:42999", "/api/test")
+
+    def test_json_request_rejects_deeply_nested_response(self) -> None:
+        deep_json = ("[" * 5000 + "0" + "]" * 5000).encode("utf-8")
+
+        with patch.object(
+            self.module,
+            "_urlopen_no_redirect",
+            return_value=FakeResponse(deep_json),
+        ):
+            with self.assertRaisesRegex(ValueError, "API response JSON is too deeply nested"):
+                self.module.json_request("http://127.0.0.1:42999", "/api/test")
+
+    def test_json_request_rejects_non_object_response(self) -> None:
+        with patch.object(
+            self.module,
+            "_urlopen_no_redirect",
+            return_value=FakeResponse(b"[]"),
+        ):
+            with self.assertRaisesRegex(ValueError, "API response must be a JSON object"):
+                self.module.json_request("http://127.0.0.1:42999", "/api/test")
+
+    def test_json_request_rejects_redirect_response(self) -> None:
+        redirect = self.module.urllib.error.HTTPError(
+            url="http://127.0.0.1:42999/api/get_board_snapshot",
+            code=302,
+            msg="Found",
+            hdrs={"Location": "https://example.test/api/get_board_snapshot"},
+            fp=None,
+        )
+
+        with patch.object(self.module, "_urlopen_no_redirect", side_effect=redirect):
+            with self.assertRaisesRegex(ValueError, "API request redirected"):
+                self.module.json_request(
+                    "http://127.0.0.1:42999",
+                    "/api/get_board_snapshot?compact=1&include_archive=0",
+                )
+
+    def test_response_size_sanitizes_non_finite_numbers_and_preserves_finite_float(
+        self,
+    ) -> None:
+        payload = {
+            "nan": float("nan"),
+            "infinity": float("inf"),
+            "ratio": 1.25,
+            "nested": [float("-inf")],
+        }
+
+        encoded = self.module._json_dumps(payload, separators=(",", ":"))
+
+        self.assertEqual(
+            json.loads(encoded),
+            {"nan": None, "infinity": None, "ratio": 1.25, "nested": [None]},
+        )
+        self.assertEqual(self.module.response_size(payload), len(encoded.encode("utf-8")))
+        self.assertNotIn("NaN", encoded)
+        self.assertNotIn("Infinity", encoded)
+
+    def test_json_dumps_handles_self_referential_payload(self) -> None:
+        payload: dict[str, object] = {"ok": True}
+        payload["self"] = payload
+
+        encoded = self.module._json_dumps(payload, separators=(",", ":"))
+        decoded = json.loads(encoded)
+        node = decoded
+        for _ in range(8):
+            node = node["self"]
+
+        self.assertIsInstance(node, str)
 
 
 if __name__ == "__main__":

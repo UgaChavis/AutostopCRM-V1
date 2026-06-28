@@ -41,10 +41,16 @@ from attachment_samples import (
 )
 from minimal_kanban.api.server import ApiServer
 from minimal_kanban.api.server import ReusableThreadingHTTPServer
+from minimal_kanban.api.server import _same_host_cors_origin
 from minimal_kanban.api.server import _success_log_level
 from minimal_kanban.models import AuditEvent, utc_now
 from minimal_kanban.operator_activity import OperatorActivityService
-from minimal_kanban.operator_auth import OperatorAuthService, _password_hash
+from minimal_kanban.operator_auth import (
+    PASSWORD_HASH_MAX_ITERATIONS,
+    OperatorAuthService,
+    _password_hash,
+    _verify_password,
+)
 from minimal_kanban.services.card_service import CardService, ServiceError
 from minimal_kanban.storage.json_store import JsonStore
 from minimal_kanban.web_assets import BOARD_WEB_APP_HTML
@@ -95,6 +101,54 @@ class ApiServerTests(unittest.TestCase):
             response.read()
         finally:
             connection.close()
+
+    def test_api_cors_allows_same_host_origin_only(self) -> None:
+        status, headers, _ = self.raw_request("/api/health", headers={"Origin": self.base_url})
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get("Access-Control-Allow-Origin"), self.base_url)
+
+        status, headers, _ = self.raw_request(
+            "/api/health", headers={"Origin": "https://evil.example"}
+        )
+        self.assertEqual(status, 200)
+        self.assertNotIn("Access-Control-Allow-Origin", headers)
+
+    def test_api_cors_helper_normalizes_trailing_dot_and_rejects_bad_ports(self) -> None:
+        self.assertEqual(
+            _same_host_cors_origin("http://localhost.:41731", "localhost:41731"),
+            "http://localhost.:41731",
+        )
+        self.assertEqual(
+            _same_host_cors_origin("http://localhost:41731", "localhost.:41731"),
+            "http://localhost:41731",
+        )
+        self.assertEqual(
+            _same_host_cors_origin("http://evil.example.:41731", "example:41731"),
+            "",
+        )
+        self.assertEqual(
+            _same_host_cors_origin("http://localhost:bad", "localhost:41731"),
+            "",
+        )
+
+    def test_api_cors_rejects_cross_origin_preflight(self) -> None:
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            connection.request(
+                "OPTIONS",
+                "/api/create_card",
+                headers={
+                    "Origin": "https://evil.example",
+                    "Access-Control-Request-Method": "POST",
+                },
+            )
+            response = connection.getresponse()
+            response.read()
+        finally:
+            connection.close()
+
+        self.assertEqual(response.status, 403)
+        self.assertIsNone(response.getheader("Access-Control-Allow-Origin"))
 
     def test_snapshot_success_route_uses_debug_log_level(self) -> None:
         self.assertEqual(_success_log_level("/api/get_board_snapshot"), logging.DEBUG)
@@ -207,10 +261,11 @@ class ApiServerTests(unittest.TestCase):
             attachments_dir=Path(self.temp_dir.name) / "attachments",
             repair_orders_dir=Path(self.temp_dir.name) / "repair-orders",
         )
+        self.users_file = Path(self.temp_dir.name) / "users.json"
         self.operator_service = OperatorAuthService(
             self.store,
             self.service,
-            users_file=Path(self.temp_dir.name) / "users.json",
+            users_file=self.users_file,
             activity_service=OperatorActivityService(
                 activity_dir=Path(self.temp_dir.name) / "operator-activity",
                 logger=logger,
@@ -324,6 +379,12 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(created["data"]["card"]["indicator"], "green")
         self.assertIn("remaining_seconds", created["data"]["card"])
         self.assertIn("deadline_timestamp", created["data"]["card"])
+
+    def test_json_responses_include_nosniff_header(self) -> None:
+        status, headers, _ = self.raw_request("/api/health")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
 
     def test_client_routes_accept_documented_nested_payloads(self) -> None:
         status, created = self.request(
@@ -779,6 +840,16 @@ class ApiServerTests(unittest.TestCase):
         self.assertGreaterEqual(review["data"]["summary"]["active_cards"], 1)
         self.assertIn("[BOARD REVIEW]", review["data"]["text"])
 
+    def test_password_verifier_rejects_excessive_iterations_without_hashing(self) -> None:
+        excessive_hash = f"pbkdf2_sha256${PASSWORD_HASH_MAX_ITERATIONS + 1}$salt$deadbeef"
+        huge_hash = f"pbkdf2_sha256${'9' * 128}$salt$deadbeef"
+
+        with patch("minimal_kanban.operator_auth.hashlib.pbkdf2_hmac") as pbkdf2_hmac:
+            self.assertFalse(_verify_password("admin", excessive_hash))
+            self.assertFalse(_verify_password("admin", huge_hash))
+
+        pbkdf2_hmac.assert_not_called()
+
     def test_operator_login_profile_and_admin_user_management(self) -> None:
         status, logged_in = self.request(
             "/api/login_operator",
@@ -818,6 +889,141 @@ class ApiServerTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertTrue(deleted["data"]["deleted"])
+
+    def test_operator_password_update_revokes_existing_sessions(self) -> None:
+        status, admin_login = self.request(
+            "/api/login_operator",
+            {"username": "admin", "password": "admin"},
+        )
+        self.assertEqual(status, 200)
+        admin_headers = {"X-Operator-Session": admin_login["data"]["session"]["token"]}
+
+        status, saved = self.request(
+            "/api/save_operator_user",
+            {"username": "parts", "password": "1234"},
+            headers=admin_headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(saved["data"]["meta"]["created"])
+
+        status, parts_login = self.request(
+            "/api/login_operator",
+            {"username": "parts", "password": "1234"},
+        )
+        self.assertEqual(status, 200)
+        parts_headers = {"X-Operator-Session": parts_login["data"]["session"]["token"]}
+        status, profile = self.request(
+            "/api/get_operator_profile",
+            method="GET",
+            headers=parts_headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(profile["data"]["user"]["username"], "PARTS")
+
+        status, updated = self.request(
+            "/api/save_operator_user",
+            {"username": "parts", "password": "5678"},
+            headers=admin_headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(updated["data"]["meta"]["updated"])
+
+        status, revoked = self.request(
+            "/api/get_operator_profile",
+            method="GET",
+            headers=parts_headers,
+        )
+        self.assertEqual(status, 401)
+        self.assertEqual(revoked["error"]["details"]["auth_type"], "operator_session")
+
+        status, old_password = self.request(
+            "/api/login_operator",
+            {"username": "parts", "password": "1234"},
+        )
+        self.assertEqual(status, 401)
+        status, new_password = self.request(
+            "/api/login_operator",
+            {"username": "parts", "password": "5678"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(new_password["data"]["user"]["username"], "PARTS")
+
+    def test_operator_auth_backs_up_non_object_users_file_before_bootstrap(self) -> None:
+        self.users_file.write_text("[]", encoding="utf-8")
+
+        state = self.operator_service._read_normalized_state()
+
+        backup = self.users_file.with_suffix(".corrupted.json")
+        self.assertEqual(backup.read_text(encoding="utf-8"), "[]")
+        self.assertNotEqual(self.users_file.read_text(encoding="utf-8"), "[]")
+        self.assertTrue(any(user["role"] == "admin" for user in state["users"]))
+
+    def test_operator_auth_backs_up_nonstandard_json_constants_before_bootstrap(self) -> None:
+        self.users_file.write_text(
+            '{"users":[{"username":"ADMIN","stats":{"cards_opened":NaN}}]}',
+            encoding="utf-8",
+        )
+
+        state = self.operator_service._read_normalized_state()
+
+        backup = self.users_file.with_suffix(".corrupted.json")
+        self.assertIn("NaN", backup.read_text(encoding="utf-8"))
+        self.assertNotIn("NaN", self.users_file.read_text(encoding="utf-8"))
+        self.assertTrue(any(user["role"] == "admin" for user in state["users"]))
+
+    def test_operator_auth_clamps_oversized_open_count_stat(self) -> None:
+        users = self.operator_service._normalize_users(
+            [
+                {
+                    "username": "admin",
+                    "password_hash": _password_hash("admin123"),
+                    "role": "admin",
+                    "stats": {"cards_opened": 1e308},
+                }
+            ]
+        )
+
+        self.assertEqual(users[0]["stats"]["cards_opened"], 1_000_000_000)
+
+    def test_operator_auth_backs_up_oversized_users_file_before_bootstrap(self) -> None:
+        self.users_file.write_text(
+            json.dumps({"users": [], "padding": "x" * 1024}),
+            encoding="utf-8",
+        )
+
+        with patch("minimal_kanban.operator_auth.OPERATOR_AUTH_STATE_MAX_BYTES", 640):
+            state = self.operator_service._read_normalized_state()
+
+        backup = self.users_file.with_suffix(".corrupted.json")
+        self.assertIn("padding", backup.read_text(encoding="utf-8"))
+        self.assertNotIn("padding", self.users_file.read_text(encoding="utf-8"))
+        self.assertTrue(any(user["role"] == "admin" for user in state["users"]))
+
+    def test_operator_auth_rejects_oversized_state_write_without_clobbering_users_file(
+        self,
+    ) -> None:
+        original = self.users_file.read_text(encoding="utf-8")
+        oversized_state = self.operator_service._read_normalized_state()
+        oversized_state["users"][0]["action_history"] = [
+            {"timestamp": utc_now().isoformat(), "action": "card_opened", "object_id": "x" * 512}
+        ]
+
+        with patch("minimal_kanban.operator_auth.OPERATOR_AUTH_STATE_MAX_BYTES", 128):
+            with self.assertRaisesRegex(ValueError, "operator users file is too large"):
+                self.operator_service._write_state(oversized_state)
+
+        self.assertEqual(self.users_file.read_text(encoding="utf-8"), original)
+        self.assertEqual(list(self.users_file.parent.glob(f".{self.users_file.name}.*.tmp")), [])
+
+    def test_operator_auth_backs_up_deeply_nested_users_file_before_bootstrap(self) -> None:
+        deep_json = "[" * 5000 + "]" * 5000
+        self.users_file.write_text(deep_json, encoding="utf-8")
+
+        state = self.operator_service._read_normalized_state()
+
+        backup = self.users_file.with_suffix(".corrupted.json")
+        self.assertEqual(backup.read_text(encoding="utf-8"), deep_json)
+        self.assertTrue(any(user["role"] == "admin" for user in state["users"]))
 
     def test_operator_auth_blocks_insecure_default_admin_bootstrap_on_default_users_file(
         self,
@@ -1100,6 +1306,84 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 413)
         self.assertEqual(response["error"]["code"], "request_too_large")
         self.assertEqual(response["error"]["details"]["max_size_bytes"], 32)
+
+    def test_get_request_rejects_oversized_query_before_dispatch(self) -> None:
+        with patch("minimal_kanban.api.server.MAX_QUERY_STRING_BYTES", 8):
+            status, response = self.request(
+                "/api/get_board_revision?padding=xxxxxxxx",
+                method="GET",
+            )
+
+        self.assertEqual(status, 414)
+        self.assertEqual(response["error"]["code"], "request_too_large")
+        self.assertEqual(response["error"]["details"]["max_size_bytes"], 8)
+
+    def test_get_request_rejects_too_many_query_fields_before_dispatch(self) -> None:
+        with patch("minimal_kanban.api.server.MAX_QUERY_FIELDS", 1):
+            status, response = self.request(
+                "/api/get_board_revision?a=1&b=2",
+                method="GET",
+            )
+
+        self.assertEqual(status, 414)
+        self.assertEqual(response["error"]["code"], "request_too_large")
+        self.assertEqual(response["error"]["details"]["max_fields"], 1)
+
+    def test_post_request_rejects_negative_content_length(self) -> None:
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            connection.putrequest("POST", "/api/get_board_revision")
+            connection.putheader("Content-Type", "application/json")
+            connection.putheader("Content-Length", "-1")
+            connection.endheaders()
+            response = connection.getresponse()
+            payload = json.loads(response.read().decode("utf-8"))
+        finally:
+            connection.close()
+
+        self.assertEqual(response.status, 400)
+        self.assertEqual(payload["error"]["code"], "validation_error")
+
+    def test_post_request_rejects_non_utf8_json_body(self) -> None:
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            connection.request(
+                "POST",
+                "/api/get_board_revision",
+                body=b"\xff",
+                headers={"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            payload = json.loads(response.read().decode("utf-8"))
+        finally:
+            connection.close()
+
+        self.assertEqual(response.status, 400)
+        self.assertEqual(payload["error"]["code"], "invalid_json")
+
+    def test_post_request_rejects_deeply_nested_json_body_without_disconnect(self) -> None:
+        raw_body = ("[" * 5000 + "]" * 5000).encode("utf-8")
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            connection.request(
+                "POST",
+                "/api/get_board_revision",
+                body=raw_body,
+                headers={"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            payload = json.loads(response.read().decode("utf-8"))
+        finally:
+            connection.close()
+
+        self.assertEqual(response.status, 400)
+        self.assertEqual(payload["error"]["code"], "invalid_json")
+
+    def test_post_request_rejects_non_standard_json_numbers(self) -> None:
+        status, response = self.request("/api/get_board_revision", {"bad": float("nan")})
+
+        self.assertEqual(status, 400)
+        self.assertEqual(response["error"]["code"], "invalid_json")
 
     def test_open_card_updates_operator_opened_counter(self) -> None:
         status, created = self.request(
@@ -1742,6 +2026,12 @@ class ApiServerTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         another_cashbox = another_created["data"]["cashbox"]
+
+        status, first_page = self.request("/api/list_cashboxes?limit=1", method="GET")
+        self.assertEqual(status, 200)
+        self.assertEqual(first_page["data"]["meta"]["limit"], 1)
+        self.assertEqual(first_page["data"]["meta"]["returned"], 1)
+        self.assertTrue(first_page["data"]["meta"]["has_more"])
 
         status, reordered = self.request(
             "/api/reorder_cashboxes",
@@ -5014,6 +5304,7 @@ class ApiServerAuthTests(unittest.TestCase):
         logger.handlers.clear()
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
+        self.logger = logger
         self.store = JsonStore(state_file=state_file, logger=logger)
         self.service = CardService(
             self.store,
@@ -5129,6 +5420,49 @@ class ApiServerAuthTests(unittest.TestCase):
         with urllib.request.urlopen(request, timeout=5) as response:
             self.assertEqual(response.status, 200)
             self.assertEqual(response.read(), b"hello")
+
+    def test_error_response_redacts_query_access_token_from_path_details(self) -> None:
+        status, response = self.request(
+            "/api/missing_route?access_token=secret-token&padding=visible",
+            method="GET",
+        )
+
+        self.assertEqual(status, 404)
+        self.assertEqual(response["error"]["details"]["path"], "/api/missing_route?<redacted>")
+        self.assertNotIn("secret-token", json.dumps(response, ensure_ascii=False))
+
+    def test_query_access_token_keeps_numeric_token_as_string(self) -> None:
+        server = ApiServer(
+            self.service,
+            self.logger,
+            start_port=0,
+            fallback_limit=TEST_API_PORT_FALLBACK_LIMIT,
+            bearer_token="1",
+        )
+        try:
+            server.start()
+            request = urllib.request.Request(
+                f"{server.base_url}/api/get_board_snapshot?access_token=1",
+                method="GET",
+            )
+            with urllib.request.urlopen(request, timeout=5) as response:
+                status = response.status
+                payload = json.loads(response.read().decode("utf-8"))
+        finally:
+            server.stop()
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+
+    def test_query_access_token_rejects_oversized_post_query_before_auth(self) -> None:
+        with patch("minimal_kanban.api.server.MAX_QUERY_STRING_BYTES", 24):
+            status, response = self.request(
+                "/api/create_card?access_token=secret-token&padding=xxxxxxxx",
+                {"title": "Too much query", "deadline": {"hours": 1}},
+            )
+
+        self.assertEqual(status, 414)
+        self.assertEqual(response["error"]["code"], "request_too_large")
 
     def test_attachment_api_roundtrip_preserves_headers_for_required_formats(self) -> None:
         status, created = self.request(

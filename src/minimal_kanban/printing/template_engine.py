@@ -10,6 +10,7 @@ class TemplateRenderError(ValueError):
 
 
 _TOKEN_RE = re.compile(r"{{{\s*([^{}]+?)\s*}}}|{{\s*([#/^]?)([^{}]+?)\s*}}")
+_MAX_SECTION_DEPTH = 80
 
 
 def _is_truthy(value: Any) -> bool:
@@ -59,8 +60,12 @@ def _stringify(value: Any) -> str:
 
 
 def render_template(template: str, context: dict[str, Any]) -> str:
-    rendered, next_index = _render_segment(str(template or ""), [context], 0, stop_name=None)
-    if next_index != len(str(template or "")):
+    source = str(template or "")
+    try:
+        rendered, next_index = _render_segment(source, [context], 0, stop_name=None)
+    except RecursionError as exc:
+        raise TemplateRenderError("Слишком глубокая вложенность секций шаблона.") from exc
+    if next_index != len(source):
         raise TemplateRenderError("Поврежден шаблон: лишние закрывающие теги секций.")
     return rendered
 
@@ -86,8 +91,15 @@ def _extract_section(template: str, start_index: int, stop_name: str) -> tuple[s
 
 
 def _render_segment(
-    template: str, stack: list[Any], start_index: int, stop_name: str | None
+    template: str,
+    stack: list[Any],
+    start_index: int,
+    stop_name: str | None,
+    *,
+    section_depth: int = 0,
 ) -> tuple[str, int]:
+    if section_depth > _MAX_SECTION_DEPTH:
+        raise TemplateRenderError("Слишком глубокая вложенность секций шаблона.")
     out: list[str] = []
     index = start_index
     while True:
@@ -120,17 +132,41 @@ def _render_segment(
         if sigil == "#":
             if isinstance(value, list):
                 for item in value:
-                    rendered, _ = _render_segment(inner, [item, *stack], 0, stop_name=None)
+                    rendered, _ = _render_segment(
+                        inner,
+                        [item, *stack],
+                        0,
+                        stop_name=None,
+                        section_depth=section_depth + 1,
+                    )
                     out.append(rendered)
             elif isinstance(value, dict):
-                rendered, _ = _render_segment(inner, [value, *stack], 0, stop_name=None)
+                rendered, _ = _render_segment(
+                    inner,
+                    [value, *stack],
+                    0,
+                    stop_name=None,
+                    section_depth=section_depth + 1,
+                )
                 out.append(rendered)
             elif _is_truthy(value):
-                rendered, _ = _render_segment(inner, [value, *stack], 0, stop_name=None)
+                rendered, _ = _render_segment(
+                    inner,
+                    [value, *stack],
+                    0,
+                    stop_name=None,
+                    section_depth=section_depth + 1,
+                )
                 out.append(rendered)
         elif sigil == "^":
             if not _is_truthy(value):
-                rendered, _ = _render_segment(inner, stack, 0, stop_name=None)
+                rendered, _ = _render_segment(
+                    inner,
+                    stack,
+                    0,
+                    stop_name=None,
+                    section_depth=section_depth + 1,
+                )
                 out.append(rendered)
         else:
             raise TemplateRenderError(f"Неподдерживаемый тег шаблона: {sigil}{name}")

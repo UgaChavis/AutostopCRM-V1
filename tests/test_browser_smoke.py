@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "browser_smoke.py"
@@ -17,6 +19,22 @@ def load_browser_smoke_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+class FakeResponse:
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        _ = (exc_type, exc, tb)
+
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            return self._payload
+        return self._payload[:size]
 
 
 class BrowserSmokeScriptTests(unittest.TestCase):
@@ -74,7 +92,8 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("await _close_with_timeout(context.close())", script)
         self.assertIn("--browser-timeout-seconds", script)
         self.assertIn("--attempts", script)
-        self.assertIn('parser.add_argument("--attempts", type=int, default=4)', script)
+        self.assertIn('parser.add_argument("--attempts", default=4)', script)
+        self.assertIn("attempts = _browser_attempts(args.attempts)", script)
         self.assertIn("asyncio.wait_for(", script)
         self.assertIn("attempt_results", script)
         self.assertIn('result["attempt"] = attempt', script)
@@ -207,6 +226,101 @@ class BrowserSmokeScriptTests(unittest.TestCase):
             module.format_failed_request(Request()),
             "GET http://127.0.0.1:42731/api/poll net::ERR_ABORTED",
         )
+
+    def test_read_json_rejects_non_standard_constants(self) -> None:
+        module = load_browser_smoke_module()
+
+        with patch.object(
+            module,
+            "_read_bytes",
+            return_value=b'{"ok": true, "duration_ms": NaN}',
+        ):
+            with self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"):
+                module._read_json("http://127.0.0.1/api/test")
+
+    def test_read_json_rejects_deeply_nested_response(self) -> None:
+        module = load_browser_smoke_module()
+        deep_json = ("[" * 5000 + "0" + "]" * 5000).encode("utf-8")
+
+        with patch.object(module, "_read_bytes", return_value=deep_json):
+            with self.assertRaisesRegex(ValueError, "API response JSON is too deeply nested"):
+                module._read_json("http://127.0.0.1/api/test")
+
+    def test_read_json_rejects_non_object_response(self) -> None:
+        module = load_browser_smoke_module()
+
+        with patch.object(module, "_read_bytes", return_value=b"[]"):
+            with self.assertRaisesRegex(ValueError, "API response must be a JSON object"):
+                module._read_json("http://127.0.0.1/api/test")
+
+    def test_read_bytes_rejects_oversized_response(self) -> None:
+        module = load_browser_smoke_module()
+        payload = b"x" * (module.BROWSER_SMOKE_RESPONSE_MAX_BYTES + 2)
+
+        with patch.object(module, "_urlopen_no_redirect", return_value=FakeResponse(payload)):
+            with self.assertRaisesRegex(ValueError, "Browser smoke response is too large"):
+                module._read_bytes("http://127.0.0.1/api/test", accept="text/html", timeout=1.0)
+
+    def test_read_bytes_rejects_redirect_response(self) -> None:
+        module = load_browser_smoke_module()
+        redirect = module.urllib.error.HTTPError(
+            url="http://127.0.0.1/api/test",
+            code=302,
+            msg="Found",
+            hdrs={"Location": "https://example.test/api/test"},
+            fp=None,
+        )
+
+        with patch.object(module, "_urlopen_no_redirect", side_effect=redirect):
+            with self.assertRaises(module.urllib.error.HTTPError):
+                module._read_bytes("http://127.0.0.1/api/test", accept="text/html", timeout=1.0)
+
+    def test_json_dumps_sanitizes_non_finite_numbers(self) -> None:
+        module = load_browser_smoke_module()
+
+        encoded = module._json_dumps(
+            {"nan": float("nan"), "infinity": float("inf"), "nested": [float("-inf")]}
+        )
+
+        self.assertEqual(
+            json.loads(encoded),
+            {"nan": None, "infinity": None, "nested": [None]},
+        )
+        self.assertNotIn("NaN", encoded)
+        self.assertNotIn("Infinity", encoded)
+
+    def test_browser_timeout_seconds_rejects_invalid_values(self) -> None:
+        module = load_browser_smoke_module()
+
+        self.assertEqual(
+            module._browser_timeout_seconds(float("inf")),
+            module.DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(
+            module._browser_timeout_seconds("bad"),
+            module.DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(module._browser_timeout_seconds(0), 30.0)
+        self.assertEqual(module._browser_timeout_seconds(1e308), 3600.0)
+        self.assertEqual(module._browser_attempts(1e308), 10)
+        self.assertEqual(module._browser_attempts(0), 1)
+        self.assertEqual(module._browser_attempts("bad"), 4)
+        self.assertEqual(module._browser_start_port(1e308), 65535)
+        self.assertEqual(module._browser_start_port(0), 42731)
+        self.assertEqual(module._browser_start_port("bad"), 42731)
+
+    def test_json_dumps_handles_self_referential_payload(self) -> None:
+        module = load_browser_smoke_module()
+        payload: dict[str, object] = {"ok": True}
+        payload["self"] = payload
+
+        encoded = module._json_dumps(payload)
+        decoded = json.loads(encoded)
+        node = decoded
+        for _ in range(8):
+            node = node["self"]
+
+        self.assertIsInstance(node, str)
 
 
 if __name__ == "__main__":

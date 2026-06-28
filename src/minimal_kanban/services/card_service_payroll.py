@@ -46,6 +46,7 @@ DEFAULT_MATERIAL_PERCENT = "10"
 PAYROLL_WEEKLY_BASE_SALARY_AT = {"weekday": 4, "hour": 20, "minute": 0}
 EMPLOYEE_SALARY_RECONCILIATION_DEFAULT_DAYS = 30
 EMPLOYEE_SALARY_RECONCILIATION_MAX_DAYS = 366
+PAYROLL_DECIMAL_ABS_MAX = Decimal("1000000000000")
 
 
 class CardServicePayrollMixin:
@@ -638,17 +639,20 @@ class CardServicePayrollMixin:
         if value is None or normalize_text(value, default="", limit=16) == "":
             return EMPLOYEE_SALARY_RECONCILIATION_DEFAULT_DAYS
         if isinstance(value, bool):
-            days = 1 if value else 0
-        else:
-            raw = normalize_text(value, default="", limit=16).replace(" ", "")
-            try:
-                days = int(raw)
-            except ValueError:
-                self._fail(
-                    "validation_error",
-                    "Поле days должно быть целым числом дней.",
-                    details={"field": "days"},
-                )
+            self._fail(
+                "validation_error",
+                "Поле days должно быть целым числом дней.",
+                details={"field": "days"},
+            )
+        raw = normalize_text(value, default="", limit=16).replace(" ", "")
+        try:
+            days = int(raw)
+        except (OverflowError, ValueError):
+            self._fail(
+                "validation_error",
+                "Поле days должно быть целым числом дней.",
+                details={"field": "days"},
+            )
         if days < 1 or days > EMPLOYEE_SALARY_RECONCILIATION_MAX_DAYS:
             self._fail(
                 "validation_error",
@@ -1688,9 +1692,12 @@ class CardServicePayrollMixin:
         if not raw:
             return default
         try:
-            return Decimal(raw)
+            parsed = Decimal(raw)
         except InvalidOperation:
             return default
+        if not parsed.is_finite() or abs(parsed) > PAYROLL_DECIMAL_ABS_MAX:
+            return default
+        return parsed
 
     def _format_payroll_decimal(self, value: Decimal) -> str:
         quantized = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -1704,9 +1711,10 @@ class CardServicePayrollMixin:
         if not text:
             return None
         try:
-            return Decimal(text.replace(" ", "").replace(",", "."))
+            parsed = Decimal(text.replace(" ", "").replace(",", "."))
         except InvalidOperation:
             return None
+        return parsed if parsed.is_finite() else None
 
     def _material_cost_total(self, row: RepairOrderRow) -> Decimal | None:
         quantity_source = row.material_quantity_snapshot or row.quantity

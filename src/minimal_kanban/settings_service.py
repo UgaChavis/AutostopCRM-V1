@@ -30,6 +30,42 @@ from .settings_models import (
 from .settings_store import SettingsStore
 
 
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+_MAX_SETTINGS_HTTP_RESPONSE_BYTES = 2 * 1024 * 1024
+
+
+def _safe_http_headers(headers: dict[str, str] | None) -> dict[str, str]:
+    safe_headers: dict[str, str] = {}
+    for key, value in (headers or {}).items():
+        header_name = str(key or "").strip()
+        header_value = str(value or "").strip()
+        if (
+            not header_name
+            or "\r" in header_name
+            or "\n" in header_name
+            or "\r" in header_value
+            or "\n" in header_value
+        ):
+            raise RuntimeError("Некорректный HTTP header для проверки подключения.")
+        safe_headers[header_name] = header_value
+    return safe_headers
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+
+
+def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: int | float):
+    return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
+
+
 @dataclass(slots=True, frozen=True)
 class ConnectionCheckResult:
     target: str
@@ -94,9 +130,9 @@ class SettingsService:
     def normalize(self, settings: IntegrationSettings) -> IntegrationSettings:
         normalized = IntegrationSettings.from_dict(settings.to_dict())
         local_api_token = (
-            normalized.local_api.local_api_bearer_token or normalized.auth.local_api_bearer_token
+            normalized.auth.local_api_bearer_token or normalized.local_api.local_api_bearer_token
         )
-        mcp_token = normalized.mcp.mcp_bearer_token or normalized.auth.mcp_bearer_token
+        mcp_token = normalized.auth.mcp_bearer_token or normalized.mcp.mcp_bearer_token
         normalized = replace(
             normalized,
             local_api=replace(normalized.local_api, local_api_bearer_token=local_api_token),
@@ -678,15 +714,17 @@ class SettingsService:
         headers: dict[str, str] | None,
         timeout_seconds: int | float,
     ) -> tuple[int, dict]:
-        request = urllib.request.Request(url, headers=headers or {}, method=method)
+        request = urllib.request.Request(url, headers=_safe_http_headers(headers), method=method)
         try:
-            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+            with _urlopen_no_redirect(request, timeout=timeout_seconds) as response:
+                payload = self._parse_json_object(self._read_http_body(response, url=url), url=url)
                 return response.status, payload
         except urllib.error.HTTPError as exc:
+            if 300 <= exc.code < 400:
+                raise RuntimeError(f"Endpoint {url} вернул HTTP redirect.") from exc
             try:
-                payload = json.loads(exc.read().decode("utf-8"))
-            except json.JSONDecodeError:
+                payload = self._parse_json_object(self._read_http_body(exc, url=url), url=url)
+            except RuntimeError:
                 payload = {}
             try:
                 return exc.code, payload
@@ -696,6 +734,41 @@ class SettingsService:
             raise RuntimeError(
                 f"Не удалось подключиться к адресу {url}: {type(exc).__name__}."
             ) from exc
+
+    def _read_http_body(self, response, *, url: str) -> bytes:
+        raw = response.read(_MAX_SETTINGS_HTTP_RESPONSE_BYTES + 1)
+        if len(raw) > _MAX_SETTINGS_HTTP_RESPONSE_BYTES:
+            raise RuntimeError(f"Endpoint {url} вернул слишком большой JSON.")
+        return raw
+
+    def _parse_json_object(self, raw: bytes, *, url: str) -> dict:
+        try:
+            payload = json.loads(
+                raw.decode("utf-8"),
+                parse_constant=_reject_json_constant,
+            )
+        except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+            raise RuntimeError(f"Endpoint {url} вернул некорректный JSON.") from exc
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"Endpoint {url} вернул JSON не-объект.")
+        return payload
+
+    def _structured_content_payload(self, result: object) -> dict[str, object]:
+        payload = getattr(result, "structuredContent", None)
+        return payload if isinstance(payload, dict) else {}
+
+    def _payload_data(self, payload: dict[str, object]) -> dict[str, object]:
+        data = payload.get("data")
+        return data if isinstance(data, dict) else {}
+
+    def _httpx_url_origin(self, parsed: httpx.URL) -> str:
+        host = str(parsed.host or "").strip()
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        origin = f"{parsed.scheme}://{host}"
+        if parsed.port is not None:
+            origin += f":{parsed.port}"
+        return origin
 
     async def _probe_mcp_server(
         self,
@@ -710,13 +783,17 @@ class SettingsService:
             headers["Authorization"] = f"Bearer {bearer_token}"
         try:
             async with httpx.AsyncClient(
-                headers=headers, timeout=timeout_seconds, follow_redirects=True
+                headers=headers, timeout=timeout_seconds, follow_redirects=False
             ) as http_client:
                 # The preflight GET is only needed for external URLs where tunnel
                 # / Host-header mismatches can surface as a 421 before MCP ever
                 # starts the streamable session. Local loopback probes can skip it.
                 if is_external_http_url(url):
                     preflight = await http_client.get(url)
+                    if 300 <= preflight.status_code < 400:
+                        raise RuntimeError(
+                            "MCP endpoint returned an HTTP redirect. Use the final public /mcp URL directly."
+                        )
                     if preflight.status_code == 421 and "Invalid Host header" in preflight.text:
                         raise RuntimeError(
                             "MCP runtime rejects the external Host header. Allow the tunnel/external host in MCP settings."
@@ -740,28 +817,15 @@ class SettingsService:
                         gpt_wall_result = await session.call_tool(
                             "get_gpt_wall", {"include_archived": True, "event_limit": 8}
                         )
-                        board_content_payload = (
-                            getattr(board_content_result, "structuredContent", {}) or {}
+                        list_columns_payload = self._structured_content_payload(result)
+                        board_content_payload = self._structured_content_payload(
+                            board_content_result
                         )
-                        board_events_payload = (
-                            getattr(board_events_result, "structuredContent", {}) or {}
-                        )
-                        gpt_wall_payload = getattr(gpt_wall_result, "structuredContent", {}) or {}
-                        board_content_data = (
-                            board_content_payload.get("data", {})
-                            if isinstance(board_content_payload, dict)
-                            else {}
-                        )
-                        board_events_data = (
-                            board_events_payload.get("data", {})
-                            if isinstance(board_events_payload, dict)
-                            else {}
-                        )
-                        gpt_wall_data = (
-                            gpt_wall_payload.get("data", {})
-                            if isinstance(gpt_wall_payload, dict)
-                            else {}
-                        )
+                        board_events_payload = self._structured_content_payload(board_events_result)
+                        gpt_wall_payload = self._structured_content_payload(gpt_wall_result)
+                        board_content_data = self._payload_data(board_content_payload)
+                        board_events_data = self._payload_data(board_events_payload)
+                        gpt_wall_data = self._payload_data(gpt_wall_payload)
                         missing_required_tools = [
                             tool_name
                             for tool_name in GPT_CONNECTOR_REQUIRED_TOOL_NAMES
@@ -772,9 +836,7 @@ class SettingsService:
                         oauth_protected_resource_ok = False
                         if expect_oauth:
                             parsed = httpx.URL(url)
-                            auth_base = f"{parsed.scheme}://{parsed.host}"
-                            if parsed.port is not None:
-                                auth_base += f":{parsed.port}"
+                            auth_base = self._httpx_url_origin(parsed)
                             protected_path = parsed.path or "/mcp"
                             metadata = await http_client.get(
                                 f"{auth_base}/.well-known/oauth-authorization-server"
@@ -788,9 +850,7 @@ class SettingsService:
                         return {
                             "tools_count": len(tool_names),
                             "tool_names": sorted(tool_names),
-                            "list_columns_ok": bool(
-                                getattr(result, "structuredContent", {}).get("ok")
-                            ),
+                            "list_columns_ok": bool(list_columns_payload.get("ok")),
                             "missing_required_tools": missing_required_tools,
                             "board_content_ok": bool(board_content_payload.get("ok"))
                             and bool(board_content_data.get("text")),

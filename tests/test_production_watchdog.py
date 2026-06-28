@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import importlib.util
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WATCHDOG_PATH = PROJECT_ROOT / "scripts" / "production_watchdog.py"
@@ -51,6 +54,177 @@ class FakeCommandRunner:
 
 
 class ProductionWatchdogTests(unittest.TestCase):
+    def test_run_command_detaches_child_stdin(self) -> None:
+        module = load_watchdog_module()
+        completed = module.subprocess.CompletedProcess(["docker", "ps"], 0, "ok", "")
+
+        with patch.object(module.subprocess, "run", return_value=completed) as run:
+            result = module.run_command(["docker", "ps"], timeout=5)
+
+        self.assertEqual(result.code, 0)
+        self.assertEqual(result.stdout, "ok")
+        self.assertIs(run.call_args.kwargs["stdin"], module.subprocess.DEVNULL)
+
+    def test_config_from_env_rejects_invalid_numeric_values(self) -> None:
+        module = load_watchdog_module()
+
+        with patch.dict(
+            os.environ,
+            {
+                "AUTOSTOP_WATCHDOG_TIMEOUT": "inf",
+                "AUTOSTOP_WATCHDOG_COMMAND_TIMEOUT": "1e308",
+                "AUTOSTOP_WATCHDOG_RECOVERY_DELAY": "bad",
+            },
+            clear=False,
+        ):
+            config = module.config_from_env(argparse.Namespace(root_dir=""))
+
+        self.assertEqual(config.request_timeout_seconds, 5.0)
+        self.assertEqual(config.command_timeout_seconds, 3600)
+        self.assertEqual(config.post_recovery_delay_seconds, 8.0)
+
+        with patch.dict(
+            os.environ,
+            {
+                "AUTOSTOP_WATCHDOG_COMMAND_TIMEOUT": "1.5",
+            },
+            clear=False,
+        ):
+            fractional = module.config_from_env(argparse.Namespace(root_dir=""))
+
+        self.assertEqual(fractional.command_timeout_seconds, 30)
+
+        with patch.dict(
+            os.environ,
+            {
+                "AUTOSTOP_WATCHDOG_TIMEOUT": "1e308",
+                "AUTOSTOP_WATCHDOG_RECOVERY_DELAY": "1e308",
+            },
+            clear=False,
+        ):
+            bounded = module.config_from_env(argparse.Namespace(root_dir=""))
+
+        self.assertEqual(bounded.request_timeout_seconds, 300.0)
+        self.assertEqual(bounded.post_recovery_delay_seconds, 3600.0)
+
+    def test_config_from_env_clamps_too_low_numeric_values(self) -> None:
+        module = load_watchdog_module()
+
+        with patch.dict(
+            os.environ,
+            {
+                "AUTOSTOP_WATCHDOG_TIMEOUT": "0",
+                "AUTOSTOP_WATCHDOG_COMMAND_TIMEOUT": "0",
+                "AUTOSTOP_WATCHDOG_RECOVERY_DELAY": "-10",
+            },
+            clear=False,
+        ):
+            config = module.config_from_env(argparse.Namespace(root_dir=""))
+
+        self.assertEqual(config.request_timeout_seconds, 0.1)
+        self.assertEqual(config.command_timeout_seconds, 1)
+        self.assertEqual(config.post_recovery_delay_seconds, 0.0)
+
+    def test_endpoint_result_rejects_nonstandard_json_constants(self) -> None:
+        module = load_watchdog_module()
+
+        result = module._endpoint_result_from_response(
+            200,
+            b'{"ok": true, "latency_ms": NaN}',
+            statuses={200},
+            expect_json_ok=True,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.status, 200)
+        self.assertIn("Unsupported JSON constant: NaN", result.error)
+
+    def test_endpoint_result_rejects_deeply_nested_json(self) -> None:
+        module = load_watchdog_module()
+        deep_json = ("[" * 5000 + "0" + "]" * 5000).encode("utf-8")
+
+        result = module._endpoint_result_from_response(
+            200,
+            deep_json,
+            statuses={200},
+            expect_json_ok=True,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.status, 200)
+        self.assertIn("health response JSON is too deeply nested", result.error)
+
+    def test_endpoint_result_rejects_non_object_json(self) -> None:
+        module = load_watchdog_module()
+
+        result = module._endpoint_result_from_response(
+            200,
+            b"[]",
+            statuses={200},
+            expect_json_ok=True,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.status, 200)
+        self.assertIn("health response must be a JSON object", result.error)
+
+    def test_check_endpoint_rejects_oversized_json_response(self) -> None:
+        module = load_watchdog_module()
+
+        class HugeResponse:
+            status = 200
+
+            def __init__(self) -> None:
+                self.read_sizes: list[int] = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                _ = (exc_type, exc, tb)
+                return False
+
+            def read(self, size: int = -1) -> bytes:
+                self.read_sizes.append(size)
+                return b"x" * max(0, size)
+
+        response = HugeResponse()
+
+        with patch.object(module, "_urlopen_no_redirect", return_value=response):
+            result = module.check_endpoint(
+                "http://127.0.0.1:8000/api/health",
+                timeout=1.0,
+                expect_json_ok=True,
+            )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.status, 200)
+        self.assertIn("health response exceeds", result.error)
+        self.assertEqual(
+            response.read_sizes,
+            [module.WATCHDOG_ENDPOINT_RESPONSE_MAX_BYTES + 1],
+        )
+
+    def test_check_endpoint_reports_redirect_status_without_following_it(self) -> None:
+        module = load_watchdog_module()
+        redirect = module.urllib.error.HTTPError(
+            url="https://crm.autostopcrm.ru",
+            code=302,
+            msg="Found",
+            hdrs={"Location": "https://example.test/"},
+            fp=None,
+        )
+
+        with patch.object(module, "_urlopen_no_redirect", side_effect=redirect):
+            result = module.check_endpoint(
+                "https://crm.autostopcrm.ru",
+                timeout=1.0,
+                expect_json_ok=False,
+            )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.status, 302)
+
     def test_restarts_compose_service_when_host_ui_port_is_missing(self) -> None:
         module = load_watchdog_module()
         config = module.WatchdogConfig(

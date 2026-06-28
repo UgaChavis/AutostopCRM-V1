@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -7,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from ..storage.limited_io import read_text_limited
 from .automotive_tools import AutomotiveLookupService, InternetToolError
 from .source_registry import trusted_domains
 
@@ -22,6 +24,8 @@ class CuratedDocumentDefinition:
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+CURATED_DOCUMENT_MAX_BYTES = 256 * 1024
+CHAT_KNOWLEDGE_DOCUMENT_LIMIT = 3
 _TOKEN_PATTERN = re.compile(r"[A-Za-zА-Яа-яЁё0-9]{3,}", re.UNICODE)
 _DOC_CONTEXT_KEYWORDS = (
     "документ",
@@ -160,10 +164,16 @@ def build_ai_chat_knowledge_packet(
 ) -> dict[str, Any]:
     normalized_prompt = _normalize_text(prompt)
     compact_context = context if isinstance(context, dict) else {}
+    normalized_document_limit = _normalize_limit(
+        document_limit, default=CHAT_KNOWLEDGE_DOCUMENT_LIMIT, maximum=CHAT_KNOWLEDGE_DOCUMENT_LIMIT
+    )
+    normalized_internet_limit = _normalize_limit(internet_limit, default=3, maximum=5)
     documents_requested = _should_use_documents(normalized_prompt, compact_context)
     internet_requested = _should_use_internet(normalized_prompt, compact_context)
     selected_documents = (
-        _select_curated_documents(normalized_prompt, compact_context, limit=document_limit)
+        _select_curated_documents(
+            normalized_prompt, compact_context, limit=normalized_document_limit
+        )
         if documents_requested
         else []
     )
@@ -172,7 +182,7 @@ def build_ai_chat_knowledge_packet(
             prompt=normalized_prompt,
             context=compact_context,
             lookup_service=lookup_service,
-            limit=internet_limit,
+            limit=normalized_internet_limit,
         )
         if internet_requested
         else _empty_internet_packet(normalized_prompt, compact_context)
@@ -255,6 +265,22 @@ def _normalize_text(value: Any) -> str:
     return re.sub(r"\s+", " ", text)
 
 
+def _normalize_limit(value: Any, *, default: int, minimum: int = 1, maximum: int) -> int:
+    if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
+        return default
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return default
+    if numeric < minimum:
+        return default
+    if numeric > maximum:
+        return maximum
+    return int(numeric)
+
+
 def _context_text(context: dict[str, Any]) -> str:
     parts = [
         str(context.get("prompt") or ""),
@@ -328,6 +354,7 @@ def _should_use_internet(prompt: str, context: dict[str, Any]) -> bool:
 def _select_curated_documents(
     prompt: str, context: dict[str, Any], *, limit: int
 ) -> list[dict[str, Any]]:
+    normalized_limit = _normalize_limit(limit, default=3, maximum=max(1, len(CURATED_DOCUMENTS)))
     terms = _prompt_terms(prompt, context)
     scored: list[tuple[int, CuratedDocumentDefinition, str]] = []
     for definition in CURATED_DOCUMENTS:
@@ -338,12 +365,12 @@ def _select_curated_documents(
         excerpt = _build_document_excerpt(text, terms)
         scored.append((score, definition, excerpt))
     if not scored:
-        for definition in CURATED_DOCUMENTS[:limit]:
+        for definition in CURATED_DOCUMENTS[:normalized_limit]:
             text = _load_document_text(definition.relative_path)
             scored.append((1, definition, _build_document_excerpt(text, terms)))
     scored.sort(key=lambda item: (item[0], len(item[2])), reverse=True)
     selected: list[dict[str, Any]] = []
-    for score, definition, excerpt in scored[: max(1, limit)]:
+    for score, definition, excerpt in scored[:normalized_limit]:
         selected.append(
             {
                 **definition_to_payload(definition, excerpt=excerpt),
@@ -374,29 +401,37 @@ def _score_document(definition: CuratedDocumentDefinition, text: str, terms: lis
 
 @lru_cache(maxsize=32)
 def _load_document_text(relative_path: str) -> str:
-    path = _REPO_ROOT / relative_path
+    root = _REPO_ROOT.resolve()
+    path = (root / relative_path).resolve()
+    if not path.is_relative_to(root):
+        return ""
     try:
-        return path.read_text(encoding="utf-8")
-    except OSError:
+        return read_text_limited(
+            path,
+            max_bytes=CURATED_DOCUMENT_MAX_BYTES,
+            label="curated document",
+        )
+    except (OSError, UnicodeDecodeError, ValueError):
         return ""
 
 
 def _build_document_excerpt(text: str, terms: list[str], *, max_chars: int = 1200) -> str:
+    normalized_max_chars = _normalize_limit(max_chars, default=1200, minimum=80, maximum=4000)
     source = _normalize_text(text)
     if not source:
         return ""
-    if len(source) <= max_chars:
+    if len(source) <= normalized_max_chars:
         return source
     lines = [line.rstrip() for line in text.splitlines() if line.strip()]
     if not lines:
-        return source[:max_chars].strip()
+        return source[:normalized_max_chars].strip()
     matched_indexes: list[int] = []
     for index, line in enumerate(lines):
         lower = line.casefold()
         if any(term in lower for term in terms):
             matched_indexes.append(index)
     if not matched_indexes:
-        return _normalize_text("\n".join(lines[:12]))[:max_chars].strip()
+        return _normalize_text("\n".join(lines[:12]))[:normalized_max_chars].strip()
     collected: list[str] = []
     seen: set[str] = set()
     for index in matched_indexes[:3]:
@@ -406,9 +441,9 @@ def _build_document_excerpt(text: str, terms: list[str], *, max_chars: int = 120
                 continue
             seen.add(normalized)
             collected.append(normalized)
-            if len("\n".join(collected)) >= max_chars:
-                return "\n".join(collected)[:max_chars].strip()
-    return "\n".join(collected)[:max_chars].strip()
+            if len("\n".join(collected)) >= normalized_max_chars:
+                return "\n".join(collected)[:normalized_max_chars].strip()
+    return "\n".join(collected)[:normalized_max_chars].strip()
 
 
 def _internet_query(prompt: str, context: dict[str, Any]) -> str:
@@ -483,6 +518,13 @@ def _empty_internet_packet(prompt: str, context: dict[str, Any]) -> dict[str, An
     }
 
 
+def _safe_url_domain(url: str) -> str:
+    try:
+        return (urlsplit(str(url or "")).hostname or "").strip().lower().rstrip(".")
+    except ValueError:
+        return ""
+
+
 def _lookup_controlled_internet(
     *,
     prompt: str,
@@ -493,9 +535,10 @@ def _lookup_controlled_internet(
     service = lookup_service or AutomotiveLookupService()
     query = _internet_query(prompt, context)
     allowed_domains = _select_allowed_domains(prompt, context)
+    normalized_limit = _normalize_limit(limit, default=3, maximum=5)
     try:
         search_payload = service.search_web(
-            query=query, limit=max(1, limit), allowed_domains=allowed_domains
+            query=query, limit=normalized_limit, allowed_domains=allowed_domains
         )
     except InternetToolError as exc:
         return {
@@ -510,15 +553,16 @@ def _lookup_controlled_internet(
         }
     results = search_payload.get("results") if isinstance(search_payload, dict) else []
     normalized_results: list[dict[str, Any]] = []
-    for index, item in enumerate(results[: max(1, limit)] if isinstance(results, list) else []):
+    for index, item in enumerate(results[:normalized_limit] if isinstance(results, list) else []):
         if not isinstance(item, dict):
             continue
         url = str(item.get("url") or "").strip()
         title = str(item.get("title") or "").strip()
         snippet = _normalize_text(item.get("snippet") or item.get("body") or "")
-        domain = str(item.get("domain") or urlsplit(url).netloc).strip()
+        url_domain = _safe_url_domain(url)
+        domain = str(item.get("domain") or url_domain).strip()
         excerpt = ""
-        if index == 0 and url:
+        if index == 0 and url and url_domain:
             try:
                 fetched = service.fetch_page_excerpt(url=url, max_chars=1200)
                 excerpt = _normalize_text(

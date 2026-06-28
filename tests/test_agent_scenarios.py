@@ -19,6 +19,7 @@ from minimal_kanban.agent.scenarios.base import ScenarioExecutionResult
 from minimal_kanban.agent.scenarios.vin_enrichment import (
     VinEnrichmentScenarioExecutor,
     _merge_web_enrichment,
+    _vin_web_url_is_blocked,
 )
 from minimal_kanban.agent.storage import AgentStorage
 from minimal_kanban.services.vehicle_profile_service import VehicleProfileService
@@ -62,6 +63,12 @@ class AgentScenarioRegistryTests(unittest.TestCase):
 
 
 class VinEnrichmentScenarioTests(unittest.TestCase):
+    def test_vin_web_url_blocklist_uses_hostname_not_raw_netloc(self) -> None:
+        self.assertTrue(_vin_web_url_is_blocked("https://vpic.nhtsa.gov:443/api/vehicles/example"))
+        self.assertTrue(_vin_web_url_is_blocked("https://autozone.com:443/parts"))
+        self.assertFalse(_vin_web_url_is_blocked("https://notnhtsa.gov/specs"))
+        self.assertFalse(_vin_web_url_is_blocked("https://example.com/specs"))
+
     def test_sparse_decode_triggers_web_enrichment(self) -> None:
         service = VehicleProfileService()
 

@@ -63,6 +63,10 @@ class RuntimeBindHostTests(unittest.TestCase):
         self.assertEqual(_runtime_bind_host("127.0.0.1", env_explicit=True), "127.0.0.1")
         self.assertEqual(_runtime_bind_host("0.0.0.0", env_explicit=True), "0.0.0.0")
 
+    def test_strips_ipv6_brackets_before_binding(self) -> None:
+        self.assertEqual(_runtime_bind_host("[::1]", env_explicit=True), "::1")
+        self.assertEqual(_runtime_bind_host("[::]", env_explicit=False), "::")
+
 
 class McpMainRunTests(unittest.TestCase):
     def test_run_seeds_demo_board_before_starting_embedded_api(self) -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 
@@ -84,14 +85,25 @@ def get_shared_files_index_file() -> Path:
     return get_app_data_dir() / SHARED_FILES_INDEX_FILE_NAME
 
 
-def _read_env_int(name: str, default: int, *, minimum: int) -> int:
+def _read_env_int(
+    name: str,
+    default: int,
+    *,
+    minimum: int,
+    maximum: int | None = None,
+) -> int:
     raw_value = os.environ.get(name)
     if raw_value is None:
         return default
     try:
-        parsed = int(raw_value)
-    except ValueError:
+        numeric = float(raw_value.strip())
+    except (OverflowError, TypeError, ValueError):
         return default
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return default
+    if maximum is not None and numeric > maximum:
+        return default
+    parsed = int(numeric)
     return max(minimum, parsed)
 
 
@@ -102,12 +114,15 @@ def get_api_host() -> str:
 
 
 def get_api_port() -> int:
-    return _read_env_int("MINIMAL_KANBAN_API_PORT", DEFAULT_API_PORT, minimum=1)
+    return _read_env_int("MINIMAL_KANBAN_API_PORT", DEFAULT_API_PORT, minimum=1, maximum=65535)
 
 
 def get_api_port_fallback_limit() -> int:
     return _read_env_int(
-        "MINIMAL_KANBAN_API_PORT_FALLBACK_LIMIT", API_PORT_FALLBACK_LIMIT, minimum=1
+        "MINIMAL_KANBAN_API_PORT_FALLBACK_LIMIT",
+        API_PORT_FALLBACK_LIMIT,
+        minimum=1,
+        maximum=100,
     )
 
 
@@ -144,12 +159,15 @@ def get_mcp_host() -> str:
 
 
 def get_mcp_port() -> int:
-    return _read_env_int("MINIMAL_KANBAN_MCP_PORT", DEFAULT_MCP_PORT, minimum=1)
+    return _read_env_int("MINIMAL_KANBAN_MCP_PORT", DEFAULT_MCP_PORT, minimum=1, maximum=65535)
 
 
 def get_mcp_port_fallback_limit() -> int:
     return _read_env_int(
-        "MINIMAL_KANBAN_MCP_PORT_FALLBACK_LIMIT", MCP_PORT_FALLBACK_LIMIT, minimum=1
+        "MINIMAL_KANBAN_MCP_PORT_FALLBACK_LIMIT",
+        MCP_PORT_FALLBACK_LIMIT,
+        minimum=1,
+        maximum=100,
     )
 
 

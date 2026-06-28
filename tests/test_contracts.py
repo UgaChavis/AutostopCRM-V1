@@ -242,6 +242,19 @@ class ContractSnapshotTests(unittest.TestCase):
         self.assertIn("/api/finance_audit/apply_safe_fixes", ADMIN_ONLY_ROUTES)
         self.assertIn("/api/get_operator_profile", OPERATOR_SESSION_ROUTES)
 
+    def test_auth_route_sets_reference_current_routes(self) -> None:
+        service = _FakeService()
+        service_routes = build_service_routes(
+            service,
+            service,
+            paste_shared_files_from_clipboard=service.paste_shared_files_from_clipboard,
+        )
+        all_routes = set(service_routes) | set(build_operator_routes(service))
+
+        self.assertLessEqual(PROXIED_WRITE_ROUTES, all_routes)
+        self.assertLessEqual(OPERATOR_SESSION_ROUTES, all_routes)
+        self.assertLessEqual(ADMIN_ONLY_ROUTES, all_routes)
+
     def test_mcp_public_tool_snapshot_keeps_current_surface(self) -> None:
         self.assertEqual(92, len(PUBLIC_MCP_TOOL_NAMES))
         self.assertIn("bootstrap_context", PUBLIC_MCP_TOOL_NAMES)

@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+GIT_COMMAND_TIMEOUT_SECONDS = 15
+CODE_HEALTH_SOURCE_MAX_BYTES = 2 * 1024 * 1024
 
 MAX_PY_MODULE_LINES = 2500
 MAX_TEST_MODULE_LINES = 3000
@@ -37,6 +39,7 @@ ALLOWED_LARGE_MODULES = {
     "src/minimal_kanban/mcp/server.py": "MCP registry split target",
     "tests/test_service.py": "legacy broad service coverage pending domain split",
     "tests/test_api.py": "legacy broad API coverage pending route split",
+    "tests/test_mcp.py": "legacy broad MCP coverage pending contract split",
     "tests/test_web_assets.py": "web asset contract coverage pending chunk split",
 }
 
@@ -76,9 +79,11 @@ def _tracked_python_files(root: Path, *, include_untracked: bool = False) -> lis
             cwd=root,
             check=True,
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             text=True,
+            timeout=GIT_COMMAND_TIMEOUT_SECONDS,
         )
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return sorted(
             path
             for path in root.rglob("*.py")
@@ -96,7 +101,15 @@ def _relative(path: Path, root: Path) -> str:
 
 
 def _line_count(path: Path) -> int:
-    return len(path.read_text(encoding="utf-8").splitlines())
+    return len(_read_python_source(path).splitlines())
+
+
+def _read_python_source(path: Path) -> str:
+    with path.open("rb") as handle:
+        raw = handle.read(CODE_HEALTH_SOURCE_MAX_BYTES + 1)
+    if len(raw) > CODE_HEALTH_SOURCE_MAX_BYTES:
+        raise ValueError(f"Python source file is too large: {path}")
+    return raw.decode("utf-8")
 
 
 def _node_length(node: ast.AST) -> int:
@@ -108,7 +121,18 @@ def audit(root: Path = ROOT, *, include_untracked: bool = False) -> list[CodeHea
     issues: list[CodeHealthIssue] = []
     for path in _tracked_python_files(root, include_untracked=include_untracked):
         relative_path = _relative(path, root)
-        line_count = _line_count(path)
+        try:
+            source = _read_python_source(path)
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            issues.append(
+                CodeHealthIssue(
+                    "source_read_error",
+                    relative_path,
+                    str(exc),
+                )
+            )
+            continue
+        line_count = len(source.splitlines())
         module_budget = (
             MAX_TEST_MODULE_LINES if relative_path.startswith("tests/") else MAX_PY_MODULE_LINES
         )
@@ -122,7 +146,7 @@ def audit(root: Path = ROOT, *, include_untracked: bool = False) -> list[CodeHea
             )
 
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = ast.parse(source)
         except SyntaxError as exc:
             issues.append(
                 CodeHealthIssue(
@@ -195,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
         "issues": [asdict(issue) for issue in issues],
     }
     if args.format == "json":
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False))
     elif issues:
         print(f"Code health audit found {len(issues)} issue(s):")
         for issue in issues:

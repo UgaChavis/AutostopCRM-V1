@@ -1,10 +1,29 @@
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from typing import Any
 
 from ..models import utc_now_iso
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
 
 
 class AgentRunnerOutputMixin:
@@ -83,7 +102,7 @@ class AgentRunnerOutputMixin:
         }
 
     def _preview_payload(self, payload: dict[str, Any]) -> str:
-        text = json.dumps(payload, ensure_ascii=False, indent=2)
+        text = json.dumps(_json_safe_value(payload), ensure_ascii=False, indent=2, allow_nan=False)
         if len(text) <= self._max_tool_result_chars:
             return text
         return f"{text[: self._max_tool_result_chars]}... [truncated]"

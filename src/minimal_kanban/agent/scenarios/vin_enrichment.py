@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
+from ...vehicle_profile import (
+    normalize_source_confidence,
+    normalize_vehicle_int,
+    normalize_vehicle_links,
+)
 from .base import ScenarioContext, ScenarioExecutionResult
 
 _VIN_WEB_BLOCKED_DOMAINS = {
@@ -28,8 +33,13 @@ def _build_vin_web_query(decoded_vin: dict[str, Any]) -> str:
 
 
 def _vin_web_url_is_blocked(url: str) -> bool:
-    hostname = urlparse(str(url or "").strip()).netloc.casefold()
-    return any(hostname.endswith(domain) for domain in _VIN_WEB_BLOCKED_DOMAINS)
+    try:
+        hostname = (urlparse(str(url or "").strip()).hostname or "").strip().casefold().rstrip(".")
+    except ValueError:
+        return True
+    return any(
+        hostname == domain or hostname.endswith(f".{domain}") for domain in _VIN_WEB_BLOCKED_DOMAINS
+    )
 
 
 def _vin_web_result_score(item: dict[str, Any]) -> int:
@@ -68,7 +78,7 @@ def _merge_web_enrichment(
     *,
     fallback_profile: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
-    merged = dict(decoded_vin)
+    merged = dict(decoded_vin) if isinstance(decoded_vin, dict) else {}
     enriched_fields: list[str] = []
     fallback_profile = fallback_profile if isinstance(fallback_profile, dict) else {}
 
@@ -349,7 +359,9 @@ class VinEnrichmentScenarioExecutor:
                     enriched_payload["web_source_urls"] = [
                         str(item.get("url", "") or "").strip()
                         for item in (web_results if isinstance(web_results, list) else [])
-                        if isinstance(item, dict) and str(item.get("url", "") or "").strip()
+                        if isinstance(item, dict)
+                        and str(item.get("url", "") or "").strip()
+                        and not _vin_web_url_is_blocked(str(item.get("url", "") or "").strip())
                     ][:4]
                     orchestration_payload = enriched_payload
                     facts["vehicle_context"] = runtime._merge_vehicle_context(
@@ -460,7 +472,10 @@ class VinEnrichmentScenarioExecutor:
             if not value:
                 continue
             if field_name == "production_year":
-                vehicle_profile_patch[field_name] = int(value) if value.isdigit() else value
+                parsed_year = normalize_vehicle_int(value)
+                if parsed_year is None:
+                    continue
+                vehicle_profile_patch[field_name] = parsed_year
             else:
                 vehicle_profile_patch[field_name] = value
         source_summary = str(orchestration_payload.get("source_summary", "") or "").strip()
@@ -468,21 +483,22 @@ class VinEnrichmentScenarioExecutor:
             vehicle_profile_patch["source_summary"] = source_summary
         source_confidence = orchestration_payload.get("source_confidence")
         if source_confidence not in (None, ""):
-            vehicle_profile_patch["source_confidence"] = source_confidence
+            vehicle_profile_patch["source_confidence"] = normalize_source_confidence(
+                source_confidence
+            )
         source_links = orchestration_payload.get("source_links_or_refs")
-        if isinstance(source_links, list) and source_links:
-            vehicle_profile_patch["source_links_or_refs"] = [
-                str(item or "").strip() for item in source_links if str(item or "").strip()
-            ]
+        normalized_links = normalize_vehicle_links(source_links)
+        if normalized_links:
+            vehicle_profile_patch["source_links_or_refs"] = normalized_links
         if not vehicle_profile_patch:
             if source_summary:
                 vehicle_profile_patch["source_summary"] = source_summary
             if source_confidence not in (None, ""):
-                vehicle_profile_patch["source_confidence"] = source_confidence
-            if isinstance(source_links, list) and source_links:
-                vehicle_profile_patch["source_links_or_refs"] = [
-                    str(item or "").strip() for item in source_links if str(item or "").strip()
-                ]
+                vehicle_profile_patch["source_confidence"] = normalize_source_confidence(
+                    source_confidence
+                )
+            if normalized_links:
+                vehicle_profile_patch["source_links_or_refs"] = normalized_links
         if vehicle_profile_patch:
             vehicle_profile_patch["autofilled_fields"] = [
                 key

@@ -4,6 +4,7 @@ import base64
 import hashlib
 import html
 import json
+import math
 import re
 import uuid
 from copy import deepcopy
@@ -20,6 +21,7 @@ from ..repair_order import (
     RepairOrderRow,
     repair_order_cashless_gross_value,
 )
+from ..storage.limited_io import read_bytes_limited
 from .defaults import BUILTIN_PRINT_DOCUMENTS, PRINT_BASE_STYLES, builtin_template_records
 from .models import (
     SUPPORTED_PRINT_DOCUMENT_TYPES,
@@ -35,10 +37,15 @@ from .template_engine import TemplateRenderError, render_template
 _SETTINGS_FILE_NAME = "settings.json"
 _TEMPLATES_FILE_NAME = "templates.json"
 _INSPECTION_SHEET_FORMS_FILE_NAME = "inspection_sheet_forms.json"
+PRINT_JSON_FILE_MAX_BYTES = 1 * 1024 * 1024
+PRINT_BRAND_LOGO_MAX_BYTES = 512 * 1024
+PRINT_TEMPLATE_CONTENT_MAX_CHARS = 200_000
 _PAGE_BREAK_MARKER = "<!-- AUTOSTOPCRM_PAGE_BREAK -->"
 _REGULATED_LANDSCAPE_DOCUMENT_TYPES = {"invoice_factura", "upd"}
 _SENTENCE_SPLIT_RE = re.compile(r"[\n\r]+|(?<=[.!?])\s+")
+_UNSAFE_FILE_NAME_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
 _MONEY_QUANT = Decimal("0.01")
+_MONEY_ABS_MAX = Decimal("999999999999999.99")
 _INVOICE_VAT_RATE = Decimal("0.05")
 _BRAND_LOGO_PATH = Path(__file__).resolve().parent / "assets" / "autostop_brand_logo.png"
 _RU_MONTHS_GENITIVE = (
@@ -56,6 +63,7 @@ _RU_MONTHS_GENITIVE = (
     "ноября",
     "декабря",
 )
+_JSON_SAFE_MAX_DEPTH = 8
 _MONEY_UNITS_MALE = (
     "",
     "один",
@@ -148,11 +156,24 @@ class ManualDocumentProfile:
 
 
 def _normalize_text(value: Any, *, limit: int = 4000) -> str:
-    return " ".join(str(value or "").strip().split())[:limit]
+    raw = "" if value is None or value is False else value
+    return " ".join(str(raw).strip().split())[:limit]
 
 
 def _normalize_multiline(value: Any, *, limit: int = 120_000) -> str:
-    return str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()[:limit]
+    raw = "" if value is None or value is False else value
+    return str(raw).replace("\r\n", "\n").replace("\r", "\n").strip()[:limit]
+
+
+def _normalize_template_content(value: Any) -> str:
+    content = _normalize_multiline(value, limit=PRINT_TEMPLATE_CONTENT_MAX_CHARS + 1)
+    if len(content) > PRINT_TEMPLATE_CONTENT_MAX_CHARS:
+        raise PrintModuleError(
+            "validation_error",
+            "Шаблон слишком большой для сохранения или предпросмотра.",
+            details={"max_size_chars": PRINT_TEMPLATE_CONTENT_MAX_CHARS},
+        )
+    return content
 
 
 def _normalize_document_type(value: Any) -> str:
@@ -182,6 +203,13 @@ def _first_multiline(*values: Any, limit: int = 4000) -> str:
     return ""
 
 
+def _first_present(mapping: dict[str, Any], *keys: str, default: Any = "") -> Any:
+    for key in keys:
+        if key in mapping and mapping[key] is not None:
+            return mapping[key]
+    return default
+
+
 def _manual_table_rows(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
@@ -191,14 +219,14 @@ def _manual_table_rows(value: Any) -> list[dict[str, Any]]:
             row = dict(item)
         else:
             row = {"name": item}
-        name = _normalize_text(row.get("name") or row.get("title"), limit=240)
+        name = _normalize_text(_first_present(row, "name", "title"), limit=240)
         catalog_number = _normalize_text(
-            row.get("catalog_number") or row.get("catalogNumber") or row.get("article"),
+            _first_present(row, "catalog_number", "catalogNumber", "article"),
             limit=160,
         )
-        quantity = _normalize_text(row.get("quantity") or row.get("qty") or "1", limit=40)
-        price = _normalize_text(row.get("price") or row.get("unit_price") or "", limit=40)
-        total = _normalize_text(row.get("total") or row.get("amount") or "", limit=40)
+        quantity = _normalize_text(_first_present(row, "quantity", "qty", default="1"), limit=40)
+        price = _normalize_text(_first_present(row, "price", "unit_price"), limit=40)
+        total = _normalize_text(_first_present(row, "total", "amount"), limit=40)
         if not name and not total:
             continue
         rows.append(
@@ -461,9 +489,12 @@ def _parse_decimal(value: Any) -> Decimal | None:
     if not raw:
         return None
     try:
-        return Decimal(raw)
-    except InvalidOperation:
+        parsed = Decimal(raw)
+    except (InvalidOperation, ValueError):
         return None
+    if not parsed.is_finite() or parsed.copy_abs() > _MONEY_ABS_MAX:
+        return None
+    return parsed
 
 
 def _round_money(value: Decimal) -> Decimal:
@@ -511,7 +542,7 @@ def _money_display(value: Any, *, trim_kopeks: bool = False, currency: bool = Fa
     parsed = _parse_decimal(value)
     if parsed is None:
         return "—"
-    quantized = parsed.quantize(_MONEY_QUANT)
+    quantized = _round_money(parsed)
     text = format(quantized, "f")
     whole, dot, fraction = text.partition(".")
     grouped_whole = f"{int(whole):,}".replace(",", " ")
@@ -588,7 +619,7 @@ def _money_words_display(value: Any) -> str:
     parsed = _parse_decimal(value)
     if parsed is None:
         return "—"
-    quantized = parsed.quantize(_MONEY_QUANT)
+    quantized = _round_money(parsed)
     sign = "минус " if quantized < 0 else ""
     quantized = abs(quantized)
     whole = int(quantized)
@@ -1061,24 +1092,81 @@ def _regulated_document_context(
     }
 
 
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
 def _safe_json_read(path: Path, *, default: Any) -> Any:
     if not path.exists():
         return deepcopy(default)
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return json.loads(
+            _read_print_json_text(path),
+            parse_constant=_reject_json_constant,
+        )
+    except (ValueError, OSError, UnicodeDecodeError, RecursionError):
         return deepcopy(default)
 
 
+def _read_print_json_text(path: Path) -> str:
+    if path.stat().st_size > PRINT_JSON_FILE_MAX_BYTES:
+        raise ValueError("print json file is too large")
+    with path.open("rb") as handle:
+        payload = handle.read(PRINT_JSON_FILE_MAX_BYTES + 1)
+    if len(payload) > PRINT_JSON_FILE_MAX_BYTES:
+        raise ValueError("print json file is too large")
+    return payload.decode("utf-8")
+
+
+def _json_safe_value(value: Any, *, depth: int = _JSON_SAFE_MAX_DEPTH) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else 0.0
+    if isinstance(value, Decimal):
+        return str(value) if value.is_finite() else "0"
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
 def _safe_json_write(path: Path, payload: Any) -> None:
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    text = json.dumps(_json_safe_value(payload), ensure_ascii=False, indent=2, allow_nan=False)
+    if len(text.encode("utf-8")) > PRINT_JSON_FILE_MAX_BYTES:
+        raise PrintModuleError(
+            "validation_error",
+            "Данные печатного модуля слишком большие для сохранения.",
+            details={"max_size_bytes": PRINT_JSON_FILE_MAX_BYTES},
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp_path.write_text(text, encoding="utf-8")
+        tmp_path.replace(path)
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 @lru_cache(maxsize=1)
 def _brand_logo_data_uri() -> str:
     try:
-        data = _BRAND_LOGO_PATH.read_bytes()
-    except OSError:
+        data = read_bytes_limited(
+            _BRAND_LOGO_PATH,
+            max_bytes=PRINT_BRAND_LOGO_MAX_BYTES,
+            label="brand logo",
+        )
+    except (OSError, ValueError):
         return ""
     if not data:
         return ""
@@ -1493,13 +1581,15 @@ class PrintModuleService:
         order = repair_order or card.repair_order
         settings = self._merged_settings(print_settings)
         selected_ids = self._normalized_document_ids(selected_document_ids)
+        selected_templates = self._normalized_template_selection_map(selected_template_ids)
+        normalized_overrides = self._normalized_template_override_map(template_overrides)
         resolved_active = self._resolved_active_document_id(active_document_id, selected_ids)
         documents_payload: list[dict[str, Any]] = []
         for document_id in selected_ids:
             document = self._document_definition(document_id)
             template = self._resolve_template(
                 document_type=document_id,
-                template_id=(selected_template_ids or {}).get(document_id, ""),
+                template_id=selected_templates.get(document_id, ""),
                 settings=settings,
             )
             documents_payload.append(
@@ -1510,7 +1600,7 @@ class PrintModuleService:
                     template,
                     client=client,
                     settings=settings,
-                    template_overrides=template_overrides,
+                    template_overrides=normalized_overrides,
                     document_overrides=document_overrides,
                 )
             )
@@ -1540,6 +1630,8 @@ class PrintModuleService:
         order = repair_order or card.repair_order
         settings = self._merged_settings(print_settings)
         selected_ids = self._normalized_document_ids(selected_document_ids)
+        selected_templates = self._normalized_template_selection_map(selected_template_ids)
+        normalized_overrides = self._normalized_template_override_map(template_overrides)
         document_payloads = [
             self._rendered_document_payload(
                 card,
@@ -1547,12 +1639,12 @@ class PrintModuleService:
                 self._document_definition(document_id),
                 self._resolve_template(
                     document_type=document_id,
-                    template_id=(selected_template_ids or {}).get(document_id, ""),
+                    template_id=selected_templates.get(document_id, ""),
                     settings=settings,
                 ),
                 client=client,
                 settings=settings,
-                template_overrides=template_overrides,
+                template_overrides=normalized_overrides,
                 document_overrides=document_overrides,
             )
             for document_id in selected_ids
@@ -1609,6 +1701,8 @@ class PrintModuleService:
                 "Не выбран принтер. Сначала выберите принтер или экспортируйте PDF.",
             )
         selected_ids = self._normalized_document_ids(selected_document_ids)
+        selected_templates = self._normalized_template_selection_map(selected_template_ids)
+        normalized_overrides = self._normalized_template_override_map(template_overrides)
         document_payloads = [
             self._rendered_document_payload(
                 card,
@@ -1616,12 +1710,12 @@ class PrintModuleService:
                 self._document_definition(document_id),
                 self._resolve_template(
                     document_type=document_id,
-                    template_id=(selected_template_ids or {}).get(document_id, ""),
+                    template_id=selected_templates.get(document_id, ""),
                     settings=settings,
                 ),
                 client=client,
                 settings=settings,
-                template_overrides=template_overrides,
+                template_overrides=normalized_overrides,
                 document_overrides=document_overrides,
             )
             for document_id in selected_ids
@@ -1655,7 +1749,7 @@ class PrintModuleService:
     ) -> dict[str, Any]:
         normalized_document_type = _normalize_document_type(document_type)
         normalized_name = _normalize_text(name, limit=120)
-        normalized_content = _normalize_multiline(content, limit=200_000)
+        normalized_content = _normalize_template_content(content)
         if not normalized_name:
             raise PrintModuleError("validation_error", "Укажите название шаблона.")
         if not normalized_content:
@@ -1836,8 +1930,7 @@ class PrintModuleService:
                 id="preview:override",
                 document_type=document.id,
                 name="Предпросмотр шаблона",
-                content=_normalize_multiline(template_overrides.get(document.id, ""), limit=200_000)
-                or template.content,
+                content=template_overrides.get(document.id, "") or template.content,
                 created_at=utc_now_iso(),
                 updated_at=utc_now_iso(),
                 source="custom",
@@ -1908,13 +2001,47 @@ class PrintModuleService:
         normalized = _normalize_document_type(document_id)
         return self._builtin_documents[normalized]
 
-    def _normalized_document_ids(self, value: list[str] | None) -> list[str]:
+    def _normalized_document_ids(self, value: Any) -> list[str]:
+        if value is None:
+            raw_values: list[Any] = ["repair_order"]
+        elif isinstance(value, str):
+            raw_values = [value]
+        elif isinstance(value, (list, tuple)):
+            raw_values = list(value)
+        else:
+            raw_values = []
         normalized: list[str] = []
-        for raw in value or ["repair_order"]:
+        for raw in raw_values:
             candidate = _normalize_text(raw, limit=64)
             if candidate in self._builtin_documents and candidate not in normalized:
                 normalized.append(candidate)
         return normalized or ["repair_order"]
+
+    def _normalized_template_selection_map(self, value: Any) -> dict[str, str]:
+        if not isinstance(value, dict):
+            return {}
+        normalized: dict[str, str] = {}
+        for raw_document_type, raw_template_id in value.items():
+            document_type = _normalize_text(raw_document_type, limit=64)
+            if document_type not in self._builtin_documents:
+                continue
+            template_id = _normalize_text(raw_template_id, limit=128)
+            if template_id:
+                normalized[document_type] = template_id
+        return normalized
+
+    def _normalized_template_override_map(self, value: Any) -> dict[str, str]:
+        if not isinstance(value, dict):
+            return {}
+        normalized: dict[str, str] = {}
+        for raw_document_type, raw_content in value.items():
+            document_type = _normalize_text(raw_document_type, limit=64)
+            if document_type not in self._builtin_documents:
+                continue
+            content = _normalize_template_content(raw_content)
+            if content:
+                normalized[document_type] = content
+        return normalized
 
     def _resolved_active_document_id(
         self, active_document_id: str | None, selected_ids: list[str]
@@ -1936,13 +2063,17 @@ class PrintModuleService:
         if not isinstance(raw, list):
             return []
         templates: list[PrintTemplateRecord] = []
+        seen_ids: set[str] = set()
         for item in raw:
             record = PrintTemplateRecord.from_dict(item)
             if (
                 record is not None
                 and not record.is_builtin
+                and record.id not in self._builtin_templates
+                and record.id not in seen_ids
                 and record.document_type in SUPPORTED_PRINT_DOCUMENT_TYPES
             ):
+                seen_ids.add(record.id)
                 templates.append(record)
         return templates
 
@@ -2166,7 +2297,12 @@ class PrintModuleService:
                 "repair_order": card.repair_order.to_storage_dict(),
             }
             digest = hashlib.sha256(
-                json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+                json.dumps(
+                    _json_safe_value(payload),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    allow_nan=False,
+                ).encode("utf-8")
             ).hexdigest()[:16]
             return f"manual-document:{digest}"
         return _normalize_text(card.id, limit=128)
@@ -2715,6 +2851,14 @@ class PrintModuleService:
         return points
 
     def _build_export_file_name(self, card: Card, selected_document_ids: list[str]) -> str:
-        doc_part = "-".join(selected_document_ids[:3]) if selected_document_ids else "print"
-        number = _normalize_text(card.repair_order.number, limit=32) or "draft"
+        raw_doc_part = "-".join(selected_document_ids[:3]) if selected_document_ids else "print"
+        doc_part = self._safe_file_name_part(raw_doc_part, default="print", limit=120)
+        number = self._safe_file_name_part(card.repair_order.number, default="draft", limit=64)
         return f"autostopcrm-{doc_part}-{number}.pdf"
+
+    def _safe_file_name_part(self, value: Any, *, default: str, limit: int) -> str:
+        text = _normalize_text(value, limit=limit)
+        text = _UNSAFE_FILE_NAME_RE.sub("-", text)
+        text = re.sub(r"\s+", "-", text)
+        text = re.sub(r"-{2,}", "-", text).strip(" .-")
+        return text[:limit].strip(" .-") or default

@@ -4,7 +4,10 @@ import importlib.util
 import json
 import sys
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "finance_audit_report.py"
@@ -31,8 +34,28 @@ class FakeResponse:
     def __exit__(self, exc_type, exc, tb) -> None:
         _ = (exc_type, exc, tb)
 
-    def read(self) -> bytes:
-        return json.dumps(self._payload, ensure_ascii=False).encode("utf-8")
+    def read(self, size: int = -1) -> bytes:
+        body = json.dumps(self._payload, ensure_ascii=False).encode("utf-8")
+        if size is None or size < 0:
+            return body
+        return body[:size]
+
+
+class RawResponse:
+    def __init__(self, body: bytes) -> None:
+        self.status = 200
+        self._body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        _ = (exc_type, exc, tb)
+
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            return self._body
+        return self._body[:size]
 
 
 class FinanceAuditReportTests(unittest.TestCase):
@@ -89,6 +112,104 @@ class FinanceAuditReportTests(unittest.TestCase):
 
         self.assertTrue(payload["ok"])
         self.assertEqual(seen, [("https://crm.autostopcrm.ru/api/finance_audit", "GET")])
+
+    def test_fetch_audit_rejects_nonstandard_json_constants(self) -> None:
+        module = load_finance_audit_report_module()
+
+        def fake_urlopen(request, timeout):
+            _ = (request, timeout)
+            return FakeResponse({"ok": True, "data": {"summary": {"issues_total": float("nan")}}})
+
+        with self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"):
+            module.fetch_audit(
+                "https://crm.autostopcrm.ru/",
+                timeout=5,
+                urlopen=fake_urlopen,
+            )
+
+    def test_fetch_audit_rejects_deeply_nested_response(self) -> None:
+        module = load_finance_audit_report_module()
+        deep_json = ("[" * 5000 + "0" + "]" * 5000).encode("utf-8")
+
+        def fake_urlopen(request, timeout):
+            _ = (request, timeout)
+            return RawResponse(deep_json)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "finance audit response JSON is too deeply nested",
+        ):
+            module.fetch_audit(
+                "https://crm.autostopcrm.ru/",
+                timeout=5,
+                urlopen=fake_urlopen,
+            )
+
+    def test_fetch_audit_rejects_oversized_response(self) -> None:
+        module = load_finance_audit_report_module()
+
+        class HugeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+
+            def read(self, size: int = -1) -> bytes:
+                return b"x" * max(0, size)
+
+        def fake_urlopen(request, timeout):
+            _ = (request, timeout)
+            return HugeResponse()
+
+        with patch.object(module, "AUDIT_RESPONSE_MAX_BYTES", 4):
+            with self.assertRaisesRegex(ValueError, "finance audit response is too large"):
+                module.fetch_audit(
+                    "https://crm.autostopcrm.ru/",
+                    timeout=5,
+                    urlopen=fake_urlopen,
+                )
+
+    def test_fetch_audit_rejects_redirect_response(self) -> None:
+        module = load_finance_audit_report_module()
+
+        def fake_urlopen(request, timeout):
+            _ = (request, timeout)
+            raise module.urllib.error.HTTPError(
+                url="https://crm.autostopcrm.ru/api/finance_audit",
+                code=302,
+                msg="Found",
+                hdrs={"Location": "https://example.test/api/finance_audit"},
+                fp=None,
+            )
+
+        with self.assertRaisesRegex(ValueError, "finance audit response redirected"):
+            module.fetch_audit(
+                "https://crm.autostopcrm.ru/",
+                timeout=5,
+                urlopen=fake_urlopen,
+            )
+
+    def test_json_dumps_sanitizes_nonfinite_values(self) -> None:
+        module = load_finance_audit_report_module()
+
+        encoded = module._json_dumps({"ok": True, "value": float("nan"), "ratio": 1.25})
+
+        self.assertNotIn("NaN", encoded)
+        self.assertEqual(json.loads(encoded), {"ok": True, "value": None, "ratio": 1.25})
+
+    def test_json_dumps_handles_self_referential_payload(self) -> None:
+        module = load_finance_audit_report_module()
+        payload: dict[str, object] = {"ok": True}
+        payload["self"] = payload
+
+        encoded = module._json_dumps(payload)
+        decoded = json.loads(encoded)
+        node = decoded
+        for _ in range(8):
+            node = node["self"]
+
+        self.assertIsInstance(node, str)
 
     def test_limited_data_keeps_summary_and_limits_issue_details(self) -> None:
         module = load_finance_audit_report_module()
@@ -163,6 +284,61 @@ class FinanceAuditReportTests(unittest.TestCase):
         self.assertIn("cashbox_id=cashbox-1", text)
         self.assertIn("amount_minor=1060000", text)
         self.assertIn("safe_fix=no", text)
+
+    def test_summary_and_issue_context_tolerate_invalid_numeric_values(self) -> None:
+        module = load_finance_audit_report_module()
+        payload = {
+            "ok": True,
+            "data": {
+                "issues": [
+                    {
+                        "code": "bad_amount",
+                        "severity": "warning",
+                        "amount_minor": float("inf"),
+                        "safe_fix_available": True,
+                    }
+                ],
+                "summary": {"issues_total": 1e308, "safe_fix_count": 1e308},
+                "meta": {"schema_version": "finance_audit.v1", "read_only": True},
+            },
+        }
+
+        summary = module.summarize_audit(payload)
+        context = module._format_issue_context(payload["data"]["issues"][0])
+
+        self.assertEqual(summary["issues_total"], 1)
+        self.assertEqual(summary["safe_fix_count"], 1)
+        self.assertNotIn("amount_minor=", context)
+
+    def test_cli_issue_limit_is_bounded(self) -> None:
+        module = load_finance_audit_report_module()
+
+        self.assertEqual(module._bounded_issue_limit(1e308), 500)
+        self.assertEqual(module._bounded_issue_limit(-1e308), 0)
+        self.assertEqual(module._bounded_issue_limit("bad"), 30)
+        self.assertEqual(module._bounded_timeout_seconds(1e308), 300.0)
+        self.assertEqual(module._bounded_timeout_seconds(0), 1.0)
+        self.assertEqual(module._bounded_timeout_seconds("bad"), 15.0)
+
+    def test_main_reports_invalid_json_without_traceback(self) -> None:
+        module = load_finance_audit_report_module()
+        output = StringIO()
+
+        with (
+            patch.object(sys, "argv", ["finance_audit_report.py"]),
+            patch.object(
+                module,
+                "fetch_audit",
+                side_effect=json.JSONDecodeError("bad json", "{", 0),
+            ),
+            redirect_stdout(output),
+        ):
+            exit_code = module.main()
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 2)
+        self.assertFalse(payload["ok"])
+        self.assertIn("bad json", payload["error"])
 
 
 if __name__ == "__main__":

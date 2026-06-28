@@ -5,11 +5,11 @@ import argparse
 import hashlib
 import json
 import logging
-import shutil
+import math
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -20,6 +20,7 @@ from minimal_kanban.config import get_state_file
 from minimal_kanban.models import format_money_minor, parse_datetime
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
+from minimal_kanban.storage.limited_io import copy_file_limited
 
 TARGET_EVENT_ID = "fed7fc32-998f-4454-897c-82aef5ede458"
 TARGET_EVENT_TIMESTAMP = "2026-05-29T13:37:37Z"
@@ -27,21 +28,87 @@ TARGET_FIX_KIND = "create_missing_payment_cash_transaction"
 NORMALIZATION_NOTE = "Нормализация кассы: откат ошибочного автопереноса оплат ЗН 29.05.2026"
 NORMALIZATION_KIND = "cashbox_normalization"
 CORRECTION_NOTE_MARKERS = ("корректировка кассы", "нормализация кассы")
+STATE_FILE_MAX_BYTES = 100 * 1024 * 1024
+ARCHIVE_EVENT_LINE_MAX_BYTES = 2 * 1024 * 1024
+ARCHIVE_EVENT_DISCARD_CHUNK_BYTES = 64 * 1024
+MONEY_MINOR_ABS_MAX = 100_000_000_000_000
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(
+            _read_text_bounded(path),
+            parse_constant=_reject_json_constant,
+        )
+    except RecursionError as exc:
+        raise ValueError("state file JSON is too deeply nested") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("state file must contain a JSON object")
+    return payload
+
+
+def _read_text_bounded(path: Path) -> str:
+    with path.open("rb") as handle:
+        raw = handle.read(STATE_FILE_MAX_BYTES + 1)
+    if len(raw) > STATE_FILE_MAX_BYTES:
+        raise ValueError("cashbox normalization state file is too large")
+    return raw.decode("utf-8")
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
 
 
 def _money_minor(value: object) -> int:
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
+    if isinstance(value, bool):
         return 0
+    try:
+        numeric = float(0 if value is None or value == "" else value)
+    except (OverflowError, TypeError, ValueError):
+        return 0
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return 0
+    if abs(numeric) > MONEY_MINOR_ABS_MAX:
+        return 0
+    return int(numeric)
 
 
-def _money_display(amount_minor: int) -> str:
-    return format_money_minor(int(amount_minor))
+def _bounded_expected_source_count(value: object) -> int:
+    if isinstance(value, bool):
+        return 16
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return 16
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return 16
+    if numeric < 0:
+        return 0
+    if numeric > 10_000:
+        return 10_000
+    return int(numeric)
+
+
+def _money_display(amount_minor: object) -> str:
+    return format_money_minor(_money_minor(amount_minor))
 
 
 def _event_datetime(value: object):
@@ -54,20 +121,52 @@ def _iter_archive_events(archive_dir: Path | None) -> list[dict[str, Any]]:
         return []
     events: list[dict[str, Any]] = []
     for path in sorted(archive_dir.glob("*.jsonl")):
-        with path.open(encoding="utf-8") as handle:
-            for line in handle:
-                raw = line.strip()
+        try:
+            lines = _iter_archive_event_lines(path)
+            for raw in lines:
                 if not raw:
                     continue
                 try:
-                    payload = json.loads(raw)
-                except json.JSONDecodeError:
+                    payload = json.loads(raw, parse_constant=_reject_json_constant)
+                except (ValueError, json.JSONDecodeError, RecursionError):
                     continue
                 if isinstance(payload, dict) and isinstance(payload.get("event"), dict):
                     payload = payload["event"]
                 if isinstance(payload, dict):
                     events.append(payload)
+        except OSError:
+            continue
     return events
+
+
+def _iter_archive_event_lines(path: Path):
+    with path.open("rb") as handle:
+        while True:
+            raw_line = handle.readline(ARCHIVE_EVENT_LINE_MAX_BYTES + 1)
+            if not raw_line:
+                break
+            if len(raw_line) > ARCHIVE_EVENT_LINE_MAX_BYTES:
+                if not raw_line.endswith(b"\n"):
+                    _discard_archive_event_line_tail(handle)
+                continue
+            try:
+                yield raw_line.decode("utf-8").strip()
+            except UnicodeDecodeError:
+                continue
+
+
+def _discard_archive_event_line_tail(handle: BinaryIO) -> None:
+    while True:
+        chunk = handle.read(ARCHIVE_EVENT_DISCARD_CHUNK_BYTES)
+        if not chunk:
+            return
+        newline_index = chunk.find(b"\n")
+        if newline_index < 0:
+            continue
+        unread = len(chunk) - newline_index - 1
+        if unread:
+            handle.seek(-unread, 1)
+        return
 
 
 def _iter_events(state: dict[str, Any], archive_dir: Path | None) -> list[dict[str, Any]]:
@@ -201,8 +300,8 @@ def calculate_normalization_plan(
     gross_by_cashbox: dict[str, int] = {}
     for item in source_transactions:
         cashbox_id = str(item["cashbox_id"])
-        gross_by_cashbox[cashbox_id] = gross_by_cashbox.get(cashbox_id, 0) + int(
-            item["amount_minor"]
+        gross_by_cashbox[cashbox_id] = gross_by_cashbox.get(cashbox_id, 0) + _money_minor(
+            item.get("amount_minor")
         )
 
     existing_corrections: list[dict[str, Any]] = []
@@ -284,11 +383,15 @@ def calculate_normalization_plan(
         "adjustments": adjustments,
         "summary": {
             "source_transactions": len(source_transactions),
-            "source_amount_minor": sum(int(item["amount_minor"]) for item in source_transactions),
-            "existing_correction_minor": sum(
-                int(item["amount_minor"]) for item in existing_corrections
+            "source_amount_minor": sum(
+                _money_minor(item.get("amount_minor")) for item in source_transactions
             ),
-            "proposed_adjustment_minor": sum(int(item["amount_minor"]) for item in adjustments),
+            "existing_correction_minor": sum(
+                _money_minor(item.get("amount_minor")) for item in existing_corrections
+            ),
+            "proposed_adjustment_minor": sum(
+                _money_minor(item.get("amount_minor")) for item in adjustments
+            ),
         },
     }
 
@@ -306,7 +409,18 @@ def _backup_state_file(state_file: Path) -> dict[str, str]:
     backup_dir.mkdir(parents=True, exist_ok=True)
     timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     backup_file = backup_dir / f"state-before-cashbox-normalization-{timestamp}.json"
-    shutil.copy2(state_file, backup_file)
+    counter = 2
+    while backup_file.exists():
+        backup_file = (
+            backup_dir / f"state-before-cashbox-normalization-{timestamp}-{counter:03d}.json"
+        )
+        counter += 1
+    copy_file_limited(
+        state_file,
+        backup_file,
+        max_bytes=STATE_FILE_MAX_BYTES,
+        label="cashbox normalization state file",
+    )
     return {"path": str(backup_file), "sha256": _sha256_file(backup_file)}
 
 
@@ -435,12 +549,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--state-file", type=Path, default=get_state_file())
     parser.add_argument("--archive-dir", type=Path, default=None)
     parser.add_argument("--event-id", default=TARGET_EVENT_ID)
-    parser.add_argument("--expected-source-count", type=int, default=16)
+    parser.add_argument("--expected-source-count", default=16)
     parser.add_argument("--allow-count-mismatch", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if args.apply and not args.backup:
         parser.error("--apply requires --backup")
+    args.expected_source_count = _bounded_expected_source_count(args.expected_source_count)
     return args
 
 
@@ -457,10 +572,17 @@ def main(argv: list[str] | None = None) -> int:
             expected_source_count=expected_source_count,
         )
     except Exception as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {"ok": False, "error": str(exc)},
+                ensure_ascii=False,
+                indent=2,
+                allow_nan=False,
+            )
+        )
         return 2
     if args.json:
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        print(json.dumps(_json_safe_value(result), ensure_ascii=False, indent=2, allow_nan=False))
     else:
         print(_format_text(result))
     return 0

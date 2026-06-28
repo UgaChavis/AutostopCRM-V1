@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+LOCALIZATION_AUDIT_TEXT_MAX_BYTES = 2 * 1024 * 1024
 
 TARGETS = [
     ROOT / "src" / "minimal_kanban" / "app.py",
@@ -48,13 +49,25 @@ FORBIDDEN_MOJIBAKE_FRAGMENTS = [
 ]
 
 
+def _read_text(path: Path) -> str:
+    with path.open("rb") as handle:
+        raw = handle.read(LOCALIZATION_AUDIT_TEXT_MAX_BYTES + 1)
+    if len(raw) > LOCALIZATION_AUDIT_TEXT_MAX_BYTES:
+        raise ValueError(f"localization audit file is too large: {path}")
+    return raw.decode("utf-8")
+
+
 def main() -> int:
     problems: list[str] = []
     for path in TARGETS:
         if not path.exists():
             problems.append(f"Отсутствует файл для проверки локализации: {path}")
             continue
-        content = path.read_text(encoding="utf-8")
+        try:
+            content = _read_text(path)
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            problems.append(f"{path}: не удалось прочитать файл: {exc}")
+            continue
         sanitized = content
         for excerpt in ALLOWED_EXCERPTS:
             sanitized = sanitized.replace(excerpt, "")

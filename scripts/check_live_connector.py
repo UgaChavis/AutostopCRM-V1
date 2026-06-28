@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import sys
 import urllib.error
 import urllib.request
@@ -24,14 +25,91 @@ from minimal_kanban.config import get_settings_file
 from minimal_kanban.mcp.client import discover_board_api
 from minimal_kanban.settings_models import IntegrationSettings
 
+LIVE_CONNECTOR_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
+LIVE_CONNECTOR_SETTINGS_MAX_BYTES = 1 * 1024 * 1024
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+
+
+def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float):
+    return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth < 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _json_dumps(payload: Any, *, indent: int | None = None) -> str:
+    return json.dumps(_json_safe_value(payload), ensure_ascii=False, indent=indent, allow_nan=False)
+
+
+def _load_json_text(raw: str, *, context: str) -> Any:
+    try:
+        return json.loads(raw, parse_constant=_reject_json_constant)
+    except RecursionError as exc:
+        raise ValueError(f"{context} JSON is too deeply nested") from exc
+
+
+def _parse_api_response(raw: str) -> dict[str, Any]:
+    payload = _load_json_text(raw, context="API response")
+    if not isinstance(payload, dict):
+        raise ValueError("API response must be a JSON object")
+    return payload
+
+
+def _read_response_body(
+    response: Any, *, limit_bytes: int = LIVE_CONNECTOR_RESPONSE_MAX_BYTES
+) -> bytes:
+    body = response.read(limit_bytes + 1)
+    if len(body) > limit_bytes:
+        raise ValueError(f"Live connector response is too large ({limit_bytes} byte limit)")
+    return body
+
+
+def _read_settings_text(path: Path) -> str:
+    with path.open("rb") as handle:
+        raw = handle.read(LIVE_CONNECTOR_SETTINGS_MAX_BYTES + 1)
+    if len(raw) > LIVE_CONNECTOR_SETTINGS_MAX_BYTES:
+        raise ValueError(
+            f"Live connector settings file is too large "
+            f"({LIVE_CONNECTOR_SETTINGS_MAX_BYTES} byte limit)"
+        )
+    return raw.decode("utf-8")
+
 
 def load_settings() -> IntegrationSettings:
     settings_file = get_settings_file()
     if not settings_file.exists():
         return IntegrationSettings.defaults()
     try:
-        payload = json.loads(settings_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        payload = _load_json_text(
+            _read_settings_text(settings_file), context="Live connector settings"
+        )
+    except (OSError, ValueError, json.JSONDecodeError):
         return IntegrationSettings.defaults()
     return IntegrationSettings.from_dict(payload)
 
@@ -44,9 +122,16 @@ def _clean_url(value: str | None) -> str:
     return str(value or "").strip().rstrip("/")
 
 
+def _urlsplit_clean(value: str | None):
+    try:
+        return urlsplit(_clean_url(value))
+    except ValueError:
+        return None
+
+
 def _fallback_http_url(url: str) -> str:
-    parts = urlsplit(_clean_url(url))
-    if parts.scheme.lower() != "https" or not parts.netloc:
+    parts = _urlsplit_clean(url)
+    if parts is None or parts.scheme.lower() != "https" or not parts.netloc:
         return ""
     path = parts.path or ""
     if parts.query:
@@ -105,7 +190,8 @@ def _resolve_site_url(settings: IntegrationSettings, override: str | None) -> st
 
 
 def _classify_probe_url(url: str) -> str:
-    host = (urlsplit(_clean_url(url)).hostname or "").strip().lower()
+    parts = _urlsplit_clean(url)
+    host = ((parts.hostname if parts is not None else "") or "").strip().lower().rstrip(".")
     if host in {"127.0.0.1", "localhost"}:
         return "local"
     if host:
@@ -139,7 +225,11 @@ def _api_request(
         request_headers["Authorization"] = f"Bearer {bearer_token}"
     if headers:
         request_headers.update(headers)
-    body = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    body = (
+        None
+        if payload is None
+        else json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
+    )
     request = urllib.request.Request(
         f"{_clean_url(base_url)}{path}",
         data=body,
@@ -147,13 +237,16 @@ def _api_request(
         headers=request_headers,
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.status, json.loads(response.read().decode("utf-8"))
+        with _urlopen_no_redirect(request, timeout=timeout) as response:
+            raw = _read_response_body(response).decode("utf-8")
+            return response.status, _parse_api_response(raw)
     except urllib.error.HTTPError as exc:
-        raw = exc.read().decode("utf-8", errors="replace")
+        if 300 <= exc.code < 400:
+            raise ValueError(f"API request redirected: {path}") from exc
+        raw = _read_response_body(exc).decode("utf-8", errors="replace")
         try:
-            return exc.code, json.loads(raw)
-        except json.JSONDecodeError:
+            return exc.code, _parse_api_response(raw)
+        except ValueError:
             return exc.code, {"ok": False, "error": {"code": "http_error", "message": raw}}
 
 
@@ -191,7 +284,12 @@ def check_site(site_url: str, *, expect_https: bool = False) -> dict[str, Any]:
         result["error"] = "site_url_not_configured"
         return result
 
-    if expect_https and urlsplit(site_url).scheme.lower() != "https":
+    site_parts = _urlsplit_clean(site_url)
+    if site_parts is None:
+        result["error"] = "site_url_invalid"
+        return result
+
+    if expect_https and site_parts.scheme.lower() != "https":
         result["error"] = "site_url_is_not_https"
         return result
 
@@ -205,10 +303,10 @@ def check_site(site_url: str, *, expect_https: bool = False) -> dict[str, Any]:
     }
     last_error = ""
     for probe_url in candidate_urls:
-        request = urllib.request.Request(probe_url, method="GET", headers=headers)
         try:
-            with urllib.request.urlopen(request, timeout=10.0) as response:
-                body = response.read().decode("utf-8", errors="replace")
+            request = urllib.request.Request(probe_url, method="GET", headers=headers)
+            with _urlopen_no_redirect(request, timeout=10.0) as response:
+                body = _read_response_body(response).decode("utf-8", errors="replace")
                 final_url = response.geturl()
                 title = ""
                 title_start = body.lower().find("<title>")
@@ -234,7 +332,9 @@ def check_site(site_url: str, *, expect_https: bool = False) -> dict[str, Any]:
         except urllib.error.HTTPError as exc:
             result["probe_url"] = probe_url
             result["status_code"] = exc.code
-            last_error = f"http_error_{exc.code}"
+            last_error = (
+                "site_probe_redirected" if 300 <= exc.code < 400 else f"http_error_{exc.code}"
+            )
         except Exception as exc:  # pragma: no cover
             last_error = str(exc)
     result["error"] = last_error or "site_probe_failed"
@@ -520,7 +620,9 @@ async def check_mcp(mcp_url: str, *, bearer_token: str | None = None) -> dict[st
     for attempt in range(1, 3):
         try:
             timeout = httpx.Timeout(45.0, connect=10.0, read=45.0, write=45.0, pool=45.0)
-            async with httpx.AsyncClient(headers=headers, timeout=timeout) as http_client:
+            async with httpx.AsyncClient(
+                headers=headers, timeout=timeout, follow_redirects=False
+            ) as http_client:
                 async with streamable_http_client(mcp_url, http_client=http_client) as (
                     read,
                     write,
@@ -840,7 +942,7 @@ def main() -> int:
     }
 
     if args.json:
-        _emit_output(json.dumps(report, ensure_ascii=False, indent=2))
+        _emit_output(_json_dumps(report, indent=2))
     else:
         print("AutoStop CRM live diagnostics")
         print(f"settings_file: {report['settings_file']}")

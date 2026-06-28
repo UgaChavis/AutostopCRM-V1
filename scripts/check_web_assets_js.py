@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+NODE_CHECK_TIMEOUT_SECONDS = 30
 
 
 class InlineScriptExtractor(HTMLParser):
@@ -72,9 +73,11 @@ def main() -> int:
             result = subprocess.run(
                 [node, "--check", str(script_path)],
                 cwd=ROOT,
+                stdin=subprocess.DEVNULL,
                 text=True,
                 capture_output=True,
                 check=False,
+                timeout=NODE_CHECK_TIMEOUT_SECONDS,
             )
             if result.returncode != 0:
                 if result.stdout:

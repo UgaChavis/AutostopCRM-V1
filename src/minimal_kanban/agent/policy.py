@@ -189,33 +189,35 @@ class ToolPolicyEngine:
         executed = {
             str(item.tool_name or "").strip().lower()
             for item in tool_results
+            if isinstance(item, ToolResult)
             if str(item.status or "").strip().lower() == "success"
         }
         return [tool_name for tool_name in plan.required_tools if tool_name not in executed]
 
     def filter_patch(self, plan: PlanResult, patch: PatchResult) -> PatchResult:
         if plan.scenario_id == "vin_enrichment":
-            return patch
+            return PatchResult(**patch.to_dict())
         allowed = set(self._unique(plan.allowed_write_targets))
         forbidden = set(self._unique(plan.forbidden_write_targets))
         allowed.difference_update(forbidden)
+        patch_payload = patch.to_dict()
         filtered_card_patch = {
             key: value
-            for key, value in dict(patch.card_patch).items()
+            for key, value in patch_payload["card_patch"].items()
             if key in allowed and key not in forbidden
         }
         repair_order_patch = (
-            dict(patch.repair_order_patch)
+            patch_payload["repair_order_patch"]
             if "repair_order" in allowed and "repair_order" not in forbidden
             else {}
         )
         repair_order_works = (
-            [dict(item) for item in patch.repair_order_works if isinstance(item, dict)]
+            patch_payload["repair_order_works"]
             if "repair_order_works" in allowed and "repair_order_works" not in forbidden
             else []
         )
         repair_order_materials = (
-            [dict(item) for item in patch.repair_order_materials if isinstance(item, dict)]
+            patch_payload["repair_order_materials"]
             if "repair_order_materials" in allowed and "repair_order_materials" not in forbidden
             else []
         )
@@ -224,8 +226,8 @@ class ToolPolicyEngine:
             repair_order_patch=repair_order_patch,
             repair_order_works=repair_order_works,
             repair_order_materials=repair_order_materials,
-            append_only_notes=list(patch.append_only_notes),
-            warnings=list(patch.warnings),
+            append_only_notes=patch_payload["append_only_notes"],
+            warnings=patch_payload["warnings"],
             human_review_needed=bool(patch.human_review_needed),
         )
 

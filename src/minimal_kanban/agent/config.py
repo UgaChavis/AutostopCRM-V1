@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 
@@ -19,24 +20,46 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return raw_value in {"1", "true", "yes", "y", "on"}
 
 
-def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
+def _env_int(
+    name: str,
+    default: int,
+    *,
+    minimum: int = 1,
+    maximum: int | None = None,
+) -> int:
     raw_value = (os.environ.get(name) or "").strip()
     if not raw_value:
         return default
     try:
-        return max(minimum, int(raw_value))
-    except ValueError:
+        numeric = float(raw_value)
+    except (OverflowError, ValueError):
         return default
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return default
+    if maximum is not None and numeric > maximum:
+        return maximum
+    return max(minimum, int(numeric))
 
 
-def _env_float(name: str, default: float, *, minimum: float = 0.1) -> float:
+def _env_float(
+    name: str,
+    default: float,
+    *,
+    minimum: float = 0.1,
+    maximum: float | None = None,
+) -> float:
     raw_value = (os.environ.get(name) or "").strip()
     if not raw_value:
         return default
     try:
-        return max(minimum, float(raw_value))
-    except ValueError:
+        value = float(raw_value)
+    except (OverflowError, ValueError):
         return default
+    if not math.isfinite(value):
+        return default
+    if maximum is not None and value > maximum:
+        return maximum
+    return max(minimum, value)
 
 
 def get_agent_enabled() -> bool:
@@ -106,20 +129,33 @@ def get_agent_openai_base_url() -> str:
 
 def get_agent_request_timeout_seconds() -> float:
     return _env_float(
-        "MINIMAL_KANBAN_AGENT_REQUEST_TIMEOUT_SECONDS", DEFAULT_REQUEST_TIMEOUT_SECONDS, minimum=1.0
+        "MINIMAL_KANBAN_AGENT_REQUEST_TIMEOUT_SECONDS",
+        DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        minimum=1.0,
+        maximum=120.0,
     )
 
 
 def get_agent_poll_interval_seconds() -> float:
-    return _env_float("MINIMAL_KANBAN_AGENT_POLL_INTERVAL_SECONDS", 2.0, minimum=0.2)
+    return _env_float(
+        "MINIMAL_KANBAN_AGENT_POLL_INTERVAL_SECONDS",
+        2.0,
+        minimum=0.2,
+        maximum=60.0,
+    )
 
 
 def get_agent_max_steps() -> int:
-    return _env_int("MINIMAL_KANBAN_AGENT_MAX_STEPS", 12, minimum=1)
+    return _env_int("MINIMAL_KANBAN_AGENT_MAX_STEPS", 12, minimum=1, maximum=200)
 
 
 def get_agent_max_tool_result_chars() -> int:
-    return _env_int("MINIMAL_KANBAN_AGENT_MAX_TOOL_RESULT_CHARS", 6000, minimum=500)
+    return _env_int(
+        "MINIMAL_KANBAN_AGENT_MAX_TOOL_RESULT_CHARS",
+        6000,
+        minimum=500,
+        maximum=200_000,
+    )
 
 
 def get_agent_board_api_url() -> str | None:

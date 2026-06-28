@@ -6,7 +6,11 @@ import logging
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -43,6 +47,11 @@ class ClientDataQualityMaintenanceTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
+    def test_issue_limit_bounds_reject_huge_values(self) -> None:
+        self.assertEqual(self.module._bounded_issue_limit(1e308), 500)
+        self.assertEqual(self.module._bounded_issue_limit(-1e308), 0)
+        self.assertEqual(self.module._bounded_issue_limit("bad"), 50)
+
     def test_dry_run_reports_placeholder_vehicle_vins_without_mutating_state(self) -> None:
         self.service.create_client(
             {
@@ -76,6 +85,12 @@ class ClientDataQualityMaintenanceTests(unittest.TestCase):
         self.assertEqual([operation["previous_vin"] for operation in review_operations], ["JZX90"])
         self.assertEqual(before_state, after_state)
 
+    def test_dry_run_rejects_deeply_nested_state_file(self) -> None:
+        self.state_file.write_text("[" * 5000 + "]" * 5000, encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "JSON is too deeply nested"):
+            self.module.build_client_data_quality_plan(self.state_file)
+
     def test_apply_clears_only_invalid_vehicle_vins_and_creates_backup(self) -> None:
         self.service.create_client(
             {
@@ -106,6 +121,42 @@ class ClientDataQualityMaintenanceTests(unittest.TestCase):
                 for event in state["events"]
             )
         )
+
+    def test_apply_does_not_overwrite_existing_fixed_tmp_file(self) -> None:
+        self.service.create_client(
+            {
+                "client_id": "cleanup-client",
+                "display_name": "Клиент для очистки VIN",
+                "vehicles": [{"vehicle": "Toyota", "vin": "1"}],
+            }
+        )
+        fixed_tmp = self.state_file.with_suffix(".tmp")
+        fixed_tmp.write_text("sentinel", encoding="utf-8")
+
+        result = self.module.apply_client_data_quality_plan(self.state_file, backup=True)
+
+        self.assertTrue(result["applied"])
+        self.assertEqual(fixed_tmp.read_text(encoding="utf-8"), "sentinel")
+
+    def test_client_name_falls_back_when_profile_loader_overflows(self) -> None:
+        with patch.object(self.module.ClientProfile, "from_dict", side_effect=OverflowError):
+            self.assertEqual(
+                self.module._client_name({"display_name": "Резервное имя"}),
+                "Резервное имя",
+            )
+
+    def test_write_state_rejects_payload_larger_than_read_limit_without_clobbering(
+        self,
+    ) -> None:
+        self.state_file.write_text(json.dumps({"clients": []}), encoding="utf-8")
+        original_state = json.loads(self.state_file.read_text(encoding="utf-8"))
+
+        with patch.object(self.module, "STATE_FILE_MAX_BYTES", 64):
+            with self.assertRaisesRegex(ValueError, "client data quality state file is too large"):
+                self.module._write_state(self.state_file, {"padding": "x" * 256})
+
+        self.assertEqual(json.loads(self.state_file.read_text(encoding="utf-8")), original_state)
+        self.assertEqual(list(self.state_file.parent.glob("*.tmp")), [])
 
     def test_apply_replaces_phone_like_client_name_from_related_card(self) -> None:
         client = self.service.create_client(
@@ -183,9 +234,65 @@ class ClientDataQualityMaintenanceTests(unittest.TestCase):
         state = json.loads(self.state_file.read_text(encoding="utf-8"))
         self.assertEqual(state["clients"][0]["display_name"], "89080162605")
 
+    def test_apply_backup_does_not_overwrite_existing_backup(self) -> None:
+        self.service.create_client(
+            {
+                "client_id": "cleanup-client",
+                "display_name": "Клиент для очистки VIN",
+                "vehicles": [{"vehicle": "Toyota", "vin": "1"}],
+            }
+        )
+        existing_backup = self.state_file.with_name(
+            "state.json.backup-client-data-quality-20260601T010203Z"
+        )
+        existing_backup.write_text("previous backup", encoding="utf-8")
+        fixed_now = datetime(2026, 6, 1, 1, 2, 3, tzinfo=UTC)
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed_now if tz is not None else fixed_now.replace(tzinfo=None)
+
+        with patch.object(self.module, "datetime", FixedDateTime):
+            result = self.module.apply_client_data_quality_plan(self.state_file, backup=True)
+
+        backup_file = self.state_file.with_name(
+            "state.json.backup-client-data-quality-20260601T010203Z-002"
+        )
+        self.assertEqual(existing_backup.read_text(encoding="utf-8"), "previous backup")
+        self.assertEqual(Path(result["backup_file"]), backup_file)
+        self.assertTrue(backup_file.exists())
+
     def test_apply_requires_backup(self) -> None:
         with self.assertRaisesRegex(ValueError, "backup"):
             self.module.apply_client_data_quality_plan(self.state_file, backup=False)
+
+    def test_cli_reports_nonstandard_json_constants_without_traceback(self) -> None:
+        self.state_file.write_text('{"clients":[{"display_name":NaN}]}', encoding="utf-8")
+        output = StringIO()
+
+        with redirect_stdout(output):
+            exit_code = self.module.main(["--state-file", str(self.state_file), "--format", "json"])
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 2)
+        self.assertFalse(payload["ok"])
+        self.assertIn("Unsupported JSON constant", payload["error"])
+
+    def test_cli_reports_oversized_state_file_without_traceback(self) -> None:
+        self.state_file.write_text("x" * 16, encoding="utf-8")
+        output = StringIO()
+
+        with patch.object(self.module, "STATE_FILE_MAX_BYTES", 8):
+            with redirect_stdout(output):
+                exit_code = self.module.main(
+                    ["--state-file", str(self.state_file), "--format", "json"]
+                )
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 2)
+        self.assertFalse(payload["ok"])
+        self.assertIn("client data quality state file is too large", payload["error"])
 
 
 if __name__ == "__main__":

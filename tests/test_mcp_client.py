@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,10 +11,38 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from minimal_kanban.mcp.client import BoardApiClient
+from minimal_kanban.mcp.client import BoardApiClient, BoardApiTransportError, _normalize_int
 
 
 class BoardApiClientTests(unittest.TestCase):
+    def test_normalize_int_clamps_large_finite_values_before_conversion(self) -> None:
+        self.assertEqual(_normalize_int(1e308, default=5, minimum=1, maximum=30), 30)
+        self.assertEqual(_normalize_int(-1e308, default=5, minimum=1, maximum=30), 1)
+
+    def test_timeout_seconds_is_normalized_to_safe_finite_range(self) -> None:
+        self.assertEqual(
+            BoardApiClient("https://board.example/api", timeout_seconds=True)._timeout_seconds,
+            10.0,
+        )
+        self.assertEqual(
+            BoardApiClient(
+                "https://board.example/api", timeout_seconds=float("inf")
+            )._timeout_seconds,
+            10.0,
+        )
+        self.assertEqual(
+            BoardApiClient("https://board.example/api", timeout_seconds=-5)._timeout_seconds,
+            10.0,
+        )
+        self.assertEqual(
+            BoardApiClient("https://board.example/api", timeout_seconds=0.001)._timeout_seconds,
+            0.1,
+        )
+        self.assertEqual(
+            BoardApiClient("https://board.example/api", timeout_seconds=999)._timeout_seconds,
+            60.0,
+        )
+
     def test_compose_url_does_not_duplicate_api_segment(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")
 
@@ -24,6 +53,344 @@ class BoardApiClientTests(unittest.TestCase):
         self.assertEqual(
             client._compose_url("api/get_cards"), "https://board.example/api/get_cards"
         )
+
+    def test_parse_json_payload_rejects_non_object_json(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with self.assertRaises(BoardApiTransportError):
+            client._parse_json_payload(b"[]", path="/api/health")
+
+    def test_parse_json_payload_rejects_non_standard_numeric_constants(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with self.assertRaises(BoardApiTransportError):
+            client._parse_json_payload(b'{"ok": true, "value": NaN}', path="/api/health")
+
+    def test_parse_json_payload_rejects_deeply_nested_json(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+        deep_json = ("[" * 5000 + "]" * 5000).encode("utf-8")
+
+        with self.assertRaises(BoardApiTransportError):
+            client._parse_json_payload(deep_json, path="/api/health")
+
+    def test_create_card_deadline_ignores_invalid_numeric_parts(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.create_card(
+                title="Новая заявка",
+                deadline={
+                    "days": "bad",
+                    "hours": float("inf"),
+                    "minutes": "15",
+                    "seconds": None,
+                },
+            )
+
+        request.assert_called_once_with(
+            "/api/create_card",
+            {
+                "vehicle": "",
+                "title": "Новая заявка",
+                "description": "",
+                "deadline": {"days": 0, "hours": 0, "minutes": 15, "seconds": 0},
+                "source": "mcp",
+            },
+        )
+
+    def test_create_card_deadline_defaults_when_all_parts_are_invalid(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.create_card(
+                title="Новая заявка",
+                deadline={"days": "bad", "hours": "", "minutes": None, "seconds": []},
+            )
+
+        request.assert_called_once_with(
+            "/api/create_card",
+            {
+                "vehicle": "",
+                "title": "Новая заявка",
+                "description": "",
+                "deadline": {"days": 1, "hours": 0, "minutes": 0, "seconds": 0},
+                "source": "mcp",
+            },
+        )
+
+    def test_create_card_deadline_rejects_bool_and_fractional_numeric_parts(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.create_card(
+                title="Новая заявка",
+                deadline={"days": True, "hours": "2.5", "minutes": 3.0, "seconds": "4"},
+            )
+
+        request.assert_called_once_with(
+            "/api/create_card",
+            {
+                "vehicle": "",
+                "title": "Новая заявка",
+                "description": "",
+                "deadline": {"days": 0, "hours": 0, "minutes": 3, "seconds": 4},
+                "source": "mcp",
+            },
+        )
+
+    def test_create_card_deadline_clamps_oversized_numeric_parts(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.create_card(
+                title="Новая заявка",
+                deadline={
+                    "days": 1e308,
+                    "hours": 1e308,
+                    "minutes": 1e308,
+                    "seconds": 1e308,
+                },
+            )
+
+        request.assert_called_once_with(
+            "/api/create_card",
+            {
+                "vehicle": "",
+                "title": "Новая заявка",
+                "description": "",
+                "deadline": {"days": 365, "hours": 23, "minutes": 59, "seconds": 59},
+                "source": "mcp",
+            },
+        )
+
+    def test_create_card_deadline_clamps_negative_parts_to_default(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.create_card(
+                title="Новая заявка",
+                deadline={"days": -1, "hours": -2, "minutes": -3, "seconds": -4},
+            )
+
+        request.assert_called_once_with(
+            "/api/create_card",
+            {
+                "vehicle": "",
+                "title": "Новая заявка",
+                "description": "",
+                "deadline": {"days": 1, "hours": 0, "minutes": 0, "seconds": 0},
+                "source": "mcp",
+            },
+        )
+
+    def test_read_attachment_limits_are_clamped_before_request(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.read_card_attachment(
+                "card-1",
+                "attachment-1",
+                max_chars=-50,
+                max_base64_bytes=999_999_999,
+            )
+
+        request.assert_called_once_with(
+            "/api/read_card_attachment",
+            {
+                "card_id": "card-1",
+                "attachment_id": "attachment-1",
+                "mode": "preview",
+                "max_chars": 1,
+                "include_base64": False,
+                "max_base64_bytes": 4_194_304,
+            },
+        )
+
+    def test_get_cashbox_pagination_limits_are_clamped_before_request(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.get_cashbox("cashbox-1", transaction_limit=1e308, transaction_offset=1e308)
+
+        request.assert_called_once_with(
+            "/api/get_cashbox",
+            {
+                "cashbox_id": "cashbox-1",
+                "transaction_limit": 5000,
+                "transaction_offset": 1_000_000,
+            },
+        )
+
+    def test_read_attachment_limits_reject_bool_and_fractional_values(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.read_card_attachment(
+                "card-1",
+                "attachment-1",
+                max_chars=True,
+                max_base64_bytes="2048.5",
+            )
+
+        request.assert_called_once_with(
+            "/api/read_card_attachment",
+            {
+                "card_id": "card-1",
+                "attachment_id": "attachment-1",
+                "mode": "preview",
+                "max_chars": 12_000,
+                "include_base64": False,
+                "max_base64_bytes": 1_048_576,
+            },
+        )
+
+    def test_download_shared_file_base64_limit_is_clamped_before_request(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.download_shared_file("file-1", max_base64_bytes=999_999_999)
+
+        request.assert_called_once_with(
+            "/api/fetch_shared_file",
+            {
+                "file_id": "file-1",
+                "include_base64": True,
+                "max_base64_bytes": 8_388_608,
+            },
+        )
+
+    def test_request_rejects_unserializable_payload_as_transport_error(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with self.assertRaises(BoardApiTransportError):
+            client._request("/api/test", {"bad": object()})
+
+    def test_request_rejects_non_finite_payload_numbers_as_transport_error(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch("minimal_kanban.mcp.client._urlopen_no_redirect") as urlopen:
+            with self.assertRaises(BoardApiTransportError):
+                client._request("/api/test", {"bad": float("nan")})
+
+        urlopen.assert_not_called()
+
+    def test_request_rejects_bearer_token_with_header_breaks(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="good\r\nX-Bad: yes")
+
+        with patch("minimal_kanban.mcp.client._urlopen_no_redirect") as urlopen:
+            with self.assertRaises(BoardApiTransportError):
+                client.health()
+
+        urlopen.assert_not_called()
+
+    def test_request_trims_bearer_token_before_header(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token=" secret ")
+
+        class HealthyResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self, size: int = -1) -> bytes:
+                _ = size
+                return b'{"ok": true}'
+
+        with patch(
+            "minimal_kanban.mcp.client._urlopen_no_redirect", return_value=HealthyResponse()
+        ) as urlopen:
+            client.health()
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.headers["Authorization"], "Bearer secret")
+
+    def test_request_wraps_urlopen_value_error_as_transport_error(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch(
+            "minimal_kanban.mcp.client._urlopen_no_redirect",
+            side_effect=ValueError("bad timeout"),
+        ) as urlopen:
+            with self.assertRaises(BoardApiTransportError):
+                client.health()
+
+        self.assertEqual(urlopen.call_count, 2)
+
+    def test_request_rejects_oversized_success_body(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        class HugeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self, size: int = -1) -> bytes:
+                return b"x" * max(0, size)
+
+        with (
+            patch("minimal_kanban.mcp.client._MAX_API_RESPONSE_BYTES", 4),
+            patch(
+                "minimal_kanban.mcp.client._urlopen_no_redirect",
+                return_value=HugeResponse(),
+            ),
+            self.assertRaises(BoardApiTransportError) as error,
+        ):
+            client.health()
+
+        self.assertIn("слишком большой JSON", str(error.exception))
+
+    def test_request_rejects_oversized_error_body(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        class HugeHttpError(urllib.error.HTTPError):
+            def __init__(self) -> None:
+                super().__init__(
+                    url="https://board.example/api/health",
+                    code=500,
+                    msg="Internal Server Error",
+                    hdrs=None,
+                    fp=None,
+                )
+
+            def read(self, size: int = -1) -> bytes:
+                return b"x" * max(0, size)
+
+        with (
+            patch("minimal_kanban.mcp.client._MAX_API_RESPONSE_BYTES", 4),
+            patch(
+                "minimal_kanban.mcp.client._urlopen_no_redirect",
+                side_effect=HugeHttpError(),
+            ),
+            self.assertRaises(BoardApiTransportError) as error,
+        ):
+            client.health()
+
+        self.assertIn("слишком большой JSON", str(error.exception))
+
+    def test_request_rejects_redirect_responses(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+        redirect = urllib.error.HTTPError(
+            url="https://board.example/api/health",
+            code=302,
+            msg="Found",
+            hdrs={"Location": "https://elsewhere.example/api/health"},
+            fp=None,
+        )
+
+        with (
+            patch("minimal_kanban.mcp.client._urlopen_no_redirect", side_effect=redirect),
+            self.assertRaises(BoardApiTransportError) as error,
+        ):
+            client.health()
+
+        self.assertIn("перенаправление", str(error.exception))
 
     def test_optional_scalar_filter_uses_get_without_payload_and_post_with_payload(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")

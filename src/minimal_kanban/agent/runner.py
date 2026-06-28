@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import time
 import uuid
@@ -10,7 +11,12 @@ from typing import Any
 from ..mcp.client import BoardApiClient, BoardApiTransportError, discover_board_api
 from ..models import utc_now_iso
 from ..services.vehicle_profile_service import VehicleProfileService
-from ..vehicle_profile import VEHICLE_PRIMARY_FIELDS, normalize_vehicle_notes
+from ..vehicle_profile import (
+    VEHICLE_PRIMARY_FIELDS,
+    normalize_vehicle_float,
+    normalize_vehicle_int,
+    normalize_vehicle_notes,
+)
 from .bridge import normalize_card_enrichment_patch
 from .config import (
     get_agent_board_api_url,
@@ -72,6 +78,8 @@ _AUTOFILL_PART_LOOKUP_STRONG_HINTS = (
     "стоимость",
     "найти",
 )
+_BOARD_CONTROL_COUNTER_MAX = 1_000_000_000
+_BOARD_CONTROL_TRACE_LIMIT = 24
 _AUTOFILL_SYMPTOM_HINTS = (
     "теч",
     "бежит",
@@ -108,6 +116,34 @@ _AUTOFILL_PART_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("свечи зажигания", ("свеч", "spark")),
     ("аккумулятор", ("аккумулятор", "battery")),
 )
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _json_dumps(payload: Any, *, indent: int | None = None, sort_keys: bool = False) -> str:
+    return json.dumps(
+        _json_safe_value(payload),
+        ensure_ascii=False,
+        indent=indent,
+        sort_keys=sort_keys,
+        allow_nan=False,
+    )
 
 
 class AgentRunner(AgentRunnerOutputMixin):
@@ -1102,9 +1138,8 @@ class AgentRunner(AgentRunnerOutputMixin):
             messages.append(
                 {
                     "role": "assistant",
-                    "content": json.dumps(
+                    "content": _json_dumps(
                         {"type": "tool", "tool": tool_name, "args": args, "reason": reason},
-                        ensure_ascii=False,
                     ),
                 }
             )
@@ -1225,6 +1260,9 @@ class AgentRunner(AgentRunnerOutputMixin):
             plan_payload = (
                 facts.get("autofill_plan") if isinstance(facts.get("autofill_plan"), dict) else {}
             )
+        plan_payload = (
+            facts.get("autofill_plan") if isinstance(facts.get("autofill_plan"), dict) else {}
+        )
         scenarios = (
             plan_payload.get("scenarios") if isinstance(plan_payload.get("scenarios"), list) else []
         )
@@ -1271,39 +1309,33 @@ class AgentRunner(AgentRunnerOutputMixin):
                     runtime=self,
                 )
             )
-            tool_calls += int(scenario_result.tool_calls_used)
-            if scenario_result.orchestration_updates:
+            scenario_tool_calls = self._safe_non_negative_int(scenario_result.tool_calls_used)
+            scenario_notes = self._safe_text_list(scenario_result.notes, limit=5)
+            scenario_warnings_normalized = self._safe_text_list(scenario_result.warnings, limit=5)
+            tool_calls += scenario_tool_calls
+            if isinstance(scenario_result.orchestration_updates, dict):
                 orchestration_results.update(scenario_result.orchestration_updates)
-            if scenario_result.facts_updates:
+            if isinstance(scenario_result.facts_updates, dict):
                 facts.update(scenario_result.facts_updates)
-            if scenario_result.tool_results:
-                tool_results.extend(scenario_result.tool_results)
+            if isinstance(scenario_result.tool_results, list):
+                tool_results.extend(
+                    item for item in scenario_result.tool_results if isinstance(item, ToolResult)
+                )
             scenario_feedback.append(
                 {
                     "scenario_id": scenario_name,
                     "status": str(scenario_result.status or "").strip(),
-                    "tool_calls_used": int(scenario_result.tool_calls_used or 0),
+                    "tool_calls_used": scenario_tool_calls,
                     "needs_followup": bool(scenario_result.needs_followup),
                     "followup_reason": str(
                         getattr(scenario_result, "followup_reason", "") or ""
                     ).strip(),
-                    "notes": [
-                        str(item or "").strip()
-                        for item in scenario_result.notes
-                        if str(item or "").strip()
-                    ][:5],
-                    "warnings": [
-                        str(item or "").strip()
-                        for item in scenario_result.warnings
-                        if str(item or "").strip()
-                    ][:5],
+                    "notes": scenario_notes,
+                    "warnings": scenario_warnings_normalized,
                 }
             )
-            if scenario_result.notes:
-                for note in scenario_result.notes[:3]:
-                    note_text = str(note or "").strip()
-                    if not note_text:
-                        continue
+            if scenario_notes:
+                for note_text in scenario_notes[:3]:
                     self._record_log_action(
                         task_id=task["id"],
                         run_id=run_id,
@@ -1312,14 +1344,9 @@ class AgentRunner(AgentRunnerOutputMixin):
                         phase="analysis",
                         message=note_text,
                     )
-            if scenario_result.warnings:
-                normalized_warnings = [
-                    str(item or "").strip()
-                    for item in scenario_result.warnings
-                    if str(item or "").strip()
-                ]
-                scenario_warnings.extend(normalized_warnings)
-                for warning_text in normalized_warnings[:3]:
+            if scenario_warnings_normalized:
+                scenario_warnings.extend(scenario_warnings_normalized)
+                for warning_text in scenario_warnings_normalized[:3]:
                     self._record_log_action(
                         task_id=task["id"],
                         run_id=run_id,
@@ -2045,13 +2072,9 @@ class AgentRunner(AgentRunnerOutputMixin):
 
     def _values_equal(self, left: Any, right: Any) -> bool:
         if isinstance(left, dict) and isinstance(right, dict):
-            return json.dumps(left, ensure_ascii=False, sort_keys=True) == json.dumps(
-                right, ensure_ascii=False, sort_keys=True
-            )
+            return _json_dumps(left, sort_keys=True) == _json_dumps(right, sort_keys=True)
         if isinstance(left, list) and isinstance(right, list):
-            return json.dumps(left, ensure_ascii=False, sort_keys=True) == json.dumps(
-                right, ensure_ascii=False, sort_keys=True
-            )
+            return _json_dumps(left, sort_keys=True) == _json_dumps(right, sort_keys=True)
         return left == right
 
     def _merge_patch_results(self, left: PatchResult, right: PatchResult) -> PatchResult:
@@ -2567,7 +2590,8 @@ class AgentRunner(AgentRunnerOutputMixin):
         )
 
     def _normalize_card_autofill_plan_labels(self, plan: dict[str, Any]) -> dict[str, Any]:
-        scenarios = plan.get("scenarios") if isinstance(plan.get("scenarios"), list) else []
+        payload = plan if isinstance(plan, dict) else {}
+        scenarios = payload.get("scenarios") if isinstance(payload.get("scenarios"), list) else []
         normalized: list[dict[str, Any]] = []
         fallback_labels = {
             "vin_enrichment": "VIN",
@@ -2581,10 +2605,11 @@ class AgentRunner(AgentRunnerOutputMixin):
             if not label:
                 row["label"] = fallback_labels.get(name, label or name.upper())
             normalized.append(row)
+        skipped = payload.get("skipped") if isinstance(payload.get("skipped"), list) else []
         return {
             "scenarios": normalized,
-            "skipped": list(plan.get("skipped") or []),
-            "budget_left": int(plan.get("budget_left", 0) or 0),
+            "skipped": list(skipped),
+            "budget_left": self._safe_non_negative_int(payload.get("budget_left")),
         }
 
     def _build_card_autofill_plan_message(
@@ -3088,7 +3113,7 @@ class AgentRunner(AgentRunnerOutputMixin):
         context = metadata.get("context") if isinstance(metadata.get("context"), dict) else {}
         if context:
             lines.append("Context metadata:")
-            lines.append(json.dumps(context, ensure_ascii=False, indent=2))
+            lines.append(_json_dumps(context, indent=2))
             if str(context.get("kind", "")).strip().lower() == "card":
                 lines.append(
                     "This task was opened from a card. Work with this card first and inside this card first."
@@ -3129,9 +3154,7 @@ class AgentRunner(AgentRunnerOutputMixin):
                     if isinstance(context_data.get("events"), list)
                     else []
                 )[:12]
-                return "Execution scope:\n" + json.dumps(
-                    scope_payload, ensure_ascii=False, indent=2
-                )
+                return "Execution scope:\n" + _json_dumps(scope_payload, indent=2)
             if scope_type == "column" and scope_payload["column"]:
                 result = self._board_api.search_cards(
                     query=None,
@@ -3172,7 +3195,7 @@ class AgentRunner(AgentRunnerOutputMixin):
             ]
         except Exception as exc:
             scope_payload["error"] = str(exc)
-        return "Execution scope:\n" + json.dumps(scope_payload, ensure_ascii=False, indent=2)
+        return "Execution scope:\n" + _json_dumps(scope_payload, indent=2)
 
     def _compose_card_autofill_update(
         self,
@@ -3503,17 +3526,23 @@ class AgentRunner(AgentRunnerOutputMixin):
         ):
             return {}
         patch: dict[str, Any] = {}
-        existing = facts["vehicle_profile"]
+        existing = (
+            facts.get("vehicle_profile") if isinstance(facts.get("vehicle_profile"), dict) else {}
+        )
         field_sources: dict[str, str] = {}
         autofilled_fields: list[str] = []
+        raw_web_source_urls = decoded_vin.get("web_source_urls")
         web_source_urls = [
             str(item or "").strip()
-            for item in decoded_vin.get("web_source_urls", [])
+            for item in (raw_web_source_urls if isinstance(raw_web_source_urls, list) else [])
             if str(item or "").strip()
         ]
+        raw_web_enrichment_fields = decoded_vin.get("web_enrichment_fields")
         web_enrichment_fields = {
             str(item or "").strip()
-            for item in decoded_vin.get("web_enrichment_fields", [])
+            for item in (
+                raw_web_enrichment_fields if isinstance(raw_web_enrichment_fields, list) else []
+            )
             if str(item or "").strip()
         }
         fallback_profile = (
@@ -3525,15 +3554,15 @@ class AgentRunner(AgentRunnerOutputMixin):
             if not text or str(existing.get(field_name, "") or "").strip():
                 return
             if field_name == "production_year":
-                try:
-                    patch[field_name] = int(text)
-                except (TypeError, ValueError):
+                parsed_year = normalize_vehicle_int(text)
+                if parsed_year is None:
                     return
+                patch[field_name] = parsed_year
             elif field_name == "engine_power_hp":
-                try:
-                    patch[field_name] = int(float(text))
-                except (TypeError, ValueError):
+                parsed_power = normalize_vehicle_float(text)
+                if parsed_power is None or parsed_power > 3000:
                     return
+                patch[field_name] = int(round(parsed_power))
             else:
                 patch[field_name] = text
             autofilled_fields.append(field_name)
@@ -3565,21 +3594,13 @@ class AgentRunner(AgentRunnerOutputMixin):
                 source="same_vin_board_context",
             )
         if not str(existing.get("production_year", "") or "").strip():
-            try:
-                year_value = int(str(decoded_vin.get("model_year", "") or "").strip())
-            except (TypeError, ValueError):
-                year_value = None
+            year_value = normalize_vehicle_int(decoded_vin.get("model_year"))
             if year_value:
                 patch["production_year"] = year_value
                 autofilled_fields.append("production_year")
                 field_sources["production_year"] = "official_vin_decode_nhtsa"
             elif fallback_profile:
-                try:
-                    fallback_year = int(
-                        str(fallback_profile.get("production_year", "") or "").strip()
-                    )
-                except (TypeError, ValueError):
-                    fallback_year = None
+                fallback_year = normalize_vehicle_int(fallback_profile.get("production_year"))
                 if fallback_year:
                     patch["production_year"] = fallback_year
                     autofilled_fields.append("production_year")
@@ -3825,9 +3846,23 @@ class AgentRunner(AgentRunnerOutputMixin):
         )
         if not price_summary:
             return ""
-        offers_total = int(price_summary.get("offers_total", 0) or 0)
-        min_rub = int(price_summary.get("min_rub", 0) or 0)
-        max_rub = int(price_summary.get("max_rub", 0) or 0)
+
+        def _safe_positive_int(value: Any) -> int:
+            if isinstance(value, bool):
+                return 0
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError, OverflowError):
+                return 0
+            if not math.isfinite(numeric) or not numeric.is_integer():
+                return 0
+            if numeric <= 0 or numeric > 1_000_000_000:
+                return 0
+            return int(numeric)
+
+        offers_total = _safe_positive_int(price_summary.get("offers_total"))
+        min_rub = _safe_positive_int(price_summary.get("min_rub"))
+        max_rub = _safe_positive_int(price_summary.get("max_rub"))
         if min_rub <= 0 and max_rub <= 0:
             return ""
         if min_rub and max_rub and min_rub != max_rub:
@@ -4257,8 +4292,8 @@ class AgentRunner(AgentRunnerOutputMixin):
             status.get("board_control") if isinstance(status.get("board_control"), dict) else {}
         )
         runtime = dict(runtime)
-        cache = dict(runtime.get("card_cache") or {})
-        cache_entry = dict(cache.get(card_id) or {})
+        cache = self._safe_dict(runtime.get("card_cache"))
+        cache_entry = self._safe_dict(cache.get(card_id))
         patch_payload = (
             orchestration.get("patch")
             if isinstance(orchestration, dict) and isinstance(orchestration.get("patch"), dict)
@@ -4286,8 +4321,11 @@ class AgentRunner(AgentRunnerOutputMixin):
         cache[card_id] = cache_entry
         runtime["card_cache"] = cache
         if wrote_anything and verify_ok:
-            runtime["written_count"] = int(runtime.get("written_count", 0) or 0) + 1
-        traces = list(runtime.get("recent_traces") or [])
+            written_count = self._safe_non_negative_int(runtime.get("written_count"))
+            runtime["written_count"] = min(_BOARD_CONTROL_COUNTER_MAX, written_count + 1)
+        traces = self._safe_dict_list(
+            runtime.get("recent_traces"), limit=_BOARD_CONTROL_TRACE_LIMIT
+        )
         traces.insert(
             0,
             {
@@ -4298,7 +4336,7 @@ class AgentRunner(AgentRunnerOutputMixin):
                 "at": utc_now_iso(),
             },
         )
-        runtime["recent_traces"] = traces[:24]
+        runtime["recent_traces"] = traces[:_BOARD_CONTROL_TRACE_LIMIT]
         self._storage.update_status(board_control=runtime)
 
     def _update_board_control_runtime_after_failure(
@@ -4313,16 +4351,19 @@ class AgentRunner(AgentRunnerOutputMixin):
             status.get("board_control") if isinstance(status.get("board_control"), dict) else {}
         )
         runtime = dict(runtime)
-        cache = dict(runtime.get("card_cache") or {})
+        cache = self._safe_dict(runtime.get("card_cache"))
         if card_id:
-            cache_entry = dict(cache.get(card_id) or {})
+            cache_entry = self._safe_dict(cache.get(card_id))
             cache_entry["last_result"] = "failed"
             cache_entry["last_verify_ok"] = False
             cache_entry["last_processed_at"] = utc_now_iso()
             cache[card_id] = cache_entry
         runtime["card_cache"] = cache
-        runtime["error_count"] = int(runtime.get("error_count", 0) or 0) + 1
-        traces = list(runtime.get("recent_traces") or [])
+        error_count = self._safe_non_negative_int(runtime.get("error_count"))
+        runtime["error_count"] = min(_BOARD_CONTROL_COUNTER_MAX, error_count + 1)
+        traces = self._safe_dict_list(
+            runtime.get("recent_traces"), limit=_BOARD_CONTROL_TRACE_LIMIT
+        )
         traces.insert(
             0,
             {
@@ -4332,8 +4373,53 @@ class AgentRunner(AgentRunnerOutputMixin):
                 "at": utc_now_iso(),
             },
         )
-        runtime["recent_traces"] = traces[:24]
+        runtime["recent_traces"] = traces[:_BOARD_CONTROL_TRACE_LIMIT]
         self._storage.update_status(board_control=runtime)
+
+    def _safe_dict(self, value: Any) -> dict[str, Any]:
+        return dict(value) if isinstance(value, dict) else {}
+
+    def _safe_dict_list(self, value: Any, *, limit: int) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            return []
+        items: list[dict[str, Any]] = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            items.append(dict(item))
+            if len(items) >= limit:
+                break
+        return items
+
+    def _safe_non_negative_int(self, value: Any) -> int:
+        if isinstance(value, bool):
+            return 0
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return 0
+        if not math.isfinite(numeric) or not numeric.is_integer() or numeric <= 0:
+            return 0
+        if numeric > 1_000_000_000:
+            return 1_000_000_000
+        return int(numeric)
+
+    def _safe_text_list(self, value: Any, *, limit: int) -> list[str]:
+        if isinstance(value, str):
+            raw_items: list[Any] = [value]
+        elif isinstance(value, list):
+            raw_items = value
+        else:
+            return []
+        items: list[str] = []
+        for raw in raw_items:
+            text = str(raw or "").strip()
+            if not text:
+                continue
+            items.append(text)
+            if len(items) >= limit:
+                break
+        return items
 
 
 def build_board_api_client(*, logger: logging.Logger) -> BoardApiClient:

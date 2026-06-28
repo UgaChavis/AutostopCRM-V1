@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import logging
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -198,9 +203,108 @@ class ClientDuplicatesMaintenanceTests(unittest.TestCase):
             any(event.action == "client_duplicates_merged" for event in bundle["events"])
         )
 
+    def test_apply_backup_does_not_overwrite_existing_backup(self) -> None:
+        self.service.create_client(
+            {
+                "display_name": "Клиент для merge",
+                "phone": "8 923 378-61-81",
+                "vehicles": [{"vehicle": "Nissan Murano", "license_plate": "Х660ТЕ"}],
+            }
+        )
+        self.service.create_client(
+            {
+                "client_id": "explicit-duplicate",
+                "display_name": "Клиент для merge",
+                "phone": "+7 923 378-61-81",
+                "vehicles": [{"vehicle": "Nissan Murano", "license_plate": "х660те"}],
+            }
+        )
+        existing_backup = self.state_file.with_name(
+            "state.json.backup-client-duplicates-20260601T010203Z"
+        )
+        existing_backup.write_text("previous backup", encoding="utf-8")
+        fixed_now = datetime(2026, 6, 1, 1, 2, 3, tzinfo=UTC)
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed_now if tz is not None else fixed_now.replace(tzinfo=None)
+
+        with patch.object(self.module, "datetime", FixedDateTime):
+            result = self.module.apply_client_duplicate_plan(self.state_file, backup=True)
+
+        backup_file = self.state_file.with_name(
+            "state.json.backup-client-duplicates-20260601T010203Z-002"
+        )
+        self.assertEqual(existing_backup.read_text(encoding="utf-8"), "previous backup")
+        self.assertEqual(Path(result["backup_file"]), backup_file)
+        self.assertTrue(backup_file.exists())
+
     def test_apply_requires_backup(self) -> None:
         with self.assertRaisesRegex(ValueError, "backup"):
             self.module.apply_client_duplicate_plan(self.state_file, backup=False)
+
+    def test_dry_run_invalid_json_does_not_mutate_state_file(self) -> None:
+        self.state_file.write_text("{broken", encoding="utf-8")
+
+        with self.assertRaises(json.JSONDecodeError):
+            self.module.build_client_duplicate_plan(self.state_file)
+
+        self.assertEqual(self.state_file.read_text(encoding="utf-8"), "{broken")
+        self.assertEqual(list(self.state_file.parent.glob("state.corrupted*.json")), [])
+
+    def test_dry_run_oversized_state_does_not_mutate_state_file(self) -> None:
+        self.state_file.write_text("x" * 16, encoding="utf-8")
+
+        with patch.object(self.module, "STATE_FILE_MAX_BYTES", 8):
+            with self.assertRaisesRegex(ValueError, "client duplicates state file is too large"):
+                self.module.build_client_duplicate_plan(self.state_file)
+
+        self.assertEqual(self.state_file.read_text(encoding="utf-8"), "x" * 16)
+        self.assertEqual(list(self.state_file.parent.glob("state.corrupted*.json")), [])
+
+    def test_state_model_loaders_skip_overflow_records(self) -> None:
+        with patch.object(self.module.ClientProfile, "from_dict", side_effect=OverflowError):
+            self.assertEqual(self.module._clients_from_state({"clients": [{"id": "bad"}]}), [])
+
+        with patch.object(self.module.Card, "from_dict", side_effect=OverflowError):
+            self.assertEqual(self.module._cards_from_state({"cards": [{"id": "bad"}]}), [])
+
+    def test_json_dumps_sanitizes_nonfinite_values(self) -> None:
+        encoded = self.module._json_dumps({"ok": True, "value": float("nan"), "ratio": 1.25})
+
+        self.assertNotIn("NaN", encoded)
+        self.assertEqual(json.loads(encoded), {"ok": True, "value": None, "ratio": 1.25})
+
+    def test_json_dumps_handles_self_referential_payload(self) -> None:
+        payload: dict[str, object] = {"ok": True}
+        payload["self"] = payload
+
+        encoded = self.module._json_dumps(payload)
+        decoded = json.loads(encoded)
+        node = decoded
+        for _ in range(8):
+            node = node["self"]
+
+        self.assertIsInstance(node, str)
+
+    def test_main_reports_json_error_without_traceback(self) -> None:
+        output = StringIO()
+
+        with (
+            patch.object(
+                self.module,
+                "build_client_duplicate_plan",
+                side_effect=ValueError("bad state"),
+            ),
+            redirect_stdout(output),
+        ):
+            exit_code = self.module.main(["--state-file", str(self.state_file), "--format", "json"])
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 2)
+        self.assertFalse(payload["ok"])
+        self.assertIn("bad state", payload["error"])
 
 
 if __name__ == "__main__":

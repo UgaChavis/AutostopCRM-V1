@@ -196,6 +196,26 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("sharedFilesGridPointFromSlot(baseIndex + index)", BOARD_WEB_APP_HTML)
         self.assertIn("sharedFilesSnapPointToGrid(nextX, nextY)", BOARD_WEB_APP_HTML)
 
+    def test_numeric_ui_helpers_reject_non_finite_values_before_dom_output(self) -> None:
+        self.assertIn("function finiteNumber(value, fallback = 0)", BOARD_WEB_APP_HTML)
+        self.assertIn("function finiteNonNegativeNumber(value, fallback = 0)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const totalSeconds = finiteNumber(card.deadline_total_seconds ?? card.remaining_seconds, 86400);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "const amount = finiteNumber(value);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "const x = finiteNonNegativeNumber(file.x);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "const x = finiteNonNegativeNumber(icon.dataset.dragX);",
+            BOARD_WEB_APP_HTML,
+        )
+
     def test_topbar_splits_rare_and_primary_actions(self) -> None:
         match = re.search(
             r'<div class="topbar__rare-actions"[^>]*>(?P<rare>.*?)</div>\s*</div>\s*'
@@ -409,7 +429,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function readMobileCardDraft()", BOARD_WEB_APP_HTML)
         self.assertIn("function mobileCardDeadlineInput(card)", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "card.deadline_total_seconds ?? card.remaining_seconds ?? 86400", BOARD_WEB_APP_HTML
+            "finiteNumber(card.deadline_total_seconds ?? card.remaining_seconds, 86400)",
+            BOARD_WEB_APP_HTML,
         )
         self.assertIn("function saveMobileCardDetail()", BOARD_WEB_APP_HTML)
         self.assertIn("function handleMobileBoardClick(event)", BOARD_WEB_APP_HTML)
@@ -2010,7 +2031,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("justify-content: stretch;", BOARD_WEB_APP_HTML)
         self.assertIn("max-width: none;", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "const configuredMetaReserve = metaStyle ? parseFloat(metaStyle.getPropertyValue('--card-meta-panel-height')) || 0 : 0;",
+            "const configuredMetaReserve = metaStyle ? finiteNonNegativeNumber(metaStyle.getPropertyValue('--card-meta-panel-height')) : 0;",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
@@ -3058,6 +3079,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertEqual(BOARD_WEB_APP_HTML.count("function ensureActor()"), 1)
         self.assertNotIn("localStorage.setItem(ACTOR_STORAGE_KEY", BOARD_WEB_APP_HTML)
         self.assertNotIn("localStorage.removeItem(ACTOR_STORAGE_KEY", BOARD_WEB_APP_HTML)
+        self.assertNotIn("Legacy pre-session operator", BOARD_WEB_APP_HTML)
+        self.assertNotIn("legacy-operator-unused", BOARD_WEB_APP_HTML)
+        self.assertNotIn("sessionStorage.setItem", BOARD_WEB_APP_HTML)
         self.assertIn("'X-Operator-Session'", BOARD_WEB_APP_HTML)
         self.assertIn('id="operatorProfileModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="operatorAdminModal"', BOARD_WEB_APP_HTML)
@@ -3764,8 +3788,19 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("let printStarted = false;", BOARD_WEB_APP_HTML)
         self.assertIn("if (printStarted) return;", BOARD_WEB_APP_HTML)
         self.assertIn("frame.onload = null;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "frame.setAttribute('sandbox', 'allow-same-origin allow-modals');", BOARD_WEB_APP_HTML
+        )
         self.assertIn("if (repairOrderPrintState.isPrintRunning) return;", BOARD_WEB_APP_HTML)
         self.assertIn("function buildPrintTemplateVisualEditorHtml(content)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const PRINT_TEMPLATE_UPLOAD_MAX_SIZE_BYTES = 256 * 1024;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "if (file.size > PRINT_TEMPLATE_UPLOAD_MAX_SIZE_BYTES)",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "function buildPrintTemplateEditorFallbackHtml(title, message, detail = '')",
             BOARD_WEB_APP_HTML,
@@ -3792,6 +3827,18 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("manual_document: readManualPrintDocumentFromInputs()", BOARD_WEB_APP_HTML)
         self.assertIn('id="manualPrintTaxLabel"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'id="repairOrderPrintPreviewFrame" title="Предпросмотр документа" sandbox="allow-same-origin"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'id="printTemplateVisualEditorFrame" title="Визуальный редактор шаблона" sandbox="allow-same-origin"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'id="printTemplatePreviewFrame" title="Предпросмотр шаблона" sandbox="allow-same-origin"',
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("tax_label: printEls.manualTaxLabel?.value || ''", BOARD_WEB_APP_HTML)
         self.assertIn("if (parts.length >= 3) {", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -4471,7 +4518,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            "Number(candidate?.amount_minor || 0) === Number(item?.amount_minor || 0)",
+            "finiteNumber(candidate?.amount_minor) === amountMinor",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
@@ -4611,7 +4658,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            "const transactionOffset = Math.max(0, Number(offset || 0));", BOARD_WEB_APP_HTML
+            "const transactionOffset = finiteNonNegativeNumber(offset);", BOARD_WEB_APP_HTML
         )
         self.assertIn(
             "'&transaction_limit=' + CASHBOX_TRANSACTION_PAGE_SIZE + '&transaction_offset=' + transactionOffset + '&compact=true'",

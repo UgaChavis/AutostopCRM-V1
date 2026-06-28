@@ -4,6 +4,7 @@ import base64
 import binascii
 import hashlib
 import json
+import math
 import re
 import shutil
 import threading
@@ -29,7 +30,9 @@ from ..models import (
     CARD_TITLE_LIMIT,
     CARD_VEHICLE_LIMIT,
     COLUMN_LABEL_LIMIT,
+    COUNTER_MAX_VALUE,
     MAX_ATTACHMENT_SIZE_BYTES,
+    MAX_DEADLINE_TOTAL_SECONDS,
     REPAIR_ORDER_FILE_RETENTION_LIMIT,
     TAG_LIMIT,
     VALID_INDICATORS,
@@ -51,6 +54,7 @@ from ..models import (
     normalize_actor_name,
     normalize_bool,
     normalize_file_name,
+    normalize_int,
     normalize_money_minor,
     normalize_source,
     normalize_tag_label,
@@ -90,6 +94,7 @@ from ..storage.audit_archive import (
     hydrate_audit_event_details,
 )
 from ..storage.json_store import JsonStore, default_columns
+from ..storage.limited_io import read_bytes_limited, read_text_limited
 from ..vehicle_profile import (
     VEHICLE_COMPACT_FIELDS,
     VehicleProfile,
@@ -487,7 +492,40 @@ _ATTACHMENT_READ_DEFAULT_CHARS = 12_000
 _ATTACHMENT_READ_MAX_CHARS = 50_000
 _ATTACHMENT_BASE64_DEFAULT_BYTES = 1_048_576
 _ATTACHMENT_BASE64_MAX_BYTES = 4_194_304
+_ATTACHMENT_BASE64_ENCODED_MAX_CHARS = ((MAX_ATTACHMENT_SIZE_BYTES + 2) // 3) * 4
 _ATTACHMENT_XML_READ_MAX_BYTES = 5_000_000
+REPAIR_ORDER_TEXT_FILE_MAX_BYTES = 1_000_000
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, str | bool | int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(key): _json_safe_value(item, depth=depth - 1) for key, item in value.items()}
+    if isinstance(value, list | tuple | set):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _json_dumps(
+    payload: Any,
+    *,
+    indent: int | None = None,
+    sort_keys: bool = False,
+    separators: tuple[str, str] | None = None,
+) -> str:
+    return json.dumps(
+        _json_safe_value(payload),
+        ensure_ascii=False,
+        indent=indent,
+        sort_keys=sort_keys,
+        separators=separators,
+        allow_nan=False,
+    )
 
 
 class CardService(
@@ -615,6 +653,19 @@ class CardService(
             },
             "recent_runs": [],
         }
+
+    def _agent_server_available(self) -> bool:
+        if self._agent_control is None:
+            return False
+        try:
+            status_payload = self._agent_control.agent_status()
+        except Exception as exc:
+            self._logger.warning("agent_status_check_failed error=%s", exc)
+            return False
+        agent = status_payload.get("agent") if isinstance(status_payload, dict) else {}
+        if not isinstance(agent, dict):
+            return False
+        return bool(agent.get("available"))
 
     def agent_tasks(self, payload: dict | None = None) -> dict:
         if self._agent_control is not None:
@@ -846,7 +897,7 @@ class CardService(
                     bool(card.ai_next_run_at),
                     bool(card.ai_autofill_prompt),
                     bool(card.last_card_fingerprint),
-                    int(card.ai_run_count or 0) > 0,
+                    self._card_ai_run_count(card) > 0,
                 )
             )
             if had_legacy_state:
@@ -1086,13 +1137,7 @@ class CardService(
                     card, level="INFO", message="ИИ-подсказка автосопровождения обновлена."
                 )
             launched_task_id = ""
-            server_available = self._agent_control is not None
-            if self._agent_control is not None:
-                try:
-                    status_payload = self._agent_control.agent_status()
-                    server_available = bool(status_payload.get("agent", {}).get("available"))
-                except Exception:
-                    server_available = True
+            server_available = self._agent_server_available()
             if enabled_requested and enabled and not previous_enabled:
                 self._append_card_ai_log(
                     card, level="RUN", message="Полное заполнение карточки включено."
@@ -1125,7 +1170,7 @@ class CardService(
                         card.last_ai_run_at = (
                             str(task.get("created_at", "") or now_iso).strip() or now_iso
                         )
-                        card.ai_run_count = max(0, int(card.ai_run_count)) + 1
+                        card.ai_run_count = self._card_ai_run_count(card) + 1
                         card.ai_next_run_at = (
                             now
                             + timedelta(
@@ -1200,7 +1245,7 @@ class CardService(
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_not_archived(card)
             actor_name, source = self._audit_identity(payload, default_source="ui")
-            server_available = bool(self._agent_control is not None)
+            server_available = self._agent_server_available()
             launched_task_id = ""
             already_running = False
             if self._agent_control is not None:
@@ -1225,7 +1270,7 @@ class CardService(
                     card.last_ai_run_at = (
                         str(task.get("created_at", "") or utc_now_iso()).strip() or utc_now_iso()
                     )
-                    card.ai_run_count = max(0, int(card.ai_run_count)) + 1
+                    card.ai_run_count = self._card_ai_run_count(card) + 1
                     self._append_card_ai_log(
                         card,
                         level="RUN",
@@ -1346,7 +1391,9 @@ class CardService(
             payload = payload or {}
             actor_name, source = self._audit_identity(payload, default_source="ui")
             bundle = self._store.read_bundle()
-            previous_scale = float(bundle["settings"].get("board_scale", 1.0))
+            previous_scale = self._normalized_stored_board_scale(
+                bundle["settings"].get("board_scale")
+            )
             previous_board_control = self._normalized_ai_board_control_settings(
                 bundle["settings"].get("ai_board_control")
             )
@@ -2966,7 +3013,7 @@ class CardService(
                 messages=[
                     {
                         "role": "user",
-                        "content": json.dumps(autofill_payload, ensure_ascii=False, indent=2),
+                        "content": _json_dumps(autofill_payload, indent=2),
                     }
                 ],
                 temperature=0.1,
@@ -4562,7 +4609,7 @@ class CardService(
                     cards=bundle["cards"],
                     events=bundle["events"],
                 )
-            content = attachment_path.read_bytes()
+            content = self._read_attachment_file_bytes(attachment_path, attachment)
             attachment_meta = self._attachment_agent_dict(
                 card.id, attachment, attachment_path=attachment_path
             )
@@ -4953,7 +5000,7 @@ class CardService(
             "active_cards_total": active_cards_total,
             "archived_cards_total": archived_cards_total,
             "stickies_total": len(stickies),
-            "board_scale": float(settings.get("board_scale", 1.0) or 1.0),
+            "board_scale": self._normalized_stored_board_scale(settings.get("board_scale")),
             "vehicle_profile_compact_fields": list(VEHICLE_COMPACT_FIELDS),
             "vehicle_profile_autofill_mode": "card_content_first",
             "columns": column_summary,
@@ -5283,10 +5330,11 @@ class CardService(
             "repair_order": card.repair_order.to_storage_dict(),
             "tags": card.tag_labels(),
         }
-        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        raw = _json_dumps(payload, sort_keys=True)
         return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:24]
 
     def _card_ai_next_interval_minutes(self, card: Card, *, changed: bool) -> int:
+        run_count = self._card_ai_run_count(card)
         haystack = " ".join(
             filter(
                 None,
@@ -5319,16 +5367,25 @@ class CardService(
             )
         )
         if not changed:
-            if int(card.ai_run_count or 0) >= 5:
+            if run_count >= 5:
                 return 240 if waiting else 180
-            if int(card.ai_run_count or 0) >= 3:
+            if run_count >= 3:
                 return 120 if waiting else 90
             return 90 if waiting else 60
         if waiting:
             return 50
-        if active and int(card.ai_run_count or 0) <= 3:
+        if active and run_count <= 3:
             return 25
         return 40
+
+    @staticmethod
+    def _card_ai_run_count(card: Card) -> int:
+        return normalize_int(
+            getattr(card, "ai_run_count", 0),
+            default=0,
+            minimum=0,
+            maximum=COUNTER_MAX_VALUE,
+        )
 
     def _card_ai_max_runs(self, card: Card) -> int:
         haystack = self._card_ai_source_text(card).casefold()
@@ -7239,8 +7296,19 @@ class CardService(
             raw_number = str(item.repair_order.number or "").strip()
             if not raw_number.isdigit():
                 continue
-            current_max = max(current_max, int(raw_number))
+            current_max = max(current_max, self._repair_order_numeric_number(raw_number))
         return str(current_max + 1)
+
+    def _repair_order_numeric_number(self, value: object) -> int:
+        raw_number = str(value or "").strip()
+        if not raw_number.isdigit():
+            return 0
+        if len(raw_number) > 12:
+            return 0
+        try:
+            return int(raw_number)
+        except (OverflowError, ValueError):
+            return 0
 
     def _repair_order_number_key(self, value: object) -> str:
         return normalize_text(value, default="", limit=40).casefold()
@@ -7738,9 +7806,9 @@ class CardService(
         return parsed.astimezone(business_timezone()).strftime("%d.%m.%Y %H:%M")
 
     def _repair_order_sort_key(self, card: Card) -> tuple[str, int]:
-        raw_number = str(card.repair_order.number or "").strip()
-        numeric_number = int(raw_number) if raw_number.isdigit() else 0
-        return str(card.created_at or ""), numeric_number
+        return str(card.created_at or ""), self._repair_order_numeric_number(
+            card.repair_order.number
+        )
 
     def _repair_order_sortable_datetime(self, value: str | None) -> str:
         parsed = self._parse_repair_order_business_datetime(value)
@@ -7770,8 +7838,7 @@ class CardService(
         return self._repair_order_sortable_datetime(card.repair_order.closed_at)
 
     def _repair_order_number_sort_value(self, card: Card) -> int:
-        raw_number = str(card.repair_order.number or "").strip()
-        return int(raw_number) if raw_number.isdigit() else 0
+        return self._repair_order_numeric_number(card.repair_order.number)
 
     def _repair_order_list_sort_key(self, card: Card, *, sort_by: str) -> tuple[object, ...]:
         opened_value = self._repair_order_opened_sort_value(card)
@@ -8494,9 +8561,22 @@ class CardService(
             return path
         self._repair_orders_dir.mkdir(parents=True, exist_ok=True)
         content = self._render_repair_order_text(card)
-        temp_path = path.with_suffix(path.suffix + ".tmp")
-        temp_path.write_text(content, encoding="utf-8")
-        temp_path.replace(path)
+        if len(content.encode("utf-8")) > REPAIR_ORDER_TEXT_FILE_MAX_BYTES:
+            self._fail(
+                "repair_order_text_too_large",
+                "Текстовый файл заказ-наряда слишком большой.",
+                status_code=413,
+                details={
+                    "file_name": path.name,
+                    "max_size_bytes": REPAIR_ORDER_TEXT_FILE_MAX_BYTES,
+                },
+            )
+        temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            temp_path.write_text(content, encoding="utf-8")
+            temp_path.replace(path)
+        finally:
+            temp_path.unlink(missing_ok=True)
         self._cleanup_repair_order_text_files(card, keep_path=path)
         return path
 
@@ -8516,8 +8596,28 @@ class CardService(
         return {
             "file_name": path.name,
             "file_path": str(path),
-            "text": path.read_text(encoding="utf-8"),
+            "text": self._read_repair_order_text_file(path),
         }
+
+    def _read_repair_order_text_file(self, path: Path) -> str:
+        try:
+            return read_text_limited(
+                path,
+                max_bytes=REPAIR_ORDER_TEXT_FILE_MAX_BYTES,
+                label="repair order text file",
+            )
+        except OSError:
+            raise
+        except (UnicodeDecodeError, ValueError):
+            self._fail(
+                "repair_order_text_too_large",
+                "Текстовый файл заказ-наряда слишком большой.",
+                status_code=413,
+                details={
+                    "file_name": path.name,
+                    "max_size_bytes": REPAIR_ORDER_TEXT_FILE_MAX_BYTES,
+                },
+            )
 
     def _cleanup_repair_order_text_files(self, card: Card, *, keep_path: Path) -> None:
         short_id = short_entity_id(card.id, prefix="C")
@@ -8561,10 +8661,20 @@ class CardService(
 
     def _cleanup_attachment_directories(self, cards: list[Card]) -> None:
         keep_card_ids = {card.id for card in cards}
+        root = self._attachments_dir.resolve(strict=False)
         for candidate in self._attachments_dir.iterdir():
-            if not candidate.is_dir():
-                continue
             if candidate.name in keep_card_ids:
+                continue
+            try:
+                if candidate.is_symlink():
+                    candidate.unlink()
+                    continue
+                if not candidate.is_dir():
+                    continue
+                candidate.resolve(strict=False).relative_to(root)
+            except OSError:
+                continue
+            except ValueError:
                 continue
             try:
                 shutil.rmtree(candidate)
@@ -8638,7 +8748,7 @@ class CardService(
                 f"Доплата по наличному расчету: {order.due_total_amount()}",
                 "",
                 "JSON:",
-                json.dumps(order.to_storage_dict(), ensure_ascii=False, indent=2),
+                _json_dumps(order.to_storage_dict(), indent=2),
                 "",
                 f"Обновлено: {card.updated_at or card.created_at or '-'}",
             ]
@@ -8727,7 +8837,14 @@ class CardService(
         return " ".join(match.group(1).split())
 
     def _apply_indicator(self, card: Card, indicator: str) -> None:
-        total_seconds = max(1, int(card.deadline_total_seconds))
+        total_seconds = max(
+            1,
+            normalize_int(
+                card.deadline_total_seconds,
+                default=0,
+                maximum=MAX_DEADLINE_TOTAL_SECONDS,
+            ),
+        )
         if indicator == "green":
             total_seconds = max(total_seconds, 10)
             remaining_seconds = total_seconds
@@ -8812,9 +8929,14 @@ class CardService(
             "download_path": f"/api/attachment?card_id={card_id}&attachment_id={attachment.id}",
         }
         if attachment_path is not None:
-            payload["exists_on_disk"] = attachment_path.exists()
-            if attachment_path.exists():
-                payload["sha256"] = hashlib.sha256(attachment_path.read_bytes()).hexdigest()
+            payload["exists_on_disk"] = self._attachment_is_regular_file(attachment_path)
+            if payload["exists_on_disk"]:
+                try:
+                    payload["sha256"] = self._attachment_file_sha256(attachment_path)
+                except ValueError:
+                    payload["oversized_on_disk"] = True
+                except OSError:
+                    payload["exists_on_disk"] = False
         return payload
 
     def _attachment_content_payload(
@@ -8855,17 +8977,17 @@ class CardService(
             payload["encoding"] = encoding
             payload["extraction_status"] = "ok"
         elif content_kind == "docx":
-            text = self._extract_docx_text(content)
+            text = self._extract_docx_text(content, max_chars=max_chars)
             self._set_truncated_attachment_text(payload, text, max_chars)
             payload["encoding"] = "office-openxml"
             payload["extraction_status"] = "ok" if text.strip() else "empty"
         elif content_kind == "xlsx":
-            text = self._extract_xlsx_text(content)
+            text = self._extract_xlsx_text(content, max_chars=max_chars)
             self._set_truncated_attachment_text(payload, text, max_chars)
             payload["encoding"] = "office-openxml"
             payload["extraction_status"] = "ok" if text.strip() else "empty"
         elif content_kind == "pdf":
-            text = self._extract_pdf_text(content)
+            text = self._extract_pdf_text(content, max_chars=max_chars)
             self._set_truncated_attachment_text(payload, text, max_chars)
             payload["encoding"] = "pdf-best-effort"
             payload["extraction_status"] = "best_effort" if text.strip() else "unsupported"
@@ -8903,6 +9025,27 @@ class CardService(
             payload["text"] = text
             payload["text_truncated"] = False
 
+    def _append_limited_attachment_text(
+        self,
+        parts: list[str],
+        current_chars: int,
+        fragment: str,
+        *,
+        max_chars: int,
+    ) -> tuple[int, bool]:
+        fragment = str(fragment or "")
+        if not fragment:
+            return current_chars, False
+        limit = max_chars + 1
+        remaining = limit - current_chars
+        if remaining <= 0:
+            return current_chars, True
+        if len(fragment) > remaining:
+            parts.append(fragment[:remaining])
+            return limit, True
+        parts.append(fragment)
+        return current_chars + len(fragment), False
+
     def _attachment_type_from_metadata(self, attachment: Attachment) -> str:
         extension = self._attachment_extension(attachment.file_name)
         if extension in _ATTACHMENT_EXTENSION_TO_TYPE:
@@ -8934,41 +9077,87 @@ class CardService(
             return decoded, encoding
         return content.decode("utf-8", errors="replace"), "utf-8-replace"
 
-    def _extract_docx_text(self, content: bytes) -> str:
+    def _parse_attachment_xml(self, content: bytes) -> ET.Element:
+        prefix = content.lstrip()[:2048].lower()
+        if b"<!doctype" in prefix or b"<!entity" in prefix:
+            raise ET.ParseError("XML entities are not supported in attachments.")
+        return ET.fromstring(content)
+
+    def _read_attachment_zip_member(
+        self,
+        archive: zipfile.ZipFile,
+        info: zipfile.ZipInfo,
+    ) -> bytes | None:
+        if info.file_size > _ATTACHMENT_XML_READ_MAX_BYTES:
+            return None
+        try:
+            with archive.open(info) as member:
+                content = member.read(_ATTACHMENT_XML_READ_MAX_BYTES + 1)
+        except (OSError, RuntimeError, NotImplementedError, zipfile.BadZipFile):
+            return None
+        if len(content) > _ATTACHMENT_XML_READ_MAX_BYTES:
+            return None
+        return content
+
+    def _extract_docx_text(
+        self, content: bytes, *, max_chars: int = _ATTACHMENT_READ_MAX_CHARS
+    ) -> str:
         try:
             with zipfile.ZipFile(BytesIO(content)) as archive:
                 info = archive.getinfo("word/document.xml")
-                if info.file_size > _ATTACHMENT_XML_READ_MAX_BYTES:
+                xml_content = self._read_attachment_zip_member(archive, info)
+                if xml_content is None:
                     return ""
-                root = ET.fromstring(archive.read(info))
+                root = self._parse_attachment_xml(xml_content)
         except (KeyError, OSError, ET.ParseError, zipfile.BadZipFile):
             return ""
-        lines: list[str] = []
+        parts: list[str] = []
+        current_chars = 0
         for paragraph in root.iter(
             "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p"
         ):
-            parts = [
+            text_parts = [
                 node.text or ""
                 for node in paragraph.iter(
                     "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
                 )
             ]
-            line = "".join(parts).strip()
+            line = "".join(text_parts).strip()
             if line:
-                lines.append(line)
-        if lines:
-            return "\n".join(lines)
-        return "\n".join(
-            (node.text or "").strip()
-            for node in root.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t")
-            if (node.text or "").strip()
-        )
+                fragment = line if not parts else f"\n{line}"
+                current_chars, done = self._append_limited_attachment_text(
+                    parts,
+                    current_chars,
+                    fragment,
+                    max_chars=max_chars,
+                )
+                if done:
+                    return "".join(parts)
+        if parts:
+            return "".join(parts)
+        for node in root.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"):
+            line = (node.text or "").strip()
+            if not line:
+                continue
+            fragment = line if not parts else f"\n{line}"
+            current_chars, done = self._append_limited_attachment_text(
+                parts,
+                current_chars,
+                fragment,
+                max_chars=max_chars,
+            )
+            if done:
+                break
+        return "".join(parts)
 
-    def _extract_xlsx_text(self, content: bytes) -> str:
+    def _extract_xlsx_text(
+        self, content: bytes, *, max_chars: int = _ATTACHMENT_READ_MAX_CHARS
+    ) -> str:
         try:
             with zipfile.ZipFile(BytesIO(content)) as archive:
                 shared_strings = self._xlsx_shared_strings(archive)
-                rows: list[str] = []
+                parts: list[str] = []
+                current_chars = 0
                 worksheet_names = sorted(
                     name
                     for name in archive.namelist()
@@ -8976,21 +9165,34 @@ class CardService(
                 )
                 for worksheet_name in worksheet_names[:20]:
                     info = archive.getinfo(worksheet_name)
-                    if info.file_size > _ATTACHMENT_XML_READ_MAX_BYTES:
+                    xml_content = self._read_attachment_zip_member(archive, info)
+                    if xml_content is None:
                         continue
-                    root = ET.fromstring(archive.read(info))
+                    root = self._parse_attachment_xml(xml_content)
                     sheet_label = PurePath(worksheet_name).stem
-                    cells: list[str] = []
+                    sheet_started = False
                     for cell in root.iter(
                         "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c"
                     ):
                         value = self._xlsx_cell_text(cell, shared_strings)
                         if value:
                             ref = cell.attrib.get("r", "")
-                            cells.append(f"{ref}: {value}" if ref else value)
-                    if cells:
-                        rows.append(f"[{sheet_label}]\n" + "\n".join(cells))
-                return "\n\n".join(rows)
+                            cell_text = f"{ref}: {value}" if ref else value
+                            if sheet_started:
+                                fragment = f"\n{cell_text}"
+                            else:
+                                prefix = "\n\n" if parts else ""
+                                fragment = f"{prefix}[{sheet_label}]\n{cell_text}"
+                                sheet_started = True
+                            current_chars, done = self._append_limited_attachment_text(
+                                parts,
+                                current_chars,
+                                fragment,
+                                max_chars=max_chars,
+                            )
+                            if done:
+                                return "".join(parts)
+                return "".join(parts)
         except (OSError, ET.ParseError, zipfile.BadZipFile):
             return ""
         return ""
@@ -8998,9 +9200,10 @@ class CardService(
     def _xlsx_shared_strings(self, archive: zipfile.ZipFile) -> list[str]:
         try:
             info = archive.getinfo("xl/sharedStrings.xml")
-            if info.file_size > _ATTACHMENT_XML_READ_MAX_BYTES:
+            xml_content = self._read_attachment_zip_member(archive, info)
+            if xml_content is None:
                 return []
-            root = ET.fromstring(archive.read(info))
+            root = self._parse_attachment_xml(xml_content)
         except (KeyError, OSError, ET.ParseError):
             return []
         result: list[str] = []
@@ -9027,19 +9230,47 @@ class CardService(
         value_node = cell.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}v")
         raw_value = (value_node.text or "").strip() if value_node is not None else ""
         if cell_type == "s" and raw_value.isdigit():
-            index = int(raw_value)
+            try:
+                index = int(raw_value)
+            except (OverflowError, ValueError):
+                return raw_value
             if 0 <= index < len(shared_strings):
                 return shared_strings[index].strip()
         return raw_value
 
-    def _extract_pdf_text(self, content: bytes) -> str:
-        snippets: list[str] = []
+    def _extract_pdf_text(
+        self, content: bytes, *, max_chars: int = _ATTACHMENT_READ_MAX_CHARS
+    ) -> str:
+        parts: list[str] = []
+        current_chars = 0
         for match in re.finditer(rb"\((?:\\.|[^\\)])*\)\s*Tj", content):
-            snippets.append(self._decode_pdf_literal(match.group(0).rsplit(b")", 1)[0][1:]))
+            text = self._decode_pdf_literal(match.group(0).rsplit(b")", 1)[0][1:])
+            if not text.strip():
+                continue
+            fragment = text if not parts else f"\n{text}"
+            current_chars, done = self._append_limited_attachment_text(
+                parts,
+                current_chars,
+                fragment,
+                max_chars=max_chars,
+            )
+            if done:
+                return "".join(parts)
         for match in re.finditer(rb"\[(.*?)\]\s*TJ", content, flags=re.DOTALL):
             for literal in re.finditer(rb"\((?:\\.|[^\\)])*\)", match.group(1)):
-                snippets.append(self._decode_pdf_literal(literal.group(0)[1:-1]))
-        return "\n".join(item for item in snippets if item.strip())
+                text = self._decode_pdf_literal(literal.group(0)[1:-1])
+                if not text.strip():
+                    continue
+                fragment = text if not parts else f"\n{text}"
+                current_chars, done = self._append_limited_attachment_text(
+                    parts,
+                    current_chars,
+                    fragment,
+                    max_chars=max_chars,
+                )
+                if done:
+                    return "".join(parts)
+        return "".join(parts)
 
     def _decode_pdf_literal(self, value: bytes) -> str:
         replacements = {
@@ -9129,45 +9360,154 @@ class CardService(
         return None
 
     def _attachment_path(self, card_id: str, stored_name: str) -> Path:
-        return self._attachments_dir / card_id / stored_name
+        card_dir = self._attachment_card_dir(card_id)
+        safe_name = self._validated_attachment_stored_name(stored_name)
+        root = self._attachments_dir.resolve(strict=False)
+        attachment_path = card_dir / safe_name
+        try:
+            attachment_path.relative_to(root)
+        except ValueError:
+            self._fail("validation_error", "Некорректный путь файла вложения.")
+        return attachment_path
+
+    def _attachment_card_dir(self, card_id: str) -> Path:
+        safe_card_id = self._validated_attachment_path_segment(card_id, field="card_id")
+        root = self._attachments_dir.resolve(strict=False)
+        card_dir = (root / safe_card_id).resolve(strict=False)
+        try:
+            card_dir.relative_to(root)
+        except ValueError:
+            self._fail("validation_error", "Некорректный каталог вложений карточки.")
+        return card_dir
+
+    def _validated_attachment_path_segment(self, value: Any, *, field: str) -> str:
+        segment = str(value or "").strip()
+        if (
+            not segment
+            or segment in {".", ".."}
+            or "\x00" in segment
+            or "/" in segment
+            or "\\" in segment
+        ):
+            self._fail(
+                "validation_error",
+                "Некорректный путь файла вложения.",
+                details={"field": field},
+            )
+        return segment
+
+    def _validated_attachment_stored_name(self, stored_name: str) -> str:
+        raw_name = str(stored_name or "").strip()
+        safe_name = normalize_file_name(raw_name)
+        if (
+            not safe_name
+            or safe_name != raw_name
+            or safe_name in {".", ".."}
+            or PurePath(safe_name).name != safe_name
+        ):
+            self._fail(
+                "validation_error",
+                "Некорректное имя файла вложения на диске.",
+                details={"field": "stored_name"},
+            )
+        return safe_name
 
     def _attachment_exists_on_disk(self, card_id: str, attachment: Attachment | None) -> bool:
         if attachment is None or attachment.removed:
             return False
         try:
-            return self._attachment_path(card_id, attachment.stored_name).is_file()
+            return self._attachment_is_regular_file(
+                self._attachment_path(card_id, attachment.stored_name)
+            )
+        except (OSError, ServiceError):
+            return False
+
+    def _attachment_is_regular_file(self, attachment_path: Path) -> bool:
+        try:
+            if attachment_path.is_symlink():
+                return False
+            return attachment_path.is_file()
         except OSError:
             return False
 
-    def _write_attachment_file(self, card_id: str, stored_name: str, content: bytes) -> Path:
-        attachment_path = self._attachment_path(card_id, stored_name)
-        attachment_path.parent.mkdir(parents=True, exist_ok=True)
-        attachment_path.write_bytes(content)
-        return attachment_path
-
-    def _delete_attachment_file(self, card_id: str, stored_name: str) -> None:
-        attachment_path = self._attachment_path(card_id, stored_name)
-        if attachment_path.exists():
-            attachment_path.unlink()
-        self._cleanup_empty_attachment_directory(card_id)
-
-    def _require_attachment_file(self, card_id: str, attachment: Attachment) -> Path:
-        attachment_path = self._attachment_path(card_id, attachment.stored_name)
-        for _ in range(20):
-            if attachment_path.exists():
-                return attachment_path
-            time.sleep(0.05)
-        if not attachment_path.exists():
+    def _read_attachment_file_bytes(self, attachment_path: Path, attachment: Attachment) -> bytes:
+        try:
+            return read_bytes_limited(
+                attachment_path,
+                max_bytes=MAX_ATTACHMENT_SIZE_BYTES,
+                label="attachment file",
+            )
+        except OSError:
             self._fail(
                 "not_found",
                 "Файл не найден на диске.",
                 status_code=404,
                 details={"attachment_id": attachment.id},
             )
+        except ValueError:
+            self._fail(
+                "validation_error",
+                "Сохранённый файл вложения превышает допустимый размер.",
+                details={
+                    "attachment_id": attachment.id,
+                    "file_name": attachment.file_name,
+                    "size_bytes": MAX_ATTACHMENT_SIZE_BYTES + 1,
+                    "max_size_bytes": MAX_ATTACHMENT_SIZE_BYTES,
+                },
+            )
+
+    def _attachment_file_sha256(self, attachment_path: Path) -> str:
+        if attachment_path.stat().st_size > MAX_ATTACHMENT_SIZE_BYTES:
+            raise ValueError("attachment file is too large")
+        digest = hashlib.sha256()
+        bytes_read = 0
+        with attachment_path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                bytes_read += len(chunk)
+                if bytes_read > MAX_ATTACHMENT_SIZE_BYTES:
+                    raise ValueError("attachment file is too large")
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _write_attachment_file(self, card_id: str, stored_name: str, content: bytes) -> Path:
+        if len(content) > MAX_ATTACHMENT_SIZE_BYTES:
+            raise ValueError("attachment file is too large")
+        attachment_path = self._attachment_path(card_id, stored_name)
+        attachment_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = attachment_path.with_name(f".{attachment_path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            temp_path.write_bytes(content)
+            temp_path.replace(attachment_path)
+        finally:
+            temp_path.unlink(missing_ok=True)
         return attachment_path
 
+    def _delete_attachment_file(self, card_id: str, stored_name: str) -> None:
+        attachment_path = self._attachment_path(card_id, stored_name)
+        if attachment_path.is_file() or attachment_path.is_symlink():
+            attachment_path.unlink()
+        self._cleanup_empty_attachment_directory(card_id)
+
+    def _require_attachment_file(self, card_id: str, attachment: Attachment) -> Path:
+        attachment_path = self._attachment_path(card_id, attachment.stored_name)
+        for _ in range(20):
+            if self._attachment_is_regular_file(attachment_path):
+                return attachment_path
+            if attachment_path.exists():
+                break
+            time.sleep(0.05)
+        self._fail(
+            "not_found",
+            "Файл не найден на диске.",
+            status_code=404,
+            details={"attachment_id": attachment.id},
+        )
+
     def _cleanup_empty_attachment_directory(self, card_id: str) -> None:
-        attachment_dir = self._attachments_dir / card_id
+        try:
+            attachment_dir = self._attachment_card_dir(card_id)
+        except ServiceError:
+            return
         if not attachment_dir.exists() or not attachment_dir.is_dir():
             return
         try:
@@ -9196,17 +9536,67 @@ class CardService(
             )
         return text
 
-    def _validated_sticky_position(self, value, *, field: str) -> int:
-        if isinstance(value, bool) or value is None:
-            return 0
-        try:
-            coordinate = int(value)
-        except (TypeError, ValueError):
+    def _validated_integral_number(
+        self,
+        value: Any,
+        *,
+        field: str,
+        maximum: int | None = None,
+    ) -> int:
+        if isinstance(value, bool):
             self._fail(
                 "validation_error",
-                f"Поле {field} должно быть целым числом.",
+                f"Параметр {field} должен быть целым числом.",
                 details={"field": field},
             )
+        try:
+            numeric = float(value)
+        except (OverflowError, TypeError, ValueError):
+            self._fail(
+                "validation_error",
+                f"Параметр {field} должен быть целым числом.",
+                details={"field": field},
+            )
+        if not math.isfinite(numeric) or not numeric.is_integer():
+            self._fail(
+                "validation_error",
+                f"Параметр {field} должен быть целым числом.",
+                details={"field": field},
+            )
+        if maximum is not None and numeric > maximum:
+            return maximum + 1
+        if numeric < -1_000_000_000:
+            return -1_000_000_001
+        if numeric > 1_000_000_000:
+            return 1_000_000_001
+        return int(numeric)
+
+    def _normalized_bounded_int(
+        self,
+        value: Any,
+        *,
+        default: int,
+        minimum: int,
+        maximum: int,
+    ) -> int:
+        if isinstance(value, bool):
+            return default
+        try:
+            numeric = float(value)
+        except (OverflowError, TypeError, ValueError):
+            return default
+        if not math.isfinite(numeric) or not numeric.is_integer():
+            return default
+        if numeric < minimum:
+            return minimum
+        if numeric > maximum:
+            return maximum
+        return int(numeric)
+
+    def _validated_sticky_position(self, value, *, field: str) -> int:
+        if value in (None, ""):
+            return 0
+        coordinate = self._validated_integral_number(value, field=field, maximum=200000)
         if coordinate < 0:
             coordinate = 0
         if coordinate > 200000:
@@ -9470,16 +9860,6 @@ class CardService(
             )
         return query
 
-    def _validated_attachment_name(self, value) -> str:
-        file_name = normalize_file_name(value)
-        if not file_name:
-            self._fail(
-                "validation_error",
-                "Нужно передать file_name для файла.",
-                details={"field": "file_name"},
-            )
-        return file_name
-
     def _validated_attachment_upload(
         self, file_name_value, mime_type_value, content: bytes
     ) -> tuple[str, str, str]:
@@ -9549,7 +9929,7 @@ class CardService(
     def _repair_attachment_metadata(
         self, card_id: str, attachment: Attachment, attachment_path: Path
     ) -> tuple[Path, bool]:
-        content = attachment_path.read_bytes()
+        content = self._read_attachment_file_bytes(attachment_path, attachment)
         detected_type = self._detect_attachment_type(content)
         if not detected_type:
             self._fail(
@@ -9747,6 +10127,12 @@ class CardService(
                 "Нужно передать content_base64 для файла.",
                 details={"field": "content_base64"},
             )
+        if len(raw_value) > _ATTACHMENT_BASE64_ENCODED_MAX_CHARS:
+            self._fail(
+                "validation_error",
+                "Файл слишком большой.",
+                details={"field": "content_base64", "max_size_bytes": MAX_ATTACHMENT_SIZE_BYTES},
+            )
         try:
             content = base64.b64decode(raw_value.encode("utf-8"), validate=True)
         except (binascii.Error, ValueError):
@@ -9772,14 +10158,7 @@ class CardService(
     def _validated_limit(self, value, *, default: int, maximum: int) -> int:
         if value in (None, ""):
             return default
-        try:
-            limit = int(value)
-        except (TypeError, ValueError):
-            self._fail(
-                "validation_error",
-                "Параметр limit должен быть целым числом.",
-                details={"field": "limit"},
-            )
+        limit = self._validated_integral_number(value, field="limit", maximum=maximum)
         if limit < 1 or limit > maximum:
             self._fail(
                 "validation_error",
@@ -9791,14 +10170,7 @@ class CardService(
     def _validated_numeric_limit(self, value, *, field: str, default: int, maximum: int) -> int:
         if value in (None, ""):
             return default
-        try:
-            limit = int(value)
-        except (TypeError, ValueError):
-            self._fail(
-                "validation_error",
-                f"Параметр {field} должен быть целым числом.",
-                details={"field": field},
-            )
+        limit = self._validated_integral_number(value, field=field, maximum=maximum)
         if limit < 1 or limit > maximum:
             self._fail(
                 "validation_error",
@@ -9814,15 +10186,21 @@ class CardService(
                 "Нужно передать board_scale числом от 0.5 до 1.5.",
                 details={"field": "board_scale"},
             )
-        try:
-            scale = float(value)
-        except (TypeError, ValueError):
+        if isinstance(value, bool):
             self._fail(
                 "validation_error",
                 "Параметр board_scale должен быть числом от 0.5 до 1.5.",
                 details={"field": "board_scale"},
             )
-        if scale < 0.5 or scale > 1.5:
+        try:
+            scale = float(value)
+        except (OverflowError, TypeError, ValueError):
+            self._fail(
+                "validation_error",
+                "Параметр board_scale должен быть числом от 0.5 до 1.5.",
+                details={"field": "board_scale"},
+            )
+        if not math.isfinite(scale) or scale < 0.5 or scale > 1.5:
             self._fail(
                 "validation_error",
                 "board_scale должен быть в диапазоне от 0.5 до 1.5.",
@@ -9830,21 +10208,37 @@ class CardService(
             )
         return round(scale, 2)
 
+    @staticmethod
+    def _normalized_stored_board_scale(value: Any) -> float:
+        if value in (None, "") or isinstance(value, bool):
+            return 1.0
+        try:
+            scale = float(value)
+        except (OverflowError, TypeError, ValueError):
+            return 1.0
+        if not math.isfinite(scale) or scale < 0.5 or scale > 1.5:
+            return 1.0
+        return round(scale, 2)
+
     def _normalized_ai_board_control_settings(self, value: Any) -> dict[str, Any]:
         payload = value if isinstance(value, dict) else {}
         enabled = normalize_bool(payload.get("enabled"), default=False)
-        try:
-            interval_minutes = int(payload.get("interval_minutes", 20))
-        except (TypeError, ValueError):
-            interval_minutes = 20
-        try:
-            cooldown_minutes = int(payload.get("cooldown_minutes", 60))
-        except (TypeError, ValueError):
-            cooldown_minutes = 60
+        interval_minutes = self._normalized_bounded_int(
+            payload.get("interval_minutes", 20),
+            default=20,
+            minimum=5,
+            maximum=240,
+        )
+        cooldown_minutes = self._normalized_bounded_int(
+            payload.get("cooldown_minutes", 60),
+            default=60,
+            minimum=5,
+            maximum=1440,
+        )
         return {
             "enabled": bool(enabled),
-            "interval_minutes": min(max(interval_minutes, 5), 240),
-            "cooldown_minutes": min(max(cooldown_minutes, 5), 1440),
+            "interval_minutes": interval_minutes,
+            "cooldown_minutes": cooldown_minutes,
         }
 
     def _extract_ai_board_control_settings_payload(

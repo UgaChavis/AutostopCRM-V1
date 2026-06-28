@@ -11,9 +11,57 @@ import tempfile
 import threading
 from pathlib import Path
 
+from ..storage.limited_io import read_bytes_limited
+
+PDF_CLI_STDIN_MAX_BYTES = 8 * 1024 * 1024
+PDF_OUTPUT_MAX_BYTES = 16 * 1024 * 1024
+PDF_OUTPUT_BASE64_MAX_CHARS = ((PDF_OUTPUT_MAX_BYTES + 2) // 3) * 4
+PDF_SUBPROCESS_RESPONSE_MAX_BYTES = PDF_OUTPUT_BASE64_MAX_CHARS + 1024
+
 
 class PdfRenderError(RuntimeError):
     pass
+
+
+def _validate_pdf_bytes(pdf_bytes: bytes, *, label: str) -> bytes:
+    if len(pdf_bytes) > PDF_OUTPUT_MAX_BYTES:
+        raise PdfRenderError(f"{label} создал слишком большой PDF.")
+    if not pdf_bytes.startswith(b"%PDF"):
+        raise PdfRenderError(f"{label} вернул не PDF.")
+    return pdf_bytes
+
+
+def _read_generated_pdf_bytes(path: Path, *, label: str) -> bytes:
+    try:
+        pdf_bytes = read_bytes_limited(
+            path,
+            max_bytes=PDF_OUTPUT_MAX_BYTES,
+            label=f"{label} PDF",
+        )
+    except ValueError as exc:
+        raise PdfRenderError(f"{label} создал слишком большой PDF.") from exc
+    return _validate_pdf_bytes(pdf_bytes, label=label)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _parse_json_object(raw: str, *, label: str) -> dict[str, object]:
+    try:
+        payload = json.loads(raw, parse_constant=_reject_json_constant)
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise ValueError(f"{label} must contain valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label} must be a JSON object")
+    return payload
+
+
+def _read_pdf_cli_stdin(stream) -> bytes:  # noqa: ANN001
+    raw = stream.read(PDF_CLI_STDIN_MAX_BYTES + 1)
+    if len(raw) > PDF_CLI_STDIN_MAX_BYTES:
+        raise ValueError("Qt subprocess request is too large")
+    return raw
 
 
 def _ensure_qt_application():
@@ -81,21 +129,27 @@ def render_html_to_pdf_bytes(
 ) -> bytes:
     if _should_use_qt_renderer():
         try:
-            return _render_preferred_qt_pdf_bytes(
-                html,
-                paper_size=paper_size,
-                orientation=orientation,
-                title=title,
+            return _validate_pdf_bytes(
+                _render_preferred_qt_pdf_bytes(
+                    html,
+                    paper_size=paper_size,
+                    orientation=orientation,
+                    title=title,
+                ),
+                label="Qt renderer",
             )
         except Exception:
             pass
     if _should_use_qt_subprocess_renderer():
         try:
-            return _render_qt_pdf_in_subprocess(
-                html,
-                paper_size=paper_size,
-                orientation=orientation,
-                title=title,
+            return _validate_pdf_bytes(
+                _render_qt_pdf_in_subprocess(
+                    html,
+                    paper_size=paper_size,
+                    orientation=orientation,
+                    title=title,
+                ),
+                label="Qt subprocess",
             )
         except Exception:
             pass
@@ -223,10 +277,7 @@ def _render_webengine_pdf_bytes(
             raise PdfRenderError(error)
         if not pdf_path.exists():
             raise PdfRenderError("Qt WebEngine не создал PDF-файл.")
-        pdf_bytes = pdf_path.read_bytes()
-        if not pdf_bytes.startswith(b"%PDF"):
-            raise PdfRenderError("Qt WebEngine вернул не PDF.")
-        return pdf_bytes
+        return _read_generated_pdf_bytes(pdf_path, label="Qt WebEngine")
     finally:
         try:
             page.deleteLater()
@@ -278,7 +329,7 @@ def _render_qt_pdf_bytes(
         document.print_(printer)
         if not pdf_path.exists():
             raise PdfRenderError("Qt не создал PDF-файл.")
-        return pdf_path.read_bytes()
+        return _read_generated_pdf_bytes(pdf_path, label="Qt")
     finally:
         try:
             pdf_path.unlink(missing_ok=True)
@@ -304,6 +355,7 @@ def _render_qt_pdf_in_subprocess(
             "title": str(title or "AutoStop CRM"),
         },
         ensure_ascii=False,
+        allow_nan=False,
     ).encode("utf-8")
     env = os.environ.copy()
     env["MINIMAL_KANBAN_PDF_RENDER_CHILD"] = "1"
@@ -321,15 +373,22 @@ def _render_qt_pdf_in_subprocess(
     if completed.returncode != 0:
         stderr = completed.stderr.decode("utf-8", errors="replace").strip()
         raise PdfRenderError(f"Qt subprocess не создал PDF: {stderr}")
+    if len(completed.stdout) > PDF_SUBPROCESS_RESPONSE_MAX_BYTES:
+        raise PdfRenderError("Qt subprocess вернул слишком большой ответ.")
     try:
-        response = json.loads(completed.stdout.decode("utf-8"))
-        pdf_bytes = base64.b64decode(str(response["content_base64"]))
+        response = _parse_json_object(
+            completed.stdout.decode("utf-8"), label="Qt subprocess response"
+        )
+        content_base64 = str(response["content_base64"])
+        if len(content_base64) > PDF_OUTPUT_BASE64_MAX_CHARS:
+            raise PdfRenderError("Qt subprocess вернул слишком большой PDF.")
+        pdf_bytes = base64.b64decode(content_base64, validate=True)
+        return _validate_pdf_bytes(pdf_bytes, label="Qt subprocess")
+    except PdfRenderError:
+        raise
     except Exception as exc:
         stderr = completed.stderr.decode("utf-8", errors="replace").strip()
         raise PdfRenderError(f"Qt subprocess вернул некорректный PDF: {stderr}") from exc
-    if not pdf_bytes.startswith(b"%PDF"):
-        raise PdfRenderError("Qt subprocess вернул не PDF.")
-    return pdf_bytes
 
 
 def _render_fallback_pdf_bytes(
@@ -340,7 +399,10 @@ def _render_fallback_pdf_bytes(
     title: str = "AutoStop CRM",
 ) -> bytes:
     text = _html_to_plain_text(html, default_title=title)
-    return _render_plain_text_pdf(text, paper_size=paper_size, orientation=orientation, title=title)
+    return _validate_pdf_bytes(
+        _render_plain_text_pdf(text, paper_size=paper_size, orientation=orientation, title=title),
+        label="Fallback renderer",
+    )
 
 
 def _html_to_plain_text(html: str, *, default_title: str = "AutoStop CRM") -> str:
@@ -379,6 +441,16 @@ def _page_size_points(paper_size: str, orientation: str) -> tuple[int, int]:
 def _escape_pdf_text(value: str) -> str:
     safe = str(value or "").replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
     return safe.encode("ascii", "replace").decode("ascii")
+
+
+def _pdf_text_string(value: str) -> str:
+    text = str(value or "")
+    try:
+        text.encode("ascii")
+    except UnicodeEncodeError:
+        payload = b"\xfe\xff" + text.encode("utf-16-be")
+        return f"<{payload.hex().upper()}>"
+    return f"({_escape_pdf_text(text)})"
 
 
 def _build_pdf_bytes(objects: list[bytes]) -> bytes:
@@ -440,7 +512,7 @@ def _render_plain_text_pdf(
         for line_index, line in enumerate(page_lines):
             if line_index:
                 commands.append("T*")
-            commands.append(f"({_escape_pdf_text(line)}) Tj")
+            commands.append(f"{_pdf_text_string(line)} Tj")
         commands.append("ET")
         stream = "\n".join(commands).encode("ascii", "replace")
         page_object = (
@@ -468,17 +540,27 @@ def _render_plain_text_pdf(
 
 def _render_pdf_cli() -> int:
     try:
-        payload = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+        payload = _parse_json_object(
+            _read_pdf_cli_stdin(sys.stdin.buffer).decode("utf-8"),
+            label="Qt subprocess request",
+        )
         pdf_bytes = _render_preferred_qt_pdf_bytes(
             str(payload.get("html", "") or ""),
             paper_size=str(payload.get("paper_size", "A4") or "A4"),
             orientation=str(payload.get("orientation", "portrait") or "portrait"),
             title=str(payload.get("title", "AutoStop CRM") or "AutoStop CRM"),
         )
+        _validate_pdf_bytes(pdf_bytes, label="Qt subprocess")
     except Exception as exc:
         sys.stderr.write(str(exc))
         return 1
-    sys.stdout.write(json.dumps({"content_base64": base64.b64encode(pdf_bytes).decode("ascii")}))
+    sys.stdout.write(
+        json.dumps(
+            {"content_base64": base64.b64encode(pdf_bytes).decode("ascii")},
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    )
     return 0
 
 

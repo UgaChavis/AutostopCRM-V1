@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -10,6 +12,34 @@ AUTH_NOTE_FILENAME = "AutoStop CRM Auth Note.txt"
 URL_FILENAME = "AutoStop CRM URL.txt"
 WAITING_MESSAGE = ""
 DISPLAY_PRODUCT_NAME = "AutoStop CRM"
+DESKTOP_CONNECTOR_FILE_MAX_BYTES = 256 * 1024
+CONNECTOR_AUTH_LABELS = {
+    "none": "No authentication",
+    "bearer": "Bearer token",
+    "oauth_embedded": "Embedded OAuth / DCR",
+}
+
+
+def _json_safe_value(value: object, *, depth: int = 8) -> object:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _json_dumps(payload: object, *, indent: int = 2) -> str:
+    return json.dumps(_json_safe_value(payload), ensure_ascii=False, indent=indent, allow_nan=False)
 
 
 def _resolve_desktop_path(desktop_path: Path | None = None) -> Path:
@@ -17,15 +47,35 @@ def _resolve_desktop_path(desktop_path: Path | None = None) -> Path:
 
 
 def _write_text_no_bom(path: Path, value: str) -> None:
-    path.write_bytes(value.encode("utf-8"))
+    payload = value.encode("utf-8")
+    if len(payload) > DESKTOP_CONNECTOR_FILE_MAX_BYTES:
+        raise ValueError(
+            f"desktop connector file is too large ({DESKTOP_CONNECTOR_FILE_MAX_BYTES} byte limit)"
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp_path.write_bytes(payload)
+        tmp_path.replace(path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def _normalized_auth_mode(auth_mode: str) -> str:
-    return "bearer" if str(auth_mode or "").strip().lower() == "bearer" else "none"
+    normalized = str(auth_mode or "").strip().lower()
+    return normalized if normalized in CONNECTOR_AUTH_LABELS else "none"
 
 
 def _connector_auth_label(auth_mode: str) -> str:
-    return "Bearer token" if _normalized_auth_mode(auth_mode) == "bearer" else "No authentication"
+    return CONNECTOR_AUTH_LABELS[_normalized_auth_mode(auth_mode)]
+
+
+def _connector_host_label(value: str) -> str:
+    try:
+        host = urlsplit(str(value or "").strip()).hostname or ""
+    except ValueError:
+        host = ""
+    return host.strip().lower().rstrip(".") or "current-connector"
 
 
 def build_connector_file_contents(
@@ -35,9 +85,7 @@ def build_connector_file_contents(
     normalized_local_api_url = str(local_api_url or "").strip()
     normalized_auth_mode = _normalized_auth_mode(auth_mode)
     auth_label = _connector_auth_label(normalized_auth_mode)
-    host_label = (
-        urlsplit(normalized_mcp_url).hostname or "current-connector"
-    ).strip().lower() or "current-connector"
+    host_label = _connector_host_label(normalized_mcp_url)
 
     connection_card = (
         f"{DISPLAY_PRODUCT_NAME} / This Board Only ({host_label}) -> ChatGPT / MCP\n\n"
@@ -77,7 +125,7 @@ def build_connector_file_contents(
     )
     return {
         CONNECTION_CARD_FILENAME: connection_card,
-        CONNECTOR_JSON_FILENAME: json.dumps(connector_payload, ensure_ascii=False, indent=2) + "\n",
+        CONNECTOR_JSON_FILENAME: _json_dumps(connector_payload) + "\n",
         AUTH_NOTE_FILENAME: auth_note,
         URL_FILENAME: normalized_mcp_url,
     }

@@ -5,7 +5,7 @@ import asyncio
 import contextlib
 import json
 import logging
-import shutil
+import math
 import statistics
 import sys
 import tempfile
@@ -37,6 +37,60 @@ TARGETS_MS = {
 DEFAULT_BROWSER_TIMEOUT_SECONDS = 240.0
 PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS = 10.0
 BENIGN_UI_PERF_ERRORS = {"AbortError"}
+PERF_WORKFLOW_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
+PERF_WORKFLOW_STATE_FILE_MAX_BYTES = 100 * 1024 * 1024
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+
+
+def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float):
+    return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _json_dumps(
+    payload: Any,
+    *,
+    indent: int | None = None,
+    separators: tuple[str, str] | None = None,
+    sort_keys: bool = False,
+) -> str:
+    return json.dumps(
+        _json_safe_value(payload),
+        ensure_ascii=False,
+        indent=indent,
+        separators=separators,
+        sort_keys=sort_keys,
+        allow_nan=False,
+    )
+
 
 MODAL_WORKFLOWS = (
     (
@@ -101,10 +155,71 @@ def percentile(values: list[float], ratio: float) -> float:
     return ordered[index]
 
 
+def _safe_float(value: Any, *, default: float = 0.0) -> float:
+    if isinstance(value, bool):
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return parsed if math.isfinite(parsed) else default
+
+
+def _bounded_float(
+    value: Any,
+    *,
+    default: float,
+    minimum: float = 0.0,
+    maximum: float,
+) -> float:
+    if isinstance(value, bool):
+        return default
+    try:
+        parsed = float(default if value is None or value == "" else value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if not math.isfinite(parsed):
+        return default
+    if parsed < minimum:
+        return minimum
+    if parsed > maximum:
+        return maximum
+    return parsed
+
+
+def _safe_int(value: Any, *, default: int = 0, maximum: int = 1_000_000_000) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if not math.isfinite(parsed) or not parsed.is_integer():
+        return default
+    if parsed < 0:
+        return default
+    if parsed > maximum:
+        return maximum
+    return int(parsed)
+
+
+def _bounded_iterations(value: Any) -> int:
+    return max(1, _safe_int(value, default=3, maximum=100))
+
+
+def _bounded_port(value: Any, *, default: int) -> int:
+    port = _safe_int(value, default=default, maximum=65535)
+    return port if port >= 1 else default
+
+
+def _response_payload_bytes(responses: list[dict[str, Any]]) -> int:
+    return sum(_safe_int(item.get("bytes")) for item in responses if isinstance(item, dict))
+
+
 def summarize_samples(samples: list[dict[str, Any]], *, scenario: str) -> dict[str, Any]:
-    durations = [float(item.get("duration_ms") or 0.0) for item in samples]
-    request_counts = [int(item.get("request_count") or 0) for item in samples]
-    payload_sizes = [int(item.get("payload_bytes") or 0) for item in samples]
+    durations = [_safe_float(item.get("duration_ms")) for item in samples]
+    request_counts = [_safe_int(item.get("request_count")) for item in samples]
+    payload_sizes = [_safe_int(item.get("payload_bytes")) for item in samples]
     server_timings = [
         str(timing)
         for item in samples
@@ -176,6 +291,23 @@ def skipped_row(scenario: str, reason: str) -> dict[str, Any]:
     }
 
 
+def _read_response_body(response) -> bytes:
+    raw = response.read(PERF_WORKFLOW_RESPONSE_MAX_BYTES + 1)
+    if len(raw) > PERF_WORKFLOW_RESPONSE_MAX_BYTES:
+        raise ValueError("performance workflow response is too large")
+    return raw
+
+
+def _load_json_response(raw: bytes) -> dict[str, Any]:
+    try:
+        payload = json.loads(raw.decode("utf-8"), parse_constant=_reject_json_constant)
+    except RecursionError as exc:
+        raise ValueError("API response JSON is too deeply nested") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("API response must be a JSON object")
+    return payload
+
+
 def failed_row(
     scenario: str, error: BaseException, *, samples: list[dict[str, Any]]
 ) -> dict[str, Any]:
@@ -196,7 +328,12 @@ def configure_stdout_utf8() -> None:
 
 
 def browser_timeout_seconds(args: argparse.Namespace) -> float:
-    return max(30.0, float(args.browser_timeout_seconds or DEFAULT_BROWSER_TIMEOUT_SECONDS))
+    return _bounded_float(
+        getattr(args, "browser_timeout_seconds", DEFAULT_BROWSER_TIMEOUT_SECONDS),
+        default=DEFAULT_BROWSER_TIMEOUT_SECONDS,
+        minimum=30.0,
+        maximum=3600.0,
+    )
 
 
 async def close_with_timeout(awaitable: Awaitable[Any]) -> None:
@@ -231,8 +368,13 @@ def json_request(base_url: str, path: str, *, timeout: float = 15.0) -> dict[str
         headers={"Accept": "application/json"},
         method="GET",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with _urlopen_no_redirect(request, timeout=timeout) as response:
+            return _load_json_response(_read_response_body(response))
+    except urllib.error.HTTPError as exc:
+        if 300 <= exc.code < 400:
+            raise ValueError(f"API request redirected: {path}") from exc
+        raise
 
 
 def first_card_id_from_base_url(base_url: str) -> str:
@@ -298,7 +440,7 @@ def ranked_findings(rows: list[dict[str, Any]], *, limit: int = 5) -> list[dict[
                 {
                     "scenario": scenario,
                     "area": "workflow reliability",
-                    "avg_ms": float(row.get("avg_ms") or 0.0),
+                    "avg_ms": _safe_float(row.get("avg_ms")),
                     "target_ms": scenario_target(scenario),
                     "over_by_ms": 999999.0,
                     "files": ["scripts/perf_workflows.py"],
@@ -313,7 +455,7 @@ def ranked_findings(rows: list[dict[str, Any]], *, limit: int = 5) -> list[dict[
                 {
                     "scenario": scenario,
                     "area": "workflow reliability",
-                    "avg_ms": float(row.get("avg_ms") or 0.0),
+                    "avg_ms": _safe_float(row.get("avg_ms")),
                     "target_ms": scenario_target(scenario),
                     "over_by_ms": 999999.0,
                     "files": [
@@ -328,7 +470,7 @@ def ranked_findings(rows: list[dict[str, Any]], *, limit: int = 5) -> list[dict[
         if row.get("skipped"):
             continue
         target = scenario_target(str(row.get("scenario") or ""))
-        avg_ms = float(row.get("avg_ms") or 0.0)
+        avg_ms = _safe_float(row.get("avg_ms"))
         if target <= 0 or avg_ms <= target:
             continue
         scenario = str(row.get("scenario") or "")
@@ -390,7 +532,7 @@ def ranked_findings(rows: list[dict[str, Any]], *, limit: int = 5) -> list[dict[
                 "next_step": next_step,
             }
         )
-    findings.sort(key=lambda item: float(item["over_by_ms"]), reverse=True)
+    findings.sort(key=lambda item: _safe_float(item.get("over_by_ms")), reverse=True)
     return findings[:limit]
 
 
@@ -504,7 +646,7 @@ async def measure_browser_action(
                 {
                     "duration_ms": duration_ms,
                     "request_count": len(response_delta),
-                    "payload_bytes": sum(int(item.get("bytes") or 0) for item in response_delta),
+                    "payload_bytes": _response_payload_bytes(response_delta),
                     "server_timing": [
                         str(item.get("server_timing") or "")
                         for item in response_delta
@@ -522,7 +664,7 @@ async def measure_browser_action(
             {
                 "duration_ms": duration_ms,
                 "request_count": len(response_delta),
-                "payload_bytes": sum(int(item.get("bytes") or 0) for item in response_delta),
+                "payload_bytes": _response_payload_bytes(response_delta),
                 "server_timing": [
                     str(item.get("server_timing") or "")
                     for item in response_delta
@@ -594,7 +736,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                 "window.localStorage.setItem('autostop-perf', '1');window.__AUTOSTOP_PERF__ = [];"
             )
             if args.operator_token:
-                token = json.dumps(str(args.operator_token))
+                token = json.dumps(str(args.operator_token), allow_nan=False)
                 await context.add_init_script(
                     f"window.localStorage.setItem('kanban-operator-session', {token});"
                 )
@@ -615,10 +757,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                     return
                 headers = response.headers
                 raw_length = headers.get("content-length") or "0"
-                try:
-                    byte_count = int(raw_length)
-                except (TypeError, ValueError):
-                    byte_count = 0
+                byte_count = _safe_int(raw_length)
                 responses.append(
                     {
                         "url": url,
@@ -796,7 +935,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                         await wait_for_modal_ready(page, modal, ready_selector)
                     except Exception as exc:
                         diagnostics = await modal_ready_diagnostics(page, modal, ready_selector)
-                        encoded = json.dumps(diagnostics, ensure_ascii=False, sort_keys=True)
+                        encoded = _json_dumps(diagnostics, sort_keys=True)
                         raise RuntimeError(
                             f"{scenario} modal did not become ready: {encoded}"
                         ) from exc
@@ -957,19 +1096,25 @@ def _logger() -> logging.Logger:
 
 
 def response_size(payload: dict[str, Any]) -> int:
-    return len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    return len(_json_dumps(payload, separators=(",", ":")).encode("utf-8"))
 
 
 def run_state_file_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     from minimal_kanban.services.card_service import CardService
     from minimal_kanban.storage.json_store import JsonStore
+    from minimal_kanban.storage.limited_io import copy_file_limited
 
     source = Path(args.state_file).expanduser().resolve()
     if not source.exists():
         return {"rows": [skipped_row("state_file", f"State file not found: {source}")]}
     with tempfile.TemporaryDirectory(prefix="autostop-perf-state-") as temp_dir:
         state_file = Path(temp_dir) / "state.json"
-        shutil.copy2(source, state_file)
+        copy_file_limited(
+            source,
+            state_file,
+            max_bytes=PERF_WORKFLOW_STATE_FILE_MAX_BYTES,
+            label="perf workflow state file",
+        )
         logger = _logger()
         store = JsonStore(state_file=state_file, logger=logger)
         service = CardService(
@@ -1163,7 +1308,7 @@ def evaluate_thresholds(
             threshold = args.max_open_modal_ms
         if not threshold or threshold <= 0:
             continue
-        actual = float(row.get("avg_ms") or 0.0)
+        actual = _safe_float(row.get("avg_ms"))
         if actual > threshold:
             violations.append(
                 {
@@ -1182,7 +1327,7 @@ def main() -> int:
         description="Run AutoStop CRM performance workflows and state-file benchmarks."
     )
     parser.add_argument("--base-url", default="https://crm.autostopcrm.ru")
-    parser.add_argument("--iterations", type=int, default=3)
+    parser.add_argument("--iterations", default=3)
     parser.add_argument("--card-id", default="")
     parser.add_argument("--operator-token", default="")
     parser.add_argument("--operator-username", default="")
@@ -1192,16 +1337,28 @@ def main() -> int:
     parser.add_argument("--allow-write-workflows", action="store_true")
     parser.add_argument("--skip-browser", action="store_true")
     parser.add_argument("--headed", action="store_true")
-    parser.add_argument("--start-port", type=int, default=42831)
-    parser.add_argument("--max-open-card-ms", type=float, default=0.0)
-    parser.add_argument("--max-save-card-ms", type=float, default=0.0)
-    parser.add_argument("--max-move-card-ms", type=float, default=0.0)
-    parser.add_argument("--max-open-modal-ms", type=float, default=0.0)
-    parser.add_argument("--max-backend-write-ms", type=float, default=0.0)
-    parser.add_argument(
-        "--browser-timeout-seconds", type=float, default=DEFAULT_BROWSER_TIMEOUT_SECONDS
-    )
+    parser.add_argument("--start-port", default=42831)
+    parser.add_argument("--max-open-card-ms", default=0.0)
+    parser.add_argument("--max-save-card-ms", default=0.0)
+    parser.add_argument("--max-move-card-ms", default=0.0)
+    parser.add_argument("--max-open-modal-ms", default=0.0)
+    parser.add_argument("--max-backend-write-ms", default=0.0)
+    parser.add_argument("--browser-timeout-seconds", default=DEFAULT_BROWSER_TIMEOUT_SECONDS)
     args = parser.parse_args()
+    args.iterations = _bounded_iterations(args.iterations)
+    args.start_port = _bounded_port(args.start_port, default=42831)
+    args.max_open_card_ms = _bounded_float(args.max_open_card_ms, default=0.0, maximum=3_600_000.0)
+    args.max_save_card_ms = _bounded_float(args.max_save_card_ms, default=0.0, maximum=3_600_000.0)
+    args.max_move_card_ms = _bounded_float(args.max_move_card_ms, default=0.0, maximum=3_600_000.0)
+    args.max_open_modal_ms = _bounded_float(
+        args.max_open_modal_ms, default=0.0, maximum=3_600_000.0
+    )
+    args.max_backend_write_ms = _bounded_float(
+        args.max_backend_write_ms,
+        default=0.0,
+        maximum=3_600_000.0,
+    )
+    args.browser_timeout_seconds = browser_timeout_seconds(args)
 
     output: dict[str, Any] = {
         "iterations": args.iterations,
@@ -1230,7 +1387,7 @@ def main() -> int:
     output["ranked_findings"] = ranked_findings(output["rows"])
     output["violations"] = evaluate_thresholds(output["rows"], args)
     output["threshold_status"] = "failed" if output["violations"] else "passed"
-    print(json.dumps(output, ensure_ascii=False, indent=2))
+    print(_json_dumps(output, indent=2))
     browser_output = output.get("browser")
     if isinstance(browser_output, dict) and browser_output.get("error") == "playwright_missing":
         return 2

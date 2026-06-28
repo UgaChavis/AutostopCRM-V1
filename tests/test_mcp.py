@@ -92,6 +92,7 @@ from minimal_kanban.mcp.runtime import McpRuntimeStartupError, McpServerRuntime
 from minimal_kanban.mcp.server import (
     RepairOrderPatchPayload,
     _normalize_tool_path_alias,
+    _resolved_create_card_deadline,
     create_mcp_server,
 )
 from minimal_kanban.mcp.session_utils import managed_streamable_http_client
@@ -214,6 +215,44 @@ class McpRepairOrderPatchPayloadTests(unittest.TestCase):
                 "inventory",
                 "cashboxes",
                 "files",
+            },
+        )
+
+    def test_create_card_deadline_resolver_defaults_invalid_parts(self) -> None:
+        deadline = SimpleNamespace(
+            model_dump=lambda: {
+                "total_seconds": float("inf"),
+                "days": True,
+                "hours": "2.5",
+                "minutes": "",
+                "seconds": None,
+            }
+        )
+
+        self.assertEqual(
+            _resolved_create_card_deadline(deadline),
+            {"days": 1, "hours": 0, "minutes": 0, "seconds": 0},
+        )
+
+    def test_create_card_deadline_resolver_clamps_large_finite_parts(self) -> None:
+        deadline = SimpleNamespace(
+            model_dump=lambda: {
+                "total_seconds": 1e308,
+                "days": 1e308,
+                "hours": 1e308,
+                "minutes": 1e308,
+                "seconds": 1e308,
+            }
+        )
+
+        self.assertEqual(
+            _resolved_create_card_deadline(deadline),
+            {
+                "days": 365,
+                "hours": 23,
+                "minutes": 59,
+                "seconds": 59,
+                "total_seconds": 31_536_000,
             },
         )
 
@@ -2900,10 +2939,11 @@ class McpServerRuntimeTests(unittest.TestCase):
             def __exit__(self, exc_type, exc, tb):
                 return False
 
-            def read(self) -> bytes:
+            def read(self, size: int = -1) -> bytes:
+                _ = size
                 return b"{not-json"
 
-        with patch("urllib.request.urlopen", return_value=BrokenResponse()):
+        with patch("minimal_kanban.mcp.client._urlopen_no_redirect", return_value=BrokenResponse()):
             with self.assertRaises(BoardApiTransportError) as error:
                 client.health()
         self.assertIn("Локальный API вернул некорректный JSON", str(error.exception))
@@ -2921,10 +2961,11 @@ class McpServerRuntimeTests(unittest.TestCase):
             def __exit__(self, exc_type, exc, tb):
                 return False
 
-            def read(self) -> bytes:
+            def read(self, size: int = -1) -> bytes:
+                _ = size
                 return b"\xff\xfe\xfd"
 
-        with patch("urllib.request.urlopen", return_value=BrokenResponse()):
+        with patch("minimal_kanban.mcp.client._urlopen_no_redirect", return_value=BrokenResponse()):
             with self.assertRaises(BoardApiTransportError) as error:
                 client.health()
         self.assertIn("Локальный API вернул некорректный JSON", str(error.exception))
@@ -2942,10 +2983,11 @@ class McpServerRuntimeTests(unittest.TestCase):
                     fp=None,
                 )
 
-            def read(self) -> bytes:
+            def read(self, size: int = -1) -> bytes:
+                _ = size
                 return b"\xff\xfe\xfd"
 
-        with patch("urllib.request.urlopen", side_effect=BrokenHttpError()):
+        with patch("minimal_kanban.mcp.client._urlopen_no_redirect", side_effect=BrokenHttpError()):
             with self.assertRaises(BoardApiTransportError) as error:
                 client.health()
         self.assertIn("Локальный API вернул некорректный JSON", str(error.exception))
@@ -2954,7 +2996,10 @@ class McpServerRuntimeTests(unittest.TestCase):
     def test_request_raises_readable_transport_error_on_unreachable_api(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")
 
-        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")):
+        with patch(
+            "minimal_kanban.mcp.client._urlopen_no_redirect",
+            side_effect=urllib.error.URLError("offline"),
+        ):
             with self.assertRaises(BoardApiTransportError) as error:
                 client.health()
         self.assertIn("Не удалось подключиться к локальному API", str(error.exception))
@@ -2972,11 +3017,12 @@ class McpServerRuntimeTests(unittest.TestCase):
             def __exit__(self, exc_type, exc, tb):
                 return False
 
-            def read(self) -> bytes:
+            def read(self, size: int = -1) -> bytes:
+                _ = size
                 return b'{"ok": true, "data": {"status": "ok"}}'
 
         with patch(
-            "urllib.request.urlopen",
+            "minimal_kanban.mcp.client._urlopen_no_redirect",
             side_effect=[urllib.error.URLError("temporary"), HealthyResponse()],
         ) as open_mock:
             payload = client.health()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import time
@@ -13,6 +14,23 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 READY_MCP_STATUSES = {200, 204, 307, 308, 400, 401, 403, 405, 406}
+WATCHDOG_ENDPOINT_RESPONSE_MAX_BYTES = 64 * 1024
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+
+
+def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float):
+    return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
 
 
 @dataclass(frozen=True)
@@ -49,6 +67,7 @@ def run_command(command: Sequence[str], *, timeout: int) -> CommandResult:
             check=False,
             text=True,
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             timeout=timeout,
         )
     except Exception as exc:
@@ -86,8 +105,8 @@ def check_endpoint(
     headers = {"Accept": "application/json" if expect_json_ok else "*/*"}
     request = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = response.read(65536)
+        with _urlopen_no_redirect(request, timeout=timeout) as response:
+            body = response.read(WATCHDOG_ENDPOINT_RESPONSE_MAX_BYTES + 1)
             return _endpoint_result_from_response(
                 response.status,
                 body,
@@ -95,7 +114,7 @@ def check_endpoint(
                 expect_json_ok=expect_json_ok,
             )
     except urllib.error.HTTPError as exc:
-        body = exc.read(65536)
+        body = exc.read(WATCHDOG_ENDPOINT_RESPONSE_MAX_BYTES + 1)
         return _endpoint_result_from_response(
             exc.code,
             body,
@@ -117,8 +136,25 @@ def _endpoint_result_from_response(
         return EndpointResult(False, status=status)
     if not expect_json_ok:
         return EndpointResult(True, status=status)
+    if len(body) > WATCHDOG_ENDPOINT_RESPONSE_MAX_BYTES:
+        return EndpointResult(
+            False,
+            status=status,
+            error=(
+                "invalid json: health response exceeds "
+                f"{WATCHDOG_ENDPOINT_RESPONSE_MAX_BYTES} bytes"
+            ),
+        )
     try:
-        payload = json.loads(body.decode("utf-8"))
+        payload = json.loads(body.decode("utf-8"), parse_constant=_reject_json_constant)
+        if not isinstance(payload, dict):
+            raise ValueError("health response must be a JSON object")
+    except RecursionError as exc:
+        return EndpointResult(
+            False,
+            status=status,
+            error=f"invalid json: health response JSON is too deeply nested: {exc}",
+        )
     except Exception as exc:
         return EndpointResult(False, status=status, error=f"invalid json: {exc}")
     return EndpointResult(bool(payload.get("ok")), status=status)
@@ -268,6 +304,49 @@ def _format_endpoint(result: EndpointResult) -> str:
     return f"failed/error={result.error}"
 
 
+def _env_float(
+    name: str,
+    default: float,
+    *,
+    minimum: float,
+    maximum: float | None = None,
+) -> float:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+    raw_value = raw_value.strip()
+    if not raw_value:
+        return default
+    try:
+        parsed = float(raw_value)
+    except (OverflowError, ValueError):
+        return default
+    if not math.isfinite(parsed):
+        return default
+    if maximum is not None and parsed > maximum:
+        return maximum
+    return max(minimum, parsed)
+
+
+def _env_int(name: str, default: int, *, minimum: int, maximum: int | None = None) -> int:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+    raw_value = raw_value.strip()
+    if not raw_value:
+        return default
+    try:
+        numeric = float(raw_value)
+    except (OverflowError, ValueError):
+        return default
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return default
+    if maximum is not None and numeric > maximum:
+        return maximum
+    parsed = int(numeric)
+    return max(minimum, parsed)
+
+
 def config_from_env(args: argparse.Namespace) -> WatchdogConfig:
     root_dir = Path(
         args.root_dir or os.environ.get("AUTOSTOP_WATCHDOG_ROOT") or str(PROJECT_ROOT)
@@ -293,9 +372,24 @@ def config_from_env(args: argparse.Namespace) -> WatchdogConfig:
                 str(root_dir / ".autostop-deploy.lock"),
             )
         ).resolve(),
-        request_timeout_seconds=float(os.environ.get("AUTOSTOP_WATCHDOG_TIMEOUT", "5")),
-        command_timeout_seconds=int(os.environ.get("AUTOSTOP_WATCHDOG_COMMAND_TIMEOUT", "30")),
-        post_recovery_delay_seconds=float(os.environ.get("AUTOSTOP_WATCHDOG_RECOVERY_DELAY", "8")),
+        request_timeout_seconds=_env_float(
+            "AUTOSTOP_WATCHDOG_TIMEOUT",
+            5.0,
+            minimum=0.1,
+            maximum=300.0,
+        ),
+        command_timeout_seconds=_env_int(
+            "AUTOSTOP_WATCHDOG_COMMAND_TIMEOUT",
+            30,
+            minimum=1,
+            maximum=3600,
+        ),
+        post_recovery_delay_seconds=_env_float(
+            "AUTOSTOP_WATCHDOG_RECOVERY_DELAY",
+            8.0,
+            minimum=0.0,
+            maximum=3600.0,
+        ),
     )
 
 

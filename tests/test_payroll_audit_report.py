@@ -4,8 +4,11 @@ import importlib.util
 import json
 import sys
 import unittest
+from contextlib import redirect_stdout
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,8 +35,27 @@ class FakeResponse:
     def __exit__(self, exc_type, exc, tb) -> None:
         _ = (exc_type, exc, tb)
 
-    def read(self) -> bytes:
-        return json.dumps(self._payload, ensure_ascii=False).encode("utf-8")
+    def read(self, size: int = -1) -> bytes:
+        body = json.dumps(self._payload, ensure_ascii=False).encode("utf-8")
+        if size is None or size < 0:
+            return body
+        return body[:size]
+
+
+class RawResponse:
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        _ = (exc_type, exc, tb)
+
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            return self._body
+        return self._body[:size]
 
 
 def _ok(data: dict[str, object]) -> dict[str, object]:
@@ -118,6 +140,159 @@ class PayrollAuditReportTests(unittest.TestCase):
 
         self.assertEqual(result["summary"]["issues_total"], 0)
         self.assertEqual(result["summary"]["employees_total"], 1)
+
+    def test_audit_ledger_reports_invalid_journal_total_without_crashing(self) -> None:
+        module = load_payroll_audit_report_module()
+
+        issues = module._audit_ledger(
+            {
+                "employee_id": "emp-1",
+                "employee_name": "Иван Мастер",
+                "accrued_total": "0",
+                "payout_total": "0",
+                "advance_total": "0",
+                "balance_total": "0",
+                "journal_total": 1e308,
+                "journal_rows": [],
+            },
+            {"id": "emp-1", "name": "Иван Мастер"},
+        )
+
+        self.assertEqual(
+            [item["code"] for item in issues], ["payroll_ledger_journal_count_mismatch"]
+        )
+
+    def test_build_payroll_audit_default_urlopen_does_not_follow_redirects(self) -> None:
+        module = load_payroll_audit_report_module()
+        responses = {
+            "/api/list_employees": _ok({"employees": []}),
+            "/api/get_payroll_report": _ok({"summary": [], "detail_rows": []}),
+        }
+        seen_paths: list[str] = []
+
+        def safe_urlopen(request, timeout):
+            _ = timeout
+            path = urlparse(request.full_url).path
+            seen_paths.append(path)
+            return FakeResponse(responses[path])
+
+        with (
+            patch.object(module, "_urlopen_no_redirect", side_effect=safe_urlopen) as opener,
+            patch.object(module.urllib.request, "urlopen") as urlopen,
+        ):
+            result = module.build_payroll_audit(
+                "https://crm.autostopcrm.ru",
+                months_back=1,
+                ledger_months=1,
+                reference=datetime(2026, 5, 29),
+            )
+
+        self.assertEqual(result["summary"]["issues_total"], 0)
+        self.assertEqual(seen_paths, ["/api/list_employees", "/api/get_payroll_report"])
+        self.assertEqual(opener.call_count, 2)
+        urlopen.assert_not_called()
+
+    def test_fetch_json_rejects_nonstandard_json_constants(self) -> None:
+        module = load_payroll_audit_report_module()
+
+        def fake_urlopen(request, timeout):
+            _ = (request, timeout)
+            return FakeResponse({"ok": True, "data": {"employees": [{"score": float("nan")}]}})
+
+        with self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"):
+            module._fetch_json(
+                "https://crm.autostopcrm.ru",
+                "/api/list_employees",
+                timeout=5,
+                urlopen=fake_urlopen,
+            )
+
+    def test_fetch_json_rejects_deeply_nested_response(self) -> None:
+        module = load_payroll_audit_report_module()
+        deep_json = ("[" * 5000 + "0" + "]" * 5000).encode("utf-8")
+
+        def fake_urlopen(request, timeout):
+            _ = (request, timeout)
+            return RawResponse(deep_json)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "payroll audit response JSON is too deeply nested",
+        ):
+            module._fetch_json(
+                "https://crm.autostopcrm.ru",
+                "/api/list_employees",
+                timeout=5,
+                urlopen=fake_urlopen,
+            )
+
+    def test_fetch_json_rejects_oversized_response(self) -> None:
+        module = load_payroll_audit_report_module()
+
+        class HugeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+
+            def read(self, size: int = -1) -> bytes:
+                return b"x" * max(0, size)
+
+        def fake_urlopen(request, timeout):
+            _ = (request, timeout)
+            return HugeResponse()
+
+        with patch.object(module, "AUDIT_RESPONSE_MAX_BYTES", 4):
+            with self.assertRaisesRegex(ValueError, "payroll audit response is too large"):
+                module._fetch_json(
+                    "https://crm.autostopcrm.ru",
+                    "/api/list_employees",
+                    timeout=5,
+                    urlopen=fake_urlopen,
+                )
+
+    def test_fetch_json_rejects_redirect_response(self) -> None:
+        module = load_payroll_audit_report_module()
+
+        def fake_urlopen(request, timeout):
+            _ = (request, timeout)
+            raise module.urllib.error.HTTPError(
+                url="https://crm.autostopcrm.ru/api/list_employees",
+                code=302,
+                msg="Found",
+                hdrs={"Location": "https://example.test/api/list_employees"},
+                fp=None,
+            )
+
+        with self.assertRaisesRegex(ValueError, "payroll audit response redirected"):
+            module._fetch_json(
+                "https://crm.autostopcrm.ru",
+                "/api/list_employees",
+                timeout=5,
+                urlopen=fake_urlopen,
+            )
+
+    def test_json_dumps_sanitizes_nonfinite_values(self) -> None:
+        module = load_payroll_audit_report_module()
+
+        encoded = module._json_dumps({"ok": True, "value": float("nan"), "ratio": 1.25})
+
+        self.assertNotIn("NaN", encoded)
+        self.assertEqual(json.loads(encoded), {"ok": True, "value": None, "ratio": 1.25})
+
+    def test_json_dumps_handles_self_referential_payload(self) -> None:
+        module = load_payroll_audit_report_module()
+        payload: dict[str, object] = {"ok": True}
+        payload["self"] = payload
+
+        encoded = module._json_dumps(payload)
+        decoded = json.loads(encoded)
+        node = decoded
+        for _ in range(8):
+            node = node["self"]
+
+        self.assertIsInstance(node, str)
 
     def test_build_payroll_audit_reports_mismatches_and_duplicates(self) -> None:
         module = load_payroll_audit_report_module()
@@ -598,6 +773,36 @@ class PayrollAuditReportTests(unittest.TestCase):
             "payroll_work_salary_formula_mismatch",
             {item["code"] for item in result["issues"]},
         )
+
+    def test_main_reports_invalid_json_without_traceback(self) -> None:
+        module = load_payroll_audit_report_module()
+        output = StringIO()
+
+        with (
+            patch.object(sys, "argv", ["payroll_audit_report.py"]),
+            patch.object(
+                module,
+                "build_payroll_audit",
+                side_effect=json.JSONDecodeError("bad json", "{", 0),
+            ),
+            redirect_stdout(output),
+        ):
+            exit_code = module.main()
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 2)
+        self.assertFalse(payload["ok"])
+        self.assertIn("bad json", payload["error"])
+
+    def test_cli_numeric_bounds_reject_huge_values(self) -> None:
+        module = load_payroll_audit_report_module()
+
+        self.assertEqual(module._bounded_int(1e308, default=1, minimum=1, maximum=24), 24)
+        self.assertEqual(module._bounded_int(-1e308, default=1, minimum=1, maximum=24), 1)
+        self.assertEqual(module._bounded_int("bad", default=6, minimum=1, maximum=24), 6)
+        self.assertEqual(module._bounded_timeout_seconds(1e308), 300.0)
+        self.assertEqual(module._bounded_timeout_seconds(0), 1.0)
+        self.assertEqual(module._bounded_timeout_seconds("bad"), 15.0)
 
 
 if __name__ == "__main__":

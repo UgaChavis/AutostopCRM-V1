@@ -331,7 +331,7 @@ PRINTING_WEB_MODULE_HTML = r"""
           </div>
           <div class="repair-order-print-preview__warnings" id="repairOrderPrintWarnings"></div>
           <div class="repair-order-print-preview-wrap" id="repairOrderPrintPreviewWrap">
-            <div class="repair-order-print-preview-stage" id="repairOrderPrintPreviewStage"><iframe class="repair-order-print-preview-frame" id="repairOrderPrintPreviewFrame" title="Предпросмотр документа"></iframe></div>
+            <div class="repair-order-print-preview-stage" id="repairOrderPrintPreviewStage"><iframe class="repair-order-print-preview-frame" id="repairOrderPrintPreviewFrame" title="Предпросмотр документа" sandbox="allow-same-origin"></iframe></div>
           </div>
         </section>
         <section class="repair-order-print-panel repair-order-print-panel--settings" hidden>
@@ -463,13 +463,13 @@ PRINTING_WEB_MODULE_HTML = r"""
             <select id="printTemplateTokenSelect"></select>
             <button class="btn btn--ghost" id="printTemplateInsertTokenButton" type="button">ВСТАВИТЬ ПОЛЕ</button>
           </div>
-          <div class="print-template-editor__surface-wrap"><iframe class="print-template-editor__surface-frame" id="printTemplateVisualEditorFrame" title="Визуальный редактор шаблона"></iframe></div>
+          <div class="print-template-editor__surface-wrap"><iframe class="print-template-editor__surface-frame" id="printTemplateVisualEditorFrame" title="Визуальный редактор шаблона" sandbox="allow-same-origin"></iframe></div>
           <details class="print-template-editor__source" id="printTemplateSourceSection"><summary>Исходный шаблон</summary><textarea id="printTemplateContent" spellcheck="false"></textarea></details>
         </section>
         <section class="print-template-editor__preview">
           <div class="print-template-editor__title">Предпросмотр</div>
           <div class="print-template-editor__meta" id="printTemplatePreviewMeta">Предпросмотр использует текущий заказ-наряд как тестовые данные.</div>
-          <div class="print-template-editor__preview-wrap"><iframe class="print-template-editor__preview-frame" id="printTemplatePreviewFrame" title="Предпросмотр шаблона"></iframe></div>
+          <div class="print-template-editor__preview-wrap"><iframe class="print-template-editor__preview-frame" id="printTemplatePreviewFrame" title="Предпросмотр шаблона" sandbox="allow-same-origin"></iframe></div>
         </section>
       </div>
       <div class="dialog__foot print-template-editor__footer dialog__floating-actions">
@@ -720,6 +720,12 @@ _PRINTING_SCRIPT_PART1 = r"""
       { label: 'Расчетный счет', value: '{{service.settlement_account}}' },
       { label: 'Условия приема', value: '{{{repair_order.acceptance_terms_html}}}' },
     ];
+    const PRINT_TEMPLATE_UPLOAD_MAX_SIZE_BYTES = 256 * 1024;
+
+    function printFiniteNumber(value, fallback = 0) {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : fallback;
+    }
 
     function buildPrintTemplateVisualEditorHtml(content) {
       return '<!doctype html><html><head><meta charset="utf-8"><style>'
@@ -729,11 +735,7 @@ _PRINTING_SCRIPT_PART1 = r"""
         + 'table{border-collapse:collapse;width:100%;}'
         + 'td,th{border:1px solid #d6d6d6;padding:6px 8px;vertical-align:top;}'
         + '.token{display:inline-block;padding:2px 6px;border-radius:999px;background:#eef3e8;border:1px solid #cad6be;font:12px/1.2 Consolas,monospace;color:#35412f;white-space:nowrap;}'
-        + '</style></head><body><div id=\"editor\" contenteditable=\"true\"></div><script>'
-        + 'const editor=document.getElementById(\"editor\");'
-        + 'editor.innerHTML=' + JSON.stringify(String(content || '')) + ';'
-        + 'document.addEventListener(\"selectionchange\",()=>{window.parent?.postMessage({type:\"print-template-selection-change\"},\"*\");});'
-        + '<\/script></body></html>';
+        + '</style></head><body><div id=\"editor\" contenteditable=\"true\"></div></body></html>';
     }
 
     function buildPrintTemplateEditorFallbackHtml(title, message, detail = '') {
@@ -790,6 +792,7 @@ _PRINTING_SCRIPT_PART1 = r"""
       const doc = printEls.templateVisualEditorFrame?.contentDocument;
       const editor = doc?.getElementById('editor');
       if (!editor) return;
+      editor.innerHTML = printEls.templateContent?.value || '';
       editor.addEventListener('input', () => {
         if (printEls.templateContent) {
           printEls.templateContent.value = editor.innerHTML;
@@ -865,8 +868,8 @@ _PRINTING_SCRIPT_PART1 = r"""
     function repairOrderPrintCurrentPageIndex() {
       const activeId = repairOrderPrintActiveDocument();
       const preview = repairOrderPrintCurrentPreview();
-      const pageCount = Math.max(1, Number(preview?.page_count || preview?.pages?.length || 1));
-      const current = Number(repairOrderPrintState.pageIndexByDocument?.[activeId] || 0);
+      const pageCount = Math.max(1, printFiniteNumber(preview?.page_count ?? preview?.pages?.length, 1));
+      const current = printFiniteNumber(repairOrderPrintState.pageIndexByDocument?.[activeId]);
       return Math.max(0, Math.min(pageCount - 1, current));
     }
 
@@ -890,7 +893,7 @@ _PRINTING_SCRIPT_PART1 = r"""
     function repairOrderPrintSettingsPayload() {
       return {
         default_printer: printEls.printerSelect?.value || '',
-        copies: Number(printEls.copies?.value || 1) || 1,
+        copies: Math.max(1, Math.min(20, printFiniteNumber(printEls.copies?.value, 1))),
         paper_size: printEls.paperSize?.value || 'A4',
         orientation: printEls.orientation?.value || 'portrait',
         service_profile: {
@@ -1270,7 +1273,7 @@ _PRINTING_SCRIPT_PART2 = r"""
       if (printEls.printerSelect) {
         printEls.printerSelect.innerHTML = (data?.printers || []).map((printer) => '<option value="' + escapeHtml(printer.name) + '"' + (printer.is_default ? ' selected' : '') + '>' + escapeHtml(printer.label || printer.name) + '</option>').join('') || '<option value="">PDF export only</option>';
       }
-      if (printEls.copies) printEls.copies.value = String(settings.copies || 1);
+      if (printEls.copies) printEls.copies.value = String(settings.copies ?? 1);
       if (printEls.paperSize) printEls.paperSize.value = settings.paper_size || 'A4';
       if (printEls.orientation) printEls.orientation.value = settings.orientation || 'portrait';
       if (printEls.profileCompanyName) printEls.profileCompanyName.value = profile.company_name || '';
@@ -1365,10 +1368,10 @@ _PRINTING_SCRIPT_PART2 = r"""
     function repairOrderPrintScale() {
       const viewport = repairOrderPrintPreviewViewport();
       if (repairOrderPrintState.zoomMode === 'fit') {
-        const availableWidth = Math.max(320, (printEls.previewWrap?.clientWidth || viewport.width) - 24);
-        return Math.max(0.3, Math.min(1, availableWidth / viewport.width));
+        const availableWidth = Math.max(320, (printEls.previewWrap?.clientWidth ?? viewport.width) - 24);
+        return Math.max(0.3, Math.min(1.2, availableWidth / Math.max(viewport.width, 1)));
       }
-      return Math.max(0.4, Math.min(2, Number(repairOrderPrintState.zoom || 1)));
+      return Math.max(0.4, Math.min(2, printFiniteNumber(repairOrderPrintState.zoom, 1)));
     }
 
     function applyRepairOrderPrintZoom() {
@@ -1392,16 +1395,17 @@ _PRINTING_SCRIPT_PART2 = r"""
       const pageIndex = repairOrderPrintCurrentPageIndex();
       const page = preview?.pages?.[pageIndex] || null;
       printEls.activeLabel.textContent = activeDoc ? ('Предпросмотр · ' + activeDoc.label) : 'Предпросмотр';
-      printEls.pageMeta.textContent = preview ? ('Страница ' + (pageIndex + 1) + ' / ' + Math.max(1, preview.page_count || preview.pages?.length || 1)) : 'Страница 1 / 1';
+      const previewPageCount = Math.max(1, printFiniteNumber(preview?.page_count ?? preview?.pages?.length ?? 1, 1));
+      printEls.pageMeta.textContent = preview ? ('Страница ' + (pageIndex + 1) + ' / ' + previewPageCount) : 'Страница 1 / 1';
       printEls.prevPageButton.disabled = !preview || pageIndex <= 0;
-      printEls.nextPageButton.disabled = !preview || pageIndex >= Math.max(0, (preview.page_count || preview.pages?.length || 1) - 1);
+      printEls.nextPageButton.disabled = !preview || pageIndex >= Math.max(0, previewPageCount - 1);
       const warnings = [];
       if (Array.isArray(preview?.warnings)) warnings.push(...preview.warnings);
       if (Array.isArray(preview?.missing_fields) && preview.missing_fields.length) warnings.push('Проверьте поля: ' + preview.missing_fields.join(', '));
       printEls.warnings.textContent = warnings.join(' · ');
       printEls.previewFrame.srcdoc = page?.html || '<!doctype html><html lang="ru"><body style="font-family: Segoe UI, sans-serif; padding: 32px; color: #444">Выберите документ для предпросмотра.</body></html>';
       window.setTimeout(repairOrderPrintResetPreviewScroll, 0);
-      printEls.footerMeta.textContent = preview ? ('Документ: ' + (activeDoc?.label || activeId) + '. Страниц: ' + Math.max(1, preview.page_count || preview.pages?.length || 1) + '.') : 'PDF генерируется из шаблона и текущих данных заказ-наряда.';
+      printEls.footerMeta.textContent = preview ? ('Документ: ' + (activeDoc?.label || activeId) + '. Страниц: ' + previewPageCount + '.') : 'PDF генерируется из шаблона и текущих данных заказ-наряда.';
       applyRepairOrderPrintZoom();
     }
 
@@ -1622,6 +1626,7 @@ _PRINTING_SCRIPT_PART3 = r"""
         frame.style.height = '1px';
         frame.style.border = '0';
         frame.setAttribute('aria-hidden', 'true');
+        frame.setAttribute('sandbox', 'allow-same-origin allow-modals');
         frame.onload = () => {
           if (printStarted) return;
           printStarted = true;
@@ -1854,7 +1859,7 @@ _PRINTING_SCRIPT_PART3 = r"""
         const previewHtml = documentPreview?.pages?.[0]?.html || '';
         if (previewHtml) {
           printEls.templatePreviewFrame.srcdoc = previewHtml;
-          printEls.templatePreviewMeta.textContent = 'Страниц в предпросмотре: ' + Math.max(1, documentPreview.page_count || documentPreview.pages?.length || 1);
+          printEls.templatePreviewMeta.textContent = 'Страниц в предпросмотре: ' + Math.max(1, printFiniteNumber(documentPreview.page_count ?? documentPreview.pages?.length ?? 1, 1));
           return;
         }
         printEls.templatePreviewFrame.srcdoc = buildPrintTemplateEditorFallbackHtml(
@@ -1966,6 +1971,10 @@ _PRINTING_SCRIPT_PART3 = r"""
       if (!(input instanceof HTMLInputElement) || !input.files?.length) return;
       const file = input.files[0];
       try {
+        if (file.size > PRINT_TEMPLATE_UPLOAD_MAX_SIZE_BYTES) {
+          setStatus('Файл шаблона слишком большой. Максимум: 256 КБ.', true);
+          return;
+        }
         printEls.templateName.value = (file.name || 'uploaded-template').replace(/\.[^.]+$/, '');
         loadPrintTemplateEditorContent(await file.text());
         repairOrderPrintState.templateEditor.templateId = '';
@@ -2011,8 +2020,8 @@ _PRINTING_SCRIPT_PART3 = r"""
       const row = removeButton.closest('[data-inspection-row-kind]');
       if (!row) return;
       const kind = row.getAttribute('data-inspection-row-kind') || '';
-      const index = Number(row.getAttribute('data-inspection-row-index') || '-1');
-      if (!kind || Number.isNaN(index)) return;
+      const index = printFiniteNumber(row.getAttribute('data-inspection-row-index'), -1);
+      if (!kind || index < 0) return;
       removeInspectionSheetTableRow(kind, index);
     }
 

@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import logging
+import math
 import statistics
 import sys
 import time
@@ -20,6 +21,28 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, str | bool | int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, list | tuple | set):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _json_dumps(payload: Any) -> str:
+    return json.dumps(_json_safe_value(payload), ensure_ascii=False, indent=2, allow_nan=False)
 
 
 @dataclass
@@ -42,20 +65,58 @@ def percentile(values: list[float], ratio: float) -> float:
     return ordered[index]
 
 
+def _safe_float(value: Any, *, default: float = 0.0) -> float:
+    if isinstance(value, bool):
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return parsed if math.isfinite(parsed) else default
+
+
+def _safe_int(value: Any, *, default: int = 0, maximum: int = 1_000_000_000) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if not math.isfinite(parsed) or not parsed.is_integer():
+        return default
+    if parsed < 0:
+        return default
+    if parsed > maximum:
+        return maximum
+    return int(parsed)
+
+
+def _bounded_iterations(value: Any) -> int:
+    return max(1, _safe_int(value, default=3, maximum=100))
+
+
+def _bounded_port(value: Any, *, default: int) -> int:
+    port = _safe_int(value, default=default, maximum=65535)
+    return port if port >= 1 else default
+
+
 def payload_size(payload: Any) -> int:
     try:
         return len(
-            json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str).encode(
-                "utf-8"
-            )
+            json.dumps(
+                _json_safe_value(payload),
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
         )
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return 0
 
 
 def summarize(samples: list[dict[str, Any]], scenario: str) -> dict[str, Any]:
-    durations = [float(item.get("duration_ms") or 0.0) for item in samples]
-    payload_sizes = [int(item.get("payload_bytes") or 0) for item in samples]
+    durations = [_safe_float(item.get("duration_ms")) for item in samples]
+    payload_sizes = [_safe_int(item.get("payload_bytes")) for item in samples]
     meta_entries = [item.get("meta") for item in samples if isinstance(item.get("meta"), dict)]
     errors = [str(item.get("error")) for item in samples if item.get("error")]
     return {
@@ -247,7 +308,9 @@ async def run_mcp_perf(args: argparse.Namespace) -> dict[str, Any]:
     }
     try:
         timeout = httpx.Timeout(45.0, connect=10.0, read=45.0, write=45.0, pool=45.0)
-        async with httpx.AsyncClient(headers=headers, timeout=timeout) as http_client:
+        async with httpx.AsyncClient(
+            headers=headers, timeout=timeout, follow_redirects=False
+        ) as http_client:
             async with streamable_http_client(mcp_url, http_client=http_client) as (
                 read,
                 write,
@@ -360,17 +423,28 @@ async def run_mcp_perf(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run AutoStop CRM MCP performance workflows.")
     parser.add_argument("--mcp-url", default="https://crm.autostopcrm.ru/mcp")
-    parser.add_argument("--iterations", type=int, default=3)
+    parser.add_argument("--iterations", default=3)
     parser.add_argument("--card-id", default="")
     parser.add_argument("--bearer-token", default="")
     parser.add_argument("--local-temp-server", action="store_true")
     parser.add_argument("--allow-live-writes", action="store_true")
-    parser.add_argument("--start-port", type=int, default=42731)
-    parser.add_argument("--mcp-start-port", type=int, default=42831)
+    parser.add_argument("--start-port", default=42731)
+    parser.add_argument("--mcp-start-port", default=42831)
     args = parser.parse_args()
+    args.iterations = _bounded_iterations(args.iterations)
+    args.start_port = _bounded_port(args.start_port, default=42731)
+    args.mcp_start_port = _bounded_port(args.mcp_start_port, default=42831)
 
-    result = asyncio.run(run_mcp_perf(args))
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    try:
+        result = asyncio.run(run_mcp_perf(args))
+    except Exception as exc:  # noqa: BLE001 - perf CLI must report connection/setup failures.
+        print(
+            _json_dumps(
+                {"ok": False, "mcp_url": args.mcp_url, "error": str(exc)},
+            )
+        )
+        return 2
+    print(_json_dumps(result))
     failed = [
         row
         for row in result.get("rows", [])

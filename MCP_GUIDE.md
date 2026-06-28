@@ -47,8 +47,9 @@ Saved settings live in the compatibility path
 security allowlist entries.
 
 Production can publish embedded OAuth/DCR metadata for ChatGPT linking when
-bearer mode is enabled. Manual MCP clients and Responses API integrations may
-pass bearer auth directly.
+bearer mode is enabled. Embedded OAuth registration accepts ChatGPT connector
+redirect URIs; manual MCP clients and Responses API integrations may pass bearer
+auth directly.
 
 ## ChatGPT Connector
 

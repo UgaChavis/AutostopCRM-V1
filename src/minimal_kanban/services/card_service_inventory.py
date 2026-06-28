@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import uuid
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -653,14 +654,27 @@ class CardServiceInventoryMixin:
     def _inventory_target_row_index(self, value: Any, rows: list[dict[str, Any]]) -> int:
         if value in (None, ""):
             return len(rows)
-        try:
-            row_index = int(value)
-        except (TypeError, ValueError):
+        if isinstance(value, bool):
             self._fail(
                 "validation_error",
                 "Индекс строки материалов должен быть целым числом.",
                 details={"field": "row_index"},
             )
+        try:
+            numeric = float(value)
+        except (OverflowError, TypeError, ValueError):
+            self._fail(
+                "validation_error",
+                "Индекс строки материалов должен быть целым числом.",
+                details={"field": "row_index"},
+            )
+        if not math.isfinite(numeric) or not numeric.is_integer():
+            self._fail(
+                "validation_error",
+                "Индекс строки материалов должен быть целым числом.",
+                details={"field": "row_index"},
+            )
+        row_index = int(numeric)
         if row_index < 0 or row_index > len(rows):
             self._fail(
                 "validation_error",
@@ -673,9 +687,16 @@ class CardServiceInventoryMixin:
         self, rows: list[dict[str, Any]], movement_id: str, fallback_index: int
     ) -> int:
         if 0 <= fallback_index < len(rows):
-            if normalize_text(rows[fallback_index].get("inventory_movement_id")) == movement_id:
+            fallback_row = rows[fallback_index]
+            if (
+                isinstance(fallback_row, dict)
+                and normalize_text(fallback_row.get("inventory_movement_id")) == movement_id
+            ):
                 return fallback_index
         for index, row in enumerate(rows):
-            if normalize_text(row.get("inventory_movement_id")) == movement_id:
+            if (
+                isinstance(row, dict)
+                and normalize_text(row.get("inventory_movement_id")) == movement_id
+            ):
                 return index
         return -1

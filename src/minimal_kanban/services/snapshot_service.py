@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Callable
 from datetime import datetime
 from threading import RLock
@@ -15,6 +16,7 @@ from ..models import (
     StickyNote,
     business_timezone,
     normalize_actor_name,
+    normalize_int,
     normalize_text,
     parse_datetime,
     short_entity_id,
@@ -31,6 +33,7 @@ GPT_WALL_MARKDOWN_LINE_LIMIT = 3000
 GPT_WALL_AGENT_EVENT_LIMIT = 20
 CARD_JOURNAL_COMPACT_DEFAULT_LIMIT = 50
 CARD_JOURNAL_COMPACT_TEXT_LIMIT = 1200
+CARD_JOURNAL_COUNT_MAX = 1_000_000_000
 
 CARD_JOURNAL_ACTION_LABELS = {
     "card_created": "Создана карточка",
@@ -232,6 +235,37 @@ CARD_JOURNAL_PAYMENT_METHOD_LABELS = {
 }
 
 
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, str | bool | int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(key): _json_safe_value(item, depth=depth - 1) for key, item in value.items()}
+    if isinstance(value, list | tuple | set):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _json_dumps(
+    payload: Any,
+    *,
+    indent: int | None = None,
+    sort_keys: bool = False,
+    separators: tuple[str, str] | None = None,
+) -> str:
+    return json.dumps(
+        _json_safe_value(payload),
+        ensure_ascii=False,
+        indent=indent,
+        sort_keys=sort_keys,
+        separators=separators,
+        allow_nan=False,
+    )
+
+
 class SnapshotService:
     def __init__(
         self,
@@ -376,9 +410,7 @@ class SnapshotService:
             "include_archive": include_archive,
             "archive_limit": archive_limit,
         }
-        serialized = json.dumps(
-            revision_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        )
+        serialized = _json_dumps(revision_payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha1(serialized.encode("utf-8")).hexdigest()
 
     def _markdown_value(self, value: Any) -> str:
@@ -387,7 +419,7 @@ class SnapshotService:
         if isinstance(value, bool):
             return "true" if value else "false"
         if isinstance(value, (dict, list)):
-            return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            return _json_dumps(value, sort_keys=True, separators=(",", ":"))
         return str(value).replace("\r", " ").replace("\n", " / ").strip() or "null"
 
     def _append_markdown_block(self, lines: list[str], key: str, value: Any) -> None:
@@ -1458,7 +1490,7 @@ class SnapshotService:
         if isinstance(value, bool):
             return "да" if value else "нет"
         if isinstance(value, (dict, list)):
-            return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            return _json_dumps(value, sort_keys=True, separators=(",", ":"))
         return normalize_text(value, default="—", limit=240) or "—"
 
     def _card_log_full_value_text(self, value: Any) -> str:
@@ -1469,11 +1501,15 @@ class SnapshotService:
         if isinstance(value, bool):
             return "да" if value else "нет"
         if isinstance(value, (dict, list)):
-            return json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2)
+            return _json_dumps(value, sort_keys=True, indent=2)
         return str(value)
 
+    def _card_log_count_value(self, value: Any) -> int:
+        return normalize_int(value, default=0, maximum=CARD_JOURNAL_COUNT_MAX)
+
     def _card_log_plural_ru(self, count: int, one: str, few: str, many: str) -> str:
-        value = abs(int(count))
+        count_value = self._card_log_count_value(count)
+        value = abs(count_value)
         if value % 100 in {11, 12, 13, 14}:
             word = many
         elif value % 10 == 1:
@@ -1482,22 +1518,34 @@ class SnapshotService:
             word = few
         else:
             word = many
-        return f"{count} {word}"
+        return f"{count_value} {word}"
 
     def _card_log_count_summary(self, item: dict[str, object]) -> str:
         return " | ".join(
             [
                 self._card_log_plural_ru(
-                    int(item.get("count") or 0), "событие", "события", "событий"
+                    self._card_log_count_value(item.get("count")),
+                    "событие",
+                    "события",
+                    "событий",
                 ),
                 self._card_log_plural_ru(
-                    int(item.get("changes") or 0), "изменение", "изменения", "изменений"
+                    self._card_log_count_value(item.get("changes")),
+                    "изменение",
+                    "изменения",
+                    "изменений",
                 ),
                 self._card_log_plural_ru(
-                    int(item.get("deletions") or 0), "очищение", "очищения", "очищений"
+                    self._card_log_count_value(item.get("deletions")),
+                    "очищение",
+                    "очищения",
+                    "очищений",
                 ),
                 self._card_log_plural_ru(
-                    int(item.get("actors") or 0), "участник", "участника", "участников"
+                    self._card_log_count_value(item.get("actors")),
+                    "участник",
+                    "участника",
+                    "участников",
                 ),
             ]
         )
@@ -1518,11 +1566,15 @@ class SnapshotService:
         if self._card_log_is_empty_value(value):
             return ""
         try:
-            seconds = int(float(str(value)))
-        except (TypeError, ValueError):
+            numeric_seconds = float(str(value))
+        except (OverflowError, TypeError, ValueError):
             return self._card_log_trim_human_text(value, limit=120)
-        if seconds <= 0:
+        if not math.isfinite(numeric_seconds):
+            return self._card_log_trim_human_text(value, limit=120)
+        if numeric_seconds <= 0:
             return "без срока"
+        numeric_seconds = min(numeric_seconds, 365 * 86400)
+        seconds = int(numeric_seconds)
         days, remainder = divmod(seconds, 86400)
         hours, remainder = divmod(remainder, 3600)
         minutes = remainder // 60
@@ -2276,6 +2328,13 @@ class SnapshotService:
     def _card_log_week_label(self, week_key: str) -> str:
         try:
             year_text, week_text = week_key.split("-W", 1)
+            if (
+                not year_text.isdecimal()
+                or not week_text.isdecimal()
+                or len(year_text) != 4
+                or len(week_text) > 2
+            ):
+                return week_key
             start = datetime.fromisocalendar(int(year_text), int(week_text), 1)
             end = datetime.fromisocalendar(int(year_text), int(week_text), 7)
         except (ValueError, TypeError):
@@ -2315,7 +2374,9 @@ class SnapshotService:
             "actions": len(
                 {str(item.get("action") or "") for item in entries if item.get("action")}
             ),
-            "changes": sum(int(item.get("change_count") or 0) for item in entries),
+            "changes": sum(
+                self._card_log_count_value(item.get("change_count")) for item in entries
+            ),
             "deletions": sum(1 for item in entries if item.get("has_deletion")),
         }
 
@@ -2335,11 +2396,11 @@ class SnapshotService:
             "",
             "## 📊 Итоги карточки",
             f"- Карточка: {card.heading()}",
-            f"- Показано: {self._card_log_plural_ru(int(totals['count']), 'событие', 'события', 'событий')} из {meta['events_total']}",
-            f"- Участвовали: {self._card_log_plural_ru(int(totals['actors']), 'человек', 'человека', 'человек')}",
-            f"- Разных действий: {self._card_log_plural_ru(int(totals['actions']), 'тип', 'типа', 'типов')}",
-            f"- Изменений в полях: {self._card_log_plural_ru(int(totals['changes']), 'изменение', 'изменения', 'изменений')}",
-            f"- Очищений/удалений: {self._card_log_plural_ru(int(totals['deletions']), 'случай', 'случая', 'случаев')}",
+            f"- Показано: {self._card_log_plural_ru(self._card_log_count_value(totals.get('count')), 'событие', 'события', 'событий')} из {meta['events_total']}",
+            f"- Участвовали: {self._card_log_plural_ru(self._card_log_count_value(totals.get('actors')), 'человек', 'человека', 'человек')}",
+            f"- Разных действий: {self._card_log_plural_ru(self._card_log_count_value(totals.get('actions')), 'тип', 'типа', 'типов')}",
+            f"- Изменений в полях: {self._card_log_plural_ru(self._card_log_count_value(totals.get('changes')), 'изменение', 'изменения', 'изменений')}",
+            f"- Очищений/удалений: {self._card_log_plural_ru(self._card_log_count_value(totals.get('deletions')), 'случай', 'случая', 'случаев')}",
         ]
         if meta.get("has_more"):
             lines.append("- Показана только часть журнала по лимиту выгрузки.")

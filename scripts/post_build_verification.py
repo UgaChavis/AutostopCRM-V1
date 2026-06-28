@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
+import secrets
 import shutil
 import socket
 import subprocess
@@ -11,12 +13,95 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 DEFAULT_PORTS = [f"http://127.0.0.1:{port}" for port in range(41731, 41741)]
+POST_BUILD_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
+POST_BUILD_LOG_TAIL_MAX_BYTES = 512 * 1024
 
 
 class VerificationError(RuntimeError):
     pass
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+
+
+def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float):
+    return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _json_safe_value(value, *, depth: int = 8):
+    if depth < 0:
+        return str(value)
+    if value is None or isinstance(value, str | bool | int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, list | tuple | set):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _json_dumps(payload) -> str:
+    return json.dumps(_json_safe_value(payload), ensure_ascii=True, indent=2, allow_nan=False)
+
+
+def _board_scale_value(value: Any, *, context: str) -> float:
+    if isinstance(value, bool):
+        raise VerificationError(f"{context} returned invalid board_scale.")
+    try:
+        parsed = float(value)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise VerificationError(f"{context} returned invalid board_scale.") from exc
+    if not math.isfinite(parsed) or parsed < 0.5 or parsed > 1.5:
+        raise VerificationError(f"{context} returned invalid board_scale.")
+    return parsed
+
+
+def _read_response_body(
+    response: Any, *, limit_bytes: int = POST_BUILD_RESPONSE_MAX_BYTES
+) -> bytes:
+    body = response.read(limit_bytes + 1)
+    if len(body) > limit_bytes:
+        raise ValueError(
+            f"Post-build verification response is too large ({limit_bytes} byte limit)"
+        )
+    return body
+
+
+def _load_response_json(raw: bytes, *, context: str) -> dict:
+    try:
+        decoded = json.loads(raw.decode("utf-8"), parse_constant=_reject_json_constant)
+    except RecursionError as exc:
+        raise ValueError(f"{context} JSON is too deeply nested") from exc
+    if not isinstance(decoded, dict):
+        raise ValueError(f"{context} must be a JSON object")
+    return decoded
+
+
+def _read_log_tail_text(path: Path) -> str:
+    size = path.stat().st_size
+    with path.open("rb") as handle:
+        if size > POST_BUILD_LOG_TAIL_MAX_BYTES:
+            handle.seek(size - POST_BUILD_LOG_TAIL_MAX_BYTES)
+        raw = handle.read(POST_BUILD_LOG_TAIL_MAX_BYTES)
+    return raw.decode("utf-8", errors="ignore")
 
 
 def send_request(
@@ -33,26 +118,40 @@ def send_request(
         request_headers.update(headers)
     data = raw_body
     if raw_body is None and payload is not None:
-        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        data = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
     request = urllib.request.Request(
         f"{base_url}{path}", data=data, headers=request_headers, method=method
     )
     try:
-        with urllib.request.urlopen(request, timeout=5) as response:
-            return response.status, json.loads(response.read().decode("utf-8"))
+        with _urlopen_no_redirect(request, timeout=5) as response:
+            decoded = _load_response_json(_read_response_body(response), context="API response")
+            return response.status, decoded
     except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+        if 300 <= exc.code < 400:
+            raise ValueError(f"Post-build verification request redirected: {path}") from exc
+        decoded = _load_response_json(_read_response_body(exc), context="API error response")
+        return exc.code, decoded
 
 
-def login_operator_headers(base_url: str) -> dict[str, str]:
+def login_operator_headers(base_url: str, *, username: str, password: str) -> dict[str, str]:
     status, response = send_request(
         base_url,
         "/api/login_operator",
-        {"username": "admin", "password": "admin"},
+        {"username": username, "password": password},
     )
     payload = assert_ok(status, response, context="login_operator")
     token = str(payload["session"]["token"])
     return {"X-Operator-Session": token}
+
+
+def _operator_credentials(*, username: str = "", password: str = "") -> tuple[str, str]:
+    resolved_username = (
+        username or os.environ.get("AUTOSTOP_SMOKE_OPERATOR_USERNAME") or "release-smoke-admin"
+    )
+    resolved_password = password or os.environ.get("AUTOSTOP_SMOKE_OPERATOR_PASSWORD")
+    if not resolved_password:
+        resolved_password = f"ReleaseSmoke-{secrets.token_urlsafe(18)}1!"
+    return resolved_username, resolved_password
 
 
 def reserve_port() -> int:
@@ -106,7 +205,7 @@ def launch_app(
     env["MINIMAL_KANBAN_API_PORT_FALLBACK_LIMIT"] = str(api_fallback_limit)
     if extra_env:
         env.update(extra_env)
-    return subprocess.Popen([str(executable)], env=env)
+    return subprocess.Popen([str(executable)], env=env, stdin=subprocess.DEVNULL)
 
 
 def stop_process(process: subprocess.Popen) -> None:
@@ -371,7 +470,12 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     )
     report["board_snapshot"] = board_snapshot_response
     board_snapshot = assert_ok(status, board_snapshot_response, context="get_board_snapshot")
-    if float(board_snapshot["settings"].get("board_scale", 0)) != 1.0:
+    if (
+        _board_scale_value(
+            board_snapshot["settings"].get("board_scale", 0), context="get_board_snapshot"
+        )
+        != 1.0
+    ):
         raise VerificationError("A fresh board should start with board_scale = 1.0.")
     _ = find_sticky(board_snapshot, sticky_id, context="get_board_snapshot")
 
@@ -394,7 +498,12 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     )
     report["update_board_settings"] = board_scale_response
     board_scale_payload = assert_ok(status, board_scale_response, context="update_board_settings")
-    if float(board_scale_payload["settings"].get("board_scale", 0)) != 1.25:
+    if (
+        _board_scale_value(
+            board_scale_payload["settings"].get("board_scale", 0), context="update_board_settings"
+        )
+        != 1.25
+    ):
         raise VerificationError("Board scale 1.25 was not persisted.")
 
     status, moved_sticky_response = send_request(
@@ -430,7 +539,13 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
     updated_snapshot = assert_ok(
         status, updated_snapshot_response, context="get_board_snapshot_after_updates"
     )
-    if float(updated_snapshot["settings"].get("board_scale", 0)) != 1.25:
+    if (
+        _board_scale_value(
+            updated_snapshot["settings"].get("board_scale", 0),
+            context="get_board_snapshot_after_updates",
+        )
+        != 1.25
+    ):
         raise VerificationError("Board snapshot does not reflect updated board scale.")
     updated_snapshot_sticky = find_sticky(
         updated_snapshot, sticky_id, context="get_board_snapshot_after_updates"
@@ -484,7 +599,10 @@ def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) 
         "sticky_id": sticky_id,
         "sticky_remaining_before_restart": persistence_sticky_before_restart["remaining_seconds"],
         "sticky_deadline_timestamp": persistence_sticky_before_restart["deadline_timestamp"],
-        "board_scale": float(persistence_snapshot["settings"].get("board_scale", 1.0)),
+        "board_scale": _board_scale_value(
+            persistence_snapshot["settings"].get("board_scale", 1.0),
+            context="persistence_snapshot_before_restart",
+        ),
         "custom_column_id": custom_column_id,
         "report": report,
     }
@@ -624,7 +742,12 @@ def verify_persistence(
     status, snapshot_response = send_request(base_url, "/api/get_board_snapshot", method="GET")
     report["board_snapshot_after_restart"] = snapshot_response
     snapshot = assert_ok(status, snapshot_response, context="board_snapshot_after_restart")
-    if float(snapshot["settings"].get("board_scale", 0)) != board_scale:
+    if (
+        _board_scale_value(
+            snapshot["settings"].get("board_scale", 0), context="board_snapshot_after_restart"
+        )
+        != board_scale
+    ):
         raise VerificationError("Board scale was not preserved after restart.")
     persisted_sticky = find_sticky(snapshot, sticky_id, context="board_snapshot_after_restart")
     if persisted_sticky["deadline_timestamp"] != sticky_deadline_timestamp:
@@ -687,7 +810,7 @@ def verify_startup_error_handling(executable: Path, appdata_root: Path) -> dict:
             time.sleep(0.5)
         if not log_file.exists():
             raise VerificationError("No log file was created after the forced startup failure.")
-        log_text = log_file.read_text(encoding="utf-8", errors="ignore")
+        log_text = _read_log_tail_text(log_file)
         if "failed_to_start_api" not in log_text:
             raise VerificationError("Startup failure was not recorded in application logs.")
 
@@ -714,6 +837,8 @@ def verify_startup_error_handling(executable: Path, appdata_root: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--app-executable", type=Path, required=True)
+    parser.add_argument("--operator-username", default="")
+    parser.add_argument("--operator-password", default="")
     args = parser.parse_args()
 
     workspace = Path(tempfile.mkdtemp(prefix="minimal-kanban-verification-"))
@@ -730,9 +855,27 @@ def main() -> int:
         if not executable.exists():
             raise VerificationError(f"Executable was not found for verification: {executable}")
 
-        process = launch_app(executable, appdata_root, api_port=api_port)
+        operator_username, operator_password = _operator_credentials(
+            username=args.operator_username,
+            password=args.operator_password,
+        )
+        operator_env = {
+            "MINIMAL_KANBAN_DEFAULT_ADMIN_USERNAME": operator_username,
+            "MINIMAL_KANBAN_DEFAULT_ADMIN_PASSWORD": operator_password,
+        }
+
+        process = launch_app(
+            executable,
+            appdata_root,
+            api_port=api_port,
+            extra_env=operator_env,
+        )
         base_url = wait_for_api(base_urls=[expected_base_url])
-        operator_headers = login_operator_headers(base_url)
+        operator_headers = login_operator_headers(
+            base_url,
+            username=operator_username,
+            password=operator_password,
+        )
         positive = run_positive_api_checks(base_url, operator_headers=operator_headers)
         negative = run_negative_api_checks(base_url, operator_headers=operator_headers)
         report["base_url"] = base_url
@@ -743,7 +886,12 @@ def main() -> int:
         process = None
         wait_for_api_shutdown(base_url)
 
-        process_after_restart = launch_app(executable, appdata_root, api_port=api_port)
+        process_after_restart = launch_app(
+            executable,
+            appdata_root,
+            api_port=api_port,
+            extra_env=operator_env,
+        )
         base_url = wait_for_api(base_urls=[expected_base_url])
         report["persistence"] = verify_persistence(
             base_url,
@@ -755,7 +903,7 @@ def main() -> int:
             str(positive["sticky_id"]),
             int(positive["sticky_remaining_before_restart"]),
             str(positive["sticky_deadline_timestamp"]),
-            float(positive["board_scale"]),
+            _board_scale_value(positive["board_scale"], context="positive_checks"),
         )
 
         stop_process(process_after_restart)
@@ -766,7 +914,7 @@ def main() -> int:
             executable, startup_error_appdata_root
         )
 
-        print(json.dumps(report, ensure_ascii=True, indent=2))
+        print(_json_dumps(report))
         return 0
     finally:
         if process is not None:
@@ -781,5 +929,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except VerificationError as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=True, indent=2))
+        print(_json_dumps({"ok": False, "error": str(exc)}))
         raise SystemExit(1)

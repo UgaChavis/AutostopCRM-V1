@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "code_health_audit.py"
@@ -85,6 +86,39 @@ class CodeHealthAuditTests(unittest.TestCase):
             issues = module.audit(temp_root)
 
         self.assertEqual([], issues)
+
+    def test_git_inventory_timeout_falls_back_to_filesystem_scan(self) -> None:
+        module = load_code_health_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            path = temp_root / "src" / "minimal_kanban" / "oversized.py"
+            path.parent.mkdir(parents=True)
+            path.write_text("x = 1\n" * (module.MAX_PY_MODULE_LINES + 1), encoding="utf-8")
+
+            with patch.object(
+                module.subprocess,
+                "run",
+                side_effect=subprocess.TimeoutExpired(["git"], timeout=1),
+            ) as run:
+                issues = module.audit(temp_root)
+
+        self.assertEqual(["large_module"], [issue.code for issue in issues])
+        self.assertIs(run.call_args.kwargs["stdin"], module.subprocess.DEVNULL)
+
+    def test_oversized_python_source_is_reported_without_parsing(self) -> None:
+        module = load_code_health_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            path = temp_root / "huge.py"
+            path.write_text("x" * 16, encoding="utf-8")
+
+            with patch.object(module, "CODE_HEALTH_SOURCE_MAX_BYTES", 8):
+                issues = module.audit(temp_root)
+
+        self.assertEqual(["source_read_error"], [issue.code for issue in issues])
+        self.assertIn("too large", issues[0].detail)
 
 
 if __name__ == "__main__":

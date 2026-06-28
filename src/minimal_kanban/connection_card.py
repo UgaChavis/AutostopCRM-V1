@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -104,6 +105,29 @@ MCP_TOOL_NAMES = [
     "restore_card",
     "list_overdue_cards",
 ]
+
+
+def _json_safe_value(value: object, *, depth: int = 8) -> object:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _json_dumps(payload: object, *, indent: int = 2) -> str:
+    return json.dumps(_json_safe_value(payload), ensure_ascii=False, indent=indent, allow_nan=False)
+
 
 OPTIONAL_MANAGER_MCP_TOOL_NAMES = [
     "remember",
@@ -266,6 +290,17 @@ def resolve_local_api_bearer_token(settings: IntegrationSettings) -> str:
 
 def derive_board_root_url(value: str) -> str:
     text = str(value or "").strip().rstrip("/")
+    if not text:
+        return ""
+    try:
+        parts = list(urlsplit(text))
+    except ValueError:
+        if text.endswith("/api"):
+            return text[:-4].rstrip("/")
+        return text
+    if parts[0] in {"http", "https"} and parts[1] and parts[2].rstrip("/") == "/api":
+        parts[2] = ""
+        return urlunsplit(parts).rstrip("/")
     if text.endswith("/api"):
         return text[:-4].rstrip("/")
     return text
@@ -276,7 +311,12 @@ def build_board_share_url(base_url: str, token: str) -> str:
     secret = str(token or "").strip()
     if not clean_base or not secret:
         return clean_base
-    parts = list(urlsplit(clean_base))
+    try:
+        parts = list(urlsplit(clean_base))
+    except ValueError:
+        return clean_base
+    if parts[0] not in {"http", "https"} or not parts[1]:
+        return clean_base
     query = dict(parse_qsl(parts[3], keep_blank_values=True))
     query["access_token"] = secret
     parts[3] = urlencode(query)
@@ -285,7 +325,10 @@ def build_board_share_url(base_url: str, token: str) -> str:
 
 def derive_connector_display_name(settings: IntegrationSettings) -> str:
     mcp_url = (settings.mcp.effective_mcp_url or "").strip()
-    host = (urlsplit(mcp_url).hostname or "").strip().lower()
+    try:
+        host = (urlsplit(mcp_url).hostname or "").strip().lower().rstrip(".")
+    except ValueError:
+        host = ""
     if host:
         return f"{DISPLAY_PRODUCT_NAME} / This Board Only ({host})"
     return f"{DISPLAY_PRODUCT_NAME} / This Board Only"
@@ -302,7 +345,6 @@ def build_chatgpt_connect_payload(
         return text or "<не задан>"
 
     connector_auth_mode = resolve_connector_auth_mode(settings)
-    token = resolve_mcp_bearer_token(settings)
     lines = [
         f"{derive_connector_display_name(settings)} -> ChatGPT / MCP",
         "",
@@ -339,7 +381,7 @@ def build_chatgpt_connect_payload(
             [
                 "17. For the ChatGPT connector you normally do not need to paste a bearer token manually: the server exposes embedded OAuth / DCR metadata.",
                 "18. If ChatGPT asks for linking, complete the embedded OAuth flow.",
-                "19. The legacy bearer token below is only for Responses API or a manual MCP client.",
+                "19. Legacy bearer token is not included in this ChatGPT copy payload; export the Responses API JSON for manual MCP clients.",
             ]
         )
     else:
@@ -364,9 +406,6 @@ def build_chatgpt_connect_payload(
             f"runtime_state = {'running' if runtime_state and runtime_state.running else 'stopped'}",
         ]
     )
-    if connector_auth_mode == "oauth_embedded":
-        lines.append(f"mcp_bearer_token = {render_value(token)}")
-
     lines.extend(["", "[GPT-CRITICAL TOOLS]"])
     lines.extend(f"- {tool}" for tool in GPT_CONNECTOR_REQUIRED_TOOL_NAMES)
     lines.extend(
@@ -432,7 +471,7 @@ def build_chatgpt_connector_payload(settings: IntegrationSettings) -> str:
             "After MCP schema, tool, or metadata changes, delete and recreate the ChatGPT connector to refresh the manifest safely.",
         ],
     }
-    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    return _json_dumps(payload) + "\n"
 
 
 def build_responses_api_payload(
@@ -457,7 +496,7 @@ def build_responses_api_payload(
         "input": prompt or "Покажи просроченные карточки и кратко объясни, что требует внимания.",
         "tools": [tool_payload],
     }
-    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    return _json_dumps(payload) + "\n"
 
 
 def get_project_root() -> Path:
@@ -505,10 +544,8 @@ def get_mcp_setup_doc_path() -> Path:
 
 
 def build_settings_export(settings: IntegrationSettings, *, include_secrets: bool = False) -> str:
-    return json.dumps(
+    return _json_dumps(
         settings.to_dict(redact_secrets=not include_secrets),
-        ensure_ascii=False,
-        indent=2,
     )
 
 
@@ -547,7 +584,7 @@ def build_connection_warnings(
         )
     if settings.mcp.mcp_auth_mode == "bearer" and not resolve_mcp_bearer_token(settings):
         warnings.append(
-            "MCP is marked as bearer, but the token is empty. The endpoint effectively runs without MCP auth until a bearer token is configured."
+            "В MCP выбран bearer, но токен пустой. Endpoint фактически работает без MCP-авторизации, пока bearer token не настроен."
         )
     if runtime_state is not None and runtime_state.error:
         warnings.append(f"Последняя ошибка MCP runtime: {runtime_state.error}")
@@ -574,11 +611,13 @@ def build_connection_card(
         else settings.mcp.local_mcp_url
     )
     public_board_url = derive_board_root_url(settings.local_api.local_api_base_url_override)
-    public_board_share_url = (
-        build_board_share_url(public_board_url, resolve_local_api_bearer_token(settings))
-        if public_board_url
-        else ""
-    )
+    local_api_token = resolve_local_api_bearer_token(settings)
+    if public_board_url and local_api_token and include_secrets:
+        public_board_share_url = build_board_share_url(public_board_url, local_api_token)
+    elif public_board_url and local_api_token:
+        public_board_share_url = "[скрыто]"
+    else:
+        public_board_share_url = public_board_url
     connector_auth_mode = resolve_connector_auth_mode(settings)
 
     lines = [

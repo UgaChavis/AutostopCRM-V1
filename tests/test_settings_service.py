@@ -1,21 +1,36 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 import tempfile
 import unittest
+import urllib.error
 
 # ruff: noqa: E402
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
+import httpx
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from minimal_kanban.settings_models import derive_allowed_hosts, derive_allowed_origins
+from minimal_kanban.settings_models import (
+    AuthSettings,
+    IntegrationSettings,
+    LocalApiSettings,
+    McpSettings,
+    derive_allowed_hosts,
+    derive_allowed_origins,
+    is_external_http_url,
+    is_http_url,
+    normalize_host,
+    normalize_int,
+)
 from minimal_kanban.settings_service import (
     ConnectionCheckResult,
     SettingsService,
@@ -62,6 +77,93 @@ class SettingsServiceTests(unittest.TestCase):
         self.assertEqual(settings.openai.base_url, "https://api.openai.com/v1")
         self.assertEqual(settings.openai.timeout_seconds, 30)
 
+    def test_runtime_urls_bracket_ipv6_hosts(self) -> None:
+        local_api = LocalApiSettings(local_api_host="::1", local_api_port=41731)
+        mcp = McpSettings(mcp_host="::1", mcp_port=41831, mcp_path="/mcp")
+
+        self.assertEqual(local_api.runtime_local_api_url, "http://[::1]:41731")
+        self.assertEqual(local_api.local_api_health_url, "http://[::1]:41731/api/health")
+        self.assertEqual(mcp.local_mcp_url, "http://[::1]:41831/mcp")
+        self.assertIn("[::1]:41831", mcp.resolved_allowed_hosts)
+        self.assertIn("http://[::1]:41831", mcp.resolved_allowed_origins)
+
+    def test_external_http_url_treats_loopback_and_wildcard_hosts_as_local(self) -> None:
+        local_urls = (
+            "http://127.0.0.1:41731/api/health",
+            "http://localhost:41831/mcp",
+            "http://[::1]:41831/mcp",
+            "http://0.0.0.0:41831/mcp",
+            "http://[::]:41831/mcp",
+            "https://board.localhost/mcp",
+        )
+
+        for url in local_urls:
+            with self.subTest(url=url):
+                self.assertFalse(is_external_http_url(url))
+
+        self.assertTrue(is_external_http_url("https://crm.autostopcrm.ru/mcp"))
+        self.assertTrue(is_external_http_url("http://192.168.1.20:41831/mcp"))
+
+    def test_invalid_url_ports_are_not_treated_as_http_urls(self) -> None:
+        bad_urls = (
+            "https://crm.example:bad/mcp",
+            "https://crm.example:99999/mcp",
+        )
+
+        for url in bad_urls:
+            with self.subTest(url=url):
+                self.assertFalse(is_http_url(url))
+                self.assertFalse(is_external_http_url(url))
+                self.assertNotIn("crm.example", derive_allowed_hosts(url))
+                self.assertNotIn("https://crm.example", derive_allowed_origins(url))
+
+    def test_settings_integer_normalizer_falls_back_for_overflow(self) -> None:
+        self.assertEqual(
+            normalize_int(float("inf"), default=30, minimum=1, maximum=600),
+            30,
+        )
+        self.assertEqual(normalize_int(1e308, default=30, minimum=1, maximum=600), 30)
+        self.assertEqual(normalize_int(1e308, default=30, minimum=1), 30)
+        self.assertEqual(normalize_int(True, default=30, minimum=1, maximum=600), 30)
+        self.assertEqual(normalize_int(1.5, default=30, minimum=1, maximum=600), 30)
+        self.assertEqual(normalize_int(2.0, default=30, minimum=1, maximum=600), 2)
+        self.assertEqual(
+            IntegrationSettings.from_dict({"schema_version": 1e308}).schema_version,
+            3,
+        )
+
+    def test_settings_host_normalizer_rejects_url_parts_and_ports(self) -> None:
+        default = "127.0.0.1"
+
+        self.assertEqual(normalize_host("127.0.0.1/api", default=default), default)
+        self.assertEqual(normalize_host("127.0.0.1?debug=1", default=default), default)
+        self.assertEqual(normalize_host("localhost:41731", default=default), default)
+        self.assertEqual(normalize_host("[::1]:41731", default=default), default)
+        self.assertEqual(normalize_host("::1", default=default), "::1")
+        self.assertEqual(
+            LocalApiSettings.from_dict({"local_api_host": "127.0.0.1/api"}).local_api_host,
+            default,
+        )
+
+    def test_secret_normalizers_reject_internal_whitespace(self) -> None:
+        local_api = LocalApiSettings.from_dict({"local_api_bearer_token": "good\r\nX-Bad: yes"})
+        mcp = McpSettings.from_dict({"mcp_bearer_token": "mcp secret"})
+        auth = AuthSettings.from_dict(
+            {
+                "access_token": "access\tsecret",
+                "local_api_bearer_token": "api\nsecret",
+                "mcp_bearer_token": " mcp-secret ",
+                "openai_api_key": "sk-live\r\nX-Bad: yes",
+            }
+        )
+
+        self.assertEqual(local_api.local_api_bearer_token, "")
+        self.assertEqual(mcp.mcp_bearer_token, "")
+        self.assertEqual(auth.access_token, "")
+        self.assertEqual(auth.local_api_bearer_token, "")
+        self.assertEqual(auth.mcp_bearer_token, "mcp-secret")
+        self.assertEqual(auth.openai_api_key, "")
+
     def test_missing_auto_connect_setting_defaults_to_true(self) -> None:
         self.settings_file.write_text("{}", encoding="utf-8")
 
@@ -89,6 +191,15 @@ class SettingsServiceTests(unittest.TestCase):
         self.assertIn("185.42.164.2:*", hosts)
         self.assertIn("http://185.42.164.2", origins)
         self.assertIn("http://185.42.164.2:*", origins)
+
+    def test_derived_allowed_hosts_and_origins_strip_trailing_dot(self) -> None:
+        hosts = derive_allowed_hosts("https://crm.example.:443/mcp")
+        origins = derive_allowed_origins("https://crm.example.:443/mcp")
+
+        self.assertIn("crm.example:443", hosts)
+        self.assertNotIn("crm.example.:443", hosts)
+        self.assertIn("https://crm.example:443", origins)
+        self.assertNotIn("https://crm.example.:443", origins)
 
     def test_save_load_cycle_preserves_extended_values(self) -> None:
         settings = self.service.load()
@@ -166,6 +277,34 @@ class SettingsServiceTests(unittest.TestCase):
         self.assertIn("https://demo.trycloudflare.com", loaded.mcp.resolved_allowed_origins)
         self.assertEqual(loaded.auth.mcp_bearer_token, "mcp-secret")
 
+    def test_normalize_prefers_auth_tokens_when_section_tokens_disagree(self) -> None:
+        settings = self.service.load()
+        mismatched = replace(
+            settings,
+            local_api=replace(
+                settings.local_api,
+                local_api_auth_mode="bearer",
+                local_api_bearer_token="section-api-token",
+            ),
+            mcp=replace(
+                settings.mcp,
+                mcp_auth_mode="bearer",
+                mcp_bearer_token="section-mcp-token",
+            ),
+            auth=replace(
+                settings.auth,
+                local_api_bearer_token="auth-api-token",
+                mcp_bearer_token="auth-mcp-token",
+            ),
+        )
+
+        normalized = self.service.normalize(mismatched)
+
+        self.assertEqual(normalized.local_api.local_api_bearer_token, "auth-api-token")
+        self.assertEqual(normalized.auth.local_api_bearer_token, "auth-api-token")
+        self.assertEqual(normalized.mcp.mcp_bearer_token, "auth-mcp-token")
+        self.assertEqual(normalized.auth.mcp_bearer_token, "auth-mcp-token")
+
     def test_public_mcp_url_beats_tunnel_url_when_no_full_override(self) -> None:
         settings = self.service.load()
         self.service.save(
@@ -195,6 +334,91 @@ class SettingsServiceTests(unittest.TestCase):
         self.assertTrue(settings.general.integration_enabled)
         self.assertEqual(settings.local_api.local_api_port, 41731)
         self.assertTrue((self.settings_file.with_suffix(".corrupted.json")).exists())
+
+    def test_nonstandard_json_constants_in_config_are_backed_up(self) -> None:
+        self.settings_file.write_text('{"openai":{"timeout_seconds":NaN}}', encoding="utf-8")
+        reloaded = SettingsService(
+            SettingsStore(settings_file=self.settings_file, logger=self.logger), self.logger
+        )
+
+        settings = reloaded.load()
+
+        self.assertEqual(settings.openai.timeout_seconds, 30)
+        backup = self.settings_file.with_suffix(".corrupted.json")
+        self.assertIn("NaN", backup.read_text(encoding="utf-8"))
+        self.assertNotIn("NaN", self.settings_file.read_text(encoding="utf-8"))
+
+    def test_oversized_config_is_backed_up_before_defaults_are_written(self) -> None:
+        self.settings_file.write_text(
+            '{"general":{},"padding":"' + ("x" * 4000) + '"}', encoding="utf-8"
+        )
+
+        with patch("minimal_kanban.settings_store.SETTINGS_FILE_MAX_BYTES", 3000):
+            reloaded = SettingsService(
+                SettingsStore(settings_file=self.settings_file, logger=self.logger), self.logger
+            )
+            settings = reloaded.load()
+
+        self.assertTrue(settings.general.integration_enabled)
+        backup = self.settings_file.with_suffix(".corrupted.json")
+        self.assertIn("padding", backup.read_text(encoding="utf-8"))
+        self.assertNotIn("padding", self.settings_file.read_text(encoding="utf-8"))
+
+    def test_settings_write_rejects_payload_that_reader_would_ignore_as_oversized(self) -> None:
+        settings = self.service.load()
+        before = self.settings_file.read_text(encoding="utf-8")
+
+        with (
+            patch("minimal_kanban.settings_store.SETTINGS_FILE_MAX_BYTES", 64),
+            self.assertRaisesRegex(ValueError, "settings file is too large"),
+        ):
+            self.service.save(settings)
+
+        self.assertEqual(self.settings_file.read_text(encoding="utf-8"), before)
+        self.assertEqual(list(self.settings_file.parent.glob(".settings.json.*.tmp")), [])
+
+    def test_deeply_nested_config_is_backed_up_before_defaults_are_written(self) -> None:
+        deep_json = "[" * 5000 + "]" * 5000
+        self.settings_file.write_text(deep_json, encoding="utf-8")
+        reloaded = SettingsService(
+            SettingsStore(settings_file=self.settings_file, logger=self.logger), self.logger
+        )
+
+        settings = reloaded.load()
+
+        self.assertTrue(settings.general.integration_enabled)
+        backup = self.settings_file.with_suffix(".corrupted.json")
+        self.assertEqual(backup.read_text(encoding="utf-8"), deep_json)
+
+    def test_broken_config_backup_does_not_overwrite_previous_backup(self) -> None:
+        previous_backup = self.settings_file.with_suffix(".corrupted.json")
+        previous_backup.write_text("previous broken config", encoding="utf-8")
+        self.settings_file.write_text("{broken", encoding="utf-8")
+        reloaded = SettingsService(
+            SettingsStore(settings_file=self.settings_file, logger=self.logger), self.logger
+        )
+
+        settings = reloaded.load()
+
+        self.assertTrue(settings.general.integration_enabled)
+        self.assertEqual(previous_backup.read_text(encoding="utf-8"), "previous broken config")
+        self.assertEqual(
+            self.settings_file.with_name("settings.corrupted-2.json").read_text(encoding="utf-8"),
+            "{broken",
+        )
+
+    def test_non_object_config_is_backed_up_before_defaults_are_written(self) -> None:
+        self.settings_file.write_text("[]", encoding="utf-8")
+        reloaded = SettingsService(
+            SettingsStore(settings_file=self.settings_file, logger=self.logger), self.logger
+        )
+
+        settings = reloaded.load()
+
+        self.assertTrue(settings.general.integration_enabled)
+        backup = self.settings_file.with_suffix(".corrupted.json")
+        self.assertEqual(backup.read_text(encoding="utf-8"), "[]")
+        self.assertNotEqual(self.settings_file.read_text(encoding="utf-8"), "[]")
 
     def test_validation_rejects_invalid_values(self) -> None:
         defaults = self.service.load()
@@ -353,6 +577,177 @@ class SettingsServiceTests(unittest.TestCase):
 
         self.assertEqual(result.status, "failed")
         self.assertIn("Host header", result.message)
+
+    def test_openai_check_reports_non_object_json_as_failed_connection(self) -> None:
+        settings = self.service.update_section(
+            "auth",
+            {"openai_api_key": "sk-test"},
+            settings=self.service.load(),
+            persist=False,
+        )
+
+        with patch.object(
+            self.service,
+            "_request_json",
+            side_effect=RuntimeError("Endpoint https://example.test/models вернул JSON не-объект."),
+        ):
+            result = self.service.test_openai_endpoint(settings)
+
+        self.assertEqual(result.status, "failed")
+        self.assertIn("JSON не-объект", result.message)
+
+    def test_request_json_rejects_success_non_object_payload(self) -> None:
+        with self.assertRaises(RuntimeError):
+            self.service._parse_json_object(b"[]", url="https://api.example/models")
+
+    def test_request_json_rejects_success_non_utf8_payload(self) -> None:
+        with self.assertRaises(RuntimeError):
+            self.service._parse_json_object(b"\xff", url="https://api.example/models")
+
+    def test_request_json_rejects_nonstandard_json_constants(self) -> None:
+        with self.assertRaises(RuntimeError):
+            self.service._parse_json_object(
+                b'{"ok": true, "data": NaN}',
+                url="https://api.example/models",
+            )
+
+    def test_request_json_rejects_oversized_success_body(self) -> None:
+        class HugeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self, size: int = -1) -> bytes:
+                return b"x" * max(0, size)
+
+        with (
+            patch("minimal_kanban.settings_service._MAX_SETTINGS_HTTP_RESPONSE_BYTES", 4),
+            patch(
+                "minimal_kanban.settings_service._urlopen_no_redirect",
+                return_value=HugeResponse(),
+            ),
+            self.assertRaises(RuntimeError) as error,
+        ):
+            self.service._request_json(
+                "https://api.example/models",
+                method="GET",
+                headers={},
+                timeout_seconds=1,
+            )
+
+        self.assertIn("слишком большой JSON", str(error.exception))
+
+    def test_request_json_ignores_oversized_error_body(self) -> None:
+        class HugeHttpError(urllib.error.HTTPError):
+            def __init__(self) -> None:
+                super().__init__(
+                    url="https://api.example/models",
+                    code=503,
+                    msg="Service Unavailable",
+                    hdrs=None,
+                    fp=None,
+                )
+
+            def read(self, size: int = -1) -> bytes:
+                return b"x" * max(0, size)
+
+        with (
+            patch("minimal_kanban.settings_service._MAX_SETTINGS_HTTP_RESPONSE_BYTES", 4),
+            patch(
+                "minimal_kanban.settings_service._urlopen_no_redirect",
+                side_effect=HugeHttpError(),
+            ),
+        ):
+            status, payload = self.service._request_json(
+                "https://api.example/models",
+                method="GET",
+                headers={},
+                timeout_seconds=1,
+            )
+
+        self.assertEqual(status, 503)
+        self.assertEqual(payload, {})
+
+    def test_request_json_rejects_redirect_responses(self) -> None:
+        redirect = urllib.error.HTTPError(
+            url="https://api.example/models",
+            code=302,
+            msg="Found",
+            hdrs={"Location": "https://elsewhere.example/models"},
+            fp=None,
+        )
+
+        with (
+            patch("minimal_kanban.settings_service._urlopen_no_redirect", side_effect=redirect),
+            self.assertRaisesRegex(RuntimeError, "HTTP redirect"),
+        ):
+            self.service._request_json(
+                "https://api.example/models",
+                method="GET",
+                headers={"Authorization": "Bearer secret"},
+                timeout_seconds=1,
+            )
+
+    def test_request_json_rejects_header_breaks_before_urlopen(self) -> None:
+        with patch("minimal_kanban.settings_service._urlopen_no_redirect") as urlopen:
+            with self.assertRaisesRegex(RuntimeError, "Некорректный HTTP header"):
+                self.service._request_json(
+                    "https://api.example/models",
+                    method="GET",
+                    headers={"Authorization": "Bearer good\r\nX-Bad: yes"},
+                    timeout_seconds=1,
+                )
+
+        urlopen.assert_not_called()
+
+    def test_oauth_metadata_origin_brackets_ipv6_hosts(self) -> None:
+        origin = self.service._httpx_url_origin(httpx.URL("http://[::1]:41831/mcp"))
+
+        self.assertEqual(origin, "http://[::1]:41831")
+
+    def test_mcp_probe_rejects_external_redirects(self) -> None:
+        class RedirectResponse:
+            status_code = 302
+            text = ""
+
+        class FakeAsyncClient:
+            init_kwargs: dict[str, object] = {}
+
+            def __init__(self, *args, **kwargs) -> None:
+                _ = args
+                type(self).init_kwargs = dict(kwargs)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            async def get(self, url: str) -> RedirectResponse:
+                _ = url
+                return RedirectResponse()
+
+        with patch("minimal_kanban.settings_service.httpx.AsyncClient", FakeAsyncClient):
+            with self.assertRaisesRegex(RuntimeError, "HTTP redirect"):
+                asyncio.run(
+                    self.service._probe_mcp_server(
+                        "https://crm.example/mcp",
+                        bearer_token=None,
+                        timeout_seconds=1.0,
+                    )
+                )
+
+        self.assertIs(FakeAsyncClient.init_kwargs["follow_redirects"], False)
+
+    def test_probe_helpers_ignore_non_dict_structured_content(self) -> None:
+        class Result:
+            structuredContent = ["not", "a", "dict"]
+
+        self.assertEqual(self.service._structured_content_payload(Result()), {})
 
     def test_local_api_smoke_uses_existing_column_instead_of_legacy_done(self) -> None:
         settings = self.service.load()

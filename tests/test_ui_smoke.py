@@ -34,6 +34,7 @@ from minimal_kanban.texts import (
     STATUS_LABELS_RU,
     TOOLTIP_SETTINGS,
 )
+from minimal_kanban.ui.dialogs import CardDialog
 from minimal_kanban.ui.main_window import MainWindow
 
 
@@ -185,6 +186,33 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertEqual(widget.property("deadlineBucket"), 20)
         self.assertEqual(widget.property("deadlineStep"), 100)
 
+    def test_card_widget_falls_back_for_invalid_deadline_heat_values(self) -> None:
+        self.service.create_card({"title": "Повреждённый прогресс", "deadline": {"hours": 1}})
+        columns = self.service.list_columns()["columns"]
+        card = dict(self.service.get_cards({"include_archived": False})["cards"][0])
+        card["deadline_progress_bucket"] = float("inf")
+        card["deadline_progress_step_percent"] = True
+
+        self.window.refresh_board(force=True, columns=columns, cards=[card])
+
+        widget = next(iter(self.window._card_widgets.values()))
+        self.assertEqual(widget.property("deadlineBucket"), 0)
+        self.assertEqual(widget.property("deadlineStep"), 0)
+
+    def test_card_dialog_falls_back_for_invalid_remaining_seconds(self) -> None:
+        dialog = CardDialog(
+            title="edit",
+            initial={
+                "title": "Повреждённый срок",
+                "description": "",
+                "remaining_seconds": float("inf"),
+            },
+        )
+        self.addCleanup(dialog.close)
+
+        self.assertEqual(dialog.deadline_days_input.value(), 0)
+        self.assertEqual(dialog.deadline_hours_input.value(), 1)
+
     def test_dynamic_column_is_rendered(self) -> None:
         column = self.service.create_column({"label": "Блокеры"})["column"]
         self.service.create_card(
@@ -199,6 +227,28 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.assertIn(column["id"], self.window.columns)
         self.assertEqual(self.window.columns[column["id"]].title_label.text(), "Блокеры")
         self.assertEqual(self.window.columns[column["id"]].count_label.text(), "1")
+
+    def test_refresh_board_does_not_mutate_or_duplicate_incoming_cards(self) -> None:
+        self.service.create_card(
+            {
+                "title": "Основная карточка",
+                "column": "inbox",
+                "deadline": {"days": 0, "hours": 6},
+            }
+        )
+        columns = self.service.list_columns()["columns"]
+        card = dict(self.service.get_cards({"include_archived": False})["cards"][0])
+        card["column"] = "missing-column"
+        duplicate = {**card, "title": "Повтор с тем же id"}
+
+        self.window.refresh_board(force=True, columns=columns, cards=[card, duplicate])
+
+        self.assertEqual(card["column"], "missing-column")
+        self.assertEqual(self.window.cards_total_value_label.text(), "1")
+        self.assertEqual(self.window.columns["inbox"].count_label.text(), "1")
+        self.assertEqual(
+            self.window._card_widgets[card["id"]].title_label.toolTip(), "Основная карточка"
+        )
 
     def test_access_link_updates_when_public_board_url_is_saved(self) -> None:
         settings = self.settings_service.load()

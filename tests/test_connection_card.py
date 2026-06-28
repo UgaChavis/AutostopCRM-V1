@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # ruff: noqa: E402
 import json
+import math
 import sys
 import unittest
 from pathlib import Path
@@ -114,7 +115,9 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertIn("effective_mcp_url = https://public.example/mcp", text)
         self.assertIn("local_mcp_url = http://127.0.0.1:41831/mcp", text)
         self.assertIn("effective_local_api_url = http://127.0.0.1:41731", text)
-        self.assertIn("mcp_bearer_token = mcp-secret", text)
+        self.assertNotIn("mcp_bearer_token =", text)
+        self.assertNotIn("mcp-secret", text)
+        self.assertIn("Legacy bearer token is not included", text)
         self.assertIn(
             "connector_display_name = AutoStop CRM / This Board Only (public.example)", text
         )
@@ -180,6 +183,14 @@ class ConnectionCardTests(unittest.TestCase):
             derive_board_root_url("https://board.example/api"), "https://board.example"
         )
         self.assertEqual(
+            derive_board_root_url("https://board.example/api?source=desk"),
+            "https://board.example?source=desk",
+        )
+        self.assertEqual(
+            build_board_share_url("https://board.example/api?source=desk", "board-secret"),
+            "https://board.example?source=desk&access_token=board-secret",
+        )
+        self.assertEqual(
             build_board_share_url("https://board.example/api", "board-secret"),
             "https://board.example?access_token=board-secret",
         )
@@ -192,9 +203,66 @@ class ConnectionCardTests(unittest.TestCase):
         )
 
         self.assertIn("public_board_url = https://board.example", text)
-        self.assertIn(
-            "public_board_share_url = https://board.example?access_token=board-secret", text
+        self.assertIn("public_board_share_url = [скрыто]", text)
+        self.assertNotIn("board-secret", text)
+
+        full_text = build_connection_card(
+            settings,
+            runtime_api_url="http://127.0.0.1:41731",
+            runtime_state=McpRuntimeState(False, "", "", ""),
+            include_secrets=True,
         )
+
+        self.assertIn(
+            "public_board_share_url = https://board.example?access_token=board-secret",
+            full_text,
+        )
+
+    def test_connection_payloads_tolerate_malformed_urls_without_fake_share_links(self) -> None:
+        self.assertEqual(
+            build_board_share_url("https://[broken/api", "board-secret"),
+            "https://[broken",
+        )
+        self.assertEqual(build_board_share_url("not-a-url", "board-secret"), "not-a-url")
+
+        settings = IntegrationSettings.from_dict(
+            {
+                "mcp": {
+                    "mcp_enabled": True,
+                    "full_mcp_url_override": "https://[broken",
+                }
+            }
+        )
+
+        self.assertEqual(derive_connector_display_name(settings), "AutoStop CRM / This Board Only")
+
+        connector_data = json.loads(build_chatgpt_connector_payload(settings))
+        self.assertEqual(connector_data["name"], "AutoStop CRM / This Board Only")
+        self.assertEqual(connector_data["connector_url"], "https://[broken")
+
+    def test_connection_card_uses_localized_empty_mcp_token_warning(self) -> None:
+        settings = IntegrationSettings.from_dict(
+            {
+                "mcp": {
+                    "mcp_enabled": True,
+                    "mcp_auth_mode": "bearer",
+                    "mcp_bearer_token": "",
+                },
+                "auth": {
+                    "mcp_bearer_token": "",
+                },
+            }
+        )
+
+        text = build_connection_card(
+            settings,
+            runtime_api_url="http://127.0.0.1:41731",
+            runtime_state=McpRuntimeState(False, "", "", ""),
+            include_secrets=False,
+        )
+
+        self.assertIn("В MCP выбран bearer, но токен пустой.", text)
+        self.assertNotIn("MCP is marked as bearer", text)
 
     def test_connector_and_responses_payloads_are_built_from_live_settings(self) -> None:
         settings = IntegrationSettings.from_dict(
@@ -312,6 +380,39 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertIn("search_clients", responses_data["tools"][0]["allowed_tools"])
         self.assertIn("link_card_to_client", responses_data["tools"][0]["allowed_tools"])
         self.assertIn("upsert_client_vehicle", responses_data["tools"][0]["allowed_tools"])
+
+    def test_connector_display_name_strips_host_trailing_dot(self) -> None:
+        settings = IntegrationSettings.from_dict(
+            {
+                "mcp": {
+                    "mcp_enabled": True,
+                    "full_mcp_url_override": "https://Example.COM.:443/mcp",
+                }
+            }
+        )
+
+        connector_data = json.loads(build_chatgpt_connector_payload(settings))
+
+        self.assertEqual(
+            derive_connector_display_name(settings),
+            "AutoStop CRM / This Board Only (example.com)",
+        )
+        self.assertEqual(connector_data["name"], "AutoStop CRM / This Board Only (example.com)")
+
+    def test_responses_payload_sanitizes_non_finite_values(self) -> None:
+        settings = IntegrationSettings.defaults()
+
+        payload = build_responses_api_payload(
+            settings,
+            prompt=math.nan,
+            allowed_tools=["ping_connector", math.inf],
+        )
+
+        self.assertNotIn("NaN", payload)
+        self.assertNotIn("Infinity", payload)
+        data = json.loads(payload)
+        self.assertIsNone(data["input"])
+        self.assertEqual(data["tools"][0]["allowed_tools"], ["ping_connector", None])
 
     def test_connector_auth_falls_back_to_none_when_bearer_token_is_missing(self) -> None:
         settings = IntegrationSettings.from_dict(

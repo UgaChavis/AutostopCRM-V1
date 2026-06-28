@@ -251,6 +251,22 @@ maintenance-only. Use owner-reviewed reports, backup decisions, dry-run checks,
 and explicit approval. Do not edit cashbox data manually. Operator cashbox UI is
 journal-first and must not expose finance-audit/reconciliation entrypoints.
 
+Historical financial cleanup is a destructive state-sanitization helper, not a
+normal repair flow. Run it in read-only mode first:
+
+```powershell
+python scripts\clear_financial_history.py --dry-run --state-file .\path\to\state.json
+```
+
+Apply only after reviewing the dry-run summary and only with a backup:
+
+```powershell
+python scripts\clear_financial_history.py --apply --backup --state-file .\path\to\state.json
+```
+
+Do not run it against production `state.json` without a separate owner-reviewed
+maintenance plan and verified backup.
+
 Repair-order number audit:
 
 ```powershell

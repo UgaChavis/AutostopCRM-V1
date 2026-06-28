@@ -1761,10 +1761,22 @@ class CardServiceClientsMixin:
             "gearbox_model": vehicle.gearbox_model,
             "drivetrain": vehicle.drivetrain,
         }
-        if str(vehicle.year or "").strip().isdigit():
-            patch["production_year"] = int(str(vehicle.year).strip())
-        if str(vehicle.mileage or "").strip().isdigit():
-            patch["mileage"] = int(str(vehicle.mileage).strip())
+        raw_year = str(vehicle.year or "").strip()
+        if raw_year.isdigit() and len(raw_year) <= 4:
+            try:
+                production_year = int(raw_year)
+            except (OverflowError, ValueError):
+                production_year = 0
+            if 0 < production_year <= 9999:
+                patch["production_year"] = production_year
+        raw_mileage = str(vehicle.mileage or "").strip()
+        if raw_mileage.isdigit() and len(raw_mileage) <= 7:
+            try:
+                mileage = int(raw_mileage)
+            except (OverflowError, ValueError):
+                mileage = 0
+            if 0 < mileage <= 9_999_999:
+                patch["mileage"] = mileage
         return {key: value for key, value in patch.items() if value not in ("", None)}
 
     def _sync_card_vehicle_fields(

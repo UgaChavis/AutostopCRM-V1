@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
+import math
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -23,6 +24,9 @@ from minimal_kanban.storage.audit_archive import (
     details_need_archive,
 )
 from minimal_kanban.storage.file_lock import ProcessFileLock
+from minimal_kanban.storage.limited_io import copy_file_limited
+
+COMPACT_STATE_MAX_BYTES = 100 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -57,8 +61,35 @@ class CompactResult:
 
 def json_bytes(value: Any) -> int:
     return len(
-        json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
+        json.dumps(
+            _json_safe_value(value),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
     )
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
 
 
 def archive_ref_for_event(event: dict[str, Any]) -> str:
@@ -153,15 +184,44 @@ def compact_state_payload(
 def backup_state_file(state_file: Path) -> Path:
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     backup_file = state_file.with_name(f"{state_file.name}.backup-{timestamp}.json")
-    shutil.copy2(state_file, backup_file)
+    counter = 2
+    while backup_file.exists():
+        backup_file = state_file.with_name(
+            f"{state_file.name}.backup-{timestamp}-{counter:03d}.json"
+        )
+        counter += 1
+    copy_file_limited(
+        state_file,
+        backup_file,
+        max_bytes=COMPACT_STATE_MAX_BYTES,
+        label="compact audit events state file",
+    )
     return backup_file
 
 
 def write_state_file(state_file: Path, state: dict[str, Any]) -> None:
-    payload = json.dumps(state, ensure_ascii=False, separators=(",", ":"))
-    temp_file = state_file.with_suffix(".compact.tmp")
-    temp_file.write_text(payload, encoding="utf-8")
-    temp_file.replace(state_file)
+    payload = json.dumps(
+        _json_safe_value(state),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    if len(payload.encode("utf-8")) > COMPACT_STATE_MAX_BYTES:
+        raise ValueError("compact audit events state file is too large")
+    temp_file = state_file.with_name(f".{state_file.name}.{uuid4().hex}.compact.tmp")
+    try:
+        temp_file.write_text(payload, encoding="utf-8")
+        temp_file.replace(state_file)
+    finally:
+        temp_file.unlink(missing_ok=True)
+
+
+def read_state_text(state_file: Path) -> str:
+    with state_file.open("rb") as handle:
+        raw = handle.read(COMPACT_STATE_MAX_BYTES + 1)
+    if len(raw) > COMPACT_STATE_MAX_BYTES:
+        raise ValueError("compact audit events state file is too large")
+    return raw.decode("utf-8")
 
 
 def compact_state_file(
@@ -178,7 +238,15 @@ def compact_state_file(
     archive_store = AuditArchiveStore(archive_dir)
 
     def run() -> CompactResult:
-        state = json.loads(state_file.read_text(encoding="utf-8"))
+        try:
+            state = json.loads(
+                read_state_text(state_file),
+                parse_constant=_reject_json_constant,
+            )
+        except RecursionError as exc:
+            raise ValueError("compact audit events state file JSON is too deeply nested") from exc
+        if not isinstance(state, dict):
+            raise ValueError("state file must contain a JSON object")
         before_size = state_file.stat().st_size
         backup_file = ""
         if apply and backup:
@@ -236,14 +304,22 @@ def print_text(result: CompactResult) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    result = compact_state_file(
-        args.state_file,
-        archive_dir=args.archive_dir,
-        apply=args.apply,
-        backup=args.backup,
-    )
+    try:
+        result = compact_state_file(
+            args.state_file,
+            archive_dir=args.archive_dir,
+            apply=args.apply,
+            backup=args.backup,
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        payload = {"ok": False, "error": str(exc)}
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False))
+        else:
+            print(f"ok: False\nerror: {exc}")
+        return 2
     if args.json:
-        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2, allow_nan=False))
     else:
         print_text(result)
     return 0

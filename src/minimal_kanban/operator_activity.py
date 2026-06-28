@@ -1,24 +1,47 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
 import time
 import uuid
+from collections.abc import Iterator
 from datetime import timedelta
 from logging import Logger
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from .config import get_operator_activity_dir
 from .models import normalize_actor_name, normalize_text, parse_datetime, utc_now, utc_now_iso
 from .services.errors import ServiceError
 from .storage.file_lock import ProcessFileLock
+from .storage.limited_io import read_text_limited
 
 OPERATOR_ACTIVITY_SCHEMA_VERSION = 1
 DEFAULT_ACTIVITY_PAGE_SIZE = 100
 MAX_ACTIVITY_PAGE_SIZE = 500
+MAX_ACTIVITY_OFFSET = 1_000_000
+MAX_ACTIVITY_AGGREGATE_COUNT = 1_000_000_000
+MAX_ACTIVITY_FILTER_DAYS = 3650
+MAX_DETAIL_RETENTION_DAYS = 3650
 DEFAULT_DETAIL_RETENTION_DAYS = 90
 DEFAULT_AGGREGATE_RETENTION_MONTHS = 24
+OPERATOR_ACTIVITY_AGGREGATE_MAX_BYTES = 1 * 1024 * 1024
+OPERATOR_ACTIVITY_JSONL_TAIL_MAX_BYTES = 5 * 1024 * 1024
+OPERATOR_ACTIVITY_JSONL_LINE_MAX_BYTES = 2 * 1024 * 1024
+OPERATOR_ACTIVITY_JSONL_DISCARD_CHUNK_BYTES = 64 * 1024
+REDACTED_SECRET_VALUE = "<redacted>"
+SENSITIVE_DETAIL_KEY_FRAGMENTS = frozenset(
+    {
+        "access_token",
+        "authorization",
+        "client_secret",
+        "password",
+        "secret",
+        "session",
+        "token",
+    }
+)
 
 MODULE_LABELS = {
     "auth": "Вход",
@@ -44,6 +67,56 @@ ACTION_LABELS = {
 }
 
 
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, str | bool | int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): (
+                REDACTED_SECRET_VALUE
+                if _is_sensitive_detail_key(key)
+                else _json_safe_value(item, depth=depth - 1)
+            )
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, list | tuple | set):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _is_sensitive_detail_key(key: object) -> bool:
+    normalized = str(key or "").strip().replace("-", "_").lower()
+    if not normalized:
+        return False
+    return any(fragment in normalized for fragment in SENSITIVE_DETAIL_KEY_FRAGMENTS)
+
+
+def _json_dumps(
+    payload: Any,
+    *,
+    indent: int | None = None,
+    separators: tuple[str, str] | None = None,
+    sort_keys: bool = False,
+) -> str:
+    return json.dumps(
+        _json_safe_value(payload),
+        ensure_ascii=False,
+        indent=indent,
+        separators=separators,
+        sort_keys=sort_keys,
+        allow_nan=False,
+    )
+
+
 class OperatorActivityService:
     def __init__(self, *, activity_dir: Path | None = None, logger: Logger | None = None) -> None:
         self._activity_dir = activity_dir or get_operator_activity_dir()
@@ -65,17 +138,30 @@ class OperatorActivityService:
             self._current_dir.mkdir(parents=True, exist_ok=True)
             self._details_dir.mkdir(parents=True, exist_ok=True)
             if isinstance(details, dict) and details:
-                details_ref = self._append_details(row, details)
-                row["details_ref"] = details_ref
+                try:
+                    details_ref = self._append_details(row, details)
+                except ValueError as exc:
+                    if self._logger is not None:
+                        self._logger.warning(
+                            "operator_activity_details_write_skipped activity_id=%s error=%s",
+                            row["id"],
+                            exc,
+                        )
+                else:
+                    row["details_ref"] = details_ref
             self._append_jsonl(self._current_file(row["timestamp"]), row)
         return {"activity": dict(row)}
 
     def list_activity(self, payload: dict | None = None) -> dict:
         payload = payload or {}
-        offset = _non_negative_int(payload.get("offset"), default=0)
-        limit = min(
-            MAX_ACTIVITY_PAGE_SIZE,
-            max(1, _non_negative_int(payload.get("limit"), default=DEFAULT_ACTIVITY_PAGE_SIZE)),
+        offset = _non_negative_int(payload.get("offset"), default=0, maximum=MAX_ACTIVITY_OFFSET)
+        limit = max(
+            1,
+            _non_negative_int(
+                payload.get("limit"),
+                default=DEFAULT_ACTIVITY_PAGE_SIZE,
+                maximum=MAX_ACTIVITY_PAGE_SIZE,
+            ),
         )
         rows = [row for row in self._read_current_rows() if self._row_matches(row, payload)]
         rows.sort(key=lambda item: str(item.get("timestamp") or ""), reverse=True)
@@ -138,7 +224,11 @@ class OperatorActivityService:
         backup = bool(payload.get("backup"))
         retention_days = max(
             1,
-            _non_negative_int(payload.get("retention_days"), default=DEFAULT_DETAIL_RETENTION_DAYS),
+            _non_negative_int(
+                payload.get("retention_days"),
+                default=DEFAULT_DETAIL_RETENTION_DAYS,
+                maximum=MAX_DETAIL_RETENTION_DAYS,
+            ),
         )
         if apply and not backup:
             self._fail("validation_error", "--apply требует backup.", details={"field": "backup"})
@@ -262,8 +352,11 @@ class OperatorActivityService:
             return counts
         for path in sorted(self._aggregates_dir.glob("*.json")):
             try:
-                aggregate = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
+                aggregate = json.loads(
+                    self._read_aggregate_text(path),
+                    parse_constant=_reject_json_constant,
+                )
+            except (OSError, ValueError, RecursionError) as exc:
                 if self._logger is not None:
                     self._logger.warning(
                         "operator_activity_aggregate_read_failed path=%s error=%s", path, exc
@@ -331,17 +424,32 @@ class OperatorActivityService:
             aggregate = self._read_aggregate_file(path, month)
             for row in month_rows:
                 self._add_row_to_aggregate(aggregate, row)
-            path.write_text(
-                json.dumps(aggregate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
+            self._write_text_atomic(path, self._aggregate_payload_text(aggregate))
+
+    def _aggregate_payload_text(self, aggregate: dict[str, Any]) -> str:
+        payload = _json_dumps(aggregate, indent=2, sort_keys=True) + "\n"
+        if len(payload.encode("utf-8")) > OPERATOR_ACTIVITY_AGGREGATE_MAX_BYTES:
+            raise ValueError("operator activity aggregate is too large")
+        return payload
+
+    def _write_text_atomic(self, path: Path, text: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            temp_path.write_text(text, encoding="utf-8")
+            temp_path.replace(path)
+        finally:
+            temp_path.unlink(missing_ok=True)
 
     def _read_aggregate_file(self, path: Path, month: str) -> dict[str, Any]:
         if not path.exists():
             return self._normalized_aggregate_payload({}, month)
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            raw = json.loads(
+                self._read_aggregate_text(path),
+                parse_constant=_reject_json_constant,
+            )
+        except (OSError, ValueError, RecursionError) as exc:
             if self._logger is not None:
                 self._logger.warning(
                     "operator_activity_aggregate_read_failed path=%s error=%s", path, exc
@@ -349,11 +457,20 @@ class OperatorActivityService:
             raw = {}
         return self._normalized_aggregate_payload(raw if isinstance(raw, dict) else {}, month)
 
+    def _read_aggregate_text(self, path: Path) -> str:
+        return read_text_limited(
+            path,
+            max_bytes=OPERATOR_ACTIVITY_AGGREGATE_MAX_BYTES,
+            label="operator activity aggregate",
+        )
+
     def _normalized_aggregate_payload(self, payload: dict[str, Any], month: str) -> dict[str, Any]:
         return {
             "schema_version": OPERATOR_ACTIVITY_SCHEMA_VERSION,
             "month": normalize_text(payload.get("month"), default=month, limit=16) or month,
-            "rows_total": _non_negative_int(payload.get("rows_total"), default=0),
+            "rows_total": _non_negative_int(
+                payload.get("rows_total"), default=0, maximum=MAX_ACTIVITY_AGGREGATE_COUNT
+            ),
             "by_user": _clean_count_mapping(payload.get("by_user")),
             "by_day": _clean_count_mapping(payload.get("by_day")),
             "by_module": _clean_count_mapping(payload.get("by_module")),
@@ -363,7 +480,10 @@ class OperatorActivityService:
         }
 
     def _add_row_to_aggregate(self, aggregate: dict[str, Any], row: dict[str, Any]) -> None:
-        aggregate["rows_total"] = _non_negative_int(aggregate.get("rows_total"), default=0) + 1
+        rows_total = _non_negative_int(
+            aggregate.get("rows_total"), default=0, maximum=MAX_ACTIVITY_AGGREGATE_COUNT
+        )
+        aggregate["rows_total"] = min(MAX_ACTIVITY_AGGREGATE_COUNT, rows_total + 1)
         username = str(row.get("username") or "-")
         module = str(row.get("module") or "-")
         action = str(row.get("action") or "-")
@@ -408,6 +528,7 @@ class OperatorActivityService:
             self._activity_dir,
             backup_dir,
             ignore=shutil.ignore_patterns(".operator-activity.lock"),
+            symlinks=True,
         )
         return str(backup_dir)
 
@@ -434,7 +555,7 @@ class OperatorActivityService:
             payload.get("date_from") or payload.get("from") or payload.get("start")
         )
         date_to = parse_datetime(payload.get("date_to") or payload.get("to") or payload.get("end"))
-        days = _non_negative_int(payload.get("days"), default=0)
+        days = _non_negative_int(payload.get("days"), default=0, maximum=MAX_ACTIVITY_FILTER_DAYS)
         if days > 0 and timestamp < utc_now() - timedelta(days=days):
             return False
         if date_from and timestamp < date_from:
@@ -470,21 +591,42 @@ class OperatorActivityService:
 
     def _append_jsonl(self, path: Path, record: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        line = json.dumps(record, ensure_ascii=False, separators=(",", ":"), default=str) + "\n"
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(line)
+        line = _json_dumps(record, separators=(",", ":")) + "\n"
+        payload = line.encode("utf-8")
+        if len(payload.rstrip(b"\r\n")) > OPERATOR_ACTIVITY_JSONL_LINE_MAX_BYTES:
+            raise ValueError("operator activity JSONL record exceeds line size limit")
+        with path.open("ab") as handle:
+            handle.write(payload)
 
     def _read_jsonl(self, path: Path) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         try:
-            with path.open("r", encoding="utf-8") as handle:
-                for line in handle:
-                    line = line.strip()
+            with path.open("rb") as handle:
+                size = path.stat().st_size
+                if size > OPERATOR_ACTIVITY_JSONL_TAIL_MAX_BYTES:
+                    handle.seek(size - OPERATOR_ACTIVITY_JSONL_TAIL_MAX_BYTES)
+                    discarded = handle.readline(OPERATOR_ACTIVITY_JSONL_LINE_MAX_BYTES + 1)
+                    if discarded and not discarded.endswith(b"\n"):
+                        self._discard_jsonl_line_tail(handle)
+                    if self._logger is not None:
+                        self._logger.warning(
+                            "operator_activity_jsonl_tail_used path=%s size=%s limit=%s",
+                            path,
+                            size,
+                            OPERATOR_ACTIVITY_JSONL_TAIL_MAX_BYTES,
+                        )
+                for raw_line in self._iter_jsonl_lines(handle):
+                    try:
+                        line = raw_line.decode("utf-8").strip()
+                    except UnicodeDecodeError:
+                        if self._logger is not None:
+                            self._logger.warning("operator_activity_bad_utf8 path=%s", path)
+                        continue
                     if not line:
                         continue
                     try:
-                        payload = json.loads(line)
-                    except json.JSONDecodeError:
+                        payload = json.loads(line, parse_constant=_reject_json_constant)
+                    except (ValueError, RecursionError):
                         if self._logger is not None:
                             self._logger.warning("operator_activity_bad_json path=%s", path)
                         continue
@@ -494,6 +636,32 @@ class OperatorActivityService:
             if self._logger is not None:
                 self._logger.warning("operator_activity_read_failed path=%s error=%s", path, exc)
         return rows
+
+    def _iter_jsonl_lines(self, handle: BinaryIO) -> Iterator[bytes]:
+        while True:
+            raw_line = handle.readline(OPERATOR_ACTIVITY_JSONL_LINE_MAX_BYTES + 1)
+            if not raw_line:
+                break
+            if len(raw_line.rstrip(b"\r\n")) > OPERATOR_ACTIVITY_JSONL_LINE_MAX_BYTES:
+                if not raw_line.endswith(b"\n"):
+                    self._discard_jsonl_line_tail(handle)
+                if self._logger is not None:
+                    self._logger.warning("operator_activity_jsonl_line_too_large")
+                continue
+            yield raw_line
+
+    def _discard_jsonl_line_tail(self, handle: BinaryIO) -> None:
+        while True:
+            chunk = handle.read(OPERATOR_ACTIVITY_JSONL_DISCARD_CHUNK_BYTES)
+            if not chunk:
+                return
+            newline_index = chunk.find(b"\n")
+            if newline_index < 0:
+                continue
+            unread = len(chunk) - newline_index - 1
+            if unread:
+                handle.seek(-unread, 1)
+            return
 
     def _current_file(self, timestamp: str) -> Path:
         return self._current_dir / f"{_month_from_timestamp(timestamp)}.jsonl"
@@ -554,12 +722,22 @@ def _month_from_timestamp(timestamp: str) -> str:
     return "unknown"
 
 
-def _non_negative_int(value: Any, *, default: int) -> int:
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
+def _non_negative_int(value: Any, *, default: int, maximum: int | None = None) -> int:
+    if isinstance(value, bool):
         return default
-    return max(0, number)
+    if isinstance(value, float) and (not math.isfinite(value) or not value.is_integer()):
+        return default
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return default
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return default
+    if numeric <= 0:
+        return 0
+    if maximum is not None and numeric > maximum:
+        return maximum
+    return int(numeric)
 
 
 def _increment(target: dict[str, int], key: str) -> None:
@@ -577,9 +755,8 @@ def _clean_count_mapping(value: Any) -> dict[str, int]:
         return {}
     counts: dict[str, int] = {}
     for raw_key, raw_count in value.items():
-        try:
-            count = int(raw_count)
-        except (TypeError, ValueError):
+        count = _non_negative_int(raw_count, default=-1, maximum=MAX_ACTIVITY_AGGREGATE_COUNT)
+        if count < 0:
             continue
-        counts[str(raw_key)] = max(0, count)
+        counts[str(raw_key)] = count
     return counts

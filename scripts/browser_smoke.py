@@ -7,6 +7,7 @@ import asyncio
 import base64
 import json
 import logging
+import math
 import socket
 import sys
 import tempfile
@@ -73,6 +74,7 @@ SMOKE_SCENARIOS = SMOKE_SCENARIOS + MOBILE_SMOKE_SCENARIOS
 
 BROWSER_READ_RETRY_LIMIT = 1
 BROWSER_READ_RETRY_DELAY_SECONDS = 0.15
+BROWSER_SMOKE_RESPONSE_MAX_BYTES = 8 * 1024 * 1024
 CASHBOX_JOURNAL_FIRST_RENDER_BUDGET_MS = 2500
 DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS = 240.0
 PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS = 10.0
@@ -80,6 +82,94 @@ SMOKE_ACTION_TIMEOUT_MS = 20000
 SMOKE_NAVIGATION_TIMEOUT_MS = 15000
 SMOKE_UI_BIND_TIMEOUT_MS = 30000
 BENIGN_FAILED_REQUEST_MARKERS = ("net::ERR_ABORTED", "NS_BINDING_ABORTED", "AbortError")
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+
+
+def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float):
+    return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _json_dumps(payload: Any) -> str:
+    return json.dumps(_json_safe_value(payload), ensure_ascii=False, indent=2, allow_nan=False)
+
+
+def _browser_timeout_seconds(value: Any) -> float:
+    if isinstance(value, bool):
+        return DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS
+    try:
+        timeout = float(
+            DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS if value is None or value == "" else value
+        )
+    except (OverflowError, TypeError, ValueError):
+        timeout = DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS
+    if not math.isfinite(timeout):
+        timeout = DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS
+    if timeout < 30.0:
+        return 30.0
+    if timeout > 3600.0:
+        return 3600.0
+    return timeout
+
+
+def _browser_attempts(value: Any) -> int:
+    if isinstance(value, bool):
+        return 4
+    try:
+        attempts = float(4 if value is None or value == "" else value)
+    except (OverflowError, TypeError, ValueError):
+        return 4
+    if not math.isfinite(attempts) or not attempts.is_integer():
+        return 4
+    if attempts < 1:
+        return 1
+    if attempts > 10:
+        return 10
+    return int(attempts)
+
+
+def _browser_start_port(value: Any) -> int:
+    if isinstance(value, bool):
+        return 42731
+    try:
+        port = float(42731 if value is None or value == "" else value)
+    except (OverflowError, TypeError, ValueError):
+        return 42731
+    if not math.isfinite(port) or not port.is_integer():
+        return 42731
+    if port < 1:
+        return 42731
+    if port > 65535:
+        return 65535
+    return int(port)
 
 
 @dataclass
@@ -125,12 +215,21 @@ def _is_transient_read_error(exc: BaseException) -> bool:
     return isinstance(exc, transient_types) or isinstance(reason, transient_types)
 
 
+def _read_response_body(
+    response: Any, *, limit_bytes: int = BROWSER_SMOKE_RESPONSE_MAX_BYTES
+) -> bytes:
+    body = response.read(limit_bytes + 1)
+    if len(body) > limit_bytes:
+        raise ValueError(f"Browser smoke response is too large ({limit_bytes} byte limit)")
+    return body
+
+
 def _read_bytes(url: str, *, accept: str, timeout: float) -> bytes:
     request = urllib.request.Request(url, headers={"Accept": accept}, method="GET")
     for attempt in range(BROWSER_READ_RETRY_LIMIT + 1):
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                return response.read()
+            with _urlopen_no_redirect(request, timeout=timeout) as response:
+                return _read_response_body(response)
         except (
             urllib.error.URLError,
             TimeoutError,
@@ -144,8 +243,18 @@ def _read_bytes(url: str, *, accept: str, timeout: float) -> bytes:
     raise RuntimeError("Не удалось прочитать локальный smoke URL.")
 
 
+def _load_json_response(raw: bytes) -> dict[str, Any]:
+    try:
+        payload = json.loads(raw.decode("utf-8"), parse_constant=_reject_json_constant)
+    except RecursionError as exc:
+        raise ValueError("API response JSON is too deeply nested") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("API response must be a JSON object")
+    return payload
+
+
 def _read_json(url: str, *, timeout: float = 8.0) -> dict[str, Any]:
-    return json.loads(_read_bytes(url, accept="application/json", timeout=timeout).decode("utf-8"))
+    return _load_json_response(_read_bytes(url, accept="application/json", timeout=timeout))
 
 
 def _read_text(url: str, *, timeout: float = 8.0) -> str:
@@ -1476,24 +1585,24 @@ def main() -> int:
     configure_stdout_utf8()
     parser = argparse.ArgumentParser(description="Run AutoStop CRM browser smoke on temp data.")
     parser.add_argument("--headed", action="store_true", help="Run Chromium with a visible window.")
-    parser.add_argument("--start-port", type=int, default=42731)
+    parser.add_argument("--start-port", default=42731)
     parser.add_argument(
         "--browser-timeout-seconds",
-        type=float,
         default=DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS,
     )
-    parser.add_argument("--attempts", type=int, default=4)
+    parser.add_argument("--attempts", default=4)
     args = parser.parse_args()
 
-    attempts = max(1, int(args.attempts or 1))
+    attempts = _browser_attempts(args.attempts)
+    start_port = _browser_start_port(args.start_port)
     attempt_results: list[dict[str, Any]] = []
     result: dict[str, Any] = {}
     for attempt in range(1, attempts + 1):
         try:
             result = asyncio.run(
                 asyncio.wait_for(
-                    run_temp_smoke(headless=not args.headed, start_port=args.start_port),
-                    timeout=max(30.0, float(args.browser_timeout_seconds or 0.0)),
+                    run_temp_smoke(headless=not args.headed, start_port=start_port),
+                    timeout=_browser_timeout_seconds(args.browser_timeout_seconds),
                 )
             )
         except Exception as exc:
@@ -1515,7 +1624,7 @@ def main() -> int:
             break
     if not result.get("ok") and attempts > 1:
         result = {**result, "attempts": attempt_results}
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(_json_dumps(result))
     if result.get("error") == "playwright_missing":
         return 2
     return 0 if result.get("ok") else 1

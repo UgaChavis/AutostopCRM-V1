@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import socket
 import threading
 import time
@@ -16,6 +17,20 @@ from ..logging_setup import configure_mcp_startup_logger
 
 _READY_HTTP_STATUSES = {200, 204, 307, 308, 400, 401, 403, 405, 406}
 _STARTUP_TIMEOUT_SECONDS = 30.0
+_STARTUP_TIMEOUT_MAX_SECONDS = 300.0
+READINESS_RESPONSE_MAX_BYTES = 4096
+
+
+def _normalize_startup_timeout(timeout_seconds: float) -> float:
+    if isinstance(timeout_seconds, bool):
+        timeout_seconds = _STARTUP_TIMEOUT_SECONDS
+    try:
+        numeric = float(timeout_seconds)
+    except (TypeError, ValueError, OverflowError):
+        numeric = _STARTUP_TIMEOUT_SECONDS
+    if not math.isfinite(numeric) or numeric <= 0:
+        return _STARTUP_TIMEOUT_SECONDS
+    return min(numeric, _STARTUP_TIMEOUT_MAX_SECONDS)
 
 
 class McpRuntimeStartupError(RuntimeError):
@@ -35,9 +50,10 @@ class McpServerRuntime:
         self._startup_error: BaseException | None = None
         self._startup_traceback = ""
         self.logging_mode = "unconfigured"
-        self.host = server.settings.host
-        self.port = server.settings.port
-        self.path = server.settings.streamable_http_path
+        self.host = str(server.settings.host or "127.0.0.1").strip() or "127.0.0.1"
+        self.port = int(server.settings.port)
+        path = str(server.settings.streamable_http_path or "/mcp").strip() or "/mcp"
+        self.path = path if path.startswith("/") else f"/{path}"
         self.auth_mode = auth_mode
 
     @property
@@ -126,6 +142,7 @@ class McpServerRuntime:
             loop.close()
 
     def _wait_until_port_is_bound(self, timeout_seconds: float = _STARTUP_TIMEOUT_SECONDS) -> None:
+        timeout_seconds = _normalize_startup_timeout(timeout_seconds)
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
             self._raise_if_start_failed()
@@ -147,7 +164,9 @@ class McpServerRuntime:
     def _wait_until_endpoint_is_ready(
         self, timeout_seconds: float = _STARTUP_TIMEOUT_SECONDS
     ) -> None:
+        timeout_seconds = _normalize_startup_timeout(timeout_seconds)
         deadline = time.monotonic() + timeout_seconds
+        detail = "readiness probe was not attempted"
         while time.monotonic() < deadline:
             self._raise_if_start_failed()
             ready, status_code, detail = self._probe_endpoint_once()
@@ -168,11 +187,36 @@ class McpServerRuntime:
 
     def _probe_endpoint_once(self) -> tuple[bool, int | None, str]:
         try:
-            response = httpx.get(self.base_url, follow_redirects=False, timeout=0.75)
+            with httpx.stream(
+                "GET",
+                self.base_url,
+                follow_redirects=False,
+                timeout=0.75,
+            ) as response:
+                detail = response.reason_phrase or self._read_response_prefix(
+                    response,
+                    max_bytes=READINESS_RESPONSE_MAX_BYTES,
+                )
+                return response.status_code in _READY_HTTP_STATUSES, response.status_code, detail
         except httpx.HTTPError as exc:
             return False, None, str(exc)
-        detail = response.reason_phrase or response.text[:160]
-        return response.status_code in _READY_HTTP_STATUSES, response.status_code, detail
+
+    def _read_response_prefix(
+        self, response: httpx.Response, *, max_bytes: int = READINESS_RESPONSE_MAX_BYTES
+    ) -> str:
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in response.iter_bytes(chunk_size=max_bytes + 1):
+            if not chunk:
+                continue
+            remaining = max_bytes - total
+            if remaining <= 0:
+                break
+            chunks.append(chunk[:remaining])
+            total += len(chunk)
+            if total > max_bytes:
+                break
+        return b"".join(chunks).decode("utf-8", errors="replace")[:160]
 
     def _raise_if_start_failed(self) -> None:
         if self._startup_error is None:
@@ -207,11 +251,16 @@ class McpServerRuntime:
             return False
 
     def _probe_host(self) -> str:
-        if self.host == "0.0.0.0":
+        host = str(self.host or "").strip()
+        if host.startswith("[") and host.endswith("]"):
+            host = host[1:-1]
+        if not host:
             return "127.0.0.1"
-        if self.host in {"::", "[::]"}:
+        if host == "0.0.0.0":
+            return "127.0.0.1"
+        if host == "::":
             return "::1"
-        return self.host
+        return host
 
     def _configure_uvicorn_loggers(self) -> str:
         try:

@@ -4,8 +4,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import re
-import shutil
 import sys
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -20,15 +20,91 @@ if str(SRC) not in sys.path:
 from minimal_kanban.config import get_state_file
 from minimal_kanban.models import (
     AuditEvent,
+    Card,
     ClientProfile,
     normalize_client_vehicles,
     utc_now_iso,
 )
 from minimal_kanban.storage.json_store import JsonStore
+from minimal_kanban.storage.limited_io import copy_file_limited
+
+STATE_FILE_MAX_BYTES = 100 * 1024 * 1024
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, str | bool | int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(key): _json_safe_value(item, depth=depth - 1) for key, item in value.items()}
+    if isinstance(value, list | tuple | set):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
+
+
+def _json_dumps(payload: Any) -> str:
+    return json.dumps(
+        _json_safe_value(payload),
+        ensure_ascii=False,
+        indent=2,
+        allow_nan=False,
+    )
 
 
 def _text(value: object) -> str:
     return str(value or "").strip()
+
+
+def _read_state_text(state_file: Path) -> str:
+    with state_file.open("rb") as handle:
+        raw = handle.read(STATE_FILE_MAX_BYTES + 1)
+    if len(raw) > STATE_FILE_MAX_BYTES:
+        raise ValueError("client duplicates state file is too large")
+    return raw.decode("utf-8")
+
+
+def _read_state_for_plan(state_file: Path) -> dict[str, Any]:
+    if not state_file.exists():
+        return {"clients": [], "cards": []}
+    try:
+        state = json.loads(
+            _read_state_text(state_file),
+            parse_constant=_reject_json_constant,
+        )
+    except RecursionError as exc:
+        raise ValueError("client duplicates state file JSON is too deeply nested") from exc
+    if not isinstance(state, dict):
+        raise ValueError("state file must contain a JSON object")
+    return state
+
+
+def _clients_from_state(state: dict[str, Any]) -> list[ClientProfile]:
+    raw_clients = state.get("clients") if isinstance(state.get("clients"), list) else []
+    clients: list[ClientProfile] = []
+    for item in raw_clients:
+        try:
+            clients.append(ClientProfile.from_dict(item))
+        except (OverflowError, TypeError, ValueError):
+            continue
+    return clients
+
+
+def _cards_from_state(state: dict[str, Any]) -> list[Card]:
+    raw_cards = state.get("cards") if isinstance(state.get("cards"), list) else []
+    cards: list[Card] = []
+    for index, item in enumerate(raw_cards):
+        try:
+            cards.append(Card.from_dict(item, fallback_position=index))
+        except (OverflowError, TypeError, ValueError):
+            continue
+    return cards
 
 
 def _normalize_search_text(value: object) -> str:
@@ -166,10 +242,10 @@ def _choose_canonical_client(
 
 
 def build_client_duplicate_plan(state_file: Path | None = None) -> dict[str, Any]:
-    store = JsonStore(state_file=state_file or get_state_file(), logger=logging.getLogger(__name__))
-    bundle = store.read_bundle()
-    clients: list[ClientProfile] = bundle["clients"]
-    cards = bundle["cards"]
+    state_file = state_file or get_state_file()
+    state = _read_state_for_plan(state_file)
+    clients = _clients_from_state(state)
+    cards = _cards_from_state(state)
     linked_cards_by_client: dict[str, list[Any]] = defaultdict(list)
     for card in cards:
         if getattr(card, "client_id", ""):
@@ -340,6 +416,24 @@ def _merge_client_fields(canonical: ClientProfile, duplicate_clients: list[Clien
     canonical.updated_at = utc_now_iso()
 
 
+def _backup_state_file(state_file: Path) -> Path:
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    backup_file = state_file.with_name(f"{state_file.name}.backup-client-duplicates-{timestamp}")
+    counter = 2
+    while backup_file.exists():
+        backup_file = state_file.with_name(
+            f"{state_file.name}.backup-client-duplicates-{timestamp}-{counter:03d}"
+        )
+        counter += 1
+    copy_file_limited(
+        state_file,
+        backup_file,
+        max_bytes=STATE_FILE_MAX_BYTES,
+        label="client duplicates state file",
+    )
+    return backup_file
+
+
 def apply_client_duplicate_plan(
     state_file: Path | None = None,
     *,
@@ -352,10 +446,7 @@ def apply_client_duplicate_plan(
     if not plan["groups"]:
         return {**plan, "read_only": False, "applied": False, "backup_file": ""}
 
-    backup_file = state_file.with_name(
-        f"{state_file.name}.backup-client-duplicates-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
-    )
-    shutil.copy2(state_file, backup_file)
+    backup_file = _backup_state_file(state_file)
 
     store = JsonStore(state_file=state_file, logger=logging.getLogger(__name__))
     bundle = store.read_bundle()
@@ -474,13 +565,20 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.apply and not args.backup:
         parser.error("--apply requires --backup")
-    result = (
-        apply_client_duplicate_plan(args.state_file, backup=args.backup)
-        if args.apply
-        else build_client_duplicate_plan(args.state_file)
-    )
+    try:
+        result = (
+            apply_client_duplicate_plan(args.state_file, backup=args.backup)
+            if args.apply
+            else build_client_duplicate_plan(args.state_file)
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        if args.format == "json":
+            print(_json_dumps({"ok": False, "error": str(exc)}))
+        else:
+            print(f"error: {exc}")
+        return 2
     if args.format == "json":
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        print(_json_dumps(result))
     else:
         print(_format_text(result))
     return 0

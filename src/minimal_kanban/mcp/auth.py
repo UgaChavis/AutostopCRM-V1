@@ -11,9 +11,15 @@ def build_auth_settings(
     path: str,
     resource_url: str | None = None,
 ) -> AuthSettings:
-    mcp_url = resource_url or f"{server_base_url}{path}"
+    normalized_base_url = str(server_base_url or "").strip().rstrip("/")
+    normalized_path = str(path or "").strip() or "/mcp"
+    if not normalized_path.startswith("/"):
+        normalized_path = f"/{normalized_path}"
+    mcp_url = str(resource_url or "").strip().rstrip("/") or (
+        f"{normalized_base_url}{normalized_path}"
+    )
     return AuthSettings(
-        issuer_url=server_base_url,
+        issuer_url=normalized_base_url,
         resource_server_url=mcp_url,
         required_scopes=[],
         client_registration_options=ClientRegistrationOptions(

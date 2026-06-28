@@ -61,6 +61,33 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(get_api_port(), DEFAULT_API_PORT)
             self.assertEqual(get_api_port_fallback_limit(), 1)
 
+    def test_api_and_mcp_ports_reject_out_of_tcp_range_values(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "MINIMAL_KANBAN_API_PORT": "65536",
+                "MINIMAL_KANBAN_API_PORT_FALLBACK_LIMIT": "1e308",
+                "MINIMAL_KANBAN_MCP_PORT": "999999",
+                "MINIMAL_KANBAN_MCP_PORT_FALLBACK_LIMIT": "1e308",
+            },
+            clear=False,
+        ):
+            self.assertEqual(get_api_port(), DEFAULT_API_PORT)
+            self.assertEqual(get_api_port_fallback_limit(), 10)
+            self.assertEqual(get_mcp_port(), DEFAULT_MCP_PORT)
+            self.assertEqual(get_mcp_port_fallback_limit(), 10)
+
+        with patch.dict(
+            os.environ,
+            {
+                "MINIMAL_KANBAN_API_PORT": " 65535 ",
+                "MINIMAL_KANBAN_MCP_PORT": "65535",
+            },
+            clear=False,
+        ):
+            self.assertEqual(get_api_port(), 65535)
+            self.assertEqual(get_mcp_port(), 65535)
+
     def test_reads_mcp_overrides_from_environment(self) -> None:
         with patch.dict(
             os.environ,

@@ -348,6 +348,52 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         self.assertIn(str(export_path), dialog.status_label.text())
         dialog.close()
 
+    def test_export_write_creates_parent_directory_and_reports_errors(self) -> None:
+        dialog = SettingsWindow(
+            self.settings_service,
+            "http://127.0.0.1:41731",
+            mcp_controller=self.controller,
+            parent=self.window,
+        )
+        export_path = Path(self.temp_dir.name) / "nested" / "settings.txt"
+
+        dialog._write_export_file(export_path, "payload", "Экспортирован: {path}")
+
+        self.assertEqual(export_path.read_text(encoding="utf-8"), "payload")
+        self.assertIn(str(export_path), dialog.status_label.text())
+
+        with patch(
+            "minimal_kanban.ui.settings_window.Path.write_text", side_effect=OSError("disk full")
+        ):
+            dialog._write_export_file(
+                Path(self.temp_dir.name) / "blocked.txt",
+                "payload",
+                "Экспортирован: {path}",
+            )
+
+        self.assertIn("Не удалось экспортировать файл", dialog.status_label.text())
+        self.assertEqual(dialog.status_label.property("tone"), "error")
+
+        existing_path = Path(self.temp_dir.name) / "existing-export.txt"
+        existing_path.write_text("original", encoding="utf-8")
+        with patch("minimal_kanban.ui.settings_window.Path.replace", side_effect=OSError("locked")):
+            dialog._write_export_file(existing_path, "replacement", "Экспортирован: {path}")
+
+        self.assertEqual(existing_path.read_text(encoding="utf-8"), "original")
+        self.assertEqual(list(existing_path.parent.glob(f".{existing_path.name}.*.tmp")), [])
+        self.assertIn("Не удалось экспортировать файл", dialog.status_label.text())
+
+        oversized_path = Path(self.temp_dir.name) / "oversized-export.txt"
+        oversized_path.write_text("original", encoding="utf-8")
+        with patch("minimal_kanban.ui.settings_window.SETTINGS_EXPORT_FILE_MAX_BYTES", 3):
+            dialog._write_export_file(oversized_path, "abcd", "Экспортирован: {path}")
+
+        self.assertEqual(oversized_path.read_text(encoding="utf-8"), "original")
+        self.assertEqual(list(oversized_path.parent.glob(f".{oversized_path.name}.*.tmp")), [])
+        self.assertIn("размер данных превышает 3 байт", dialog.status_label.text())
+        self.assertEqual(dialog.status_label.property("tone"), "error")
+        dialog.close()
+
     def test_main_window_optional_publish_actions_use_consistent_messages(self) -> None:
         self.window._access_board_url = ""
         self.window.copy_access_url()
@@ -359,6 +405,12 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         open_browser.assert_not_called()
         self.assertIn("не настроен", self.window.status_label.text().lower())
 
+        self.window._effective_mcp_url = "file:///C:/Users/Public/secret.txt"
+        with patch("minimal_kanban.ui.main_window.webbrowser.open") as open_browser:
+            self.window.open_mcp_endpoint()
+        open_browser.assert_not_called()
+        self.assertIn("http(s)", self.window.status_label.text().lower())
+
         self.window._access_board_url = "https://board.example/share"
         self.window.copy_access_url()
         self.assertEqual(QGuiApplication.clipboard().text(), "https://board.example/share")
@@ -368,6 +420,63 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
             self.window.open_mcp_endpoint()
         open_browser.assert_called_once_with("https://agent.example/mcp")
         self.assertIn("mcp url", self.window.status_label.text().lower())
+
+    def test_main_window_publishes_connector_files_with_resolved_chatgpt_auth_mode(self) -> None:
+        settings = self.settings_service.load()
+
+        with patch("minimal_kanban.ui.main_window.write_connector_files") as write_files:
+            saved = self.settings_service.save(
+                settings.__class__.from_dict(
+                    {
+                        **settings.to_dict(),
+                        "general": {
+                            **settings.general.to_dict(),
+                            "integration_enabled": True,
+                        },
+                        "mcp": {
+                            **settings.mcp.to_dict(),
+                            "mcp_enabled": True,
+                            "public_https_base_url": "https://mcp.example",
+                            "mcp_auth_mode": "bearer",
+                            "mcp_bearer_token": "",
+                        },
+                        "auth": {
+                            **settings.auth.to_dict(),
+                            "mcp_bearer_token": "",
+                        },
+                    }
+                )
+            )
+            self.window._on_settings_saved(saved)
+
+        self.assertEqual(write_files.call_args.kwargs["auth_mode"], "none")
+
+        with patch("minimal_kanban.ui.main_window.write_connector_files") as write_files:
+            saved = self.settings_service.save(
+                settings.__class__.from_dict(
+                    {
+                        **settings.to_dict(),
+                        "general": {
+                            **settings.general.to_dict(),
+                            "integration_enabled": True,
+                        },
+                        "mcp": {
+                            **settings.mcp.to_dict(),
+                            "mcp_enabled": True,
+                            "public_https_base_url": "https://mcp.example",
+                            "mcp_auth_mode": "bearer",
+                            "mcp_bearer_token": "mcp-secret",
+                        },
+                        "auth": {
+                            **settings.auth.to_dict(),
+                            "mcp_bearer_token": "mcp-secret",
+                        },
+                    }
+                )
+            )
+            self.window._on_settings_saved(saved)
+
+        self.assertEqual(write_files.call_args.kwargs["auth_mode"], "oauth_embedded")
 
     def test_connect_to_chatgpt_wizard_shows_warning_and_copies_payload(self) -> None:
         dialog = SettingsWindow(

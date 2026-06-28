@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from typing import Any
 
@@ -37,6 +38,24 @@ _MAX_CARD_FACTS = 10
 _MAX_REPAIR_ITEMS = 6
 _MAX_ATTACHMENTS = 8
 _MAX_LINES_PER_FIELD = 6
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)
 
 
 def _clean_text(value: Any, *, limit: int = 400) -> str:
@@ -383,8 +402,12 @@ def build_ai_compact_context_packet(
 
 def compact_context_fingerprint(packet: dict[str, Any]) -> str:
     digest = hashlib.sha1(
-        json.dumps(packet, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
-            "utf-8"
-        )
+        json.dumps(
+            _json_safe_value(packet),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
     ).hexdigest()
     return digest[:16]

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+from collections.abc import Iterator
 from dataclasses import dataclass
 from logging import Logger
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from .file_lock import ProcessFileLock
 
@@ -21,6 +23,9 @@ HEAVY_AUDIT_ACTIONS = frozenset(
     }
 )
 TEXT_PREVIEW_LIMIT = 600
+AUDIT_ARCHIVE_SCAN_MAX_BYTES = 10 * 1024 * 1024
+AUDIT_ARCHIVE_LINE_MAX_BYTES = 2 * 1024 * 1024
+AUDIT_ARCHIVE_READ_CHUNK_BYTES = 64 * 1024
 
 
 @dataclass(frozen=True)
@@ -60,8 +65,18 @@ class AuditArchiveStore:
             "timestamp": timestamp,
             "details": details,
         }
-        line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
+        line = (
+            json.dumps(
+                _json_safe_value(record),
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            + "\n"
+        )
         payload = line.encode("utf-8")
+        if len(payload.rstrip(b"\n")) > AUDIT_ARCHIVE_LINE_MAX_BYTES:
+            raise ValueError("audit archive record exceeds line size limit")
         with self._lock.acquire():
             self._archive_dir.mkdir(parents=True, exist_ok=True)
             with archive_file.open("ab") as handle:
@@ -75,19 +90,17 @@ class AuditArchiveStore:
         if not archive_file.exists():
             return None
         try:
-            with archive_file.open("r", encoding="utf-8") as handle:
-                for line in handle:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        record = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if requested_event_id and record.get("event_id") != requested_event_id:
-                        continue
-                    details = record.get("details")
-                    return details if isinstance(details, dict) else None
+            for line in self._iter_archive_lines(archive_file):
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line, parse_constant=_reject_json_constant)
+                except (ValueError, json.JSONDecodeError, RecursionError):
+                    continue
+                if requested_event_id and record.get("event_id") != requested_event_id:
+                    continue
+                details = record.get("details")
+                return details if isinstance(details, dict) else None
         except OSError as exc:
             if self._logger is not None:
                 self._logger.warning("audit_archive_load_failed ref=%s error=%s", ref, exc)
@@ -104,6 +117,147 @@ class AuditArchiveStore:
         safe_name = Path(file_part).name or file_part
         return self._archive_dir / safe_name, event_id if sep else None
 
+    def _iter_archive_lines(self, archive_file: Path) -> Iterator[str]:
+        size = archive_file.stat().st_size
+        with archive_file.open("rb") as handle:
+            if size <= AUDIT_ARCHIVE_SCAN_MAX_BYTES:
+                yield from self._iter_archive_window(
+                    archive_file,
+                    handle,
+                    byte_budget=size,
+                    allow_trailing_partial=True,
+                )
+                return
+
+            if self._logger is not None:
+                self._logger.warning(
+                    "audit_archive_window_scan_used path=%s size=%s limit=%s",
+                    archive_file,
+                    size,
+                    AUDIT_ARCHIVE_SCAN_MAX_BYTES,
+                )
+            yield from self._iter_archive_window(
+                archive_file,
+                handle,
+                byte_budget=AUDIT_ARCHIVE_SCAN_MAX_BYTES,
+                allow_trailing_partial=False,
+            )
+
+            tail_start = max(AUDIT_ARCHIVE_SCAN_MAX_BYTES, size - AUDIT_ARCHIVE_SCAN_MAX_BYTES)
+            handle.seek(tail_start)
+            tail_budget = size - tail_start
+            if tail_start > 0 and not self._starts_at_archive_line_boundary(handle, tail_start):
+                skipped = self._discard_partial_archive_line(handle, byte_budget=tail_budget)
+                tail_budget = max(0, tail_budget - skipped)
+            if tail_budget > 0:
+                yield from self._iter_archive_window(
+                    archive_file,
+                    handle,
+                    byte_budget=tail_budget,
+                    allow_trailing_partial=True,
+                )
+
+    def _starts_at_archive_line_boundary(self, handle: BinaryIO, offset: int) -> bool:
+        if offset <= 0:
+            return True
+        handle.seek(offset - 1)
+        previous = handle.read(1)
+        handle.seek(offset)
+        return previous == b"\n"
+
+    def _iter_archive_window(
+        self,
+        archive_file: Path,
+        handle: BinaryIO,
+        *,
+        byte_budget: int,
+        allow_trailing_partial: bool,
+    ) -> Iterator[str]:
+        buffer = b""
+        bytes_read = 0
+        skipping_oversized = False
+        while bytes_read < byte_budget:
+            chunk_size = min(AUDIT_ARCHIVE_READ_CHUNK_BYTES, byte_budget - bytes_read)
+            if chunk_size <= 0:
+                break
+            chunk = handle.read(chunk_size)
+            if not chunk:
+                break
+            bytes_read += len(chunk)
+
+            while chunk:
+                if skipping_oversized:
+                    newline_index = chunk.find(b"\n")
+                    if newline_index < 0:
+                        chunk = b""
+                        continue
+                    chunk = chunk[newline_index + 1 :]
+                    skipping_oversized = False
+                    buffer = b""
+                    continue
+
+                buffer += chunk
+                chunk = b""
+                while True:
+                    newline_index = buffer.find(b"\n")
+                    if newline_index < 0:
+                        if len(buffer) > AUDIT_ARCHIVE_LINE_MAX_BYTES:
+                            self._log_archive_line_too_large(archive_file)
+                            buffer = b""
+                            skipping_oversized = True
+                        break
+
+                    raw_line = buffer[:newline_index]
+                    buffer = buffer[newline_index + 1 :]
+                    if raw_line.endswith(b"\r"):
+                        raw_line = raw_line[:-1]
+                    line = self._decode_archive_line(archive_file, raw_line)
+                    if line:
+                        yield line
+
+        if allow_trailing_partial and buffer and not skipping_oversized:
+            line = self._decode_archive_line(archive_file, buffer.rstrip(b"\r"))
+            if line:
+                yield line
+
+    def _discard_partial_archive_line(self, handle: BinaryIO, *, byte_budget: int) -> int:
+        bytes_read = 0
+        while bytes_read < byte_budget:
+            chunk_size = min(AUDIT_ARCHIVE_READ_CHUNK_BYTES, byte_budget - bytes_read)
+            if chunk_size <= 0:
+                break
+            chunk = handle.read(chunk_size)
+            if not chunk:
+                break
+            bytes_read += len(chunk)
+            newline_index = chunk.find(b"\n")
+            if newline_index < 0:
+                continue
+            unread = len(chunk) - newline_index - 1
+            if unread:
+                handle.seek(-unread, 1)
+            return bytes_read - unread
+        return bytes_read
+
+    def _decode_archive_line(self, archive_file: Path, raw_line: bytes) -> str:
+        if len(raw_line) > AUDIT_ARCHIVE_LINE_MAX_BYTES:
+            self._log_archive_line_too_large(archive_file)
+            return ""
+        try:
+            return raw_line.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            if self._logger is not None:
+                self._logger.warning("audit_archive_bad_utf8 path=%s", archive_file)
+            return ""
+
+    def _log_archive_line_too_large(self, archive_file: Path) -> None:
+        if self._logger is not None:
+            self._logger.warning(
+                "audit_archive_line_too_large path=%s limit=%s",
+                archive_file,
+                AUDIT_ARCHIVE_LINE_MAX_BYTES,
+            )
+
 
 def compact_audit_event_details(
     *,
@@ -118,11 +272,13 @@ def compact_audit_event_details(
     if "before" not in details and "after" not in details:
         return dict(details)
 
-    compact = {
-        key: value
-        for key, value in details.items()
-        if key not in {"before", "after"} and _compact_value_is_json_safe(value)
-    }
+    compact: dict[str, Any] = {}
+    for key, value in details.items():
+        if key in {"before", "after"}:
+            continue
+        safe_value = _compact_json_safe_value(value)
+        if safe_value is not _UNSAFE_COMPACT_VALUE:
+            compact[key] = safe_value
     before = details.get("before")
     after = details.get("after")
     compact[AUDIT_FULL_DETAILS_ARCHIVED_KEY] = True
@@ -185,9 +341,9 @@ def _preview_value(value: Any) -> Any:
         return {
             "type": "list",
             "items": len(value),
-            "preview": value[:3],
+            "preview": _json_safe_value(value[:3], depth=3),
         }
-    return value
+    return _json_safe_value(value, depth=3)
 
 
 def _preview_mapping(value: dict[str, Any]) -> dict[str, Any]:
@@ -211,28 +367,66 @@ def _preview_mapping(value: dict[str, Any]) -> dict[str, Any]:
         "data_completion_state",
         "source_confidence",
     )
-    preview = {key: value.get(key) for key in preferred_keys if key in value}
+    preview = {
+        key: _json_safe_value(value.get(key), depth=3) for key in preferred_keys if key in value
+    }
     if not preview:
         for key in sorted(value.keys())[:8]:
-            preview[key] = value.get(key)
+            preview[key] = _json_safe_value(value.get(key), depth=3)
     preview["_keys"] = len(value)
     return preview
 
 
 def _stable_value_hash(value: Any) -> str:
-    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    payload = json.dumps(
+        _json_safe_value(value),
+        ensure_ascii=False,
+        sort_keys=True,
+        allow_nan=False,
+    ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
 
 def _json_size_bytes(value: Any) -> int:
     return len(
-        json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
+        json.dumps(
+            _json_safe_value(value),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
     )
 
 
-def _compact_value_is_json_safe(value: Any) -> bool:
+_UNSAFE_COMPACT_VALUE = object()
+
+
+def _compact_json_safe_value(value: Any) -> Any:
     try:
-        json.dumps(value, ensure_ascii=False, default=str)
-    except (TypeError, ValueError):
-        return False
-    return True
+        safe_value = _json_safe_value(value)
+        json.dumps(safe_value, ensure_ascii=False, allow_nan=False)
+    except (RecursionError, TypeError, ValueError):
+        return _UNSAFE_COMPACT_VALUE
+    return safe_value
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Unsupported JSON constant: {value}")
+
+
+def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+    if depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe_value(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item, depth=depth - 1) for item in value]
+    return str(value)

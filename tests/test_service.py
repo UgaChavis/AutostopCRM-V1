@@ -3,15 +3,18 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 from datetime import datetime, timedelta, timezone
 import logging
 from datetime import datetime as dt
 from decimal import Decimal
+from io import BytesIO
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
+from zipfile import ZIP_DEFLATED, ZipFile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,10 +36,14 @@ from attachment_samples import (
 )
 from minimal_kanban.models import (
     CARD_DESCRIPTION_LIMIT,
+    MAX_ATTACHMENT_SIZE_BYTES,
+    Attachment,
     AuditEvent,
     Card,
     CashBox,
     CashTransaction,
+    ClientVehicle,
+    normalize_int,
     normalize_money_minor,
     utc_now,
 )
@@ -197,6 +204,12 @@ class _FakeAgentControl:
         return self.latest_task_by_card.get((card_id, purpose))
 
 
+class _FailingStatusAgentControl(_FakeAgentControl):
+    def agent_status(self, payload: dict | None = None) -> dict:
+        _ = payload
+        raise RuntimeError("status failed")
+
+
 class CardServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -227,6 +240,172 @@ class CardServiceTests(unittest.TestCase):
 
     def test_money_minor_normalization_preserves_decimal_zero(self) -> None:
         self.assertEqual(normalize_money_minor(Decimal("0"), default=500), 0)
+
+    def test_numeric_normalizers_fall_back_for_non_finite_values(self) -> None:
+        self.assertEqual(normalize_int(float("inf"), default=7, minimum=1), 7)
+        self.assertEqual(normalize_int(True, default=7, minimum=1), 7)
+        self.assertEqual(normalize_int(2.5, default=7, minimum=1), 7)
+        self.assertEqual(normalize_int("3.0", default=7, minimum=1), 3)
+        self.assertEqual(normalize_money_minor(float("inf"), default=500), 500)
+        self.assertEqual(normalize_money_minor("Infinity", default=500), 500)
+
+    def test_service_numeric_limits_reject_overflowing_values_as_validation_errors(self) -> None:
+        with self.assertRaises(ServiceError) as limit_error:
+            self.service.list_inventory_items({"limit": 1e308})
+
+        self.assertEqual(limit_error.exception.code, "validation_error")
+        self.assertEqual(limit_error.exception.details.get("field"), "limit")
+
+        with self.assertRaises(ServiceError) as numeric_limit_error:
+            self.service._validated_numeric_limit(
+                1e308, field="max_chars", default=1000, maximum=5000
+            )
+
+        self.assertEqual(numeric_limit_error.exception.code, "validation_error")
+        self.assertEqual(numeric_limit_error.exception.details.get("field"), "max_chars")
+
+    def test_service_numeric_limits_reject_bool_and_fractional_values(self) -> None:
+        for value in (True, 1.5, "2.5"):
+            with self.subTest(value=value):
+                with self.assertRaises(ServiceError) as limit_error:
+                    self.service.list_inventory_items({"limit": value})
+                self.assertEqual(limit_error.exception.code, "validation_error")
+                self.assertEqual(limit_error.exception.details.get("field"), "limit")
+
+        for value in (True, 12.5, "12.5"):
+            with self.subTest(value=value):
+                with self.assertRaises(ServiceError) as numeric_limit_error:
+                    self.service._validated_numeric_limit(
+                        value, field="max_chars", default=1000, maximum=5000
+                    )
+                self.assertEqual(numeric_limit_error.exception.code, "validation_error")
+                self.assertEqual(numeric_limit_error.exception.details.get("field"), "max_chars")
+
+    def test_board_scale_rejects_nan_and_board_control_settings_fall_back(self) -> None:
+        with self.assertRaises(ServiceError) as scale_error:
+            self.service.update_board_settings({"board_scale": float("nan")})
+
+        self.assertEqual(scale_error.exception.code, "validation_error")
+        self.assertEqual(scale_error.exception.details.get("field"), "board_scale")
+
+        with self.assertRaises(ServiceError) as bool_scale_error:
+            self.service.update_board_settings({"board_scale": True})
+
+        self.assertEqual(bool_scale_error.exception.code, "validation_error")
+        self.assertEqual(bool_scale_error.exception.details.get("field"), "board_scale")
+
+        updated = self.service.update_board_settings(
+            {
+                "ai_board_control": {
+                    "enabled": True,
+                    "interval_minutes": 1e308,
+                    "cooldown_minutes": 1e308,
+                }
+            }
+        )
+
+        self.assertEqual(
+            updated["settings"]["ai_board_control"],
+            {"enabled": True, "interval_minutes": 240, "cooldown_minutes": 1440},
+        )
+
+    def test_invalid_stored_board_scale_falls_back_in_update_and_context(self) -> None:
+        bundle = self.store.read_bundle()
+        settings = dict(bundle["settings"])
+        settings["board_scale"] = "bad-scale"
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            events=bundle["events"],
+            settings=settings,
+        )
+
+        context = self.service.get_board_context()["context"]
+        updated = self.service.update_board_settings(
+            {"ai_board_control": {"enabled": True}, "actor_name": "ОПЕРАТОР"}
+        )
+
+        self.assertEqual(context["board_scale"], 1.0)
+        self.assertEqual(updated["meta"]["previous_board_scale"], 1.0)
+        self.assertEqual(updated["settings"]["board_scale"], 1.0)
+
+    def test_card_ai_run_count_normalizes_invalid_runtime_values(self) -> None:
+        card = Card.from_dict({"id": "card-1", "title": "Диагностика"})
+
+        card.ai_run_count = float("nan")
+        self.assertEqual(self.service._card_ai_run_count(card), 0)
+        self.assertEqual(self.service._card_ai_next_interval_minutes(card, changed=False), 60)
+
+        card.ai_run_count = "4"
+        self.assertEqual(self.service._card_ai_run_count(card), 4)
+        self.assertEqual(self.service._card_ai_next_interval_minutes(card, changed=False), 90)
+
+        card.ai_run_count = 1e308
+        self.assertEqual(self.service._card_ai_run_count(card), 1_000_000)
+
+    def test_finance_offset_and_inventory_row_index_handle_overflowing_values(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный"})["cashbox"]
+
+        details = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_offset": float("inf")}
+        )
+
+        self.assertEqual(details["meta"]["transaction_offset"], 0)
+
+        bool_offset = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_offset": True}
+        )
+        fractional_offset = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_offset": 1.5}
+        )
+        huge_offset = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_offset": 1e308}
+        )
+
+        self.assertEqual(bool_offset["meta"]["transaction_offset"], 0)
+        self.assertEqual(fractional_offset["meta"]["transaction_offset"], 0)
+        self.assertEqual(huge_offset["meta"]["transaction_offset"], 1_000_000)
+
+        with self.assertRaises(ServiceError) as row_error:
+            self.service._inventory_target_row_index(float("inf"), [])
+
+        self.assertEqual(row_error.exception.code, "validation_error")
+        self.assertEqual(row_error.exception.details.get("field"), "row_index")
+        for value in (True, 1.5, "1.5"):
+            with self.subTest(row_index=value):
+                with self.assertRaises(ServiceError):
+                    self.service._inventory_target_row_index(value, [])
+
+    def test_sticky_position_rejects_bool_and_fractional_values(self) -> None:
+        for value in (True, 12.5, "12.5"):
+            with self.subTest(value=value):
+                with self.assertRaises(ServiceError) as position_error:
+                    self.service.create_sticky(
+                        {"text": "Стикер", "x": value, "y": 0, "deadline": {"hours": 1}}
+                    )
+                self.assertEqual(position_error.exception.code, "validation_error")
+                self.assertEqual(position_error.exception.details.get("field"), "x")
+
+    def test_inventory_row_lookup_ignores_non_dict_material_rows(self) -> None:
+        row_index = self.service._inventory_row_index_by_movement(
+            [False, {"inventory_movement_id": "move-1"}], "move-1", 0
+        )
+
+        self.assertEqual(row_index, 1)
+
+    def test_payroll_decimal_helpers_ignore_non_finite_values(self) -> None:
+        self.assertEqual(
+            self.service._parse_payroll_decimal("NaN", default=Decimal("7")),
+            Decimal("7"),
+        )
+        self.assertEqual(
+            self.service._parse_payroll_decimal("1e308", default=Decimal("7")),
+            Decimal("7"),
+        )
+        self.assertIsNone(self.service._repair_order_row_decimal_or_none("Infinity"))
 
     def _patch_time(self, moment: datetime):
         return (
@@ -1931,6 +2110,32 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(agent_control.autofill_calls[-1]["trigger"], "manual_activate")
         self.assertEqual(agent_control.autofill_calls[-1]["purpose"], "full_card_enrichment")
         self.assertEqual(agent_control.autofill_calls[-1]["mode"], "full_card_enrichment")
+
+    def test_set_card_ai_autofill_reports_unavailable_when_agent_status_fails(self) -> None:
+        agent_control = _FailingStatusAgentControl()
+        self.service.attach_agent_control(agent_control)
+        created = self.service.create_card(
+            {
+                "title": "Status failure",
+                "description": "VIN: WAUZZZ8V0JA000001",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+
+        with self.assertLogs(self.logger, level="WARNING") as captured:
+            result = self.service.set_card_ai_autofill(
+                {
+                    "card_id": card_id,
+                    "enabled": True,
+                    "actor_name": "AI",
+                }
+            )
+
+        self.assertTrue(result["meta"]["launched"])
+        self.assertFalse(result["meta"]["server_available"])
+        self.assertIn("agent_status_check_failed", "\n".join(captured.output))
+        self.assertEqual(agent_control.autofill_calls[-1]["source"], "ui_full_card_enrichment")
 
     def test_trigger_due_ai_followups_is_disabled(self) -> None:
         self.assertEqual(self.service.trigger_due_ai_followups(), {"launched": [], "failed": []})
@@ -4288,6 +4493,13 @@ class CardServiceTests(unittest.TestCase):
                 {"employee_id": employee["id"], "days": "0"}
             )
         self.assertEqual(days_error.exception.code, "validation_error")
+        for value in (True, "1.5"):
+            with self.subTest(days=value):
+                with self.assertRaises(ServiceError) as invalid_days:
+                    self.service.get_employee_salary_reconciliation(
+                        {"employee_id": employee["id"], "days": value}
+                    )
+                self.assertEqual(invalid_days.exception.code, "validation_error")
 
         with self.assertRaises(ServiceError) as date_error:
             self.service.get_employee_salary_reconciliation(
@@ -5478,6 +5690,27 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(journal["weeks"][0]["count"], 1)
         self.assertEqual(journal["months"][0]["count"], 1)
 
+    def test_cash_journal_formatters_tolerate_invalid_minor_values(self) -> None:
+        totals = self.service._cash_journal_totals(
+            [
+                {"direction": "income", "amount_minor": float("inf"), "source_label": "api"},
+                {"direction": "expense", "amount_minor": "2500", "source_label": "api"},
+                {"direction": "income", "amount_minor": 1e308, "source_label": "api"},
+            ]
+        )
+        balance_rows = self.service._cash_journal_balance_rows(
+            {"cash": float("inf"), "bank": "-150"},
+            [("cash", "Наличный"), ("bank", "Банк")],
+        )
+
+        self.assertEqual(self.service._cash_journal_money_text(float("inf")), "0 ₽")
+        self.assertEqual(totals["income_minor"], 100_000_000_000_000)
+        self.assertEqual(totals["expense_minor"], 2500)
+        self.assertEqual(totals["balance_display"], "+999 999 999 975 ₽")
+        self.assertEqual(balance_rows[0]["balance_minor"], 0)
+        self.assertEqual(balance_rows[1]["balance_minor"], -150)
+        self.assertEqual(balance_rows[1]["balance_sign"], "negative")
+
     def test_cash_journal_can_omit_markdown_for_ui_payload(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"
@@ -6653,6 +6886,19 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(red["card"]["status"], "expired")
         self.assertTrue(any(card["id"] == card_id for card in overdue["cards"]))
 
+    def test_apply_indicator_defaults_invalid_deadline_total_seconds(self) -> None:
+        card = Card.from_dict({"id": "card-1", "title": "Сигнал"})
+        card.deadline_total_seconds = math.nan
+
+        self.service._apply_indicator(card, "yellow")
+
+        self.assertEqual(card.deadline_total_seconds, 10)
+        self.assertEqual(card.indicator(), "yellow")
+
+        card.deadline_total_seconds = 1e308
+        self.service._apply_indicator(card, "green")
+        self.assertEqual(card.deadline_total_seconds, 31_536_000)
+
     def test_list_overdue_cards_skips_expensive_prep_when_empty(self) -> None:
         snapshot_service = self.service._snapshot_service
         snapshot_service._column_labels = Mock(wraps=snapshot_service._column_labels)
@@ -6996,6 +7242,49 @@ class CardServiceTests(unittest.TestCase):
             self.service.search_cards({})
         self.assertEqual(empty_search.exception.code, "validation_error")
         self.assertIn("Для поиска нужно передать query", empty_search.exception.message)
+
+    def test_card_log_formatters_tolerate_invalid_counts_and_deadlines(self) -> None:
+        snapshot_service = self.service._snapshot_service
+        card = Card.from_dict({"id": "card-1", "title": "ЛОГ"})
+        totals = {
+            "count": float("inf"),
+            "actors": True,
+            "actions": "3",
+            "changes": "bad",
+            "deletions": 1.5,
+        }
+        markdown = snapshot_service._card_log_markdown(
+            card=card,
+            entries=[],
+            days=[],
+            weeks=[],
+            months=[],
+            totals=totals,
+            meta={"events_total": "bad"},
+        )
+
+        self.assertEqual(
+            snapshot_service._card_log_count_summary({"count": float("inf")}).split(" | ")[0],
+            "0 событий",
+        )
+        self.assertEqual(
+            snapshot_service._card_log_count_summary({"count": 1e308}).split(" | ")[0],
+            "1000000000 событий",
+        )
+        self.assertEqual(snapshot_service._card_log_deadline_human_value(float("inf")), "inf")
+        self.assertEqual(
+            snapshot_service._card_log_deadline_human_value(1e308),
+            "365 дней",
+        )
+        self.assertEqual(
+            snapshot_service._card_log_deadline_human_value(-1e308),
+            "без срока",
+        )
+        huge_week = f"{'9' * 32}-W1"
+        self.assertEqual(snapshot_service._card_log_week_label(huge_week), huge_week)
+        self.assertEqual(self.service._cash_journal_week_label(huge_week), huge_week)
+        self.assertIn("- Показано: 0 событий из bad", markdown)
+        self.assertIn("- Разных действий: 3 типа", markdown)
 
     def test_get_card_log_supports_limit_and_meta(self) -> None:
         created = self.service.create_card(
@@ -7410,6 +7699,19 @@ class CardServiceTests(unittest.TestCase):
         self.assertNotIn("vehicle created", log["markdown"].lower())
         self.assertNotIn(client["id"], log["markdown"])
         self.assertEqual(entry["details"]["client_id"], client["id"])
+
+    def test_client_vehicle_profile_patch_skips_out_of_range_numeric_fields(self) -> None:
+        patch = self.service._client_vehicle_profile_patch(
+            ClientVehicle(
+                brand="Toyota",
+                model="Camry",
+                year="9999999999999999",
+                mileage="999999999999999999",
+            )
+        )
+
+        self.assertNotIn("production_year", patch)
+        self.assertNotIn("mileage", patch)
 
     def test_search_cards_skips_event_count_build_when_no_matches(self) -> None:
         self.service.create_card(
@@ -8388,6 +8690,84 @@ class CardServiceTests(unittest.TestCase):
         self.assertTrue(file_name.endswith(".txt"))
         self.assertIn("__", file_name)
         self.assertEqual(updated["card"]["repair_order"]["number"], "1")
+
+    def test_repair_order_text_write_does_not_overwrite_existing_fixed_tmp_file(self) -> None:
+        created = self.service.create_card(
+            {"vehicle": "BMW X5", "title": "Заказ-наряд", "deadline": {"hours": 2}}
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Иван",
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+                },
+            }
+        )
+        path, _ = self.service.get_repair_order_text_download(card_id)
+        fixed_tmp = path.with_suffix(path.suffix + ".tmp")
+        fixed_tmp.write_text("sentinel", encoding="utf-8")
+
+        self.service.get_repair_order_text_download(card_id)
+
+        self.assertEqual(fixed_tmp.read_text(encoding="utf-8"), "sentinel")
+
+    def test_repair_order_text_payload_rejects_oversized_disk_file_before_reading(self) -> None:
+        created = self.service.create_card(
+            {"vehicle": "BMW X5", "title": "Заказ-наряд", "deadline": {"hours": 2}}
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Иван",
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+                },
+            }
+        )
+        path, _ = self.service.get_repair_order_text_download(card_id)
+        path.write_text("x" * 16, encoding="utf-8")
+
+        with (
+            patch("minimal_kanban.services.card_service.REPAIR_ORDER_TEXT_FILE_MAX_BYTES", 8),
+            self.assertRaises(ServiceError) as raised,
+        ):
+            self.service.get_repair_order_text({"card_id": card_id})
+
+        self.assertEqual(raised.exception.code, "repair_order_text_too_large")
+        self.assertEqual(raised.exception.status_code, 413)
+
+    def test_repair_order_text_write_rejects_oversized_render_without_clobbering_file(
+        self,
+    ) -> None:
+        created = self.service.create_card(
+            {"vehicle": "BMW X5", "title": "Заказ-наряд", "deadline": {"hours": 2}}
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "Иван",
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+                },
+            }
+        )
+        path, _ = self.service.get_repair_order_text_download(card_id)
+        original = path.read_text(encoding="utf-8")
+
+        with (
+            patch("minimal_kanban.services.card_service.REPAIR_ORDER_TEXT_FILE_MAX_BYTES", 8),
+            self.assertRaises(ServiceError) as raised,
+        ):
+            self.service.get_repair_order_text_download(card_id)
+
+        self.assertEqual(raised.exception.code, "repair_order_text_too_large")
+        self.assertEqual(raised.exception.status_code, 413)
+        self.assertEqual(path.read_text(encoding="utf-8"), original)
+        self.assertEqual(list(path.parent.glob(f".{path.name}.*.tmp")), [])
 
     def test_list_repair_orders_separates_open_and_closed_orders(self) -> None:
         first = self.service.create_card(
@@ -9561,6 +9941,15 @@ class CardServiceTests(unittest.TestCase):
         )
         self.assertEqual([item["number"] for item in ordered["repair_orders"]], ["1", "2"])
 
+    def test_repair_order_numeric_number_falls_back_when_digit_string_cannot_be_parsed(
+        self,
+    ) -> None:
+        from minimal_kanban.services import card_service as card_service_module
+
+        with patch.object(card_service_module, "int", side_effect=ValueError, create=True):
+            self.assertEqual(self.service._repair_order_numeric_number("999"), 0)
+        self.assertEqual(self.service._repair_order_numeric_number("9" * 32), 0)
+
     def test_archived_card_retention_cleans_up_orphan_attachment_directories(self) -> None:
         attachments_dir = Path(self.temp_dir.name) / "attachments"
         service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
@@ -9603,6 +9992,28 @@ class CardServiceTests(unittest.TestCase):
         self.assertFalse(first_dir.exists())
         self.assertTrue(second_dir.exists())
 
+    def test_attachment_directory_cleanup_unlinks_orphan_symlink_without_touching_target(
+        self,
+    ) -> None:
+        attachments_dir = Path(self.temp_dir.name) / "attachments"
+        target_dir = Path(self.temp_dir.name) / "outside-attachments"
+        target_dir.mkdir()
+        (target_dir / "keep.txt").write_text("outside", encoding="utf-8")
+        service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
+        service.create_card({"vehicle": "KIA RIO", "title": "Keep", "deadline": {"hours": 2}})
+        attachments_dir.mkdir(exist_ok=True)
+        orphan_link = attachments_dir / "orphan-card"
+        try:
+            orphan_link.symlink_to(target_dir, target_is_directory=True)
+        except (NotImplementedError, OSError) as exc:
+            self.skipTest(f"symlinks are not available: {exc}")
+
+        service._cleanup_attachment_directories(service._store.read_cards())
+
+        self.assertFalse(orphan_link.exists())
+        self.assertTrue(target_dir.exists())
+        self.assertEqual((target_dir / "keep.txt").read_text(encoding="utf-8"), "outside")
+
     def test_remove_card_attachment_deletes_file_and_empty_card_directory(self) -> None:
         attachments_dir = Path(self.temp_dir.name) / "attachments"
         service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
@@ -9632,6 +10043,160 @@ class CardServiceTests(unittest.TestCase):
         self.assertFalse(file_path.exists())
         self.assertFalse(file_path.parent.exists())
         self.assertEqual(removed["card"]["attachment_count"], 0)
+
+    def test_attachment_disk_paths_reject_traversal_segments(self) -> None:
+        service = self._build_service()
+        attachment = Attachment(
+            id="attachment-id",
+            file_name="safe.txt",
+            stored_name="..\\outside.txt",
+            mime_type="text/plain",
+            size_bytes=1,
+            created_at=utc_now().isoformat(),
+            created_by="tester",
+        )
+
+        for card_id, stored_name in (
+            ("../outside", "safe.txt"),
+            ("..\\outside", "safe.txt"),
+            ("card-id", "../outside.txt"),
+            ("card-id", "..\\outside.txt"),
+        ):
+            with self.subTest(card_id=card_id, stored_name=stored_name):
+                with self.assertRaises(ServiceError) as exc:
+                    service._attachment_path(card_id, stored_name)
+                self.assertEqual(exc.exception.code, "validation_error")
+
+        self.assertFalse(service._attachment_exists_on_disk("../outside", attachment))
+
+    def test_attachment_download_treats_directory_as_missing_file(self) -> None:
+        attachments_dir = Path(self.temp_dir.name) / "attachments"
+        service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
+        created = service.create_card(
+            {"vehicle": "KIA RIO", "title": "Attachment directory", "deadline": {"hours": 2}}
+        )
+        card_id = created["card"]["id"]
+        added = service.add_card_attachment(
+            {
+                "card_id": card_id,
+                "file_name": "report.txt",
+                "mime_type": "text/plain",
+                "content_base64": base64.b64encode(b"hello").decode("ascii"),
+            }
+        )
+        attachment_id = added["attachment"]["id"]
+        file_path, _ = service.get_attachment_download(card_id, attachment_id)
+        file_path.unlink()
+        file_path.mkdir()
+
+        with self.assertRaises(ServiceError) as exc:
+            service.get_attachment_download(card_id, attachment_id)
+
+        self.assertEqual(exc.exception.code, "not_found")
+        self.assertTrue(file_path.is_dir())
+
+    def test_attachment_regular_file_check_rejects_symlink_before_file_stat(self) -> None:
+        service = self._build_service()
+        with (
+            patch.object(Path, "is_symlink", return_value=True),
+            patch.object(
+                Path, "is_file", side_effect=AssertionError("must not stat symlink target")
+            ),
+        ):
+            self.assertFalse(service._attachment_is_regular_file(Path("stored.txt")))
+
+    def test_attachment_download_treats_symlink_as_missing_file(self) -> None:
+        attachments_dir = Path(self.temp_dir.name) / "attachments"
+        service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
+        created = service.create_card(
+            {"vehicle": "KIA RIO", "title": "Attachment symlink", "deadline": {"hours": 2}}
+        )
+        card_id = created["card"]["id"]
+        added = service.add_card_attachment(
+            {
+                "card_id": card_id,
+                "file_name": "report.txt",
+                "mime_type": "text/plain",
+                "content_base64": base64.b64encode(b"hello").decode("ascii"),
+            }
+        )
+        attachment_id = added["attachment"]["id"]
+        file_path, _ = service.get_attachment_download(card_id, attachment_id)
+        target_file = Path(self.temp_dir.name) / "outside-target.txt"
+        target_file.write_bytes(b"outside")
+        file_path.unlink()
+        try:
+            file_path.symlink_to(target_file)
+        except (NotImplementedError, OSError) as exc:
+            self.skipTest(f"symlinks are not available: {exc}")
+
+        with self.assertRaises(ServiceError) as exc:
+            service.get_attachment_download(card_id, attachment_id)
+
+        self.assertEqual(exc.exception.code, "not_found")
+        self.assertTrue(file_path.is_symlink())
+
+    def test_delete_attachment_file_ignores_directory_at_attachment_path(self) -> None:
+        attachments_dir = Path(self.temp_dir.name) / "attachments"
+        service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
+        directory_path = attachments_dir / "card-id" / "stored.txt"
+        directory_path.mkdir(parents=True)
+
+        service._delete_attachment_file("card-id", "stored.txt")
+
+        self.assertTrue(directory_path.is_dir())
+
+    def test_write_attachment_file_does_not_leave_partial_file_when_write_fails(self) -> None:
+        attachments_dir = Path(self.temp_dir.name) / "attachments"
+        service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
+        original_write_bytes = Path.write_bytes
+
+        def partial_temp_write(path: Path, data: bytes) -> int:
+            original_write_bytes(path, b"partial")
+            raise OSError("disk full")
+
+        with (
+            patch.object(Path, "write_bytes", partial_temp_write),
+            self.assertRaises(OSError),
+        ):
+            service._write_attachment_file("card-id", "stored.txt", b"payload")
+
+        card_dir = attachments_dir / "card-id"
+        stored_files = [path for path in card_dir.glob("*") if path.is_file()]
+        self.assertEqual(stored_files, [])
+
+    def test_write_attachment_file_rejects_oversized_content_without_clobbering_existing_file(
+        self,
+    ) -> None:
+        attachments_dir = Path(self.temp_dir.name) / "attachments"
+        service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
+        attachment_path = service._write_attachment_file("card-id", "stored.txt", b"old")
+
+        with (
+            patch("minimal_kanban.services.card_service.MAX_ATTACHMENT_SIZE_BYTES", 4),
+            self.assertRaisesRegex(ValueError, "attachment file is too large"),
+        ):
+            service._write_attachment_file("card-id", "stored.txt", b"toolarge")
+
+        self.assertEqual(attachment_path.read_bytes(), b"old")
+        self.assertEqual(list(attachment_path.parent.glob(f".{attachment_path.name}.*.tmp")), [])
+
+    def test_attachment_content_rejects_oversized_base64_before_decode(self) -> None:
+        service = self._build_service()
+        with (
+            patch("minimal_kanban.services.card_service._ATTACHMENT_BASE64_ENCODED_MAX_CHARS", 8),
+            patch(
+                "minimal_kanban.services.card_service.base64.b64decode",
+                side_effect=AssertionError("oversized payload should not be decoded"),
+            ) as decoder,
+        ):
+            with self.assertRaises(ServiceError) as exc:
+                service._validated_attachment_content("A" * 12)
+
+        self.assertEqual(exc.exception.code, "validation_error")
+        self.assertEqual(exc.exception.details["field"], "content_base64")
+        self.assertEqual(exc.exception.details["max_size_bytes"], MAX_ATTACHMENT_SIZE_BYTES)
+        decoder.assert_not_called()
 
     def test_allowed_attachment_roundtrip_preserves_name_mime_and_bytes(self) -> None:
         service = self._build_service()
@@ -9846,6 +10411,193 @@ class CardServiceTests(unittest.TestCase):
 
         missing_card = service.get_card({"card_id": card_id})["card"]
         self.assertFalse(missing_card["attachments"][0]["exists_on_disk"])
+
+    def test_card_serialization_marks_symlink_attachment_files_missing(self) -> None:
+        service = self._build_service()
+        created = service.create_card(
+            {"vehicle": "VW", "title": "Symlink attachment marker", "deadline": {"hours": 2}}
+        )
+        card_id = created["card"]["id"]
+        added = service.add_card_attachment(
+            {
+                "card_id": card_id,
+                "file_name": "photo.png",
+                "mime_type": "image/png",
+                "content_base64": base64.b64encode(PNG_1X1_BYTES).decode("ascii"),
+            }
+        )
+        attachment_id = added["attachment"]["id"]
+        file_path, _ = service.get_attachment_download(card_id, attachment_id)
+        target_file = Path(self.temp_dir.name) / "outside-target.png"
+        target_file.write_bytes(PNG_1X1_BYTES)
+        file_path.unlink()
+        try:
+            file_path.symlink_to(target_file)
+        except (NotImplementedError, OSError) as exc:
+            self.skipTest(f"symlinks are not available: {exc}")
+
+        card = service.get_card({"card_id": card_id})["card"]
+
+        self.assertFalse(card["attachments"][0]["exists_on_disk"])
+
+    def test_agent_attachment_metadata_marks_oversized_disk_file_without_hashing(self) -> None:
+        service = self._build_service()
+        created = service.create_card(
+            {"vehicle": "VW", "title": "Oversized attachment metadata", "deadline": {"hours": 2}}
+        )
+        card_id = created["card"]["id"]
+        added = service.add_card_attachment(
+            {
+                "card_id": card_id,
+                "file_name": "report.txt",
+                "mime_type": "text/plain",
+                "content_base64": base64.b64encode(minimal_text_bytes()).decode("ascii"),
+            }
+        )
+        attachment_id = added["attachment"]["id"]
+        file_path, attachment = service.get_attachment_download(card_id, attachment_id)
+        file_path.write_bytes(b"x" * 16)
+
+        with patch("minimal_kanban.services.card_service.MAX_ATTACHMENT_SIZE_BYTES", 8):
+            metadata = service._attachment_agent_dict(
+                card_id, attachment, attachment_path=file_path
+            )
+
+        self.assertTrue(metadata["exists_on_disk"])
+        self.assertTrue(metadata["oversized_on_disk"])
+        self.assertNotIn("sha256", metadata)
+
+    def test_agent_attachment_read_rejects_oversized_disk_file_before_loading(self) -> None:
+        service = self._build_service()
+        created = service.create_card(
+            {"vehicle": "VW", "title": "Oversized attachment read", "deadline": {"hours": 2}}
+        )
+        card_id = created["card"]["id"]
+        added = service.add_card_attachment(
+            {
+                "card_id": card_id,
+                "file_name": "report.txt",
+                "mime_type": "text/plain",
+                "content_base64": base64.b64encode(minimal_text_bytes()).decode("ascii"),
+            }
+        )
+        attachment_id = added["attachment"]["id"]
+        file_path, _ = service.get_attachment_download(card_id, attachment_id)
+        file_path.write_bytes(b"x" * 16)
+
+        with (
+            patch("minimal_kanban.services.card_service.MAX_ATTACHMENT_SIZE_BYTES", 8),
+            patch.object(Path, "read_bytes", side_effect=AssertionError("must not load file")),
+        ):
+            with self.assertRaises(ServiceError) as exc:
+                service.read_card_attachment(
+                    {"card_id": card_id, "attachment_id": attachment_id, "mode": "text"}
+                )
+
+        self.assertEqual(exc.exception.code, "validation_error")
+        self.assertEqual(exc.exception.details["max_size_bytes"], 8)
+
+    def test_docx_text_extraction_rejects_xml_doctype(self) -> None:
+        service = self._build_service()
+        buffer = BytesIO()
+        with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
+            archive.writestr(
+                "word/document.xml",
+                """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE w:document [<!ENTITY local "expanded">]>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body><w:p><w:r><w:t>&local;</w:t></w:r></w:p></w:body>
+</w:document>""",
+            )
+
+        self.assertEqual(service._extract_docx_text(buffer.getvalue()), "")
+
+    def test_attachment_zip_member_reader_caps_decompressed_bytes(self) -> None:
+        service = self._build_service()
+
+        class FakeInfo:
+            file_size = 32
+
+        class FakeMember:
+            read_size = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+
+            def read(self, size: int = -1) -> bytes:
+                self.read_size = size
+                return b"x" * size
+
+        class FakeArchive:
+            def __init__(self) -> None:
+                self.member = FakeMember()
+
+            def open(self, info):
+                _ = info
+                return self.member
+
+        archive = FakeArchive()
+        with patch("minimal_kanban.services.card_service._ATTACHMENT_XML_READ_MAX_BYTES", 32):
+            self.assertIsNone(service._read_attachment_zip_member(archive, FakeInfo()))
+
+        self.assertEqual(archive.member.read_size, 33)
+
+    def test_xlsx_text_extraction_stops_when_text_limit_is_reached(self) -> None:
+        service = self._build_service()
+        buffer = BytesIO()
+        cells = "\n".join(
+            f'<c r="A{index}" t="inlineStr"><is><t>cell-{index}-{"x" * 40}</t></is></c>'
+            for index in range(1, 51)
+        )
+        with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
+            archive.writestr(
+                "xl/worksheets/sheet1.xml",
+                f"""<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">{cells}</row>
+  </sheetData>
+</worksheet>
+""",
+            )
+
+        with patch.object(service, "_xlsx_cell_text", wraps=service._xlsx_cell_text) as cell_text:
+            text = service._extract_xlsx_text(buffer.getvalue(), max_chars=24)
+
+        self.assertEqual(len(text), 25)
+        self.assertTrue(text.startswith("[sheet1]\nA1: cell-1-"))
+        self.assertLess(cell_text.call_count, 50)
+
+    def test_xlsx_text_extraction_keeps_unparseable_shared_string_index_as_text(self) -> None:
+        service = self._build_service()
+        huge_index = "9" * 5000
+        buffer = BytesIO()
+        with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
+            archive.writestr(
+                "xl/sharedStrings.xml",
+                """<?xml version="1.0" encoding="UTF-8"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <si><t>AutoStop</t></si>
+</sst>
+""",
+            )
+            archive.writestr(
+                "xl/worksheets/sheet1.xml",
+                f"""<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1"><c r="A1" t="s"><v>{huge_index}</v></c></row>
+  </sheetData>
+</worksheet>
+""",
+            )
+
+        text = service._extract_xlsx_text(buffer.getvalue(), max_chars=48)
+
+        self.assertTrue(text.startswith("[sheet1]\nA1: 999"))
 
     def test_agent_attachment_read_extracts_text_office_and_image_payloads(self) -> None:
         service = self._build_service()
