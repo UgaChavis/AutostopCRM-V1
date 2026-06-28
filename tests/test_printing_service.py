@@ -339,7 +339,8 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Диагностика подвески", repair_order_html)
         self.assertIn("Фильтр салона", repair_order_html)
         self.assertIn("5 058,82", invoice_html)
-        self.assertIn("4 058,82", invoice_html)
+        self.assertIn("1 176,47", invoice_html)
+        self.assertIn("3 882,35", invoice_html)
         self.assertEqual(preview["documents"][0]["template"]["source"], "builtin")
 
     def test_manual_inspection_sheet_drafts_are_isolated_by_document_identity(self) -> None:
@@ -1592,6 +1593,108 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Всего к оплате</td><td>223 582,35", html)
         self.assertIn("Двести двадцать три тысячи", html)
         self.assertNotIn("Всего к оплате</td><td>393 582,35", html)
+
+    def test_invoice_print_grosses_cash_prepayment_as_cashless_equivalent(self) -> None:
+        card = Card.from_dict(
+            {
+                "id": "card-invoice-cash-prepayment-391",
+                "vehicle": "",
+                "title": "Счет на оплату",
+                "description": "",
+                "column": "done",
+                "archived": False,
+                "created_at": "2026-06-03T10:00:00+00:00",
+                "updated_at": "2026-06-03T10:00:00+00:00",
+                "repair_order": {
+                    "number": "391",
+                    "date": "03.06.2026 10:00",
+                    "opened_at": "03.06.2026 10:00",
+                    "client": "Физическое лицо",
+                    "payment_method": "cash",
+                    "works": [{"name": "Ремонт", "quantity": "1", "price": "82310"}],
+                    "payments": [
+                        {
+                            "amount": "40000",
+                            "paid_at": "03.06.2026 10:00",
+                            "payment_method": "cash",
+                            "note": "Предоплата наличными",
+                            "actor_name": "ADMIN",
+                        }
+                    ],
+                },
+            }
+        )
+
+        preview = self.service.preview_documents(
+            card,
+            selected_document_ids=["invoice"],
+            active_document_id="invoice",
+        )
+        html = preview["documents"][0]["pages"][0]["html"]
+        context = self.service._build_document_context(
+            card,
+            card.repair_order,
+            document=self.service._document_definition("invoice"),
+            settings=self.service._read_settings(),
+        )
+        invoice = context["invoice"]
+
+        self.assertEqual(invoice["total"], Decimal("96835.29"))
+        self.assertEqual(invoice["total_display"], "96 835,29")
+        self.assertEqual(invoice["prepayment"], Decimal("47058.82"))
+        self.assertEqual(invoice["prepayment_display"], "47 058,82")
+        self.assertEqual(invoice["amount_due"], Decimal("49776.47"))
+        self.assertEqual(invoice["amount_due_display"], "49 776,47")
+        self.assertIn("Итого</td><td>96 835,29", html)
+        self.assertIn("Предоплата</td><td>47 058,82", html)
+        self.assertIn("Всего к оплате</td><td>49 776,47", html)
+        self.assertNotIn("40 000,00", html)
+        self.assertNotIn("Всего к оплате</td><td>96 835,29", html)
+
+    def test_invoice_print_grosses_cash_and_keeps_cashless_prepayment(self) -> None:
+        card = build_payment_card(
+            payment_method="cashless",
+            payments=[
+                {
+                    "amount": "5000",
+                    "payment_method": "cash",
+                    "paid_at": "06.04.2026 10:00",
+                    "note": "Нал",
+                    "actor_name": "ADMIN",
+                },
+                {
+                    "amount": "7000",
+                    "payment_method": "cashless",
+                    "paid_at": "06.04.2026 10:10",
+                    "note": "Безнал",
+                    "actor_name": "ADMIN",
+                },
+            ],
+        )
+
+        preview = self.service.preview_documents(
+            card,
+            selected_document_ids=["invoice"],
+            active_document_id="invoice",
+        )
+        html = preview["documents"][0]["pages"][0]["html"]
+        context = self.service._build_document_context(
+            card,
+            card.repair_order,
+            document=self.service._document_definition("invoice"),
+            settings=self.service._read_settings(),
+        )
+        invoice = context["invoice"]
+
+        self.assertEqual(invoice["total"], Decimal("23529.41"))
+        self.assertEqual(invoice["prepayment"], Decimal("12882.35"))
+        self.assertEqual(invoice["prepayment_display"], "12 882,35")
+        self.assertEqual(invoice["amount_due"], Decimal("10647.06"))
+        self.assertEqual(invoice["amount_due_display"], "10 647,06")
+        self.assertIn("Итого</td><td>23 529,41", html)
+        self.assertIn("Предоплата</td><td>12 882,35", html)
+        self.assertIn("Всего к оплате</td><td>10 647,06", html)
+        self.assertNotIn("Предоплата</td><td>12 000,00", html)
 
     def test_invoice_print_hides_prepayment_row_when_order_has_no_payments(self) -> None:
         preview = self.service.preview_documents(

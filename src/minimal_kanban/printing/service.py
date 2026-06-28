@@ -724,6 +724,16 @@ def _invoice_line_item_dict(item: dict[str, Any]) -> dict[str, Any]:
     return invoice_item
 
 
+def _invoice_print_prepayment_value(payment_summary: dict[str, Decimal]) -> Decimal:
+    cash_like_prepayment = _round_money(
+        payment_summary["base_paid_cash_only"] + payment_summary["base_paid_card"]
+    )
+    cashless_prepayment = _round_money(payment_summary["base_paid_noncash"])
+    return _round_money(
+        repair_order_cashless_gross_value(cash_like_prepayment) + cashless_prepayment
+    )
+
+
 def _balance_invoice_line_totals(
     line_items: list[dict[str, Any]], target_total: Decimal
 ) -> list[dict[str, Any]]:
@@ -2050,7 +2060,7 @@ class PrintModuleService:
         invoice_tax_display = _money_display(invoice_tax_amount)
         invoice_total_display = _money_display(invoice_total)
         invoice_total_words_display = _money_words_display(invoice_total)
-        invoice_prepayment = payment_summary["total_paid"]
+        invoice_prepayment = _invoice_print_prepayment_value(payment_summary)
         invoice_amount_due = _round_money(max(invoice_total - invoice_prepayment, Decimal("0")))
         cash_total = payment_summary["base_total"]
         noncash_total = repair_order_cashless_gross_value(payment_summary["base_total"])
