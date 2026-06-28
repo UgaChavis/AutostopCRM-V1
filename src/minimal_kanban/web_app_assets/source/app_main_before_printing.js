@@ -34,7 +34,7 @@
       operatorProfile: null,
       operatorUsers: [],
       operatorEmployeeBindingUser: '',
-      operatorAdminTab: 'journal',
+      operatorAdminTab: 'users',
       operatorActivityRows: [],
       operatorActivityMeta: null,
       operatorActivitySelectedId: '',
@@ -857,8 +857,6 @@
       operatorLogoutButton: document.getElementById('operatorLogoutButton'),
       operatorAdminModal: document.getElementById('operatorAdminModal'),
       operatorAdminCloseButton: document.getElementById('operatorAdminCloseButton'),
-      operatorAdminTabs: document.getElementById('operatorAdminTabs'),
-      operatorAdminJournalPanel: document.getElementById('operatorAdminJournalPanel'),
       operatorAdminUsersPanel: document.getElementById('operatorAdminUsersPanel'),
       adminUsersList: document.getElementById('adminUsersList'),
       operatorUserEditorPanel: document.getElementById('operatorUserEditorPanel'),
@@ -3774,26 +3772,11 @@
     }
 
     function setOperatorAdminTab(tabName) {
-      const normalized = tabName === 'users' ? 'users' : 'journal';
+      const normalized = 'users';
       state.operatorAdminTab = normalized;
-      els.operatorAdminTabs?.querySelectorAll('[data-operator-admin-tab]').forEach((button) => {
-        const active = button.dataset.operatorAdminTab === normalized;
-        button.classList.toggle('is-active', active);
-        button.classList.toggle('btn--ghost', !active);
-      });
-      els.operatorAdminJournalPanel?.classList.toggle('hidden', normalized !== 'journal');
-      els.operatorAdminJournalPanel?.classList.toggle('is-active', normalized === 'journal');
       els.operatorAdminUsersPanel?.classList.toggle('hidden', normalized !== 'users');
       els.operatorAdminUsersPanel?.classList.toggle('is-active', normalized === 'users');
-      if (normalized !== 'users') closeOperatorEmployeeBinding();
       syncOperatorAdminCloseButton();
-      if (normalized === 'journal') updateOperatorActivityScrollHint();
-    }
-
-    function handleOperatorAdminTabsClick(event) {
-      const button = event.target?.closest?.('[data-operator-admin-tab]');
-      if (!(button instanceof HTMLElement)) return;
-      setOperatorAdminTab(button.dataset.operatorAdminTab);
     }
 
     function openTextBlobWindow(text, fileName) {
@@ -8712,12 +8695,12 @@
       });
     }
 
-    async function refreshOperatorAdminSurfaces({ openAdminModal = false, refreshProfile = false, tabName = 'journal' } = {}) {
+    async function refreshOperatorAdminSurfaces({ openAdminModal = false, refreshProfile = false, tabName = 'users' } = {}) {
       if (openAdminModal) {
         setOperatorAdminTab(tabName);
         pushModal('operator-admin', els.operatorAdminModal);
       }
-      const tasks = [reloadOperatorAdminUsers(), reloadOperatorActivity()];
+      const tasks = [reloadOperatorAdminUsers()];
       if (refreshProfile) tasks.push(loadOperatorProfile(false));
       await Promise.all(tasks);
     }
@@ -8754,7 +8737,7 @@
     }
 
     async function openOperatorAdminModal() {
-      setOperatorAdminTab('journal');
+      setOperatorAdminTab('users');
       await refreshOperatorAdminSurfaces({ openAdminModal: true });
     }
 

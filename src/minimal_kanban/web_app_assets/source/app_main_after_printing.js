@@ -510,7 +510,6 @@
     els.operatorButton.addEventListener('click', openOperatorWorkspace);
     els.operatorLogoutButton.addEventListener('click', logoutOperator);
     els.operatorAdminButton.addEventListener('click', openOperatorAdminModal);
-    els.operatorAdminTabs?.addEventListener('click', handleOperatorAdminTabsClick);
     els.adminSaveUserButton.addEventListener('click', saveOperatorUser);
     els.adminUsersList.addEventListener('click', handleAdminUsersListClick);
     els.operatorUserEmployeeSaveButton?.addEventListener('click', () => saveOperatorEmployeeBinding());

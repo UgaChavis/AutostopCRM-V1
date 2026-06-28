@@ -3639,95 +3639,37 @@
         <div class="dialog__title">АДМИН-ПАНЕЛЬ</div>
         <button class="btn" id="operatorAdminCloseButton" data-close="operator-admin">ЗАКРЫТЬ</button>
       </div>
-      <div class="operator-admin-tabs" id="operatorAdminTabs">
-        <button class="btn is-active" type="button" data-operator-admin-tab="journal">ЖУРНАЛ</button>
-        <button class="btn btn--ghost" type="button" data-operator-admin-tab="users">ПОЛЬЗОВАТЕЛИ</button>
-      </div>
-      <div class="operator-activity-panel">
-        <div class="subpanel operator-admin-tab-panel is-active" id="operatorAdminJournalPanel" data-operator-admin-panel="journal">
-          <div class="panel-title">ЖУРНАЛ ДЕЙСТВИЙ</div>
-          <div class="operator-activity-toolbar" id="operatorActivityFilters">
-            <div class="field field--compact">
-              <label for="operatorActivityDays">ПЕРИОД</label>
-              <select id="operatorActivityDays">
-                <option value="15">15 дней</option>
-                <option value="30">30 дней</option>
-                <option value="90" selected>90 дней</option>
-              </select>
-            </div>
-            <div class="field field--compact">
-              <label for="operatorActivityUserFilter">ПОЛЬЗОВАТЕЛЬ</label>
-              <select id="operatorActivityUserFilter">
-                <option value="">ВСЕ</option>
-              </select>
-            </div>
-            <div class="field field--compact">
-              <label for="operatorActivityModuleFilter">МОДУЛЬ</label>
-              <select id="operatorActivityModuleFilter">
-                <option value="">ВСЕ</option>
-                <option value="auth">ВХОД</option>
-                <option value="card">КАРТОЧКИ</option>
-                <option value="repair_order">ЗАКАЗ-НАРЯДЫ</option>
-                <option value="cashbox">КАССА</option>
-                <option value="admin">АДМИН</option>
-              </select>
-            </div>
-            <div class="field field--compact">
-              <label for="operatorActivityActionFilter">ДЕЙСТВИЕ</label>
-              <select id="operatorActivityActionFilter">
-                <option value="">ВСЕ</option>
-                <option value="login">Вход</option>
-                <option value="card_opened">Открыл карточку</option>
-                <option value="operator_activity_exported">Экспорт</option>
-                <option value="cash_transaction_created">Касса</option>
-                <option value="repair_order_updated">Заказ-наряд</option>
-              </select>
-            </div>
-            <div class="field field--compact">
-              <label for="operatorActivitySearchInput">ПОИСК</label>
-              <input id="operatorActivitySearchInput" type="search" maxlength="120" placeholder="Авто, клиент, ЗН, файл">
-            </div>
-            <button class="btn" id="operatorActivityExportButton" type="button">ЭКСПОРТ</button>
+      <div class="operator-admin-secondary operator-admin-tab-panel is-active" id="operatorAdminUsersPanel" data-operator-admin-panel="users">
+        <div class="subpanel" id="operatorUserEditorPanel">
+          <div class="panel-title">ПОЛЬЗОВАТЕЛЬ</div>
+          <div class="field field--compact">
+            <label for="adminUserLogin">ЛОГИН</label>
+            <input id="adminUserLogin" type="text" maxlength="40" placeholder="OPERATOR">
           </div>
-          <div class="operator-activity-scroll">
-            <div class="operator-activity-table" id="operatorActivityTable" data-operator-activity-table></div>
+          <div class="field field--compact">
+            <label for="adminUserPassword">ПАРОЛЬ</label>
+            <input id="adminUserPassword" type="password" maxlength="120" placeholder="Минимум 4 символа">
           </div>
-          <div class="operator-activity-scroll-hint" id="operatorActivityScrollHint" hidden>Сдвиньте вправо</div>
-          <div class="log-row__meta" id="operatorActivityMeta">ЖУРНАЛ НЕ ЗАГРУЖЕН.</div>
-          <div class="operator-activity-details hidden" id="operatorActivityDetailsPanel"></div>
+          <div class="dialog__foot" style="padding:0; border:none; margin-top:10px;">
+            <div class="log-row__meta">Администратор создает пользователя или обновляет ему пароль.</div>
+            <button class="btn btn--accent" id="adminSaveUserButton">СОХРАНИТЬ</button>
+          </div>
         </div>
-        <div class="operator-admin-secondary operator-admin-tab-panel hidden" id="operatorAdminUsersPanel" data-operator-admin-panel="users">
-          <div class="subpanel" id="operatorUserEditorPanel">
-            <div class="panel-title">ПОЛЬЗОВАТЕЛЬ</div>
-            <div class="field field--compact">
-              <label for="adminUserLogin">ЛОГИН</label>
-              <input id="adminUserLogin" type="text" maxlength="40" placeholder="OPERATOR">
-            </div>
-            <div class="field field--compact">
-              <label for="adminUserPassword">ПАРОЛЬ</label>
-              <input id="adminUserPassword" type="password" maxlength="120" placeholder="Минимум 4 символа">
-            </div>
-            <div class="dialog__foot" style="padding:0; border:none; margin-top:10px;">
-              <div class="log-row__meta">Администратор создает пользователя или обновляет ему пароль.</div>
-              <button class="btn btn--accent" id="adminSaveUserButton">СОХРАНИТЬ</button>
-            </div>
+        <div class="subpanel operator-user-binding-panel hidden" id="operatorUserEmployeeBindingPanel">
+          <div class="panel-title" id="operatorUserEmployeeBindingTitle">ПРИВЯЗКА СОТРУДНИКА</div>
+          <div class="field field--compact">
+            <label for="operatorUserEmployeeSelect">СОТРУДНИК</label>
+            <select id="operatorUserEmployeeSelect"></select>
           </div>
-          <div class="subpanel operator-user-binding-panel hidden" id="operatorUserEmployeeBindingPanel">
-            <div class="panel-title" id="operatorUserEmployeeBindingTitle">ПРИВЯЗКА СОТРУДНИКА</div>
-            <div class="field field--compact">
-              <label for="operatorUserEmployeeSelect">СОТРУДНИК</label>
-              <select id="operatorUserEmployeeSelect"></select>
-            </div>
-            <div class="operator-user-binding-actions">
-              <button class="btn btn--accent" id="operatorUserEmployeeSaveButton" type="button">ПРИВЯЗАТЬ</button>
-              <button class="btn btn--ghost" id="operatorUserEmployeeClearButton" type="button">ОТВЯЗАТЬ</button>
-              <button class="btn btn--ghost" id="operatorUserEmployeeCancelButton" type="button">ОТМЕНА</button>
-            </div>
+          <div class="operator-user-binding-actions">
+            <button class="btn btn--accent" id="operatorUserEmployeeSaveButton" type="button">ПРИВЯЗАТЬ</button>
+            <button class="btn btn--ghost" id="operatorUserEmployeeClearButton" type="button">ОТВЯЗАТЬ</button>
+            <button class="btn btn--ghost" id="operatorUserEmployeeCancelButton" type="button">ОТМЕНА</button>
           </div>
-          <div class="subpanel" id="operatorUsersListPanel">
-            <div class="panel-title">ПОЛЬЗОВАТЕЛИ</div>
-            <div id="adminUsersList"></div>
-          </div>
+        </div>
+        <div class="subpanel" id="operatorUsersListPanel">
+          <div class="panel-title">ПОЛЬЗОВАТЕЛИ</div>
+          <div id="adminUsersList"></div>
         </div>
       </div>
     </div>
