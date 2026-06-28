@@ -369,7 +369,11 @@ def check_api_surface(base_url: str, *, bearer_token: str | None = None) -> dict
             "/api/get_board_snapshot?compact=1&include_archive=0",
             bearer_token=bearer_token,
         )
-        wall_status, wall = _api_request(base_url, "/api/get_gpt_wall", bearer_token=bearer_token)
+        wall_status, wall = _api_request(
+            base_url,
+            "/api/get_gpt_wall?compact=1&include_archived=0&event_limit=10",
+            bearer_token=bearer_token,
+        )
         repair_status, repair_orders = _api_request(
             base_url,
             "/api/list_repair_orders?compact=true&redact_private=true",

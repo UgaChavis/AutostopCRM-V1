@@ -154,7 +154,7 @@ class LiveConnectorOutputTests(unittest.TestCase):
                 }
             if path == "/api/get_board_snapshot?compact=1&include_archive=0":
                 return 200, {"ok": True, "data": {"cards": [], "columns": []}}
-            if path == "/api/get_gpt_wall":
+            if path == "/api/get_gpt_wall?compact=1&include_archived=0&event_limit=10":
                 return 200, {"ok": True, "data": {"meta": {"active_cards": 0}}}
             if path == "/api/list_repair_orders?compact=true&redact_private=true":
                 return 200, {"ok": True, "data": {"repair_orders": []}}
@@ -165,8 +165,10 @@ class LiveConnectorOutputTests(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertIn("/api/get_board_snapshot?compact=1&include_archive=0", calls)
+        self.assertIn("/api/get_gpt_wall?compact=1&include_archived=0&event_limit=10", calls)
         self.assertIn("/api/list_repair_orders?compact=true&redact_private=true", calls)
         self.assertNotIn("/api/get_board_snapshot", calls)
+        self.assertNotIn("/api/get_gpt_wall", calls)
         self.assertNotIn("/api/list_repair_orders", calls)
 
     def test_check_site_rejects_redirect_without_following_it(self) -> None:
