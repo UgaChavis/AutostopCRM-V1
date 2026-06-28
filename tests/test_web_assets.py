@@ -4654,6 +4654,21 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("notifyCashboxesMutation(path, request.method);", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/update_repair_order',", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/create_employee_salary_transaction',", BOARD_WEB_APP_HTML)
+        self.assertIn('class="btn btn--accent" id="employeeSalaryPayoutButton"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'class="btn btn--accent" id="employeeSalaryAdvanceButton"', BOARD_WEB_APP_HTML
+        )
+        self.assertIn('id="employeeSalaryAdvanceDialog"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeSalaryAdvanceAmountInput"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeSalaryAdvanceCashboxSelect"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeSalaryAdvanceCommentInput"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeSalaryAdvanceConfirmButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="employeeSalaryAdvanceCancelButton"', BOARD_WEB_APP_HTML)
+        self.assertIn("КОММЕНТАРИЙ", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderEmployeeSalaryAdvanceDialog()", BOARD_WEB_APP_HTML)
+        self.assertIn("employeeSalaryAdvanceOpen: false,", BOARD_WEB_APP_HTML)
+        self.assertIn("employeeSalaryAdvanceNoteDraft: '',", BOARD_WEB_APP_HTML)
+        self.assertIn("handleEmployeeSalaryAdvanceConfirm()", BOARD_WEB_APP_HTML)
         self.assertIn(
             "async function refreshCashboxesAfterMoneyMutation({ openModal = false, deferDetail = true } = {})",
             BOARD_WEB_APP_HTML,

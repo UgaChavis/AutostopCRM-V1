@@ -253,6 +253,9 @@
       employeeSalaryReconciliationDateTo: '',
       employeeSalaryActionKind: '',
       employeeSalaryActionDraft: '',
+      employeeSalaryAdvanceOpen: false,
+      employeeSalaryAdvanceDraft: '',
+      employeeSalaryAdvanceNoteDraft: '',
       employeeSalaryCashboxId: '',
       employeeShiftAccrualOpen: false,
       employeeShiftAccrualDraft: '',
@@ -640,7 +643,7 @@
                 + '</div>'
                 + '<div class="employees-salary-actions">'
                   + '<button class="btn btn--accent" id="employeeSalaryPayoutButton" type="button">ВЫПЛАТИТЬ ЗАРПЛАТУ</button>'
-                  + '<button class="btn btn--ghost" id="employeeSalaryAdvanceButton" type="button">ВЫДАТЬ АВАНС</button>'
+                  + '<button class="btn btn--accent" id="employeeSalaryAdvanceButton" type="button">ВЫДАТЬ АВАНС</button>'
                 + '</div>'
               + '</div>'
               + '<div class="employees-salary-summary" id="employeeSalarySummary"></div>'
@@ -651,20 +654,32 @@
                 + '</div>'
                 + '<div class="employees-table-wrap">'
                   + '<table class="employees-table employees-salary-table">'
-                    + '<thead><tr><th>ДАТА</th><th>ТИП</th><th>НАРЯД</th><th>АВТО</th><th>РАБОТА</th><th class="is-num">СУММА</th></tr></thead>'
+                    + '<thead><tr><th>ДАТА</th><th>ТИП</th><th>НАРЯД</th><th>АВТО</th><th>РАБОТА</th><th>КОММЕНТАРИЙ</th><th class="is-num">СУММА</th></tr></thead>'
                     + '<tbody id="employeeSalaryJournalTable"></tbody>'
                   + '</table>'
                 + '</div>'
               + '</div>'
               + '<div class="employees-salary-dialog" id="employeeSalaryActionDialog" hidden>'
                 + '<div class="employees-salary-dialog__head">'
-                  + '<div class="panel-title" id="employeeSalaryActionTitle">СУММА</div>'
+                  + '<div class="panel-title" id="employeeSalaryActionTitle">ВЫПЛАТА ЗАРПЛАТЫ</div>'
                   + '<button class="btn btn--ghost" id="employeeSalaryActionCancelButton" type="button">ОТМЕНА</button>'
                 + '</div>'
                 + '<div class="employees-salary-dialog__body">'
                   + '<div class="field employees-field--compact employees-field--salary"><label for="employeeSalaryAmountInput">СУММА</label><input id="employeeSalaryAmountInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
                   + '<div class="field employees-field--compact employees-field--salary"><label for="employeeSalaryCashboxSelect">КАССА</label><select id="employeeSalaryCashboxSelect"></select></div>'
-                  + '<button class="btn btn--accent" id="employeeSalaryActionConfirmButton" type="button">ПРОВЕСТИ</button>'
+                  + '<button class="btn btn--accent" id="employeeSalaryActionConfirmButton" type="button">ВЫПЛАТИТЬ</button>'
+                + '</div>'
+              + '</div>'
+              + '<div class="employees-salary-dialog" id="employeeSalaryAdvanceDialog" hidden>'
+                + '<div class="employees-salary-dialog__head">'
+                  + '<div class="panel-title" id="employeeSalaryAdvanceTitle">АВАНС</div>'
+                  + '<button class="btn btn--ghost" id="employeeSalaryAdvanceCancelButton" type="button">ОТМЕНА</button>'
+                + '</div>'
+                + '<div class="employees-salary-dialog__body">'
+                  + '<div class="field employees-field--compact employees-field--salary"><label for="employeeSalaryAdvanceAmountInput">СУММА</label><input id="employeeSalaryAdvanceAmountInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
+                  + '<div class="field employees-field--compact employees-field--salary"><label for="employeeSalaryAdvanceCashboxSelect">КАССА</label><select id="employeeSalaryAdvanceCashboxSelect"></select></div>'
+                  + '<div class="field employees-field--compact employees-field--salary employees-salary-dialog__wide"><label for="employeeSalaryAdvanceCommentInput">КОММЕНТАРИЙ</label><input id="employeeSalaryAdvanceCommentInput" type="text" maxlength="240" placeholder="Под что выдается аванс"></div>'
+                  + '<button class="btn btn--accent" id="employeeSalaryAdvanceConfirmButton" type="button">ВЫДАТЬ АВАНС</button>'
                 + '</div>'
               + '</div>'
             + '</div>'
@@ -1020,6 +1035,13 @@
       employeeSalaryCashboxSelect: document.getElementById('employeeSalaryCashboxSelect'),
       employeeSalaryActionConfirmButton: document.getElementById('employeeSalaryActionConfirmButton'),
       employeeSalaryActionCancelButton: document.getElementById('employeeSalaryActionCancelButton'),
+      employeeSalaryAdvanceDialog: document.getElementById('employeeSalaryAdvanceDialog'),
+      employeeSalaryAdvanceTitle: document.getElementById('employeeSalaryAdvanceTitle'),
+      employeeSalaryAdvanceAmountInput: document.getElementById('employeeSalaryAdvanceAmountInput'),
+      employeeSalaryAdvanceCashboxSelect: document.getElementById('employeeSalaryAdvanceCashboxSelect'),
+      employeeSalaryAdvanceCommentInput: document.getElementById('employeeSalaryAdvanceCommentInput'),
+      employeeSalaryAdvanceConfirmButton: document.getElementById('employeeSalaryAdvanceConfirmButton'),
+      employeeSalaryAdvanceCancelButton: document.getElementById('employeeSalaryAdvanceCancelButton'),
       employeeSalaryReportTitle: document.getElementById('employeeSalaryReportTitle'),
       employeeSalaryReportMeta: document.getElementById('employeeSalaryReportMeta'),
       employeeSalaryReportText: document.getElementById('employeeSalaryReportText'),
@@ -1576,6 +1598,13 @@
       els.employeeSalaryCashboxSelect = document.getElementById('employeeSalaryCashboxSelect');
       els.employeeSalaryActionConfirmButton = document.getElementById('employeeSalaryActionConfirmButton');
       els.employeeSalaryActionCancelButton = document.getElementById('employeeSalaryActionCancelButton');
+      els.employeeSalaryAdvanceDialog = document.getElementById('employeeSalaryAdvanceDialog');
+      els.employeeSalaryAdvanceTitle = document.getElementById('employeeSalaryAdvanceTitle');
+      els.employeeSalaryAdvanceAmountInput = document.getElementById('employeeSalaryAdvanceAmountInput');
+      els.employeeSalaryAdvanceCashboxSelect = document.getElementById('employeeSalaryAdvanceCashboxSelect');
+      els.employeeSalaryAdvanceCommentInput = document.getElementById('employeeSalaryAdvanceCommentInput');
+      els.employeeSalaryAdvanceConfirmButton = document.getElementById('employeeSalaryAdvanceConfirmButton');
+      els.employeeSalaryAdvanceCancelButton = document.getElementById('employeeSalaryAdvanceCancelButton');
       els.employeeSalaryReportTitle = document.getElementById('employeeSalaryReportTitle');
       els.employeeSalaryReportMeta = document.getElementById('employeeSalaryReportMeta');
       els.employeeSalaryReportText = document.getElementById('employeeSalaryReportText');
@@ -6086,21 +6115,21 @@
       return String((cashMatch || items[0] || {})?.id || '').trim();
     }
 
-    function renderEmployeeSalaryCashboxOptions() {
-      if (!els.employeeSalaryCashboxSelect) return;
+    function renderEmployeeSalaryCashboxOptions(selectEl = els.employeeSalaryCashboxSelect) {
+      if (!(selectEl instanceof HTMLElement)) return;
       const items = (Array.isArray(state.cashboxes) ? state.cashboxes : []).slice().sort((left, right) => {
         const orderDiff = finiteNumber(left?.order) - finiteNumber(right?.order);
         if (orderDiff) return orderDiff;
         return String(left?.name || '').localeCompare(String(right?.name || ''), 'ru', { sensitivity: 'base' });
       });
       const selectedId = preferredEmployeeSalaryCashboxId();
-      els.employeeSalaryCashboxSelect.innerHTML = ['<option value="">ВЫБЕРИ КАССУ</option>'].concat(items.map((item) => {
+      selectEl.innerHTML = ['<option value="">ВЫБЕРИ КАССУ</option>'].concat(items.map((item) => {
         const itemId = String(item?.id || '').trim();
         const selected = itemId && itemId === selectedId ? ' selected' : '';
         return '<option value="' + escapeHtml(itemId) + '"' + selected + '>' + escapeHtml(item?.name || 'Касса') + '</option>';
       })).join('');
       if (selectedId) {
-        els.employeeSalaryCashboxSelect.value = selectedId;
+        selectEl.value = selectedId;
         state.employeeSalaryCashboxId = selectedId;
       }
     }
@@ -6118,16 +6147,31 @@
 
     function renderEmployeeSalaryActionDialog() {
       if (!els.employeeSalaryActionDialog || !els.employeeSalaryActionTitle || !els.employeeSalaryActionConfirmButton) return;
-      const kind = String(state.employeeSalaryActionKind || '').trim();
-      const isOpen = Boolean(kind);
+      const isOpen = String(state.employeeSalaryActionKind || '').trim() === 'salary_payout';
       els.employeeSalaryActionDialog.hidden = !isOpen;
       if (!isOpen) return;
-      els.employeeSalaryActionTitle.textContent = employeeSalaryActionLabel(kind);
-      els.employeeSalaryActionConfirmButton.textContent = kind === 'salary_advance' ? 'ВЫДАТЬ' : 'ВЫПЛАТИТЬ';
+      els.employeeSalaryActionTitle.textContent = employeeSalaryActionLabel('salary_payout');
+      els.employeeSalaryActionConfirmButton.textContent = 'ВЫПЛАТИТЬ';
       if (els.employeeSalaryAmountInput && !String(els.employeeSalaryAmountInput.value || '').trim()) {
         els.employeeSalaryAmountInput.value = state.employeeSalaryActionDraft || '';
       }
-      renderEmployeeSalaryCashboxOptions();
+      renderEmployeeSalaryCashboxOptions(els.employeeSalaryCashboxSelect);
+    }
+
+    function renderEmployeeSalaryAdvanceDialog() {
+      if (!els.employeeSalaryAdvanceDialog || !els.employeeSalaryAdvanceTitle || !els.employeeSalaryAdvanceConfirmButton) return;
+      const isOpen = Boolean(state.employeeSalaryAdvanceOpen);
+      els.employeeSalaryAdvanceDialog.hidden = !isOpen;
+      if (!isOpen) return;
+      els.employeeSalaryAdvanceTitle.textContent = 'АВАНС';
+      els.employeeSalaryAdvanceConfirmButton.textContent = 'ВЫДАТЬ АВАНС';
+      if (els.employeeSalaryAdvanceAmountInput && !String(els.employeeSalaryAdvanceAmountInput.value || '').trim()) {
+        els.employeeSalaryAdvanceAmountInput.value = state.employeeSalaryAdvanceDraft || '';
+      }
+      if (els.employeeSalaryAdvanceCommentInput && !String(els.employeeSalaryAdvanceCommentInput.value || '').trim()) {
+        els.employeeSalaryAdvanceCommentInput.value = state.employeeSalaryAdvanceNoteDraft || '';
+      }
+      renderEmployeeSalaryCashboxOptions(els.employeeSalaryAdvanceCashboxSelect);
     }
 
     function renderEmployeeSalaryModal() {
@@ -6160,7 +6204,7 @@
       if (els.employeeSalaryJournalTable) {
         const rows = Array.isArray(sheet?.journal_rows) ? sheet.journal_rows : [];
         if (!rows.length) {
-          els.employeeSalaryJournalTable.innerHTML = '<tr><td colspan="6">За выбранный период движений нет.</td></tr>';
+          els.employeeSalaryJournalTable.innerHTML = '<tr><td colspan="7">За выбранный период движений нет.</td></tr>';
         } else {
           els.employeeSalaryJournalTable.innerHTML = rows.map((row) => {
             return '<tr>'
@@ -6169,12 +6213,14 @@
               + '<td>' + escapeHtml(row.repair_order_number || row.source_label || '-') + '</td>'
               + '<td>' + escapeHtml(row.vehicle || '-') + '</td>'
               + '<td>' + escapeHtml(row.work_name || '-') + '</td>'
+              + '<td>' + escapeHtml(row.note || '-') + '</td>'
               + '<td class="is-num">' + escapeHtml(row.amount_display || '0') + '</td>'
               + '</tr>';
           }).join('');
         }
       }
       renderEmployeeSalaryActionDialog();
+      renderEmployeeSalaryAdvanceDialog();
     }
 
     async function loadEmployeeSalarySheet(employeeId, { openModal = false } = {}) {
@@ -6193,6 +6239,15 @@
     }
 
     async function openEmployeeSalaryDialog(kind) {
+      if (String(kind || '').trim() === 'salary_advance') {
+        await openEmployeeSalaryAdvanceDialog();
+        return;
+      }
+      state.employeeSalaryAdvanceOpen = false;
+      state.employeeSalaryAdvanceDraft = '';
+      state.employeeSalaryAdvanceNoteDraft = '';
+      if (els.employeeSalaryAdvanceAmountInput) els.employeeSalaryAdvanceAmountInput.value = '';
+      if (els.employeeSalaryAdvanceCommentInput) els.employeeSalaryAdvanceCommentInput.value = '';
       state.employeeSalaryActionKind = String(kind || '').trim();
       state.employeeSalaryActionDraft = '';
       if (els.employeeSalaryAmountInput) els.employeeSalaryAmountInput.value = '';
@@ -6205,10 +6260,44 @@
       if (els.employeeSalaryAmountInput) setTimeout(() => els.employeeSalaryAmountInput.focus(), 0);
     }
 
+    async function openEmployeeSalaryAdvanceDialog() {
+      state.employeeSalaryActionKind = '';
+      state.employeeSalaryActionDraft = '';
+      if (els.employeeSalaryAmountInput) els.employeeSalaryAmountInput.value = '';
+      state.employeeSalaryAdvanceOpen = true;
+      state.employeeSalaryAdvanceDraft = '';
+      state.employeeSalaryAdvanceNoteDraft = '';
+      if (els.employeeSalaryAdvanceAmountInput) els.employeeSalaryAdvanceAmountInput.value = '';
+      if (els.employeeSalaryAdvanceCommentInput) els.employeeSalaryAdvanceCommentInput.value = '';
+      try {
+        await ensureEmployeeSalaryCashboxes();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+      renderEmployeeSalaryModal();
+      if (els.employeeSalaryAdvanceAmountInput) {
+        setTimeout(() => els.employeeSalaryAdvanceAmountInput.focus(), 0);
+      }
+    }
+
     function closeEmployeeSalaryDialog() {
       state.employeeSalaryActionKind = '';
       state.employeeSalaryActionDraft = '';
       if (els.employeeSalaryAmountInput) els.employeeSalaryAmountInput.value = '';
+      state.employeeSalaryAdvanceOpen = false;
+      state.employeeSalaryAdvanceDraft = '';
+      state.employeeSalaryAdvanceNoteDraft = '';
+      if (els.employeeSalaryAdvanceAmountInput) els.employeeSalaryAdvanceAmountInput.value = '';
+      if (els.employeeSalaryAdvanceCommentInput) els.employeeSalaryAdvanceCommentInput.value = '';
+      renderEmployeeSalaryModal();
+    }
+
+    function closeEmployeeSalaryAdvanceDialog() {
+      state.employeeSalaryAdvanceOpen = false;
+      state.employeeSalaryAdvanceDraft = '';
+      state.employeeSalaryAdvanceNoteDraft = '';
+      if (els.employeeSalaryAdvanceAmountInput) els.employeeSalaryAdvanceAmountInput.value = '';
+      if (els.employeeSalaryAdvanceCommentInput) els.employeeSalaryAdvanceCommentInput.value = '';
       renderEmployeeSalaryModal();
     }
 
@@ -6570,6 +6659,56 @@
         setStatus(error.message, true);
       } finally {
         if (els.employeeSalaryActionConfirmButton) els.employeeSalaryActionConfirmButton.disabled = false;
+      }
+    }
+
+    async function handleEmployeeSalaryAdvanceConfirm() {
+      const employeeId = String(state.activeEmployeeSalaryId || '').trim();
+      const amount = String(els.employeeSalaryAdvanceAmountInput?.value || '').trim();
+      const comment = String(els.employeeSalaryAdvanceCommentInput?.value || '').trim();
+      if (!employeeId) {
+        setStatus('СНАЧАЛА ВЫБЕРИТЕ СОТРУДНИКА.', true);
+        return;
+      }
+      if (!amount) {
+        setStatus('УКАЖИТЕ СУММУ.', true);
+        return;
+      }
+      const cashboxId = String(els.employeeSalaryAdvanceCashboxSelect?.value || state.employeeSalaryCashboxId || '').trim();
+      if (!cashboxId) {
+        setStatus('ВЫБЕРИТЕ КАССУ ДЛЯ СПИСАНИЯ.', true);
+        els.employeeSalaryAdvanceCashboxSelect?.focus();
+        return;
+      }
+      try {
+        if (els.employeeSalaryAdvanceConfirmButton) els.employeeSalaryAdvanceConfirmButton.disabled = true;
+        await api('/api/create_employee_salary_transaction', {
+          method: 'POST',
+          body: {
+            employee_id: employeeId,
+            transaction_kind: 'salary_advance',
+            amount,
+            cashbox_id: cashboxId,
+            note: comment ? ('Аванс: ' + comment) : '',
+            actor_name: state.actor,
+            source: 'ui',
+          },
+        });
+        state.employeeSalaryCashboxId = cashboxId;
+        state.employeeSalaryAdvanceDraft = '';
+        state.employeeSalaryAdvanceNoteDraft = '';
+        closeEmployeeSalaryAdvanceDialog();
+        await loadEmployeeSalarySheet(employeeId, { openModal: true });
+        state.employeesLoadedMonth = '';
+        await loadEmployeesReference();
+        await loadPayrollReport();
+        renderEmployeesWorkspace();
+        await refreshCashboxesAfterMoneyMutation({ deferDetail: true });
+        setStatus('АВАНС ВЫДАН.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        if (els.employeeSalaryAdvanceConfirmButton) els.employeeSalaryAdvanceConfirmButton.disabled = false;
       }
     }
 
@@ -6944,9 +7083,20 @@
         state.employeeSalaryActionDraft = String(els.employeeSalaryAmountInput.value || '').trim();
         return;
       }
+      if (target === els.employeeSalaryAdvanceAmountInput) {
+        state.employeeSalaryAdvanceDraft = String(els.employeeSalaryAdvanceAmountInput.value || '').trim();
+        return;
+      }
+      if (target === els.employeeSalaryAdvanceCommentInput) {
+        state.employeeSalaryAdvanceNoteDraft = String(els.employeeSalaryAdvanceCommentInput.value || '').trim();
+        return;
+      }
       if (target === els.employeeSalaryCashboxSelect) {
         state.employeeSalaryCashboxId = String(els.employeeSalaryCashboxSelect.value || '').trim();
         return;
+      }
+      if (target === els.employeeSalaryAdvanceCashboxSelect) {
+        state.employeeSalaryCashboxId = String(els.employeeSalaryAdvanceCashboxSelect.value || '').trim();
       }
     }
 
@@ -6956,6 +7106,14 @@
       if (target === els.employeeSalaryAmountInput && event.key === 'Enter') {
         event.preventDefault();
         handleEmployeeSalaryActionConfirm();
+        return;
+      }
+      if (
+        (target === els.employeeSalaryAdvanceAmountInput || target === els.employeeSalaryAdvanceCommentInput)
+        && event.key === 'Enter'
+      ) {
+        event.preventDefault();
+        handleEmployeeSalaryAdvanceConfirm();
       }
     }
 
@@ -6967,7 +7125,7 @@
         return;
       }
       if (target === els.employeeSalaryAdvanceButton) {
-        openEmployeeSalaryDialog('salary_advance');
+        openEmployeeSalaryAdvanceDialog();
         return;
       }
       if (target === els.employeeSalaryActionCancelButton) {
@@ -6976,6 +7134,14 @@
       }
       if (target === els.employeeSalaryActionConfirmButton) {
         handleEmployeeSalaryActionConfirm();
+        return;
+      }
+      if (target === els.employeeSalaryAdvanceCancelButton) {
+        closeEmployeeSalaryAdvanceDialog();
+        return;
+      }
+      if (target === els.employeeSalaryAdvanceConfirmButton) {
+        handleEmployeeSalaryAdvanceConfirm();
       }
     }
 

@@ -2411,12 +2411,14 @@ class ApiServerTests(unittest.TestCase):
                 "transaction_kind": "salary_advance",
                 "amount": "500",
                 "cashbox_id": supplier_cashbox["id"],
+                "note": "Аванс: Командировка на выезд",
                 "actor_name": "ADMIN",
             },
         )
         self.assertEqual(status, 200)
         self.assertEqual(advance["data"]["transaction"]["transaction_kind"], "salary_advance")
         self.assertEqual(advance["data"]["transaction"]["cashbox_id"], supplier_cashbox["id"])
+        self.assertEqual(advance["data"]["transaction"]["note"], "Аванс: Командировка на выезд")
 
         status, ledger_after = self.request(
             f"/api/get_employee_salary_ledger?employee_id={employee['id']}&months=6",
@@ -2436,6 +2438,10 @@ class ApiServerTests(unittest.TestCase):
         self.assertTrue(
             any(row["kind"] == "salary_advance" for row in ledger_after["data"]["journal_rows"])
         )
+        advance_row = next(
+            row for row in ledger_after["data"]["journal_rows"] if row["kind"] == "salary_advance"
+        )
+        self.assertEqual(advance_row["note"], "Аванс: Командировка на выезд")
 
         closed_at = closed["data"]["repair_order"]["closed_at"]
         report_month = f"{closed_at[6:10]}-{closed_at[3:5]}"
